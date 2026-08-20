@@ -1,0 +1,140 @@
+# Build the Windows desktop bundle and publish it as a downloadable artifact.
+#
+# WHY THIS EXISTS. The Windows lane cannot be built or run anywhere else: pgvector
+# has no build system other than nmake against MSVC, and the event bus needs the
+# MSYS2 toolchain. A contributor on macOS or Linux can author that lane but never
+# execute it, so this runner IS the Windows host — the only place the scripts are
+# proved rather than reasoned about.
+#
+# Path-scoped on pull requests, plus manual dispatch, plus called by release.yml
+# when a release is cutting a downloadable bundle. It is NOT a required check and
+# never gates a merge: it downloads a 310 MB PostgreSQL archive and compiles
+# Redis, which is not something to spend on every push. Run it when the lane
+# changes, or when someone needs a build to test.
+#
+# Being reused rather than copied is what keeps a release bundle identical to the
+# bundle a pull request was checked against.
+name: desktop-windows
+
+on:
+  # Runs when the desktop lane itself changes, which is the only time the
+  # question "does this still build on Windows?" has a new answer. Scoped by
+  # path so an ordinary backend or frontend PR never pays for it.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - desktop/**
+      - .github/workflows/desktop-windows.yml
+  # On demand, once this workflow is on the default branch — GitHub resolves a
+  # dispatch against the default branch only, so this cannot be invoked for a
+  # workflow that has not landed yet.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to build
+        required: false
+  # Called by release.yml, so a release's downloadable bundle is built by THIS
+  # lane and not by a second copy of it. A copy would drift, and the drift shows
+  # up as a release bundle differing from the one the pull-request check blessed.
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to build
+        required: false
+        type: string
+      version:
+        description: >-
+          Names the artifact when a release asked for this build. Defaults to the
+          commit, which is what an ad-hoc build wants.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build the portable Windows folder
+    runs-on: windows-latest
+    # The full lane is a download, an MSVC compile, an MSYS2 compile, a Go build
+    # and a frontend build. Generous, because a timeout here is indistinguishable
+    # from a hang in a lane nobody has watched before.
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty on a pull_request, where checkout's own default (the PR merge
+          # ref) is what should be built.
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+
+      # github.sha is the commit the workflow was DISPATCHED against, which is
+      # the default branch's tip — not what checkout just selected. With
+      # inputs.ref those differ, and an artifact named after a commit it was not
+      # built from is a build nobody can trace back. On a pull_request the two
+      # agree, so this changes nothing there.
+      - name: Resolve the commit that was actually built
+        id: built
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          # Root, not frontend/: the lockfile is a root pnpm workspace so a
+          # unit's frontend layer can join it.
+          cache-dependency-path: pnpm-lock.yaml
+
+      # The runner ships MSYS2, but with the mingw toolchains rather than the
+      # POSIX-emulating MSYS one Redis needs — mingw targets the native Win32
+      # API, which is exactly what Redis cannot be built against. Installing the
+      # MSYS toolchain here rather than in build-bus.ps1 keeps the script honest
+      # for a developer's machine, where it tells them what to install instead of
+      # installing it behind their back.
+      - name: Install the MSYS2 build toolchain
+        shell: cmd
+        run: |
+          C:\msys64\usr\bin\bash.exe -lc "pacman -S --needed --noconfirm base-devel gcc"
+
+      - name: Build the bundle
+        shell: pwsh
+        env:
+          MSYS2_ROOT: C:\msys64
+        run: .\desktop\build\build-windows.ps1
+
+      # Zipped by upload-artifact anyway, but naming the folder inside keeps the
+      # download self-describing: it expands to `margince-windows/` rather than
+      # scattering into whatever directory the user unzipped from.
+      - name: Publish the portable folder
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: margince-windows-${{ inputs.version || steps.built.outputs.sha }}
+          path: build/desktop/margince-windows
+          if-no-files-found: error
+          retention-days: 14
+
+      # On failure the build logs are the only evidence, and the launcher writes
+      # nothing yet because it has not run. Uploading what the scripts staged
+      # makes a partial build inspectable instead of gone.
+      - name: Publish the staging tree on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: staging-on-failure-${{ steps.built.outputs.sha }}
+          path: |
+            build/desktop/.stage-windows/pgsql/bin
+            build/desktop/.stage-windows/bus
+            build/desktop/.stage-windows/bin
+          if-no-files-found: warn
+          retention-days: 3

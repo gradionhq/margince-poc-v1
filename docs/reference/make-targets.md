@@ -197,6 +197,48 @@ exception to it.
 
 Full detail: [supply-chain.md](supply-chain.md). This lane is **not** part of `make check`.
 
+## Root-only (desktop build, macOS arm64)
+
+Builds the self-contained folder that runs the whole stack with no Docker.
+Output lands in `build/desktop/` (git-ignored). Not part of `make check`, and
+not run in CI.
+
+| Target | What it does |
+|---|---|
+| `desktop` | **The whole folder**, at `build/desktop/margince/` (~128 MB). Reuses an already-built Postgres and event bus — `desktop-deps` builds each only when its output is missing, so a routine app rebuild takes seconds instead of paying the ~5-minute Postgres compile again |
+| `desktop-rebuild` | Force everything, Postgres and the bus included |
+| `desktop-postgres` | The relocatable Postgres 16 + pgvector + contrib (~5 min). Compiles from pinned, checksummed source, rewrites the Mach-O load commands to `@rpath`, re-signs every patched binary (arm64 refuses one whose signature `install_name_tool` invalidated), and fails if anything still links to `/opt/homebrew`, `/usr/local`, or the staging prefix. **Rerun after bumping the pinned versions** in `desktop/build/build-postgres.sh` |
+| `desktop-valkey` | The event bus — Valkey, the BSD-licensed drop-in, since Redis 7.4+ ships under RSALv2/SSPL and this binary is redistributed inside a BUSL-1.1 product |
+| `desktop-app` | `api`, `worker`, `migrate` (through `build/composition/`, so the enabled `extensions/` units are linked — a bare `go build` would silently ship without them), the frontend, and the launcher |
+| `desktop-dist` | Assemble `build/desktop/margince/` and verify every binary's signature. Signing happens in staging, never here: `codesign` reads a folder holding a same-named executable plus a `resources/` subdirectory as a legacy bundle |
+| `desktop-clean` | Remove `build/desktop/` entirely |
+
+The built folder cannot run from `build/desktop/` — that path already exceeds
+the 103-byte unix socket limit. Copy it somewhere shorter first. How-to:
+[build-the-desktop-app.md](../how-to/build-the-desktop-app.md); the why:
+[desktop-distribution.md](../explanation/desktop-distribution.md).
+
+## Root-only (desktop build, Windows x64)
+
+The same folder for Windows, at `build/desktop/margince-windows/`. **These
+targets must run ON Windows** and shell out to `desktop/build/*.ps1` through
+`pwsh`: pgvector has no build system other than `nmake` against MSVC, and the
+event bus needs the MSYS2 toolchain, so neither half cross-builds from macOS.
+A Windows host is not required to have GNU make, which is why
+`desktop/build/build-windows.ps1` is the primary entry point and these are the
+convenience wrapper.
+
+| Target | What it does |
+|---|---|
+| `desktop-win` | **The whole folder.** Stages Postgres and the bus only when they are missing, so a routine app rebuild does not re-download a 310 MB archive or recompile Redis |
+| `desktop-win-rebuild` | Force everything, Postgres and the bus included |
+| `desktop-win-postgres` | Pin, verify and unpack the upstream PostgreSQL 16 zip, then compile pgvector against it with MSVC and prune to the server tree. Windows resolves DLLs from the loading executable's own directory, so unlike macOS there is nothing to relocate — the compile is only pgvector, which no prebuilt Windows binary provides. **Needs the Visual Studio C++ workload** |
+| `desktop-win-bus` | The event bus — Redis 7.2, the last BSD-3 line before the RSALv2/SSPL relicense and the lineage Valkey forked from, since Valkey has no Windows build. Compiled from pinned source under MSYS2, whose runtime DLL travels beside it with its licence. **Needs MSYS2 + `base-devel gcc`** |
+| `desktop-win-app` | `api`, `worker`, `migrate` (through `build/composition/`, so the enabled `extensions/` units are linked), the frontend, and the launcher. No signing step: Authenticode needs a purchased certificate, so the first launch warns through SmartScreen |
+| `desktop-win-dist` | Assemble the folder and **run each third-party binary out of it** — the Windows equivalent of the macOS signature check, and the only way a missing DLL is caught here rather than on the user's machine |
+
+`desktop-clean` removes `build/desktop/` for both platforms.
+
 ## Variables
 
 `GO`, `PG_PORT` (15432), `REDIS_PORT` (16379), `DB_NAME` (margince),

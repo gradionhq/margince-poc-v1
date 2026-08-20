@@ -1,0 +1,22 @@
+# Files whose BYTES are the contract, not just their text.
+#
+# gen-composition compares each committed vanilla stub against what it generates
+# with bytes.Equal (tools/gen-composition/main.go, stubMatchesVanilla): the
+# committed copy a bare build wires must be byte-identical to a composed vanilla
+# build's output, so that "vanilla output unchanged" is a checked fact rather
+# than an assertion.
+#
+# Git for Windows installs with core.autocrlf=true, so a checkout there rewrites
+# these LF files to CRLF on disk. The generator still emits LF, bytes.Equal
+# fails, and the build stops with "differs from the generator's vanilla output"
+# — pointing at a stub that is in fact correct and was never edited. -text opts
+# these paths out of end-of-line translation entirely, so the working tree holds
+# the committed bytes on every platform.
+#
+# Scoped to the compared files rather than declared over the whole tree: a
+# repo-wide `text=auto` would renormalize thousands of files that no gate reads
+# byte-for-byte, and this is the invariant that actually exists.
+composition/extensions_gen.go            -text
+frontend/src/composition/extensions.gen.ts  -text
+frontend/src/composition/extscreens.gen.ts  -text
+frontend/src/composition/extlocales.gen.ts  -text

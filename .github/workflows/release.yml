@@ -1,8 +1,14 @@
 name: Release
 
 # Draft a margince-constellation release for every build that lands on main.
-# The release lives in the constellation dist service at test.margince.com,
-# not on GitHub.
+# The release lives in the constellation dist service at test.margince.com, not
+# on GitHub — a constellation release is a server deployment (role images, an
+# incremental patch, SBOMs) and GitHub hosts none of that.
+#
+# ONE exception, and only on a manual dispatch: the desktop bundles. Those are
+# something a person downloads and runs on their own machine, so they are
+# attached to a GitHub release under the same version, and that release page is
+# where they are browsed and fetched. See the jobs at the bottom of this file.
 #
 # The flow, in order: draft the release versioned 1970.<build> (the build is
 # this workflow's run number, fitting the constellation YYYY.edition version
@@ -328,3 +334,160 @@ jobs:
             -e MARGINCE_RELEASE_MANAGEMENT_DIST_TOKEN \
             "$RELEASE_MANAGEMENT_IMAGE" \
             publish-release -version "$VERSION"
+
+  # ---------------------------------------------------------------------------
+  # The downloadable desktop bundles, and the GitHub release that holds them.
+  #
+  # MANUAL DISPATCH ONLY. Everything above runs on every push to main; these
+  # three do not, because a macOS and a Windows bundle each compile Postgres from
+  # source and neither answers a new question on an ordinary merge. Cutting a
+  # downloadable build is a decision someone makes, so it is a button someone
+  # presses — and until they press it, no release accumulates a 170 MB pair of
+  # assets nobody asked for.
+  #
+  # Both lanes are REUSED, not copied: desktop-macos.yml and desktop-windows.yml
+  # are the same workflows the pull-request check runs, called here through
+  # workflow_call. A second copy of the build would drift from the one that gates
+  # the merge, and that drift surfaces as a release bundle behaving differently
+  # from the bundle CI blessed — the worst place to find it.
+  desktop-macos:
+    name: Build the macOS bundle
+    if: github.event_name == 'workflow_dispatch'
+    needs: [draft]
+    uses: ./.github/workflows/desktop-macos.yml
+    permissions:
+      contents: read
+    with:
+      # The exact commit the release describes, not a branch that may have moved
+      # since the draft job read it.
+      ref: ${{ github.sha }}
+      version: ${{ needs.draft.outputs.version }}
+
+  desktop-windows:
+    name: Build the Windows bundle
+    if: github.event_name == 'workflow_dispatch'
+    needs: [draft]
+    uses: ./.github/workflows/desktop-windows.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ github.sha }}
+      version: ${{ needs.draft.outputs.version }}
+
+  # Create the GitHub release and attach both bundles.
+  #
+  # Deliberately NOT downstream of `publish`. The dist service's completeness
+  # gate is about the patch and the SBOMs — nothing to do with whether a desktop
+  # folder built — so making the download wait on it would let a dist-side
+  # failure withhold bundles that already exist and are already correct.
+  #
+  # Marked a prerelease for the same reason the version is epoch-pinned above: a
+  # 1970.* build must not present itself as the latest release of the product.
+  github-release:
+    name: Publish the GitHub release
+    if: github.event_name == 'workflow_dispatch'
+    needs: [draft, desktop-macos, desktop-windows]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      # The only job in this workflow that writes to this repository, and it
+      # writes exactly one thing: the release and its tag. Every other job here
+      # is read-only.
+      contents: write
+    steps:
+      # Re-running only the FAILED jobs does not re-execute `draft`, and GitHub
+      # drops the outputs of a job that did not run — the same trap the publish
+      # job's `!= 'false'` guards against. An empty version would otherwise
+      # surface as a download-artifact error naming an artifact called
+      # "margince-macos-", which says nothing about the cause.
+      - name: Require the release version
+        env:
+          VERSION: ${{ needs.draft.outputs.version }}
+        run: |
+          if [ -z "$VERSION" ]; then
+            echo "The draft job reported no version. That happens when only the failed" >&2
+            echo "jobs were re-run: draft did not re-execute and GitHub dropped its" >&2
+            echo "outputs. Re-run ALL jobs so the release is drafted again." >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: margince-macos-${{ needs.draft.outputs.version }}
+          path: assets
+      # The Windows lane uploads the FOLDER. upload-artifact zips it in transit
+      # and download-artifact expands it again, so what lands here is a tree and
+      # not an archive, and it has to be re-zipped to become one release asset.
+      # Downloading it INTO a directory of that name is what gives the zip a
+      # self-describing top-level folder instead of scattering into wherever the
+      # user unzipped. The macOS lane already ships a tarball, because tar is
+      # what preserves the executable bit an artifact upload drops.
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: margince-windows-${{ needs.draft.outputs.version }}
+          path: windows/margince-windows
+      - name: Name the assets after the release
+        env:
+          VERSION: ${{ needs.draft.outputs.version }}
+        run: |
+          set -euo pipefail
+          mv "assets/margince-macos.tar.gz" "assets/margince-macos-$VERSION.tar.gz"
+          (cd windows && zip -qr "../assets/margince-windows-$VERSION.zip" margince-windows)
+          ls -l assets
+          # An asset that uploaded but is empty is indistinguishable from a
+          # working download until somebody opens it.
+          for f in assets/*; do
+            if [ ! -s "$f" ]; then
+              echo "FAIL: $f is empty" >&2
+              exit 1
+            fi
+          done
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.draft.outputs.version }}
+          REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # The first-launch step belongs HERE and not only in the docs. This
+          # page is where the download happens, and the OS refuses both bundles
+          # on first launch for want of a paid signing identity — a user who has
+          # to go looking for that reads it as the build being broken.
+          #
+          # A QUOTED heredoc, so the backticks and brackets below stay literal
+          # rather than being read as command substitution, with @VERSION@
+          # substituted afterwards.
+          cat > notes.md <<'NOTES'
+          Self-contained desktop builds. Download one folder, start it, and use Margince
+          in your browser — no Docker and no prerequisites.
+
+          | | macOS | Windows |
+          |---|---|---|
+          | Asset | `margince-macos-@VERSION@.tar.gz` | `margince-windows-@VERSION@.zip` |
+          | Runs on | macOS 12 Monterey or newer, **Apple silicon** | Windows 10 or newer, x64 |
+          | Also needed | Nothing | [Microsoft Visual C++ x64 redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) |
+          | Unpack to | A **short** path such as `~/Margince` — the database socket has a 103-byte limit | Anywhere |
+
+          **The first launch warns once.** Neither build is signed for distribution:
+          that needs a paid Apple Developer ID and an Authenticode certificate.
+
+          - **macOS** — right-click `Start Margince.command` → **Open** → **Open**.
+            One dialog and no more: the bundle clears the download quarantine from
+            its own programs, so macOS does not ask again for each of Postgres, the
+            event bus, the api and the worker as they start.
+          - **Windows** — SmartScreen shows a warning: **More info** → **Run anyway**.
+
+          It prints the address, opens your browser, and prints the generated admin
+          password on the first launch only. After that the only copy is in
+          `data/admin-password` inside the folder.
+
+          Configuration, updating in place, and troubleshooting:
+          [docs/how-to/build-the-desktop-app.md](https://github.com/gradionhq/margince-poc-v1/blob/main/docs/how-to/build-the-desktop-app.md)
+          NOTES
+          sed -i "s/@VERSION@/$VERSION/g" notes.md
+          printf '\nRevision: %s\n' "$REVISION" >> notes.md
+          gh release create "$VERSION" \
+            --target "$REVISION" \
+            --title "Margince $VERSION" \
+            --notes-file notes.md \
+            --prerelease \
+            assets/*

@@ -482,6 +482,7 @@ craft-static:
 	go run -C cli/craft . static --strict --root ../../backend
 	go run -C cli/craft . static --strict --root ../../extensions
 	go run -C cli/craft . static --strict --root ../../fixtures
+	go run -C cli/craft . static --strict --root ../../desktop
 
 ## craft-test — cli/craft's own suite, including the `wiring` package that
 ## asserts the repo-level obligations no Go package can express: the CI job
@@ -692,6 +693,114 @@ pkg-freeze:
 hooks:
 	git config core.hooksPath .githooks
 	@echo "installed: core.hooksPath=.githooks (pre-push runs craft static on changed backend files)"
+
+# --- Desktop build (macOS arm64) ---
+# The self-contained folder a non-technical user runs with no Docker: a
+# custom Postgres+pgvector, the event bus, the three process roles, the SPA,
+# and the launcher that supervises them. Output lands in build/desktop/
+# (ignored). Why it needs its own Postgres, and the update contract the folder
+# layout encodes: docs/explanation/desktop-distribution.md.
+#
+# These targets declare themselves HERE rather than joining the big .PHONY list
+# at the top. make accumulates .PHONY, so the effect is identical — and the
+# shared line is a single line every branch appends to, which makes it conflict
+# on every rebase. A section that declares its own targets beside them cannot
+# collide with a section that does the same.
+.PHONY: desktop desktop-deps desktop-postgres desktop-valkey desktop-app desktop-dist desktop-rebuild desktop-clean
+DESKTOP_STAGE := build/desktop/.stage
+
+## desktop — build the whole desktop folder (build/desktop/margince/).
+## Reuses an already-built Postgres and bus; use desktop-rebuild to force them.
+##
+## Sequential recipe, not a prerequisite list: prerequisites express dependency,
+## and under `make -j` make is free to run independent ones at once — so
+## desktop-dist would start assembling a tree the app stage had not finished
+## staging, and fail intermittently for a reason nothing in the output names.
+## The edges cannot be declared on the stage targets themselves either, because
+## each is documented as doing JUST its own step (`make desktop-dist` assembles
+## and verifies; it does not rebuild the app).
+desktop:
+	@$(MAKE) desktop-deps
+	@$(MAKE) desktop-app
+	@$(MAKE) desktop-dist
+
+## desktop-deps — build Postgres+pgvector and the bus ONLY if they are missing.
+## Compiling Postgres takes ~5 minutes and changes only when its pinned version
+## does, so a routine rebuild of the app must not pay for it.
+desktop-deps:
+	@test -x $(DESKTOP_STAGE)/pgsql/bin/postgres || $(MAKE) desktop-postgres
+	@test -x $(DESKTOP_STAGE)/valkey/valkey-server || $(MAKE) desktop-valkey
+
+## desktop-postgres — build the relocatable Postgres 16 + pgvector + contrib (~5 min).
+## Rerun after bumping the pinned versions in the script.
+desktop-postgres:
+	@bash desktop/build/build-postgres.sh
+
+## desktop-valkey — build the event bus (Valkey, BSD-licensed drop-in for Redis).
+desktop-valkey:
+	@bash desktop/build/build-valkey.sh
+
+## desktop-app — build api/worker/migrate (through build/composition/, so the
+## enabled extensions/ units are linked), the frontend, and the launcher.
+desktop-app:
+	@bash desktop/build/build-app.sh
+
+## desktop-dist — assemble build/desktop/margince/ and verify its signatures.
+desktop-dist:
+	@bash desktop/build/build-dist.sh
+
+## desktop-rebuild — force a full rebuild including Postgres and the bus.
+## Sequential for the same reason as `desktop` above.
+desktop-rebuild:
+	@$(MAKE) desktop-postgres
+	@$(MAKE) desktop-valkey
+	@$(MAKE) desktop-app
+	@$(MAKE) desktop-dist
+
+## desktop-clean — remove all desktop build output (build/desktop/).
+desktop-clean:
+	@rm -rf build/desktop
+	@echo "desktop-clean: removed build/desktop"
+
+# --- Desktop build (Windows x64) ---
+# The same folder for Windows, built by desktop/build/*.ps1. These targets MUST
+# RUN ON WINDOWS: pgvector has no build system other than nmake against MSVC,
+# and Redis needs the MSYS2 toolchain, so neither half cross-builds from macOS.
+# A Windows host is not required to have GNU make either, which is why
+# desktop/build/build-windows.ps1 is the primary entry point and these are the
+# convenience wrapper. Output lands in build/desktop/margince-windows/.
+#
+# Declared here for the same reason the macOS block declares its own: make
+# accumulates .PHONY, and a section that owns its targets cannot conflict with
+# every other branch appending to one shared line.
+.PHONY: desktop-win desktop-win-rebuild desktop-win-postgres desktop-win-bus desktop-win-app desktop-win-dist
+PWSH := pwsh
+DESKTOP_WIN := desktop/build
+
+## desktop-win — build the whole Windows folder (build/desktop/margince-windows/).
+## Reuses an already-staged Postgres and bus; use desktop-win-rebuild to force them.
+desktop-win:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-windows.ps1
+
+## desktop-win-rebuild — force a full rebuild including Postgres and the bus.
+desktop-win-rebuild:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-windows.ps1 -Force
+
+## desktop-win-postgres — stage PostgreSQL 16 + build pgvector against it (needs MSVC).
+desktop-win-postgres:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-postgres.ps1
+
+## desktop-win-bus — build the event bus (Redis 7.2, the last BSD-3 line; needs MSYS2).
+desktop-win-bus:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-bus.ps1
+
+## desktop-win-app — build api/worker/migrate + frontend + launcher for Windows.
+desktop-win-app:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-app.ps1
+
+## desktop-win-dist — assemble build/desktop/margince-windows/ and verify it runs standalone.
+desktop-win-dist:
+	@$(PWSH) -NoProfile -File $(DESKTOP_WIN)/build-dist.ps1
 
 # --- SBOM (software bill of materials, issue #331) ---
 # Repo-wide (backend + frontend + extensions), so it lives at the root, not

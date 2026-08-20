@@ -18,7 +18,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -138,14 +137,23 @@ func announceSetupToken(ctx context.Context, svc *identity.Service, log *slog.Lo
 // writeSetupTokenFile writes the plaintext 0600 and returns the path it used,
 // reporting rather than returning a write failure — see announceSetupToken.
 //
-// O_EXCL|O_NOFOLLOW rather than os.WriteFile, because what is written here is a
-// credential that claims the installation. WriteFile is O_CREATE|O_TRUNC: it
-// follows a symlink and leaves an existing file's mode alone, so anything that
-// can write this directory before first boot — a group-writable /app, a shared
-// volume, a sidecar — can pre-create the path 0666 and read the credential, or
-// point it at a file the server user may overwrite. Refusing an existing entry
-// is the honest outcome: the operator sees the write error next to the token
-// itself in the log.
+// O_EXCL rather than os.WriteFile, because what is written here is a credential
+// that claims the installation. WriteFile is O_CREATE|O_TRUNC: it follows a
+// symlink and leaves an existing file's mode alone, so anything that can write
+// this directory before first boot — a group-writable /app, a shared volume, a
+// sidecar — can pre-create the path 0666 and read the credential, or point it
+// at a file the server user may overwrite. Refusing an existing entry is the
+// honest outcome: the operator sees the write error next to the token itself in
+// the log.
+//
+// O_EXCL is the flag that does that, everywhere: it refuses ANY existing final
+// component, a symlink included. openNoFollow is reinforcement whose value is
+// per-platform and is documented where it is declared.
+//
+// The guard covers the final component and NOT the parent, on any platform: a
+// symlinked config/ redirects this write and MkdirAll follows it. Issue #1579
+// holds that, the Windows DACL the 0600 does not set, and the sibling writers
+// with the same shape.
 func writeSetupTokenFile(raw string) (path string, err error) {
 	abs, err := filepath.Abs(setupTokenFile)
 	if err != nil {
@@ -155,7 +163,7 @@ func writeSetupTokenFile(raw string) (path string, err error) {
 		return abs, err
 	}
 	// #nosec G304 -- abs derives from the compile-time constant above via filepath.Abs; no request or configuration value reaches this path
-	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL|openNoFollow, 0o600)
 	if err != nil {
 		return abs, err
 	}
