@@ -3,8 +3,9 @@ name: scheduled
 # The checks whose answer changes when nothing is being merged.
 #
 # Everything in ci.yml answers "is this diff sound?" and runs because a diff
-# exists. These three answer "is main still sound?", which a PR gate structurally
-# cannot: two of them go stale on their own, and the third goes quiet.
+# exists. These four answer "is main still sound?", which a PR gate structurally
+# cannot: two of them go stale on their own, one goes quiet, and one was too
+# expensive to ask on every merge.
 #
 #   govulncheck        — the vulnerability database changes daily. A per-PR scan
 #                        proves the day it merged, not today. This is the only
@@ -19,8 +20,16 @@ name: scheduled
 #                        classifier scope, so every gate skips and the run reports
 #                        green. main's last-known-green is therefore not evidence
 #                        main is green. This re-runs the lane unconditionally.
+#   perf budgets       — PERF-3/PERF-7 rode the integration lane at the SMB tier
+#                        until it stopped being worth 37.9s of every merge gate
+#                        for a claim it could not make: the SLO binds at
+#                        mid-market, and a row measured below it renders
+#                        `inconclusive`, never `within budget`. Weekly, at BOTH
+#                        tiers, is the honest cadence for a budget nobody merges
+#                        against — and drift nobody looks for is drift nobody
+#                        finds.
 #
-# A fourth job earns its place here for the same reason rather than the same
+# A fifth job earns its place here for the same reason rather than the same
 # question. reap-caches is maintenance, not a verdict on main — but the state it
 # maintains only ever drifts BETWEEN merges, and its failure mode is silence:
 # caches evict each other and lanes get slower with nothing to point at. A thing
@@ -34,6 +43,12 @@ on:
     # 08:00 Asia/Ho_Chi_Minh — clear of Renovate's 02:00–06:00 window, and early
     # enough in the working day that a finding is read the morning it appears.
     - cron: "0 1 * * *"
+    # Monday only, an hour later so it never shares a runner minute with the
+    # daily lane: perf-budgets seeds 250k contacts twice and is the one job here
+    # measured in tens of minutes. Jobs pick their cadence by matching
+    # github.event.schedule against these strings, so the two must stay distinct
+    # — and a job that matches NEITHER never runs on a schedule at all.
+    - cron: "0 2 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -166,6 +181,50 @@ jobs:
         working-directory: .
         run: make check-backend
 
+  # PERF-3/PERF-7 at both tiers, weekly. It is the only job here gated on a
+  # cadence rather than running every time the workflow fires: the daily lane
+  # must not pay 40+ minutes of contact seeding for a budget nobody merges
+  # against. workflow_dispatch runs it too, so a human chasing a regression is
+  # never told to wait until Monday.
+  #
+  # It records NOTHING. MARGINCE_BENCH_RECORD stays unset, so the suite gates and
+  # prints; `make bench-perf` is the only thing that writes into
+  # docs/reference/perfbench/, and it is run by a person. A machine writing its
+  # own numbers into the tree is the failure that switch exists to prevent.
+  perf-budgets:
+    name: perf budgets (PERF-3/PERF-7, both tiers)
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 2 * * 1'
+    runs-on: ubuntu-latest
+    # Two tiers, the second seeding 250k contacts, each with its own 30m go-test
+    # budget. 90 leaves room for a slow runner without letting a hung seed sit
+    # until the six-hour default.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # The `integration` flavour, not a third one of its own: this suite builds
+      # with `-tags 'integration bench'`, and the dependency builds underneath —
+      # which is what the restored cache is actually worth — are the ones the
+      # integration shards already warmed. The handful of `bench`-tagged package
+      # builds recompile, and that is the whole delta.
+      - name: Restore the Go build cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: integration
+      - name: Start the dev infra stack (compose + app role)
+        working-directory: .
+        run: make db-up
+      - name: PERF-3/PERF-7 at both tiers
+        working-directory: .
+        run: make bench-perf-check
+
   # Delete the build caches nothing can restore. The go-build key ends in the
   # commit sha and falls back through restore-keys to the newest entry sharing
   # its deps hash, so within one deps hash only the newest is ever read — and one
@@ -206,12 +265,13 @@ jobs:
   # fails, so it is guarded on !cancelled() rather than needs alone.
   report:
     name: report
-    needs: [vuln, quality-gate, backend-lane, reap-caches]
+    needs: [vuln, quality-gate, backend-lane, perf-budgets, reap-caches]
     if: >-
       !cancelled()
       && (needs.vuln.result == 'failure'
         || needs.quality-gate.result == 'failure'
         || needs.backend-lane.result == 'failure'
+        || needs.perf-budgets.result == 'failure'
         || needs.reap-caches.result == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -240,5 +300,6 @@ jobs:
           GATE_RESULT: ${{ needs.quality-gate.result }}
           GATE_STATUS: ${{ needs.quality-gate.outputs.status }}
           LANE_RESULT: ${{ needs.backend-lane.result }}
+          PERF_RESULT: ${{ needs.perf-budgets.result }}
           CACHE_RESULT: ${{ needs.reap-caches.result }}
         run: ./scripts/scheduled-report.sh

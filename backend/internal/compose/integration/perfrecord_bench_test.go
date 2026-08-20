@@ -19,9 +19,11 @@ package integration
 //     admission, the RLS transaction and serialization are all inside the number
 //     a customer is quoted, so measuring underneath them would report a figure
 //     nobody promised.
-//   - It carries the `bench` tag, so the merge gate never RUNS it. `make vet`
-//     still type-checks this lane, which is the only reason a file no test lane
-//     compiles does not rot.
+//   - It records into docs/reference/perfbench/ unconditionally, where PERF-3
+//     and PERF-7 gate on every run and record only when asked. Both carry the
+//     `bench` tag, so no merge gate runs either; `make vet` still type-checks
+//     this lane, which is the only reason a file no test lane compiles does not
+//     rot.
 //
 // Run it with `make bench-record`.
 

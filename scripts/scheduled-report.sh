@@ -97,6 +97,28 @@ So the breakage may predate the most recent commit. Reproduce locally with
     || unreported=1
 fi
 
+if [ "${PERF_RESULT:-}" = "failure" ]; then
+  report "a PERF-3/PERF-7 budget is breaching on main" bug \
+"\`make bench-perf-check\` failed on the weekly run of \`main\`: $RUN_URL
+
+Read WHICH tier before anything else. The job runs SMB and then mid-market, and
+they make different claims: the SLO binds at mid-market, while SMB is the corpus
+most installations look like. A mid-market breach is the published budget being
+missed; an SMB breach is worse than it sounds, because it means the smaller
+corpus is already over a bound the larger one has to meet.
+
+No record was written — this lane never sets \`MARGINCE_BENCH_RECORD\`, so the
+published page still shows the last number a human measured. Reproduce with
+\`make db-up && make bench-perf-check\`, and publish a new number with
+\`make bench-perf\` only once the breach is understood.
+
+This budget carried no merge gate: PERF-3/PERF-7 left the integration lane
+because a mid-market SLO gated on an SMB corpus renders \`inconclusive\`, never
+\`within budget\`. So the breach may predate this run by up to a week, and
+bisecting is the honest first move rather than assuming the newest commit."\
+    || unreported=1
+fi
+
 if [ "${CACHE_RESULT:-}" = "failure" ]; then
   report "the Actions build-cache reaper is failing" bug \
 "\`scripts/reap-build-caches.sh\` failed on the scheduled run: $RUN_URL
