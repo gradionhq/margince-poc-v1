@@ -32,6 +32,11 @@ const DealStatusOpen = "open"
 // name they define.
 const dealStatusOpen = DealStatusOpen
 
+// scopeAll is the clause an UNBOUNDED caller gets. auth answers "" for a caller
+// bounded by nothing, and an empty string interpolated into a WHERE reads as a
+// syntax error rather than as "no restriction".
+const scopeAll = "true"
+
 // dealFacts is the deal's own row, as the risk rules need it.
 type dealFacts struct {
 	status         string
@@ -111,7 +116,7 @@ func readDeparted(ctx context.Context, tx pgx.Tx, orgID ids.UUID, people []ids.U
 		return nil, err
 	}
 	if edgeBound == "" {
-		edgeBound = "true"
+		edgeBound = scopeAll
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT DISTINCT r.person_id

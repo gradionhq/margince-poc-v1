@@ -82,3 +82,45 @@ if (typeof window !== "undefined") {
   stubCanvasContext();
   beforeEach(stubCanvasContext);
 }
+
+// The calendar-drift lane: run the whole suite as if it were N days from now.
+//
+// WHY THIS EXISTS. Three tests in connected-agents.test.tsx began failing on a
+// date nobody edited anything on (#1977). Their fixture carried an absolute
+// expiry, the component compares it to `now`, and past that instant the fixture
+// genuinely described a lapsed connection — so the tests asserted live-row
+// behaviour against a row that had quietly become an ended one. `main` read
+// green while carrying the red suite, because the change classifier skips the
+// frontend jobs for commits touching no frontend path.
+//
+// A grep cannot find the next one. "An absolute date in a file that never pins
+// the clock" matches 129 files in this tree, nearly all of them harmless: a
+// fixture date only becomes a bomb when the COMPONENT compares it to now to
+// decide a state, and no static rule separates those two. So the gate is a
+// second RUN instead of a pattern: shift the clock and require the same verdict.
+// A test whose result depends on the calendar fails here, whatever shape its
+// fixture takes.
+//
+// Only the no-argument Date and Date.now move. Timers stay real, because a
+// suite-wide vi.useFakeTimers would change what every async test is waiting
+// for and report its own breakage as calendar drift. A test that pins its own
+// clock overrides this and is unaffected — which is correct: it is already
+// immune to the thing this lane looks for.
+const clockSkewDays = Number(process.env.FE_CLOCK_SKEW_DAYS ?? "0");
+if (Number.isFinite(clockSkewDays) && clockSkewDays !== 0) {
+  const skewMs = clockSkewDays * 24 * 60 * 60 * 1000;
+  const RealDate = globalThis.Date;
+  class SkewedDate extends RealDate {
+    constructor(...args: ConstructorParameters<typeof Date>) {
+      if (args.length === 0) {
+        super(RealDate.now() + skewMs);
+        return;
+      }
+      super(...args);
+    }
+    static now(): number {
+      return RealDate.now() + skewMs;
+    }
+  }
+  globalThis.Date = SkewedDate as DateConstructor;
+}

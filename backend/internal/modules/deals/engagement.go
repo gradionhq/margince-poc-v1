@@ -30,6 +30,12 @@ import (
 // EngagementWindowDays is the window the engagement test looks back over.
 const EngagementWindowDays = healthEngagementWindowDays
 
+// scopeAll is the clause an UNBOUNDED caller gets. auth returns "" for a caller
+// bounded by nothing, and an empty string interpolated into a WHERE reads as a
+// syntax error rather than as "no restriction" — so the substitution is spelled
+// once, here, the same way org360 spells it.
+const scopeAll = "true"
+
 // EngagedStakeholders lists the deal's live stakeholders who have had a
 // two-way exchange inside the window, in deterministic id order.
 //
@@ -53,7 +59,7 @@ func EngagedStakeholders(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now 
 		return nil, err
 	}
 	if edgeBound == "" {
-		edgeBound = "true"
+		edgeBound = scopeAll
 	}
 	return collectIDs(tx.Query(ctx, fmt.Sprintf(`
 		SELECT DISTINCT r.person_id FROM relationship r
@@ -112,13 +118,13 @@ func Stakeholders(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Ti
 		return nil, err
 	}
 	if edgeBound == "" {
-		edgeBound = "true"
+		edgeBound = scopeAll
 	}
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
 		return nil, err
 	}
-	visible := "true"
+	visible := scopeAll
 	if scope != "" {
 		visible = scope
 	}

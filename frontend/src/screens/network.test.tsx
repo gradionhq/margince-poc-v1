@@ -199,7 +199,9 @@ describe("DealCoverageCard", () => {
       },
     });
     render(<DealCoverageCard id="d-1" />);
-    expect(await screen.findByText(/coverage was withheld/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/coverage was withheld/i),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText(/passes every coverage check/i),
     ).not.toBeInTheDocument();
