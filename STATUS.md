@@ -2314,12 +2314,14 @@ raises only.
    participants", but no AI task, formula or capture rule anywhere produces
    them, and the build sets them manually only. DEAL-EXT-5 (turning `role`
    into a CHECK-constrained enum) is still an unminted contract extension.
-4. **Referral attribution and commission are not joined up.**
-   `relationship.kind` already carries `referred_by` and the partner extension
-   already carries `margin_tier`, but nothing connects a referral edge to a
-   won deal's margin. Wanted: whether `referred_by` on an organization or deal
-   is the sanctioned way to record who brought the account, and how commission
-   resolves at won time.
+4. **Referral attribution and commission are joined up now** (#2019), with one
+   question left. A deal says what its partner did (`partner_attribution`:
+   sourced or influenced), and winning a sourced deal accrues a
+   `commission_entry` at the partner's `margin_tier` frozen that day. What is
+   still unsettled is `relationship.kind = 'referred_by'`: it remains
+   unconnected to any of this, and whether a referral EDGE should also record
+   who brought an account — or whether the deal's own partner field is the one
+   sanctioned answer — is a product decision nobody has made.
 5. **Which entity the site-read draft audits under.** See the field-history
    defect above: draft columns are written under
    `entity_type='organization'`, so they surface as changes to the company.
