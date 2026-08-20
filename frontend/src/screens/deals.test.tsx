@@ -329,12 +329,27 @@ function stubBackend(
     agentTools?: components["schemas"]["AgentTool"][];
     stageTotalsRows?: Record<string, unknown>[];
     onStageTotalsBody?: (body: unknown) => void;
+    savedViews?: Record<string, unknown>[];
+    onCreateView?: (body: unknown) => void;
   } = {},
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
+    if (method === "POST" && url.includes("/views")) {
+      const body = request
+        ? await request.json()
+        : JSON.parse(String(init?.body));
+      opts.onCreateView?.(body);
+      return jsonResponse({ id: "new-view", ...body }, 201);
+    }
+    if (method === "GET" && url.includes("/views")) {
+      return jsonResponse({
+        data: opts.savedViews ?? [],
+        page: { next_cursor: null },
+      });
+    }
     if (url.includes("/agent-tools")) {
       return jsonResponse({
         data: opts.agentTools ?? [],
@@ -465,6 +480,116 @@ describe("DealsScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Table" }));
     expect(screen.getByText("Fleet retrofit")).toBeTruthy(); // same set, table view
     expect(dealFetches()).toBe(before); // no reload
+  });
+
+  // A view saved on the deals list is a server row, and the tab rail has to
+  // read it. The rail carried only the one hardcoded sort before, so a saved
+  // view was storable through the contract and then invisible.
+  it("offers a saved view as a tab beside the standing sort", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        savedViews: [
+          {
+            id: "v1",
+            resource: "deals",
+            name: "Slipping this quarter",
+            query: {
+              list: { sort: "-amount_minor", filters: { stalled: "true" } },
+            },
+            created_at: "2026-06-01T00:00:00Z",
+            updated_at: "2026-06-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await user.click(await screen.findByRole("button", { name: "Table" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Slipping this quarter" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Newest" })).toBeTruthy();
+  });
+
+  // Picking the tab has to narrow the list, not just highlight: the saved
+  // filters travel to the server or the view is decoration.
+  it("applies a saved view's filters to the deals request", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        onDealsUrl: (url) => urls.push(url),
+        savedViews: [
+          {
+            id: "v1",
+            resource: "deals",
+            name: "My stalled deals",
+            query: { list: { sort: "", filters: { stalled: "true" } } },
+            created_at: "2026-06-01T00:00:00Z",
+            updated_at: "2026-06-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await user.click(await screen.findByRole("button", { name: "Table" }));
+    await user.click(
+      await screen.findByRole("button", { name: "My stalled deals" }),
+    );
+
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("stalled=true"))).toBe(true),
+    );
+  });
+
+  // The pipeline picker is the strongest dial on this screen and it lives in
+  // its own state, outside the list query. Saved without it, a view would
+  // restore against whichever pipeline happened to be showing — a different
+  // list of deals under the name the reader chose.
+  it("saves the selected pipeline as part of the view", async () => {
+    let saved: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        onCreateView: (body) => {
+          saved = body as Record<string, unknown>;
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await user.click(await screen.findByRole("button", { name: "Table" }));
+    // The save action appears only once something narrows the list; a sort is
+    // the cheapest such narrowing to reach from here.
+    await user.click(screen.getByRole("button", { name: "Sort by Value" }));
+    await user.click(await screen.findByRole("button", { name: "Save view" }));
+    await user.type(
+      await screen.findByRole("textbox", { name: "Name" }),
+      "Pipeline view",
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saved).toBeTruthy());
+    if (!saved) {
+      throw new Error("the save never reached the server");
+    }
+    const list = (saved.query as Record<string, Record<string, unknown>>).list;
+    expect((list.filters as Record<string, string>).pipeline_id).toBe("pl");
+  });
+
+  // A pipeline is always selected, so carrying it into the query must not make
+  // an untouched list look narrowed: the save action would then offer to store
+  // the default view, which is the clutter its own check exists to prevent.
+  it("offers no save action until the reader narrows something", async () => {
+    vi.stubGlobal("fetch", stubBackend([deal({})]));
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await user.click(await screen.findByRole("button", { name: "Table" }));
+
+    expect(screen.queryByRole("button", { name: "Save view" })).toBeNull();
   });
 
   // The board's column total must come from the deals-by-stage

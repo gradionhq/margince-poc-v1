@@ -84,6 +84,7 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { DealCoverageCard } from "./network";
+import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import { ShareAction } from "./share";
 
 // Deal surfaces (B-EP09.11a/b/c): the five-stage Kanban with drag-to-advance
@@ -692,6 +693,21 @@ async function searchCompanies(
   return data.data.map((org) => ({ value: org.id, label: org.display_name }));
 }
 
+// Whether the reader has narrowed this list themselves.
+//
+// The same question `SaveViewAction` asks before it offers to save, asked here
+// because the pipeline has to be folded into the saved query WITHOUT being the
+// thing that makes the query look narrowed: a pipeline is always selected, so
+// counting it would offer to save the default list.
+function narrowsTheDealList(query: ListQuery): boolean {
+  return (
+    Boolean(query.q) ||
+    Boolean(query.sort) ||
+    query.includeArchived ||
+    Object.values(query.filters).some(Boolean)
+  );
+}
+
 // The stage and company filters. The stage list is loaded whole already (a
 // pipeline has few stages), so it stays a fixed chip; the company filter
 // searches rather than listing (see searchCompanies above). Both are still
@@ -785,6 +801,7 @@ export function DealsScreen({
   const overlay = useSorMode() === "overlay";
   const pipelinesQuery = usePipelines(!overlay);
   const meQuery = useMe();
+  const savedViews = useSavedViewTabs("deals");
   const tierMap = useAgentTierMap();
   const [pipelineId, setPipelineId] = useState("");
   const [query, setQuery] = useState<ListQuery>({
@@ -1051,6 +1068,36 @@ export function DealsScreen({
       setQuery={setQuery}
     />
   );
+
+  // The save action rides beside the dials on the table only. A saved view
+  // restores a sort and a set of filters, and the board reads neither: its
+  // order is the pipeline's stage order, so a view restored there would
+  // silently change nothing a reader could see.
+  //
+  // The pipeline goes in as a filter because it is the strongest dial on this
+  // screen and it lives in its own state, outside `query`. Left out, a view
+  // saved while looking at one pipeline would restore against whichever
+  // pipeline happened to be showing — a different list under the saved name.
+  //
+  // It is added only once the reader has narrowed something else. A pipeline is
+  // always selected, so folding it in unconditionally would make every list
+  // look narrowed and offer to save the default view, which is the clutter
+  // SaveViewAction's own check exists to prevent.
+  const savableQuery = narrowsTheDealList(dealsListState.query)
+    ? {
+        ...dealsListState.query,
+        filters: {
+          ...dealsListState.query.filters,
+          pipeline_id: effectivePipeline?.id ?? "",
+        },
+      }
+    : dealsListState.query;
+  const tableTools = (
+    <>
+      {dealTools}
+      <SaveViewAction resource="deals" query={savableQuery} />
+    </>
+  );
   const dealChips = dealFilterChips(stages, t);
   // The companies this screen already read for the create form's picker carry
   // their resolved marks, so the board can show them without a second read.
@@ -1147,8 +1194,9 @@ export function DealsScreen({
             ) : undefined
           }
           action={createAction}
-          tools={dealTools}
+          tools={tableTools}
           dataChips={dealChips}
+          dataViews={savedViews}
           chips={[
             {
               key: "stalled",
