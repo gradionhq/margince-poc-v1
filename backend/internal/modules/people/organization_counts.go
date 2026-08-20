@@ -44,7 +44,14 @@ func attachOrgCounts(ctx context.Context, tx pgx.Tx, orgs []crmcontracts.Organiz
 	// The object grant comes first, as it does on the two lists themselves: a
 	// role that may not read people gets no contact count, and one that may
 	// not read deals gets no deal count — absent, not zero.
-	contactsVisible := grantVisible(ctx, "person")
+	//
+	// The contact count needs the EDGE grant beside the person one, because the
+	// number is a fact about the employment pairs and not about either end:
+	// "how many people work at Acme" is precisely what relationship.read
+	// governs, and a count that answered without it would be a counting oracle
+	// over edges the role is refused on every other surface. Absent, again —
+	// zero would be a wrong number on screen rather than a withheld one.
+	contactsVisible := grantVisible(ctx, "person") && grantVisible(ctx, "relationship")
 	dealsVisible := grantVisible(ctx, "deal") && computedFieldsVisible(ctx)
 	for i := range orgs {
 		idx[orgs[i].Id] = &orgs[i]
@@ -89,6 +96,15 @@ func grantVisible(ctx context.Context, object string) bool {
 func fillContactCounts(ctx context.Context, tx pgx.Tx, idx map[openapi_types.UUID]*crmcontracts.Organization, orgIDs []ids.UUID) error {
 	args := []any{orgIDs}
 	arg := func(v any) int { args = append(args, v); return len(args) }
+	// attachOrgCounts admitted the object; this bounds WHICH edges are counted,
+	// so a count never includes an edge whose endpoint the caller cannot reach.
+	edgeBound, err := auth.RelationshipEndpointScope(ctx, "rel", arg)
+	if err != nil {
+		return err
+	}
+	if edgeBound != "" {
+		edgeBound = " AND " + edgeBound
+	}
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
 		return err
@@ -103,7 +119,7 @@ func fillContactCounts(ctx context.Context, tx pgx.Tx, idx map[openapi_types.UUI
 		 WHERE rel.organization_id = ANY($1)
 		   AND rel.kind = 'employment'
 		   AND `+CurrentPrimaryEmploymentSQL("rel")+`
-		   AND rel.archived_at IS NULL`+scope+`
+		   AND rel.archived_at IS NULL`+edgeBound+scope+`
 		 GROUP BY rel.organization_id`, args,
 		func(o *crmcontracts.Organization, n int) { o.ContactCount = &n })
 }

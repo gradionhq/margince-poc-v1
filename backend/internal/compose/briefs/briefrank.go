@@ -301,6 +301,16 @@ func briefCandidates(ctx context.Context, tx pgx.Tx, userID ids.UUID, now time.T
 // momentum evidence) and stakeholder persons, after the candidate rows
 // are drained (one connection, one active query).
 func briefEvidenceRows(ctx context.Context, tx pgx.Tx, lastView *time.Time, facts map[ids.UUID]briefDealFacts, order []ids.UUID, stakeholders map[ids.UUID][]ids.UUID) error {
+	// The seat edge's admission is resolved ONCE, ahead of the loop: it is a
+	// property of the caller, not of the deal being read, and asking per deal
+	// would put a grant lookup inside a per-row loop for an answer that cannot
+	// change. A refused caller runs no stakeholder query at all — the brief
+	// simply carries no seat evidence, which is the same shape as a deal with
+	// no stakeholders on it.
+	edgeArgs, edgeBound, mayReadSeats, err := seatEvidenceBound(ctx)
+	if err != nil {
+		return err
+	}
 	for _, dealID := range order {
 		f := facts[dealID]
 		overnight, err := collectIDList(tx.Query(ctx, `
@@ -316,16 +326,45 @@ func briefEvidenceRows(ctx context.Context, tx pgx.Tx, lastView *time.Time, fact
 		f.overnightActivityIDs = overnight
 		facts[dealID] = f
 
-		persons, err := collectIDList(tx.Query(ctx, `
+		if !mayReadSeats {
+			continue
+		}
+		persons, err := collectIDList(tx.Query(ctx, fmt.Sprintf(`
 			SELECT r.person_id FROM relationship r
 			WHERE r.kind = 'deal_stakeholder' AND r.deal_id = $1 AND r.archived_at IS NULL
-			ORDER BY r.person_id`, dealID))
+			  AND (%s)
+			ORDER BY r.person_id`, edgeBound), append([]any{dealID}, edgeArgs...)...))
 		if err != nil {
 			return err
 		}
 		stakeholders[dealID] = persons
 	}
 	return nil
+}
+
+// seatEvidenceBound resolves the seat edge's admission for the stakeholder
+// evidence read: the arguments its clause binds, the clause itself, and whether
+// the caller may run the read at all.
+//
+// The registrar returns positions offset by one because the statement it feeds
+// already spends $1 on the deal id. Getting that wrong would bind the deal id
+// to a scope predicate, which is why the offset lives here with the statement
+// it belongs to rather than at the call site.
+func seatEvidenceBound(ctx context.Context) (args []any, clause string, admitted bool, err error) {
+	clause, err = auth.EdgeReadScope(ctx, "r", func(v any) int {
+		args = append(args, v)
+		return len(args) + 1
+	})
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		return nil, "", false, nil
+	}
+	if err != nil {
+		return nil, "", false, err
+	}
+	if clause == "" {
+		clause = "TRUE"
+	}
+	return args, clause, true, nil
 }
 
 // resolveWarmth fills each deal's warmth from its strongest visible
