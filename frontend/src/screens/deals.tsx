@@ -100,9 +100,18 @@ type Stage = components["schemas"]["Stage"];
 type Pipeline = components["schemas"]["Pipeline"];
 type Offer = components["schemas"]["Offer"];
 
-function usePipeline() {
+/**
+ * The pipeline a record belongs to, falling back to the default.
+ *
+ * `pipelineId` is the deal's own. Without it this answered the DEFAULT
+ * pipeline for every deal, which was harmless while the stepper only drew
+ * stage names but is not once those stages are the moves on offer: the stages
+ * of a pipeline the deal is not in are targets the server refuses as a
+ * pipeline mismatch.
+ */
+function usePipeline(pipelineId?: string | null) {
   return useQuery({
-    queryKey: ["pipelines"],
+    queryKey: ["pipelines", pipelineId ?? "default"],
     queryFn: async () => {
       const { data, error } = await api.GET("/pipelines", {
         params: { query: {} },
@@ -111,7 +120,10 @@ function usePipeline() {
         throwProblem(error);
       }
       const pipeline =
-        data.data.find((candidate) => candidate.is_default) ?? data.data[0];
+        (pipelineId &&
+          data.data.find((candidate) => candidate.id === pipelineId)) ||
+        data.data.find((candidate) => candidate.is_default) ||
+        data.data[0];
       if (!pipeline) {
         throw new Error("no pipeline");
       }
@@ -689,7 +701,15 @@ function useAdvanceDeal(toast: Toast) {
       }
       return data;
     },
-    onSuccess: (_deal, input) => {
+    onSuccess: (deal, input) => {
+      // The advanced deal goes into the cache SYNCHRONOUSLY, before the
+      // refetch the invalidation schedules. isPending clears the moment this
+      // returns, so a reader who clicks a second stage immediately would
+      // otherwise pin the version this write just replaced and read a 409 they
+      // did not cause.
+      if (deal) {
+        queryClient.setQueryData(["deal", input.dealId], deal);
+      }
       queryClient.invalidateQueries({ queryKey: ["deals"] });
       queryClient.invalidateQueries({ queryKey: ["deal", input.dealId] });
       toast.show(t("deals.advanced", { stage: input.toStage.name }));
@@ -1286,8 +1306,17 @@ function ConfirmAdvanceModal({
   const tierMap = useAgentTierMap();
   const [lostReason, setLostReason] = useState("");
 
+  // EVERY way out of this dialog clears the reason — the buttons, Escape, and
+  // the backdrop alike. The component stays mounted between openings, so a
+  // reason typed and then abandoned would otherwise still be sitting there the
+  // next time a deal is closed, and it would describe a different deal.
+  const dismiss = () => {
+    setLostReason("");
+    onClose();
+  };
+
   return (
-    <Modal open={pending !== null} onClose={onClose} labelledBy="advance-title">
+    <Modal open={pending !== null} onClose={dismiss} labelledBy="advance-title">
       {pending && (
         <>
           <p className="t-sub" id="advance-title">
@@ -1310,7 +1339,7 @@ function ConfirmAdvanceModal({
             </div>
           )}
           <div className="actions">
-            <Button onClick={onClose}>{t("deals.cancel")}</Button>
+            <Button onClick={dismiss}>{t("deals.cancel")}</Button>
             <Button
               variant="primary"
               disabled={
@@ -1323,8 +1352,7 @@ function ConfirmAdvanceModal({
                   toStage: pending.toStage,
                   lostReason: lostReason.trim() || undefined,
                 });
-                setLostReason("");
-                onClose();
+                dismiss();
               }}
             >
               {t("deals.confirm")}
@@ -1940,7 +1968,7 @@ function DealOverviewPane({
   overlay,
   onAdvance,
   advancing,
-  archived,
+  advanceRefused,
 }: Readonly<{
   deal: Deal;
   stages: Stage[];
@@ -1961,8 +1989,9 @@ function DealOverviewPane({
    * send a second write pinned to the same version, and the loser reads as a
    * conflict the reader never caused. */
   advancing: boolean;
-  /** An archived deal is not moved through the pipeline; restore it first. */
-  archived: boolean;
+  /** Where this deal cannot be moved at all — archived (restore it first), or
+   * mirrored from an incumbent that refuses the write. */
+  advanceRefused: boolean;
 }>) {
   const t = useT();
   return (
@@ -1976,8 +2005,11 @@ function DealOverviewPane({
           locale={locale}
         />
       )}
+      {/* A group, not a nav: these buttons move the deal, they do not take the
+          reader anywhere, and a landmark in the navigation list that writes
+          when you press it misdescribes what it does. */}
       {stages.length > 0 && (
-        <nav className="stepper" aria-label={t("deals.stage")}>
+        <fieldset className="stepper" aria-label={t("deals.stage")}>
           {stages.map((stage) =>
             stage.id === deal.stage_id ? (
               <span key={stage.id} className="step current" aria-current="step">
@@ -1992,14 +2024,14 @@ function DealOverviewPane({
                 key={stage.id}
                 type="button"
                 className="step"
-                disabled={advancing || archived}
+                disabled={advancing || advanceRefused}
                 onClick={() => onAdvance(stage)}
               >
                 {stage.name}
               </button>
             ),
           )}
-        </nav>
+        </fieldset>
       )}
       <DealApprovals approvals={dealApprovals} decide={onDecide} />
       {/* Above the stakeholder list on purpose: the findings are ABOUT those
@@ -2093,7 +2125,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
-  const pipelineQuery = usePipeline();
+  const pipelineQuery = usePipeline(dealQuery.data?.pipeline_id);
   // One shared singleton read (the ["installation-settings"] key), not a
   // per-deal request: the FX line has to name the base currency it converted
   // into, and nothing on the deal itself carries it.
@@ -2273,7 +2305,20 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   onCreateOffer={(currency) => createOffer.mutate(currency)}
                   overlay={overlay}
                   advancing={advance.isPending}
-                  archived={deal.archived_at != null}
+                  // An archived deal is not moved through the pipeline, and
+                  // the mirror answers an advance with unsupported_by_sor —
+                  // a control that can only fail is worse than none.
+                  //
+                  // A CLOSED deal is refused here too, but for a different
+                  // reason: reopening is its own deliberate action, with a
+                  // dialog that says the close date and the frozen rate are
+                  // being cleared. A stepper button that reopened silently
+                  // would be a second, quieter door to the same write.
+                  advanceRefused={
+                    deal.archived_at != null ||
+                    overlay ||
+                    deal.status !== "open"
+                  }
                   onAdvance={(toStage) => {
                     // The version this record was drawn from, exactly as the
                     // board pins the version its card was drawn from: the

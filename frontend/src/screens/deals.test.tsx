@@ -1047,6 +1047,81 @@ describe("DealScreen — the stage stepper advances the deal", () => {
     expect(await screen.findByText("Moved to Proposal")).toBeTruthy();
   });
 
+  // A control that can only fail is worse than none: an archived deal is not
+  // moved through the pipeline, it is restored first.
+  it("offers no move on an archived deal", async () => {
+    const d = deal({ id: "x", archived_at: "2026-07-01T00:00:00Z" });
+    vi.stubGlobal("fetch", stubBackend([d], { single: d }));
+    render(<DealScreen id="x" />);
+
+    const step = await screen.findByRole("button", { name: "Proposal" });
+    expect(step.hasAttribute("disabled")).toBe(true);
+  });
+
+  // Reopening is its own deliberate action, with a dialog that says the close
+  // date and the frozen rate are being cleared. A stepper button that reopened
+  // silently would be a second, quieter door to the same write.
+  it("offers no move on a closed deal — reopening has its own action", async () => {
+    const d = deal({
+      id: "x",
+      status: "won",
+      stage_id: "s3",
+      closed_at: "2026-07-01T00:00:00Z",
+    });
+    vi.stubGlobal("fetch", stubBackend([d], { single: d }));
+    render(<DealScreen id="x" />);
+
+    const step = await screen.findByRole("button", { name: "Proposal" });
+    expect(step.hasAttribute("disabled")).toBe(true);
+  });
+
+  // The dialog stays mounted between openings, so an abandoned reason would
+  // otherwise still be sitting there the next time a deal is closed — and it
+  // would describe a different deal.
+  it("a lost reason typed and then cancelled does not come back", async () => {
+    const d = deal({ id: "x", version: 2, stage_id: "s1" });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], {
+        single: d,
+        pipelines: [
+          {
+            id: "pl",
+            name: "Sales",
+            is_default: true,
+            position: 0,
+            stages: [
+              ...stages,
+              {
+                id: "s4",
+                pipeline_id: "pl",
+                name: "Lost",
+                position: 4,
+                semantic: "lost",
+                win_probability: 0,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealScreen id="x" />);
+
+    await user.click(await screen.findByRole("button", { name: "Lost" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Lost reason" }),
+      "typed then abandoned",
+    );
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(await screen.findByRole("button", { name: "Lost" }));
+    expect(
+      (screen.getByRole("textbox", { name: "Lost reason" }) as HTMLInputElement)
+        .value,
+    ).toBe("");
+  });
+
   it("the stage the deal is already in is not a control", async () => {
     const d = deal({ id: "x", stage_id: "s1" });
     vi.stubGlobal("fetch", stubBackend([d], { single: d }));

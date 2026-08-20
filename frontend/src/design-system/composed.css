@@ -535,11 +535,16 @@
 }
 
 /* Deal 360 stage stepper */
+/* A fieldset because the steps are a group of controls that act on one deal;
+   the browser's own border, padding and margin are not wanted with it. */
 .stepper {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin: 0 0 16px;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
 }
 .stepper .step {
   font-size: 12.5px;
