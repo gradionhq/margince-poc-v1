@@ -74,6 +74,7 @@ var literalMarkers = []*regexp.Regexp{
 // markers and still exclude a held row — through a fragment declared in
 // another file — or that reach held rows on purpose. Each names the cost.
 var restrictedReadersAdmitted = gatekit.Waive(map[string]string{
+	"internal/compose/audiencerescope.go":         "the audience-change consumer reads the thread key (content by the activity policy) and the capture owner of the ONE activity whose audience just moved — deliberately, as a system principal, because both are exactly what narrowing the derived models needs, to NARROW what other readers may see — excluding a held row here would leave a legal-hold conversation's derived signals workspace-visible, the exact disclosure the consumer exists to remove. The cost is that a held activity's thread key and owner id reach this system principal",
 	"internal/modules/activities/capturelabel.go": "the classify backlog reads subject and body through ClassifyBacklogPredicate (pipelinefacts.go), which filters archived_at IS NULL and so excludes held rows by the restricted-implies-archived CHECK — the cost is that the predicate's archived filter now carries this obligation as well as its own",
 })
 

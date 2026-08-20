@@ -368,8 +368,9 @@ type Group struct {
 	Streams []string
 }
 
-// Groups returns the seven V1 consumer groups with their subscribed
-// streams (events.md §4.3). cg:workflows and cg:read-model subscribe to
+// Groups returns the consumer groups with their subscribed streams —
+// the events.md §4.3 set plus the later consumers; the census test
+// mirrors the full list. cg:workflows and cg:read-model subscribe to
 // everything by design; cg:audit-stream also does, because its "all
 // actor.type=agent events" slice cuts across every stream and Redis
 // consumer groups can only partition by stream, not by envelope field —
@@ -391,6 +392,14 @@ func Groups() []Group {
 		// rebuild must not be able to stall embedding freshness, and the two
 		// have unrelated failure modes.
 		{Name: "cg:graph-edge", Streams: forEntities(activityStreamEntity, personStreamEntity)},
+		// The audience-change corrector: when a human LIMITS a message after
+		// the derived models were built, the derived signals citing it narrow
+		// and the thread's scan watermark drops so the next extraction pass
+		// re-reads under the new audience. Its own group rather than a second
+		// handler on cg:graph-edge for the same isolation reason: re-scoping
+		// signals must not be able to stall the edge projection, and vice
+		// versa.
+		{Name: "cg:audience-rescope", Streams: forEntities(activityStreamEntity)},
 		// The LinkedIn ghost matcher (ADR-0078 §8b). Its own group rather than
 		// a second handler on cg:graph-edge: that consumer lives in the search
 		// module and this call belongs to people, and a module never reaches

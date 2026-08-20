@@ -147,6 +147,10 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 		// edge, person events (merge, archive, restore) move every edge to
 		// that contact.
 		"cg:graph-edge": {"gw:events:crm:activity", "gw:events:crm:person"},
+		// The audience-change corrector: an activity.updated carrying an
+		// audience narrows the derived signals citing the message and drops
+		// the thread's scan watermark.
+		"cg:audience-rescope": {"gw:events:crm:activity"},
 		// The LinkedIn ghost matcher (ADR-0078 §8b): a contact appearing is a
 		// chance to attach a ghost, and so is an account appearing — employer
 		// resolution is what most unmatched ghosts are waiting on.
@@ -169,7 +173,7 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 
 	groups := Groups()
 	if len(groups) != len(want) {
-		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, the two ADR-0078 consumers (graph-edge projection, LinkedIn matcher), and the ADR-0101 provider-enrichment consumer", len(groups), len(want))
+		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, the ADR-0078 consumers (graph-edge projection, LinkedIn matcher), the ADR-0101 provider-enrichment consumer, and the audience-rescope corrector", len(groups), len(want))
 	}
 	for _, g := range groups {
 		if !reflect.DeepEqual(g.Streams, want[g.Name]) {
