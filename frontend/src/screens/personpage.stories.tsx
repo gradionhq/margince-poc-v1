@@ -541,16 +541,142 @@ const withheld: View = {
   ],
 };
 
+// The contact a chat connector creates: no address, no number, and two channel
+// identities — one that can still be delivered to and one that cannot. It is
+// the shape the Consent & Channels block used to be silent about, reporting the
+// two transports this person does NOT have and omitting the two they do.
+const channelReached: View = {
+  ...populated,
+  person: {
+    ...populated.person,
+    emails: [],
+    phones: [],
+    reachability: [
+      {
+        provider: "zalo_oa",
+        reachable: true,
+        since: "2026-08-01T09:00:00Z",
+      },
+      {
+        provider: "dispact",
+        reachable: false,
+        since: "2026-08-09T09:00:00Z",
+      },
+    ],
+  },
+};
+
+// The same contact with the conversation a reply would continue: the whole
+// relationship arrived over a chat channel. It is what the page's lead verb
+// reads to name its transport, and what the two cards further down read — both
+// of which used to name it mail, an envelope on the memory row and "Email
+// thread" under the brief, on a person with no address at all.
+const chatConversation: View = {
+  ...channelReached,
+  activities: {
+    data: [
+      {
+        id: "a-9",
+        kind: "message",
+        channel_provider: "zalo_oa",
+        direction: "inbound",
+        subject: null,
+        body: "Bên mình cần báo giá cho 40 xe.",
+        occurred_at: "2026-08-12T04:20:00Z",
+        links: [{ entity_type: "person", entity_id: "p-1" }],
+        source: "ext:zalo-oa:zalo",
+        captured_by: "connector:zalo-oa",
+        created_at: "2026-08-12T04:20:00Z",
+        updated_at: "2026-08-12T04:20:00Z",
+        is_done: false,
+      },
+    ],
+    page,
+  },
+  conversation_memory: [],
+};
+
 // --- Page: the whole PersonPageV2 behind its three reads --------------------
 
-function Page() {
+// The guard as the page reads it: one purpose that permits mail, and a phone
+// purpose nobody has decided. `allowed` for any email purpose is what makes the
+// lead verb pressable.
+const guardAllowsMail: components["schemas"]["PersonConsentGuardEntry"][] = [
+  {
+    purpose_key: "business_correspondence",
+    purpose_label: "Business correspondence",
+    purpose_class: "business_correspondence",
+    channel: "email",
+    verdict: "allowed",
+    reason: "She wrote to you on 1 Aug 2026.",
+    qualifying_event: {
+      kind: "inbound_message",
+      occurred_at: "2026-08-01T10:15:00Z",
+      source_entity_type: "activity",
+      source_entity_id: "a-1",
+    },
+  },
+  {
+    purpose_key: "phone_outreach",
+    purpose_label: "Phone outreach",
+    purpose_class: "phone_outreach",
+    channel: "phone",
+    verdict: "unknown",
+    reason: "No consent recorded.",
+  },
+];
+
+// The same guard with the one purpose refused. No seeded contact reaches this
+// state either, so the refused lead verb renders only here.
+const guardRefusesMail: components["schemas"]["PersonConsentGuardEntry"][] = [
+  {
+    purpose_key: "marketing",
+    purpose_label: "Marketing",
+    purpose_class: "marketing",
+    channel: "email",
+    verdict: "blocked",
+    reason: "She opted out on 12 Jul 2026.",
+  },
+];
+
+// Reachable both ways: the address the record already carries and the channel
+// conversation beside it.
+const mailAndChat: View = {
+  ...populated,
+  person: {
+    ...populated.person,
+    reachability: chatConversation.person.reachability,
+  },
+  activities: {
+    data: [
+      ...(populated.activities?.data ?? []),
+      ...(chatConversation.activities?.data ?? []),
+    ],
+    page,
+  },
+};
+
+// No address, and no channel conversation to answer: the mail thread on the
+// record is history, not a way to reach anybody.
+const unreachable: View = {
+  ...populated,
+  person: { ...populated.person, emails: [] },
+};
+
+function Page({
+  view = populated,
+  guardEntries = guardAllowsMail,
+}: Readonly<{
+  view?: View;
+  guardEntries?: components["schemas"]["PersonConsentGuardEntry"][];
+}>) {
   installFetchStub({
     // The page mounts capability-aware chrome, so the session has to be routed:
     // the stub refuses to guess one, and an unrouted probe fails every grant
     // closed — the embedded rail would render read-only no matter what the
     // fixture below grants, which is not what a permitted reader sees.
     "GET /me": meRoute({ person: ["read", "update"] }),
-    "GET /people/p-1/360": () => jsonResponse(populated),
+    "GET /people/p-1/360": () => jsonResponse(view),
     "GET /people/p-1/brief": () =>
       jsonResponse({
         person_id: "p-1",
@@ -568,30 +694,19 @@ function Page() {
         ],
       }),
     "GET /people/p-1/consent/guard": () =>
+      jsonResponse({ person_id: "p-1", entries: guardEntries }),
+    // A channel has no name until the directory supplies one, so a page story
+    // about a chat-only contact has to serve it: without this the lead verb
+    // falls back to the raw provider id, which is the resolver's honest
+    // behaviour and not what these stories are about.
+    "GET /channel-providers": () =>
       jsonResponse({
-        person_id: "p-1",
-        entries: [
+        data: [
           {
-            purpose_key: "business_correspondence",
-            purpose_label: "Business correspondence",
-            purpose_class: "business_correspondence",
-            channel: "email",
-            verdict: "allowed",
-            reason: "She wrote to you on 1 Aug 2026.",
-            qualifying_event: {
-              kind: "inbound_message",
-              occurred_at: "2026-08-01T10:15:00Z",
-              source_entity_type: "activity",
-              source_entity_id: "a-1",
-            },
-          },
-          {
-            purpose_key: "phone_outreach",
-            purpose_label: "Phone outreach",
-            purpose_class: "phone_outreach",
-            channel: "phone",
-            verdict: "unknown",
-            reason: "No consent recorded.",
+            provider: "zalo_oa",
+            label: "Zalo OA",
+            credential_model: "workspace_bot",
+            supplies_transport: true,
           },
         ],
       }),
@@ -604,6 +719,37 @@ function Page() {
 }
 
 export const PageStory: Story = { name: "Page", render: () => <Page /> };
+
+// The lead verb names the transport the composer would pick, so the header
+// reads differently for every shape of reachability — and that is exactly what
+// no live stack shows: the seeded demo contacts all have an address.
+export const PageChannelOnly: Story = {
+  name: "Page · reachable only on a channel",
+  render: () => <Page view={chatConversation} />,
+};
+
+// Both ways open, so the drawer will ask which. The verb must promise neither:
+// a green Email that lands on a picker named one of several transports and then
+// asked about it.
+export const PageTwoTransports: Story = {
+  name: "Page · two transports",
+  render: () => <Page view={mailAndChat} />,
+};
+
+// Nothing to write to. The consent verdict is `allowed` here on purpose: it is
+// decided per purpose and says nothing about whether the record carries a
+// transport, which is why the verb needs its own refusal.
+export const PageNoTransport: Story = {
+  name: "Page · no way to reach them",
+  render: () => <Page view={unreachable} />,
+};
+
+// The other refusal, on a contact who IS reachable. Two facts, two sentences —
+// a rep told the wrong one goes looking in the wrong record.
+export const PageConsentRefused: Story = {
+  name: "Page · consent refuses",
+  render: () => <Page guardEntries={guardRefusesMail} />,
+};
 
 // --- Readings: PersonStrip alone --------------------------------------------
 
@@ -847,31 +993,6 @@ export const RailConsentBlocked: Story = {
         </div>
       </StoryProviders>
     );
-  },
-};
-
-// The contact a chat connector creates: no address, no number, and two channel
-// identities — one that can still be delivered to and one that cannot. It is
-// the shape the Consent & Channels block used to be silent about, reporting the
-// two transports this person does NOT have and omitting the two they do.
-const channelReached: View = {
-  ...populated,
-  person: {
-    ...populated.person,
-    emails: [],
-    phones: [],
-    reachability: [
-      {
-        provider: "zalo_oa",
-        reachable: true,
-        since: "2026-08-01T09:00:00Z",
-      },
-      {
-        provider: "dispact",
-        reachable: false,
-        since: "2026-08-09T09:00:00Z",
-      },
-    ],
   },
 };
 
@@ -1137,34 +1258,6 @@ export const OverviewPanels: Story = {
       </div>
     </StoryProviders>
   ),
-};
-
-// The same two cards for a contact whose whole relationship arrived over a chat
-// channel. Both used to name it mail — an envelope on the memory row, and
-// "Email thread" under the brief — on a person with no address at all.
-const chatConversation: View = {
-  ...channelReached,
-  activities: {
-    data: [
-      {
-        id: "a-9",
-        kind: "message",
-        channel_provider: "zalo_oa",
-        direction: "inbound",
-        subject: null,
-        body: "Bên mình cần báo giá cho 40 xe.",
-        occurred_at: "2026-08-12T04:20:00Z",
-        links: [{ entity_type: "person", entity_id: "p-1" }],
-        source: "ext:zalo-oa:zalo",
-        captured_by: "connector:zalo-oa",
-        created_at: "2026-08-12T04:20:00Z",
-        updated_at: "2026-08-12T04:20:00Z",
-        is_done: false,
-      },
-    ],
-    page,
-  },
-  conversation_memory: [],
 };
 
 export const OverviewChannelConversation: Story = {

@@ -45,6 +45,8 @@ import {
   PersonTimelineTab,
 } from "./persontabs";
 import { PersonToday } from "./persontoday";
+import type { Transport } from "./persontransports";
+import { primaryTransportAction, useTransports } from "./persontransports";
 import "./person360.css";
 
 // The person record page V2 (ADR-0096, concept person-record-page-v2).
@@ -271,9 +273,11 @@ export function PersonPageV2({
         pulse={<PersonIdentityLine view={view.data} />}
         actions={
           <PersonActions
-            guardAllows={emailAllowed}
+            view={view.data}
+            consentAllows={emailAllowed}
+            consentKnown={guard.data !== undefined}
             personId={id}
-            onEmail={() => openComposer("")}
+            onWrite={() => openComposer("")}
             onResearch={() => setDrawer("research")}
           />
         }
@@ -465,27 +469,74 @@ function PersonIdentityLine({
   );
 }
 
-// The primary actions, in the concept's order (§5.2). Email leads and is the
+// Why the lead verb may not be pressed, in the reader's words, or undefined
+// when it may.
+//
+// TWO facts refuse it and they are never merged into one sentence: consent says
+// we may not write to this person, reachability says there is nowhere to write
+// to. A rep who is told the wrong one goes looking in the wrong record.
+//
+// Reachability is asked first because it is the unconditional half — with no
+// transport the composer has nothing to send on whatever consent says, and a
+// consent sentence there would describe a decision that is not what stops them.
+// A guard that has not answered yet refuses nothing: the button is disabled
+// without a reason until the verdict is in, because claiming a refusal the
+// server has not made is worse than a control that is briefly quiet.
+function writeRefusal(
+  state: Readonly<{
+    transports: readonly Transport[];
+    consentAllows: boolean;
+    consentKnown: boolean;
+  }>,
+  t: ReturnType<typeof useT>,
+): string | undefined {
+  if (state.transports.length === 0) {
+    return t("person.action.noTransport");
+  }
+  if (state.consentAllows || !state.consentKnown) {
+    return undefined;
+  }
+  return t("person.action.consentRefused");
+}
+
+// The primary actions, in the concept's order (§5.2). Writing leads and is the
 // only green one: a page with two primary actions has none.
 function PersonActions({
-  guardAllows,
+  view,
+  consentAllows,
+  consentKnown,
   personId,
-  onEmail,
+  onWrite,
   onResearch,
 }: Readonly<{
-  guardAllows: boolean;
+  view: Person360;
+  consentAllows: boolean;
+  consentKnown: boolean;
   personId: string;
-  onEmail: () => void;
+  onWrite: () => void;
   onResearch: () => void;
 }>): ReactNode {
   const t = useT();
+  // The transports the composer would offer, read here so the button NAMES
+  // what pressing it does. The same reachability the drawer resolves: a label
+  // computed from anything else is a promise the composer then breaks.
+  const transports = useTransports(view);
+  const write = primaryTransportAction(transports, t);
+  const WriteIcon = write.icon;
+  const refusal = writeRefusal({ transports, consentAllows, consentKnown }, t);
   return (
     <>
-      {/* Email leads and is the only green one: a page with two primary
-          actions has none. It is disabled when the guard refuses, so a rep
-          learns they may not write BEFORE spending words on it. */}
-      <Button variant="primary" disabled={!guardAllows} onClick={onEmail}>
-        <Mail size={15} aria-hidden="true" /> {t("person.action.email")}
+      {/* The lead verb, and the only green one: a page with two primary
+          actions has none. It says which transport it will open when there is
+          exactly one, stays neutral when the composer will ask, and explains
+          itself rather than merely dimming when it may not be pressed. */}
+      <Button
+        variant="primary"
+        disabled={!consentKnown}
+        reason={refusal}
+        onClick={onWrite}
+      >
+        <WriteIcon size={15} aria-hidden="true" /> {write.label}
       </Button>
       <Button onClick={() => navigate(personTabRoute(personId, "timeline"))}>
         <Phone size={15} aria-hidden="true" /> {t("person.action.call")}
