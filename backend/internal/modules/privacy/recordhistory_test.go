@@ -21,6 +21,7 @@ func TestComposeRecordSummary(t *testing.T) {
 		actorDisplayName string
 		onBehalfOfName   *string
 		action           string
+		passportBacked   bool
 		want             string
 	}{
 		{
@@ -31,27 +32,73 @@ func TestComposeRecordSummary(t *testing.T) {
 			want:             "Alice updated the record",
 		},
 		{
-			name:             "agent acting with authority",
+			// PD-002: the granting human is the SUBJECT and the agent is a
+			// qualifier on them. The old phrasing made the machine the subject
+			// and the person a prepositional phrase, which is the inversion
+			// this decision exists to forbid: "an agent did it" names nobody
+			// who can be asked about the change.
+			name:             "agent acting with authority names the human first",
 			actorType:        "agent",
 			actorDisplayName: "Bot",
 			onBehalfOfName:   strPtr("Devin"),
 			action:           "archive",
-			want:             "Agent acting for Devin archived the record",
+			want:             "Devin, via an agent, archived the record",
 		},
 		{
-			name:             "agent without authority",
+			// A PASSPORT was presented and no human resolved behind it. That is
+			// a gap — passport.on_behalf_of is NOT NULL, so the authority
+			// existed at grant time and the row failed to carry it. It is NOT
+			// rendered as "System": system is reserved for a change that
+			// genuinely has nobody behind it, and letting it absorb a missing
+			// attribution would hide the gap instead of showing it.
+			name:             "passport presented but no authority resolved is a gap, never 'System'",
+			actorType:        "agent",
+			actorDisplayName: "Bot",
+			action:           "create",
+			passportBacked:   true,
+			want:             "A machine with no recorded human authority created the record",
+		},
+		{
+			// The deciding input is whether a GRANT was presented, not which
+			// machine word actor_type carries. A background pass nobody's
+			// context ran has no human to name and no gap to report —
+			// compose/extjobsrun.go writes one per extension job tick, and
+			// calling that a missing authority would report a defect where
+			// there is none.
+			name:             "background agent with no passport is not a gap",
 			actorType:        "agent",
 			actorDisplayName: "Bot",
 			action:           "create",
 			want:             "Agent created the record",
 		},
 		{
-			name:             "agent with empty onBehalfOfName treated as absent",
+			name:             "empty onBehalfOfName is treated as absent, not as authority",
 			actorType:        "agent",
 			actorDisplayName: "Bot",
 			onBehalfOfName:   strPtr(""),
 			action:           "create",
-			want:             "Agent created the record",
+			passportBacked:   true,
+			want:             "A machine with no recorded human authority created the record",
+		},
+		{
+			// A connector presenting a passport is the same gap as an agent
+			// presenting one: the rule keys on the grant, not the word.
+			name:             "passport-backed connector with no authority is the same gap",
+			actorType:        "connector",
+			actorDisplayName: "gmail",
+			action:           "import",
+			passportBacked:   true,
+			want:             "A machine with no recorded human authority imported the record",
+		},
+		{
+			// A connector's human authority resolves the same way an agent's
+			// does: an inbound sync a person authorized reads as that person.
+			name:             "connector acting with authority names the human first",
+			actorType:        "connector",
+			actorDisplayName: "gmail",
+			onBehalfOfName:   strPtr("Devin"),
+			action:           "import",
+			want:             "Devin, via a connector, imported the record",
 		},
 		{
 			name:             "system",
@@ -61,7 +108,12 @@ func TestComposeRecordSummary(t *testing.T) {
 			want:             "System exported the record",
 		},
 		{
-			name:             "connector",
+			// A bare connector keeps its own subject rather than reporting a
+			// missing authority: some connectors have no connect flow and so no
+			// granting human BY DESIGN (compose/jobs_finance.go writes one), and
+			// naming a gap there would report a defect that does not exist. This
+			// is the deliberate asymmetry with the agent case above.
+			name:             "connector with no authority is not a gap, unlike an agent",
 			actorType:        "connector",
 			actorDisplayName: "hubspot-sync",
 			action:           "import",
@@ -84,10 +136,12 @@ func TestComposeRecordSummary(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := composeRecordSummary(tt.actorType, tt.actorDisplayName, tt.onBehalfOfName, tt.action)
+			got := composeRecordSummary(tt.actorType, tt.actorDisplayName, tt.onBehalfOfName,
+				tt.action, tt.passportBacked)
 			if got != tt.want {
-				t.Errorf("composeRecordSummary(%q, %q, %v, %q) = %q, want %q",
-					tt.actorType, tt.actorDisplayName, tt.onBehalfOfName, tt.action, got, tt.want)
+				t.Errorf("composeRecordSummary(%q, %q, %v, %q, passport=%v) = %q, want %q",
+					tt.actorType, tt.actorDisplayName, tt.onBehalfOfName, tt.action,
+					tt.passportBacked, got, tt.want)
 			}
 		})
 	}

@@ -48,7 +48,6 @@ export const vi = {
   "history.cleared": "— đã xoá —",
   "history.passport": "Passport agent",
   "history.empty": "Chưa ghi nhận thay đổi nào",
-  "history.onBehalfOf": "thay mặt {name}",
   "history.fieldEmpty":
     "Được đặt khi tạo và chưa từng đổi — nhật ký kiểm toán không ghi nhận chỉnh sửa nào. Lịch sử trống là trung thực, không phải thiếu sót.",
   "history.filterEmpty": "Không có thay đổi nào khớp bộ lọc này.",
@@ -2334,10 +2333,11 @@ export const vi = {
   "jobs.generatedAt": "Đọc lúc {time}",
 
   "audit.you": "Bạn",
-  "audit.teammate": "Một đồng nghiệp",
   "audit.system": "Hệ thống",
-  "audit.onBehalfOfYou": "thay mặt bạn",
-  "audit.onBehalfOfTeammate": "thay mặt một đồng nghiệp",
+  "audit.unknownMember": "Thành viên không xác định",
+  "audit.viaAgent": "qua một agent",
+  "audit.viaConnector": "qua một connector",
+  "audit.noHumanAuthority": "Không ghi nhận người uỷ quyền",
   "settings.auditSub":
     "mọi hành động đều được quy trách — người, Agent hay connector",
   "settings.auditAdminOnly":

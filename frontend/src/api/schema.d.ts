@@ -5479,6 +5479,13 @@ export interface paths {
          *     AC-settings-16 (B-EP09.13b) — the live-filterable audit view. Every entry attributes the actor
          *     (`human:*` / `agent:*` + `passport_id`), the action, and the target. Admin/compliance scope;
          *     read-only.
+         *
+         *     Attribution names the PERSON, not the machine (PD-002): `actor_name` and
+         *     `on_behalf_of_name` resolve the human behind a row so a reader gets somebody
+         *     who can be asked about the change. An agent's identifier is the qualifier on
+         *     that person, never the label — "MCP did it" cannot be asked anything. Both
+         *     names are null when no user row resolves, which is honest rather than invented:
+         *     a deactivated member's audit rows outlive their account.
          */
         get: operations["listAuditLog"];
         put?: never;
@@ -15658,6 +15665,16 @@ export interface components {
              * @description The human authority for an agent action.
              */
             on_behalf_of?: string | null;
+            /**
+             * @description The actor's display name, resolved from `app_user` on the read path.
+             *     Present only for a human actor: agent, connector and system ids name
+             *     a machine, and their human authority is `on_behalf_of_name`. Null
+             *     when no user row resolves — a deactivated or deleted member still has
+             *     audit rows, and an honest identifier is better than an invented name.
+             */
+            actor_name?: string | null;
+            /** @description Resolved display name for on_behalf_of. */
+            on_behalf_of_name?: string | null;
             /** @enum {string} */
             action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire" | "resolve" | "restrict" | "pin";
             entity_type: string;
@@ -15809,6 +15826,8 @@ export interface components {
             /** @enum {string} */
             actor_type: "human" | "agent" | "system" | "connector";
             actor_id: string;
+            /** @description Resolved display name for a human actor_id; null for machine actors and for a member whose user row no longer resolves. */
+            actor_name?: string | null;
             /**
              * Format: uuid
              * @description Granting human's user id for agent actions.

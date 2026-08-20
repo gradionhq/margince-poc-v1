@@ -9,10 +9,16 @@ afterEach(cleanup);
 
 type AuditLogEntry = components["schemas"]["AuditLogEntry"];
 
+// ME is the viewer's bare app_user id, the way useMe() reports it. The wire's
+// actor_id is the TYPED principal id, so a human row spells it "human:<ME>" —
+// the two are different strings, and a fixture that pretends otherwise cannot
+// catch a comparison that forgets the prefix.
+const ME = "01a01740-c9c2-736d-a0b6-d3e3dcb13111";
+
 const entry = (over: Partial<AuditLogEntry> = {}): AuditLogEntry => ({
   id: "a1",
   actor_type: "human",
-  actor_id: "u1",
+  actor_id: `human:${ME}`,
   action: "create",
   entity_type: "custom_field",
   entity_id: "cf-1",
@@ -32,57 +38,168 @@ describe("humanizeToken", () => {
 });
 
 describe("ActorTag", () => {
-  it("reads 'You' when the human actor is the viewer", () => {
-    wrap(
-      <ActorTag
-        entry={entry({ actor_type: "human", actor_id: "u1" })}
-        meUserId="u1"
-      />,
-    );
+  it("reads 'You' when the human actor is the viewer, matching the wire's prefixed id", () => {
+    wrap(<ActorTag entry={entry({ actor_type: "human" })} meUserId={ME} />);
     expect(screen.getByText("You")).toBeTruthy();
   });
 
-  it("reads 'A teammate' for another human, never the raw uuid", () => {
+  it("names another human, rather than calling them 'a teammate'", () => {
     wrap(
       <ActorTag
-        entry={entry({ actor_type: "human", actor_id: "u-other" })}
-        meUserId="u1"
+        entry={entry({
+          actor_type: "human",
+          actor_id: "human:u-other",
+          actor_name: "Lars Vogt",
+        })}
+        meUserId={ME}
       />,
     );
-    expect(screen.getByText("A teammate")).toBeTruthy();
-    expect(screen.queryByText("u-other")).toBeNull();
+    expect(screen.getByText("Lars Vogt")).toBeTruthy();
+    // Attribution exists so somebody can be asked about the change; the
+    // opaque id is not that somebody and never reaches the reader.
+    expect(screen.queryByText(/u-other/)).toBeNull();
   });
 
-  it("shows the agent slug and its on-behalf-of human", () => {
+  it("says the member is unknown when no name resolved, never a raw uuid", () => {
+    wrap(
+      <ActorTag
+        entry={entry({
+          actor_type: "human",
+          actor_id: "human:u-gone",
+          actor_name: null,
+        })}
+        meUserId={ME}
+      />,
+    );
+    expect(screen.getByText("Unknown member")).toBeTruthy();
+    expect(screen.queryByText(/u-gone/)).toBeNull();
+  });
+
+  it("leads with the granting human and qualifies with the agent, not the reverse", () => {
     wrap(
       <ActorTag
         entry={entry({
           actor_type: "agent",
-          actor_id: "sdr",
-          on_behalf_of: "u1",
+          actor_id: "agent:01a01740-c9c2-736d-a0b6-d3e3dcb13111",
+          on_behalf_of: "u-lars",
+          on_behalf_of_name: "Lars Vogt",
         })}
-        meUserId="u1"
+        meUserId={ME}
       />,
     );
-    expect(screen.getByText("sdr")).toBeTruthy();
-    expect(screen.getByText(/on behalf of you/i)).toBeTruthy();
+    expect(screen.getByText("Lars Vogt")).toBeTruthy();
+    expect(screen.getByText("via an agent")).toBeTruthy();
+    // The passport uuid was the prominent half before PD-002. It is now not
+    // shown at all: a person is answerable for the change, and the tool is a
+    // qualifier on them.
+    expect(screen.queryByText(/01a01740/)).toBeNull();
   });
 
-  it("shows the connector slug", () => {
+  it("reads 'You' for an agent acting under the viewer's own authority", () => {
     wrap(
       <ActorTag
-        entry={entry({ actor_type: "connector", actor_id: "gmail" })}
-        meUserId="u1"
+        entry={entry({
+          actor_type: "agent",
+          actor_id: "agent:p1",
+          on_behalf_of: ME,
+          on_behalf_of_name: "Lars Vogt",
+        })}
+        meUserId={ME}
       />,
     );
-    expect(screen.getByText("gmail")).toBeTruthy();
+    expect(screen.getByText("You")).toBeTruthy();
+    expect(screen.getByText("via an agent")).toBeTruthy();
+  });
+
+  it("calls a presented-but-unresolved grant a gap, rather than falling back to 'System'", () => {
+    wrap(
+      <ActorTag
+        entry={entry({
+          actor_type: "agent",
+          actor_id: "agent:p1",
+          passport_id: "01a01740-c9c2-736d-a0b6-d3e3dcb13999",
+          on_behalf_of: null,
+          on_behalf_of_name: null,
+        })}
+        meUserId={ME}
+      />,
+    );
+    expect(screen.getByText("No human authority recorded")).toBeTruthy();
+    // The identifier is what is left to show, so it IS shown — but as the
+    // subordinate half, not the label.
+    expect(screen.getByText("agent:p1")).toBeTruthy();
+    expect(screen.queryByText("System")).toBeNull();
+  });
+
+  it("does not call a background agent a gap — no grant was presented", () => {
+    wrap(
+      <ActorTag
+        entry={entry({
+          actor_type: "agent",
+          actor_id: "agent:extension_tick",
+          passport_id: null,
+          on_behalf_of: null,
+          on_behalf_of_name: null,
+        })}
+        meUserId={ME}
+      />,
+    );
+    // compose/extjobsrun.go writes exactly this shape per extension job tick.
+    // There is no human to name and nothing failed, so reporting a missing
+    // authority would report a defect that does not exist.
+    expect(screen.getByText("agent:extension_tick")).toBeTruthy();
+    expect(screen.queryByText("No human authority recorded")).toBeNull();
+    expect(screen.queryByText("System")).toBeNull();
+  });
+
+  it("never renders an actor with no label at all", () => {
+    // actor_id is a bare `string` in the contract with no minimum length. No
+    // writer should produce an empty one, but an icon with nothing beside it
+    // would be a row attributed to nothing, so the kind stands in.
+    wrap(
+      <ActorTag
+        entry={entry({ actor_type: "connector", actor_id: "" })}
+        meUserId={ME}
+      />,
+    );
+    expect(screen.getByText("connector")).toBeTruthy();
+  });
+
+  it("names the human behind a connector when one authorised it", () => {
+    wrap(
+      <ActorTag
+        entry={entry({
+          actor_type: "connector",
+          actor_id: "connector:gmail",
+          on_behalf_of: "u-lars",
+          on_behalf_of_name: "Lars Vogt",
+        })}
+        meUserId={ME}
+      />,
+    );
+    expect(screen.getByText("Lars Vogt")).toBeTruthy();
+    expect(screen.getByText("via a connector")).toBeTruthy();
+  });
+
+  it("shows a bare connector's own name — no granting human is not a gap there", () => {
+    wrap(
+      <ActorTag
+        entry={entry({
+          actor_type: "connector",
+          actor_id: "connector:finance",
+        })}
+        meUserId={ME}
+      />,
+    );
+    expect(screen.getByText("connector:finance")).toBeTruthy();
+    expect(screen.queryByText("No human authority recorded")).toBeNull();
   });
 
   it("reads 'System' for a system actor", () => {
     wrap(
       <ActorTag
-        entry={entry({ actor_type: "system", actor_id: "cron" })}
-        meUserId="u1"
+        entry={entry({ actor_type: "system", actor_id: "system" })}
+        meUserId={ME}
       />,
     );
     expect(screen.getByText("System")).toBeTruthy();
@@ -95,12 +212,11 @@ describe("AuditEntryLine", () => {
       <AuditEntryLine
         entry={entry({
           actor_type: "human",
-          actor_id: "u1",
           action: "create",
           entity_type: "custom_field",
           entity_id: "cf-1",
         })}
-        meUserId="u1"
+        meUserId={ME}
       />,
     );
     expect(screen.getByText("You")).toBeTruthy();
@@ -108,6 +224,6 @@ describe("AuditEntryLine", () => {
     expect(screen.getByText("custom field")).toBeTruthy();
     // the opaque uuids never reach the reader
     expect(screen.queryByText(/cf-1/)).toBeNull();
-    expect(screen.queryByText(/human:u1/)).toBeNull();
+    expect(screen.queryByText(new RegExp(ME))).toBeNull();
   });
 });

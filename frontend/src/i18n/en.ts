@@ -38,7 +38,6 @@ export const en = {
   "history.cleared": "— cleared —",
   "history.passport": "Agent passport",
   "history.empty": "No changes recorded",
-  "history.onBehalfOf": "on behalf of {name}",
   "history.fieldEmpty":
     "Set on create and never changed — the audit log records no edits. An empty history is honest, not a gap.",
   "history.filterEmpty": "No changes match this filter.",
@@ -2357,10 +2356,11 @@ export const en = {
   "jobs.generatedAt": "Read at {time}",
 
   "audit.you": "You",
-  "audit.teammate": "A teammate",
   "audit.system": "System",
-  "audit.onBehalfOfYou": "on behalf of you",
-  "audit.onBehalfOfTeammate": "on behalf of a teammate",
+  "audit.unknownMember": "Unknown member",
+  "audit.viaAgent": "via an agent",
+  "audit.viaConnector": "via a connector",
+  "audit.noHumanAuthority": "No human authority recorded",
   "settings.auditSub": "every action, attributed — human, agent, or connector",
   "settings.auditAdminOnly":
     "Only an admin can read the full trail. It records every actor and every record they touched, so it is not shown more widely.",

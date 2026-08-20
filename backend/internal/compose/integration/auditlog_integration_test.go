@@ -15,6 +15,7 @@ package integration
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -132,5 +133,106 @@ func TestAuditLogFiltersAndKeysetWalk(t *testing.T) {
 	bad := "not-a-cursor"
 	if _, err := privacy.ListAuditLog(admin, e.DB(), privacy.AuditFilter{Cursor: &bad}); err == nil {
 		t.Fatal("malformed cursor accepted")
+	}
+}
+
+// TestAuditLogResolvesTheHumanBehindEveryRow pins PD-002 on the compliance
+// read: attribution names the PERSON, and an identifier is what a reader falls
+// back to only when no person resolves. The screen this feeds is the one an
+// auditor opens first, and "agent:01a01740-…" is not somebody who can be asked
+// about a change.
+//
+// Three arms, because the read has three honest outcomes and the middle one is
+// the trap: a human resolves to a name, a machine resolves to NO name while its
+// granting human does, and an id no app_user matches resolves to nothing at all
+// rather than to an invented or guessed name.
+func TestAuditLogResolvesTheHumanBehindEveryRow(t *testing.T) {
+	e := Setup(t)
+
+	// Seeded through the real writer: SeedPerson goes via people.CreatePerson,
+	// so the create row's actor_id is whatever storekit actually stamps for the
+	// harness admin. A hand-inserted row would prove nothing about production —
+	// the spelling of actor_id IS what this read has to match on.
+	personID := e.SeedPerson(t, "Attribution Subject", nil)
+
+	page, err := privacy.ListAuditLog(e.Admin(), e.DB(), privacy.AuditFilter{EntityID: &personID})
+	if err != nil {
+		t.Fatalf("admin list: %v", err)
+	}
+	if len(page.Entries) == 0 {
+		t.Fatal("no audit row for a person the real writer just created")
+	}
+
+	var create *privacy.AuditEntry
+	for i := range page.Entries {
+		if page.Entries[i].Action == "create" {
+			create = &page.Entries[i]
+			break
+		}
+	}
+	if create == nil {
+		t.Fatalf("no create row among %d entries", len(page.Entries))
+	}
+	if create.ActorType != "human" {
+		t.Fatalf("create row actor_type = %q, want human", create.ActorType)
+	}
+	// Every harness seat is seeded with display_name "Rep", so that is the
+	// name the join must return. The point is that a name comes back AT ALL:
+	// before this, the wire carried only the opaque 'human:<uuid>'.
+	if create.ActorName == nil || *create.ActorName != "Rep" {
+		t.Errorf("create row actor_name = %v, want the admin's resolved display name", create.ActorName)
+	}
+	if create.OnBehalfOfName != nil {
+		t.Errorf("human row on_behalf_of_name = %v, want nil — a human acts for themselves",
+			create.OnBehalfOfName)
+	}
+
+	// An agent row: no actor name (a machine has none), and the granting human
+	// named. This is the inversion the issue is about — the passport uuid is
+	// the qualifier, the person is the answer.
+	// ONE clock reading for the whole fixture, and every seeded row offset from
+	// it. Read per row, the rows' order would depend on when each call happened
+	// rather than on what the fixture says. It cannot be a fixed literal: the
+	// create row above was stamped by the REAL writer at real "now", and these
+	// rows have to sort after it.
+	base := time.Now().UTC().Truncate(time.Microsecond)
+
+	ada := seedWorkspaceUser(t, e, "Ada Authority")
+	seedRecordAuditRow(t, e, "update", personID, "agent",
+		"agent:"+ids.NewV7().String(), &ada, nil, map[string]any{"title": "CTO"},
+		base.Add(time.Hour))
+
+	// An actor_id no app_user can match: the honest-fallback arm. A read that
+	// invented a name here would be worse than one that returns none.
+	seedRecordAuditRow(t, e, "update", personID, "human", "human:"+ids.NewV7().String(), nil,
+		nil, map[string]any{"title": "VP"},
+		base.Add(2*time.Hour))
+
+	page, err = privacy.ListAuditLog(e.Admin(), e.DB(), privacy.AuditFilter{EntityID: &personID})
+	if err != nil {
+		t.Fatalf("admin re-list: %v", err)
+	}
+	var sawAgent, sawUnresolvable bool
+	for _, entry := range page.Entries {
+		switch {
+		case entry.ActorType == "agent":
+			sawAgent = true
+			if entry.ActorName != nil {
+				t.Errorf("agent row actor_name = %v, want nil — a machine has no display name",
+					entry.ActorName)
+			}
+			if entry.OnBehalfOfName == nil || *entry.OnBehalfOfName != "Ada Authority" {
+				t.Errorf("agent row on_behalf_of_name = %v, want Ada Authority — the person answerable for it",
+					entry.OnBehalfOfName)
+			}
+		case entry.ActorType == "human" && entry.ActorName == nil:
+			sawUnresolvable = true
+		}
+	}
+	if !sawAgent {
+		t.Error("the seeded agent row never came back from the compliance read")
+	}
+	if !sawUnresolvable {
+		t.Error("a human actor_id matching no app_user must resolve to no name, not be dropped")
 	}
 }

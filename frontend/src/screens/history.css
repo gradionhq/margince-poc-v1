@@ -2,10 +2,6 @@
  * list. Reuses the .timeline/.tl-* rhythm from design-system/composed.css;
  * this file only adds the bits specific to this panel. */
 
-.history-onbehalf {
-  color: var(--textMeta);
-}
-
 /* FieldHistoryTimeline: per-field old→new diff groups. Reuses .tl-meta from
  * composed.css for the change timestamp; only the field-group shape and the
  * attribution row are specific to this panel. Colours read from tokens only

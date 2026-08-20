@@ -300,34 +300,46 @@ export const passports = [
   },
 ];
 
+// actor_id carries the TYPED principal id, the way storekit stamps it —
+// "human:<uuid>", "agent:<id>", "connector:<name>" — and the read path resolves
+// the display names beside it. An unprefixed id here is not a simplification: it
+// is a shape the server never writes, and it made the "Du" branch look covered
+// while being unreachable in the product.
 export const auditEntries = [
   {
     id: "al-1",
     workspace_id: "w",
     actor_type: "human",
-    actor_id: "u1",
+    actor_id: "human:u1",
+    actor_name: "Lena Fischer",
     action: "update",
     entity_type: "deal",
     entity_id: "d-fleet",
     occurred_at: "2026-07-05T07:00:00Z",
   },
   {
+    // An agent under ANOTHER human's authority, so the row reads as that person
+    // rather than as the viewer — which is what lets the actor-filter assertion
+    // below distinguish "Du" from a named teammate.
     id: "al-2",
     workspace_id: "w",
     actor_type: "agent",
-    actor_id: "runner",
+    actor_id: "agent:runner",
     passport_id: "pp-1",
-    on_behalf_of: "u1",
+    on_behalf_of: "u2",
+    on_behalf_of_name: "Marcus Brandt",
     action: "send_email",
     entity_type: "activity",
     entity_id: null,
     occurred_at: "2026-07-05T06:00:00Z",
   },
   {
+    // A bare connector: no grant presented, so no human to name and no gap to
+    // report. Its own id is what a reader gets.
     id: "al-3",
     workspace_id: "w",
     actor_type: "connector",
-    actor_id: "gmail",
+    actor_id: "connector:gmail",
     action: "create",
     entity_type: "person",
     entity_id: "p-anna",
@@ -1281,7 +1293,7 @@ export async function mockApi(
       const cursor = url.searchParams.get("cursor");
       const rows = auditEntries.filter(
         (entry) =>
-          (!actor || `${entry.actor_type}:${entry.actor_id}` === actor) &&
+          (!actor || entry.actor_id === actor) &&
           (!entityType || entry.entity_type === entityType) &&
           (!action || entry.action === action),
       );

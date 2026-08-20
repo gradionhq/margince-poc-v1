@@ -12221,8 +12221,11 @@ type AttachmentReadStartedStatus string
 // `summary` is server-composed plain language; field-level detail lives in
 // before/after for the client to render.
 type AuditHistoryEntry struct {
-	Action            string                     `json:"action"`
-	ActorId           string                     `json:"actor_id"`
+	Action  string `json:"action"`
+	ActorId string `json:"actor_id"`
+
+	// ActorName Resolved display name for a human actor_id; null for machine actors and for a member whose user row no longer resolves.
+	ActorName         *string                    `json:"actor_name,omitempty"`
 	ActorType         AuditHistoryEntryActorType `json:"actor_type"`
 	After             *map[string]interface{}    `json:"after,omitempty"`
 	AuthorizationRule *string                    `json:"authorization_rule,omitempty"`
@@ -12252,7 +12255,14 @@ type AuditLogEntry struct {
 	Action AuditLogEntryAction `json:"action"`
 
 	// ActorId User uuid, agent id, connector name (e.g. connector:gmail), or 'system'.
-	ActorId   string                  `json:"actor_id"`
+	ActorId string `json:"actor_id"`
+
+	// ActorName The actor's display name, resolved from `app_user` on the read path.
+	// Present only for a human actor: agent, connector and system ids name
+	// a machine, and their human authority is `on_behalf_of_name`. Null
+	// when no user row resolves — a deactivated or deleted member still has
+	// audit rows, and an honest identifier is better than an invented name.
+	ActorName *string                 `json:"actor_name,omitempty"`
 	ActorType AuditLogEntryActorType  `json:"actor_type"`
 	After     *map[string]interface{} `json:"after,omitempty"`
 
@@ -12271,6 +12281,9 @@ type AuditLogEntry struct {
 
 	// OnBehalfOf The human authority for an agent action.
 	OnBehalfOf *openapi_types.UUID `json:"on_behalf_of,omitempty"`
+
+	// OnBehalfOfName Resolved display name for on_behalf_of.
+	OnBehalfOfName *string `json:"on_behalf_of_name,omitempty"`
 
 	// PassportId Agent Seat Passport that authorized an agent action.
 	PassportId *openapi_types.UUID `json:"passport_id,omitempty"`

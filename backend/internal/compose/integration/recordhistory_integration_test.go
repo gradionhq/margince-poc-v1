@@ -156,13 +156,25 @@ func TestRecordHistoryRendersEveryActorChronologically(t *testing.T) {
 	if human.Summary != "Uma Underwriter updated the record" {
 		t.Errorf("human line = %q, want resolved display name", human.Summary)
 	}
+	// The name is also a FIELD, not only a phrase inside `summary`: a client
+	// that renders its own attribution must not have to parse the sentence.
+	if human.ActorName == nil || *human.ActorName != "Uma Underwriter" {
+		t.Errorf("human line ActorName = %v, want Uma Underwriter", human.ActorName)
+	}
 	if human.After["email"] != "new@x.com" || human.Before["email"] != "old@x.com" {
 		t.Errorf("human line payload = before %v after %v, want the seeded images served", human.Before, human.After)
 	}
 
 	agent := page.Entries[2]
-	if agent.Summary != "Agent acting for Ada Authority updated the record" {
-		t.Errorf("agent line = %q, want the delegating authority woven in", agent.Summary)
+	// PD-002: the granting human is the SUBJECT of the line and the agent is
+	// the qualifier on them, not the other way round.
+	if agent.Summary != "Ada Authority, via an agent, updated the record" {
+		t.Errorf("agent line = %q, want the granting human named first", agent.Summary)
+	}
+	// An agent id resolves to no actor name — a machine has none, and its
+	// human context is OnBehalfOfName. Never an invented one.
+	if agent.ActorName != nil {
+		t.Errorf("agent line ActorName = %v, want nil for a machine actor", agent.ActorName)
 	}
 	if agent.OnBehalfOf == nil || *agent.OnBehalfOf != ada {
 		t.Errorf("agent line OnBehalfOf = %v, want %v", agent.OnBehalfOf, ada)

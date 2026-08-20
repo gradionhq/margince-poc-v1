@@ -27,8 +27,9 @@ const me =
   () =>
     jsonResponse({
       ...meFixture({ roles: ["admin"], allow }),
-      // id matches the audit fixture's human actor so the Privacy story reads
-      // "You" for the viewer's own entry (ActorTag resolves it via meUserId).
+      // The BARE user id, the way /me reports it. The audit fixture spells the
+      // same actor the way the wire does ("human:u-mor"), so the trail reads
+      // "You" for the viewer's own entry — ActorTag owns that difference.
       user: { ...meFixture().user, id: "u-mor", email: "ada@acme.test" },
     });
 
@@ -69,6 +70,11 @@ const tools = () =>
     ],
   });
 
+// Attribution names the PERSON and says a machine did the typing second
+// (PD-002), so the fixture carries the resolved names the read path returns and
+// spells actor_id the way storekit stamps it — "human:<uuid>", not a bare id.
+// A fixture that skipped the prefix is what let the "You" branch look covered
+// while being unreachable in the product.
 const auditLog = () =>
   jsonResponse({
     data: [
@@ -76,7 +82,8 @@ const auditLog = () =>
         id: "a1",
         occurred_at: "2026-07-10T14:09:00Z",
         actor_type: "human",
-        actor_id: "u-mor",
+        actor_id: "human:u-mor",
+        actor_name: "Ada Mortensen",
         action: "create",
         entity_type: "custom_field",
         entity_id: "cf-1",
@@ -84,11 +91,57 @@ const auditLog = () =>
       {
         id: "a2",
         occurred_at: "2026-07-10T09:41:00Z",
-        actor_type: "agent",
-        actor_id: "sdr",
+        actor_type: "human",
+        actor_id: "human:u-lars",
+        actor_name: "Lars Vogt",
         action: "update",
         entity_type: "deal",
         entity_id: "d-1",
+      },
+      {
+        // An agent under a human's authority reads as that human, qualified.
+        id: "a3",
+        occurred_at: "2026-07-10T08:12:00Z",
+        actor_type: "agent",
+        actor_id: "agent:01a01740-c9c2-736d-a0b6-d3e3dcb13111",
+        passport_id: "01a01740-c9c2-736d-a0b6-d3e3dcb13999",
+        on_behalf_of: "u-lars",
+        on_behalf_of_name: "Lars Vogt",
+        action: "update",
+        entity_type: "deal",
+        entity_id: "d-1",
+      },
+      {
+        // A grant was presented and no human resolved behind it: a gap, and it
+        // says so rather than reading as "System".
+        id: "a4",
+        occurred_at: "2026-07-10T07:30:00Z",
+        actor_type: "agent",
+        actor_id: "agent:scheduled_send",
+        passport_id: "01a01740-c9c2-736d-a0b6-d3e3dcb13aaa",
+        action: "send_email",
+        entity_type: "activity",
+        entity_id: "ac-1",
+      },
+      {
+        // No grant presented — a background pass nobody's context ran. Not a
+        // gap, so it shows what acted and claims no missing authority.
+        id: "a5",
+        occurred_at: "2026-07-10T06:00:00Z",
+        actor_type: "agent",
+        actor_id: "agent:org_name_promotion",
+        action: "update",
+        entity_type: "organization",
+        entity_id: "o-1",
+      },
+      {
+        id: "a6",
+        occurred_at: "2026-07-10T05:00:00Z",
+        actor_type: "system",
+        actor_id: "system",
+        action: "erase",
+        entity_type: "person",
+        entity_id: "p-9",
       },
     ],
     page: { next_cursor: null, has_more: false },
@@ -388,6 +441,7 @@ const auditLogPage = {
       actor_id: "agent:sdr",
       passport_id: "pp-9",
       on_behalf_of: "u-1",
+      on_behalf_of_name: "Me",
       action: "update",
       entity_type: "person",
       entity_id: "p-1",
