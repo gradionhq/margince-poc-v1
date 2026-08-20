@@ -90,6 +90,46 @@ function stub(
   );
 }
 
+// The same routing, for a documents endpoint that PAGINATES: each answer is
+// keyed on the `cursor` the client sent back, so a row that ignored
+// `next_cursor` never reaches the second page and the assertion fails for the
+// right reason.
+function stubPages(pages: { docs: unknown[]; next: string | null }[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(
+        input instanceof Request ? input.url : String(input),
+        "http://x",
+      );
+      if (url.pathname.includes("/me")) {
+        return new Response(JSON.stringify(GRANTED), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (!url.pathname.includes("/documents")) {
+        return new Response(JSON.stringify({ data: [CONTRACT] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      const cursor = url.searchParams.get("cursor");
+      const page = pages[cursor === null ? 0 : Number(cursor)];
+      if (!page) {
+        throw new Error(`the row walked past the last page (cursor ${cursor})`);
+      }
+      return new Response(
+        JSON.stringify({
+          data: page.docs,
+          page: { has_more: page.next !== null, next_cursor: page.next },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }),
+  );
+}
+
 function show(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -135,6 +175,46 @@ describe("a contract's signed paper", () => {
     expect(
       screen.getByRole("link", { name: "GR-2026-0092-annex-a.pdf" }),
     ).toBeTruthy();
+  });
+
+  // #1549: the documents endpoint paginates, so the chips on a row are a PAGE.
+  // A row that kept the first page and dropped `page.has_more` presented some
+  // of an agreement's paper under a label that reads as all of it.
+  it("counts the paper the row is not showing", async () => {
+    stubPages([
+      {
+        docs: [PAPER, { ...PAPER, id: "a-2", filename: "annex-a.pdf" }],
+        next: "1",
+      },
+      {
+        docs: [
+          { ...PAPER, id: "a-3" },
+          { ...PAPER, id: "a-4" },
+          { ...PAPER, id: "a-5" },
+        ],
+        next: null,
+      },
+    ]);
+    show(<CompanyContractsCard orgId="o-1" />);
+
+    // The page the row holds is still offered: the notice is about what is
+    // missing, not a reason to withhold what is there.
+    expect(
+      await screen.findByRole("link", { name: "annex-a.pdf" }),
+    ).toBeTruthy();
+    expect(await screen.findByText("3 more not shown")).toBeTruthy();
+  });
+
+  it("claims nothing about a remainder when the page IS the whole list", async () => {
+    stubPages([{ docs: [PAPER], next: null }]);
+    show(<CompanyContractsCard orgId="o-1" />);
+
+    await screen.findByRole("link", { name: "GR-2026-0092.pdf" });
+    // `has_more: false` is the one answer that entitles the row to read as
+    // complete, and a spurious notice would send a reader looking for paper
+    // that does not exist.
+    expect(screen.queryByText(/more not shown/)).toBeNull();
+    expect(screen.queryByText("Showing part of the list")).toBeNull();
   });
 
   it("says nothing at all when an agreement has no paper on file", async () => {

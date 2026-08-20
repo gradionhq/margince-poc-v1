@@ -9,13 +9,15 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 // Recording an agreement, and reaching the paper already filed against it.
 //
-// THE FOUR STATES OF THE SIGNED-DOCUMENT FIELD ARE THE POINT OF THIS FILE.
+// THE FIVE STATES OF THE SIGNED-DOCUMENT FIELD ARE THE POINT OF THIS FILE.
 // A field that renders a bare drop zone says "there is no paper on file", and
 // that sentence is only true in one of them. It shipped wrong once: an empty
 // list stood in for a read that was still running, one that failed, and one a
 // grant refused, so the field confidently reported an absence it had no way to
-// know about. Each story below is one of those states, because that is the
-// difference a screenshot can show and a passing test cannot.
+// know about. The fifth is the same failure pointed the other way: the endpoint
+// paginates, and a page drawn as a list claims a completeness nobody checked.
+// Each story below is one of those states, because that is the difference a
+// screenshot can show and a passing test cannot.
 
 const meta: Meta = {
   title: "Records/Company 360/Contract form",
@@ -144,6 +146,48 @@ export const NoPaperOnFile: Story = {
     installFetchStub({
       "GET /me": SESSION,
       [DOCUMENTS]: () => jsonResponse({ data: [] }),
+    });
+    return field();
+  },
+};
+
+// PARTIAL — the endpoint paginates, and this agreement has more paper than one
+// page holds. The links the read reached are still offered; what did not fit is
+// counted UNDER them, because a count about a list read above it is a caveat
+// nobody has anything to attach yet.
+export const MorePaperThanOnePage: Story = {
+  render: () => {
+    // The route map keys on the path and not the query, so the pages come out
+    // in the order the field asks for them: the first, then the one its cursor
+    // points at.
+    let asked = 0;
+    installFetchStub({
+      "GET /me": SESSION,
+      [DOCUMENTS]: () => {
+        asked += 1;
+        return asked === 1
+          ? jsonResponse({
+              data: [
+                PAPER,
+                {
+                  ...PAPER,
+                  id: "a-10",
+                  title: "Nachtrag 1",
+                  filename: "V-5253-VALA-N1.pdf",
+                },
+              ],
+              page: { has_more: true, next_cursor: "page-2" },
+            })
+          : jsonResponse({
+              data: [
+                { ...PAPER, id: "a-11" },
+                { ...PAPER, id: "a-12" },
+                { ...PAPER, id: "a-13" },
+                { ...PAPER, id: "a-14" },
+              ],
+              page: { has_more: false, next_cursor: null },
+            });
+      },
     });
     return field();
   },
