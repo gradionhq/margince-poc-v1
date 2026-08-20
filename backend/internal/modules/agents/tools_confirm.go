@@ -298,6 +298,7 @@ func recordLabel(rec datasource.Record) string {
 		Name        string `json:"name"`
 		Email       string `json:"email"`
 		Kind        string `json:"kind"`
+		Subject     string `json:"subject"`
 	}
 	//craft:ignore swallowed-errors label extraction is best-effort by design — unparseable fields fall through to the id below
 	_ = json.Unmarshal(rec.Fields, &f)
@@ -311,6 +312,14 @@ func recordLabel(rec datasource.Record) string {
 	// human needs to know WHICH note, and would suppress the id that told them.
 	if rec.Ref.Type == datasource.EntityRelationship && f.Kind != "" {
 		return fmt.Sprintf("%q", f.Kind)
+	}
+	// An activity's subject is the WHICH the kind cannot supply — "Archive
+	// activity 0195c3…" names nothing a human can weigh, while `Archive activity
+	// "Kickoff Migration Shopsystem"` is the decision they are being asked for.
+	// Also scoped to the one type, and to the field that identifies rather than
+	// classifies: an activity carrying no subject still falls through to the id.
+	if rec.Ref.Type == datasource.EntityActivity && f.Subject != "" {
+		return fmt.Sprintf("%q", f.Subject)
 	}
 	for _, s := range []string{f.FullName, f.DisplayName, f.Name, f.Email} {
 		if s != "" {
