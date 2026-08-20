@@ -52,11 +52,15 @@ type RenderIngredients struct {
 // (SetPdfAssetRef persists pdf_asset_ref, and the handler deletes the PDF
 // that ref replaces), so requiring every gate that write answers to here —
 // before the transaction even opens — means a caller who would be refused
-// at the end never reaches the render or the blob store at all;
-// PrepareRender is the sole admission gate for the whole render operation.
-// The row gate is the write-level one for that same reason: a render is an
-// edit of the offer, so read-level sight of the deal is not enough to start
-// one, exactly as it is not enough to send or archive the offer.
+// at the end never reaches the render or the blob store at all. This is
+// where the render operation is admitted, and it is deliberately NOT the
+// only place its authority is decided: SetPdfAssetRef is a separate store
+// entry point, reachable without ever calling this one, and it re-takes
+// both the object grant and the row gate itself before it persists.
+// The row gate is the write-level one for the same reason the update grant
+// is taken: a render is an edit of the offer, so read-level sight of the
+// deal is not enough to start one, exactly as it is not enough to send or
+// archive the offer.
 // It runs a single read-only transaction and never opens the blob store —
 // the caller (the render handler) writes the PDF bytes afterward and
 // commits the resulting ref through the separate SetPdfAssetRef call.
