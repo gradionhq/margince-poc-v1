@@ -1004,6 +1004,113 @@ describe("DealScreen — edit, archive, FX line (A3)", () => {
   });
 });
 
+// Closing a deal used to be reachable only by dragging its card on the board,
+// which meant it could not be done from the deal's own page at all — and not
+// at all on a touch device, where HTML5 drag never fires.
+describe("DealScreen — the stage stepper advances the deal", () => {
+  beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
+
+  it("moving to an open stage posts the advance pinned to the version shown", async () => {
+    const advances: { body: unknown; ifMatch: string | null }[] = [];
+    const d = deal({ id: "x", version: 7, stage_id: "s1" });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], {
+        single: d,
+        onAdvance: (body, ifMatch) => advances.push({ body, ifMatch }),
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealScreen id="x" />);
+
+    await user.click(await screen.findByRole("button", { name: "Proposal" }));
+
+    await waitFor(() => expect(advances.length).toBe(1));
+    expect((advances[0].body as { to_stage_id: string }).to_stage_id).toBe(
+      "s2",
+    );
+    // The version the record was drawn from, so a change made elsewhere
+    // meanwhile fails loud rather than being erased.
+    expect(advances[0].ifMatch).toBe("7");
+  });
+
+  // The advance is only half the job: a write whose confirmation is shown to
+  // nobody reads exactly like one that did not happen.
+  it("confirms the move on the record itself", async () => {
+    const d = deal({ id: "x", version: 7, stage_id: "s1" });
+    vi.stubGlobal("fetch", stubBackend([d], { single: d }));
+    const user = userEvent.setup();
+    render(<DealScreen id="x" />);
+
+    await user.click(await screen.findByRole("button", { name: "Proposal" }));
+
+    expect(await screen.findByText("Moved to Proposal")).toBeTruthy();
+  });
+
+  it("the stage the deal is already in is not a control", async () => {
+    const d = deal({ id: "x", stage_id: "s1" });
+    vi.stubGlobal("fetch", stubBackend([d], { single: d }));
+    render(<DealScreen id="x" />);
+
+    await screen.findByRole("button", { name: "Proposal" });
+    expect(screen.queryByRole("button", { name: "Qualify" })).toBeNull();
+  });
+
+  // Terminal stages are the 🟡 confirm (AC-deal-6), and a lost deal must say
+  // why — the same rule the board's drop enforces, because it is the same
+  // dialog.
+  it("closing as lost asks for a reason before anything is written", async () => {
+    const advances: { body: unknown; ifMatch: string | null }[] = [];
+    const d = deal({ id: "x", version: 2, stage_id: "s1" });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], {
+        single: d,
+        pipelines: [
+          {
+            id: "pl",
+            name: "Sales",
+            is_default: true,
+            position: 0,
+            stages: [
+              ...stages,
+              {
+                id: "s4",
+                pipeline_id: "pl",
+                name: "Lost",
+                position: 4,
+                semantic: "lost",
+                win_probability: 0,
+              },
+            ],
+          },
+        ],
+        onAdvance: (body, ifMatch) => advances.push({ body, ifMatch }),
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealScreen id="x" />);
+
+    await user.click(await screen.findByRole("button", { name: "Lost" }));
+    // Nothing is written while the dialog stands open.
+    expect(advances.length).toBe(0);
+
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    expect(confirm.hasAttribute("disabled")).toBe(true);
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Lost reason" }),
+      "went with a competitor",
+    );
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(advances.length).toBe(1));
+    const body = advances[0].body as { status: string; lost_reason: string };
+    expect(body.status).toBe("lost");
+    expect(body.lost_reason).toBe("went with a competitor");
+  });
+});
+
 describe("DealScreen — an archived deal keeps its verbs, refused", () => {
   beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
 

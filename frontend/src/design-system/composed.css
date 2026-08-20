@@ -548,6 +548,21 @@
   background: var(--bgCard);
   border-radius: var(--r-full);
   padding: 4px 12px;
+  border: 0;
+  font-family: var(--f-body);
+}
+/* Every step but the current one is a button that moves the deal there, so it
+   has to read as pressable rather than as the label it sits beside. */
+.stepper button.step {
+  cursor: pointer;
+}
+.stepper button.step:hover:not(:disabled) {
+  color: var(--textOnAccentControl);
+  background: var(--accent);
+}
+.stepper button.step:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .stepper .step.current {
   background: var(--accent);
