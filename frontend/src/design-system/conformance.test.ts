@@ -744,3 +744,40 @@ describe("focus", () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Server refusals. `ProblemError` is what tells a refusal the server MEANT
+// from a bug worth logging: the global failure sink stays quiet for one and
+// `console.error`s anything else, and only a ProblemError carries the RFC-7807
+// `details.errors[]` a form needs to put a refusal on the field it is about.
+//
+// Eleven query and mutation functions threw `new Error(problemMessage(error))`
+// instead. Each one flattened the answer to a sentence, so every refused save at
+// those sites was ALSO reported as an unexpected error, and the per-field
+// assertions the API already sends were unreachable. The wrapper reads as
+// careful — it does produce a readable message — which is exactly why a gate is
+// the only thing that keeps it out.
+// ---------------------------------------------------------------------------
+
+describe("problem details", () => {
+  it("throws the server's problem, never a sentence about it", () => {
+    const flattened = files
+      .filter((file) => /\.tsx?$/.test(file))
+      .filter((file) => !/\.(test|stories)\.tsx?$/.test(file))
+      .flatMap((file) => {
+        const text = readFileSync(file, "utf8").replace(
+          /\/\*[\s\S]*?\*\/|\/\/[^\n]*/g,
+          "",
+        );
+        return /throw new Error\(\s*problemMessage\(/.test(text)
+          ? [relative(frontendRoot, file)]
+          : [];
+      });
+    expect(
+      flattened,
+      "`throwProblem(error, t)` keeps the ProblemError: without it the global " +
+        "sink logs a server refusal as a bug, and `details.errors[]` — the only " +
+        "thing that can put a 422 on the field it is about — is discarded",
+    ).toEqual([]);
+  });
+});

@@ -7,7 +7,7 @@ import { useCanWrite } from "../app/capability";
 import { Button, TextInput } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 
 // The workspace own-domain surface (CAP-WIRE-2a, ADR-0082/A127): which domains
 // this installation treats as its own, and therefore whose mail it does not
@@ -32,7 +32,7 @@ function useOwnDomains() {
     queryFn: async () => {
       const { data, error, response } = await api.GET("/capture/email-domains");
       if (error || !response.ok) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -47,7 +47,7 @@ function useAddOwnDomain() {
         body: { domain },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
@@ -65,7 +65,7 @@ function useRemoveOwnDomain() {
         params: { path: { domain } },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
     },
     onSuccess: () => {
@@ -212,7 +212,7 @@ function CuratedDomains({
       )}
       {(add.isError || remove.isError) && (
         <span role="alert" className="form-error">
-          {(add.error ?? remove.error)?.message}
+          {problemMessageOf(add.error ?? remove.error, t)}
         </span>
       )}
     </div>

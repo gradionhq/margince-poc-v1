@@ -7,7 +7,7 @@ import { Callout } from "../design-system/callout";
 import { Meter } from "../design-system/readings";
 import { StatStrip } from "../design-system/statstrip";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import { QueryGate, throwProblem } from "./common";
 import { LicenseHolderCard } from "./licenseholder";
 
 // The entitlement surface: what the license grants, and how many seats are using
@@ -55,7 +55,7 @@ export function useLicenseEntitlement(enabled = true) {
     queryFn: async () => {
       const { data, error, response } = await api.GET("/installation/license");
       if (error || !response.ok) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
