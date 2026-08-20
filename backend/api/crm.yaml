@@ -2732,7 +2732,11 @@ paths:
         - name: partner_sourced
           in: query
           schema: { type: boolean }
-          description: true ⇒ partner_org_id IS NOT NULL; false ⇒ partner_org_id IS NULL. Drives the partner-sourced pipeline slice.
+          description: true ⇒ a partner is named; false ⇒ none is. The partner pipeline slice.
+        - name: partner_attribution
+          in: query
+          schema: { type: string, enum: [sourced, influenced] }
+          description: Deals a partner brought (`sourced`) or merely helped (`influenced`).
       responses:
         '200':
           description: A page of deals.
@@ -18721,6 +18725,12 @@ components:
         stage_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null stage FK; must belong to pipeline_id. Overlay mode: NULL (see pipeline_id; the incumbent dealstage id rides `raw`, OVA-MAP-6).' }
         organization_id: { type: [string, 'null'], format: uuid, description: 'Primary org; never a raw lead. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
         partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
+        partner_attribution:
+          type: [string, 'null']
+          description: >-
+            What the partner named by `partner_org_id` did: `sourced` (brought the deal) or
+            `influenced` (helped one we had). Travels with the partner — naming a partner
+            defaults it to `sourced`. Commission accrues on `sourced` only.
         project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422. Null when the caller may not read that project, in which case `masked_fields` names it.' }
         owner_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [open, won, lost], default: open }
@@ -18789,6 +18799,11 @@ components:
         currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
         organization_id: { type: [string, 'null'], format: uuid }
         partner_org_id: { type: [string, 'null'], format: uuid }
+        partner_attribution:
+          type: [string, 'null']
+          description: >-
+            `sourced` or `influenced`. Naming a partner without this field attributes the
+            deal `sourced`; an attribution for a deal naming no partner is refused 422.
         project_id: { type: [string, 'null'], format: uuid }
         owner_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [open, won, lost] }

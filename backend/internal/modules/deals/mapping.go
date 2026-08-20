@@ -155,6 +155,7 @@ func dealUpdateInput(req crmcontracts.UpdateDealRequest, ifVersion *int64) Updat
 		ProjectID:             idArg[ids.ProjectKind](req.ProjectId),
 		OwnerID:               idArg[ids.UserKind](req.OwnerId),
 		PartnerOrganizationID: idArg[ids.OrganizationKind](req.PartnerOrgId),
+		PartnerAttribution:    req.PartnerAttribution,
 		IfVersion:             ifVersion,
 		CustomFields:          req.AdditionalProperties,
 	}

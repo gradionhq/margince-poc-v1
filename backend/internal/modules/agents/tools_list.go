@@ -131,7 +131,7 @@ func (t listRecords) Spec() mcp.ToolSpec {
 func (t listRecords) describeFilters() string {
 	lines := make([]string, 0, len(listRecordTypes)+1)
 	lines = append(lines, "Narrow the list. Every operand is a string, booleans included (\"true\"). "+
-		"Each record_type takes only its own filters:")
+		"Each record_type takes only its own:")
 	for _, recordType := range listRecordTypes {
 		names := make([]string, 0, len(t.filters[recordType]))
 		for _, filter := range t.filters[recordType] {

@@ -61,19 +61,23 @@ func readDealForCaller(ctx context.Context, tx pgx.Tx, id ids.DealID, archived s
 }
 
 type ListDealsInput struct {
-	Cursor          *string
-	Limit           *int
-	Query           *string
-	PipelineID      *ids.PipelineID
-	StageID         *ids.StageID
-	OwnerID         *ids.UserID
-	OrganizationID  *ids.OrganizationID
-	ProjectID       *ids.ProjectID
-	PartnerOrgID    *ids.OrganizationID
-	PartnerSourced  *bool
-	Status          *string
-	Stalled         *bool
-	IncludeArchived bool
+	Cursor         *string
+	Limit          *int
+	Query          *string
+	PipelineID     *ids.PipelineID
+	StageID        *ids.StageID
+	OwnerID        *ids.UserID
+	OrganizationID *ids.OrganizationID
+	ProjectID      *ids.ProjectID
+	PartnerOrgID   *ids.OrganizationID
+	PartnerSourced *bool
+	// PartnerAttribution narrows to what the partner did — "sourced" or
+	// "influenced". Narrower than PartnerSourced, which only asks whether a
+	// partner is named at all.
+	PartnerAttribution *string
+	Status             *string
+	Stalled            *bool
+	IncludeArchived    bool
 	// Sort is the contract's sort spec, validated against the core
 	// vocabulary below plus the workspace's active cf_ columns.
 	Sort *string
@@ -193,6 +197,12 @@ func appendDealFilters(ctx context.Context, where []string, in ListDealsInput, a
 			where = append(where, "NOT "+PartnerSourcedSQL(""))
 		}
 	}
+	if in.PartnerAttribution != nil {
+		if err := validPartnerAttribution(*in.PartnerAttribution); err != nil {
+			return nil, err
+		}
+		where = append(where, storekit.SQLf("partner_attribution = $%d", arg(*in.PartnerAttribution)))
+	}
 	if in.Status != nil {
 		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
 	}
@@ -244,7 +254,7 @@ func referenceFilterClause(ctx context.Context, column, table string, id ids.UUI
 }
 
 const dealColumns = `id, name, amount_minor, currency, pipeline_id, stage_id,
-	organization_id, project_id, owner_id, partner_org_id, status, lost_reason,
+	organization_id, project_id, owner_id, partner_org_id, partner_attribution, status, lost_reason,
 	won_without_contract_reason, won_without_contract_detail,
 	expected_close_date, close_date_provisional, closed_at, forecast_category, wait_until, last_activity_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
@@ -280,7 +290,7 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	var wonReason *string
 	dests := []any{
 		&id, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
-		&orgID, &projectID, &ownerID, &partnerID, &status, &d.LostReason,
+		&orgID, &projectID, &ownerID, &partnerID, &d.PartnerAttribution, &status, &d.LostReason,
 		&wonReason, &d.WonWithoutContractDetail,
 		&expectedClose, &closeDateProvisional, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
 		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt,

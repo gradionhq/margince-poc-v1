@@ -10251,6 +10251,24 @@ func (e ListDealsParamsStatus) Valid() bool {
 	}
 }
 
+// Defines values for ListDealsParamsPartnerAttribution.
+const (
+	Influenced ListDealsParamsPartnerAttribution = "influenced"
+	Sourced    ListDealsParamsPartnerAttribution = "sourced"
+)
+
+// Valid indicates whether the value is a known member of the ListDealsParamsPartnerAttribution enum.
+func (e ListDealsParamsPartnerAttribution) Valid() bool {
+	switch e {
+	case Influenced:
+		return true
+	case Sourced:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListDealOffersParamsStatus.
 const (
 	ListDealOffersParamsStatusAccepted   ListDealOffersParamsStatus = "accepted"
@@ -14369,6 +14387,9 @@ type Deal struct {
 	// OrganizationId Primary org; never a raw lead. Null when the caller may not read that organization, in which case `masked_fields` names it.
 	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
 	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
+
+	// PartnerAttribution What the partner named by `partner_org_id` did: `sourced` (brought the deal) or `influenced` (helped one we had). Travels with the partner — naming a partner defaults it to `sourced`. Commission accrues on `sourced` only.
+	PartnerAttribution *string `json:"partner_attribution,omitempty"`
 
 	// PartnerOrgId Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.
 	PartnerOrgId *openapi_types.UUID `json:"partner_org_id,omitempty"`
@@ -20924,11 +20945,14 @@ type UpdateDealRequest struct {
 	FxRateDate        *openapi_types.Date                `json:"fx_rate_date,omitempty"`
 
 	// FxRateToBase Native→base rate to FREEZE at close. Required (server may also compute it from the FX table) when transitioning to won with a non-base currency — satisfies the deal_closed_fx CHECK (formulas §6.1). Ignored while open.
-	FxRateToBase         *string                  `json:"fx_rate_to_base,omitempty"`
-	LostReason           *string                  `json:"lost_reason,omitempty"`
-	Name                 *string                  `json:"name,omitempty"`
-	OrganizationId       *openapi_types.UUID      `json:"organization_id,omitempty"`
-	OwnerId              *openapi_types.UUID      `json:"owner_id,omitempty"`
+	FxRateToBase   *string             `json:"fx_rate_to_base,omitempty"`
+	LostReason     *string             `json:"lost_reason,omitempty"`
+	Name           *string             `json:"name,omitempty"`
+	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
+	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
+
+	// PartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+	PartnerAttribution   *string                  `json:"partner_attribution,omitempty"`
 	PartnerOrgId         *openapi_types.UUID      `json:"partner_org_id,omitempty"`
 	ProjectId            *openapi_types.UUID      `json:"project_id,omitempty"`
 	Status               *UpdateDealRequestStatus `json:"status,omitempty"`
@@ -22640,12 +22664,18 @@ type ListDealsParams struct {
 	// PartnerOrgId Filter to deals attributed to a specific partner org (deal.partner_org_id).
 	PartnerOrgId *openapi_types.UUID `form:"partner_org_id,omitempty" json:"partner_org_id,omitempty"`
 
-	// PartnerSourced true ⇒ partner_org_id IS NOT NULL; false ⇒ partner_org_id IS NULL. Drives the partner-sourced pipeline slice.
+	// PartnerSourced true ⇒ a partner is named; false ⇒ none is. The partner pipeline slice.
 	PartnerSourced *bool `form:"partner_sourced,omitempty" json:"partner_sourced,omitempty"`
+
+	// PartnerAttribution Deals a partner brought (`sourced`) or merely helped (`influenced`).
+	PartnerAttribution *ListDealsParamsPartnerAttribution `form:"partner_attribution,omitempty" json:"partner_attribution,omitempty"`
 }
 
 // ListDealsParamsStatus defines parameters for ListDeals.
 type ListDealsParamsStatus string
+
+// ListDealsParamsPartnerAttribution defines parameters for ListDeals.
+type ListDealsParamsPartnerAttribution string
 
 // CreateDealParams defines parameters for CreateDeal.
 type CreateDealParams struct {
@@ -27565,6 +27595,14 @@ func (a *Deal) UnmarshalJSON(b []byte) error {
 		delete(object, "owner_id")
 	}
 
+	if raw, found := object["partner_attribution"]; found {
+		err = json.Unmarshal(raw, &a.PartnerAttribution)
+		if err != nil {
+			return fmt.Errorf("error reading 'partner_attribution': %w", err)
+		}
+		delete(object, "partner_attribution")
+	}
+
 	if raw, found := object["partner_org_id"]; found {
 		err = json.Unmarshal(raw, &a.PartnerOrgId)
 		if err != nil {
@@ -27803,6 +27841,13 @@ func (a Deal) MarshalJSON() ([]byte, error) {
 		object["owner_id"], err = json.Marshal(a.OwnerId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	if a.PartnerAttribution != nil {
+		object["partner_attribution"], err = json.Marshal(a.PartnerAttribution)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'partner_attribution': %w", err)
 		}
 	}
 
@@ -30587,6 +30632,14 @@ func (a *UpdateDealRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "owner_id")
 	}
 
+	if raw, found := object["partner_attribution"]; found {
+		err = json.Unmarshal(raw, &a.PartnerAttribution)
+		if err != nil {
+			return fmt.Errorf("error reading 'partner_attribution': %w", err)
+		}
+		delete(object, "partner_attribution")
+	}
+
 	if raw, found := object["partner_org_id"]; found {
 		err = json.Unmarshal(raw, &a.PartnerOrgId)
 		if err != nil {
@@ -30705,6 +30758,13 @@ func (a UpdateDealRequest) MarshalJSON() ([]byte, error) {
 		object["owner_id"], err = json.Marshal(a.OwnerId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	if a.PartnerAttribution != nil {
+		object["partner_attribution"], err = json.Marshal(a.PartnerAttribution)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'partner_attribution': %w", err)
 		}
 	}
 
@@ -40807,6 +40867,19 @@ func (siw *ServerInterfaceWrapper) ListDeals(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "partner_sourced"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "partner_sourced", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "partner_attribution" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "partner_attribution", r.URL.Query(), &params.PartnerAttribution, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "partner_attribution"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "partner_attribution", Err: err})
 		}
 		return
 	}

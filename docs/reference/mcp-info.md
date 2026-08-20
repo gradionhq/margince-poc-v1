@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 43 |
 | Resources | 8 |
-| Tool catalog | 121.5 KB |
+| Tool catalog | 121.6 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 31892 |
+| Approx. wire tokens | 31900 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -30,7 +30,7 @@ budget in `agenttooldescriptions_test.go`.
 |---|---:|---:|---|
 | Output schemas | 52.5 KB | 43% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 31.6 KB | 26% | Yes, every step |
-| Input schemas | 28.1 KB | 23% | Yes, every step |
+| Input schemas | 28.2 KB | 23% | Yes, every step |
 | _Names, annotations, punctuation_ | 9.2 KB | 7% | Partly |
 | **Description + input schema** | **59.8 KB** | **49%** | **the recurring cost** |
 
@@ -3610,7 +3610,7 @@ Enumerate the people, organizations, deals, leads or projects that meet exact co
       "additionalProperties": {
         "type": "string"
       },
-      "description": "Narrow the list. Every operand is a string, booleans included (\"true\"). Each record_type takes only its own filters: person — owner_id, tag organization — domain, lifecycle (unknown|target|prospect|opportunity|customer|former_customer|disqualified), owner_id, relationship_type (customer|partner|supplier|investor|portfolio_company|competitor|other) deal — organization_id, owner_id, partner_org_id, partner_sourced (boolean), pipeline_id, project_id, stage_id, stalled (boolean), status (open|won|lost) lead — min_score (integer), owner_id, status (new|contacted|engaged|promoted|disqualified) project — key, organization_id, owner_id, phase (initiative|pursuing|delivering|closed) A pipeline_id or stage_id comes from list_pipelines; nothing else on this surface yields one.",
+      "description": "Narrow the list. Every operand is a string, booleans included (\"true\"). Each record_type takes only its own: person — owner_id, tag organization — domain, lifecycle (unknown|target|prospect|opportunity|customer|former_customer|disqualified), owner_id, relationship_type (customer|partner|supplier|investor|portfolio_company|competitor|other) deal — organization_id, owner_id, partner_attribution (sourced|influenced), partner_org_id, partner_sourced (boolean), pipeline_id, project_id, stage_id, stalled (boolean), status (open|won|lost) lead — min_score (integer), owner_id, status (new|contacted|engaged|promoted|disqualified) project — key, organization_id, owner_id, phase (initiative|pursuing|delivering|closed) A pipeline_id or stage_id comes from list_pipelines; nothing else on this surface yields one.",
       "type": "object"
     },
     "limit": {

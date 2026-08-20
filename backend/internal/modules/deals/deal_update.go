@@ -34,10 +34,15 @@ type UpdateDealInput struct {
 	ProjectID             *ids.ProjectID
 	OwnerID               *ids.UserID
 	PartnerOrganizationID *ids.OrganizationID
-	ExpectedClose         *time.Time
-	ForecastCategory      *string
-	WaitUntil             *time.Time
-	IfVersion             *int64
+	// PartnerAttribution says what the partner did for the deal — "sourced"
+	// or "influenced". It is meaningless without PartnerOrganizationID, and
+	// the store refuses the pair half-set rather than storing a claim about
+	// a partner the deal does not name.
+	PartnerAttribution *string
+	ExpectedClose      *time.Time
+	ForecastCategory   *string
+	WaitUntil          *time.Time
+	IfVersion          *int64
 	// CustomFields carries the request body's extra top-level keys
 	// (additionalProperties); only active cf_* catalog columns land,
 	// drop-on-mismatch (storekit customcolumns).

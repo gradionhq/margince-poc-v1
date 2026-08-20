@@ -292,6 +292,10 @@ func (s Server) ListDeals(w http.ResponseWriter, r *http.Request, params crmcont
 			{"stalled", params.Stalled != nil},
 			{"partner_org_id", params.PartnerOrgId != nil},
 			{"partner_sourced", params.PartnerSourced != nil},
+			// The partner program is ours: a mirrored deal carries the
+			// incumbent's own partner arrangement, not an attribution
+			// Margince ever recorded, so there is nothing here to narrow by.
+			{"partner_attribution", params.PartnerAttribution != nil},
 			// Delivery work is OUR record: the mirror holds the incumbent's
 			// deals and carries no project to attribute one to. Narrowing by a
 			// project would answer the whole mirror while reading as that

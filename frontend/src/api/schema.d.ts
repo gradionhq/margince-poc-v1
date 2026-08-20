@@ -13044,6 +13044,8 @@ export interface components {
              * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.
              */
             partner_org_id?: string | null;
+            /** @description What the partner named by `partner_org_id` did: `sourced` (brought the deal) or `influenced` (helped one we had). Travels with the partner — naming a partner defaults it to `sourced`. Commission accrues on `sourced` only. */
+            partner_attribution?: string | null;
             /**
              * Format: uuid
              * @description The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422. Null when the caller may not read that project, in which case `masked_fields` names it.
@@ -13140,6 +13142,8 @@ export interface components {
             organization_id?: string | null;
             /** Format: uuid */
             partner_org_id?: string | null;
+            /** @description `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422. */
+            partner_attribution?: string | null;
             /** Format: uuid */
             project_id?: string | null;
             /** Format: uuid */
@@ -21476,8 +21480,10 @@ export interface operations {
                 project_id?: string;
                 /** @description Filter to deals attributed to a specific partner org (deal.partner_org_id). */
                 partner_org_id?: string;
-                /** @description true ⇒ partner_org_id IS NOT NULL; false ⇒ partner_org_id IS NULL. Drives the partner-sourced pipeline slice. */
+                /** @description true ⇒ a partner is named; false ⇒ none is. The partner pipeline slice. */
                 partner_sourced?: boolean;
+                /** @description Deals a partner brought (`sourced`) or merely helped (`influenced`). */
+                partner_attribution?: "sourced" | "influenced";
             };
             header?: never;
             path?: never;
