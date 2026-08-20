@@ -314,9 +314,15 @@ bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6
 # by hand, where a person is watching the clock — and a PERF-7 row measured
 # below mid-market renders `inconclusive` in the published page rather than
 # claiming a bound it did not test.
+#
+# MARGINCE_BENCH_RECORD is cleared rather than merely left unset: "writes
+# nothing" must be a property of the target, not of whatever the caller's shell
+# happened to export. A developer with it set from an earlier `bench-perf` would
+# otherwise have this target rewrite the published record from the SMB tier.
 bench-perf-check: composition ## PERF-3/PERF-7 on the SMB tier, no record written (needs db-up; the scheduled lane's target)
 	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && bench_db $(BENCH_DB_NAME) \
-	  && cd backend && MARGINCE_BENCH_TIER=smb MARGINCE_TEST_DSN="$$BENCH_OWNER_DSN" MARGINCE_TEST_APP_DSN="$$BENCH_APP_DSN" \
+	  && cd backend && MARGINCE_BENCH_TIER=smb MARGINCE_BENCH_RECORD= \
+	     MARGINCE_TEST_DSN="$$BENCH_OWNER_DSN" MARGINCE_TEST_APP_DSN="$$BENCH_APP_DSN" \
 	     $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 20m ./internal/compose/integration'
 
 # The `bench` lane: measurements run BY HAND, never by a merge gate.

@@ -216,6 +216,8 @@ jobs:
   # own numbers into the tree is the failure that switch exists to prevent.
   perf-budgets:
     name: perf budgets (PERF-3/PERF-7, SMB tier)
+    outputs:
+      outcome: ${{ steps.bench.outputs.outcome }}
     if: github.event.schedule == '0 2 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.perf)
     runs-on: ubuntu-latest
     # The SMB tier measures in under a minute on a fast machine; 30 leaves room
@@ -253,9 +255,31 @@ jobs:
       - name: Start the dev infra stack (compose + app role)
         working-directory: .
         run: make db-up
+      # The step separates "a budget breached" from "the lane could not run",
+      # because the job result cannot: a failed checkout, a cold cache, a
+      # refused database or a hung seed all reach the reporter as `failure`, and
+      # an issue that says a budget is breaching sends somebody bisecting a
+      # regression that may not exist.
+      #
+      # The distinction is taken from the harness's own words. search.Gate()
+      # fails with `search: perfbench: <query> p95 …` (perfbench.go:107) — the
+      # only path that prints that prefix is a measured budget being exceeded.
+      # Anything else that fails is the lane, not the product.
       - name: PERF-3/PERF-7 on the SMB tier
+        id: bench
         working-directory: .
-        run: make bench-perf-check
+        run: |
+          set -o pipefail
+          if make bench-perf-check 2>&1 | tee bench.log; then
+            echo "outcome=ok" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if grep -q "search: perfbench:" bench.log; then
+            echo "outcome=breach" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=lane-failed" >> "$GITHUB_OUTPUT"
+          fi
+          exit 1
 
   # Delete the build caches nothing can restore. The go-build key ends in the
   # commit sha and falls back through restore-keys to the newest entry sharing
@@ -338,5 +362,6 @@ jobs:
           GATE_STATUS: ${{ needs.quality-gate.outputs.status }}
           LANE_RESULT: ${{ needs.backend-lane.result }}
           PERF_RESULT: ${{ needs.perf-budgets.result }}
+          PERF_OUTCOME: ${{ needs.perf-budgets.outputs.outcome }}
           CACHE_RESULT: ${{ needs.reap-caches.result }}
         run: ./scripts/scheduled-report.sh

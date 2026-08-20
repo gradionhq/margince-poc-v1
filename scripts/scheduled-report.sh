@@ -97,7 +97,33 @@ So the breakage may predate the most recent commit. Reproduce locally with
     || unreported=1
 fi
 
-if [ "${PERF_RESULT:-}" = "failure" ]; then
+# Two findings, not one, because the job result cannot tell them apart: a failed
+# checkout, a cold cache, a refused database or a hung seed all arrive here as
+# `failure`. Filing "a budget is breaching" for those sends somebody bisecting a
+# regression that never happened — which is the failure this whole lane keeps
+# learning about. PERF_OUTCOME is set by the step from the harness's own breach
+# message, so only a MEASURED breach is reported as one.
+if [ "${PERF_RESULT:-}" = "failure" ] && [ "${PERF_OUTCOME:-}" != "breach" ]; then
+  report "the weekly PERF-3/PERF-7 run could not complete" bug \
+"\`make bench-perf-check\` failed on the weekly run of \`main\` WITHOUT reaching a
+budget verdict: $RUN_URL
+
+No budget is known to be breaching, and none is known to hold — the lane did not
+get far enough to say. The step separates the two outcomes precisely so this
+issue does not claim a regression that was never measured.
+
+Likely causes, in the order they occur: the runner could not reach the Postgres
+service, \`bench_db\` could not create \`margince_bench\`, or the SMB seed
+outran \`go test\`'s 20m budget (which would have printed a goroutine dump — if
+the job was killed at 30m instead, the runner was slower than the budget assumes
+and the two timeouts need re-deriving, not raising).
+
+Reproduce with \`make db-up && make bench-perf-check\`. The published budgets
+page is untouched either way: this lane never sets MARGINCE_BENCH_RECORD."\
+    || unreported=1
+fi
+
+if [ "${PERF_OUTCOME:-}" = "breach" ]; then
   report "a PERF-3/PERF-7 budget is breaching on main" bug \
 "\`make bench-perf-check\` failed on the weekly run of \`main\`: $RUN_URL
 
