@@ -13696,7 +13696,7 @@ export interface components {
          */
         UpdateAttachmentMetadataRequest: {
             /** @enum {string} */
-            category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+            category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";
             title?: string | null;
             /** @enum {string} */
             doc_state?: "draft" | "current" | "final" | "superseded";
@@ -13723,10 +13723,16 @@ export interface components {
             /** @description sha256 of the bytes, for integrity/dedupe. */
             checksum?: string | null;
             /**
-             * @description What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+             * @description What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the
+             *     honest default, not a fallback for an unknown value.
+             *
+             *     `email_attachment` and `message_attachment` record PROVENANCE rather than
+             *     content: capture derives them from the transport the file arrived on, so a
+             *     file that came with a Telegram message is not reported as an email one. The
+             *     remaining values describe what the document IS and are a human's choice.
              * @enum {string}
              */
-            category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+            category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";
             /** @description A display name distinct from the filename — what a reader looks for, rather than what arrived. */
             title?: string | null;
             /**
@@ -32722,7 +32728,7 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
-                category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+                category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";
                 doc_state?: "draft" | "current" | "final" | "superseded";
                 pinned_only?: boolean;
                 /** @description Only the paper filed against this agreement (CONTRACT-DDL-5). */
