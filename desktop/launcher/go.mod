@@ -5,4 +5,4 @@
 // with GOWORK=off.
 module github.com/gradionhq/margince/desktop/launcher
 
-go 1.26.5
+go 1.27.0

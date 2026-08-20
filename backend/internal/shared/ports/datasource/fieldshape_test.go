@@ -263,3 +263,30 @@ func TestStrictDecode_namesANestedArrayWithoutRepeatingItself(t *testing.T) {
 		t.Errorf("refusal = %q, want %q", refusal.Error(), want)
 	}
 }
+
+// An ARRAY INDEX in a decoder path is a position in a field, not a key below
+// it. The distinction decides whether this walk answers or defers, and getting
+// it wrong is silent: the deferral produces a sentence that is true about one
+// element and says nothing about the shape the field holds.
+//
+// Asserted directly on the classifier rather than through a decode, because
+// which paths encoding/json produces is the toolchain's choice and has changed
+// once already — go1.27 began reporting `links.0` where go1.26 reported
+// `links`. The classification is ours either way, so it is tested as ours.
+func TestNamesAKeyBelowATopLevelField_readsAnIndexAsAPositionAndNotAKey(t *testing.T) {
+	for path, below := range map[string]bool{
+		"":                  false,
+		"links":             false,
+		"links.0":           false,
+		"links.12":          false,
+		"links.0.entity_id": true,
+		"address.city":      true,
+		"links.0.tags":      true,
+	} {
+		t.Run(fmt.Sprintf("%q", path), func(t *testing.T) {
+			if got := namesAKeyBelowATopLevelField(path); got != below {
+				t.Errorf("namesAKeyBelowATopLevelField(%q) = %v, want %v", path, got, below)
+			}
+		})
+	}
+}

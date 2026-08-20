@@ -17,8 +17,11 @@ package backendarch
 // product module is the pin CI actually reads, so it is the one that decides.
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -41,13 +44,12 @@ func TestEveryGoVersionPinMatchesTheProductModule(t *testing.T) {
 		}
 	})
 
-	for _, module := range []string{
-		"tools/go.mod",
-		"../composition/go.mod",
-		"../extensions/de/go.mod",
-		"../extensions/notes/go.mod",
-		"../extensions/yogi/go.mod",
-	} {
+	// Derived from the tree, not listed. The list this replaced named five
+	// modules of the fifteen that exist, and the two it happened not to name had
+	// already drifted a patch release behind — which is the same failure the
+	// whole test exists to catch, reintroduced by the shape of the check. A list
+	// also cannot cover a module written after it.
+	for _, module := range everyModuleFile(t) {
 		t.Run(module, func(t *testing.T) {
 			if got := goVersionOf(t, module); got != want {
 				t.Errorf("%s pins go %s, backend/go.mod pins %s", module, got, want)
@@ -73,6 +75,48 @@ func TestEveryGoVersionPinMatchesTheProductModule(t *testing.T) {
 				"the template is copied into new modules verbatim", want)
 		}
 	})
+}
+
+// moduleRoots are the trees a hand-written go.mod lives under. They are named
+// the way license_test.go names its roots, and for the same reason: a walk from
+// the repository root would also read the GENERATED module under build/, and any
+// unrelated checkout nested inside the working tree, neither of whose pins this
+// test has any claim on.
+var moduleRoots = []string{".", "../cli", "../composition", "../desktop", "../extensions", "../fixtures"}
+
+// everyModuleFile collects every go.mod under those roots, so a module added
+// tomorrow is held to the product module's pin on the day it lands.
+func everyModuleFile(t *testing.T) []string {
+	t.Helper()
+	var found []string
+	for _, root := range moduleRoots {
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			// An extension unit may carry a frontend, and walking its installed
+			// dependencies is thousands of directories of pure cost.
+			if entry.IsDir() && entry.Name() == "node_modules" {
+				return fs.SkipDir
+			}
+			if !entry.IsDir() && entry.Name() == "go.mod" {
+				found = append(found, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s for go.mod files: %v", root, err)
+		}
+	}
+	// The product module is the pin every other one is compared against, so its
+	// own file must be in what the walk found. Without this a mistyped root
+	// reports success for having read nothing, which is the one way a derived
+	// check fails worse than the list it replaced.
+	if !slices.Contains(found, "go.mod") {
+		t.Fatalf("the walk over %v did not find backend/go.mod, so it is not reading this tree; found %v",
+			moduleRoots, found)
+	}
+	return found
 }
 
 func goVersionOf(t *testing.T, path string) string {

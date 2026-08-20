@@ -26,6 +26,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -142,12 +143,10 @@ type ProbeDecoder func(raw json.RawMessage, into any) error
 //craft:ignore naked-any mirror of StrictDecode's seam target
 func LocalizeFieldFault(raw json.RawMessage, into any, err error, decode ProbeDecoder) *FieldShapeError {
 	var typeErr *json.UnmarshalTypeError
-	if errors.As(err, &typeErr) && strings.Contains(typeErr.Field, ".") {
-		// A DOTTED path reaches inside a nested value (`links.entity_id`) where
-		// this walk only reaches top-level keys, so the decoder's answer is the
-		// more precise one and must survive. encoding/json builds that path by
-		// joining its field stack on ".", and no contract field name contains
-		// one, so the separator is the test.
+	if errors.As(err, &typeErr) && namesAKeyBelowATopLevelField(typeErr.Field) {
+		// A path that reaches inside a nested value (`links.entity_id`) names a
+		// key this walk cannot reach, since it only decodes top-level keys, so
+		// the decoder's answer is the more precise one and must survive.
 		//
 		// A bare top-level name is NOT deferred to, even though the decoder
 		// supplies one: at that point it reports the type it was filling when it
@@ -184,6 +183,26 @@ func LocalizeFieldFault(raw json.RawMessage, into any, err error, decode ProbeDe
 		return refusal
 	}
 	return nil
+}
+
+// namesAKeyBelowATopLevelField reports whether a decoder path reaches a key
+// BELOW a top-level field, which is the case this walk cannot answer.
+//
+// encoding/json joins its field stack on ".", and no contract field name
+// contains one, so the separator carries the nesting. An ARRAY INDEX is a
+// segment too — `links.0` is one element of the top-level field `links`, while
+// `links.0.entity_id` is a key inside that element — so indices are discounted
+// before counting: an index is a position IN a field, not a key below it, and
+// reading one as nesting defers the array-shape refusal this walk exists to
+// produce.
+func namesAKeyBelowATopLevelField(path string) bool {
+	named := 0
+	for _, segment := range strings.Split(path, ".") {
+		if _, isIndex := strconv.Atoi(segment); isIndex != nil {
+			named++
+		}
+	}
+	return named > 1
 }
 
 // declaredFieldKeys narrows a payload's keys to the ones the target actually
