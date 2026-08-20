@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"sort"
 	"strings"
@@ -35,29 +34,6 @@ const (
 	// a touch loses half its recency weight every 30 days.
 	recencyHalfLifeDays = 30
 )
-
-// sourceTrust maps provenance channels to the trust factor: a human
-// statement outranks an agent write outranks captured external content
-// (the T0/T1/T2 ladder projected onto activity.source).
-var sourceTrust = map[string]float64{
-	"manual": 1.0,
-	"mcp":    0.7,
-}
-
-const defaultSourceTrust = 0.4 // captured/connector content — T2
-
-func rankScore(similarity float64, occurredAt time.Time, source string, now time.Time) float64 {
-	days := now.Sub(occurredAt).Hours() / 24
-	if days < 0 {
-		days = 0
-	}
-	recency := math.Exp2(-days / recencyHalfLifeDays)
-	trust, ok := sourceTrust[source]
-	if !ok {
-		trust = defaultSourceTrust
-	}
-	return wRankSim*similarity + wRankRec*recency + wRankTrust*trust
-}
 
 type graphSection struct {
 	name  string
@@ -242,7 +218,7 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 		return nil, nil, nil, err
 	}
 	activitySQL := fmt.Sprintf(`
-		SELECT a.id, coalesce(a.subject, a.kind), a.kind, a.is_done, a.occurred_at, a.source
+		SELECT a.id, coalesce(a.subject, a.kind), a.kind, a.is_done, a.occurred_at, coalesce(a.captured_by, '')
 		FROM activity a JOIN activity_link l ON l.activity_id = a.id
 		WHERE l.%s = $%d AND a.archived_at IS NULL`, linkCol, anchorPos)
 	if scope != "" {
@@ -256,10 +232,10 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 	defer rows.Close()
 	for rows.Next() {
 		var id ids.ActivityID
-		var summary, kind, source string
+		var summary, kind, capturedBy string
 		var isDone bool
 		var occurredAt time.Time
-		if err := rows.Scan(&id, &summary, &kind, &isDone, &occurredAt, &source); err != nil {
+		if err := rows.Scan(&id, &summary, &kind, &isDone, &occurredAt, &capturedBy); err != nil {
 			return nil, nil, nil, err
 		}
 		activityIDs = append(activityIDs, id)
@@ -268,7 +244,7 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 		// the untyped UUID.
 		item := graphItem{
 			entityType: string(datasource.EntityActivity), id: id.UUID, summary: summary,
-			score: rankScore(0, occurredAt, source, now), occurredAt: occurredAt,
+			score: rankScore(0, occurredAt, capturedBy, now), occurredAt: occurredAt,
 		}
 		if kind == "task" && !isDone {
 			openTasks = append(openTasks, item)

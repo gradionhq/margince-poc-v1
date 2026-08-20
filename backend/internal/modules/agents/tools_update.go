@@ -253,7 +253,7 @@ func (t updateRecord) applyRecord(ctx context.Context, args updateRecordArgs, pa
 	ref, err := t.p.Update(ctx, datasource.UpdateInput{
 		Ref:       datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID},
 		Patch:     patch,
-		Source:    toolSource,
+		Source:    ToolSource,
 		IfVersion: args.IfVersion,
 	})
 	if err != nil {

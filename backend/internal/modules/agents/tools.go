@@ -27,8 +27,18 @@ import (
 // times is a value nobody can grep for when the surface finally versions.
 const toolVersionV1 = "1.0.0"
 
-// toolSource is the provenance channel every MCP write carries.
-const toolSource = "mcp"
+// ToolSource is the origin every MCP write carries.
+//
+// Exported because compose writes one activity on the tool surface's behalf
+// (the slipping-deal follow-up) and must stamp the same word; a second literal
+// there is how the three spellings this replaced got started.
+//
+// It is `manual` — the same word the web app writes — because `source` names
+// where a row came from, and a tool call is a person asking for it through an
+// assistant rather than through a form. Which door it came through, and who
+// walked through it, are recorded in captured_by, where retrieval ranking and
+// the record history both read them.
+const ToolSource = "manual"
 
 // StageResolver supplies the advance_deal tier resolver's input: the
 // target stage's configured semantic (won/lost is a property of pipeline
@@ -233,7 +243,7 @@ func (t createRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	ref, err := t.p.Create(ctx, datasource.CreateInput{
 		EntityType: datasource.EntityType(args.RecordType),
 		Fields:     args.Fields,
-		Source:     toolSource,
+		Source:     ToolSource,
 	})
 	if err != nil {
 		return nil, err
@@ -351,7 +361,7 @@ func (t logActivity) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	ref, err := t.p.Create(ctx, datasource.CreateInput{
 		EntityType: datasource.EntityActivity,
 		Fields:     in,
-		Source:     toolSource,
+		Source:     ToolSource,
 	})
 	if err != nil {
 		return nil, err
@@ -437,7 +447,7 @@ func (t advanceDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 		DealID:                   args.DealID,
 		ToStageID:                args.ToStageID,
 		LostReason:               args.LostReason,
-		Source:                   toolSource,
+		Source:                   ToolSource,
 		IfVersion:                pin,
 	})
 	if err != nil {

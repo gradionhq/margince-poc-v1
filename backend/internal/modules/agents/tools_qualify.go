@@ -92,7 +92,7 @@ func (t qualifyLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 		if _, err := t.p.Update(ctx, datasource.UpdateInput{
 			Ref:       datasource.EntityRef{Type: datasource.EntityLead, ID: args.RecordID},
 			Patch:     raw,
-			Source:    toolSource,
+			Source:    ToolSource,
 			IfVersion: &rec.Version,
 		}); err != nil {
 			return nil, err
