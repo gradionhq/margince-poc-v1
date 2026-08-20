@@ -5545,6 +5545,7 @@ export const en = {
   "filters.loadView": "Load a saved filter",
   "filters.pickRecord": "Choose one",
   "filters.loadingRecords": "Loading choices…",
+  "filters.pickValue": "Choose a value",
   "filters.saveList": "Save as list",
   "filters.saveListTitle": "Save this filter as a dynamic list",
   "filters.listName": "List name",

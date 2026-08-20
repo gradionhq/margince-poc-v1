@@ -191,6 +191,54 @@ func TestTheVocabularyTellsACallerWhatAnIDFieldReferences(t *testing.T) {
 	}
 }
 
+// The values have to reach the CALLER. Declaring them and reporting them are
+// different things, and the last time this vocabulary gained a field the gates
+// proved only the former.
+func TestTheVocabularyTellsACallerAPicklistsValues(t *testing.T) {
+	fields, ok, err := (&Store{}).FilterVocabulary(readerCtx(), "deal")
+	if err != nil || !ok {
+		t.Fatalf("filterVocabulary: ok=%v err=%v", ok, err)
+	}
+	byName := map[string]VocabularyField{}
+	for _, f := range fields {
+		byName[f.Name] = f
+	}
+	if got := byName["status"].Options; len(got) != 3 || got[0] != "open" {
+		t.Errorf("status offers %v, want the contract's own three", got)
+	}
+	// A nullable enum's null is the column's nullability, not a value to offer.
+	for _, value := range byName["forecast_category"].Options {
+		if value == "" || value == "<nil>" {
+			t.Errorf("forecast_category offers %q as something a reader could pick", value)
+		}
+	}
+	// And a field with no closed set says so by carrying none.
+	if got := byName["owner_id"].Options; len(got) != 0 {
+		t.Errorf("owner_id is an id field and offers values %v", got)
+	}
+}
+
+// The wire shape: values are a present key for a picklist and an ABSENT one
+// otherwise. An empty array would say "this picklist admits nothing".
+func TestTheWireOmitsTheOptionsKeyForAFieldWithNoClosedSet(t *testing.T) {
+	withOptions := wireVocabularyField(VocabularyField{
+		Name: "status", Type: string(storekit.FieldPicklist),
+		Options: []string{"open", "won"},
+	})
+	if withOptions.Options == nil {
+		t.Fatal("a picklist carried no options to the wire")
+	}
+	if got := *withOptions.Options; len(got) != 2 || got[0] != "open" {
+		t.Errorf("wire options = %v, want the two given", got)
+	}
+	none := wireVocabularyField(VocabularyField{
+		Name: "full_name", Type: string(storekit.FieldText),
+	})
+	if none.Options != nil {
+		t.Errorf("a text field carried options %v to the wire", *none.Options)
+	}
+}
+
 // The wire shape of that answer: a reference is a present key, and no reference
 // is an ABSENT one. "" is not a member of the contract's enum, so sending it
 // would put a value the contract forbids on the wire.

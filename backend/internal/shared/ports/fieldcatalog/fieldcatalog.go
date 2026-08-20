@@ -60,6 +60,15 @@ func Types() []string {
 type Column struct {
 	Name string
 	Type string
+	// Options is a picklist column's allowed values, and is empty for every
+	// other type. It travels with the column because a consumer that has to
+	// OFFER the field needs them — a builder without them can only ask a reader
+	// to type a value from a closed set, which is how a mistyped one becomes a
+	// filter that silently matches nothing.
+	//
+	// The catalogue owns them, as it owns labels: they are per-workspace admin
+	// state, not something the engine or a consumer may derive.
+	Options []string
 }
 
 // Reader answers the active custom-field columns for one core object,

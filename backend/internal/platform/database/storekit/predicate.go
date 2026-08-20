@@ -95,6 +95,18 @@ type Field struct {
 	// (automation's preview vocabularies) owes no target, because nothing can
 	// offer a picker for it.
 	References Reference
+	// Options is a picklist field's allowed values, for a surface that has to
+	// OFFER them. Empty for every other type, and empty for a picklist whose
+	// values this engine does not know.
+	//
+	// ADVERTISEMENT only today: compileLeaf does not refuse a value outside the
+	// set. Making it refuse is a live-API behaviour change — a saved segment
+	// holding a value since removed from the set would begin failing at read time
+	// — so that is its own decision, tracked separately. What this field fixes
+	// meanwhile is the surface: a builder that knows the values offers them
+	// instead of asking a reader to type one, which is how a typo became a filter
+	// matching nothing.
+	Options []string
 }
 
 // Reference is a record type an id field's values point at. Named rather than a

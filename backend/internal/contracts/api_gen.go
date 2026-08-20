@@ -15157,6 +15157,17 @@ type FilterVocabularyField struct {
 	// this field, so a builder can disable it rather than discover it.
 	Operators []FilterVocabularyFieldOperators `json:"operators"`
 
+	// Options A picklist field's allowed values, present (non-empty) when
+	// `type=picklist` and absent otherwise. Offer these rather than a text
+	// box: a value outside the set compiles and matches nothing, so a typo
+	// reads as a settled answer instead of a mistake.
+	//
+	// For a workspace-defined field these are the catalog's own `options`
+	// for the same column. For a core field they are the values the
+	// contract enumerates, minus null — a null in one of those enums is the
+	// column's nullability, and `exists` is how a filter asks about that.
+	Options *[]string `json:"options,omitempty"`
+
 	// References The record type this field's ids point at — present for every `id`
 	// field, absent for every other type. Offer the record rather than a
 	// box for its uuid.

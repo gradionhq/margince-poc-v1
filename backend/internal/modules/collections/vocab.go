@@ -137,8 +137,9 @@ var ownerTeamField = storekit.Field{
 // value no row carries selects nothing rather than being refused.
 // TestAPicklistLeafComparesAnUnrecognisedValueRatherThanRefusingIt gates that.
 var relationshipTypeField = storekit.Field{
-	Expr: "rt.relationship_type",
-	Type: storekit.FieldPicklist,
+	Expr:    "rt.relationship_type",
+	Type:    storekit.FieldPicklist,
+	Options: relationshipTypeValues,
 	Link: "EXISTS (SELECT 1 FROM organization_relationship_type rt" +
 		" WHERE rt.organization_id = t.id AND rt.archived_at IS NULL AND %s)",
 }
@@ -165,9 +166,45 @@ const customerLink = "EXISTS (SELECT 1 FROM organization o WHERE o.id = t.organi
 // customerField types one organization column as a deal-side filter leaf. The
 // operators it advertises narrow themselves — OperatorsFor reads Link — so an
 // industry reached this way offers everything text does except `contains`.
-func customerField(column string, fieldType storekit.FieldType) storekit.Field {
-	return storekit.Field{Expr: "o." + column, Type: fieldType, Link: customerLink}
+func customerField(
+	column string, fieldType storekit.FieldType, options ...string,
+) storekit.Field {
+	return storekit.Field{
+		Expr: "o." + column, Type: fieldType, Link: customerLink, Options: options,
+	}
 }
+
+// The allowed values of each core picklist, so a builder offers them instead of
+// asking a reader to type one from a closed set. A mistyped value compiles and
+// matches nothing, which reads as a settled answer rather than as a mistake.
+//
+// These MIRROR the contract, which owns them, and
+// TestEveryCorePicklistOffersExactlyTheContractsValues reads the document and
+// fails when the two part company. Written out here rather than assembled from
+// the generated constants for one reason: the generator emits a `<nil>` member
+// for a nullable enum (OrganizationSizeBandLessThannil is real), and a set built
+// from constants would offer "<nil>" as something a human could pick.
+//
+// A null in a contract enum is the COLUMN's nullability, never a value worth
+// offering — `exists: false` is how a filter asks for empty — so the sets below
+// carry no null and the gate compares against the document minus it.
+var (
+	lifecycleValues = []string{
+		"unknown", "target", "prospect", "opportunity",
+		"customer", "former_customer", "disqualified",
+	}
+	sizeBandValues = []string{
+		"1-10", "11-50", "51-200", "201-500", "501-1000", "1001-5000", "5000+",
+	}
+	relationshipTypeValues = []string{
+		"customer", "partner", "supplier", "investor",
+		"portfolio_company", "competitor", "other",
+	}
+	dealStatusValues   = []string{"open", "won", "lost"}
+	forecastValues     = []string{"commit", "best_case", "pipeline", "omitted"}
+	leadStatusValues   = []string{"new", "contacted", "engaged", "promoted", "disqualified"}
+	projectPhaseValues = []string{"initiative", "pursuing", "delivering", "closed"}
+)
 
 var segmentEngines = map[string]storekit.Query{
 	"person": {
@@ -191,8 +228,8 @@ var segmentEngines = map[string]storekit.Query{
 			ownerIDField:     {Expr: colOwnerID, Type: storekit.FieldID, References: storekit.RefAppUser},
 			ownerTeamIDField: ownerTeamField,
 			"industry":       {Expr: "t.industry", Type: storekit.FieldText},
-			"size_band":      {Expr: "t.size_band", Type: storekit.FieldPicklist},
-			"lifecycle":      {Expr: "t.lifecycle", Type: storekit.FieldPicklist},
+			"size_band":      {Expr: "t.size_band", Type: storekit.FieldPicklist, Options: sizeBandValues},
+			"lifecycle":      {Expr: "t.lifecycle", Type: storekit.FieldPicklist, Options: lifecycleValues},
 			// RETIRED with the column (ADR-0079/A124), and kept here for the one
 			// release it survives: a saved segment written against it must keep
 			// evaluating until its author has moved it to lifecycle. Dropping the
@@ -215,8 +252,8 @@ var segmentEngines = map[string]storekit.Query{
 			"organization_id":   {Expr: "t.organization_id", Type: storekit.FieldID, References: storekit.RefOrganization},
 			"partner_org_id":    {Expr: "t.partner_org_id", Type: storekit.FieldID, References: storekit.RefOrganization},
 			"project_id":        {Expr: "t.project_id", Type: storekit.FieldID, References: storekit.RefProject},
-			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
-			"forecast_category": {Expr: "t.forecast_category", Type: storekit.FieldPicklist},
+			"status":            {Expr: "t.status", Type: storekit.FieldPicklist, Options: dealStatusValues},
+			"forecast_category": {Expr: "t.forecast_category", Type: storekit.FieldPicklist, Options: forecastValues},
 			tagFilterField:      tagLinkFor("deal"),
 			// The customer's own attributes, so "the pipeline for manufacturing"
 			// is a filter rather than a spreadsheet. Same columns and same types
@@ -228,15 +265,15 @@ var segmentEngines = map[string]storekit.Query{
 			// written against it keep evaluating — a NEW way to name it would be
 			// a fresh dependency on a column that is going away.
 			"organization_industry":  customerField("industry", storekit.FieldText),
-			"organization_size_band": customerField("size_band", storekit.FieldPicklist),
-			"organization_lifecycle": customerField("lifecycle", storekit.FieldPicklist),
+			"organization_size_band": customerField("size_band", storekit.FieldPicklist, sizeBandValues...),
+			"organization_lifecycle": customerField("lifecycle", storekit.FieldPicklist, lifecycleValues...),
 		},
 	},
 	"lead": {
 		Table:     "lead",
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
+			"status":            {Expr: "t.status", Type: storekit.FieldPicklist, Options: leadStatusValues},
 			ownerIDField:        {Expr: colOwnerID, Type: storekit.FieldID, References: storekit.RefAppUser},
 			ownerTeamIDField:    ownerTeamField,
 			"candidate_org_key": {Expr: "t.candidate_org_key", Type: storekit.FieldText},
@@ -250,7 +287,7 @@ var segmentEngines = map[string]storekit.Query{
 			ownerIDField:      {Expr: colOwnerID, Type: storekit.FieldID, References: storekit.RefAppUser},
 			ownerTeamIDField:  ownerTeamField,
 			"organization_id": {Expr: "t.organization_id", Type: storekit.FieldID, References: storekit.RefOrganization},
-			"phase":           {Expr: "t.phase", Type: storekit.FieldPicklist},
+			"phase":           {Expr: "t.phase", Type: storekit.FieldPicklist, Options: projectPhaseValues},
 			tagFilterField:    tagLinkFor(projectEntity),
 		},
 	},
@@ -367,7 +404,14 @@ func customField(column fieldcatalog.Column) (storekit.Field, bool) {
 	if !ok {
 		return storekit.Field{}, false
 	}
-	return storekit.Field{Expr: `t.` + pgx.Identifier{column.Name}.Sanitize(), Type: fieldType}, true
+	return storekit.Field{
+		Expr: `t.` + pgx.Identifier{column.Name}.Sanitize(),
+		Type: fieldType,
+		// Straight from the catalogue, which owns them for the same reason it owns
+		// labels: they are per-workspace admin state. Empty for every non-picklist
+		// type, which is what the column itself reports.
+		Options: column.Options,
+	}, true
 }
 
 // errNotAFilterTree is what a jsonb value that does not decode into the

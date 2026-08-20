@@ -68,7 +68,9 @@ func (s *Service) queryColumns(ctx context.Context, whereTail string, args ...an
 	var cols []fieldcatalog.Column
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			fmt.Sprintf(`SELECT column_name, type FROM custom_field WHERE object = $1 %s`, whereTail),
+			fmt.Sprintf(
+				`SELECT column_name, type, COALESCE(options, '[]'::jsonb)
+				   FROM custom_field WHERE object = $1 %s`, whereTail),
 			args...)
 		if err != nil {
 			return err
@@ -76,7 +78,10 @@ func (s *Service) queryColumns(ctx context.Context, whereTail string, args ...an
 		defer rows.Close()
 		for rows.Next() {
 			var c fieldcatalog.Column
-			if err := rows.Scan(&c.Name, &c.Type); err != nil {
+			// options is NULL for every non-picklist type, coalesced to an empty
+			// array above so the scan target is one shape rather than a pointer
+			// every caller would have to nil-check.
+			if err := rows.Scan(&c.Name, &c.Type, &c.Options); err != nil {
 				return err
 			}
 			cols = append(cols, c)

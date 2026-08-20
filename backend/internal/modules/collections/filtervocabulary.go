@@ -61,6 +61,9 @@ type VocabularyField struct {
 	// reader to paste a uuid. The engine declares it beside the field; nothing
 	// here derives it from the name.
 	References storekit.Reference
+	// Options is a picklist's allowed values, so a builder offers them instead of
+	// asking a reader to type one. Empty for every other type.
+	Options []string
 }
 
 // FilterVocabulary answers every field a NEW filter clause may name for this
@@ -113,6 +116,7 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 			Operators:  storekit.OperatorsFor(field),
 			Custom:     !isCore,
 			References: field.References,
+			Options:    field.Options,
 		})
 	}
 	// By name, because a map answers a different order every call and a picker
@@ -162,6 +166,7 @@ func wireVocabularyField(f VocabularyField) crmcontracts.FilterVocabularyField {
 		operators = append(operators, crmcontracts.FilterVocabularyFieldOperators(op))
 	}
 	wire := crmcontracts.FilterVocabularyField{
+		Options:   optionsOrNil(f.Options),
 		Name:      f.Name,
 		Type:      crmcontracts.FilterVocabularyFieldType(f.Type),
 		Operators: operators,
@@ -176,4 +181,14 @@ func wireVocabularyField(f VocabularyField) crmcontracts.FilterVocabularyField {
 		wire.References = &ref
 	}
 	return wire
+}
+
+// optionsOrNil answers nil for a field with no closed set, so the key is absent
+// rather than an empty array. An empty array would say "this picklist admits
+// nothing", which is a different and false statement.
+func optionsOrNil(options []string) *[]string {
+	if len(options) == 0 {
+		return nil
+	}
+	return &options
 }

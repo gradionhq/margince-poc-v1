@@ -9,6 +9,7 @@ package collections
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -71,11 +72,14 @@ func TestEveryEngineWithAnOwnerAlsoFiltersByTeam(t *testing.T) {
 		}
 		checked++
 		// Definitionally identical to the shared leaf, which is the enforceable
-		// invariant: whatever the join is, every engine runs the same one. This
-		// cannot tell a copy from the original — storekit.Field is a comparable
-		// struct of three strings, so an identical literal passes — and catching
-		// the copy itself would be a lint job, not an assertion.
-		if team != ownerTeamField {
+		// invariant: whatever the join is, every engine runs the same one. It
+		// still cannot tell a copy from the original — an identical literal
+		// passes — and catching the copy itself would be a lint job.
+		//
+		// DeepEqual rather than ==, because Field carries a slice now and is no
+		// longer comparable. The language agreeing is convenient: == would have
+		// gone on reading as an identity check while comparing values.
+		if !reflect.DeepEqual(team, ownerTeamField) {
 			t.Errorf("%s's team leaf differs from the shared one: %+v", resource, team)
 		}
 	}
@@ -164,6 +168,66 @@ func TestAPicklistLeafComparesAnUnrecognisedValueRatherThanRefusingIt(t *testing
 	// "selects nothing" safe rather than merely unhelpful.
 	if strings.Contains(sql, "custmer") {
 		t.Errorf("the operand was inlined into the query text: %q", sql)
+	}
+}
+
+// Every core picklist offers values, and no other type does.
+//
+// A picklist without them is the defect this closes: the builder falls back to a
+// free-text box over a closed set, so a mistyped value compiles, matches nothing,
+// and reads as a settled answer. Swept over the engines rather than listed, so a
+// core picklist added tomorrow is covered the day it lands.
+//
+// A CUSTOM picklist is exempt here and only here: its values live in the
+// catalogue and arrive per workspace, so a static engine cannot carry them —
+// SegmentEngine merges them in, and the merge is tested with its own stub.
+func TestEveryCorePicklistOffersItsValues(t *testing.T) {
+	seen := 0
+	for resource, engine := range segmentEngines {
+		for name, field := range engine.Fields {
+			// The retired field is the one picklist that must NOT offer values: no
+			// surface may offer it for a new clause at all, so offering its values
+			// would contradict retiredCoreFields.
+			if retiredCoreFields[resource][name] {
+				if len(field.Options) > 0 {
+					t.Errorf("%s.%s is retired and still offers values", resource, name)
+				}
+				continue
+			}
+			if field.Type == storekit.FieldPicklist {
+				seen++
+				if len(field.Options) == 0 {
+					t.Errorf("%s.%s is a picklist and offers no values, so a builder can only ask a reader to type one", resource, name)
+				}
+				continue
+			}
+			if len(field.Options) > 0 {
+				t.Errorf("%s.%s is typed %s and offers values; only a picklist has a closed set",
+					resource, name, field.Type)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no core picklists found, so this gate checked nothing")
+	}
+}
+
+// A custom picklist's values come from the catalogue, not from this file.
+func TestACustomPicklistOffersTheCataloguesValues(t *testing.T) {
+	store := (&Store{}).WithFieldCatalog(stubFilterable{cols: map[string][]fieldcatalog.Column{
+		"person": {{
+			Name:    "cf_tier",
+			Type:    fieldcatalog.TypePicklist,
+			Options: []string{"gold", "silver"},
+		}},
+	}})
+	engine, ok, err := store.SegmentEngine(context.Background(), "person")
+	if err != nil || !ok {
+		t.Fatalf("segmentEngine: ok=%v err=%v", ok, err)
+	}
+	got := engine.Fields["cf_tier"].Options
+	if len(got) != 2 || got[0] != "gold" || got[1] != "silver" {
+		t.Errorf("cf_tier offers %v, want the catalogue's own options", got)
 	}
 }
 

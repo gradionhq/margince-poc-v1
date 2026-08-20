@@ -5523,6 +5523,7 @@ export const de = {
   "filters.loadView": "Gespeicherten Filter laden",
   "filters.pickRecord": "Eintrag wählen",
   "filters.loadingRecords": "Auswahl wird geladen…",
+  "filters.pickValue": "Wert wählen",
   "filters.saveList": "Als Liste speichern",
   "filters.saveListTitle": "Diesen Filter als dynamische Liste speichern",
   "filters.listName": "Listenname",
