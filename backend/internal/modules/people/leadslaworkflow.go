@@ -59,7 +59,7 @@ func (w leadFirstResponse) Apply(ctx context.Context, ev workflow.Event, eff wor
 	}
 	applied := false
 	for _, t := range touches {
-		if !isFirstResponseActivity(t.direction, t.capturedBy, t.hadInbound) {
+		if !isFirstResponseActivity(t) {
 			continue
 		}
 		set, err := w.store.RecordLeadFirstResponse(ctx, t.lead, t.occurredAt)
@@ -131,17 +131,18 @@ func (leadStatusLadder) IdempotencyKey(ev workflow.Event) string {
 // system-captured outbound with no prior inbound — a cold sequence mail — is
 // still contact: we reached out, whoever pressed send.
 //
-// A note a HUMAN logged is contact too: the composer is how a rep records "I
-// wrote to them" when the mail itself was not captured, and refusing the step
-// would leave a worked lead reading as untouched. Human only — an agent's or
-// import's note asserts no outreach, and a note never reaches engagement,
-// because writing about a lead is not the lead writing back.
+// A note a HUMAN typed into the composer is contact too: it is how a rep
+// records "I wrote to them" when the mail itself was not captured, and
+// refusing the step would leave a worked lead reading as untouched. The
+// source=manual guard keeps every import out — a flip-cutover note arrives
+// stamped with the OPERATOR's human identity (compose/flipwriters.go), and
+// replaying history must not walk today's ladder. A note never reaches
+// engagement: writing about a lead is not the lead writing back.
 func ladderStepFor(t leadResponseTouch) (LeadStatus, bool) {
 	switch {
 	case t.direction == "inbound", t.kind == "meeting" && (t.meetingStatus == "booked" || t.meetingStatus == "held"):
 		return LeadStatusEngaged, true
-	case t.direction == "outbound",
-		t.kind == "note" && strings.HasPrefix(t.capturedBy, string(principal.PrincipalHuman)+":"):
+	case t.direction == "outbound", humanLoggedNote(t):
 		return LeadStatusContacted, true
 	}
 	return "", false
@@ -158,6 +159,20 @@ type leadResponseTouch struct {
 	hadInbound    bool
 	kind          string
 	meetingStatus string
+	source        string
+}
+
+// activitySourceManual is the activity `source` the Log composer stamps: the
+// marker that a person typed the entry, where an import or sync stamps its
+// provenance instead.
+const activitySourceManual = "manual"
+
+// humanLoggedNote is the ONE spelling of "a rep typed this note into the
+// composer" — the ladder's contact arm and the first-response rule
+// (isFirstResponseActivity) both read it, so they cannot drift apart.
+func humanLoggedNote(t leadResponseTouch) bool {
+	return t.kind == "note" && t.source == activitySourceManual &&
+		strings.HasPrefix(t.capturedBy, string(principal.PrincipalHuman)+":")
 }
 
 // leadResponseTouches answers which leads the activity is linked to, with
@@ -172,7 +187,7 @@ func (s *Store) leadResponseTouches(ctx context.Context, activityID ids.Activity
 			               WHERE li.lead_id = l.lead_id AND ai.direction = 'inbound'
 			                 AND ai.archived_at IS NULL AND `+auth.ActivityAvailableClause("ai")+`
 			                 AND ai.occurred_at < a.occurred_at),
-			       a.kind, coalesce(a.meeting_status, '')
+			       a.kind, coalesce(a.meeting_status, ''), a.source
 			FROM activity_link l JOIN activity a ON a.id = l.activity_id
 			WHERE l.activity_id = $1 AND l.lead_id IS NOT NULL AND a.archived_at IS NULL
 			  AND `+auth.ActivityAvailableClause("a"), activityID)
@@ -182,7 +197,7 @@ func (s *Store) leadResponseTouches(ctx context.Context, activityID ids.Activity
 		defer rows.Close()
 		for rows.Next() {
 			var t leadResponseTouch
-			if err := rows.Scan(&t.lead, &t.direction, &t.capturedBy, &t.occurredAt, &t.hadInbound, &t.kind, &t.meetingStatus); err != nil {
+			if err := rows.Scan(&t.lead, &t.direction, &t.capturedBy, &t.occurredAt, &t.hadInbound, &t.kind, &t.meetingStatus, &t.source); err != nil {
 				return err
 			}
 			out = append(out, t)

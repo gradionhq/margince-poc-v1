@@ -1203,6 +1203,7 @@ function useLadderRefresh(id: string): () => void {
       timers.current.push(
         window.setTimeout(() => {
           queryClient.invalidateQueries({ queryKey: ["lead", id] });
+          queryClient.invalidateQueries({ queryKey: ["leads"] });
           queryClient.invalidateQueries({
             queryKey: ["record-history", "lead", id],
           });
@@ -1220,6 +1221,7 @@ function LeadOverviewPane({
   onQualify,
   onDisqualify,
   onLifecycleChanged,
+  onTouchLogged,
 }: Readonly<{
   lead: Lead;
   id: string;
@@ -1228,11 +1230,14 @@ function LeadOverviewPane({
   onQualify: () => void;
   onDisqualify: () => void;
   onLifecycleChanged: () => void;
+  // Owned by LeadScreen, ABOVE the tab switch: the refresh timers this
+  // schedules must survive this pane unmounting when the reader flips to
+  // History mid-climb.
+  onTouchLogged: () => void;
 }>) {
   // Qualify turns a mirrored lead into a person — a write the incumbent mirror
   // refuses (unsupported_by_sor), so the verbs are hidden in overlay.
   const overlay = useSorMode() === "overlay";
-  const refreshAfterTouch = useLadderRefresh(id);
   return (
     <>
       {/* A promoted lead's page leads with what the promotion did — the
@@ -1252,11 +1257,7 @@ function LeadOverviewPane({
       {/* The composer follows the facts so opening a lead answers "what
           should I do" before asking the rep to type. */}
       {!lead.archived_at && !overlay && (
-        <LogActivity
-          entityType="lead"
-          entityId={id}
-          onLogged={refreshAfterTouch}
-        />
+        <LogActivity entityType="lead" entityId={id} onLogged={onTouchLogged} />
       )}
       <CustomFieldsCard object="lead" record={lead} />
     </>
@@ -1430,6 +1431,7 @@ function LeadDialogs({
 }
 
 export function LeadScreen({ id }: Readonly<{ id: string }>) {
+  const refreshAfterTouch = useLadderRefresh(id);
   const t = useT();
   const cf = useObjectCustomFields("lead");
   const queryClient = useQueryClient();
@@ -1579,6 +1581,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                   queryClient.invalidateQueries({ queryKey: ["leads"] });
                   queryClient.invalidateQueries({ queryKey: ["lead", id] });
                 }}
+                onTouchLogged={refreshAfterTouch}
               />
             )}
             <LeadDialogs

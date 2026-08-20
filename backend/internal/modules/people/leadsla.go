@@ -239,17 +239,24 @@ func (s *Store) RecordLeadFirstResponse(ctx context.Context, leadID ids.LeadID, 
 	return set, err
 }
 
-// isFirstResponseActivity decides whether an outbound activity captured by
-// this actor is a genuine response (formulas §18.1) rather than a
-// cold-outbound auto-touch: a human's outbound always is; an agent's counts
-// only when the lead had already written in — a touch with nothing to
-// respond to is the anti-pollution case §2 names.
-func isFirstResponseActivity(direction, capturedBy string, hadInbound bool) bool {
-	if direction != "outbound" {
-		return false
-	}
-	if strings.HasPrefix(capturedBy, string(principal.PrincipalHuman)+":") {
+// isFirstResponseActivity decides whether a captured activity is a genuine
+// response (formulas §18.1) rather than a cold-outbound auto-touch: a
+// human's outbound always is; an agent's counts only when the lead had
+// already written in — a touch with nothing to respond to is the
+// anti-pollution case §2 names. A note a rep typed into the composer
+// (humanLoggedNote) counts too, and for the same reason it walks the
+// ladder: it records outreach that happened off-system, and a lead the
+// stepper shows as Contacted must not go on to breach the first-response
+// target as if nobody had answered.
+func isFirstResponseActivity(t leadResponseTouch) bool {
+	if humanLoggedNote(t) {
 		return true
 	}
-	return hadInbound
+	if t.direction != "outbound" {
+		return false
+	}
+	if strings.HasPrefix(t.capturedBy, string(principal.PrincipalHuman)+":") {
+		return true
+	}
+	return t.hadInbound
 }

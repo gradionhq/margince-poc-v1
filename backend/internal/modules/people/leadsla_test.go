@@ -55,20 +55,23 @@ func TestLeadSLAFieldsFollowTheClock(t *testing.T) {
 
 // What counts as a first response (§18.1): a human's outbound always; an
 // agent's only when the lead had already written in — a cold touch with
-// nothing to respond to is not a response.
+// nothing to respond to is not a response. A note counts exactly when the
+// ladder counts it (humanLoggedNote): typed by a human, source manual.
 func TestIsFirstResponseActivity(t *testing.T) {
 	cases := map[string]struct {
-		direction, by string
-		hadInbound    bool
-		want          bool
+		touch leadResponseTouch
+		want  bool
 	}{
-		"human outbound":                  {"outbound", "human:u1", false, true},
-		"agent reply to an inbound":       {"outbound", "agent:sdr", true, true},
-		"agent cold outbound":             {"outbound", "agent:sdr", false, false},
-		"inbound is the lead's, not ours": {"inbound", "human:u1", false, false},
+		"human outbound":                  {leadResponseTouch{direction: "outbound", capturedBy: "human:u1"}, true},
+		"agent reply to an inbound":       {leadResponseTouch{direction: "outbound", capturedBy: "agent:sdr", hadInbound: true}, true},
+		"agent cold outbound":             {leadResponseTouch{direction: "outbound", capturedBy: "agent:sdr"}, false},
+		"inbound is the lead's, not ours": {leadResponseTouch{direction: "inbound", capturedBy: "human:u1"}, false},
+		"a rep's composer note":           {leadResponseTouch{kind: "note", source: "manual", capturedBy: "human:u1"}, true},
+		"an imported note":                {leadResponseTouch{kind: "note", source: "flip:hubspot:a1", capturedBy: "human:op"}, false},
+		"an agent's note":                 {leadResponseTouch{kind: "note", source: "manual", capturedBy: "agent:sdr"}, false},
 	}
 	for name, tc := range cases {
-		if got := isFirstResponseActivity(tc.direction, tc.by, tc.hadInbound); got != tc.want {
+		if got := isFirstResponseActivity(tc.touch); got != tc.want {
 			t.Errorf("%s: got %t, want %t", name, got, tc.want)
 		}
 	}
