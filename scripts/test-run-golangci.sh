@@ -87,6 +87,15 @@ expect "a finding from a sibling worktree is quarantined" 40 yes 1 '../../margin
 # Same entry, absolute rather than relative: `run.relative-path-mode` is
 # configurable and a golangci upgrade could change its default, which would slip
 # every foreign path past a guard that only understood the relative spelling.
+# The case the guard was blind to, and the one this repo actually produces:
+# EnterWorktree puts a worktree under .claude/worktrees/, which resolves INSIDE
+# the root. A guard that asked only "is this path outside the checkout" read a
+# parallel session's cached findings as this checkout's own — under module names
+# that do exist here, which is the whole failure #1378 describes.
+expect "a finding from a worktree INSIDE this repo is quarantined" 40 yes 1 '../.claude/worktrees/feat+desktop-bundle/extensions/zalo-oa/oauth.go:33:2: G101: Potential hardcoded credentials (gosec)
+1 issues:
+* gosec: 1'
+
 expect "an absolute path outside the checkout is quarantined" 40 yes 1 '/somewhere/else/margince-next-sed/backend/tools/extmigrategate/main.go:114:4: use of `fmt.Println` forbidden because "use slog, not fmt.Print*" (forbidigo)
 '
 
