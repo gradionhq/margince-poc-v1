@@ -466,7 +466,7 @@ function ByOwnerList({
   }
   return (
     <>
-      <ul className="usermap-list">
+      <ul className="usermap-list arrive">
         {groups.map((group) => (
           <li key={group.incumbentUserId}>
             <div className="usermap-facts">
@@ -567,7 +567,7 @@ function UserMapBody({
         />
       </div>
       {view === "user" ? (
-        <ul className="usermap-list">
+        <ul className="usermap-list arrive">
           {entries.map((entry) => (
             <UserRow
               key={entry.user_id}

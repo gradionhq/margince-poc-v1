@@ -474,7 +474,10 @@ export function RecordHistoryTab({
   };
 
   return (
-    <div>
+    // The strip and the panel are siblings, which is what makes this a stack:
+    // switching tabs mounts a new panel while the strip is the same DOM node, so
+    // the panel arrives and the control the reader just pressed stays still.
+    <div className="arrive-stack">
       <div className="filter-tabs">
         <SegmentedControl
           options={HISTORY_TABS}

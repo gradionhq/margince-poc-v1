@@ -773,7 +773,9 @@ export function CustomFieldsAdmin() {
         />
       </PanelBody>
 
-      <PanelBody>
+      {/* The field table is read per object, so the object bar above is a tab
+          strip: the table that lands is a fresh element and arrives. */}
+      <PanelBody className="arrive-stack">
         <QueryGate query={list}>
           {(page) => (
             <FieldTable
