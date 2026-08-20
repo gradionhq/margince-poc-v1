@@ -91,6 +91,15 @@ func (s *Service) leadingDealSeat(ctx context.Context, tx pgx.Tx, personID ids.P
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
+	// The seat edge's own bound. commercialSection already asked the object
+	// grant, so this cannot refuse here — what it adds is the endpoint
+	// conjunction, which the deal scope alone does not give: a seat is bounded
+	// by BOTH records it names, and scoping on the deal end alone would show a
+	// seat held by a person this caller may not read.
+	edgeBound, err := edgeScope(ctx, "r", arg)
+	if err != nil {
+		return dealSeat{}, false, err
+	}
 	dealScope, err := auth.ScopeClauseFor(ctx, "deal", "d", arg)
 	if err != nil {
 		return dealSeat{}, false, err
@@ -111,9 +120,9 @@ func (s *Service) leadingDealSeat(ctx context.Context, tx pgx.Tx, personID ids.P
 		JOIN deal d ON d.id = r.deal_id AND d.status = 'open' AND d.archived_at IS NULL
 		LEFT JOIN stage s ON s.id = d.stage_id
 		WHERE r.kind = 'deal_stakeholder' AND r.person_id = $%d
-		  AND r.archived_at IS NULL AND (%s)
+		  AND r.archived_at IS NULL AND (%s) AND (%s)
 		ORDER BY d.expected_close_date NULLS LAST, d.id
-		LIMIT 1`, personPos, dealScope), args...).
+		LIMIT 1`, personPos, edgeBound, dealScope), args...).
 		Scan(&seat.dealID, &seat.role, &seat.deal.Title, &stage, &amount, &currency, &closeDate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return dealSeat{}, false, nil
@@ -141,6 +150,10 @@ func (s *Service) committeeFor(ctx context.Context, tx pgx.Tx, personID ids.Pers
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	dealPos := arg(dealID)
 	personPos := arg(personID)
+	edgeBound, err := edgeScope(ctx, "r", arg)
+	if err != nil {
+		return nil, err
+	}
 	personScope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
 		return nil, err
@@ -153,9 +166,9 @@ func (s *Service) committeeFor(ctx context.Context, tx pgx.Tx, personID ids.Pers
 		FROM relationship r
 		JOIN person p ON p.id = r.person_id AND p.archived_at IS NULL
 		WHERE r.kind = 'deal_stakeholder' AND r.deal_id = $%d
-		  AND r.person_id <> $%d AND r.archived_at IS NULL AND (%s)
+		  AND r.person_id <> $%d AND r.archived_at IS NULL AND (%s) AND (%s)
 		ORDER BY p.full_name, p.id
-		LIMIT %d`, dealPos, personPos, personScope, committeeCap), args...)
+		LIMIT %d`, dealPos, personPos, edgeBound, personScope, committeeCap), args...)
 	if err != nil {
 		return nil, fmt.Errorf("read the buying committee: %w", err)
 	}

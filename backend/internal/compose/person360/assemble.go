@@ -203,3 +203,22 @@ func (s *Service) sections(personID ids.PersonID, now time.Time) []section {
 func requireRead(ctx context.Context, object string) error {
 	return auth.Require(ctx, object, principal.ActionRead)
 }
+
+// edgeScope resolves the relationship edge's read admission and its row bound
+// together, answering the narrows-nothing predicate for an unbounded caller.
+//
+// The sections that read an edge already ask requireRead for it, so this is
+// where the ENDPOINT CONJUNCTION arrives: an edge names two records and is
+// bounded by both, where a single endpoint's scope clause bounds it by one. A
+// denial still returns the sentinel unchanged, so a section reached without the
+// grant is named rather than failed.
+func edgeScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	clause, err := auth.EdgeReadScope(ctx, alias, arg)
+	if err != nil {
+		return "", err
+	}
+	if clause == "" {
+		return scopeAll, nil
+	}
+	return clause, nil
+}
