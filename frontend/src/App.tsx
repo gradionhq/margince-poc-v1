@@ -1,6 +1,7 @@
 import { extensionScreens as composedScreens } from "@composition/screens";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Fragment,
   lazy,
   type ReactNode,
   Suspense,
@@ -423,7 +424,27 @@ function ScreenView({
   // it into the retry card instead of a blank frame.
   return (
     <Suspense fallback={<ScreenNotice messageKey="common.loading" />}>
-      {SCREEN_VIEWS[shown.screen]({ id: shown.id, id2: shown.id2 })}
+      {/* Keyed by the whole shown route, which makes an address change a
+          REMOUNT rather than a re-render. Two reasons, and the second is the
+          load-bearing one. A screen carries state about the record it was
+          opened for — an expanded section, a half-typed note, a scroll
+          position — and reconciling one record's screen into another's keeps
+          all of it, which is how a note began on person A ends up on the form
+          for person B. And an arrival animation (design-system/enter.css)
+          plays when a block is INSERTED: without a key the DOM nodes are
+          reused, so walking from one record to the next would be the one
+          navigation in the product where the page changes with no motion at
+          all.
+
+          A Fragment rather than a wrapper element: the key belongs to the
+          subtree, and the shell's content column must keep the screen's own
+          root as its child (shell.css sizes `.wrap` and a full-height `.lt`
+          against it). */}
+      <Fragment
+        key={`${shown.screen}\u0000${shown.id ?? ""}\u0000${shown.id2 ?? ""}`}
+      >
+        {SCREEN_VIEWS[shown.screen]({ id: shown.id, id2: shown.id2 })}
+      </Fragment>
     </Suspense>
   );
 }

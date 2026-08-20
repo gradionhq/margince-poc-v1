@@ -271,6 +271,17 @@
   --dur-tap: 90ms; /* a press answering: the floor of perceptible response */
   --dur-state: 140ms; /* a control changing in place: hover, focus, a crossfade */
   --dur-move: 200ms; /* something arriving or travelling: a panel, the rail, a knob */
+  /* The one duration longer than a move, and it times a FADE only — content
+     arriving on a page or in a tab panel. Split from `--dur-move` because the
+     two halves of an arrival are not the same length: the rise finishes early
+     (200ms) so the block has settled where the eye can read it, while the fade
+     keeps going (360ms) so the arrival stays soft instead of snapping on. A
+     single duration for both gives either a sluggish rise or a hard fade. */
+  --dur-enter: 360ms;
+  /* The gap between one arriving block and the next. Small on purpose: this is
+     a reading order made briefly visible, not a sequence anyone waits through —
+     six blocks are all moving within a fifth of a second. */
+  --stagger-enter: 40ms;
 
   /* Deceleration, for anything that ARRIVES and settles — it leaves fast and
      lands slow, which is what makes a panel read as coming to rest rather than

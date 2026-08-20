@@ -1342,7 +1342,7 @@ export function InboxScreen() {
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
         {(page) =>
           tab === "pending" ? (
-            <div className="approval-queue">
+            <div className="approval-queue arrive-stack">
               <PendingList
                 approvals={page.data}
                 onApproved={onApproved}
@@ -1357,7 +1357,7 @@ export function InboxScreen() {
             // verdicts were recorded, and each member carries its OWN verdict —
             // a group header over it would have to state a status the group does
             // not have (three approved, one rejected, one lapsed).
-            <div className="approval-queue">
+            <div className="approval-queue arrive-stack">
               {page.data.map((approval) => (
                 <ApprovalRow
                   key={approval.id}

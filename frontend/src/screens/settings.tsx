@@ -659,7 +659,7 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   return (
     <div className="wrap">
       <ResumeConnectBanner />
-      <div className="settings-stack">{tabContent(active.id)}</div>
+      <div className="settings-stack arrive-stack">{tabContent(active.id)}</div>
     </div>
   );
 }

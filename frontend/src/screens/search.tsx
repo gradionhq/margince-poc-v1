@@ -100,7 +100,7 @@ export function SearchScreen({ q }: Readonly<{ q: string }>) {
 function SearchGroups({ results }: Readonly<{ results: SearchResult[] }>) {
   const t = useT();
   return (
-    <div className="search-groups">
+    <div className="search-groups arrive-stack">
       {GROUP_ORDER.filter((type) => results.some((r) => r.type === type)).map(
         (type) => (
           <Card key={type} className="search-group">

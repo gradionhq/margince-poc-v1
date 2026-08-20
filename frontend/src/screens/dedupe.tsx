@@ -139,7 +139,7 @@ export function DedupeScreen() {
           in, and `empty` — the only one allowed to say there is none — is
           reached only once the queue has actually answered. */}
       {!queue.isError && (
-        <div className="dedupe-queue">
+        <div className="dedupe-queue arrive-stack">
           {/* SurfaceState's loading state is a shimmer bar, which carries no
               text at all — the same gap QueryStates covers with a spoken line
               beside its skeletons. Without it a reader who cannot see the bar

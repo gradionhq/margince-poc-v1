@@ -110,7 +110,7 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
   };
 
   return (
-    <div className="filters-screen">
+    <div className="filters-screen arrive-stack">
       <SectionHeader
         level={1}
         title={t("filters.title")}

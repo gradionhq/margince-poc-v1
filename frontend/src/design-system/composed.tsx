@@ -688,7 +688,12 @@ export function RecordView({
   const headerWide = Boolean(controls) || Boolean(actionsInline) || wide;
   const actionsAt = actionsPlacement(actions, actionsInline, controls);
   return (
-    <div>
+    /* The record's own blocks arrive in order — head, then actions, then the
+       band, then the zones — rather than the whole record fading in as one
+       plate. It is an `.arrive-stack` and therefore not itself an arriving
+       block (design-system/enter.css), which is what keeps the two fades from
+       multiplying. */
+    <div className="arrive-stack">
       <RecordHead
         name={name}
         avatarSrc={avatarSrc}
@@ -717,7 +722,12 @@ export function RecordView({
             {rail}
           </aside>
         )}
-        <div className="record-main">
+        {/* An `.arrive-stack`: the work column's blocks arrive one after the
+            next, and — because a tab's panel is a fresh element while the strip
+            above it is not — switching tabs fades the new panel in without
+            touching the strip. That is the whole tab-panel transition; no
+            wrapper, no state, and nothing to keep in step with the strip. */}
+        <div className="record-main arrive-stack">
           {children}
           {timeline && (
             <section aria-label={t("record.timeline")}>
@@ -751,17 +761,24 @@ export function RecordView({
 }
 
 // zoneClass names the layout for the slots this record actually has.
-function zoneClass(hasRail: boolean, hasAside: boolean): string | undefined {
+//
+// `arrive-stack` on every variant, including the one with no layout of its own:
+// a record's blocks arrive individually (design-system/enter.css), and a
+// container that is a stack does not itself arrive. Leaving one link of that
+// chain unmarked is what makes a block fade in BEHIND a parent that is still
+// fading in — two fades multiplied, which reads as the content being dim rather
+// than as it arriving.
+function zoneClass(hasRail: boolean, hasAside: boolean): string {
   if (hasRail && hasAside) {
-    return "record-zones record-zones-both";
+    return "record-zones record-zones-both arrive-stack";
   }
   if (hasRail) {
-    return "record-zones record-zones-rail";
+    return "record-zones record-zones-rail arrive-stack";
   }
   if (hasAside) {
-    return "record-zones record-zones-aside";
+    return "record-zones record-zones-aside arrive-stack";
   }
-  return undefined;
+  return "arrive-stack";
 }
 
 // A link inside a captured message, rendered as an element rather than as
