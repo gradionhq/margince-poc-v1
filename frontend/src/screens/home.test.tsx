@@ -421,3 +421,87 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     expect(screen.queryByTestId("digest-connector-health")).toBeNull();
   });
 });
+
+// The open pipeline is what a rep opens Home to see. It is grouped by
+// currency and rendered one line each rather than summed: adding native minor
+// units across currencies produces a number that is not money.
+describe("HomeScreen — the open pipeline", () => {
+  it("shows the server's raw and weighted totals", async () => {
+    stubApi({
+      // The brief and digest are other sections; a 404 is their honest empty
+      // state and keeps this test about the pipeline tile alone.
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({
+          report: "deals-by-stage",
+          plan: {},
+          columns: [],
+          rows: [
+            {
+              currency: "EUR",
+              deals: 12,
+              raw_minor: 9_900_000,
+              weighted_minor: 3_300_000,
+            },
+          ],
+        }),
+    });
+    render(<HomeScreen />);
+
+    expect(await screen.findByText("€99,000.00")).toBeTruthy();
+    expect(screen.getByText("€33,000.00 weighted")).toBeTruthy();
+    expect(screen.getByText("12 open deals")).toBeTruthy();
+  });
+
+  it("gives each currency its own line rather than one meaningless sum", async () => {
+    stubApi({
+      // The brief and digest are other sections; a 404 is their honest empty
+      // state and keeps this test about the pipeline tile alone.
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({
+          report: "deals-by-stage",
+          plan: {},
+          columns: [],
+          rows: [
+            {
+              currency: "EUR",
+              deals: 2,
+              raw_minor: 100_000,
+              weighted_minor: 40_000,
+            },
+            {
+              currency: "USD",
+              deals: 3,
+              raw_minor: 200_000,
+              weighted_minor: 50_000,
+            },
+          ],
+        }),
+    });
+    render(<HomeScreen />);
+
+    expect(await screen.findByText("€1,000.00")).toBeTruthy();
+    expect(screen.getByText("US$2,000.00")).toBeTruthy();
+    // No combined figure anywhere: 300_000 minor units is not a currency.
+    expect(screen.queryByText("€3,000.00")).toBeNull();
+  });
+
+  it("says nothing at all when there is no open pipeline", async () => {
+    stubApi({
+      // The brief and digest are other sections; a 404 is their honest empty
+      // state and keeps this test about the pipeline tile alone.
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({
+          report: "deals-by-stage",
+          plan: {},
+          columns: [],
+          rows: [],
+        }),
+    });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.queryByText("Open pipeline")).toBeNull());
+  });
+});

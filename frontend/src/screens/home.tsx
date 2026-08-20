@@ -463,6 +463,108 @@ function BriefSection() {
   );
 }
 
+/** One currency's open pipeline: what it is worth, and what it is worth once
+ *  each deal is weighted by its stage's probability. */
+type PipelineValue = {
+  currency: string;
+  rawMinor: number;
+  weightedMinor: number;
+  deals: number;
+};
+
+/**
+ * The open pipeline, per currency.
+ *
+ * Grouped by currency and rendered one line each rather than summed: adding
+ * native minor units across currencies produces a number that is not money,
+ * which is the rule the board's mixed-currency columns already follow.
+ *
+ * The report never includes archived deals, and this asks only for open ones —
+ * a won deal is revenue, not pipeline, and counting it here would make the
+ * headline grow every time somebody closed something.
+ */
+function usePipelineValue() {
+  return useQuery({
+    queryKey: ["home-pipeline-value"],
+    queryFn: async (): Promise<PipelineValue[]> => {
+      const { data, error } = await api.POST("/reports/{report}", {
+        params: { path: { report: "deals-by-stage" } },
+        body: {
+          group_by: ["currency"],
+          aggregates: [
+            { fn: "count", as: "deals" },
+            { fn: "sum", field: "amount_minor", as: "raw_minor" },
+            { fn: "sum", field: "weighted_amount_minor", as: "weighted_minor" },
+          ],
+          filters: { status: "open" },
+        },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data.rows.flatMap((row) => {
+        const currency = row.currency;
+        // A SUM over deals nobody priced is absent, not zero, and a row with
+        // no currency cannot be rendered as money at all.
+        if (typeof currency !== "string" || typeof row.raw_minor !== "number") {
+          return [];
+        }
+        return [
+          {
+            currency,
+            rawMinor: row.raw_minor,
+            weightedMinor:
+              typeof row.weighted_minor === "number" ? row.weighted_minor : 0,
+            deals: typeof row.deals === "number" ? row.deals : 0,
+          },
+        ];
+      });
+    },
+  });
+}
+
+/** The open pipeline at the top of Home: what is in play, and what it is
+ *  worth weighted. One line per currency. */
+function PipelineValueSection() {
+  const t = useT();
+  const { locale } = useLocale();
+  const query = usePipelineValue();
+
+  // No gate: this tile is a headline over the work below it, not the work
+  // itself. A failed or still-loading report leaves Home exactly as it was —
+  // an error line above the morning's queue would say the page is broken when
+  // only its summary is, and the same rule already keeps the three sections
+  // below from hiding each other.
+  const rows = query.data ?? [];
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label={t("home.pipeline")}>
+      <SectionHeader title={t("home.pipeline")} />
+      <Card>
+        {rows.map((row) => (
+          <div key={row.currency} className="home-pipeline-row">
+            <span className="t-sub">
+              {formatMoneyOrAbsent(row.rawMinor, row.currency, locale)}
+            </span>
+            <span className="t-caption">
+              {t("home.pipelineWeighted", {
+                amount: String(
+                  formatMoneyOrAbsent(row.weightedMinor, row.currency, locale),
+                ),
+              })}
+            </span>
+            <span className="t-caption">
+              {t("home.pipelineCount", { count: row.deals })}
+            </span>
+          </div>
+        ))}
+      </Card>
+    </section>
+  );
+}
+
 export function HomeScreen() {
   const t = useT();
   // Approving from the morning brief mints an approval_token and can 409
@@ -518,6 +620,7 @@ export function HomeScreen() {
           ) : null
         }
       </QueryGate>
+      <PipelineValueSection />
       <DigestSection />
       <BriefSection />
       {stalled.length > 0 && (
