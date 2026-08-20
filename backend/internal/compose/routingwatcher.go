@@ -44,12 +44,21 @@ type RoutingWatcher struct {
 	log    *slog.Logger
 }
 
-// NewRoutingWatcher binds a watcher to whatever this role is serving with. A
-// role that resolved no binding at boot passes nil and gets nil: there is
-// nothing to keep current, and a watcher polling to rebind nothing would be
-// work with no observable effect.
-func NewRoutingWatcher(pool *pgxpool.Pool, target *ai.Router, keys config.Lookup, log *slog.Logger) *RoutingWatcher {
-	if pool == nil || target == nil {
+// NewRoutingWatcher binds a watcher to the path this role resolved. A role that
+// resolved none gets nil: there is nothing to keep current, and a watcher
+// polling to rebind nothing would be work with no observable effect.
+//
+// It takes the PATH rather than the Router so the nil handling lives here, once
+// and tested. An unconfigured installation resolves no path at all, and
+// ModelPath.Router takes a value receiver — so reaching through a nil path
+// dereferences it, which is a panic on the ordinary boot of a fresh
+// installation rather than an edge case.
+func NewRoutingWatcher(pool *pgxpool.Pool, path *ModelPath, keys config.Lookup, log *slog.Logger) *RoutingWatcher {
+	if pool == nil || path == nil {
+		return nil
+	}
+	target := path.Router()
+	if target == nil {
 		return nil
 	}
 	return &RoutingWatcher{pool: pool, target: target, keys: keys, log: log}

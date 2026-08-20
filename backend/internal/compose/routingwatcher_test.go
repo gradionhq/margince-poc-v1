@@ -12,6 +12,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
@@ -91,10 +93,28 @@ func TestAVanishedBindingLeavesTheRunningOneServing(t *testing.T) {
 }
 
 // A role with nothing to keep current gets a nil watcher, and a nil watcher is
-// inert. Every role starts one at boot, so this is the ordinary path on an
-// unconfigured installation rather than an edge.
+// inert. This is the ORDINARY boot of a fresh installation, not an edge: one
+// that has bound no models resolves no path, every role still starts a watcher,
+// and ModelPath.Router takes a value receiver — so reaching through the nil
+// path dereferences it. That panicked the api on boot until the nil handling
+// moved in here, which is why it is asserted rather than assumed.
 func TestAWatcherWithNothingToRebindIsInert(t *testing.T) {
-	if w := NewRoutingWatcher(nil, nil, nil, slog.New(slog.DiscardHandler)); w != nil {
+	log := slog.New(slog.DiscardHandler)
+	// A non-nil pool, so the PATH guard is what each case exercises. Passing nil
+	// here would return on the pool check and leave the guard under test
+	// unreached — the test would pass for the wrong reason, which is how it
+	// read before a mutation showed it surviving the guard's removal. The pool
+	// is only stored, never dialled, so a zero value is enough.
+	pool := &pgxpool.Pool{}
+	for name, path := range map[string]*ModelPath{
+		"an installation that resolved no path": nil,
+		"a path that binds no router":           {},
+	} {
+		if w := NewRoutingWatcher(pool, path, nil, log); w != nil {
+			t.Errorf("%s: got a watcher; there is nothing to keep current", name)
+		}
+	}
+	if w := NewRoutingWatcher(nil, &ModelPath{}, nil, log); w != nil {
 		t.Error("a watcher with no pool must be nil; there is nothing to read")
 	}
 	var nothing *RoutingWatcher

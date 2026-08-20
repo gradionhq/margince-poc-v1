@@ -166,7 +166,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// An admin re-points a lane through this role, but the WORKER is a separate
 	// process that never sees that write. Both re-read on the same interval, so
 	// neither serves a binding the installation has replaced (compose/routingwatcher).
-	go compose.NewRoutingWatcher(pool, modelPath.Router(), config.FromOS, logger).Run(ctx)
+	go compose.NewRoutingWatcher(pool, modelPath, config.FromOS, logger).Run(ctx)
 	return serveUntilSignal(ctx, cfg, apiHandler, stdout)
 }
 

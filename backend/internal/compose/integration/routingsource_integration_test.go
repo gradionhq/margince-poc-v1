@@ -174,11 +174,17 @@ func TestAReplacedBindingReachesARunningRouterWithoutARestart(t *testing.T) {
 		t.Fatalf("storing the first binding: %v", err)
 	}
 
-	router, err := ai.NewRouter(first, nil, ai.DefaultMonthlyTokens, nil, false, discard())
+	// A real ModelPath, built the way a boot builds one, so the watcher is
+	// handed exactly what production hands it.
+	path, err := compose.NewModelPath(ctx, first, e.Pool, false, discard())
 	if err != nil {
-		t.Fatalf("NewRouter: %v", err)
+		t.Fatalf("NewModelPath: %v", err)
 	}
-	watcher := compose.NewRoutingWatcher(e.Pool, router, config.Static(nil), discard())
+	router := path.Router()
+	if router == nil {
+		t.Fatal("the resolved path binds no router; the test can observe nothing")
+	}
+	watcher := compose.NewRoutingWatcher(e.Pool, &path, config.Static(nil), discard())
 
 	// A tick against an unchanged binding must leave the Router alone —
 	// otherwise every cached completion is dropped every interval.
