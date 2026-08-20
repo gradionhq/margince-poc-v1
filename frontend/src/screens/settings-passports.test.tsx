@@ -56,7 +56,7 @@ const render = (tab: string) => {
 // succeeds or hangs, so a refusal and an in-flight attempt are both reachable
 // without a second fixture.
 function mintBackend(
-  opts: { refuse?: boolean; hang?: boolean } = {},
+  opts: { refuse?: boolean; hang?: boolean; expired?: boolean } = {},
 ): ReturnType<typeof vi.fn> {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
@@ -72,6 +72,17 @@ function mintBackend(
       // Never settles, so the pending branch is a real state rather than a
       // window a test has to race.
       if (opts.hang) return new Promise<Response>(() => {});
+      if (opts.expired) {
+        return jsonResponse(
+          {
+            type: "about:blank",
+            title: "Unauthorized",
+            status: 401,
+            detail: "Your session has expired.",
+          },
+          401,
+        );
+      }
       if (opts.refuse) {
         return jsonResponse(
           {
@@ -189,6 +200,46 @@ describe("PassportCard — minting", () => {
     expect(alert).toHaveTextContent(/cannot lend that scope/i);
     // In the form, not in a band elsewhere on the card.
     expect(alert.closest("form")).toBeTruthy();
+  });
+
+  // An expired session is not a mint that quietly did nothing.
+  //
+  // The `me` probe is cached for five minutes, so a 401 on this POST used to
+  // leave the screen believing it was signed in: the button failed in silence
+  // and the human had no way to learn why. That silence is what made the OAuth
+  // consent screen's empty-passport guide inescapable — it sends you here to
+  // mint, the mint 401s without saying so, and going back finds no passport and
+  // renders the same guide again. Resetting the probe lets the AuthGate put the
+  // login screen up, which is the only thing that can make the mint succeed.
+  it("re-probes the session when the mint is refused as unauthorized", async () => {
+    const user = userEvent.setup();
+    const backend = mintBackend({ expired: true });
+    vi.stubGlobal("fetch", backend);
+    const dialog = await openDrawer(user);
+
+    const meCallsBeforeMint = backend.mock.calls.filter((call) =>
+      String(call[0] instanceof Request ? call[0].url : call[0]).endsWith(
+        "/v1/me",
+      ),
+    ).length;
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Mint passport" }),
+    );
+
+    // The refusal is still shown where every other mint failure is shown.
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent(/session has expired/i);
+
+    // And the probe was re-run rather than left on its cached answer.
+    await vi.waitFor(() => {
+      const meCallsAfterMint = backend.mock.calls.filter((call) =>
+        String(call[0] instanceof Request ? call[0].url : call[0]).endsWith(
+          "/v1/me",
+        ),
+      ).length;
+      expect(meCallsAfterMint).toBeGreaterThan(meCallsBeforeMint);
+    });
   });
 
   // The one that is about losing a credential rather than about layout.

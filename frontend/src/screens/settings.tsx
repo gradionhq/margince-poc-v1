@@ -963,6 +963,7 @@ function scopeLabelKey(scope: (typeof PASSPORT_SCOPES)[number]): MessageKey {
 function PassportCard() {
   const t = useT();
   const { locale } = useLocale();
+  const queryClient = useQueryClient();
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<Set<string>>(new Set(["read", "draft"]));
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -991,7 +992,7 @@ function PassportCard() {
 
   const mint = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/passports", {
+      const { data, error, response } = await api.POST("/passports", {
         body: {
           label: label.trim() || null,
           scopes: [...scopes] as (
@@ -1004,6 +1005,20 @@ function PassportCard() {
         },
       });
       if (error) {
+        // An expired session must not read as a mint that did nothing. The
+        // `me` probe is cached for five minutes, so without this reset the
+        // screen keeps believing it is signed in and the button simply fails
+        // in silence — which is how the OAuth consent screen's empty-passport
+        // guide became an inescapable loop: it sends the human here to mint,
+        // the mint 401s without saying so, and returning finds no passport
+        // and shows the same guide again.
+        //
+        // Resetting the probe is what useLogout already does; the AuthGate in
+        // App.tsx then renders the login screen in place, which is the one
+        // action that can actually make the mint succeed.
+        if (response.status === 401) {
+          await queryClient.resetQueries({ queryKey: ["me"] });
+        }
         throwProblem(error);
       }
       return data;
