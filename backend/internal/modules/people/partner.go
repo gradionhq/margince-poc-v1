@@ -455,13 +455,20 @@ func intPtr(v *int16) *int {
 // MarginTierOf answers what commercial tier a partner organization is on, or
 // nil when it is not a partner or its tier was never set.
 //
-// A narrow accessor rather than a use of GetPartner because the caller is the
-// commission accrual, which needs exactly one field and holds no `partner`
-// grant of its own: it runs as a system actor pricing a win, not as a person
-// reading a partner record. Answering nil rather than an error for "not a
-// partner" is what lets the accrual treat an unpriced win as an ordinary
-// outcome instead of a failure to retry forever.
+// A narrow accessor rather than a use of GetPartner because the caller needs
+// exactly one field and no organization read: the commission accrual prices a
+// win it was handed, it does not open the partner's record. It is still gated
+// on `partner` read — a tier is commercial terms, and the fact that the only
+// caller today runs as a system actor is not a reason to leave the door open
+// for the next one.
+//
+// Answering nil rather than an error for "not a partner" is what lets the
+// accrual treat an unpriced win as an ordinary outcome instead of a failure to
+// retry forever.
 func (s *Store) MarginTierOf(ctx context.Context, organizationID ids.OrganizationID) (*string, error) {
+	if err := auth.Require(ctx, "partner", principal.ActionRead); err != nil {
+		return nil, err
+	}
 	var tier *string
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx,

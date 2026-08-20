@@ -233,21 +233,20 @@ func (s *Store) ReverseForDeal(ctx context.Context, deal ids.DealID, reason stri
 	return reversed, err
 }
 
-// liveEntriesForDeal reads the entries a reversal would act on, under the
-// caller's own scope — a reversal is a write to rows it must be able to see.
+// liveEntriesForDeal reads the entries a reversal would act on.
+//
+// Gated on WRITE authority over the deal, not read: voiding a partner's money
+// is a change, and a manual share widens visibility at either access level — so
+// a read clause here would let a `read` share reverse an accrual.
 func liveEntriesForDeal(ctx context.Context, tx pgx.Tx, deal ids.DealID) ([]crmcontracts.CommissionEntry, error) {
+	if err := WritableEntriesForDeal(ctx, tx, deal); err != nil {
+		return nil, err
+	}
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	dealPos := arg(deal)
 
 	where := storekit.SQLf("deal_id = $%d AND status <> 'void' AND reversal_of IS NULL", dealPos)
-	scope, err := VisibleClause(ctx, "", arg)
-	if err != nil {
-		return nil, err
-	}
-	if scope != "" {
-		where += " AND " + scope
-	}
 
 	rows, err := tx.Query(ctx,
 		`SELECT `+commissionColumns+` FROM commission_entry WHERE `+where+` FOR UPDATE`, args...)

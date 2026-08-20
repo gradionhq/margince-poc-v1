@@ -21,8 +21,11 @@ package commissions
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -60,4 +63,19 @@ func VisibleClause(ctx context.Context, alias string, arg func(any) int) (string
 	return storekit.SQLf(`EXISTS (
 		SELECT 1 FROM deal d WHERE d.id = %[1]sdeal_id AND d.archived_at IS NULL AND %[2]s)`,
 		qualified, scope), nil
+}
+
+// WritableEntriesForDeal narrows a CHANGE to the entries of one deal the caller
+// may write, not merely see.
+//
+// Separate from VisibleClause because a manual share widens VISIBILITY at
+// either access level: a caller holding only a `read` share of the deal passes
+// the read clause, and voiding their partner's money is not something a read
+// share should buy. The write path asks EnsureWritable instead, which is the
+// probe that distinguishes the two.
+func WritableEntriesForDeal(ctx context.Context, tx pgx.Tx, deal ids.DealID) error {
+	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
+		return err
+	}
+	return auth.EnsureWritable(ctx, tx, "deal", deal.UUID)
 }

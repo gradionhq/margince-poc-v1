@@ -114,6 +114,7 @@ var tableOwners = map[string]string{
 	// DH-DDL-1: the pair verdicts live with the ONE dedupe implementation.
 	"dedupe_candidate": "internal/modules/people",
 	// deals (incl. the E03 offer engine: rate-card + versioned offers)
+	"commission_entry":   "internal/modules/commissions",
 	"contract":           "internal/modules/contracts",
 	"deal":               "internal/modules/deals",
 	"pipeline":           "internal/modules/deals",
