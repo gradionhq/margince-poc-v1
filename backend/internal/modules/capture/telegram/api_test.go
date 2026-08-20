@@ -28,12 +28,17 @@ type recorder struct {
 	mu     sync.Mutex
 	paths  []string
 	bodies []string
+	// types are the request content types, kept because the upload path's whole
+	// encoding lives in one: a multipart body cannot be read back without the
+	// boundary the header carries.
+	types []string
 }
 
-func (rec *recorder) record(path, body string) {
+func (rec *recorder) record(path, contentType, body string) {
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
 	rec.paths = append(rec.paths, path)
+	rec.types = append(rec.types, contentType)
 	rec.bodies = append(rec.bodies, body)
 }
 
@@ -44,6 +49,17 @@ func (rec *recorder) calls() int {
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
 	return len(rec.paths)
+}
+
+// lastContentType reports how the most recent request described its body.
+func (rec *recorder) lastContentType(t *testing.T) string {
+	t.Helper()
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.types) == 0 {
+		t.Fatal("no request reached the provider stand-in")
+	}
+	return rec.types[len(rec.types)-1]
 }
 
 // lastPath and lastBody report the most recent request, failing the test when
@@ -78,7 +94,7 @@ func serve(t *testing.T, status int, body string) (API, *recorder) {
 			t.Errorf("reading the request body: %v", err)
 			return
 		}
-		rec.record(r.URL.Path, string(raw))
+		rec.record(r.URL.Path, r.Header.Get("Content-Type"), string(raw))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		if _, err := w.Write([]byte(body)); err != nil {

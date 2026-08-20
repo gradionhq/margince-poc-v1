@@ -32,6 +32,11 @@ type OutboundChannelMessage struct {
 	// fresh. Telegram has no header-based threading, so the parent id IS the
 	// thread identity.
 	ReplyToMessageID int64
+	// Files are what the message carries. A non-empty set moves the message off
+	// sendMessage and onto the upload path in sendfiles.go, where Text becomes
+	// the album's CAPTION rather than a message body — which is why the two
+	// bounds differ and why one message never produces two provider calls.
+	Files []connector.OutboundFile
 }
 
 // Bot is what getMe reports: the bot's global numeric id (the channel_id a
@@ -66,6 +71,16 @@ type API interface {
 	// SendMessage transmits one message and returns Telegram's message id for
 	// it — the id a later reply threads under.
 	SendMessage(ctx context.Context, token string, m OutboundChannelMessage) (messageID int64, err error)
+	// SendFiles transmits one message AND every file staged with it, in a single
+	// provider call, returning the id a later reply threads under.
+	//
+	// Separate from SendMessage because it is a different request encoding and a
+	// different pair of provider methods, not a flag on the same one. One call
+	// per message is the safety property: a text call plus a file call would
+	// leave a window in which the customer has the words and not the documents,
+	// and nothing could tell the difference between that and a message still in
+	// flight.
+	SendFiles(ctx context.Context, token string, m OutboundChannelMessage) (messageID int64, err error)
 }
 
 // apiBase is Telegram's Bot API origin. Overridable through NewAPI so the
@@ -287,6 +302,19 @@ func (a *httpAPI) callWith(ctx context.Context, client *http.Client, token, meth
 	if err != nil {
 		return err
 	}
+	return a.verdict(client, req, method, out)
+}
+
+// verdict performs one already-built Bot API request and turns the answer into
+// either the decoded result or the ONE sentinel every caller branches on. It is
+// separate from callWith because the upload path (sendfiles.go) builds a
+// multipart request rather than a JSON one and must reach the same verdict: a
+// second copy of this decode-and-classify sequence is a second opinion about
+// what a 403 or an ok=false means, which is exactly what this file's opening
+// comment forbids.
+//
+//craft:ignore naked-any out is the caller's per-method JSON decode target — one shape per Bot API method
+func (a *httpAPI) verdict(client *http.Client, req *http.Request, method string, out any) error {
 	resp, err := client.Do(req)
 	if err != nil {
 		// A transport failure carries no provider verdict: the token may be
@@ -326,11 +354,17 @@ func (a *httpAPI) callWith(ctx context.Context, client *http.Client, token, meth
 	return nil
 }
 
-// request builds one authorized Bot API request. The token rides the PATH,
+// endpoint addresses one Bot API method for one token. The token rides the PATH,
 // which is Telegram's scheme — hence url.PathEscape, so a pasted token
 // containing a slash cannot reach a method the caller did not name.
+func (a *httpAPI) endpoint(token, method string) string {
+	return a.base + "/bot" + url.PathEscape(token) + "/" + method
+}
+
+// request builds one authorized Bot API request carrying a JSON body, or a bare
+// POST when there is none — every Bot API method accepts POST.
 func (a *httpAPI) request(ctx context.Context, token, method string, body map[string]any) (*http.Request, error) {
-	endpoint := a.base + "/bot" + url.PathEscape(token) + "/" + method
+	endpoint := a.endpoint(token, method)
 	if body == nil {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 		if err != nil {
