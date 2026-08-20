@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
+	"github.com/gradionhq/margince/backend/internal/platform/ownedfile"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -99,13 +100,15 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 const setupTokenFile = "config/margince-setup-token" // #nosec G101 -- a path, not a credential; the token itself is never a literal
 
 // announceSetupToken mints the claim credential when none is outstanding and
-// puts it where the operator will find it: the server log, and a 0600 file
-// whose resolved path the log names.
+// puts it where the operator will find it: a 0600 file, whose resolved path the
+// server log names.
 //
-// Both, not one. The log is where an operator watching a first boot is already
-// looking; the file is what survives a log pipeline that dropped the line, and
-// what a `kubectl exec` can read afterwards. Neither is the database — only the
-// hash is stored there, so a backup cannot be replayed into a claim.
+// Two channels, and only one of them carries the value. The file is what a
+// `kubectl exec` can read afterwards and what survives a log pipeline that
+// dropped the line; the log is where an operator watching a first boot is
+// already looking, so it names the path and falls back to the token itself only
+// when the file could not be written. Neither is the database — only the hash is
+// stored there, so a backup cannot be replayed into a claim.
 //
 // An already-outstanding token is reported, never replaced: a boot that minted
 // a fresh one would silently invalidate the token an operator had already read
@@ -125,12 +128,20 @@ func announceSetupToken(ctx context.Context, svc *identity.Service, log *slog.Lo
 		return fmt.Errorf("compose: minting the setup token for an unprovisioned installation: %w", err)
 	}
 	path, writeErr := writeSetupTokenFile(raw)
-	// The log line carries the token itself, so it survives a failed file
-	// write — that is the whole reason for having two channels rather than
-	// one, and refusing to boot here would strand an installation over a
-	// read-only directory when the operator can already read the token above.
-	log.Warn("installation is unprovisioned: claim it with this one-time setup token",
-		"setup_token", raw, "token_file", path, "write_error", writeErr)
+	// The credential reaches the log only when the file could not hold it. The
+	// two channels are not interchangeable: the 0600 file has one reader and a
+	// lifetime, while the log is read by everyone the log store admits and keeps
+	// the token in a searchable index long after the installation is claimed. A
+	// write failure must not strand an installation over a read-only directory,
+	// so the boot continues either way — it is the token, not the announcement,
+	// that the successful write withholds.
+	if writeErr != nil {
+		log.Warn("installation is unprovisioned and the setup-token file could not be written: claim it with this one-time setup token",
+			"setup_token", raw, "token_file", path, "write_error", writeErr)
+		return nil
+	}
+	log.Warn("installation is unprovisioned: claim it with the one-time setup token in the token file",
+		"token_file", path)
 	return nil
 }
 
@@ -147,30 +158,75 @@ func announceSetupToken(ctx context.Context, svc *identity.Service, log *slog.Lo
 // the log.
 //
 // O_EXCL is the flag that does that, everywhere: it refuses ANY existing final
-// component, a symlink included. openNoFollow is reinforcement whose value is
-// per-platform and is documented where it is declared.
+// component, a symlink included. ownedfile.OpenNoFollow is reinforcement whose
+// value is per-platform and is documented where it is declared.
 //
-// The guard covers the final component and NOT the parent, on any platform: a
-// symlinked config/ redirects this write and MkdirAll follows it. Issue #1579
-// holds that, the Windows DACL the 0600 does not set, and the sibling writers
-// with the same shape.
+// The guard covers the final component AND the directory it lands in, and
+// neither covers a component above that: a symlink standing in for the working
+// directory itself still redirects the whole path. What is defended is the one
+// step an attacker who can write the working tree before first boot actually
+// takes.
 func writeSetupTokenFile(raw string) (path string, err error) {
 	abs, err := filepath.Abs(setupTokenFile)
 	if err != nil {
 		return setupTokenFile, err
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+	if err := ownTokenDirectory(filepath.Dir(abs)); err != nil {
 		return abs, err
 	}
 	// #nosec G304 -- abs derives from the compile-time constant above via filepath.Abs; no request or configuration value reaches this path
-	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL|openNoFollow, 0o600)
+	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL|ownedfile.OpenNoFollow, 0o600)
 	if err != nil {
 		return abs, err
+	}
+	// The mode argument is advisory on Windows, where the ACL decides. A 0600
+	// that is not enforced is worse than no file at all, so a directory whose
+	// permissions cannot be established refuses the write rather than producing
+	// a readable credential — announceSetupToken then hands the operator the
+	// token through the log, which is exactly the fallback that arm exists for.
+	if err := ownedfile.RestrictToOwner(f); err != nil {
+		return abs, errors.Join(err, f.Close(), os.Remove(abs))
 	}
 	if _, err := f.WriteString(raw); err != nil {
 		return abs, errors.Join(err, f.Close())
 	}
 	return abs, f.Close()
+}
+
+// ownTokenDirectory makes the credential's parent directory one this process
+// created, or one it has checked is a real directory rather than a redirect.
+//
+// MkdirAll cannot do this: it follows a symlink standing in for config/ and
+// reports success, so the credential is written inside whatever that link names
+// — a directory an attacker who got there before first boot owns and can read.
+// O_EXCL and O_NOFOLLOW both act on the FINAL component only, so neither sees it.
+//
+// What this does NOT cover, stated rather than implied: a symlink at any
+// component ABOVE the parent (the working directory itself), and a swap of the
+// parent between this check and the open below. Closing those needs an openat
+// walk from a directory handle, which Windows has no portable equivalent for;
+// the case defended here is the one #1579 verified empirically.
+func ownTokenDirectory(dir string) error {
+	// #nosec G703 -- dir is filepath.Dir of filepath.Abs(setupTokenFile), a compile-time constant; no request or configuration value reaches this path
+	info, err := os.Lstat(dir)
+	switch {
+	case os.IsNotExist(err):
+		// Mkdir, not MkdirAll: the parent of config/ is the working directory,
+		// which the process is already running in. Creating a chain would mean
+		// creating directories nobody asked for on a path nobody verified.
+		// #nosec G703 -- same constant-derived path as the Lstat above
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			return fmt.Errorf("compose: creating the setup-token directory %s: %w", dir, err)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("compose: checking the setup-token directory %s: %w", dir, err)
+	case info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("compose: refusing to write the setup token: %s is a symbolic link, so the credential would be created wherever it points rather than beside the installation's other local secrets", dir)
+	case !info.IsDir():
+		return fmt.Errorf("compose: refusing to write the setup token: %s exists and is not a directory", dir)
+	}
+	return nil
 }
 
 // configuredSeed lays down every module's per-workspace defaults inside

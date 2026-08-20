@@ -36,8 +36,8 @@ var ErrSetupTokenExists = errors.New("identity: a setup token is already outstan
 // cannot be claimed.
 //
 // An outstanding token is kept, not replaced: a boot that silently minted a
-// fresh one would invalidate the token an operator had already read out of the
-// log and handed on. Under the installation advisory lock — the same one boot
+// fresh one would invalidate the token an operator had already taken from the
+// token file and handed on. Under the installation advisory lock — the same one boot
 // and claim take — so two api replicas starting together cannot both pass the
 // EXISTS check and race each other into the unique index.
 func (s *Service) MintSetupToken(ctx context.Context) (string, error) {
@@ -67,8 +67,8 @@ type outstandingPolicy bool
 
 const (
 	// keepOutstanding — refuse rather than replace. A boot that silently minted
-	// a fresh token would invalidate the one an operator had already read out
-	// of the log and handed on.
+	// a fresh token would invalidate the one an operator had already taken from
+	// the token file and handed on.
 	keepOutstanding outstandingPolicy = false
 	// replaceOutstanding — retire first, so the old credential stops working
 	// the moment this commits rather than both being live until one is spent.
@@ -81,8 +81,9 @@ const (
 // the outbox are all tenant-scoped and NOT NULL, and a setup token exists BEFORE
 // the workspace it authorizes creating — there is no tenant to scope a record
 // to. What the lifecycle does leave behind is the boot log line announcing the
-// mint, and the system_log row the resulting claim writes inside the same
-// transaction as the organization, naming the human who presented the token.
+// mint — which names the token file rather than repeating what it holds — and
+// the system_log row the resulting claim writes inside the same transaction as
+// the organization, naming the human who presented the token.
 //
 // issueSetupToken is the whole rule both public entry points apply: under the
 // installation advisory lock, refuse a provisioned installation, settle what to
