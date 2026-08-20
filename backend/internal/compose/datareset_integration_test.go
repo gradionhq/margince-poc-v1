@@ -296,6 +296,11 @@ func TestDropResetCustomFieldColumns(t *testing.T) {
 // A row-conditional hold refuses deletes for SOME rows and is not a protected
 // store — preserving it would exempt a table the reset exists to clear. So the
 // second shape is classified here, with what the reset owes it.
+//
+// Keyed "<table> <trigger>", on the PAIR the gate reports, because a table-keyed
+// entry ratifies the category rather than the instance: it clears the trigger it
+// was written for AND every DELETE trigger added to that table afterwards,
+// including one that really does block. Each trigger earns its own line.
 var deleteGuardedSweepTargets = gatekit.Waive(map[string]string{
 	// Not a protected table: the guard refuses a DELETE only while a row carries
 	// `restricted_at`, which is a statutory hold on that one record. Preserving
@@ -308,10 +313,16 @@ var deleteGuardedSweepTargets = gatekit.Waive(map[string]string{
 	// lands, the reset must LIFT the restrictions it is entitled to clear before
 	// deleting, or the sweep aborts on the first held activity. This entry is
 	// that obligation, not a record of one already met.
-	"activity": "a row-conditional statutory hold, not a protected store: preserving it would leave every activity behind on a reset meant to clear them, and no writer can set the restriction yet (#1557) — when one lands the reset must lift before it sweeps",
+	"activity activity_refuse_restricted_mutation": "a row-conditional statutory hold, not a protected store: preserving it would leave every activity behind on a reset meant to clear them, and no writer can set the restriction yet (#1557) — when one lands the reset must lift before it sweeps",
 	// Not guards at all (migration 1787032690).
-	"activity_link": "a clock-maintenance trigger, not a guard: it recomputes the last_activity_at of the records the deleted link reached and refuses no delete; the sweep deletes those records too, so the recompute is discarded with them",
-	"relationship":  "a clock-maintenance trigger, not a guard: it recomputes the employer's last_activity_at and refuses no delete",
+	"activity_link activity_link_last_activity": "a clock-maintenance trigger, not a guard: it recomputes the last_activity_at of the records the deleted link reached and refuses no delete; the sweep deletes those records too, so the recompute is discarded with them",
+	"relationship relationship_last_activity":   "a clock-maintenance trigger, not a guard: it recomputes the employer's last_activity_at and refuses no delete",
+	// Also not a guard (migration 1787226902): BEFORE DELETE ON organization,
+	// it sets deal.partner_org_id and deal.partner_attribution to NULL so a
+	// deleted partner leaves no dangling attribution behind. It refuses no
+	// delete. The sweep clears `deal` too, so the rows it just nulled are
+	// deleted immediately after and the clearing is discarded with them.
+	"organization organization_delete_clears_deal_partner": "a clear-the-reference trigger, not a guard: deleting an organization nulls the partner attribution on deals that named it and refuses no delete; the sweep deletes those deals too, so the clearing is discarded with them",
 })
 
 func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {
@@ -346,7 +357,7 @@ func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {
 			if err := rows.Scan(&table, &trigger); err != nil {
 				return err
 			}
-			if targetSet[table] && !deleteGuardedSweepTargets.Waived(t, table) {
+			if targetSet[table] && !deleteGuardedSweepTargets.Waived(t, table+" "+trigger) {
 				t.Errorf("sweep target %q carries DELETE-firing trigger %q — an append-only or otherwise protected table belongs in preservedResetTables; a row-conditional guard belongs in deleteGuardedSweepTargets, with what the reset owes it", table, trigger)
 			}
 		}

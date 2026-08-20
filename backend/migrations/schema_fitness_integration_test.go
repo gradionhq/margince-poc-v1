@@ -339,10 +339,27 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// writer lands it must derive both from rows the actor could already see —
 	// this entry is the obligation, not a record of one already met.
 	"activity_retention_evidence.activity_id": "schema only, no writer yet (#1557): the evidence is written by the qualifying pass from the activity it substantiates, never from a request body — when that pass lands, the activity it names must be one the actor could already see",
-	"activity_retention_evidence.deal_id":     "schema only, no writer yet (#1557): the qualifying transaction is resolved from the activity's own link, not supplied — and it is ON DELETE SET NULL beside a frozen deal_name, so the evidence answers after the deal is gone",
-	"finance_customer_link.organization_id":   "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
-	"finance_invoice.organization_id":         "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
-	"finance_payment.organization_id":         "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
+	// Server-derived on both writers, never a client-supplied reference.
+	//
+	// This pair of entries is an obligation as much as a classification: it holds
+	// only while no request body names either id. A contract operation that
+	// accepts one — a hand-written entry, an import, a correction — makes it
+	// false, and that writer must put the named record through
+	// auth.EnsureLinkTarget rather than inherit this line.
+	// accrue.go takes deal_id from the outbox envelope's own entity and
+	// partner_org_id from the deal's stored partner carried on StageChanged;
+	// decide.go's insertReversal copies both from the ledger row it reverses,
+	// which the decide path already read under its gate. No contract operation
+	// accepts either id in a body, so there is no request for a target probe to
+	// check. Reads are not ungated either: commissions/visibility.go inherits an
+	// entry's visibility from its deal rather than copying an owner at accrual,
+	// so a reassigned deal carries its entries in the same query.
+	"commission_entry.deal_id":              "server-derived: the accrual reads it from the won-deal event's entity, and a reversal copies it from the entry it undoes — no request body names it; the row's own visibility is inherited from this deal (commissions/visibility.go)",
+	"commission_entry.partner_org_id":       "server-derived: the accrual reads it from the deal's stored partner_org_id carried on StageChanged, and a reversal copies it from the entry it undoes — no request body names it",
+	"activity_retention_evidence.deal_id":   "schema only, no writer yet (#1557): the qualifying transaction is resolved from the activity's own link, not supplied — and it is ON DELETE SET NULL beside a frozen deal_name, so the evidence answers after the deal is gone",
+	"finance_customer_link.organization_id": "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
+	"finance_invoice.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
+	"finance_payment.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
 })
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation
