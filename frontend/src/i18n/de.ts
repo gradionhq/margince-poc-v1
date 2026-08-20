@@ -269,6 +269,7 @@ export const de = {
 
   "nav.partners": "Partner",
   "deal.partnerAttribution": "Was der Partner getan hat",
+  "deal.attributionUnset": "Nicht angegeben (gilt als gebracht)",
   "deal.attributionSourced": "Hat den Deal gebracht",
   "deal.attributionInfluenced": "Hat bei einem bestehenden Deal geholfen",
   "commission.panelTitle": "Provision",

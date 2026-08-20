@@ -469,7 +469,15 @@ const FORECAST_OPTIONS: { value: string; label: MessageKey }[] = [
 
 // What a partner did for the deal. Only "sourced" earns commission — a partner
 // who helped a deal we already had is recorded, not paid.
+//
+// The empty value leads and says what leaving it unset MEANS. The server
+// defaults a named partner to "sourced", so a bare "Unset" here would let a
+// reader believe they had made no claim while the deal quietly became
+// commission-eligible. A field that offers the empty value in its own words
+// suppresses the generic entry (create.tsx), which is why this one is spelled
+// out rather than inherited.
 const ATTRIBUTION_OPTIONS: { value: string; label: MessageKey }[] = [
+  { value: "", label: "deal.attributionUnset" },
   { value: "sourced", label: "deal.attributionSourced" },
   { value: "influenced", label: "deal.attributionInfluenced" },
 ];

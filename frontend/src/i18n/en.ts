@@ -278,6 +278,7 @@ export const en = {
 
   "nav.partners": "Partners",
   "deal.partnerAttribution": "What the partner did",
+  "deal.attributionUnset": "Not said (counts as brought us the deal)",
   "deal.attributionSourced": "Brought us the deal",
   "deal.attributionInfluenced": "Helped a deal we had",
   "commission.panelTitle": "Commission",

@@ -276,6 +276,7 @@ export const vi = {
 
   "nav.partners": "Đối tác",
   "deal.partnerAttribution": "Đối tác đã làm gì",
+  "deal.attributionUnset": "Chưa nêu (tính là mang deal về)",
   "deal.attributionSourced": "Mang deal về cho chúng ta",
   "deal.attributionInfluenced": "Hỗ trợ deal đã có",
   "commission.panelTitle": "Hoa hồng",

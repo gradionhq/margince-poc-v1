@@ -3,8 +3,9 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, EmptyState } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
-import { formatMoney } from "../format/format";
-import { useLocale, useT } from "../i18n";
+import { formatMoney, INTL_LOCALE } from "../format/format";
+
+import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { QueryGate, throwProblem } from "./common";
 
@@ -36,16 +37,32 @@ const STATUS_TONES: Record<CommissionStatus, "accent" | "success" | "warn"> = {
   void: "warn",
 };
 
+// The whole ledger, followed page by page.
+//
+// Reading page one and stopping would under-report what a partner earned the
+// moment they pass one page of entries — and it would do it silently, which is
+// the worst way for a money figure to be wrong. The panel totals nothing today,
+// but a list that claims to be the ledger has to be the ledger.
 async function fetchPartnerCommissions(
   organizationId: string,
 ): Promise<CommissionEntry[]> {
-  const { data, error } = await api.GET("/commissions", {
-    params: { query: { partner_org_id: organizationId, limit: 50 } },
-  });
-  if (error) {
-    throwProblem(error);
-  }
-  return data?.data ?? [];
+  const entries: CommissionEntry[] = [];
+  let cursor: string | undefined;
+  do {
+    const { data, error } = await api.GET("/commissions", {
+      params: {
+        query: { partner_org_id: organizationId, limit: 50, cursor },
+      },
+    });
+    if (error) {
+      throwProblem(error);
+    }
+    entries.push(...(data?.data ?? []));
+    cursor = data?.page?.has_more
+      ? (data.page.next_cursor ?? undefined)
+      : undefined;
+  } while (cursor);
+  return entries;
 }
 
 /**
@@ -108,7 +125,7 @@ function CommissionLedger({
             <td>{formatMoney(entry.amount_minor, entry.currency, locale)}</td>
             {/* Basis points render as the percentage a human agreed to: 1500 is
                 the tier's 15%, and nobody outside the schema thinks in bps. */}
-            <td>{formatRate(entry.rate_bps)}</td>
+            <td>{formatRate(entry.rate_bps, locale)}</td>
             <td>
               {formatMoney(entry.basis_amount_minor, entry.currency, locale)}
             </td>
@@ -125,13 +142,17 @@ function CommissionLedger({
 }
 
 /**
- * formatRate renders basis points as a percentage.
+ * formatRate renders basis points as a percentage in the reader's locale.
  *
  * Trailing zeros are dropped so the common whole-percent tiers read as "15%"
  * rather than "15.00%", while a rate that genuinely carries a fraction still
- * shows it.
+ * shows it. Through Intl rather than string arithmetic: a German reader writes
+ * "12,5 %", and a hand-built string would hand them a decimal point.
  */
-export function formatRate(rateBps: number): string {
+export function formatRate(rateBps: number, locale: Locale): string {
   const percent = rateBps / 100;
-  return `${Number.isInteger(percent) ? percent : percent.toFixed(2)}%`;
+  return new Intl.NumberFormat(INTL_LOCALE[locale], {
+    style: "percent",
+    maximumFractionDigits: Number.isInteger(percent) ? 0 : 2,
+  }).format(percent / 100);
 }
