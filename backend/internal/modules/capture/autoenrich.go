@@ -53,17 +53,29 @@ func NewAutoEnrichStore(db *database.DB) *AutoEnrichStore { return &AutoEnrichSt
 // no cursor row or a due one under the attempt bound. The query's own
 // workspace predicate scopes it to the bound workspace.
 //
-// name_source='domain' IS the sweep's population. ADR-0072 gives a dossier to
-// every surviving AUTO-CREATED company, and a domain-derived name is what marks
-// the company nobody has named: capture minted it from a mail domain, and no
-// human, dossier or signature has since said what it is called. A company a
-// person named is out of scope by that same rule — including the installation's
-// OWN company, deliberately. The anchor is created human-named by the
-// confirmation of a deep read a person inspected field by field, and a later
-// refresh of it compares every proposal against confirmed truth and asks the
-// human to resolve each conflict (ADR-0065 §8), while this lane applies what it
-// finds directly. Offering the anchor here would write machine values onto the
-// one company the installation IS, outside the comparison that exists for it.
+// The population is every company with a live primary domain and no dossier,
+// however it was named. ADR-0072 scoped this lane to auto-created companies
+// (name_source='domain') — "the company nobody has named". Lars overruled that
+// on 2026-08-19, twice: "when I create a company and if admin enabled automatic
+// website read then this should be also put on the list for website ingestion",
+// and "If I manually create a company auto enrich must also be triggered." A
+// person typing the name is not a reason to withhold the dossier; it is usually
+// the moment they want one.
+//
+// The old rule had also made the lane inert rather than selective: all 195
+// organizations in the demo workspace carry name_source='human', so the sweep
+// had no candidate at all and had never enriched anything.
+//
+// The anchor stays out, now by its OWN predicate rather than as a side effect
+// of being human-named — removing name_source without this would have started
+// offering it. Two reasons it does not belong here. It is enriched during cold
+// start already (people/company.go's cold-start read-back, distinct from the
+// human write), so a sweep over it is redundant — Lars, 2026-08-20: "Gradion
+// (anchor) IS enriched during coldstart and does not require auto enrichment
+// later." And this lane applies what it finds directly, while the anchor's own
+// refresh compares every proposal against confirmed truth and asks the human to
+// resolve each conflict (ADR-0065 §8); offering it here would write machine
+// values onto the one company the installation IS, outside that comparison.
 //
 // The site-read clause excludes a company whose dossier exists or is still
 // coming. A read that ended with NO dossier is not one: a failure, and a
@@ -81,7 +93,7 @@ func (s *AutoEnrichStore) ListDueOrgs(ctx context.Context, limit int) ([]DueOrg,
 			  ON d.organization_id = o.id AND d.is_primary AND d.archived_at IS NULL
 			LEFT JOIN capture_auto_enrich_state s ON s.organization_id = o.id
 			WHERE o.archived_at IS NULL
-			  AND o.name_source = 'domain'
+			  AND NOT o.is_anchor
 			  AND NOT EXISTS (
 				SELECT 1 FROM site_read sr
 				WHERE sr.organization_id = o.id

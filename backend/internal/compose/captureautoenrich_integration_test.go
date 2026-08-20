@@ -13,6 +13,8 @@ package compose
 
 import (
 	"context"
+	"slices"
+	"sort"
 	"testing"
 	"time"
 
@@ -103,12 +105,13 @@ func TestAutoEnrichStoreEligibilityAndCap(t *testing.T) {
 	store := capture.NewAutoEnrichStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 
-	// Two captured domain-named orgs are due; a human-named org (from insertOrg,
-	// name_source='human') is not; nor is one that already has a dossier.
+	// How the company was NAMED no longer decides: a person creating one is
+	// usually the moment they want the dossier, and the old name_source='domain'
+	// rule had made this lane inert anyway (every org in the demo workspace is
+	// human-named). What still excludes a company is having a dossier already.
 	due1 := insertDomainOrg(t, e, "gitex.com")
 	insertDomainOrg(t, e, "acme.example")
-	humanOrg := insertOrg(t, e, e.Rep1, "human.example", "") // name_source='human'
-	_ = humanOrg
+	insertOrg(t, e, e.Rep1, "human.example", "") // name_source='human' — now DUE
 	// Give due1 a completed site read so it is excluded (already enriched).
 	if _, _, err := e.People.StartSiteRead(ctx, due1, "https://gitex.com", "human:"+e.Rep1.String()); err != nil {
 		t.Fatalf("seed dossier: %v", err)
@@ -118,8 +121,14 @@ func TestAutoEnrichStoreEligibilityAndCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListDueOrgs: %v", err)
 	}
-	if len(dueList) != 1 || dueList[0].Domain != "acme.example" {
-		t.Fatalf("due = %+v, want exactly acme.example (human-named excluded, dossier'd excluded)", dueList)
+	gotDomains := []string{}
+	for _, d := range dueList {
+		gotDomains = append(gotDomains, d.Domain)
+	}
+	sort.Strings(gotDomains)
+	if !slices.Equal(gotDomains, []string{"acme.example", "human.example"}) {
+		t.Fatalf("due = %v, want acme.example and human.example — a human-named company "+
+			"is enriched too, and only the one holding a dossier is excluded", gotDomains)
 	}
 
 	// The daily cap is atomic: with a cap of 2, the first two reservations
@@ -156,11 +165,13 @@ func runReadTo(t *testing.T, e *integration.Env, orgID ids.OrganizationID, seedU
 }
 
 func TestTheInstallationsOwnCompanyIsNeverSwept(t *testing.T) {
-	// The anchor is the company a person named, from a read they inspected field
-	// by field, and its refresh compares every proposal against confirmed truth
-	// (ADR-0065 §8) — while this lane applies what it finds directly. It differs
-	// from a swept company in exactly the thing the sweep selects on, and the
-	// exclusion is the point rather than an oversight.
+	// This test carries more weight than it used to. The anchor was excluded as
+	// a SIDE EFFECT of being human-named, and the sweep no longer selects on
+	// that — so `NOT o.is_anchor` is now the only thing keeping the company the
+	// installation IS out of a lane that applies machine values directly. Its
+	// own refresh compares each proposal against confirmed truth and asks the
+	// human to resolve conflicts (ADR-0065 §8), and cold start has already read
+	// it, so a sweep here would be both redundant and unreviewed.
 	e := integration.Setup(t)
 	store := capture.NewAutoEnrichStore(e.DB())
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
