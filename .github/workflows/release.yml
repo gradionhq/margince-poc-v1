@@ -391,6 +391,13 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     needs: [draft, desktop-macos, desktop-windows]
     runs-on: ubuntu-24.04-arm
+    # Transfer work, not build work: the bundles were already produced inside
+    # the desktop lanes' own 90-minute ceilings, and this job only moves them —
+    # two artifact downloads, one re-zip, one release upload. That is the same
+    # shape as `draft` and `publish` above, which carry 30 for the same reason.
+    # If a desktop bundle ever grows past what 30 minutes of artifact transfer
+    # can carry, this moves with the sibling two rather than on its own.
+    timeout-minutes: 30
     permissions:
       # The only job in this workflow that writes to this repository, and it
       # writes exactly one thing: the release and its tag. Every other job here
