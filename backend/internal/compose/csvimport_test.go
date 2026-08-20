@@ -26,34 +26,38 @@ func TestEveryImportTargetRoundTripsThroughCreateAndUpdate(t *testing.T) {
 		migration.ObjectLead: func(fields map[string]string) (map[string]bool, map[string]bool) {
 			in := leadCreateFrom(fields, "import:csv", "ext-1", "src")
 			up := leadUpdateFrom(fields)
-			return map[string]bool{
-					"full_name":    in.FullName != nil,
-					"email":        in.Email != nil,
-					"title":        in.Title != nil,
-					"company_name": in.CompanyName != nil,
-				}, map[string]bool{
-					"full_name":    up.FullName != nil,
-					"email":        up.Email != nil,
-					"title":        up.Title != nil,
-					"company_name": up.CompanyName != nil,
-				}
+			created := map[string]bool{
+				"full_name":    in.FullName != nil,
+				"email":        in.Email != nil,
+				"title":        in.Title != nil,
+				"company_name": in.CompanyName != nil,
+			}
+			patched := map[string]bool{
+				"full_name":    up.FullName != nil,
+				"email":        up.Email != nil,
+				"title":        up.Title != nil,
+				"company_name": up.CompanyName != nil,
+			}
+			return created, patched
 		},
 		migration.ObjectOrganization: func(fields map[string]string) (map[string]bool, map[string]bool) {
 			in := organizationCreateFrom(fields, "src")
 			up := organizationUpdateFrom(fields)
-			return map[string]bool{
-					"display_name": in.DisplayName != "",
-					"legal_name":   in.LegalName != nil,
-					"industry":     in.Industry != nil,
-					"size_band":    in.SizeBand != nil,
-					"description":  in.Description != nil,
-				}, map[string]bool{
-					"display_name": up.DisplayName != nil,
-					"legal_name":   up.LegalName != nil,
-					"industry":     up.Industry != nil,
-					"size_band":    up.SizeBand != nil,
-					"description":  up.Description != nil,
-				}
+			created := map[string]bool{
+				"display_name": in.DisplayName != "",
+				"legal_name":   in.LegalName != nil,
+				"industry":     in.Industry != nil,
+				"size_band":    in.SizeBand != nil,
+				"description":  in.Description != nil,
+			}
+			patched := map[string]bool{
+				"display_name": up.DisplayName != nil,
+				"legal_name":   up.LegalName != nil,
+				"industry":     up.Industry != nil,
+				"size_band":    up.SizeBand != nil,
+				"description":  up.Description != nil,
+			}
+			return created, patched
 		},
 	} {
 		t.Run(object, func(t *testing.T) {
