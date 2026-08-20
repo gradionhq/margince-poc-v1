@@ -490,7 +490,11 @@ up)
   # audience and the advertised MCP resource must never come from the Host
   # header), so an engineer who flips that gate needs this flag present with
   # no Gmail env vars in sight.
-  public_base_url_flag=(--public-base-url "http://localhost:${fe_port}")
+  # A tunnelled host (cloudflared quick tunnel) needs this to be the public
+  # URL, not localhost, or the advertised MCP resource mismatches and OAuth
+  # token exchange fails. Overridable from .env.local (sourced above) so every
+  # `make dev` boots tunnel-correct; unset, dev is unchanged.
+  public_base_url_flag=(--public-base-url "${MARGINCE_PUBLIC_BASE_URL:-http://localhost:${fe_port}}")
 
   # Gmail capture connector: when .env.local supplies a Google OAuth app, pass
   # its flags to the api and run the sync worker. Absent it, `make dev` is
