@@ -101,11 +101,11 @@ if [ "${PERF_RESULT:-}" = "failure" ]; then
   report "a PERF-3/PERF-7 budget is breaching on main" bug \
 "\`make bench-perf-check\` failed on the weekly run of \`main\`: $RUN_URL
 
-Read WHICH tier before anything else. The job runs SMB and then mid-market, and
-they make different claims: the SLO binds at mid-market, while SMB is the corpus
-most installations look like. A mid-market breach is the published budget being
-missed; an SMB breach is worse than it sounds, because it means the smaller
-corpus is already over a bound the larger one has to meet.
+This alarm runs the SMB tier only, and that shapes what the finding means: SMB
+is the corpus most installations look like, while the PERF-7 SLO binds at
+mid-market. So a breach here is worse than it sounds — the SMALLER corpus is
+already over a bound the larger one has to meet. Mid-market is not measured by
+any schedule; run \`make bench-perf\` by hand to see it.
 
 No record was written — this lane never sets \`MARGINCE_BENCH_RECORD\`, so the
 published page still shows the last number a human measured. Reproduce with

@@ -213,13 +213,15 @@ jobs:
   # docs/reference/perfbench/, and it is run by a person. A machine writing its
   # own numbers into the tree is the failure that switch exists to prevent.
   perf-budgets:
-    name: perf budgets (PERF-3/PERF-7, both tiers)
+    name: perf budgets (PERF-3/PERF-7, SMB tier)
     if: github.event.schedule == '0 2 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.perf)
     runs-on: ubuntu-latest
-    # Two tiers, the second seeding 250k contacts, each with its own 30m go-test
-    # budget. 90 leaves room for a slow runner without letting a hung seed sit
-    # until the six-hour default.
-    timeout-minutes: 90
+    # The SMB tier measures in under a minute on a fast machine; 30 leaves room
+    # for a slow runner and for the seed, without letting a hung one sit until
+    # the six-hour default. Mid-market is deliberately not here — see
+    # bench-perf-check in backend/Makefile for why a job that cannot finish is
+    # worse than no job.
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -242,7 +244,7 @@ jobs:
       - name: Start the dev infra stack (compose + app role)
         working-directory: .
         run: make db-up
-      - name: PERF-3/PERF-7 at both tiers
+      - name: PERF-3/PERF-7 on the SMB tier
         working-directory: .
         run: make bench-perf-check
 

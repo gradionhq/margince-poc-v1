@@ -99,7 +99,7 @@ root gates (each is a small script; all merge-blocking):
 | `test-v` / `test-cover` | Verbose unit tests / unit tests with a coverage summary |
 | `db-wait` / `infra-logs` / `infra-reset` | Block until Postgres answers / tail the dev-stack logs / wipe volumes and restart the stack |
 | `bench-perf` | The PERF benchmark harness on the mid-market tier, writing a record (needs `db-up`; seeds 250k contacts) |
-| `bench-perf-check` | The same budgets at **both** tiers, writing nothing — what the weekly scheduled workflow runs (needs `db-up`) |
+| `bench-perf-check` | The same budgets on the **SMB** tier, writing nothing — what the weekly scheduled workflow runs (needs `db-up`) |
 | `bench-record` | PERF-1/PERF-4: record open and save p50/p95/p99, measured over HTTP against the booted app (needs `db-up`) |
 | `bench-capture` | CAP-PARAM-1: capture-to-timeline latency, 60 s p95, over the auto-create path (needs `db-up`) |
 | `perfdoc` | Re-render `docs/reference/performance-budgets.md` from the committed benchmark records. Every `bench-*` target runs it as its last step, so the page updates on every measurement; run it alone after editing the published-budget table in `backend/tools/gen-perfdoc` |
@@ -136,8 +136,13 @@ measured below mid-market renders `inconclusive`, never `within budget`: the
 canary's number satisfies a bound it was not measured against. So the merge gate
 paid a mid-market price for an SMB answer.
 
-The weekly scheduled workflow now runs `bench-perf-check` at both tiers instead,
-which is where drift nobody looks for gets found. It writes nothing:
+The weekly scheduled workflow now runs `bench-perf-check` on the SMB tier
+instead, which is where drift nobody looks for gets found. Not mid-market: that
+tier seeds 250k persons and 500k activities and does not finish inside `go
+test`'s 30m budget (measured — SMB 46.6s, mid-market killed at 1800.7s on a fast
+laptop), and a scheduled job that cannot finish does not report "slow", it goes
+red and files an issue claiming a budget breach that was never measured. It
+writes nothing:
 `MARGINCE_BENCH_RECORD=1` is set by `bench-perf` alone, because publishing a
 number stays a human's act — a machine must never write its own numbers into the
 tree. The write-path regression the standing canary once caught by TIMING OUT

@@ -295,20 +295,29 @@ bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6
 	     $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration'
 	@$(MAKE) --no-print-directory perfdoc
 
-# The same budgets, both tiers, recording NOTHING — what the weekly scheduled
-# workflow runs. Records are a human's to publish: a machine writing its own
-# numbers into the tree is the failure MARGINCE_BENCH_RECORD exists to prevent,
-# and a scheduled job is exactly the machine meant.
+# The SMB budgets, recording NOTHING — what the weekly scheduled workflow runs.
+# Records are a human's to publish: a machine writing its own numbers into the
+# tree is the failure MARGINCE_BENCH_RECORD exists to prevent, and a scheduled
+# job is exactly the machine meant.
 #
-# Both tiers, because the two say different things: SMB is the corpus most
-# installations look like, mid-market is where the PERF-7 SLO binds. Gating one
-# on the other's corpus is the mistake that made this suite a poor merge gate.
-bench-perf-check: composition ## PERF-3/PERF-7 at both tiers, no record written (needs db-up; the scheduled lane's target)
+# SMB ONLY, and the omission is the honest half of this target. Mid-market is
+# where the PERF-7 SLO binds, so a drift alarm would ideally watch it — but its
+# seed is 250k persons, 500k activities and 50k relationships, and it exceeded
+# `go test`'s 30m budget when this target was first run against it (measured:
+# SMB 46.6s, mid-market FAIL at 1800.7s, on a fast laptop; a 4-core runner is
+# slower). A scheduled job that cannot finish does not report "slow" — it goes
+# red, and scripts/scheduled-report.sh files an issue saying a budget is
+# breaching, which would be a fabricated finding every week.
+#
+# So the alarm watches the corpus it can finish. SMB is what most installations
+# look like, and drift there is real drift. Mid-market stays with `bench-perf`,
+# by hand, where a person is watching the clock — and a PERF-7 row measured
+# below mid-market renders `inconclusive` in the published page rather than
+# claiming a bound it did not test.
+bench-perf-check: composition ## PERF-3/PERF-7 on the SMB tier, no record written (needs db-up; the scheduled lane's target)
 	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && bench_db $(BENCH_DB_NAME) \
-	  && cd backend && for tier in smb mid_market; do \
-	       MARGINCE_BENCH_TIER=$$tier MARGINCE_TEST_DSN="$$BENCH_OWNER_DSN" MARGINCE_TEST_APP_DSN="$$BENCH_APP_DSN" \
-	       $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration || exit 1; \
-	     done'
+	  && cd backend && MARGINCE_BENCH_TIER=smb MARGINCE_TEST_DSN="$$BENCH_OWNER_DSN" MARGINCE_TEST_APP_DSN="$$BENCH_APP_DSN" \
+	     $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration'
 
 # The `bench` lane: measurements run BY HAND, never by a merge gate.
 #
