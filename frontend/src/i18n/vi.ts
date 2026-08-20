@@ -1540,6 +1540,20 @@ export const vi = {
   "deals.unit": "deal",
   "deals.capped":
     "Đang hiển thị các deal đã tải. Hãy thu hẹp danh sách để xem phần còn lại.",
+  "deals.bulkSelected": "Đã chọn {count}",
+  "deals.bulkSelectRow": "Chọn {name}",
+  "deals.bulkOwner": "Người phụ trách mới",
+  "deals.bulkOwnerPick": "Chọn người phụ trách",
+  "deals.bulkAssign": "Gán",
+  "deals.bulkStage": "Chuyển sang giai đoạn",
+  "deals.bulkStagePick": "Chọn giai đoạn",
+  "deals.bulkMove": "Chuyển",
+  "deals.bulkArchive": "Lưu trữ",
+  "deals.bulkArchiveConfirmTitle": "Lưu trữ {count} deal?",
+  "deals.bulkArchiveConfirmBody":
+    "Chúng sẽ biến mất khỏi mọi danh sách và báo cáo. Khôi phục phải làm từng deal một.",
+  "deals.bulkFailed": "{count} không áp dụng được —",
+  "deals.bulkFailedRow": "không lưu được",
 
   "deal.offers": "Báo giá",
   "deal.newOffer": "Báo giá mới",

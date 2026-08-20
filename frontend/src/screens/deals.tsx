@@ -73,6 +73,7 @@ import type { CreateField } from "./create";
 import { CreateAction } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
+import { DealBulkBar } from "./dealbulk";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
 import { usePendingApprovals } from "./inbox.queries";
@@ -910,6 +911,9 @@ export function DealsScreen({
     overlay ? "table" : "board",
   );
   const [pending, setPending] = useState<PendingAdvance | null>(null);
+  // Bulk selection, by deal id. Cleared after any bulk run except for the rows
+  // that refused, since every other row's version has moved.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const toast = useToast();
   const dragging = useRef<string | null>(null);
   const lastDragEnd = useRef(0);
@@ -918,6 +922,13 @@ export function DealsScreen({
 
   const stages = effectivePipeline?.stages ?? [];
   const stageName = new Map(stages.map((stage) => [stage.id, stage.name]));
+  // Only ids the list currently holds count as selected: a row that left the
+  // result set (refetched away, filtered out, archived by this very run) must
+  // not linger as an invisible selection nobody can clear.
+  const selectedRows = (dealsQuery.data?.data ?? []).filter((deal) =>
+    selected.has(deal.id),
+  );
+  const liveSelection = new Set(selectedRows.map((deal) => deal.id));
 
   // dealsQuery is a plain (non-infinite) query — the board reads one honest
   // screenful, never a keyset walk (see useDeals) — so the table view's
@@ -1231,6 +1242,43 @@ export function DealsScreen({
           tools={tableTools}
           dataChips={dealChips}
           dataViews={savedViews}
+          selection={{
+            selected: liveSelection,
+            // A closed or archived deal takes no bulk write: archiving it is
+            // done or meaningless, and moving it between open stages would be
+            // the silent reopen the stepper already refuses.
+            selectable: (deal) =>
+              deal.archived_at == null && deal.status === "open",
+            onToggle: (deal) =>
+              setSelected((prev) => {
+                const next = new Set(prev);
+                if (next.has(deal.id)) {
+                  next.delete(deal.id);
+                } else {
+                  next.add(deal.id);
+                }
+                return next;
+              }),
+            label: (deal) => t("deals.bulkSelectRow", { name: deal.name }),
+            bar: (
+              <DealBulkBar
+                deals={selectedRows}
+                stages={stages}
+                // The rows that went through leave the selection; the ones
+                // that refused stay in it, named, so the reader can retry
+                // them once the list has refetched their versions.
+                onDone={(outcomes) =>
+                  setSelected(
+                    new Set(
+                      outcomes
+                        .filter((outcome) => outcome.error)
+                        .map((outcome) => outcome.id),
+                    ),
+                  )
+                }
+              />
+            ),
+          }}
           chips={[
             {
               key: "stalled",
