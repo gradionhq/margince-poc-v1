@@ -145,7 +145,7 @@ func (a *httpAPI) SendFiles(ctx context.Context, token string, m OutboundChannel
 	if err := a.verdict(a.clientWithBudget(uploadBudget), req, method, &result); err != nil {
 		return 0, err
 	}
-	return firstMessageID(result, method)
+	return firstMessageID(result, method, len(m.Files))
 }
 
 // uploadMethod refuses a file set this connector has declared it cannot carry,
@@ -199,6 +199,15 @@ func carriable(m OutboundChannelMessage) error {
 			utf8.RuneCountInString(m.Text), maxCaptionRunes, connector.ErrFilesNotCarried)
 	}
 	for i, file := range m.Files {
+		if len(file.Body) == 0 {
+			// Telegram refuses an empty document, and refusing it HERE is the
+			// difference between a park a person can act on and a 400 that reads
+			// as a provider condition: a file with no bytes has none on the next
+			// attempt either, so the generic ladder would spend itself and then
+			// park under a reason naming no cause.
+			return fmt.Errorf("telegram: %q has no content, and a file with no bytes cannot be sent: %w",
+				partName(i, file), connector.ErrFilesNotCarried)
+		}
 		if int64(len(file.Body)) > maxSendableBytesPerFile {
 			// Named exactly as the wire would have named it — partName is the one
 			// spelling — so a human reading the parked reason and a human reading
@@ -369,13 +378,22 @@ func writeFilePart(form *multipart.Writer, index int, file connector.OutboundFil
 }
 
 // firstMessageID reads the reply anchor out of either result shape: one message
-// for sendDocument, an array of them for sendMediaGroup.
+// for sendDocument, an array of them for sendMediaGroup — and it insists the
+// array holds ONE MESSAGE PER FILE.
 //
-// A result with no usable id takes ErrUnreachable rather than a refusal, for the
+// That count is the only evidence this side ever gets that the album went whole.
+// Telegram numbers each item separately, so a group of three that answers with
+// two messages has not substantiated the third, and reporting success would
+// record a timeline row claiming files the provider never confirmed. The
+// atomic-on-validation behaviour says that should not happen; this is what
+// notices if it does.
+//
+// Every unusable answer takes ErrUnreachable rather than a refusal, for the
 // reason SendMessage states for the same case: ok=true is Telegram ACCEPTING the
 // message, so it may well be on its way, and reading that as a refusal invites a
-// retry that delivers a second copy.
-func firstMessageID(raw json.RawMessage, method string) (int64, error) {
+// retry that delivers a second copy. An album that half-arrived is exactly the
+// outcome nobody can know.
+func firstMessageID(raw json.RawMessage, method string, files int) (int64, error) {
 	type sent struct {
 		MessageID int64 `json:"message_id"`
 	}
@@ -389,7 +407,11 @@ func firstMessageID(raw json.RawMessage, method string) (int64, error) {
 	} else if err := json.Unmarshal(raw, &messages); err != nil {
 		return 0, fmt.Errorf("telegram: decoding the %s result: %w", method, ErrUnreachable)
 	}
-	if len(messages) == 0 || messages[0].MessageID == 0 {
+	if len(messages) != files {
+		return 0, fmt.Errorf("telegram: %s carried %d file(s) and answered for %d: %w",
+			method, files, len(messages), ErrUnreachable)
+	}
+	if messages[0].MessageID == 0 {
 		return 0, fmt.Errorf("telegram: %s answered without a message id: %w", method, ErrUnreachable)
 	}
 	return messages[0].MessageID, nil

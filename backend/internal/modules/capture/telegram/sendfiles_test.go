@@ -314,6 +314,41 @@ func TestSendFilesRefusesAMessageCarryingNoFiles(t *testing.T) {
 	}
 }
 
+// A file with no bytes is refused here rather than by Telegram, which refuses an
+// empty document too — but as a 400, which reads as a provider condition and
+// climbs the retry ladder. A file with no content has none on the next attempt
+// either, so the refusal has to be the deterministic class.
+func TestSendFilesRefusesAFileWithNoContent(t *testing.T) {
+	api, rec := serve(t, http.StatusOK, `{"ok":true,"result":{"message_id":9911}}`)
+
+	_, err := api.SendFiles(context.Background(), "1:secret", carrying(staged("empty.pdf", "application/pdf", "")))
+	if !errors.Is(err, connector.ErrFilesNotCarried) {
+		t.Fatalf("SendFiles with an empty file → %v, want ErrFilesNotCarried", err)
+	}
+	if rec.calls() != 0 {
+		t.Errorf("%d requests reached the provider for a file with nothing in it", rec.calls())
+	}
+}
+
+// The album's message count is the ONLY evidence this side gets that the group
+// went whole: Telegram numbers each item separately, so three files answered with
+// two messages have not substantiated the third. Reporting success would record a
+// timeline row claiming files the provider never confirmed — and the honest class
+// is the unknown outcome, because a half-arrived album is precisely what nobody
+// can find out about afterwards.
+func TestSendFilesRefusesToClaimAnAlbumTheProviderDidNotAnswerFor(t *testing.T) {
+	api, _ := serve(t, http.StatusOK, `{"ok":true,"result":[{"message_id":9911},{"message_id":9912}]}`)
+
+	_, err := api.SendFiles(context.Background(), "1:secret", carrying(
+		staged("one.pdf", "application/pdf", "one"),
+		staged("two.pdf", "application/pdf", "two"),
+		staged("three.pdf", "application/pdf", "three"),
+	))
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("a 3-file album answered with 2 messages → %v, want ErrUnreachable so no retry sends a second copy", err)
+	}
+}
+
 // A nameless or hostile filename must not be able to write its own headers. The
 // upload builds the Content-Disposition line by hand, so this is the case that
 // keeps extension.SafeFilename in that path.
@@ -344,9 +379,11 @@ func TestSendFilesNeverLetsAFilenameWriteItsOwnHeaders(t *testing.T) {
 // be represented becomes the honest fallback rather than a header nobody wrote.
 func TestSendFilesNeverLetsAContentTypeWriteItsOwnHeaders(t *testing.T) {
 	for _, tc := range []struct{ name, declared, want string }{
-		{"a type that would inject a second part header",
+		{
+			"a type that would inject a second part header",
 			"application/pdf\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n999999\r\nX: ",
-			"application/octet-stream"},
+			"application/octet-stream",
+		},
 		{"a type that is not a media type at all", "not a media type", "application/octet-stream"},
 		{"no declared type at all", "", "application/octet-stream"},
 		{"an honest type, carried through", "image/png", "image/png"},
