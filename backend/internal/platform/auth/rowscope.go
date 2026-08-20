@@ -388,3 +388,58 @@ func EnsureVisible(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) er
 	}
 	return nil
 }
+
+// VisibleSubset answers, in ONE statement, which of the given rows of a
+// row-scoped table the caller may SEE — the question EnsureVisible asks of one
+// row, asked of a whole page at once. It is the read-only twin of
+// WritableSubset (fieldmask.go) and exists for the same reason: a projection
+// that carries references to OTHER records must withhold the ones its reader
+// could not open, and a probe per reference is a round trip per row.
+//
+// Absent from the answer means withheld, and a row that does not exist is
+// absent too — which is what existence-hiding wants a caller to be unable to
+// tell apart.
+//
+// It asks EnsureVisible's question, not EnsureVisibleLive's: an archived
+// record is still readable through the archived filter, so naming one is not a
+// disclosure. A caller that must not name a soft-deleted row wants the strict
+// probe per row and its ErrNotFound.
+func VisibleSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.UUID) (map[ids.UUID]bool, error) {
+	if !ownerScopedTables[table] {
+		return nil, fmt.Errorf("auth: %q is not a row-scoped table", table)
+	}
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[ids.UUID]bool, len(rowIDs))
+	// The caller reads this table with no predicate at all. EnsureVisible
+	// returns nil for each of these without issuing a query, and so does this.
+	if UnboundedFor(p, table) {
+		for _, id := range rowIDs {
+			out[id] = true
+		}
+		return out, nil
+	}
+	if len(rowIDs) == 0 {
+		return out, nil
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idsPos := arg(rowIDs)
+	rows, err := tx.Query(ctx,
+		fmt.Sprintf(`SELECT id FROM %[1]s WHERE id = ANY($%[2]d) AND %[3]s`,
+			table, idsPos, VisiblePredicate(p, table, arg)("")), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id ids.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}

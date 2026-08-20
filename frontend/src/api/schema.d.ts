@@ -12938,17 +12938,17 @@ export interface components {
             stage_id: string | null;
             /**
              * Format: uuid
-             * @description Primary org; never a raw lead.
+             * @description Primary org; never a raw lead. Null when the caller may not read that organization, in which case `masked_fields` names it.
              */
             organization_id?: string | null;
             /**
              * Format: uuid
-             * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row.
+             * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.
              */
             partner_org_id?: string | null;
             /**
              * Format: uuid
-             * @description The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422.
+             * @description The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422. Null when the caller may not read that project, in which case `masked_fields` names it.
              */
             project_id?: string | null;
             /** Format: uuid */

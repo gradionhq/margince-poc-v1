@@ -18592,9 +18592,9 @@ components:
         fx_rate_date: { type: [string, 'null'], format: date }
         pipeline_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null pipeline FK. Overlay mode: NULL — an overlay-mirror deal has no native Margince pipeline row; the incumbent''s own pipeline id rides `raw` and the code-declared stage→semantic mapping drives tier resolution (overlay-augmentation OVA-MAP-6). A zero/placeholder UUID here is forbidden (dangling FK).' }
         stage_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null stage FK; must belong to pipeline_id. Overlay mode: NULL (see pipeline_id; the incumbent dealstage id rides `raw`, OVA-MAP-6).' }
-        organization_id: { type: [string, 'null'], format: uuid, description: Primary org; never a raw lead. }
-        partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row.' }
-        project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422.' }
+        organization_id: { type: [string, 'null'], format: uuid, description: 'Primary org; never a raw lead. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
+        project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422. Null when the caller may not read that project, in which case `masked_fields` names it.' }
         owner_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [open, won, lost], default: open }
         lost_reason: { type: [string, 'null'], description: Required when status=lost. }
