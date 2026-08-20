@@ -8,7 +8,7 @@ import {
   ToggleRight,
   Type,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite, useHoldsAdminRole } from "../app/capability";
@@ -26,6 +26,7 @@ import {
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
+import { ToastRegion, useToast } from "../design-system/toast";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AuditEntryLine } from "./audit";
@@ -597,33 +598,13 @@ export function CustomFieldsAdmin() {
   const meUserId = me.data?.user?.id;
 
   const [object, setObject] = useState<CfObject>("deal");
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
   const [renaming, setRenaming] = useState<CustomField | null>(null);
   const [renameLabel, setRenameLabel] = useState("");
   // Remounting the builder to its default state after a successful create so a
   // second Confirm can't resubmit the same, now-committed, draft (m6).
   const [builderKey, setBuilderKey] = useState(0);
   const renameId = useId();
-
-  // A toast is transient: show it, then auto-dismiss after 3.5s. The pending
-  // timer is held in a ref so a rapid second toast cancels the first (no leak),
-  // and it's cleared on unmount.
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = (msg: string) => {
-    if (toastTimer.current) {
-      clearTimeout(toastTimer.current);
-    }
-    setToast(msg);
-    toastTimer.current = setTimeout(() => setToast(null), 3500);
-  };
-  useEffect(
-    () => () => {
-      if (toastTimer.current) {
-        clearTimeout(toastTimer.current);
-      }
-    },
-    [],
-  );
 
   const list = useQuery({
     queryKey: ["custom-fields", object],
@@ -689,14 +670,14 @@ export function CustomFieldsAdmin() {
       if (context) {
         queryClient.setQueryData(context.key, context.previous);
       }
-      showToast(problemMessageOf(error, t));
+      toast.show(problemMessageOf(error, t), { mark: false });
     },
     onSuccess: (_data, draft) => {
       queryClient.invalidateQueries({
         queryKey: ["custom-fields", draft.object],
       });
       queryClient.invalidateQueries({ queryKey: ["cf-audit"] });
-      showToast(t("cf.added", { label: draft.label }));
+      toast.show(t("cf.added", { label: draft.label }));
       // Remount the builder so its label/type/options clear — a committed draft
       // can't be resubmitted (m6).
       setBuilderKey((key) => key + 1);
@@ -721,11 +702,11 @@ export function CustomFieldsAdmin() {
     },
     onSuccess: (_data, input) => {
       invalidate();
-      showToast(t("cf.renamed", { label: input.label }));
+      toast.show(t("cf.renamed", { label: input.label }));
       setRenaming(null);
     },
     onError: (error) => {
-      showToast(problemMessageOf(error, t));
+      toast.show(problemMessageOf(error, t), { mark: false });
     },
   });
 
@@ -741,10 +722,10 @@ export function CustomFieldsAdmin() {
     },
     onSuccess: (_data, field) => {
       invalidate();
-      showToast(t("cf.archived", { label: field.label }));
+      toast.show(t("cf.archived", { label: field.label }));
     },
     onError: (error) => {
-      showToast(problemMessageOf(error, t));
+      toast.show(problemMessageOf(error, t), { mark: false });
     },
   });
 
@@ -773,7 +754,9 @@ export function CustomFieldsAdmin() {
         />
       </PanelBody>
 
-      <PanelBody>
+      {/* The field table is read per object, so the object bar above is a tab
+          strip: the table that lands is a fresh element and arrives. */}
+      <PanelBody className="arrive-stack">
         <QueryGate query={list}>
           {(page) => (
             <FieldTable
@@ -796,7 +779,7 @@ export function CustomFieldsAdmin() {
               object={object}
               pending={create.isPending}
               onSubmit={(draft) => create.mutate(draft)}
-              onToast={showToast}
+              onToast={toast.show}
             />
           </Disclosure>
         ) : null}
@@ -833,14 +816,7 @@ export function CustomFieldsAdmin() {
         </Disclosure>
       </PanelBody>
 
-      {toast && (
-        <div className="toast-region">
-          <output className="toast">
-            <span className="dot dot-auto" />
-            {toast}
-          </output>
-        </div>
-      )}
+      <ToastRegion toast={toast} />
 
       <Modal
         open={renaming !== null}

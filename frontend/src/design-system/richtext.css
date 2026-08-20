@@ -10,7 +10,11 @@
   border-radius: var(--r-sm);
   background: var(--bgElevated);
   overflow: hidden;
-  transition: 0.15s;
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
 }
 
 /* The ring goes on the WRAPPER rather than the editable div, so focusing the
@@ -18,7 +22,7 @@
  * expects when the two are one field. */
 .richtext:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 .richtext-bar {
@@ -40,7 +44,11 @@
   background: transparent;
   color: var(--textSecondary);
   cursor: pointer;
-  transition: 0.12s;
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
 }
 
 .richtext-btn:hover {
@@ -49,9 +57,9 @@
 }
 
 .richtext-btn:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 .richtext-input {

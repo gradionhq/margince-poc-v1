@@ -33,7 +33,7 @@
   cursor: pointer;
 }
 .quota-row-press:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
 }
 /* Tinted on the ROW, so the fill reaches the panel's own edges instead of

@@ -136,6 +136,7 @@ export const vi = {
   "ext.operations": "Các thao tác đã công bố",
 
   "search.placeholder": "Tìm người, công ty, deal, hoạt động, lead…",
+  "search.prompt": "Nhập nội dung bạn muốn tìm.",
   "search.empty": "Không có kết quả cho “{q}”.",
   "search.group.person": "Người",
   "search.group.organization": "Tổ chức",
@@ -182,6 +183,7 @@ export const vi = {
   "deal.staged": "chờ duyệt",
   "deal.archived": "đã lưu trữ",
   "record.notShown": "Không hiển thị",
+  "record.timelineLoading": "Đang tải lịch sử của bản ghi này…",
   "record.timeline": "Timeline",
   "record.edit": "Sửa",
   "record.save": "Lưu",
@@ -351,6 +353,7 @@ export const vi = {
   "state.unsupported":
     "Không có ở chế độ này — hệ thống đang kết nối không lưu dữ liệu đó",
   "state.failed": "Phần này không tải được.",
+  "state.loading": "Đang tải phần này…",
   "state.retry": "Thử lại",
   "state.stale": "Giá trị biết đến gần nhất — chưa làm mới từ đó",
   "state.staleAsOf": "Giá trị biết đến gần nhất, tính đến {when}",
@@ -2120,6 +2123,11 @@ export const vi = {
 
   "settings.identity": "Hồ sơ",
   "settings.preferences": "Tùy chọn",
+  "unsaved.title": "Bạn có thay đổi chưa lưu",
+  "unsaved.body":
+    "Rời trang này bây giờ sẽ bỏ những gì bạn đã nhập. Hãy quay lại để lưu trước.",
+  "unsaved.discard": "Bỏ thay đổi",
+  "settings.saved": "Đã lưu.",
   "settings.signature": "Chữ ký email",
   "settings.signatureSub":
     "Được thêm dưới mỗi thư bạn gửi, phía trên phần hủy đăng ký.",

@@ -101,7 +101,7 @@
 .panel-row {
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--borderSubtle);
-  transition: background 0.15s;
+  transition: background var(--dur-state);
 }
 .panel-row:hover {
   background: var(--bgHover);

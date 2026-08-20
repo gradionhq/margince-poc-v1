@@ -204,8 +204,8 @@
   cursor: pointer;
 }
 .tbhit:focus-visible {
-  outline: 2px solid transparent;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  outline: var(--focus-ring-forced);
+  box-shadow: var(--focus-glow);
 }
 /* Everything the reader looks at sits above the hit area; only the link and the
    chevron take the pointer back, because they are the two things that are not
@@ -302,7 +302,7 @@
 .tbchev {
   flex: none;
   color: var(--textContent);
-  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 0.25s var(--ease-out);
 }
 .tbdock.open .tbchev {
   transform: rotate(180deg);
@@ -451,8 +451,8 @@
   color: var(--textOnAccentControl);
 }
 .tbchip:focus-visible {
-  outline: 2px solid transparent;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  outline: var(--focus-ring-forced);
+  box-shadow: var(--focus-glow);
 }
 
 /* On a phone the rail IS the bottom bar (shell.css, z-index 30), so the dock

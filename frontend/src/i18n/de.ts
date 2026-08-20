@@ -129,6 +129,7 @@ export const de = {
 
   "search.placeholder":
     "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",
+  "search.prompt": "Gib ein, wonach du suchst.",
   "search.empty": "Keine Treffer für „{q}“.",
   "search.group.person": "Personen",
   "search.group.organization": "Organisationen",
@@ -175,6 +176,7 @@ export const de = {
   "deal.singleThreaded": "nur ein Kontakt",
   "deal.staged": "vorgemerkt",
   "record.notShown": "Nicht angezeigt",
+  "record.timelineLoading": "Verlauf dieses Datensatzes wird geladen…",
   "record.timeline": "Verlauf",
   "record.edit": "Bearbeiten",
   "record.save": "Speichern",
@@ -353,6 +355,7 @@ export const de = {
   "state.unsupported":
     "In diesem Modus nicht verfügbar — das angebundene System führt es nicht",
   "state.failed": "Dieser Abschnitt wurde nicht geladen.",
+  "state.loading": "Dieser Abschnitt wird geladen…",
   "state.retry": "Erneut versuchen",
   "state.stale": "Zuletzt bekannte Werte — seitdem nicht aktualisiert",
   "state.staleAsOf": "Zuletzt bekannte Werte, Stand {when}",
@@ -2142,6 +2145,11 @@ export const de = {
 
   "settings.identity": "Profil",
   "settings.preferences": "Voreinstellungen",
+  "unsaved.title": "Du hast ungespeicherte Änderungen",
+  "unsaved.body":
+    "Wenn du die Seite jetzt verlässt, gehen deine Eingaben verloren. Geh zurück, um sie zuerst zu speichern.",
+  "unsaved.discard": "Änderungen verwerfen",
+  "settings.saved": "Gespeichert.",
   "settings.signature": "E-Mail-Signatur",
   "settings.signatureSub":
     "Steht unter jeder Nachricht, die Sie senden — über dem Abmelde-Hinweis.",

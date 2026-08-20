@@ -726,7 +726,7 @@ export function ListTable<Row>({
                   <tr key={placeholder} className="lt-loading" role="row">
                     {shown.map((column) => (
                       <td key={column.key} role="cell">
-                        <span className="lt-bone" />
+                        <span className="skeleton lt-bone" />
                       </td>
                     ))}
                     <td className="lt-slack" aria-hidden="true" />

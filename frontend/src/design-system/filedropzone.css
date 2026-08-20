@@ -22,8 +22,8 @@
   background: var(--bgPage);
   cursor: pointer;
   transition:
-    border-color 0.15s ease,
-    background 0.15s ease;
+    border-color var(--dur-state) var(--ease-in-out),
+    background var(--dur-state) var(--ease-in-out);
 }
 
 /* Dragover is a state the pointer cannot otherwise confirm: without it there is
@@ -36,7 +36,7 @@
 
 /* The ring belongs to the zone, because the input it wraps is invisible. */
 .fdz:focus-within {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -63,4 +63,22 @@
  * reading as placeholder prose and takes the content colour. */
 .fdz-label.chosen {
   color: var(--textContent);
+}
+
+/* A dropzone nobody may drop into. It carries a hover and a dragover state and
+   had nothing for the state where neither is possible, so a disabled zone still
+   lit up under the pointer and still read as an invitation. */
+.fdz:has(:disabled) {
+  color: var(--textTertiary);
+  background: var(--bgCard);
+}
+/* The cursor has to go on the INPUT, not the zone. The input is absolutely
+   positioned over the whole zone and sets `cursor: pointer` on itself, so it is
+   what the pointer is actually over — a `not-allowed` on the parent is covered
+   by a child that still says "click me". */
+.fdz-input:disabled {
+  cursor: not-allowed;
+}
+.fdz:has(:disabled):hover {
+  border-color: var(--borderSubtle);
 }

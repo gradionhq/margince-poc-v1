@@ -18,8 +18,14 @@
   cursor: text;
 }
 
+/* A disabled field looks disabled. The frame carries `.input`, whose author-set
+ * fill and text colour beat the platform's own disabled painting, so a cursor
+ * change was the whole signal — and a cursor is not one for anybody reading
+ * rather than pointing. */
 .token-input.is-disabled {
   cursor: not-allowed;
+  color: var(--textTertiary);
+  background: var(--bgCard);
 }
 
 /* The box shares the frame's row with the tokens and takes what is left, with a
@@ -32,7 +38,27 @@
   background: transparent;
   color: inherit;
   font: inherit;
+  /* Suppressed HERE and answered on the frame below, which is the only place it
+     can be answered: the box is a borderless input inside a bordered span, so a
+     ring on the box would be drawn in the middle of the field. */
   outline: none;
+}
+
+/* WCAG 2.4.7. This control took focus on the box above, killed the platform's
+ * ring, and put nothing back — the frame carries `.input`, but `.input:focus`
+ * needs the element ITSELF focused and the frame is a `<span>` with no tab stop,
+ * so nothing at all painted. A reader tabbing through a form arrived here and
+ * lost their place entirely.
+ *
+ * `:focus-within` rather than `:focus`, because the thing that focuses is inside
+ * the thing that draws. It answers for the remove buttons too: pressing Tab
+ * through the tokens keeps the field lit while the reader is inside it. */
+.token-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: var(--focus-glow);
+}
+.token-input:has([aria-invalid="true"]):focus-within {
+  box-shadow: var(--focus-glow-danger);
 }
 
 .token {
@@ -64,8 +90,17 @@
   color: var(--textPrimary);
 }
 
+/* Every other button in the system draws its own ring; this one is inside a
+   field, so it draws it tight rather than around the token it sits in. */
+.token-remove:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+  border-radius: var(--r-sm);
+}
+
 .token-remove:disabled {
   cursor: not-allowed;
+  color: var(--textTertiary);
 }
 
 /* The token SET on its own, with no field around it (TokenList).
@@ -88,4 +123,9 @@
    here there is no field, and a chip with no vertical padding reads as text. */
 .token-standalone {
   padding: var(--space-1) var(--space-2);
+}
+
+/* The remove button changed colour in one frame inside a field that fades. */
+.token-remove {
+  transition: color var(--dur-state) var(--ease-out);
 }

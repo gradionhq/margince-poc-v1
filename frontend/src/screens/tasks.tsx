@@ -312,7 +312,7 @@ export function TasksScreen() {
           const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const open = page.data.filter((task) => !task.is_done);
           return (
-            <div>
+            <div className="arrive-stack">
               {GROUP_ORDER.map((group) => {
                 const tasks = open.filter(
                   (task) => groupTask(task, now, zone) === group,

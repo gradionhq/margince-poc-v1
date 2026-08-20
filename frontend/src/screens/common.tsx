@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { clearPendingAuthorize } from "../app/pendingauthorize";
-import { Button, EmptyState, Skeleton } from "../design-system/atoms";
+import { Button, EmptyState, PendingBody } from "../design-system/atoms";
 import type { Provenance } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -136,6 +136,31 @@ export function OverlayUnavailable() {
   return <EmptyState>{t("overlay.unavailable")}</EmptyState>;
 }
 
+/**
+ * What a record's timeline zone shows when it has no entries to show YET.
+ *
+ * The zone takes an array, and an empty array is a claim: "nothing has happened
+ * to this record". While the read is in flight that claim is simply false, and
+ * the entries then arrive underneath a heading the reader has already accepted
+ * as complete — which both pops and pushes the rest of the column down.
+ *
+ * `undefined` for the ordinary case, because the zone's own renderer is right
+ * once there is something to render. Overlay mode wins over the wait: a
+ * capability the mirror will never answer is not a wait at all.
+ */
+export function timelineZoneNotice(
+  state: Readonly<{ overlay: boolean; pending: boolean }>,
+  t: ReturnType<typeof useT>,
+): ReactNode {
+  if (state.overlay) {
+    return <OverlayUnavailable />;
+  }
+  if (state.pending) {
+    return <PendingBody label={t("record.timelineLoading")} lines={5} />;
+  }
+  return undefined;
+}
+
 // AS-1: sign out. Clears ALL cached tenant data on success, then forces the
 // ["me"] probe to re-run → 401 → AuthGate renders the login screen.
 //
@@ -195,6 +220,8 @@ export interface QueryLike<Data> {
 // single success renderer could cover.
 export function QueryStates({
   query,
+  pendingLabel,
+  pendingLines,
   children,
 }: Readonly<{
   query: Readonly<{
@@ -203,30 +230,22 @@ export function QueryStates({
     error: unknown;
     refetch: () => unknown;
   }>;
+  // What this particular read is fetching, and how much room it will need.
+  // Both optional because most screens are answering the generic question and
+  // the generic answer is honest for them; a screen whose body is a table or a
+  // timeline says so, or its content lands in a third of the space the
+  // placeholder held and pushes the page down as it arrives.
+  pendingLabel?: string;
+  pendingLines?: number;
   children: ReactNode;
 }>) {
   const t = useT();
   if (query.isPending) {
     return (
-      // Shimmer bars carry no text, so a reader who cannot see them has nothing
-      // at all to go on: `aria-busy` on a status region is what states that this
-      // part of the page is still being fetched rather than empty, and the
-      // visually-hidden line is what gives that state something to SAY. Without
-      // it the region announces a busy nothing — machine-readable and silent.
-      <div
-        role="status"
-        aria-busy="true"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-3)",
-        }}
-      >
-        <span className="sr-only">{t("common.loading")}</span>
-        <Skeleton width="60%" />
-        <Skeleton width="90%" />
-        <Skeleton width="75%" />
-      </div>
+      <PendingBody
+        label={pendingLabel ?? t("common.loading")}
+        lines={pendingLines}
+      />
     );
   }
   if (query.isError) {
@@ -291,10 +310,16 @@ export function LoadMoreButton({
 export function QueryGate<Data>({
   query,
   empty,
+  pendingLabel,
+  pendingLines,
   children,
 }: Readonly<{
   query: QueryLike<Data>;
   empty?: (data: Data) => boolean;
+  // Forwarded to QueryStates: the gate adds the empty check, not a second
+  // pending state, so there is one place a screen names its wait.
+  pendingLabel?: string;
+  pendingLines?: number;
   children: (data: Data) => ReactNode;
 }>) {
   const t = useT();
@@ -311,7 +336,15 @@ export function QueryGate<Data>({
       children(data)
     );
   }
-  return <QueryStates query={query}>{success}</QueryStates>;
+  return (
+    <QueryStates
+      query={query}
+      pendingLabel={pendingLabel}
+      pendingLines={pendingLines}
+    >
+      {success}
+    </QueryStates>
+  );
 }
 
 // captured_by is server-stamped "human:<uuid> | agent:<id> | connector:<name>".

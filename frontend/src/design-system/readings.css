@@ -13,7 +13,7 @@
   height: 100%;
   background: linear-gradient(90deg, var(--accent), var(--away));
   border-radius: var(--r-full);
-  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: width 0.5s var(--ease-out);
 }
 /* A reading whose low end is the bad one carries its own colour, so the bar
  * agrees with the band badge the caller draws beside it. Flat, not a
@@ -82,4 +82,18 @@
 }
 .chip-link:hover svg {
   color: var(--accent);
+}
+
+/* The ring. Same shape as the file chip it sits beside — both are a bordered
+   pill that leads somewhere, so both light up the same way. */
+.chip-link:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Same shape as the file chip it sits beside, so the same answer. */
+.chip-link {
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
 }

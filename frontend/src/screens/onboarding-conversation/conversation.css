@@ -808,7 +808,7 @@
 }
 
 .ob-decision-card input:focus-visible ~ .ob-decision-disc {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -1171,7 +1171,7 @@
    the disc it sits beside — the same sibling-selector shape the decision
    card's own radio uses. */
 .ob-voice-speaker input:focus-visible ~ .ob-voice-speaker-disc {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -1653,7 +1653,7 @@
 }
 
 .ob-connect-card:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -2145,7 +2145,7 @@
 }
 
 .ob-company-card-facts dd button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }
@@ -2394,7 +2394,7 @@
 /* Inset, so the ring is drawn inside a row that already fills its column
    rather than outside it, where it would collide with the row above. */
 .ob-triage-nav-link:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
 }
 
@@ -2538,7 +2538,7 @@
 }
 
 .ob-triage-nav-item:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
 }
 
@@ -2845,7 +2845,7 @@
 }
 
 .ob-triage-rows > li:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 1px;
   border-radius: var(--r-md);
 }
@@ -3330,9 +3330,9 @@
 .ob-conv-option:focus-visible,
 .ob-conv-chips .btn:focus-visible,
 .ob-conv-attention-list button:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 /* A finding the narration or a jump just landed on lights up unmistakably —
@@ -3395,6 +3395,6 @@
 }
 
 .ob-conv-field input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 1px;
 }

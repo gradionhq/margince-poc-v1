@@ -4,6 +4,10 @@
    it (WDS-GATE-4 cascade order). */
 @import "./design-system/brand.css";
 @import "./design-system/base.css";
+/* After base.css: the arrival vocabulary animates whatever the base layer and
+   the component sheets lay out, and a rule that has to be beaten by a
+   component's own `animation` has to be seen before it. */
+@import "./design-system/enter.css";
 
 /* The document is not a scroller here. `.app` is exactly one viewport tall and
    every screen scrolls inside its own pane, so a gesture that runs past the end

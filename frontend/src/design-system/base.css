@@ -56,7 +56,19 @@
      happens to sit inside. */
   line-height: 1.25;
   min-block-size: var(--control-h);
-  transition: 0.15s;
+  /* Named properties, not `all`. `transition: <time>` alone is the shorthand
+     for `transition-property: all`, which put min-block-size, padding, width
+     and font-size on a timer too — so a button whose label changed ("Save" →
+     "Saving…") animated its own width, and the 16px phone field size arrived
+     over 140ms. The transform is the exception in the list: it is the press,
+     and a press releases on the spring rather than the decel. */
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    border-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    filter var(--dur-state) var(--ease-out),
+    transform var(--dur-move) var(--ease-spring);
   display: inline-flex;
   align-items: center;
   /* A button shrink-wraps its label, so this changes nothing until something
@@ -83,7 +95,7 @@
    page ground, on a card and on an accent fill, and only an outline is legible
    on all three. */
 .btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 /* An icon a caller drops into a button arrives from lucide at its own default
@@ -165,6 +177,33 @@
 .btn-icon.btn-sm {
   inline-size: var(--control-h-sm);
 }
+/*
+ * The press. Until now nothing in this design system had one: `grep :active`
+ * over the whole tree returned a single hit, in the shell. A control that
+ * answers a hover and says nothing when it is actually pressed reads as not
+ * having received the press — which on a slow write is exactly when a reader
+ * presses again.
+ *
+ * One pixel DOWN, and it is one pixel for a reason: the primary and danger
+ * tones lift a pixel on hover, so pressing travels two and lands below where
+ * the control rests. `--dur-tap` on the way in because that is the floor of
+ * perceptible response, and the spring on the base rule for the way out —
+ * the finger left, the control comes back. That is the one place a bounce is
+ * honest here.
+ *
+ * `:not(:disabled)` because `:active` and `:disabled` have the same
+ * specificity and this rule is the later one: without it a refused button
+ * would push down under a press it is not accepting.
+ */
+.btn:active:not(:disabled),
+.iconbtn:active:not(:disabled) {
+  transform: translateY(1px);
+  transition-duration: var(--dur-tap);
+}
+.iconbtn:active:not(:disabled) {
+  background: var(--bgCard);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -264,7 +303,13 @@
   background: transparent;
   color: var(--textMeta);
   cursor: pointer;
-  transition: 0.15s;
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    border-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    filter var(--dur-state) var(--ease-out),
+    transform var(--dur-move) var(--ease-spring);
 }
 .iconbtn svg {
   inline-size: 16px;
@@ -276,7 +321,7 @@
   color: var(--textPrimary);
 }
 .iconbtn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 .iconbtn:disabled {
@@ -385,4 +430,31 @@
    block it names. */
 .code-label {
   display: block;
+}
+
+/*
+ * Reduced motion keeps the ANSWER and drops the movement, which is the rule
+ * this system holds everywhere: an animation goes to its end state, never to
+ * nothing. The end state of pressing a button is having pressed it, so the
+ * press still replies — by dimming rather than by moving. Removing the rule
+ * outright would leave the readers who asked for less motion as the only ones
+ * who get no feedback from a press at all.
+ *
+ * The hover lift on the primary and danger tones is answered here too. It never
+ * had an answer: those two have moved a pixel under every pointer since they
+ * were written, including for the readers who asked them not to.
+ *
+ * After the rules it removes, deliberately: a media query adds no specificity,
+ * so document order is what settles the tie.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .btn-primary:hover,
+  .btn-danger:hover {
+    transform: none;
+  }
+  .btn:active:not(:disabled),
+  .iconbtn:active:not(:disabled) {
+    transform: none;
+    filter: brightness(0.96);
+  }
 }

@@ -61,7 +61,7 @@ button.evidence-chip:hover {
 .evidence-chip-toggle svg {
   inline-size: 12px;
   block-size: 12px;
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-state) var(--ease-in-out);
 }
 
 .evidence-chip-toggle[aria-expanded="true"] svg {
@@ -267,4 +267,52 @@ button.evidence-chip:hover {
   background: var(--aiLight);
   border-radius: var(--r-full);
   padding: 1px 8px;
+}
+
+/*
+ * The ring, for the evidence surfaces. Every control here is the reader's way
+ * INTO a provenance claim — what the agent read, what it proposes to change —
+ * and the one thing a keyboard reader must be able to do on this surface is know
+ * which claim they are about to open.
+ *
+ * `.staged-edit` is a bare `<input>` with no `.input` class, so it inherits
+ * neither the field's boundary nor its glow: it takes the field's ring here
+ * rather than the control ring, because it IS a field.
+ *
+ * `.field-diff-long` is not a control at all — it is a scroll region made an
+ * explicit tab stop so a long diff can be read without a mouse. A tab stop that
+ * paints nothing is the same defect as a button that paints nothing.
+ */
+.evidence-chip:focus-visible,
+.evidence-chip-toggle:focus-visible,
+.field-diff-long:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.staged-edit:focus-visible {
+  /* The forced-colors ring rather than `outline: none`, which is what this
+     token exists for: forced-colors mode discards every box-shadow, so
+     suppressing the outline outright would leave this input — the one a reader
+     types a corrected value into before approving it — with no focus indicator
+     at all for the readers who most need one. */
+  outline: var(--focus-ring-forced);
+  border-color: var(--accent);
+  box-shadow: var(--focus-glow);
+}
+
+/* An evidence chip is how a reader opens a provenance claim; hovering one moved
+   its boundary and its text in one frame, on a surface where several sit in a
+   row and the pointer crosses all of them on the way to the one they want. */
+.evidence-chip,
+.evidence-chip-toggle {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    border-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
+}
+.evidence-chip:active,
+.evidence-chip-toggle:active {
+  background-color: var(--bgCard);
+  transition-duration: var(--dur-tap);
 }

@@ -7,7 +7,7 @@ import { Button, TextInput } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessage, QueryGate, throwProblem } from "./common";
+import { problemMessageOf, QueryGate, throwProblem } from "./common";
 
 // What a seat will see, said by the server. The invite form asks before the
 // invite goes out; the answer is the evaluated policy — the same grants,
@@ -113,7 +113,7 @@ function useTeams() {
       const { data, error } = await api.GET("/teams", {
         params: { query: { limit: 200 } },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data.data;
     },
   });
@@ -127,7 +127,7 @@ export function TeamsCard() {
   const create = useMutation({
     mutationFn: async (name: string) => {
       const { data, error } = await api.POST("/teams", { body: { name } });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
       return data;
     },
     onSuccess: () => {
@@ -141,7 +141,7 @@ export function TeamsCard() {
         params: { path: { id } },
         body: { archived: true },
       });
-      if (error) throw new Error(problemMessage(error));
+      if (error) throwProblem(error);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["teams"] }),
   });
@@ -216,7 +216,7 @@ export function TeamsCard() {
         </form>
         {(create.isError || archive.isError) && (
           <span role="alert" className="form-error">
-            {(create.error ?? archive.error)?.message}
+            {problemMessageOf(create.error ?? archive.error, t)}
           </span>
         )}
       </PanelBody>

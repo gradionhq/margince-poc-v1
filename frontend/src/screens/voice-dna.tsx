@@ -4,8 +4,10 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
+import { useUnsavedGuard } from "../app/unsaved";
 import { Badge, Button, EmptyState, Textarea } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
+import { ToastRegion, useToast } from "../design-system/toast";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { VoiceCorpusIntake } from "./voice-corpus-settings";
@@ -294,6 +296,7 @@ function PersonalityEditor({
   const t = useT();
   const [text, setText] = useState(profile.personality_md);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const save = useMutation({
     mutationFn: async () => {
       const { error: err } = await api.PATCH("/voice-profiles/{id}", {
@@ -310,10 +313,17 @@ function PersonalityEditor({
     onSuccess: () => {
       setError(null);
       onSaved();
+      // The voice a member writes for their own mail is the one save on this
+      // page a reader most wants confirmed, and it said nothing: the button
+      // simply stopped being pressable once the draft matched the server.
+      toast.show(t("settings.saved"));
     },
     onError: reportFailure(setError, t),
   });
   const dirty = text !== profile.personality_md;
+  // A voice profile is the longest thing anybody types in settings, which makes
+  // it the draft a silent discard costs the most.
+  useUnsavedGuard(dirty);
   return (
     <div className="vdna-composer">
       {/* readOnly rather than disabled: the preferences are a READ this seat
@@ -341,6 +351,7 @@ function PersonalityEditor({
               {error}
             </span>
           )}
+          <ToastRegion toast={toast} />
         </div>
       )}
     </div>

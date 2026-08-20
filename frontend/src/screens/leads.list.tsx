@@ -1,11 +1,12 @@
 // The leads list: the queue a rep works from, as a table or a board. The
 // page a row opens lives in leads.tsx; the presentation both share sits in
 // leadpresentation.tsx.
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, SegmentedControl } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
+import { ToastRegion, useToast } from "../design-system/toast";
 import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -221,7 +222,7 @@ function LeadsWorkbench({
   // What the last bulk write did to a row the current view then stopped
   // showing — a successful assign out of "Mine" must never look like nothing
   // happened (or like a failure).
-  const [toast, setToast] = useState<ReactNode>(null);
+  const toast = useToast();
   const showingMine = state.query.filters.owner_id === viewerId;
   // Only ids the list currently holds count as selected: a row that left the
   // result set (refetched away, paged out, filtered out) must not linger as
@@ -264,14 +265,7 @@ function LeadsWorkbench({
           </Callout>
         </div>
       )}
-      {toast && (
-        <div className="toast-region">
-          <output className="toast">
-            <span className="dot dot-auto" />
-            {toast}
-          </output>
-        </div>
-      )}
+      <ToastRegion toast={toast} />
       {!overlay && (
         <div style={{ marginBottom: "var(--space-3)" }}>
           <SegmentedControl
@@ -466,7 +460,7 @@ function LeadsWorkbench({
                 );
                 // Each run says its own thing; a sentence about the last one
                 // must not stand beside this one's rows.
-                setToast(null);
+                toast.dismiss();
                 const moved = outcomes.filter((o) => !o.error);
                 if (
                   action.kind === "assign" &&
@@ -474,7 +468,9 @@ function LeadsWorkbench({
                   action.ownerId !== viewerId &&
                   moved.length > 0
                 ) {
-                  setToast(
+                  // Sticky: this confirmation carries a verb, and a reader
+                  // reaching for it must not lose it mid-reach.
+                  toast.show(
                     <span>
                       {t("lead.assignedAway", {
                         names: moved.map((o) => o.name).join(", "),
@@ -483,7 +479,7 @@ function LeadsWorkbench({
                       <Button
                         small
                         onClick={() => {
-                          setToast(null);
+                          toast.dismiss();
                           state.setQuery((q) => {
                             const { owner_id: _mine, ...rest } = q.filters;
                             return { ...q, filters: rest };
@@ -493,6 +489,7 @@ function LeadsWorkbench({
                         {t("lead.showAll")}
                       </Button>
                     </span>,
+                    { sticky: true },
                   );
                 }
               }}

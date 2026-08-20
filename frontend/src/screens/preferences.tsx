@@ -245,7 +245,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
   if (center.isPending) {
     return (
       <div className="pref-page">
-        <div className="pref-center">
+        <div className="pref-center arrive-stack">
           <Skeleton width="60%" />
           <Skeleton width="90%" />
           <Skeleton width="75%" />
@@ -265,7 +265,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
   if (!draft) {
     return (
       <div className="pref-page">
-        <div className="pref-center">
+        <div className="pref-center arrive-stack">
           <Skeleton width="60%" />
         </div>
       </div>
@@ -286,7 +286,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
 
   return (
     <div className="pref-page">
-      <div className="pref-center">
+      <div className="pref-center arrive-stack">
         {/* A standalone public page, not app chrome — SectionHeader's fixed
             narrow title column is built for a card header sharing a row with
             a button, and wraps this page's longer headline badly. The

@@ -234,7 +234,7 @@
 .skeleton {
   background: var(--bgCard);
   border-radius: var(--r-sm);
-  animation: ds-pulse 1.4s ease-in-out infinite;
+  animation: ds-pulse 1.4s var(--ease-in-out) infinite;
 }
 @keyframes ds-pulse {
   0%,
@@ -244,6 +244,52 @@
   50% {
     opacity: 0.55;
   }
+}
+/* The pulse is the one animation in this tier that never ends, so it is the one a
+   reader who asked for less motion cannot wait out — and it was running for them
+   until now. It stops at its own resting opacity rather than at nothing: the
+   SHAPE is what says "this is coming", and a placeholder that vanished under
+   reduced motion would take the message with it. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    opacity: 0.78;
+  }
+}
+
+/*
+ * The pending body: a column of placeholder lines, and the widths are declared
+ * HERE rather than passed in. Three bars at 60/90/75% were an inline style at
+ * one call site and a guess at the others; a pattern in the stylesheet makes
+ * every pending surface in the product ragged the same way, which is what makes
+ * it read as one thing rather than as each card improvising.
+ *
+ * The ragged edge is the point. Equal-width bars read as a table; unequal ones
+ * read as prose that has not arrived, which is what is usually coming.
+ */
+.pending {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.pending-note {
+  margin: 0;
+  color: var(--textMeta);
+}
+.pending-line {
+  height: 14px;
+}
+/* A repeating three-step rhythm, so a two-line reservation and a nine-line one
+   are cut from the same cloth. `n + 1` counts from the first line whatever the
+   note above it does — the note is a `<p>`, not a line. */
+.pending-line:nth-of-type(3n + 1) {
+  width: 60%;
+}
+.pending-line:nth-of-type(3n + 2) {
+  width: 90%;
+}
+.pending-line:nth-of-type(3n) {
+  width: 75%;
 }
 
 .empty {
@@ -442,9 +488,9 @@
 /* Keyboard focus reads an accent-token ring (matches .input/.textarea) rather
  * than the browser's off-palette native outline. */
 .segmented button:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 /* A lighter, secondary text affordance for in-row actions that must not
@@ -490,7 +536,7 @@
  * box-shadow entirely — the transparent-outline trick the filled controls use
  * exists only to keep something there when it does. */
 .link-button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -752,12 +798,54 @@
   min-block-size: var(--control-h);
   width: 100%;
   outline: none;
-  transition: 0.15s;
+  /* Named properties, not `all` — `transition: <time>` alone means
+     `transition-property: all`, which put this field's own height, padding and
+     width on a timer. Most visibly the phone rule below: raising the text to
+     16px animated the FONT SIZE, so tapping a field on an iPhone grew its type
+     over 140ms. What should transition is what a field changes about itself
+     when it is focused, refused or disabled, and that is these four. */
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
 }
 .input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
+/*
+ * A field nobody may edit says so. Until this rule, it did not: `.input` sets
+ * its own `background` and `color`, and an author declaration beats the
+ * platform's disabled painting, so a disabled field was pixel-identical to a
+ * live one. The only signal was the cursor — which is no signal at all to
+ * somebody reading rather than pointing, and none to a touch screen.
+ *
+ * Both controls in one rule because they are one control with two shapes, and
+ * the fill is the same fill a disabled Select already uses (select.css) so a
+ * form with both in it does not dim in two different greys.
+ *
+ * `[aria-disabled]` alongside `:disabled` because a control that must stay
+ * focusable to be discoverable says it the ARIA way — a `disabled` attribute
+ * takes it out of the tab order, which is the wrong answer for a field whose
+ * label a reader still needs to reach.
+ */
+.input:disabled,
+.input[aria-disabled="true"],
+.textarea:disabled,
+.textarea[aria-disabled="true"] {
+  color: var(--textTertiary);
+  background: var(--bgCard);
+  cursor: not-allowed;
+}
+/* The shell owns the boundary for a field that has something inside it, so it
+   is the shell that has to dim — the input within it draws no fill of its own. */
+.field-shell:has(:disabled),
+.field-shell:has([aria-disabled="true"]) {
+  color: var(--textTertiary);
+  background: var(--bgCard);
+}
+
 /* iOS Safari zooms the page whenever a focused input's text is under 16px, and
    the field is 13.5px — so on an iPhone every form in this product jerked the
    viewport on focus. The sign-in screens were the only surface that ever fixed
@@ -784,11 +872,15 @@
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
-  transition: 0.15s;
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
 }
 .field-shell:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 /* A refused field says so in its boundary as well as in its words — but never
    ONLY in its boundary: the sentence under it carries the meaning, and this is
@@ -803,13 +895,13 @@
   border-color: var(--danger);
 }
 .input[aria-invalid="true"]:focus {
-  box-shadow: 0 0 0 3px var(--dangerBg);
+  box-shadow: var(--focus-glow-danger);
 }
 .field-shell:has([aria-invalid="true"]) {
   border-color: var(--danger);
 }
 .field-shell:has([aria-invalid="true"]):focus-within {
-  box-shadow: 0 0 0 3px var(--dangerBg);
+  box-shadow: var(--focus-glow-danger);
 }
 /* Inside the shell the input is only the text: the shell owns the fill, the
    boundary, the radius, the focus ring and the horizontal padding. */
@@ -886,9 +978,20 @@
 .checkfield > span {
   grid-row: 1 / span 2;
 }
-/* A disabled control is not actionable, so its row does not invite the click. */
+/* A disabled control is not actionable, so its row does not invite the click —
+   and its label dims with it, because the cursor is the one signal a reader who
+   is not pointing never receives. */
 .checkfield:has(input:disabled) {
   cursor: not-allowed;
+  color: var(--textTertiary);
+}
+/* The box is native, so it was taking the PLATFORM's focus ring — the one blue
+   this product otherwise refuses (see the caret and accent-color declarations in
+   app.css). Its `accent-color` was already themed, which made the mismatch worse
+   rather than better: a green tick inside a blue ring. */
+.checkfield > input:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .input-icon {
@@ -928,12 +1031,16 @@
   padding: 9px 11px;
   width: 100%;
   outline: none;
-  transition: 0.15s;
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
   resize: vertical;
 }
 .textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 .explain {
@@ -1050,7 +1157,7 @@
   color: var(--textPrimary);
 }
 .disclosure-summary:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }
@@ -1058,7 +1165,7 @@
   width: 14px;
   height: 14px;
   flex: none;
-  transition: transform 0.15s;
+  transition: transform var(--dur-state);
 }
 .disclosure[open] .disclosure-chevron {
   transform: rotate(90deg);
@@ -1206,4 +1313,70 @@
    strip's own `> *` background reset regardless of stylesheet order. */
 .stat-card.stat-card-alert {
   background: var(--dangerBg);
+}
+
+/*
+ * The segmented control's own states.
+ *
+ * The selected pill arrived in one frame: the base rule carried no transition,
+ * so `[aria-pressed="true"]` swapped fill, text colour and the card shadow all
+ * at once. A tab strip is the one control where the change IS the feedback —
+ * the reader is being told which of three things they are now looking at — and
+ * a cut gives them no thread from the old selection to the new one.
+ *
+ * Its press is a fill rather than a movement: this control sits inside a fieldset
+ * whose other segments do not move, and one of three pills dropping a pixel
+ * reads as the strip breaking rather than as the segment answering.
+ */
+.segmented button {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out);
+}
+.segmented button:active:not(:disabled) {
+  background-color: var(--bgCard);
+  transition-duration: var(--dur-tap);
+}
+/* The strip's own disabled state, which it did not have: a segment nobody may
+   choose looked exactly like one they could, and the whole control's job is
+   telling the reader what is choosable. */
+.segmented button:disabled {
+  color: var(--textTertiary);
+  cursor: not-allowed;
+}
+
+/* The two chip-shaped links, and the disclosure and table rows beside them. All
+   four changed colour on hover in a single frame. */
+.disclosure-summary,
+.table tbody tr td {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
+}
+
+/* A sticky confirmation's way out. Small and quiet: the message beside it is the
+   point, and this is only the reader's answer to having read it. It sits on the
+   rail's dark ground like the rest of the toast, so it takes the on-accent text
+   colour rather than the page's. */
+.toast-dismiss {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-1);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--textOnAccent);
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity var(--dur-state) var(--ease-out);
+}
+.toast-dismiss:hover {
+  opacity: 1;
+}
+.toast-dismiss:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+  opacity: 1;
 }

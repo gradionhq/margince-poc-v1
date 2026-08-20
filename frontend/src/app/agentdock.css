@@ -48,8 +48,8 @@
   font-family: var(--f-body);
   cursor: pointer;
   transition:
-    border-color 0.18s ease,
-    background 0.18s ease;
+    border-color var(--dur-state) var(--ease-in-out),
+    background var(--dur-state) var(--ease-in-out);
 }
 .agentdocktrigger:hover,
 .agentdock.open .agentdocktrigger {
@@ -57,9 +57,9 @@
   background: var(--bgHover);
 }
 .agentdocktrigger:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 /* The orb IS the Core primitive (WDS-CORE-1) — the same sphere sign-in and
@@ -134,8 +134,8 @@
   opacity: 0;
   transform: translateX(-3px);
   transition:
-    opacity 0.18s ease,
-    transform 0.24s cubic-bezier(0.34, 1.4, 0.64, 1);
+    opacity var(--dur-state) var(--ease-in-out),
+    transform 0.24s var(--ease-spring);
 }
 .agentdocktrigger:hover .agentchev,
 .agentdocktrigger:focus-visible .agentchev,
@@ -178,7 +178,7 @@
   /* Local to `.agentdock`'s stacking context — above the trigger it grew out
      of, and nothing more than that. */
   z-index: 1;
-  animation: agentpanel-in 0.16s ease-out;
+  animation: agentpanel-in var(--dur-state) var(--ease-out);
 }
 /* The entry travels the way the panel opens: up out of the trigger. Both frames
    restate translateX(-50%) because `transform` is one property — an animation

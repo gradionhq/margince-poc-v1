@@ -140,6 +140,7 @@ export const en = {
   // the catalogue by gen-composition (see i18n/index.tsx).
 
   "search.placeholder": "Search people, companies, deals, activities, leads…",
+  "search.prompt": "Type what you are looking for.",
   "search.empty": "No matches for “{q}”.",
   "search.group.person": "People",
   "search.group.organization": "Organizations",
@@ -186,6 +187,7 @@ export const en = {
   "deal.staged": "staged",
   "deal.archived": "archived",
   "record.notShown": "Not shown",
+  "record.timelineLoading": "Loading this record’s history…",
   "record.timeline": "Timeline",
   "record.edit": "Edit",
   "record.save": "Save",
@@ -372,6 +374,7 @@ export const en = {
   "state.unsupported":
     "Not available in this mode — the connected system does not hold it",
   "state.failed": "This section did not load.",
+  "state.loading": "Loading this section…",
   "state.retry": "Try again",
   "state.stale": "Last known values — not refreshed since",
   "state.staleAsOf": "Last known values, as of {when}",
@@ -2136,6 +2139,11 @@ export const en = {
 
   "settings.identity": "Profile",
   "settings.preferences": "Preferences",
+  "unsaved.title": "You have unsaved changes",
+  "unsaved.body":
+    "Leaving this page now discards what you have typed. Go back to save it first.",
+  "unsaved.discard": "Discard changes",
+  "settings.saved": "Saved.",
   "settings.signature": "Email signature",
   "settings.signatureSub":
     "Appended below every message you send, above the unsubscribe footer.",

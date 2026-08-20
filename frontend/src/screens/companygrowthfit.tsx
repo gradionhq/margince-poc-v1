@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, Button, EmptyState, Skeleton } from "../design-system/atoms";
+import { Badge, Button, EmptyState, PendingBody } from "../design-system/atoms";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Meter } from "../design-system/readings";
@@ -162,14 +162,10 @@ export function GrowthFitPanel({
         // A first assessment is assembled on the request, model call included,
         // and cold that is upwards of twenty seconds — long enough that a mute
         // grey block reads as a panel that is broken rather than one that is
-        // working. So the wait says what it is waiting for, and says it to a
-        // screen reader too: `aria-busy` with a live region, the same way
-        // QueryStates announces every other pending read in this app.
+        // working. So the wait says what it is waiting for, visibly and to a
+        // screen reader, which is what `note` on the shared pending body is for.
         <PanelBody>
-          <div role="status" aria-busy="true">
-            <p className="t-small">{t("co.growthFit.assembling")}</p>
-            <Skeleton width="100%" height={44} />
-          </div>
+          <PendingBody label={t("co.growthFit.assembling")} visible lines={4} />
         </PanelBody>
       ) : !readable ? (
         <PanelBody>

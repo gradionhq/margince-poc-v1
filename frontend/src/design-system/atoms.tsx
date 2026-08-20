@@ -877,6 +877,77 @@ export function Skeleton({
   return <div className="skeleton" style={{ width, height }} />;
 }
 
+// The placeholder lines, named rather than counted: a line's identity IS its
+// position, and naming them gives the list a stable key without reaching for
+// the array index. Eight is the ceiling on purpose — a wait that needs more room
+// than eight lines of text is a shape (a table, a chart, a form), and more bars
+// is the wrong answer to it.
+const PENDING_LINES = [
+  "first",
+  "second",
+  "third",
+  "fourth",
+  "fifth",
+  "sixth",
+  "seventh",
+  "eighth",
+] as const;
+
+/**
+ * The pending state of a surface — the ONE spelling of it in this product.
+ *
+ * Four grew before this: `QueryStates`' three inline-styled bars, `SurfaceState`'s
+ * single silent 32px bar, `ListTable`'s five unanimated bone rows, and a page's
+ * worth of hand-rolled bars and "Loading…" lines. They disagreed about the shape,
+ * about the height, about whether the pulse ran at all, and — the part that
+ * mattered — about whether a reader who cannot see the bars is told anything.
+ * Three call sites had already bolted their own `sr-only` line beside one of
+ * these, which is the tell that the primitive was missing something rather than
+ * that those screens were special.
+ *
+ * `label` is REQUIRED and not defaulted. A placeholder carries no text, so the
+ * spoken line is the only thing a screen reader has; making it a required prop
+ * is what stops the next pending state from being silent. It is also the caller
+ * who knows what is being waited for, and "Loading the review queue…" is worth
+ * more than "Loading…" to someone who cannot see which part of the page went
+ * grey.
+ *
+ * `lines` is a HEIGHT RESERVATION, not decoration: it is how many rows of
+ * content will stand here once the read answers. Under-reserving is the reason
+ * a card jumps when its body arrives, and the jump is worse than the wait —
+ * a reader who has started reading loses their place. Over-reserving costs a
+ * collapse in the other direction, so the honest number is the content's own
+ * usual size, and 3 is the default only because it is the commonest.
+ *
+ * `visible` shows the label above the bars instead of only speaking it, for a
+ * wait long enough that a mute grey block reads as broken rather than as
+ * working — a first assessment that includes a model call is upwards of twenty
+ * seconds cold. It is a flag rather than a second string because the sentence is
+ * the same sentence: two of them is how a screen reader ends up hearing the wait
+ * announced twice.
+ */
+export function PendingBody({
+  label,
+  lines = 3,
+  visible,
+}: Readonly<{ label: string; lines?: number; visible?: boolean }>) {
+  return (
+    <div className="pending" role="status" aria-busy="true">
+      {/* The label lands EITHER on the page or in the accessibility tree alone,
+          never both: this is a live region, and the same sentence twice inside
+          it is announced twice. */}
+      {visible ? (
+        <p className="t-small pending-note">{label}</p>
+      ) : (
+        <span className="sr-only">{label}</span>
+      )}
+      {PENDING_LINES.slice(0, lines).map((line) => (
+        <div key={line} className="skeleton pending-line" />
+      ))}
+    </div>
+  );
+}
+
 export function EmptyState({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <Card as="div" inset className="empty">

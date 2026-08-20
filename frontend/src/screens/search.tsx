@@ -10,11 +10,10 @@ import { navigate } from "../app/router";
 import { Badge, Card, EmptyState, SearchField } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { QueryGate, type QueryLike, throwProblem } from "./common";
+import { QueryGate, throwProblem } from "./common";
 import "./search.css";
 
 type SearchResult = components["schemas"]["SearchResult"];
-type SearchResponse = components["schemas"]["SearchResponse"];
 
 // RS-1/RS-2: the cross-object search results screen. Hits are grouped by
 // record type (fixed display order below) so a caller scanning "acme" sees
@@ -74,15 +73,25 @@ export function SearchScreen({ q }: Readonly<{ q: string }>) {
           onChange={(event) => setDraft(event.target.value)}
         />
       </form>
-      <QueryGate query={query as QueryLike<SearchResponse>}>
-        {(data) =>
-          data.data.length === 0 ? (
-            <EmptyState>{t("search.empty", { q })}</EmptyState>
-          ) : (
-            <SearchGroups results={data.data} />
-          )
-        }
-      </QueryGate>
+      {/* No term, no read — and therefore no gate. A query held back by `enabled`
+          reports `pending` in react-query v5, so handing it to QueryGate drew
+          three loading bars under this box forever, with nothing in flight: a
+          bare `#/search` is reachable from the address bar, and the page it
+          showed said "working on it" about a request that had not been made.
+          The screen asks for a term instead. */}
+      {q.trim() === "" ? (
+        <EmptyState>{t("search.prompt")}</EmptyState>
+      ) : (
+        <QueryGate query={query}>
+          {(data) =>
+            data.data.length === 0 ? (
+              <EmptyState>{t("search.empty", { q })}</EmptyState>
+            ) : (
+              <SearchGroups results={data.data} />
+            )
+          }
+        </QueryGate>
+      )}
     </div>
   );
 }
@@ -90,7 +99,7 @@ export function SearchScreen({ q }: Readonly<{ q: string }>) {
 function SearchGroups({ results }: Readonly<{ results: SearchResult[] }>) {
   const t = useT();
   return (
-    <div className="search-groups">
+    <div className="search-groups arrive-stack">
       {GROUP_ORDER.filter((type) => results.some((r) => r.type === type)).map(
         (type) => (
           <Card key={type} className="search-group">

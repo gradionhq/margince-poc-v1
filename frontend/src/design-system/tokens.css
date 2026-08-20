@@ -10,11 +10,7 @@
  * success stays a brighter grass-green than the brand emerald on purpose.
  */
 :root {
-  /* Under evaluation: a hair warmer and pinker than the #FBFCFB the mockups
-     carry, to see what it does to the contrast between the page's ground and the
-     white panels standing on it. Revert or ratify — tokens.test.ts pins whichever
-     value is the design's answer. */
-  --bgPage: #fbf9fa;
+  --bgPage: #fbfcfb;
   --bgElevated: #ffffff;
   --bgCard: #eef1f0;
   --bgHover: #f3f6f4;
@@ -254,6 +250,86 @@
   --shadow-card:
     0 1px 2px rgba(41, 37, 36, 0.04), 0 4px 16px rgba(41, 37, 36, 0.05);
   --shadow-pop: 0 8px 30px rgba(41, 37, 36, 0.14);
+
+  /*
+   * The focus ring, in the two shapes this product actually uses — and there
+   * were ten spellings of them before this. Ten, for one promise: 2px against
+   * 3px, an offset of 2 in one file and 3 in the next, `--accent` in most and a
+   * transparent outline plus a glow in three others, and two controls where the
+   * ring was suppressed and nothing put back.
+   *
+   * TWO, not one, because the mechanism is genuinely different. A control that
+   * sits ON a surface takes an OUTLINE: it is drawn outside the box, so it never
+   * changes the control's size and never has to agree with its border. A FIELD
+   * takes the glow, because a field already has a boundary and the honest signal
+   * is that boundary lighting up — an outline around a bordered box reads as two
+   * boxes.
+   *
+   * The offset is not in the token, because it is the one part that is genuinely
+   * per-component: a control clipped by its own container has to draw the ring
+   * inside itself (`-2px`) or lose half of it. The WIDTH and the COLOUR are the
+   * promise, and those are here.
+   */
+  --focus-ring: 2px solid var(--accent);
+  --focus-glow: 0 0 0 3px var(--accentLight);
+  /* Paired with the glow on a control that is NOT a field — a segmented button,
+     a rich-text verb, an inline editor. Two jobs, and both matter. It replaces
+     the platform's own outline, which is off-palette; and it holds the outline
+     PROPERTY at a real width, so forced-colors mode (which discards every
+     box-shadow and repaints outlines in the user's own colours) still has a ring
+     to paint. Written as a transparent outline rather than `none` for exactly
+     that second reason — `none` there leaves the control with no focus state at
+     all for the readers who most need one. */
+  --focus-ring-forced: 2px solid transparent;
+  /* A refused field keeps the glow and changes only what colour it is: focus is
+     still focus, and the reader should not have to notice which ring they got in
+     order to know where they are. */
+  --focus-glow-danger: 0 0 0 3px var(--dangerBg);
+
+  /*
+   * Motion. Three durations and three curves, and the reason there are so few is
+   * the same reason there are four font weights: the tree had 43 distinct
+   * duration literals and 7 curves, which is not a vocabulary, it is the absence
+   * of one — the same chevron turned in 0.15s in three files and 0.16s in a
+   * fourth, and one comment claimed two components shared "the shell's own
+   * curve" while they used different ones.
+   *
+   * Named by ROLE, like the type scale above: a rung's job is what a reader has
+   * to agree with. `--dur-state` says which kind of change it times;
+   * `--dur-140` would only say how long and would invite the next 130ms.
+   *
+   * Every value here is one this tree already used. The fold is deliberate and it
+   * is the point — 0.12s, 0.14s, 0.15s and 0.16s were four spellings of one
+   * intention, and picking one of them is what makes two controls beside each
+   * other agree.
+   */
+  --dur-tap: 90ms; /* a press answering: the floor of perceptible response */
+  --dur-state: 140ms; /* a control changing in place: hover, focus, a crossfade */
+  --dur-move: 200ms; /* something arriving or travelling: a panel, the rail, a knob */
+  /* The one duration longer than a move, and it times a FADE only — content
+     arriving on a page or in a tab panel. Split from `--dur-move` because the
+     two halves of an arrival are not the same length: the rise finishes early
+     (200ms) so the block has settled where the eye can read it, while the fade
+     keeps going (360ms) so the arrival stays soft instead of snapping on. A
+     single duration for both gives either a sluggish rise or a hard fade. */
+  --dur-enter: 360ms;
+  /* The gap between one arriving block and the next. Small on purpose: this is
+     a reading order made briefly visible, not a sequence anyone waits through —
+     six blocks are all moving within a fifth of a second. */
+  --stagger-enter: 40ms;
+
+  /* Deceleration, for anything that ARRIVES and settles — it leaves fast and
+     lands slow, which is what makes a panel read as coming to rest rather than
+     stopping. The shell's own curve since the sidebar had an animation. */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  /* Symmetric, for a change that is not an arrival: a colour, a ground, a knob
+     sliding between two places it is equally at home in. */
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  /* One curve that overshoots, at 1.4 — for a PRESS releasing and nothing else.
+     It is the only place a bounce is honest in this product: the finger left, the
+     control springs back. Applied to anything larger than a control it reads as
+     the UI being pleased with itself. */
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
 /*

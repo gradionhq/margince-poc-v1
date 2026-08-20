@@ -38,6 +38,7 @@ import { isEntityKind } from "../app/entity";
 import { unitsForSecretScope } from "../app/extensions";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
+import { useUnsavedGuard } from "../app/unsaved";
 import {
   Avatar,
   Badge,
@@ -58,6 +59,7 @@ import { Panel, PanelBody, PanelPlate, PanelRow } from "../design-system/panel";
 import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import { Select } from "../design-system/select";
+import { ToastRegion, useToast } from "../design-system/toast";
 import {
   AutonomyDot,
   EvidenceChip,
@@ -142,8 +144,8 @@ import "./settings.css";
 // than stubbed (STATE-5). The entry is selected by the route id
 // (#/settings/<id>), so it is linkable and the palette can deep-link one.
 //
-// Thirteen, and it used to be fifteen tabs plus nine routes outside them. What
-// collapsed and why: two surfaces both called "Capture" became one; the
+// It used to be fifteen tabs plus nine routes outside them. What collapsed and
+// why: two surfaces both called "Capture" became one; the
 // installation and the company profile were always the same organization;
 // currency rates joined the base currency they convert to while model prices
 // joined the AI runtime they price; user administration and extension
@@ -193,7 +195,13 @@ import "./settings.css";
 // column, the control constrains itself (`.settings-intrinsic`, and each
 // surface's own field widths) — that is a property of the control, which knows
 // how wide it wants to be, not of the page, which does not.
-const SETTINGS_TABS = [
+// Exported for the nav suite, which derives its expected label list from THIS
+// register rather than restating it. A restated list is a second source of truth
+// that nothing updates: the copy in the test omitted `license` for as long as
+// that entry existed, so a fully wired fourteenth tab — register, predicate,
+// content, sidebar deep link, two locales — was invisible to every assertion in
+// the file, including the two that claim to check the whole level.
+export const SETTINGS_TABS = [
   { id: "account", icon: UserRound, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
   { id: "agents", icon: KeyRound, group: "you" },
@@ -214,7 +222,12 @@ const SETTINGS_TABS = [
   group: "you" | "org";
 }[];
 
-type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
+// Exported alongside the register: a caller that needs the label for an entry
+// builds the key from this, and `settings.tab.${SettingsTabId}` is then a
+// literal union TypeScript can check against MessageKey — no assertion, so a
+// typo is a compile error rather than a lookup that silently falls back to the
+// raw key and lets a test validate a label that does not exist.
+export type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 
 function tabContent(id: SettingsTabId): ReactNode {
   switch (id) {
@@ -659,7 +672,14 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   return (
     <div className="wrap">
       <ResumeConnectBanner />
-      <div className="settings-stack">{tabContent(active.id)}</div>
+      {/* Unsaved drafts in here are held by the guard above the routed screen
+          (App.tsx), not by this screen. A guard installed HERE could only see
+          moves between settings entries: it unmounts with the screen, so a draft
+          was safe from one tab to the next and still discarded without a word the
+          moment the reader clicked Contacts. The cards below claim through
+          `useUnsavedGuard` and need to know nothing about where the answer is
+          asked. */}
+      <div className="settings-stack arrive-stack">{tabContent(active.id)}</div>
     </div>
   );
 }
@@ -788,6 +808,7 @@ function IdentityCard() {
 function EmailSignatureCard() {
   const t = useT();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [body, setBody] = useState<string | null>(null);
   const signature = useQuery({
     queryKey: ["me-email-signature"],
@@ -816,6 +837,11 @@ function EmailSignatureCard() {
       // save a difference that exists only in the browser.
       setBody(saved?.body ?? "");
       queryClient.invalidateQueries({ queryKey: ["me-email-signature"] });
+      // The save had no visible answer at all: the button went disabled because
+      // the draft now matched the server, and that was the whole signal — a
+      // control losing its affordance, which reads as the form having given up
+      // rather than as the write having landed. Only failure spoke.
+      toast.show(t("settings.saved"));
     },
   });
 
@@ -823,6 +849,9 @@ function EmailSignatureCard() {
   // straight from the query would discard every keystroke the moment a refetch
   // landed underneath them.
   const shown = body ?? signature.data?.body ?? "";
+  // The same comparison the Save button already made, now also the claim that
+  // stops a sidebar click throwing the draft away.
+  useUnsavedGuard(shown !== (signature.data?.body ?? ""));
 
   return (
     <Panel
@@ -853,6 +882,7 @@ function EmailSignatureCard() {
           )}
         </Field>
         <p className="t-caption">{t("settings.signatureHint")}</p>
+        <ToastRegion toast={toast} />
         {save.isError && (
           <Callout tone="danger" live="alert">
             {problemMessageOf(save.error, t)}

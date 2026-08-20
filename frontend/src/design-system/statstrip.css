@@ -92,7 +92,7 @@
     inset 0 0 0 2px var(--accent);
 }
 .stat-strip > *:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
 }
 
@@ -116,4 +116,16 @@
   text-transform: uppercase;
   letter-spacing: 0.03em;
   font-size: 11px;
+}
+
+/* A strip of figures where one is selectable: the selected slot arrived with its
+   fill and its shadow in a single frame. */
+.stat-strip > button {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out);
+}
+.stat-strip > button:active:not(:disabled) {
+  background-color: var(--bgCard);
+  transition-duration: var(--dur-tap);
 }

@@ -72,9 +72,9 @@
    combinator pointing the wrong way. A label is not focusable, so styling it
    directly never fires either. */
 .li-import-picker:has(input[type="file"]:focus-visible) .li-import-button {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 /* Four counts as four columns, each a label above its number, so the eye

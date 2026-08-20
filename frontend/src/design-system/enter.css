@@ -1,0 +1,138 @@
+/*
+ * Arrival. The one animation in this product that plays when content APPEARS.
+ *
+ * Two facts shape it. The first is that a page here is a stack of blocks — a
+ * heading, then cards, then a list — and a stack that appears all at once
+ * reads as a flash, while the same stack arriving in reading order reads as
+ * being dealt. So the blocks are staggered, at `--stagger-enter`, and the
+ * rhythm stops mattering after six of them: past that the eye has already
+ * learned the order and a seventh block waiting its turn is only latency.
+ *
+ * The second is that the fade and the rise are different lengths. The rise
+ * finishes at `--dur-move` so the block has settled where it can be read; the
+ * fade keeps going to `--dur-enter` so the arrival stays soft. This is the
+ * shape the reference this was calibrated against uses — a long opacity, a
+ * short transform — and it is why the two are separate animations here rather
+ * than one keyframe set with a percentage in the middle: a percentage ties the
+ * transform's length to the fade's, and then changing one changes both.
+ *
+ * Both animations declare only a `from` frame. The implicit `to` is the
+ * element's own value, which means this file never needs to know what a block's
+ * resting opacity or transform is — and, more importantly, `backwards` fill
+ * leaves NOTHING applied once the animation ends. A `forwards` fill would keep
+ * a `transform` on every page block for the life of the screen, and a
+ * transformed element is a containing block for anything `position: fixed`
+ * inside it: the toast regions that live in the content column would anchor to
+ * the card instead of the viewport, permanently.
+ *
+ * No `will-change`, and no `contain`. Both buy a compositor layer this does not
+ * need — opacity and transform are already compositor properties — and both
+ * create the same containing block the fill mode above is written to avoid.
+ */
+
+@keyframes ds-arrive-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* 10px, and the direction is up: content comes from where it will be, slightly
+   below it, so the motion agrees with the direction a reader's eye travels
+   down the page. Far enough to be seen, close enough that a full page of
+   blocks does not read as a wave. */
+@keyframes ds-arrive-rise {
+  from {
+    transform: translateY(10px);
+  }
+}
+
+/*
+ * The vocabulary, as one declaration. Anything that arrives says `.arrive`; a
+ * container whose CHILDREN arrive in order says `.arrive-stack`, and its
+ * children need no class of their own — a screen should not have to remember to
+ * label every card it renders.
+ *
+ * `.wrap` — the shell's page gutter, the container every screen drops its
+ * top-level blocks into — is named alongside it rather than being given the
+ * class in each of the thirty-odd screens that write it. The reason is the
+ * failure mode: a class on the call site is a thing the thirty-first screen
+ * forgets, and a page whose content is the only one on the product that appears
+ * without warning is a bug nobody files. Being a page's content column IS being
+ * an arrival stack here, so the rule says so once.
+ */
+.arrive,
+:is(.arrive-stack, .wrap) > * {
+  animation:
+    ds-arrive-fade var(--dur-enter) var(--ease-out) backwards,
+    ds-arrive-rise var(--dur-move) var(--ease-out) backwards;
+}
+
+/*
+ * The rhythm. One value covers both animations in the shorthand above — a
+ * single `animation-delay` is repeated across the list rather than applying to
+ * the first only, so the fade and the rise stay in step.
+ *
+ * Counting from ONE, not zero, so even a single-block page gets one step of
+ * lead-in. The frame around the content does not arrive — the rail, the strip
+ * and the page's heading are already painted and stay painted across a
+ * navigation — and content that starts moving on the very frame it is committed
+ * reads as having been there all along. The same step is what lets a tab
+ * panel's outgoing content clear before its replacement starts.
+ */
+:is(.arrive-stack, .wrap) > *:nth-child(1) {
+  animation-delay: var(--stagger-enter);
+}
+:is(.arrive-stack, .wrap) > *:nth-child(2) {
+  animation-delay: calc(2 * var(--stagger-enter));
+}
+:is(.arrive-stack, .wrap) > *:nth-child(3) {
+  animation-delay: calc(3 * var(--stagger-enter));
+}
+:is(.arrive-stack, .wrap) > *:nth-child(4) {
+  animation-delay: calc(4 * var(--stagger-enter));
+}
+/* The ceiling. A page can hold thirty blocks and the thirtieth must not wait
+   1.2s to exist — past the fourth the stagger has done its work, so everything
+   below shares the last step and arrives together. */
+:is(.arrive-stack, .wrap) > *:nth-child(n + 5) {
+  animation-delay: calc(5 * var(--stagger-enter));
+}
+
+/*
+ * A stack does not arrive; its children do. Several screens keep their real
+ * blocks one level below the page's content column — a settings stack, a queue,
+ * a record's zones — and marking that container makes it the stack. Without this
+ * rule it would ALSO be an arriving child of the column above it, and two fades
+ * multiplied together are not a longer fade, they are a dimmer one: the child
+ * spends the whole arrival behind a parent that is itself only half there.
+ */
+:is(.arrive-stack, .wrap) > .arrive-stack {
+  animation: none;
+}
+
+/*
+ * A box with no flow of its own is not an arriving block. A toast region is
+ * `position: fixed` and renders as a SIBLING of the page's cards (which is why
+ * the layout rules in shell.css avoid `:only-child` around it): fading it in
+ * with the page would delay a message that is by definition urgent, and moving
+ * it would mean transforming a fixed box against a viewport it is anchored to.
+ */
+:is(.arrive-stack, .wrap) > .toast-region {
+  animation: none;
+}
+
+/*
+ * Reduced motion gets the END state, which for an arrival is simply the content
+ * being there. `animation: none` is the whole answer here — with only `from`
+ * frames and `backwards` fill, removing the animation leaves each block at its
+ * own resting opacity and transform, so nothing has to be restated.
+ *
+ * After the rules above, deliberately: this has to outrank them, and equal
+ * specificity means source order decides.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .arrive,
+  :is(.arrive-stack, .wrap) > * {
+    animation: none;
+  }
+}

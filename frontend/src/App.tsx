@@ -1,6 +1,7 @@
 import { extensionScreens as composedScreens } from "@composition/screens";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Fragment,
   lazy,
   type ReactNode,
   Suspense,
@@ -22,10 +23,16 @@ import {
   useBuiltinCommands,
   usePaletteHotkey,
 } from "./app/palette";
-import { navigate, type Screen } from "./app/router";
+import { navigate, parseHash, routeHash, type Screen } from "./app/router";
 import { Shell, type ShellCounts, useRoute } from "./app/shell";
 import { uiPreviewTaskbarEnabled } from "./app/ui-preview";
-import { Card, EmptyState, SectionHeader } from "./design-system/atoms";
+import { UnsavedGuard } from "./app/unsaved";
+import {
+  Card,
+  EmptyState,
+  PendingBody,
+  SectionHeader,
+} from "./design-system/atoms";
 import { useT } from "./i18n";
 import type { MessageKey } from "./i18n/en";
 import {
@@ -211,15 +218,34 @@ function safeDecode(value: string): string {
   }
 }
 
-// What stands in the content column when a screen itself cannot: its code is
-// still arriving, the address names no page, or the address is half written. One
-// container and one primitive for all three — they stand in the same place, so
-// they take the same column every screen does, and only the sentence differs.
+// What stands in the content column when the address names no page, or names one
+// half written. Both are STATEMENTS about the address, and a small card is the
+// right shape for a statement — it is the whole of what there is to say.
 function ScreenNotice({ messageKey }: Readonly<{ messageKey: MessageKey }>) {
   const t = useT();
   return (
     <div className="wrap">
       <EmptyState>{t(messageKey)}</EmptyState>
+    </div>
+  );
+}
+
+// What stands there while a screen's CODE is still arriving, which is a
+// different fact and was drawn the same way. A lazy chunk's fallback used to be
+// the same ~90px card as the two notices above, so the first visit to any screen
+// in this product put a small grey card in the middle of an empty column and
+// then replaced it with a whole page — the pop and the reflow that a reserved
+// placeholder exists to prevent, on the one path where it happens to everybody.
+//
+// Eight lines, the reservation ceiling: nobody knows which screen is coming, so
+// this cannot match its shape, and the honest choice between a card that is far
+// too small and a column that is roughly the right size is the column. It says
+// "a page is arriving" rather than "here is a page with one sentence on it".
+function ScreenPending() {
+  const t = useT();
+  return (
+    <div className="wrap">
+      <PendingBody label={t("common.loading")} lines={8} />
     </div>
   );
 }
@@ -399,6 +425,26 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     "not-found": () => <ScreenNotice messageKey="shell.unknownPage" />,
   };
 
+// A displayed route as ONE string, and back. The guard below compares addresses
+// for equality, so the address it holds has to be a primitive — an object is a
+// new value on every render. The hash the router already speaks is that
+// primitive, and `routeHash`/`parseHash` are the app's own serializer and parser,
+// so this adds no second spelling of an address; a segment cannot be mangled by
+// the round trip because it CAME from a hash in the first place.
+//
+// Putting the address back is a normal navigation, through the one function that
+// performs them: the reader keeps their edit and the URL returns to the page
+// they are on.
+const navigateToAddress = (address: string) => navigate(parseHash(address));
+
+// The view for a held address, parsed rather than threaded alongside the string
+// so there is exactly one source for what is on screen: the address the guard
+// says it is holding.
+const screenOfAddress = (address: string) => {
+  const route = parseHash(address);
+  return SCREEN_VIEWS[route.screen](route);
+};
+
 function ScreenView({
   screen,
   id,
@@ -416,14 +462,49 @@ function ScreenView({
   // would render a company page against a person's id.
   const asked = useMemo(() => ({ screen, id, id2 }), [screen, id, id2]);
   const shown = useDeferredValue(asked);
+  // One string for the whole displayed address, and it is what the unsaved-edit
+  // guard below holds. Built from `shown` rather than from the live route: what
+  // has to be held is what is ON SCREEN, and the deferred value is that.
+  const shownAddress = routeHash(shown);
   // The boundary a lazy screen suspends against on the FIRST paint, when there
   // is no previous screen to hold. A failure to FETCH one — the chunk 404s
   // because a deploy replaced it under a tab that was already open — is thrown
   // from here into AppErrorBoundary (app/errorboundary.tsx), which is what turns
   // it into the retry card instead of a blank frame.
   return (
-    <Suspense fallback={<ScreenNotice messageKey="common.loading" />}>
-      {SCREEN_VIEWS[shown.screen]({ id: shown.id, id2: shown.id2 })}
+    <Suspense fallback={<ScreenPending />}>
+      {/* Keyed by the whole shown route, which makes an address change a
+          REMOUNT rather than a re-render. Two reasons, and the second is the
+          load-bearing one. A screen carries state about the record it was
+          opened for — an expanded section, a half-typed note, a scroll
+          position — and reconciling one record's screen into another's keeps
+          all of it, which is how a note began on person A ends up on the form
+          for person B. And an arrival animation (design-system/enter.css)
+          plays when a block is INSERTED: without a key the DOM nodes are
+          reused, so walking from one record to the next would be the one
+          navigation in the product where the page changes with no motion at
+          all.
+
+          A Fragment rather than a wrapper element: the key belongs to the
+          subtree, and the shell's content column must keep the screen's own
+          root as its child (shell.css sizes `.wrap` and a full-height `.lt`
+          against it). */}
+      {/* The guard sits HERE, above the screen, and not inside any one of them.
+          Inside a screen it can only see moves within that screen: a settings
+          draft was safe from one tab to the next and still discarded the moment
+          the reader clicked Contacts, because the screen holding the guard
+          unmounted before it could ask. Above the screen, every address change
+          is one it can hold — and the claim comes from wherever the draft is,
+          through `useUnsavedGuard`, so no screen has to know this exists.
+
+          It holds CONTENT, not the URL. The address is allowed to move and the
+          browser's own Back and Forward are left alone; what waits is the
+          subtree. Refusing a history gesture means rewriting entries underneath
+          the reader, and the failure mode of getting that wrong is broken
+          navigation for everybody. */}
+      <UnsavedGuard address={shownAddress} onKeep={navigateToAddress}>
+        {(held) => <Fragment key={held}>{screenOfAddress(held)}</Fragment>}
+      </UnsavedGuard>
     </Suspense>
   );
 }

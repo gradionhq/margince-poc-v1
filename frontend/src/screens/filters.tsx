@@ -110,7 +110,7 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
   };
 
   return (
-    <div className="filters-screen">
+    <div className="filters-screen arrive-stack">
       <SectionHeader
         level={1}
         title={t("filters.title")}
@@ -156,16 +156,12 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
             </span>
           }
         />
-        {vocabulary.isPending && (
-          // SurfaceState's loading state is a shimmer with no text, so a reader
-          // who cannot see it hears nothing between mount and the first field.
-          <span className="sr-only" role="status">
-            {t("filters.loadingVocabulary")}
-          </span>
-        )}
         <SurfaceState
           state={vocabularyState(vocabulary.isPending, vocabulary.isError)}
           emptyLabel={t("filters.noFields")}
+          loadingLabel={t("filters.loadingVocabulary")}
+          // The builder that lands here is a condition row plus its verbs.
+          loadingLines={4}
         >
           <FilterBuilder
             tree={tree}

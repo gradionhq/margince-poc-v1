@@ -496,12 +496,18 @@
 }
 
 /* Placeholder rows: the list keeps its shape while the first page arrives, so
- * the header and the controls do not sit above an empty box. */
+ * the header and the controls do not sit above an empty box.
+ *
+ * The fill and the pulse come from `.skeleton` (atoms.css), which the element
+ * also carries — this rule is only the geometry a table cell needs. It used to
+ * restate the background itself and, because it restated it INCOMPLETELY, a
+ * bone was the one placeholder in the product that did not pulse: five still
+ * bars under a header, indistinguishable from a list that had answered with
+ * five blank rows. */
 .lt-bone {
   display: block;
   height: 10px;
   border-radius: var(--r-full);
-  background: var(--bgCard);
 }
 .lt-loading td {
   border-bottom: 1px solid var(--borderSubtle);
@@ -530,7 +536,7 @@
   text-overflow: ellipsis;
 }
 .lt-cellink:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
   border-radius: var(--r-sm);
 }
@@ -577,7 +583,7 @@
   width: 14px;
   height: var(--lt-body, 0);
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--dur-state) var(--ease-in-out);
   background: linear-gradient(
     to right,
     color-mix(in srgb, var(--overlayScrim) 30%, transparent),
@@ -676,7 +682,7 @@
  * sorted column, so clicking a header never nudges the other headers sideways. */
 .lt-arrow {
   visibility: hidden;
-  transition: transform 120ms ease;
+  transition: transform var(--dur-state) var(--ease-in-out);
 }
 .lt-sort.on .lt-arrow {
   visibility: visible;
@@ -724,13 +730,6 @@
 .lt > .btn,
 .lt > button {
   margin: var(--space-3) var(--space-4);
-}
-
-/* The pending ladder the bound list renders in place of the surface. */
-.list-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
 }
 
 /* ---- pager ---- */
@@ -1032,4 +1031,83 @@
   border-radius: var(--r-md);
   background: var(--bgElevated);
   margin-bottom: var(--space-2);
+}
+
+/*
+ * The ring, for the surface's own controls.
+ *
+ * Every one of these was reachable by keyboard and drew nothing but the
+ * platform's default when it got there — and the platform's default is a colour
+ * this product does not use, on a fill this product chose, which on the toolbar's
+ * elevated ground is close to invisible. A list is the densest surface here and
+ * the one a keyboard reader spends the most time inside: view tabs, filter
+ * segments, the sort handles, the menu rows, the pager. Losing your place in a
+ * table of twenty-five rows is losing it completely.
+ *
+ * Grouped, deliberately. These are one family — the chrome around a list — and a
+ * family that shares a ring is a family a reader can recognise. Spelling them
+ * apart is how a tree ends up with ten rings for one promise.
+ *
+ * Inset by 2px rather than outset: each of these sits flush inside a toolbar, a
+ * menu, or a table header that clips its own overflow, and an outset ring there
+ * is drawn half underneath the neighbour.
+ */
+.lt-vtab:focus-visible,
+.lt-btn:focus-visible,
+.lt-chip:focus-visible,
+.lt-mi:focus-visible,
+.lt-sort:focus-visible,
+.lt-frow-seg:focus-visible,
+.lt-frow-more:focus-visible,
+.lt-linkish:focus-visible,
+.lt-pager button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
+}
+
+/*
+ * The state vocabulary for the surface's own chrome — hover, press, and the
+ * transition between them.
+ *
+ * Every one of these already CHANGED on hover and did it in a single frame,
+ * because none of the base rules carried a transition. A dense toolbar where
+ * six controls snap between two fills as the pointer crosses them reads as the
+ * interface flickering rather than as it responding; the same change over
+ * `--dur-state` reads as the control answering.
+ *
+ * `background-color` and not `background`: the shorthand cannot be interpolated
+ * where an image or gradient is involved, and naming the longhand is what makes
+ * a fill that happens to be a gradient somewhere in this family degrade to a
+ * cut rather than to nothing.
+ */
+.lt-vtab,
+.lt-btn,
+.lt-chip,
+.lt-mi,
+.lt-sort,
+.lt-frow-seg,
+.lt-frow-more,
+.lt-linkish,
+.lt-pager button {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    border-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
+}
+
+/* The press. A list is where a reader clicks most often in this product and the
+   surface said nothing when they did — the row they just asked for looked
+   identical to the one under the pointer. The fill goes one step darker than
+   hover, which is the same step the pressed chip already uses for its selected
+   state, so pressing looks like the beginning of being chosen. */
+.lt-vtab:active,
+.lt-btn:active,
+.lt-chip:active,
+.lt-mi:active,
+.lt-frow-seg:active,
+.lt-frow-more:active,
+.lt-pager button:active:not(:disabled) {
+  background-color: var(--bgCard);
+  transition-duration: var(--dur-tap);
 }

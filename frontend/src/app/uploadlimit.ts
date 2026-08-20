@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { problemMessage } from "../screens/common";
+import { throwProblem } from "../screens/common";
 
 // The installation's own settings, and the one field on them a form has to act
 // on: how large a file this deployment accepts.
@@ -36,7 +36,7 @@ export function useInstallationSettings() {
     queryFn: async () => {
       const { data, error, response } = await api.GET("/installation/settings");
       if (error || !response.ok) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
