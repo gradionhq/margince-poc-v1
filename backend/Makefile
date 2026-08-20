@@ -504,7 +504,15 @@ gen-workflow: ## Scaffold a new workflow.Handler: make gen-workflow NAME=flag_id
 # upgrade could change findings between two runs of the same commit).
 # govulncheck's module is golang.org/x/vuln; the binary installs from the
 # cmd/ subpath — resolve-gate-tool takes both.
-GOVULNCHECK_VERSION ?= v1.1.4
+#
+# The pin also tracks the TOOLCHAIN, not only the tool: govulncheck builds SSA
+# over the standard library it scans against, so a release whose x/tools
+# predates a language change panics on the stdlib source rather than reporting
+# anything. v1.1.4 did exactly that on go1.27 — `unexpected expr:
+# *ast.KeyValueExpr`, and only on linux, because the file carrying the new
+# syntax is linux-only and a darwin run never parsed it. A toolchain bump has to
+# re-check this pin.
+GOVULNCHECK_VERSION ?= v1.7.0
 GOVULNCHECK ?= $(call resolve-gate-tool,govulncheck,golang\.org/x/vuln,$(GOVULNCHECK_VERSION),golang.org/x/vuln/cmd/govulncheck)
 vuln: ## Scan dependencies for known vulnerabilities (govulncheck)
 	$(GOVULNCHECK) ./...
@@ -518,7 +526,7 @@ vuln: ## Scan dependencies for known vulnerabilities (govulncheck)
 # `go run`, so those installs just pre-warm the module cache (and give the
 # binaries a PATH home for direct use). Installs are unconditional: a cached
 # binary at a different version must be overwritten, or the pin doesn't bind.
-GOLANGCI_LINT_VERSION ?= v2.12.2
+GOLANGCI_LINT_VERSION ?= v2.13.0
 # The contract-breaking gate (scripts/check-contract-breaking.sh) runs oasdiff
 # via pinned `go run`, so this install is a convenience binary for direct use —
 # keep the version identical to the pin in that script; bump both together.

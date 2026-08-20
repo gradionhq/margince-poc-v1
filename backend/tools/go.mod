@@ -13,7 +13,7 @@
 // still tooling — nothing here ships in a binary a customer runs.
 module github.com/gradionhq/margince/backend/tools
 
-go 1.26.6
+go 1.27.0
 
 tool github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 
