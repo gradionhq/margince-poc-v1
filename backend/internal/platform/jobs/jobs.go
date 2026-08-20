@@ -50,6 +50,24 @@ type Config struct {
 	Queues       map[string]river.QueueConfig
 	Workers      *river.Workers
 	PeriodicJobs []*river.PeriodicJob
+	// TestOnly carries River's own flag of that name, and carries its name
+	// rather than a narrower one on purpose. River documents it as disabling
+	// "certain features that are useful in production, but which may be harmful
+	// to tests" — plural and open-ended — so a field called
+	// DisableStartupStagger would promise a narrowness River does not.
+	//
+	// In the PINNED version it does exactly one thing: river@v0.43.0
+	// client.go:1047 calls queueMaintainer.StaggerStartupDisable(true), which
+	// drops the random jittered sleep the maintenance services take at startup.
+	// That sleep is paid once per client, which is once per TEST in a suite that
+	// boots a runner — measured at 22.2s → 10.3s for compose/integration/jobfanout
+	// and 11.5s → 7.3s for .../webhooks. A version bump may widen it, and nothing
+	// here would notice; the gate that matters is the one below, which keeps it
+	// out of production rather than pinning what it does.
+	//
+	// Never set outside a test harness.
+	// TestJobRunnerConfigIsNeverSetInProduction holds that.
+	TestOnly bool
 }
 
 // Runner wraps a River client bound to the shared pool. The zero value is
@@ -66,6 +84,7 @@ func New(pool *pgxpool.Pool, cfg Config, log *slog.Logger) (*Runner, error) {
 		Workers:      cfg.Workers,
 		PeriodicJobs: cfg.PeriodicJobs,
 		Logger:       log,
+		TestOnly:     cfg.TestOnly,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("jobs: new client: %w", err)

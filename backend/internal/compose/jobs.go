@@ -66,6 +66,11 @@ func sweepInsertOpts() *river.InsertOpts {
 // Embedder registers nothing for the drift sweep and anyway for a reindex —
 // which is why the posture is stated per kind and never per field.
 type JobRunnerConfig struct {
+	// TestOnly is jobs.Config.TestOnly, carried here because jobtest boots its
+	// runners through NewJobRunner rather than through jobs.New — see there for
+	// what River does with it and why it keeps River's own name. Production
+	// leaves it false; TestJobRunnerConfigIsNeverSetInProduction holds that.
+	TestOnly bool
 	// SendPacing bounds how fast one mailbox transmits and how long a
 	// delivery may be deferred before it parks; the zero value takes the
 	// documented defaults (SendPacing.withDefaults).
@@ -293,6 +298,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		Queues:       jobQueues(),
 		Workers:      reg.workers,
 		PeriodicJobs: periodic,
+		TestOnly:     cfg.TestOnly,
 	}, log)
 }
 
