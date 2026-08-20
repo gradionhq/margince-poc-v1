@@ -266,6 +266,18 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
+	// The roster is drawn from employment EDGES: "who works at this account" is
+	// the fact relationship.read governs, and this read is the one org360's
+	// contacts section is built from. A refusal reaches the assembler, which
+	// names `people` in sections_omitted — so the page says "you may not see
+	// this" rather than showing an account with nobody at it.
+	edgeBound, err := auth.EdgeReadScope(ctx, "r", arg)
+	if err != nil {
+		return nil, err
+	}
+	if edgeBound == "" {
+		edgeBound = "TRUE"
+	}
 	scope, err := personScopePredicate(ctx, arg)
 	if err != nil {
 		return nil, err
@@ -275,8 +287,8 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 		JOIN relationship r ON r.person_id = p.id
 		WHERE r.kind = 'employment' AND r.organization_id = $%d
 		  AND r.ended_at IS NULL AND r.archived_at IS NULL
-		  AND p.archived_at IS NULL AND (%s)
-		ORDER BY p.id`, orgPos, scope), args...)
+		  AND p.archived_at IS NULL AND (%s) AND (%s)
+		ORDER BY p.id`, orgPos, edgeBound, scope), args...)
 	if err != nil {
 		return nil, err
 	}
