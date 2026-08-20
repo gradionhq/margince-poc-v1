@@ -3804,10 +3804,10 @@ export const en = {
   "setup.pageTitle": "Set up Margince",
   "setup.title": "Claim this installation",
   "setup.body":
-    "This Margince installation has no organization yet. Your operator has a one-time setup token from the server log.",
+    "This Margince installation has no organization yet. Your operator has a one-time setup token from the token file the server wrote at first start.",
   "setup.token": "Setup token",
   "setup.tokenHint":
-    "From the server log on first start, or the token file beside it.",
+    "From the token file the server wrote at first start — its path is in the server log.",
   "setup.organization": "Organization name",
   "setup.adminName": "Your name",
   "setup.adminEmail": "Your email",
@@ -3819,7 +3819,7 @@ export const en = {
   "setup.claim": "Create the organization",
   "setup.claiming": "Creating…",
   "setup.errorToken":
-    "That setup token isn't valid for this installation. Check the server log for the token issued at first start.",
+    "That setup token isn't valid for this installation. Check the token file the server named in its log at first start.",
   "setup.errorAlready":
     "This installation already has an organization. Sign in instead, or ask your operator to reset it.",
   "setup.errorFields":

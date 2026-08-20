@@ -3784,10 +3784,10 @@ export const de = {
   "setup.pageTitle": "Margince einrichten",
   "setup.title": "Diese Installation übernehmen",
   "setup.body":
-    "Diese Margince-Installation hat noch keine Organisation. Dein Betreiber hat ein einmaliges Einrichtungs-Token aus dem Serverprotokoll.",
+    "Diese Margince-Installation hat noch keine Organisation. Dein Betreiber hat ein einmaliges Einrichtungs-Token aus der Token-Datei, die der Server beim ersten Start geschrieben hat.",
   "setup.token": "Einrichtungs-Token",
   "setup.tokenHint":
-    "Aus dem Serverprotokoll beim ersten Start oder aus der Token-Datei daneben.",
+    "Aus der Token-Datei, die der Server beim ersten Start geschrieben hat — ihren Pfad nennt das Serverprotokoll.",
   "setup.organization": "Name der Organisation",
   "setup.adminName": "Dein Name",
   "setup.adminEmail": "Deine E-Mail-Adresse",
@@ -3799,7 +3799,7 @@ export const de = {
   "setup.claim": "Organisation anlegen",
   "setup.claiming": "Wird angelegt…",
   "setup.errorToken":
-    "Dieses Einrichtungs-Token gilt nicht für diese Installation. Prüfe das Serverprotokoll vom ersten Start.",
+    "Dieses Einrichtungs-Token gilt nicht für diese Installation. Prüfe die Token-Datei, die das Serverprotokoll beim ersten Start nennt.",
   "setup.errorAlready":
     "Diese Installation hat bereits eine Organisation. Melde dich an oder bitte deinen Betreiber um ein Zurücksetzen.",
   "setup.errorFields":

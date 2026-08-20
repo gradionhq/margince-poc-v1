@@ -68,18 +68,29 @@ var credentialLogKeys = []string{
 // that adds a key; never lower it to quiet a failure.
 const wantCredentialLogKeys = 12
 
-// logMethods are the structured-log calls this gate reads: slog's levelled
-// methods and their Context variants, the two that take a level argument, and
-// With/Group — an attribute attached by With reaches every later line from that
-// logger, which is the same disclosure one step removed.
-var logMethods = []string{
-	"Debug", "DebugContext",
-	"Error", "ErrorContext",
-	"Group",
-	"Info", "InfoContext",
-	"Log", "LogAttrs",
-	"Warn", "WarnContext",
-	"With",
+// logMethods are the structured-log calls this gate reads, mapped to the index
+// where their variadic attribute tail begins. The index is what lets a key be
+// told from a value: slog resolves the tail as alternating key/value pairs, and
+// a gate that cannot count the pairs reports `log.Info("refused", "method",
+// "password")` as a disclosure when nothing was disclosed.
+//
+// With is here because an attribute attached to a logger reaches every later
+// line from it — the same disclosure one step removed.
+var logMethods = map[string]int{
+	"Debug": 1, "DebugContext": 2,
+	"Error": 1, "ErrorContext": 2,
+	"Info": 1, "InfoContext": 2,
+	"Log": 3, "LogAttrs": 3,
+	"Warn": 1, "WarnContext": 2,
+	"With": 0,
+}
+
+// attrConstructors are slog's typed attribute builders, whose FIRST argument is
+// a key. They may appear anywhere in a tail, and each consumes one slot rather
+// than a pair, which is why the tail is walked rather than indexed by parity.
+var attrConstructors = []string{
+	"Any", "Bool", "Duration", "Float64", "Group",
+	"Int", "Int64", "String", "Time", "Uint64",
 }
 
 // TestACredentialIsLoggedOnlyWhenItsOwnChannelFailed walks every hand-written Go
@@ -117,10 +128,11 @@ func unguardedCredentialLogs(t *testing.T) []credentialLogSite {
 	t.Helper()
 	var sites []credentialLogSite
 	fset := token.NewFileSet()
-	// Every hand-written tree that can hold a log call. cmd and pkg log as
-	// freely as internal does, and a first-party extension unit ships the same
-	// product, so a walk over internal alone would grade half the tree.
-	for _, root := range []string{"internal", "cmd", "pkg", "../extensions"} {
+	// Every hand-written Go tree, which is the same four CLAUDE.md names and
+	// `craft static` sweeps — backend, extensions, fixtures and desktop — not the
+	// backend half. The desktop launcher is exactly where this class recurs: it
+	// logs through slog and it generates a bootstrap admin password.
+	for _, root := range []string{"internal", "cmd", "pkg", "../extensions", "../fixtures", "../desktop"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
 				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") ||
@@ -132,14 +144,12 @@ func unguardedCredentialLogs(t *testing.T) []credentialLogSite {
 			if parseErr != nil {
 				return parseErr
 			}
-			walkUnderGuards(file, nil, func(call *ast.CallExpr, guards []string) {
-				if !isLogCall(call) {
+			walkUnderGuards(file, nil, func(call *ast.CallExpr, failures []string) {
+				keys := credentialKeysIn(call)
+				if len(keys) == 0 || reportsOneOf(call, failures) {
 					return
 				}
-				for _, key := range credentialKeysIn(call) {
-					if reportsOneOf(call, guards) {
-						continue
-					}
+				for _, key := range keys {
 					sites = append(sites, credentialLogSite{pos: fset.Position(call.Pos()).String(), key: key})
 				}
 			})
@@ -164,13 +174,14 @@ func walkUnderGuards(n ast.Node, guards []string, visit func(*ast.CallExpr, []st
 	ast.Inspect(n, func(child ast.Node) bool {
 		switch node := child.(type) {
 		case *ast.IfStmt:
-			if child == n {
-				return true
-			}
+			// Including when the if IS the node walked, which is how an else-if
+			// chain and a branch opening a switch arm arrive here. Skipping that
+			// case would drop the arm's own guard and report the sanctioned
+			// fallback written either of those two ordinary ways.
 			walkIf(node, guards, visit)
 			return false
 		case *ast.SwitchStmt:
-			if child == n || node.Tag != nil {
+			if node.Tag != nil {
 				return true // a tagged switch compares values; it proves nothing about nil
 			}
 			walkExprSwitch(node, guards, visit)
@@ -230,7 +241,7 @@ func extend(guards, more []string) []string {
 	return append(slices.Clone(guards), more...)
 }
 
-// nonNilWhen answers the identifiers a condition proves non-nil when it holds
+// nonNilWhen answers the ERRORS a condition proves non-nil when it holds
 // (whenTrue) or when it does not, so an else arm and an if body are read by the
 // same rule rather than by two hand-written ones.
 func nonNilWhen(cond ast.Expr, whenTrue bool) []string {
@@ -268,19 +279,23 @@ func nonNilFromBinary(cond *ast.BinaryExpr, whenTrue bool) []string {
 		if !isIdent || !isNil || nilSide.Name != "nil" || (cond.Op == token.NEQ) != whenTrue {
 			return nil
 		}
+		if !namesAnError(subject.Name) {
+			return nil
+		}
 		return []string{subject.Name}
 	}
 	return nil
 }
 
-// reportsOneOf reports whether the call passes one of the guarding identifiers,
-// which is what makes the fallback self-evidencing: the line that discloses the
-// credential also carries the failure that forced the disclosure.
-func reportsOneOf(call *ast.CallExpr, guards []string) bool {
+// reportsOneOf reports whether the call passes one of the failures an enclosing
+// guard established, which is what makes the sanctioned fallback
+// self-evidencing: the line that discloses the credential also carries the
+// failure that forced it.
+func reportsOneOf(call *ast.CallExpr, failures []string) bool {
 	reported := false
 	ast.Inspect(call, func(n ast.Node) bool {
 		ident, isIdent := n.(*ast.Ident)
-		if isIdent && slices.Contains(guards, ident.Name) {
+		if isIdent && slices.Contains(failures, ident.Name) {
 			reported = true
 		}
 		return !reported
@@ -288,35 +303,89 @@ func reportsOneOf(call *ast.CallExpr, guards []string) bool {
 	return reported
 }
 
-// isLogCall reports whether the call names one of the structured-log methods.
-// Matched on the method name alone: the receiver is a *slog.Logger under a dozen
-// different field and variable names across this tree, and pinning the receiver
-// would grade only the spellings that exist today.
-func isLogCall(call *ast.CallExpr) bool {
-	selector, isSelector := call.Fun.(*ast.SelectorExpr)
-	return isSelector && slices.Contains(logMethods, selector.Sel.Name)
+// namesAnError reports whether an identifier names an error, by the convention
+// this tree writes them under: err, writeErr, pathErr, parseError.
+//
+// A guard has to be a FAILURE for the fallback to be sanctioned. Without this,
+// any enclosing `x != nil` the call happens to mention launders the credential —
+// `if tok != nil { log.Info("refreshed", "refresh_token", tok.Refresh, "expires",
+// tok.Expiry) }` is a plaintext credential logged on every SUCCESSFUL refresh,
+// which is the disclosure this gate exists to refuse, admitted by its own
+// exception.
+//
+// Read from the name rather than from a type, because the root gate package
+// parses syntax and loading types for every hand-written file to answer one
+// question would cost more than the rule is worth. An error named outside the
+// convention is not credited and the call reports — renaming it is the fix, and
+// it is a fix the surrounding code wanted anyway.
+func namesAnError(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasPrefix(lower, "err") || strings.HasSuffix(lower, "err") || strings.HasSuffix(lower, "error")
 }
 
-// credentialKeysIn answers the credential-shaped string literals anywhere in the
-// call's subtree, deduplicated so one call reports each key once. The whole
-// subtree, not just the direct arguments: an attribute built with
-// slog.String("password", …) nests the key one level down, and a walk over Args
-// alone would read that call as clean.
+// credentialKeysIn answers the credential-shaped KEYS the call carries.
+//
+// Keys, not literals: slog resolves a call's tail as alternating key/value pairs
+// with typed attributes consuming a single slot, and this walks it the same way.
+// Matching any string literal in the subtree instead cannot tell
+// `log.Info("connect", "grant_type", "password")` — which discloses nothing —
+// from a logged password.
 func credentialKeysIn(call *ast.CallExpr) []string {
+	selector, isSelector := call.Fun.(*ast.SelectorExpr)
+	if !isSelector {
+		return nil
+	}
+	start, isLog := logMethods[selector.Sel.Name]
+	if !isLog || len(call.Args) < start {
+		return nil
+	}
 	var found []string
-	ast.Inspect(call, func(n ast.Node) bool {
-		lit, isLit := n.(*ast.BasicLit)
-		if !isLit || lit.Kind != token.STRING {
-			return true
-		}
-		value, err := strconv.Unquote(lit.Value)
-		if err != nil {
-			return true
-		}
-		if slices.Contains(credentialLogKeys, value) && !slices.Contains(found, value) {
-			found = append(found, value)
-		}
-		return true
-	})
+	collectCredentialKeys(call.Args[start:], &found)
 	return found
+}
+
+// collectCredentialKeys walks one attribute tail, consuming a typed attribute as
+// one slot and anything else as a key/value pair.
+func collectCredentialKeys(tail []ast.Expr, found *[]string) {
+	for i := 0; i < len(tail); {
+		if nested, key, isAttr := attrConstructor(tail[i]); isAttr {
+			recordCredentialKey(key, found)
+			collectCredentialKeys(nested, found)
+			i++
+			continue
+		}
+		recordCredentialKey(tail[i], found)
+		i += 2
+	}
+}
+
+// attrConstructor answers a typed attribute's key expression and the tail nested
+// inside it — slog.Group carries a whole tail of its own, and a credential one
+// level down is still a credential in the log.
+func attrConstructor(expr ast.Expr) (nested []ast.Expr, key ast.Expr, isAttr bool) {
+	call, isCall := expr.(*ast.CallExpr)
+	if !isCall {
+		return nil, nil, false
+	}
+	selector, isSelector := call.Fun.(*ast.SelectorExpr)
+	if !isSelector || !slices.Contains(attrConstructors, selector.Sel.Name) || len(call.Args) == 0 {
+		return nil, nil, false
+	}
+	return call.Args[1:], call.Args[0], true
+}
+
+// recordCredentialKey adds a key expression to the findings when it is a string
+// literal naming a credential, deduplicated so one call reports each key once.
+func recordCredentialKey(key ast.Expr, found *[]string) {
+	lit, isLit := key.(*ast.BasicLit)
+	if !isLit || lit.Kind != token.STRING {
+		return
+	}
+	value, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return
+	}
+	if slices.Contains(credentialLogKeys, value) && !slices.Contains(*found, value) {
+		*found = append(*found, value)
+	}
 }
