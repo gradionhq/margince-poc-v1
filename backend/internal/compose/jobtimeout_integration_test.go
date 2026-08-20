@@ -157,8 +157,8 @@ func TestTheDeclaredTimeoutIsTheDeadlineRiverApplies(t *testing.T) {
 
 // TestADeclaredAbsenceLeavesTheJobWithNoDeadline is the honest second case: a
 // {none: true} declaration must leave the job with NO deadline at all, not a
-// long one. Two production kinds (embed_reindex_workspace,
-// embed_drift_workspace) depend on exactly this to stay outside River's
+// long one. Two production kinds (embed_reindex, embed_drift_workspace)
+// depend on exactly this to stay outside River's
 // rescuer, and -1 silently coercing into "some timeout" would break that
 // without any other test noticing, because every OTHER kind in the fleet
 // carries a real deadline and would not catch the coercion.

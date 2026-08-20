@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "f1ceb406fbecbffed2f72edd53664b08abef27a73e634109ca52338cb73291e6"
+const JobContractHash = "ad5ce9058fd72ba06ea958f2136d71f24206233c3a344999e25cd982213228cb"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -301,26 +301,13 @@ var specs = map[string]Spec{
 	"embed_reindex": {
 		Kind:         "embed_reindex",
 		GoType:       "EmbedReindexArgs",
-		Role:         Dispatcher,
-		Queue:        "default",
-		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
-		FanOutUnit:   FanOutWorkspace,
-		FanOutTo:     "embed_reindex_workspace",
+		Role:         Worker,
+		Queue:        "ai_capture",
+		Timeout:      TimeoutPolicy{None: true},
 		OptsOwner:    OptsCaller,
 		Cadence:      Cadence{OnDemand: true},
 		Registration: Registration{When: []string{"Embedder"}, AbsentRegistersAnyway: true},
 		Args:         []ArgField{{Name: "Identity", Scalar: true, Reason: "the embed binding in force when the confirm claimed the run -- model, dimension and revision folded into one string. Carried so a mid-flight configuration change is detectable as drift (search.ErrIdentityDrift) instead of the fleet silently re- embedding under whatever it now reports; that comparison is against the value AT CLAIM TIME, which no row still holds by the time the job runs."}, {Name: "Run"}},
-	},
-	"embed_reindex_workspace": {
-		Kind:         "embed_reindex_workspace",
-		GoType:       "EmbedReindexWorkspaceArgs",
-		Role:         Worker,
-		Queue:        "ai_capture",
-		Timeout:      TimeoutPolicy{None: true},
-		MaxAttempts:  5,
-		OptsOwner:    OptsFanOut,
-		Registration: Registration{When: []string{"Embedder"}, AbsentRegistersAnyway: true},
-		Args:         []ArgField{{Name: "Identity", Scalar: true, Reason: "the embed binding in force when the confirm claimed the run -- model, dimension and revision folded into one string. Carried so a mid-flight configuration change is detectable as drift (search.ErrIdentityDrift) instead of the fleet silently re- embedding under whatever it now reports; that comparison is against the value AT CLAIM TIME, which no row still holds by the time the job runs."}, {Name: "Run"}, {Name: "Workspace"}},
 	},
 	"finance_sync": {
 		Kind:        "finance_sync",

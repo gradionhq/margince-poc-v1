@@ -29,7 +29,6 @@ import (
 	"testing"
 
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
 
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -261,16 +260,6 @@ func workspaceRefusalDrivers() map[string]func(context.Context) error {
 		DocumentExtractArgs{}.Kind(): func(ctx context.Context) error {
 			return (&documentExtractWorker{log: slog.New(slog.DiscardHandler)}).Work(
 				ctx, &river.Job[DocumentExtractArgs]{Args: DocumentExtractArgs{}})
-		},
-
-		// The reindex worker takes its LAST attempt out of the pending set
-		// before returning, which is a store write; the row here is given an
-		// attempt below its cap so the refusal is what the call answers with,
-		// rather than a nil store panicking on the way to it.
-		EmbedReindexWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
-			return (&embedReindexWorkspaceWorker{}).Work(ctx, &river.Job[EmbedReindexWorkspaceArgs]{
-				JobRow: &rivertype.JobRow{Attempt: 1, MaxAttempts: 2},
-			})
 		},
 	}
 }
