@@ -74,10 +74,23 @@ FROM gobase AS api-build
 # internal/shared/buildinfo. Absent (a plain `docker build`) leaves it empty,
 # which DISABLES the comparison rather than alarming on it.
 ARG MARGINCE_BUILD_REVISION=""
+
+# The release this set is built from, stamped into the binary at link time. The
+# api is the role that owns the schema, so at boot it RECORDS this as the
+# installation's release and every other role refuses to start against a
+# different one — the run-time answer to a torn tag pull the registry cannot
+# refuse. Absent (a plain `docker build`) it stays "dev", which disables the
+# comparison; see internal/shared/buildinfo.
+ARG MARGINCE_RELEASE_VERSION=dev
 ARG TARGETARCH
+# cmd/migrate is deliberately NOT stamped: it ships in this image, so it is the
+# same release by construction, and it applies the schema rather than joining
+# the set the guard compares.
 RUN --mount=type=cache,id=margince-gobuild,target=/root/.cache/go-build \
     GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
-        go build -ldflags="-s -w -X github.com/gradionhq/margince/backend/internal/shared/buildinfo.Revision=$MARGINCE_BUILD_REVISION" \
+        go build -ldflags="-s -w \
+            -X github.com/gradionhq/margince/backend/internal/shared/buildinfo.Revision=$MARGINCE_BUILD_REVISION \
+            -X github.com/gradionhq/margince/backend/internal/shared/buildinfo.ReleaseVersion=$MARGINCE_RELEASE_VERSION" \
         -o /bin/margince-api ./cmd/api \
     && GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
         go build -ldflags="-s -w" -o /bin/margince-migrate ./cmd/migrate
@@ -91,10 +104,16 @@ RUN --mount=type=cache,id=margince-gobuild,target=/root/.cache/go-build \
 # restarts it) until the api has migrated.
 FROM gobase AS worker-build
 
+# The same release version the api target is stamped with. The worker is the
+# role that REFUSES: at boot it compares this against the release the api
+# recorded and exits rather than run half of one release beside half of another.
+ARG MARGINCE_RELEASE_VERSION=dev
 ARG TARGETARCH
 RUN --mount=type=cache,id=margince-gobuild,target=/root/.cache/go-build \
     GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
-        go build -ldflags="-s -w" -o /bin/margince-worker ./cmd/worker
+        go build -ldflags="-s -w \
+            -X github.com/gradionhq/margince/backend/internal/shared/buildinfo.ReleaseVersion=$MARGINCE_RELEASE_VERSION" \
+        -o /bin/margince-worker ./cmd/worker
 
 # ── web: build ────────────────────────────────────────────────────────────────
 # The Vite/React SPA — a static build served by nginx. The app talks only to
@@ -200,6 +219,15 @@ WORKDIR /app/frontend
 # stage for why an absent value disables the comparison rather than alarming.
 ARG MARGINCE_BUILD_REVISION=""
 ENV MARGINCE_BUILD_REVISION=$MARGINCE_BUILD_REVISION
+# The release this set is built from, compiled INTO the bundle (a vite define in
+# frontend/vite.config.ts). The SPA is served to a browser rather than run as a
+# process, so it cannot be stopped the way the api and the worker stop each
+# other: what it does instead is compare its own release against the one the api
+# reports and refuse to render the app until they agree. That comparison needs
+# the version inside the JavaScript, not in the image's environment, because the
+# environment is the build's and the browser only ever sees the bundle.
+ARG MARGINCE_RELEASE_VERSION=dev
+ENV MARGINCE_RELEASE_VERSION=$MARGINCE_RELEASE_VERSION
 RUN --mount=type=cache,id=margince-tsbuildinfo,target=/app/frontend/node_modules/.tmp \
     --mount=type=cache,id=margince-corepack,target=/root/.cache/node/corepack \
     pnpm gen:composed-types && pnpm gen:events:composed && pnpm build:composed
@@ -213,6 +241,24 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY --from=api-build /bin/margince-api /usr/local/bin/margince-api
 COPY --from=api-build /bin/margince-migrate /usr/local/bin/margince-migrate
 COPY scripts/deploy/api-entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# The release version, a second time, as a file in the image.
+#
+# TWICE ON PURPOSE, and the two copies answer different questions. The OCI label
+# (docker-bake.hcl) is readable from the registry without pulling, which is what
+# an operator diffing a torn set needs. This file is readable from INSIDE a
+# running container — `kubectl exec … cat /etc/margince/release-version` — which
+# is what an operator holding a crash-looping worker needs, and it is the only
+# place the web image's version can be read at run time at all, since nginx runs
+# none of our code. Both derive from the one ARG in this one build, so they
+# cannot disagree.
+#
+# /etc, not the nginx document root: this is metadata about the image, not
+# content the web tier serves. The three roles spell the path identically so an
+# operator has one thing to remember; every stage below repeats these two lines
+# because a Dockerfile ARG does not cross a stage boundary.
+ARG MARGINCE_RELEASE_VERSION=dev
+RUN mkdir -p /etc/margince && printf '%s\n' "$MARGINCE_RELEASE_VERSION" > /etc/margince/release-version
 
 # Run as a non-root user. /app/config is where a deployment mounts its
 # margince.yaml (+ ai-routing.yaml); /app/secrets is where the entrypoint writes
@@ -236,6 +282,10 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY --from=worker-build /bin/margince-worker /usr/local/bin/margince-worker
 COPY scripts/deploy/worker-entrypoint.sh /usr/local/bin/entrypoint.sh
 
+# The in-image release version; the api runtime stage carries why.
+ARG MARGINCE_RELEASE_VERSION=dev
+RUN mkdir -p /etc/margince && printf '%s\n' "$MARGINCE_RELEASE_VERSION" > /etc/margince/release-version
+
 # /app/config is where a deployment mounts its margince.yaml / ai-routing.yaml.
 RUN chmod +x /usr/local/bin/entrypoint.sh \
     && adduser -D -u 10001 app \
@@ -253,6 +303,17 @@ FROM nginxinc/nginx-unprivileged:alpine AS web
 
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=web-build /app/frontend/dist /usr/share/nginx/html
+
+# The in-image release version; the api runtime stage carries why. The SPA's own
+# copy is compiled into the bundle above — this file is for an operator reading
+# the image, and is the ONLY run-time reading of this role's version, because
+# nginx cannot compare anything.
+#
+# The RUN needs root, so it precedes the USER switch below; the base image runs
+# builds as root and drops to 101 for the server.
+ARG MARGINCE_RELEASE_VERSION=dev
+USER root
+RUN mkdir -p /etc/margince && printf '%s\n' "$MARGINCE_RELEASE_VERSION" > /etc/margince/release-version
 
 USER 101
 EXPOSE 8080

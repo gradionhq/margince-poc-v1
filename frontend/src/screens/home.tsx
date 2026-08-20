@@ -463,6 +463,156 @@ function BriefSection() {
   );
 }
 
+/** One currency's open pipeline: what it is worth, and what it is worth once
+ *  each deal is weighted by its stage's probability. */
+type PipelineValue = {
+  currency: string;
+  rawMinor: number;
+  weightedMinor: number;
+  deals: number;
+};
+
+/** What the report answered: the per-currency lines, and whether a field mask
+ *  kept rows out of them. */
+type PipelineReading = {
+  rows: PipelineValue[];
+  /** Rows a mask withheld from every total here. Non-zero means the figures
+   *  understate the pipeline, and saying so is the difference between a
+   *  partial answer and a wrong one. */
+  excluded: number;
+};
+
+/**
+ * The open pipeline, per currency.
+ *
+ * Grouped by currency and rendered one line each rather than summed: adding
+ * native minor units across currencies produces a number that is not money,
+ * which is the rule the board's mixed-currency columns already follow.
+ *
+ * The report never includes archived deals, and this asks only for open ones —
+ * a won deal is revenue, not pipeline, and counting it here would make the
+ * headline grow every time somebody closed something.
+ */
+function usePipelineValue() {
+  return useQuery({
+    // Under ["deals"] so the invalidation every deal mutation already fires
+    // reaches this too. Keyed apart, the headline went on naming yesterday's
+    // pipeline after a rep won something and came back to Home.
+    queryKey: ["deals", "home-pipeline-value"],
+    queryFn: async (): Promise<PipelineReading> => {
+      const { data, error } = await api.POST("/reports/{report}", {
+        params: { path: { report: "deals-by-stage" } },
+        body: {
+          group_by: ["currency"],
+          aggregates: [
+            { fn: "count", as: "deals" },
+            { fn: "sum", field: "amount_minor", as: "raw_minor" },
+            { fn: "sum", field: "weighted_amount_minor", as: "weighted_minor" },
+          ],
+          filters: { status: "open" },
+        },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return {
+        rows: data.rows.flatMap((row) => {
+          const currency = row.currency;
+          // A SUM over deals nobody priced is absent, not zero, and a row with
+          // no currency cannot be rendered as money at all.
+          if (
+            typeof currency !== "string" ||
+            typeof row.raw_minor !== "number"
+          ) {
+            return [];
+          }
+          return [
+            {
+              currency,
+              rawMinor: row.raw_minor,
+              weightedMinor:
+                typeof row.weighted_minor === "number" ? row.weighted_minor : 0,
+              deals: typeof row.deals === "number" ? row.deals : 0,
+            },
+          ];
+        }),
+        excluded: data.excluded_by_permission ?? 0,
+      };
+    },
+  });
+}
+
+/** The open pipeline at the top of Home: what is in play, and what it is
+ *  worth weighted. One line per currency. */
+function PipelineValueSection() {
+  const t = useT();
+  const { locale } = useLocale();
+  const query = usePipelineValue();
+
+  // Still loading, or genuinely nothing open: say nothing. A headline has no
+  // honest skeleton — a shape where a number will be is a claim that a number
+  // is coming, and Home's real work sits directly below it.
+  if (query.isPending) {
+    return null;
+  }
+  // A refusal is NOT an absence. An empty tile reads as "there is no pipeline",
+  // which is a claim about the data made in place of a claim about authority —
+  // the failure the design system calls out by name. So a settled error keeps
+  // the tile's place and says the figure is unavailable.
+  if (query.isError) {
+    return (
+      <section aria-label={t("home.pipeline")}>
+        <SectionHeader title={t("home.pipeline")} />
+        <Card>
+          <p className="t-caption">{t("home.pipelineUnavailable")}</p>
+        </Card>
+      </section>
+    );
+  }
+  const rows = query.data?.rows ?? [];
+  const excluded = query.data?.excluded ?? 0;
+  if (rows.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label={t("home.pipeline")}>
+      <SectionHeader title={t("home.pipeline")} />
+      <Card>
+        {rows.map((row) => (
+          <div key={row.currency} className="home-pipeline-row">
+            <span className="t-sub">
+              {formatMoneyOrAbsent(row.rawMinor, row.currency, locale)}
+            </span>
+            <span className="t-caption">
+              {t("home.pipelineWeighted", {
+                amount: String(
+                  formatMoneyOrAbsent(row.weightedMinor, row.currency, locale),
+                ),
+              })}
+            </span>
+            <span className="t-caption">
+              {t(
+                row.deals === 1
+                  ? "home.pipelineCount.one"
+                  : "home.pipelineCount.other",
+                { count: row.deals },
+              )}
+            </span>
+          </div>
+        ))}
+        {/* A mask kept rows out of these sums, so the figures understate the
+            pipeline. Saying so is the difference between a partial answer and
+            a wrong one. */}
+        {excluded > 0 && (
+          <p className="t-caption">
+            {t("home.pipelinePartial", { count: excluded })}
+          </p>
+        )}
+      </Card>
+    </section>
+  );
+}
+
 export function HomeScreen() {
   const t = useT();
   // Approving from the morning brief mints an approval_token and can 409
@@ -518,6 +668,7 @@ export function HomeScreen() {
           ) : null
         }
       </QueryGate>
+      <PipelineValueSection />
       <DigestSection />
       <BriefSection />
       {stalled.length > 0 && (

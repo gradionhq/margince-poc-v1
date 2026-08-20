@@ -275,6 +275,22 @@ export const vi = {
   "rollup.computedAt": "Tính lúc {when}",
 
   "nav.partners": "Đối tác",
+  "deal.partnerAttribution": "Đối tác đã làm gì",
+  "deal.attributionUnset": "Chưa nêu (tính là mang deal về)",
+  "deal.attributionSourced": "Mang deal về cho chúng ta",
+  "deal.attributionInfluenced": "Hỗ trợ deal đã có",
+  "commission.panelTitle": "Hoa hồng",
+  "commission.panelSub":
+    "Đối tác này đã kiếm được bao nhiêu từ các deal họ mang về",
+  "commission.none": "Chưa kiếm được gì",
+  "commission.column.amount": "Đã kiếm",
+  "commission.column.rate": "Tỷ lệ",
+  "commission.column.basis": "Giá trị deal",
+  "commission.column.status": "Trạng thái",
+  "commission.status.accrued": "Đã ghi nhận",
+  "commission.status.approved": "Đã duyệt",
+  "commission.status.paid": "Đã thanh toán",
+  "commission.status.void": "Đã đảo",
   "partner.setup": "Đặt làm đối tác",
   "partner.edit": "Sửa đối tác",
   "partner.none": "Chưa phải đối tác",
@@ -1538,8 +1554,6 @@ export const vi = {
   "deals.filterPartnerAll": "Mọi nguồn",
   "deals.sortNewest": "Mới nhất",
   "deals.unit": "deal",
-  "deals.capped":
-    "Đang hiển thị các deal đã tải. Hãy thu hẹp danh sách để xem phần còn lại.",
   "deals.bulkSelected": "Đã chọn {count}",
   "deals.bulkSelectRow": "Chọn {name}",
   "deals.bulkOwner": "Người phụ trách mới",
@@ -1549,9 +1563,10 @@ export const vi = {
   "deals.bulkStagePick": "Chọn giai đoạn",
   "deals.bulkMove": "Chuyển",
   "deals.bulkArchive": "Lưu trữ",
-  "deals.bulkArchiveConfirmTitle": "Lưu trữ {count} deal?",
+  "deals.bulkArchiveConfirmTitle.one": "Lưu trữ deal này?",
+  "deals.bulkArchiveConfirmTitle.other": "Lưu trữ {count} deal?",
   "deals.bulkArchiveConfirmBody":
-    "Chúng sẽ biến mất khỏi mọi danh sách và báo cáo. Khôi phục phải làm từng deal một.",
+    "Chúng sẽ biến mất khỏi mọi danh sách và báo cáo, và hiện chưa có cách khôi phục từ đây.",
   "deals.bulkFailed": "{count} không áp dụng được —",
   "deals.bulkFailedRow": "không lưu được",
 
@@ -1668,6 +1683,13 @@ export const vi = {
   "home.sub": "xếp hạng từ tín hiệu trực tiếp — việc chờ xác nhận lên trước",
   "home.staged": "Đang chờ bạn",
   "home.stalled": "Deal đình trệ",
+  "home.pipeline": "Pipeline đang mở",
+  "home.pipelineWeighted": "{amount} theo trọng số",
+  "home.pipelineCount.one": "{count} deal đang mở",
+  "home.pipelineCount.other": "{count} deal đang mở",
+  "home.pipelinePartial":
+    "{count} deal không nằm trong các số này — quyền của bạn không bao gồm chúng.",
+  "home.pipelineUnavailable": "Không tải được số liệu này.",
   "home.queue": "Việc hôm nay",
   "home.asOf": "tính đến {at}",
   "home.refresh": "Làm mới tóm tắt",
@@ -5415,4 +5437,11 @@ export const vi = {
   "filters.saveListConfirm": "T\u1ea1o danh s\u00e1ch",
   "filters.exportCsv": "Xu\u1ea5t CSV",
   "filters.exportJson": "Xu\u1ea5t JSON",
+
+  // Xem en.ts: hai người đọc cùng lúc — người muốn vào, và người phải sửa.
+  "release.skewTitle": "Bản cài đặt này đang được cập nhật",
+  "release.skewBody":
+    "Ứng dụng trong trình duyệt và máy chủ đằng sau nó thuộc hai bản phát hành khác nhau, nên không có gì ở đây hoạt động đáng tin cậy. Hãy tải lại để lấy bản hiện tại. Nếu thông báo này vẫn còn, hãy nói với người vận hành bản cài đặt: mọi thành phần của nó phải chạy cùng một bản phát hành.",
+  "release.skewVersions": "Ứng dụng {app} · Máy chủ {server}",
+  "release.skewReload": "Tải lại",
 } as const satisfies Record<MessageKey, string>;

@@ -277,6 +277,21 @@ export const en = {
   "rollup.computedAt": "Computed at {when}",
 
   "nav.partners": "Partners",
+  "deal.partnerAttribution": "What the partner did",
+  "deal.attributionUnset": "Not said (counts as brought us the deal)",
+  "deal.attributionSourced": "Brought us the deal",
+  "deal.attributionInfluenced": "Helped a deal we had",
+  "commission.panelTitle": "Commission",
+  "commission.panelSub": "What this partner has earned on deals they brought",
+  "commission.none": "Nothing earned yet",
+  "commission.column.amount": "Earned",
+  "commission.column.rate": "Rate",
+  "commission.column.basis": "Deal value",
+  "commission.column.status": "Status",
+  "commission.status.accrued": "Accrued",
+  "commission.status.approved": "Approved",
+  "commission.status.paid": "Paid",
+  "commission.status.void": "Reversed",
   "partner.setup": "Make this a partner",
   "partner.edit": "Edit partner",
   "partner.none": "Not a partner yet",
@@ -1551,8 +1566,6 @@ export const en = {
   "deals.filterPartnerAll": "All sources",
   "deals.sortNewest": "Newest",
   "deals.unit": "deals",
-  "deals.capped":
-    "Showing the deals loaded so far. Narrow the list to reach the rest.",
   "deals.bulkSelected": "{count} selected",
   "deals.bulkSelectRow": "Select {name}",
   "deals.bulkOwner": "New owner",
@@ -1562,9 +1575,10 @@ export const en = {
   "deals.bulkStagePick": "Pick a stage",
   "deals.bulkMove": "Move",
   "deals.bulkArchive": "Archive",
-  "deals.bulkArchiveConfirmTitle": "Archive {count} deals?",
+  "deals.bulkArchiveConfirmTitle.one": "Archive this deal?",
+  "deals.bulkArchiveConfirmTitle.other": "Archive {count} deals?",
   "deals.bulkArchiveConfirmBody":
-    "They leave every list and report. Restoring one is done from the deal itself, one at a time.",
+    "They leave every list and report, and there is no way to bring one back from here yet.",
   "deals.bulkFailed": "{count} not applied —",
   "deals.bulkFailedRow": "could not be saved",
 
@@ -1685,6 +1699,13 @@ export const en = {
   "home.sub": "ranked from live signals — staged actions first",
   "home.staged": "Waiting on you",
   "home.stalled": "Stalled deals",
+  "home.pipeline": "Open pipeline",
+  "home.pipelineWeighted": "{amount} weighted",
+  "home.pipelineCount.one": "{count} open deal",
+  "home.pipelineCount.other": "{count} open deals",
+  "home.pipelinePartial":
+    "{count} deals are not in these figures — your access does not cover them.",
+  "home.pipelineUnavailable": "This figure could not be loaded.",
   "home.queue": "Today's queue",
   "home.asOf": "as of {at}",
   "home.refresh": "Refresh brief",
@@ -5464,6 +5485,16 @@ export const en = {
   "filters.saveListConfirm": "Create list",
   "filters.exportCsv": "Export CSV",
   "filters.exportJson": "Export JSON",
+
+  // The release gate (src/screens/releaseskew.tsx). It renders instead of the
+  // app when this bundle and the api come from different releases, so the copy
+  // has two readers at once: the person who just wants in, and the operator who
+  // has to fix it. The first sentence is for the first, the last for the second.
+  "release.skewTitle": "This installation is part-way through an update",
+  "release.skewBody":
+    "The app in your browser and the server behind it come from different releases, so nothing here works reliably. Reload to get the current version. If this message stays, tell whoever operates this installation: every part of it has to run the same release.",
+  "release.skewVersions": "app {app} · server {server}",
+  "release.skewReload": "Reload",
 } as const;
 
 export type MessageKey = keyof typeof en;

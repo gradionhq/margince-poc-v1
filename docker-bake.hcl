@@ -8,6 +8,15 @@
 # time; a Dockerfile that does not declare the ARG simply ignores it. Absent
 # (a local build) it stays empty, which disables the comparison rather than
 # alarming on it.
+#
+# VERSION is the RELEASE version, and this bake is the only place it becomes
+# one value for the whole set. It is the tag, the OCI version label and the
+# MARGINCE_RELEASE_VERSION build arg, all from the same variable, because a
+# customer pulls each role by tag and two tag pulls are two requests: a publish
+# racing those pulls can serve a set whose roles come from different releases,
+# and the OCI protocol gives the registry no way to refuse that at the pull.
+# What the roles then refuse is the RUN — so every role has to carry the
+# version it was built from, in the image and in the binary alike.
 
 # The constellation registry namespace the publisher grant admits
 # (registryauth catalog: push on margince/*). The release workflow pushes the
@@ -16,6 +25,11 @@ variable "REPO" {
   default = "registry.test.margince.com/margince"
 }
 
+# The release this set is built from — the version the release workflow drafted
+# (`1970.<build>`, the constellation YYYY.edition scheme). "dev" is the local
+# default and is deliberately the same string internal/shared/buildinfo calls
+# Unknown: a local build has no release, and a comparison against one would be
+# a difference that means nothing.
 variable "VERSION" {
   default = "dev"
 }
@@ -55,12 +69,24 @@ variable "CACHE" {
 # `docker build --target <role> .` (a d13 dockerBuild block: `dockerFile:
 # ./Dockerfile` + `arguments: ["--target", "<role>"]` — d13 has no target
 # key, only pass-through arguments).
+#
+# The version label and the MARGINCE_RELEASE_VERSION arg are declared HERE, on
+# the shared target, rather than per role: the whole point is that the three
+# roles carry the SAME release version, and three separate declarations are
+# three chances for them not to.
 target "role" {
   context    = "."
   dockerfile = "Dockerfile"
   platforms  = PLATFORMS == "" ? [] : split(",", PLATFORMS)
   args = {
-    MARGINCE_BUILD_REVISION = MARGINCE_BUILD_REVISION
+    MARGINCE_BUILD_REVISION  = MARGINCE_BUILD_REVISION
+    MARGINCE_RELEASE_VERSION = VERSION
+  }
+  # The canonical OCI annotation, so `docker inspect` / `crane config` answers
+  # the release without running the image — which is the only way to read it
+  # off the web image, whose runtime is nginx and runs none of our code.
+  labels = {
+    "org.opencontainers.image.version" = VERSION
   }
 }
 

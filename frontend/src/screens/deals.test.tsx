@@ -331,6 +331,8 @@ function stubBackend(
     onStageTotalsBody?: (body: unknown) => void;
     savedViews?: Record<string, unknown>[];
     onCreateView?: (body: unknown) => void;
+    // The second keyset page, served when the request carries a cursor.
+    nextPage?: Deal[];
   } = {},
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -444,6 +446,17 @@ function stubBackend(
     }
     if (url.includes("/deals")) {
       opts.onDealsUrl?.(url);
+      if (opts.nextPage) {
+        return url.includes("cursor=")
+          ? jsonResponse({
+              data: opts.nextPage,
+              page: { next_cursor: null, has_more: false },
+            })
+          : jsonResponse({
+              data: deals,
+              page: { next_cursor: "cur-2", has_more: true },
+            });
+      }
       return jsonResponse({ data: deals, page: { next_cursor: null } });
     }
     return jsonResponse({ data: [], page: { next_cursor: null } });
@@ -700,6 +713,8 @@ describe("DealsScreen", () => {
 
     await user.click(screen.getByRole("button", { name: "Archive" }));
     expect(deleted).toBe(0);
+    // One deal reads as one deal, not "1 deals".
+    expect(screen.getByText("Archive this deal?")).toBeTruthy();
 
     // The dialog's own Archive button, not the bar's.
     const dialog = screen.getByRole("dialog");
@@ -728,6 +743,61 @@ describe("DealsScreen", () => {
     expect(
       screen.queryByRole("checkbox", { name: "Select Won one" }),
     ).toBeNull();
+  });
+
+  // The board draws its columns from the deals it holds, so a single capped
+  // read meant a busy stage showed a fraction of its cards while its header —
+  // which counts EVERY matching deal — went on naming the true number. A
+  // column saying "40 deals" above six cards is what this prevents.
+  it("the board walks past the first page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({ id: "d1", name: "First page deal" })], {
+        nextPage: [deal({ id: "d2", name: "Second page deal" })],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+
+    expect(await screen.findByText("First page deal")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+
+    // Both pages stand together — the walk adds cards, it does not replace them.
+    expect(await screen.findByText("Second page deal")).toBeTruthy();
+    expect(screen.getByText("First page deal")).toBeTruthy();
+  });
+
+  // The column headers count every matching deal through a SEPARATE report
+  // query. Keyed apart from the cards it never saw the invalidation every deal
+  // mutation fires, so a moved card sat under a header still counting it in
+  // the stage it left. The key now lives UNDER ["deals"], which is what makes
+  // that one invalidation reach both — assert the relationship, since a
+  // request count cannot tell a real invalidation from a routine refetch.
+  it("keys the column totals under the deals cache so one invalidation reaches both", async () => {
+    const keys: unknown[][] = [];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    vi.stubGlobal("fetch", stubBackend([deal({})]));
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <DealsScreen />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    for (const query of client.getQueryCache().getAll()) {
+      keys.push(query.queryKey as unknown[]);
+    }
+    const totals = keys.find((key) => key.includes("by-stage-totals"));
+    expect(totals).toBeTruthy();
+    // invalidateQueries({queryKey:["deals"]}) matches by PREFIX, so this is
+    // the whole claim: the totals live under it.
+    expect(totals?.[0]).toBe("deals");
   });
 
   // The board's column total must come from the deals-by-stage

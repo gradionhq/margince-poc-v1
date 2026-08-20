@@ -14,6 +14,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/buildinfo"
 )
 
 type nopMailer struct{}
@@ -60,6 +62,57 @@ func TestCapabilitiesReflectTheWiredMailer(t *testing.T) {
 	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
 	if !strings.Contains(rec.Body.String(), `"password_reset":true`) {
 		t.Fatalf("wired capabilities = %s, want password_reset:true", rec.Body)
+	}
+}
+
+// TestCapabilitiesCarryTheReleaseOnlyWhenThereIsOne: the web tier compares this
+// value against its own and refuses to render on a difference, so an unstamped
+// api reporting a placeholder would BE a difference — and every developer's
+// stack would refuse to serve its own SPA. Absence is the answer that means
+// "compare nothing", and it has to be absence rather than an empty string,
+// which is a value a client then has to know is not one.
+func TestCapabilitiesCarryTheReleaseOnlyWhenThereIsOne(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		stamped  string
+		reported bool
+	}{
+		{"a published build reports its release", "1970.42", true},
+		{"a local build reports none", buildinfo.Unknown, false},
+		{"nor does a bare go build", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			restore := buildinfo.ReleaseVersion
+			t.Cleanup(func() { buildinfo.ReleaseVersion = restore })
+			buildinfo.ReleaseVersion = tc.stamped
+
+			rec := httptest.NewRecorder()
+			NewHandlers(&Service{}).GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
+
+			body := rec.Body.String()
+			if got := strings.Contains(body, `"release_version"`); got != tc.reported {
+				t.Fatalf("capabilities from a build stamped %q reported a release_version=%t, want %t: %s",
+					tc.stamped, got, tc.reported, body)
+			}
+			if tc.reported && !strings.Contains(body, `"release_version":"`+tc.stamped+`"`) {
+				t.Fatalf("capabilities = %s, want the stamped release %q", body, tc.stamped)
+			}
+		})
+	}
+}
+
+// TestCapabilitiesAreNeverStored: the release version turned this probe into a
+// kill switch — the SPA refuses to render when what it reads here differs from
+// its own build — so one stale copy in any cache on this origin is a healthy
+// installation serving the mixed-release screen to every reader behind it, and no
+// reload clears it. The response is not per-principal, so this is not about
+// leaking; it is about a validator-less 200 GET being exactly what an
+// intermediary assigns heuristic freshness to.
+func TestCapabilitiesAreNeverStored(t *testing.T) {
+	rec := httptest.NewRecorder()
+	NewHandlers(&Service{}).GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
+	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "no-store") {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
 	}
 }
 

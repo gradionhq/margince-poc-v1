@@ -1,16 +1,32 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-//go:build integration
+//go:build integration && bench
 
 package integration
 
 // The PERF-3 / PERF-7 benchmark harness (B-EP05.21): seeds a §6.7
 // volume tier, runs the canonical queries, records p50/p95/p99, gates
 // red on a budget breach, and emits the ADR-0021 graph-store trigger
-// evidence. The integration lane runs the SMB tier as a standing
-// canary; `make bench-perf` runs the mid-market tier the PERF-7 SLO
-// actually binds at.
+// evidence.
+//
+// It carries the `bench` tag, so no merge gate runs it — `make vet` and both
+// golangci passes still type-check it, which is the only thing standing
+// between a by-hand lane and rot. It ran in the standing integration lane
+// until it stopped being a signal there: the lane could only afford the SMB
+// tier, and gating a mid-market budget on an SMB corpus is a different claim
+// wearing the same id (see the tier check below). Its p95 is also the
+// second-largest of twenty samples, taken on a runner sharing one Postgres
+// with the rest of the lane. What it cost to keep was 37.9s of every merge
+// gate — a quarter of its package.
+//
+// The write-path regression it once caught by TIMING OUT rather than by
+// measuring is now held deterministically, by the seq_scan count in
+// lastactivity_integration_test.go. Run this one with `make bench-perf`
+// (mid-market, writes a record) or `make bench-perf-check` (SMB, writes
+// nothing) — the scheduled workflow runs the latter weekly. Mid-market is by
+// hand only: its seed does not finish inside a CI budget, so no schedule
+// measures the tier the SLO actually binds at.
 
 import (
 	"context"

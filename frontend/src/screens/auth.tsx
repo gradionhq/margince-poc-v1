@@ -3,6 +3,7 @@ import { Lock, Mail } from "lucide-react";
 import { type FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useAuthCapabilities } from "../app/capabilities";
 import { navigate } from "../app/router";
 import {
   previewedOidcProviders,
@@ -149,19 +150,9 @@ export function AuthScreen({
 
   // The anonymous capability probe drives what the screen offers — a dead
   // "Forgot password?" link is a misleading affordance, so it renders only
-  // when the reset flow can complete end to end.
-  const capabilities = useQuery({
-    queryKey: ["auth-capabilities"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/auth/capabilities");
-      if (error) {
-        throwProblem(error);
-      }
-      return data;
-    },
-    staleTime: 60_000,
-    retry: 1,
-  });
+  // when the reset flow can complete end to end. Shared with the release gate
+  // above this screen, which reads the api's release off the same answer.
+  const capabilities = useAuthCapabilities();
   // The capability's real value, passed through the ONE ui-preview override site
   // for the reset link. Off by default, in which case this is the identity
   // function on the server's own answer.

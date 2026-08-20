@@ -70,7 +70,9 @@ var inlineMigrators = gatekit.Waive(map[string]string{
 	"internal/compose/integration/perfbench_integration_test.go": "seeds a large volume and asserts " +
 		"query-latency SLOs against it, so it needs pristine physical tables — a reset cycle leaves bloat " +
 		"and stale planner stats that move the very latencies under assertion. It migrates once for the " +
-		"whole suite, so the cost it opts back into is negligible.",
+		"whole suite, so the cost it opts back into is negligible. It now carries `integration && bench` " +
+		"and no merge gate runs it, but the waiver stays: this gate walks every _test.go file whatever tag " +
+		"it carries, and the file still calls dbmigrate.Up.",
 })
 
 func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {

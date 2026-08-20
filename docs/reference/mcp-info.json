@@ -10,16 +10,16 @@
   "totals": {
     "tools": 43,
     "resources": 8,
-    "tool_catalog_bytes": 124477,
+    "tool_catalog_bytes": 124463,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 31896,
-    "largest_tool_bytes": 4723,
+    "approx_wire_tokens_total": 31892,
+    "largest_tool_bytes": 4709,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
       "description_bytes": 32392,
-      "input_schema_bytes": 28831,
+      "input_schema_bytes": 28817,
       "output_schema_bytes": 53807,
-      "description_plus_input_schema_bytes": 61223
+      "description_plus_input_schema_bytes": 61209
     }
   },
   "tools": {
@@ -6057,7 +6057,7 @@
               "type": "array"
             },
             "report": {
-              "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind; filters: direction, kind; aggregate fields: (none); default: count as activities grouped by kind. deals-by-stage — group_by: currency, pipeline_id, stage_id, status, win_probability; filters: currency, organization_id, owner_id, partner_sourced, pipeline_id, stalled, status; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id, currency. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, stage_id; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category, currency. open-deals-per-company — group_by: currency, organization_id, owner_id; filters: currency, owner_id, pipeline_id; aggregate fields: amount_minor; default: count as open_deals grouped by organization_id. win-loss — group_by: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; filters: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; aggregate fields: amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by status, currency. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
+              "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind; filters: direction, kind; aggregates: (none); default: count as activities grouped by kind. deals-by-stage — group_by: currency, partner_org_id, pipeline_id, stage_id, status, win_probability; filters: currency, organization_id, owner_id, partner_sourced, pipeline_id, stalled, status; aggregates: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id, currency. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, stage_id; aggregates: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category, currency. open-deals-per-company — group_by: currency, organization_id, owner_id; filters: currency, owner_id, pipeline_id; aggregates: amount_minor; default: count as open_deals grouped by organization_id. win-loss — group_by: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; filters: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; aggregates: amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by status, currency. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
               "enum": [
                 "activities-by-kind",
                 "deals-by-stage",

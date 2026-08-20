@@ -87,9 +87,12 @@ partners so filtering stays useful.
   scan for partners whose stage is behind reality and correct it; make sure every in-flight
   partner has a next step with a due date.
 
-Agents see partners too: the partner list and partner updates are exposed as governed MCP
-tools, so an agent working for you can look partners up and (within its granted scopes) update
-the same fields you edit here — every such write lands in the same audit trail.
+Agents reach partners INDIRECTLY today. A partner organization is an ordinary company to the
+generic record tools, so an agent can find it, read it and see that it carries the `partner`
+relationship type — but `partner` is not yet one of the record types those tools accept, so the
+partner extension's own fields (tier, certification, relationship stage) are not readable or
+writable that way. A deal's partner and what that partner did for it ARE agent-visible, through
+the deal's own `partner_org_id` and `partner_attribution` fields.
 
 ## Changing the value lists themselves
 

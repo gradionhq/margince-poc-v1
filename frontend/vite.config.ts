@@ -69,6 +69,24 @@ export default defineConfig({
   // module scripts and /@vite/client, which the api's admission check refuses by
   // name — so both views would be permanently unadvertised in every dev stack.
   plugins: [react(), tailwindcss(), serveMcpApps()],
+  // The release this bundle was built from, compiled IN.
+  //
+  // It has to be in the bundle rather than read at run time, because the reader
+  // of this value is a browser: the SPA compares its own release against the one
+  // the api reports and refuses to render when they differ (src/app/release.ts).
+  // A customer pulls each role image by tag, two tag pulls are two requests, and
+  // a publish landing between them serves a web tier and an api from different
+  // releases — a set the registry cannot refuse at the pull.
+  //
+  // A NARROW define rather than `envPrefix: ["MARGINCE_"]`: the prefix form
+  // would compile every MARGINCE_* variable in the build environment into the
+  // bundle, which is one careless deploy away from shipping a secret to every
+  // browser. Empty is the local default, and empty disables the comparison.
+  define: {
+    __MARGINCE_RELEASE_VERSION__: JSON.stringify(
+      process.env.MARGINCE_RELEASE_VERSION ?? "",
+    ),
+  },
   resolve: {
     // An ARRAY rather than a record, because one entry must match a pattern:
     // the unit-package mapping below is a family of names, not one name.

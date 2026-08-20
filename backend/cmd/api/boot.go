@@ -26,7 +26,30 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/shared/buildinfo"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
+
+// recordBootLedger writes what this binary is, into the ledger no request could
+// ever cause a row in: the release it was published as, then the extension set it
+// composed.
+//
+// The api is the one role that RECORDS the release rather than checking it against
+// the record; compose/releaseversion.go carries why, and is the only place that
+// argument is written down.
+//
+// One phase because the ordering between the two is not a caller's to choose. Both
+// need the installation's workspace to exist, and both must land before the server
+// is assembled, which loads the transport directory from the rows the second one
+// writes.
+func recordBootLedger(
+	ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, extensions []extension.Extension,
+) error {
+	if err := compose.RecordInstallationRelease(ctx, pool, logger, buildinfo.ReleaseVersion); err != nil {
+		return err
+	}
+	return compose.RecordComposition(ctx, pool, logger, extensions)
+}
 
 // bindInstallation settles what this installation IS before anything serves:
 // the boot state machine (A107/ADR-0061) — bootstrap an empty database from the

@@ -224,7 +224,12 @@ export function DealBulkBar({
       <ConfirmModal
         open={confirmingArchive}
         onClose={() => setConfirmingArchive(false)}
-        title={t("deals.bulkArchiveConfirmTitle", { count: deals.length })}
+        title={t(
+          deals.length === 1
+            ? "deals.bulkArchiveConfirmTitle.one"
+            : "deals.bulkArchiveConfirmTitle.other",
+          { count: deals.length },
+        )}
         confirmLabel={t("deals.bulkArchive")}
         confirmVariant="danger"
         pending={run.isPending}

@@ -301,6 +301,44 @@ make_clone() {
 # backends linger can never flake the teardown — a failure here is real.
 drop_clone() { local db="$1"; db_admin drop-db --name "$db" >/dev/null; }
 
+# bench_db NAME — a private, freshly created database for the by-hand benchmark
+# targets, exported as BENCH_OWNER_DSN / BENCH_APP_DSN.
+#
+# It exists because the benchmark suites are DESTRUCTIVE in a way the lane's
+# suites are not. perfbench's benchDatabase does `DROP SCHEMA public CASCADE`
+# and then seeds up to 250k persons and 500k activities, with no cleanup —
+# reasonable for a measurement, ruinous for the database it runs in. Pointed at
+# the default MARGINCE_TEST_DSN, that database is `margince_test`: the TEMPLATE
+# every per-package clone is copied from. ensure_template reuses an existing
+# template and applies only what is missing, so the corpus would survive, and
+# the next `make test-it` would clone a template carrying a quarter of a million
+# strangers. The packages that then failed on a row count or a query plan would
+# have nothing pointing back here.
+#
+# Created rather than assumed: `make db-up` brings up the server and applies the
+# app role, but nothing there creates a database beyond the compose POSTGRES_DB.
+# A bench target that assumed a template existed would fail on a fresh runner at
+# connect time — and, from the scheduled lane, would file an issue claiming a
+# budget breach that was never measured.
+#
+# recreate-db without --template makes an EMPTY database on purpose: the bench
+# suite migrates inline, which is the exception integrationmigrateonce_test.go
+# ratifies, so a migrated template would only be thrown away.
+bench_db() {
+  local db="${1:?bench_db needs a database name}"
+  # `|| return` because this is NOT the last command in the function: without it
+  # the function answers with the status of `export`, which always succeeds, and
+  # a failed create would hand the caller DSNs for a database that does not
+  # exist — or still holds the previous run's corpus. The bench would then die on
+  # a raw pgx connect error instead of the actionable message, or measure a
+  # doubly-seeded corpus, and the scheduled reporter would file a budget breach
+  # for neither.
+  db_admin recreate-db --name "$db" >/dev/null || return
+  BENCH_OWNER_DSN="$(owner_clone_dsn "$db")"
+  BENCH_APP_DSN="$(app_clone_dsn "$db")"
+  export BENCH_OWNER_DSN BENCH_APP_DSN
+}
+
 # bucket_for SLOT [BASE] — DNS-compliant private MinIO bucket per slot (the store
 # auto-creates it). Hyphen, never underscore.
 bucket_for() { echo "${2:-${MARGINCE_TEST_BLOBSTORE_BUCKET:-margince-test}}-p${1}"; }

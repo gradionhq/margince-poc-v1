@@ -194,19 +194,36 @@ function dealsQueryParams(f: DealFilters) {
 // live Kanban reads one screenful, not a keyset walk). Disabled in overlay
 // mode: there the flat mirror table paginates through OverlayDealsTable
 // (its own keyset walk), so this single-page native query does not fetch.
+/**
+ * The deals the board and the table share.
+ *
+ * A keyset walk rather than one fixed page. The board draws a column per
+ * stage out of whatever this holds, so a single capped read meant a busy
+ * stage quietly showed a fraction of its cards while its header — which
+ * comes from the deals-by-stage report over EVERY matching deal — went on
+ * naming the true count. A column saying "40 deals" above six cards is the
+ * one thing a pipeline view must not do.
+ */
 function useDeals(f: DealFilters) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["deals", f],
     enabled: !f.overlay,
-    queryFn: async () => {
+    // `as` steers useInfiniteQuery's TPageParam generic to the cursor type,
+    // exactly as OverlayDealsTable does and for the same reason: a bare
+    // `undefined` infers TPageParam=undefined and the string cursor no longer
+    // type-checks.
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/deals", {
-        params: { query: dealsQueryParams(f) },
+        params: { query: { ...dealsQueryParams(f), cursor: pageParam } },
       });
       if (error) {
         throwProblem(error);
       }
       return data;
     },
+    getNextPageParam: (last) =>
+      last.page?.has_more ? (last.page.next_cursor ?? undefined) : undefined,
   });
 }
 
@@ -235,7 +252,13 @@ function dealsByStageReportFilters(f: DealFilters): Record<string, unknown> {
 // live pipeline regardless of the board's "show archived" toggle.
 function useStageTotals(f: DealFilters) {
   return useQuery({
-    queryKey: ["deals-by-stage-totals", f],
+    // Under ["deals"] on purpose, so the ONE invalidation every deal mutation
+    // already fires refreshes the column headers along with the cards. Keyed
+    // apart from them, a moved card sat under a header still counting it in
+    // the stage it left — and a foreign-currency deal arriving in a
+    // single-currency stage left the old sum standing, which is the mixed-
+    // currency refusal not happening.
+    queryKey: ["deals", "by-stage-totals", f],
     enabled: !f.overlay,
     queryFn: async () => {
       const { data, error } = await api.POST("/reports/{report}", {
@@ -350,6 +373,54 @@ function toBoardDeal(deal: Deal, orgs?: OrgMarks): BoardDeal {
 
 type UpdateDealRequest = components["schemas"]["UpdateDealRequest"];
 
+// One deal as the edit form's initial values. Extracted from the badge row
+// that renders the form: mapping a record onto form fields is its own job, and
+// keeping it inline made a component that already draws badges, an edit dialog
+// and an archive verb carry a twentieth concern.
+//
+// Every absent value becomes "" rather than a default. A currency the FORM
+// chose is a currency the SAVE writes, so seeding one made an unpriced deal
+// acquire it the moment a reader edited its name — and since amount and
+// currency are paired by CHECK, that turned an innocent rename into a refusal.
+function dealEditRecord(deal: Deal): Record<
+  string,
+  string | number | undefined
+> & {
+  id: string;
+  version?: number;
+} {
+  return {
+    id: deal.id,
+    version: deal.version,
+    name: deal.name,
+    amount: deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
+    currency: deal.currency ?? "",
+    owner_id: deal.owner_id ?? "",
+    organization_id: deal.organization_id ?? "",
+    partner_org_id: deal.partner_org_id ?? "",
+    partner_attribution: deal.partner_attribution ?? "",
+    forecast_category: deal.forecast_category ?? "",
+    expected_close_date: deal.expected_close_date ?? "",
+    wait_until: deal.wait_until ?? "",
+  };
+}
+
+// The attribution the form may send, narrowed the same way the forecast
+// category is: the wire type is a closed vocabulary, and a free string from a
+// form input is not one until something checks it.
+function partnerAttribution(
+  v: string,
+): UpdateDealRequest["partner_attribution"] {
+  switch (v) {
+    case "sourced":
+      return "sourced";
+    case "influenced":
+      return "influenced";
+    default:
+      return null;
+  }
+}
+
 function forecastCategory(v: string): UpdateDealRequest["forecast_category"] {
   switch (v) {
     case "commit":
@@ -382,6 +453,7 @@ export function mapDealUpdate(
     organization_id: str(values.organization_id) || null,
     owner_id: owner || null,
     partner_org_id: str(values.partner_org_id) || null,
+    partner_attribution: partnerAttribution(str(values.partner_attribution)),
     forecast_category: forecastCategory(forecast),
     expected_close_date: str(values.expected_close_date) || null,
     wait_until: str(values.wait_until) || null,
@@ -393,6 +465,21 @@ const FORECAST_OPTIONS: { value: string; label: MessageKey }[] = [
   { value: "best_case", label: "deal.fcBestCase" },
   { value: "pipeline", label: "deal.fcPipeline" },
   { value: "omitted", label: "deal.fcOmitted" },
+];
+
+// What a partner did for the deal. Only "sourced" earns commission — a partner
+// who helped a deal we already had is recorded, not paid.
+//
+// The empty value leads and says what leaving it unset MEANS. The server
+// defaults a named partner to "sourced", so a bare "Unset" here would let a
+// reader believe they had made no claim while the deal quietly became
+// commission-eligible. A field that offers the empty value in its own words
+// suppresses the generic entry (create.tsx), which is why this one is spelled
+// out rather than inherited.
+const ATTRIBUTION_OPTIONS: { value: string; label: MessageKey }[] = [
+  { value: "", label: "deal.attributionUnset" },
+  { value: "sourced", label: "deal.attributionSourced" },
+  { value: "influenced", label: "deal.attributionInfluenced" },
 ];
 
 export function dealEditFields(
@@ -446,6 +533,17 @@ export function dealEditFields(
       label: "deal.partnerOrg",
       type: "select",
       options: orgOptions,
+    },
+    // What that partner DID for the deal. Commission accrues on "sourced"
+    // only, so this is the field that decides whether a win pays them.
+    {
+      key: "partner_attribution",
+      label: "deal.partnerAttribution",
+      type: "select",
+      options: ATTRIBUTION_OPTIONS.map((o) => ({
+        value: o.value,
+        label: t(o.label),
+      })),
     },
     {
       key: "forecast_category",
@@ -925,26 +1023,29 @@ export function DealsScreen({
   // Only ids the list currently holds count as selected: a row that left the
   // result set (refetched away, filtered out, archived by this very run) must
   // not linger as an invisible selection nobody can clear.
-  const selectedRows = (dealsQuery.data?.data ?? []).filter((deal) =>
-    selected.has(deal.id),
+  // Every page walked so far, in one list. The board draws its columns from
+  // this and the table renders it directly, so both surfaces grow together as
+  // the reader asks for more.
+  const loadedDeals = (dealsQuery.data?.pages ?? []).flatMap(
+    (page) => page.data,
   );
+  const selectedRows = loadedDeals.filter((deal) => selected.has(deal.id));
   const liveSelection = new Set(selectedRows.map((deal) => deal.id));
 
-  // dealsQuery is a plain (non-infinite) query — the board reads one honest
-  // screenful, never a keyset walk (see useDeals) — so the table view's
-  // ListState reports no further page: hasMore/loadMore are inert. Only the
-  // table view renders this state; the board keeps reading dealsQuery
-  // directly through QueryGate below.
+  // The table's own dials over the same keyset walk the board reads, so
+  // "load more" on either surface advances both.
   const dealsListState: ListState<Deal> = {
-    rows: dealsQuery.data?.data ?? [],
+    rows: loadedDeals,
     query,
     setQuery,
     isPending: dealsQuery.isPending,
     isError: dealsQuery.isError,
     error: dealsQuery.error,
     refetch: () => dealsQuery.refetch(),
-    hasMore: false,
-    loadMore: () => {},
+    hasMore: dealsQuery.hasNextPage,
+    loadMore: () => {
+      dealsQuery.fetchNextPage();
+    },
   };
 
   const orgsQuery = useQuery({
@@ -999,9 +1100,7 @@ export function DealsScreen({
     // array this render was handed, so the precondition names the row as it was
     // drawn on the board rather than whatever it has become since — which is the
     // whole claim optimistic concurrency makes.
-    const version = dealsQuery.data?.data.find(
-      (deal) => deal.id === dealId,
-    )?.version;
+    const version = loadedDeals.find((deal) => deal.id === dealId)?.version;
     if (toStage.semantic === "open") {
       advance.mutate({ dealId, version, toStage });
     } else {
@@ -1183,8 +1282,7 @@ export function DealsScreen({
         <ListSurface
           action={createAction}
           count={
-            dealsQuery.data &&
-            t("board.count", { count: dealsQuery.data.data.length })
+            dealsQuery.data && t("board.count", { count: loadedDeals.length })
           }
           tools={dealTools}
           chips={dealChips}
@@ -1202,12 +1300,21 @@ export function DealsScreen({
           <QueryGate query={pipelinesQuery}>
             {() =>
               effectivePipeline ? (
-                <QueryGate query={dealsQuery}>
-                  {(page) => (
+                // Only the INITIAL load goes through the gate. An infinite
+                // query reports isError when ANY page fails, later ones
+                // included, so keeping the gate around a loaded board would
+                // let one failed "load more" throw away every card already on
+                // screen. Past the first page the board stands and the button
+                // retries — exactly what OverlayDealsTable does above, and for
+                // the same reason.
+                (dealsQuery.data?.pages ?? []).length === 0 ? (
+                  <QueryGate query={dealsQuery}>{() => null}</QueryGate>
+                ) : (
+                  <>
                     <PipelineBoard
                       columns={buildColumns(
                         effectivePipeline.stages ?? [],
-                        page.data,
+                        loadedDeals,
                         stageTotalsQuery.data ?? new Map(),
                         orgMarks,
                       )}
@@ -1215,8 +1322,9 @@ export function DealsScreen({
                       cardDragHandlers={cardDragHandlers}
                       columnDropHandlers={columnDropHandlers}
                     />
-                  )}
-                </QueryGate>
+                    <LoadMoreButton query={dealsQuery} />
+                  </>
+                )
               ) : null
             }
           </QueryGate>
@@ -1229,15 +1337,6 @@ export function DealsScreen({
           rowKey={(deal) => deal.id}
           rowRoute={(deal) => ({ screen: "deals", id: deal.id })}
           searchable={false}
-          // The board and this table read one shared screenful rather than a
-          // keyset walk, so when the server says it held rows back, the table
-          // says so too — a capped list that looks complete is the one thing
-          // this surface must not do.
-          footer={
-            dealsQuery.data?.page?.has_more ? (
-              <p className="lt-note">{t("deals.capped")}</p>
-            ) : undefined
-          }
           action={createAction}
           tools={tableTools}
           dataChips={dealChips}
@@ -1752,27 +1851,7 @@ function DealBadges({
           }),
           ...cf.formFields,
         ]}
-        record={{
-          id: deal.id,
-          version: deal.version,
-          name: deal.name,
-          amount:
-            deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
-          // A currency the FORM chose is a currency the SAVE writes: mapDealUpdate
-          // sends whatever this holds, so seeding it with a default made an
-          // unpriced deal acquire one the moment a reader edited its name. The
-          // amount is already sent as null in that case, and the two columns are
-          // paired by CHECK, so the invented currency did not merely mislabel the
-          // record — it made an innocent rename fail.
-          currency: deal.currency ?? "",
-          owner_id: deal.owner_id ?? "",
-          organization_id: deal.organization_id ?? "",
-          partner_org_id: deal.partner_org_id ?? "",
-          forecast_category: deal.forecast_category ?? "",
-          expected_close_date: deal.expected_close_date ?? "",
-          wait_until: deal.wait_until ?? "",
-          ...cf.recordSlice(deal),
-        }}
+        record={{ ...dealEditRecord(deal), ...cf.recordSlice(deal) }}
         update={async (values) => {
           const { data, error } = await api.PATCH("/deals/{id}", {
             params: {

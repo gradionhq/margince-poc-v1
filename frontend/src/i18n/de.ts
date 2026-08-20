@@ -268,6 +268,22 @@ export const de = {
   "rollup.computedAt": "Berechnet am {when}",
 
   "nav.partners": "Partner",
+  "deal.partnerAttribution": "Was der Partner getan hat",
+  "deal.attributionUnset": "Nicht angegeben (gilt als gebracht)",
+  "deal.attributionSourced": "Hat den Deal gebracht",
+  "deal.attributionInfluenced": "Hat bei einem bestehenden Deal geholfen",
+  "commission.panelTitle": "Provision",
+  "commission.panelSub":
+    "Was dieser Partner an selbst gebrachten Deals verdient hat",
+  "commission.none": "Noch nichts verdient",
+  "commission.column.amount": "Verdient",
+  "commission.column.rate": "Satz",
+  "commission.column.basis": "Deal-Wert",
+  "commission.column.status": "Status",
+  "commission.status.accrued": "Aufgelaufen",
+  "commission.status.approved": "Freigegeben",
+  "commission.status.paid": "Ausgezahlt",
+  "commission.status.void": "Storniert",
   "partner.setup": "Zum Partner machen",
   "partner.edit": "Partner bearbeiten",
   "partner.none": "Noch kein Partner",
@@ -1547,8 +1563,6 @@ export const de = {
   "deals.filterPartnerAll": "Alle Quellen",
   "deals.sortNewest": "Neueste",
   "deals.unit": "Deals",
-  "deals.capped":
-    "Zeigt die bisher geladenen Deals. Grenzen Sie die Liste ein, um die übrigen zu erreichen.",
   "deals.bulkSelected": "{count} ausgewählt",
   "deals.bulkSelectRow": "{name} auswählen",
   "deals.bulkOwner": "Neuer Verantwortlicher",
@@ -1558,9 +1572,10 @@ export const de = {
   "deals.bulkStagePick": "Phase wählen",
   "deals.bulkMove": "Verschieben",
   "deals.bulkArchive": "Archivieren",
-  "deals.bulkArchiveConfirmTitle": "{count} Deals archivieren?",
+  "deals.bulkArchiveConfirmTitle.one": "Diesen Deal archivieren?",
+  "deals.bulkArchiveConfirmTitle.other": "{count} Deals archivieren?",
   "deals.bulkArchiveConfirmBody":
-    "Sie verschwinden aus allen Listen und Auswertungen. Wiederherstellen geht nur einzeln, direkt am Deal.",
+    "Sie verschwinden aus allen Listen und Auswertungen, und zurückholen lässt sich hier noch keiner.",
   "deals.bulkFailed": "{count} nicht übernommen –",
   "deals.bulkFailedRow": "konnte nicht gespeichert werden",
 
@@ -1680,6 +1695,13 @@ export const de = {
   "home.sub": "aus echten Signalen sortiert — Vorgemerktes zuerst",
   "home.staged": "Wartet auf dich",
   "home.stalled": "Deals, die stocken",
+  "home.pipeline": "Offene Pipeline",
+  "home.pipelineWeighted": "{amount} gewichtet",
+  "home.pipelineCount.one": "{count} offener Deal",
+  "home.pipelineCount.other": "{count} offene Deals",
+  "home.pipelinePartial":
+    "{count} Deals fehlen in diesen Zahlen – Ihre Berechtigung deckt sie nicht ab.",
+  "home.pipelineUnavailable": "Diese Zahl konnte nicht geladen werden.",
   "home.queue": "Heute dran",
   "home.asOf": "Stand {at}",
   "home.refresh": "Briefing aktualisieren",
@@ -5457,4 +5479,12 @@ export const de = {
   "filters.saveListConfirm": "Liste erstellen",
   "filters.exportCsv": "Als CSV exportieren",
   "filters.exportJson": "Als JSON exportieren",
+
+  // Siehe en.ts: zwei Leser gleichzeitig — wer hinein will, und wer es
+  // reparieren muss.
+  "release.skewTitle": "Diese Installation wird gerade aktualisiert",
+  "release.skewBody":
+    "Die App in Ihrem Browser und der Server dahinter stammen aus unterschiedlichen Releases, deshalb funktioniert hier nichts verlässlich. Laden Sie neu, um die aktuelle Version zu holen. Bleibt diese Meldung, sagen Sie es der Person, die diese Installation betreibt: Jeder Teil davon muss dasselbe Release ausführen.",
+  "release.skewVersions": "App {app} · Server {server}",
+  "release.skewReload": "Neu laden",
 } as const satisfies Record<MessageKey, string>;

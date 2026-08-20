@@ -181,12 +181,83 @@ One host, not two, because three things cross the split:
 
 Point liveness at `/healthz` and readiness at `/readyz`.
 
+## Deploy all three roles at ONE release (the guard that enforces it)
+
+Every release image carries the release it was built from, in three places
+derived from one build argument (`MARGINCE_RELEASE_VERSION`, set from
+`docker-bake.hcl`'s `VERSION`):
+
+| Where | How to read it | Who reads it |
+|---|---|---|
+| OCI label `org.opencontainers.image.version` | `docker inspect` / `crane config` — no pull needed | an operator diffing a set |
+| `/etc/margince/release-version` | `docker run --rm <image> cat /etc/margince/release-version`, or `kubectl exec` into a running one | an operator inspecting a role that is running or crash-looping. It is the only place the **web** image's release can be read from the outside, because nginx runs none of our code — but it is not what the web tier itself compares against |
+| the Go binary's link-time stamp, and the SPA bundle's compiled-in copy | the guard below. This is the value each role actually compares; the label and the file are for people | the software itself |
+
+**Why any of this exists.** You pull each role image by tag, and two tag pulls
+are two requests. A publish landing between them hands you a set whose roles come
+from different releases — most easily with `latest`. The OCI distribution
+protocol cannot express "these three manifests, or none", so a registry has no
+way to refuse it at the pull. So the roles refuse it at the run:
+
+- **api** — the authority, because its image ships `cmd/migrate` and its
+  entrypoint applies the schema before it serves:
+  the schema your installation runs on is the schema its release brought. At boot
+  it records its own release as the installation's, and logs
+  `installation release recorded from=… to=…` when that changes.
+- **worker** — compares its release against that record and **exits** on a
+  mismatch, naming both versions and telling you to deploy every role at one
+  release. (The message names no images or registry on purpose: this software also
+  runs from a plain host, and "re-pull" is not an action available to everyone who
+  can hit this. On a container platform, re-pulling the set is what it means for
+  you.) Your orchestrator will restart it, and it will exit again: a crash-looping
+  worker with the two versions in its log is the intended, visible outcome. It
+  does not resolve itself, because nothing about a torn pull does.
+  **The comparison runs at start only.** A worker that is already running when the
+  api records a new release is not checked again, so restarting the api ALONE
+  leaves the old worker in service until something else restarts it
+  ([#1734](https://github.com/gradionhq/margince-poc-v1/issues/1734)).
+- **web** — the SPA compares its own release against the one
+  `GET /v1/auth/capabilities` reports and refuses to render the app, offering a
+  reload. The probe is anonymous, so the check happens before anyone signs in —
+  which matters, because a mixed set breaks the login request first.
+
+**The asymmetry is what makes an upgrade possible.** The api moves first by
+definition, so a rollout converges instead of deadlocking on two roles each
+waiting for the other. Rollback works for the same reason: the api states the
+release rather than advancing a counter, so going back to an older one needs no
+permission.
+
+**The recorded release is last writer wins, so do not leave api replicas from two
+releases running.** Whichever api records last decides what release the
+installation is, including an older one — a `1970.42` pod that restarts after
+`1970.43` recorded will put the record back to `1970.42`, and every correctly
+deployed `1970.43` worker then refuses to start. Finish the api rollout rather
+than pausing it half-done, and the same for a rollback
+([#1735](https://github.com/gradionhq/margince-poc-v1/issues/1735)).
+
+**An unstamped image disables the guard entirely.** An absent or `dev` release is
+skipped by all three roles — the api records nothing, the worker compares nothing
+and starts, and the SPA reports no release and never blocks. An unstamped api also
+**leaves any release a stamped api already recorded exactly as it was**: it does
+not clear the record, so one locally built binary run against a real installation
+cannot disarm the guard for the roles that boot after it.
+
+That is what makes a locally built image (`docker build --target api .`, which
+passes no `MARGINCE_RELEASE_VERSION`) usable, and it is a fact worth knowing about
+your own pipeline: **a deploy recipe that builds these targets itself, rather than
+pulling released images, gets no guard**
+([#1728](https://github.com/gradionhq/margince-poc-v1/issues/1728)). Pass the
+argument if you want one.
+
 ## Order of operations
 
 1. Bootstrap the database once (`db-bootstrap.sql`, as superuser).
 2. Deploy the **api** — its entrypoint runs `migrate up` (owner) then serves.
-3. Deploy the **worker** and **web**. On a cold database the worker may restart a
-   few times until the api has migrated; this is expected.
+3. Deploy the **worker** and **web**, at the SAME release as the api (above). On
+   a cold database the worker may restart a few times until the api has
+   migrated; this is expected. A worker that keeps restarting *after* the api is
+   serving, with a release mismatch in its log, is a torn pull rather than a
+   slow start.
 
 ## Operational notes
 

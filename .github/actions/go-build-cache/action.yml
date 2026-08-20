@@ -8,7 +8,7 @@ description: >-
 # "Cache hit occurred on the primary key ... not saving cache" and restores that
 # first, near-empty snapshot forever. A warm build cache for this repo measures
 # ~550 MB; the blob setup-go restores is ~25 MB. The result was that every Go
-# job in the pipeline — the twelve integration shards, the merge gate, the
+# job in the pipeline — the integration shards, the merge gate, the
 # composed-build lane, the coverage pass, live-boot, govulncheck — compiled the
 # module from scratch on every run. setup-go keeps caching the MODULE cache
 # (that part works); this action owns the build cache it cannot.

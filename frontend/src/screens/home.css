@@ -257,3 +257,16 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* One currency's open pipeline: the total, what it is worth weighted, and how
+   many deals stand behind it — on one line, so several currencies stack
+   without becoming a table. */
+.home-pipeline-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.home-pipeline-row + .home-pipeline-row {
+  margin-top: var(--space-2);
+}

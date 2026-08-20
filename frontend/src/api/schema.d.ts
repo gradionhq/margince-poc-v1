@@ -60,6 +60,9 @@ export interface paths {
          *     system-email channel (A74/ADR-0056) is configured and healthy. An OIDC provider is
          *     listed only when its end-to-end flow is wired and healthy. Discloses nothing beyond
          *     what the login UI needs — no secrets, endpoints, allowlists, or bootstrap state.
+         *
+         *     It also reports the release this api was built from, which a client compares
+         *     against its own before it renders anything (see `release_version`).
          */
         get: operations["getAuthCapabilities"];
         put?: never;
@@ -15715,6 +15718,8 @@ export interface components {
                 /** @description Button label, e.g. `Continue with Google`. */
                 label: string;
             }[];
+            /** @description The release this api was built from (`YYYY.<edition>`). A client compares it against its OWN release and refuses to run against a different one — a mixed-release set must not serve. ABSENT is not a mismatch: it means this api carries no release version (a build that was not published as one), and a client MUST then make no comparison rather than treat the absence as a difference. */
+            release_version?: string;
         };
         LoginRequest: {
             /** Format: email */

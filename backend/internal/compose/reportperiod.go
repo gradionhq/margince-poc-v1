@@ -114,8 +114,12 @@ func winLossSpec() reportSpec {
 		// Cloned rather than aliased — the two vocabularies are equal today and
 		// nothing about them has to stay equal, so sharing one map would make a
 		// later edit to either silently change both.
-		filters:   maps.Clone(dimensions),
-		defaultBy: moneyDefaultBy(fieldStatus),
+		filters: maps.Clone(dimensions),
+		// The company a won or lost deal points at is row-scoped and masked on
+		// a normal deal read, so grouping by it carries the same obligation the
+		// partner dimension does on deals-by-stage.
+		referenceScopes: map[string]string{colOrganizationID: tableOrganization},
+		defaultBy:       moneyDefaultBy(fieldStatus),
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: aliasDeals},
 			{Fn: aggFnSum, Field: fieldAmountMinor, As: "amount_minor_sum"},

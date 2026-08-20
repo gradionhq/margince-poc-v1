@@ -12,7 +12,9 @@ package compose
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -121,7 +123,43 @@ func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, a
 	if scope != "" {
 		where = append(where, scope)
 	}
-	return where, nil
+	refs, err := referenceScopeClauses(ctx, spec, arg)
+	if err != nil {
+		return nil, err
+	}
+	return append(where, refs...), nil
+}
+
+// referenceScopeClauses narrows a report to the rows whose REFERENCED records
+// the caller could open, for every reference the spec declares.
+//
+// The engine's own gate covers the report's entity and nothing it points at, so
+// a dimension over a reference column would otherwise hand back ids that the
+// same caller's ordinary read of the same row masks. Excluding the row is the
+// only honest aggregate answer: there is no per-row place to write "withheld",
+// and folding those deals under a null key would still say that SOME partner
+// brought them.
+func referenceScopeClauses(ctx context.Context, spec reportSpec, arg func(any) int) ([]string, error) {
+	if len(spec.referenceScopes) == 0 {
+		return nil, nil
+	}
+	clauses := make([]string, 0, len(spec.referenceScopes))
+	for _, column := range slices.Sorted(maps.Keys(spec.referenceScopes)) {
+		table := spec.referenceScopes[column]
+		scope, err := auth.ScopeClauseFor(ctx, table, "ref", arg)
+		if err != nil {
+			return nil, err
+		}
+		if scope == "" {
+			// An unbounded reader of that table: every row it could name is one
+			// they may open, so there is nothing to narrow.
+			continue
+		}
+		clauses = append(clauses, fmt.Sprintf(
+			"(%s IS NULL OR EXISTS (SELECT 1 FROM %s ref WHERE ref.id = %s AND %s))",
+			column, table, column, scope))
+	}
+	return clauses, nil
 }
 
 // reportSQL renders the aggregate query: the validated SELECT list over the
