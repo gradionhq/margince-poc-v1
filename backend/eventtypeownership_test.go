@@ -34,6 +34,7 @@ import (
 	"strings"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
@@ -75,9 +76,27 @@ func payloadEventTypes(t *testing.T) map[string]string {
 			out[ident.Name] = literal
 		}
 	}
-	if len(out) == 0 {
-		t.Fatal("derived no event types from " + generated +
-			"; every emit would read as unattributed and this gate would pass over the tree")
+	// The floor, and it has to be a SET comparison rather than a count.
+	//
+	// A bare len(out) == 0 catches only a derivation that collapses completely.
+	// One that quietly loses a few — a pointer receiver, a two-statement body, a
+	// return of a named constant instead of a literal, all of which are generator
+	// shape changes this gate is meant to survive — drops those payloads out of
+	// BOTH gates: they vanish from the emit census and from the orphan sweep at
+	// the same time, so nothing is left to notice. PublicEventVersions is
+	// generated from the same contract and keyed on the event type, so a
+	// disagreement between the two is exactly the collapse.
+	missing := make([]string, 0)
+	for eventType := range crmcontracts.PublicEventVersions {
+		if !slices.Contains(slices.Collect(maps.Values(out)), eventType) {
+			missing = append(missing, eventType)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("derived %d event types from %s but PublicEventVersions carries %d; %v have a "+
+			"contract entry and no EventType() this walk could read. The walk has stopped seeing "+
+			"payloads, so both gates would pass over every type it lost",
+			len(out), generated, len(crmcontracts.PublicEventVersions), slices.Sorted(slices.Values(missing)))
 	}
 	return out
 }
@@ -101,7 +120,11 @@ func collectEmitSites(t *testing.T) map[string][]emitSite {
 	types := payloadEventTypes(t)
 	sites := map[string][]emitSite{} // event type → where it is built
 	fset := token.NewFileSet()
-	for _, root := range []string{"internal/modules", "internal/compose"} {
+	// Every hand-written tree that could hold a payload literal, not just the
+	// modules. The rule is that exactly one module decides what a type means, and
+	// a literal added under platform or an extension defeats that as thoroughly
+	// as a second module does — while being invisible to a modules-only walk.
+	for _, root := range []string{"internal", "../extensions"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
 				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") ||
@@ -115,17 +138,17 @@ func collectEmitSites(t *testing.T) map[string][]emitSite {
 			}
 			module := owningDir(filepath.ToSlash(filepath.Dir(path)))
 			ast.Inspect(file, func(n ast.Node) bool {
-				lit, ok := n.(*ast.CompositeLit)
+				// A SelectorExpr covers `pkg.Type{…}` and, via the type of a
+				// slice or map literal, the ELIDED inner `{…}` elements whose own
+				// Type node is nil. Without the second, a module batch-building
+				// payloads from a slice literal is invisible here.
+				name, ok := payloadTypeName(n)
 				if !ok {
 					return true
 				}
-				sel, ok := lit.Type.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				if eventType, ok := types[sel.Sel.Name]; ok {
+				if eventType, ok := types[name]; ok {
 					sites[eventType] = append(sites[eventType],
-						emitSite{pos: fset.Position(lit.Pos()).String(), module: module})
+						emitSite{pos: fset.Position(n.Pos()).String(), module: module})
 				}
 				return true
 			})
@@ -211,7 +234,6 @@ var sharedEventTypes = gatekit.Waive(map[string]string{
 })
 
 func TestEveryEventTypeHasOneEmittingModule(t *testing.T) {
-	defer sharedEventTypes.AssertAllMatched(t)
 	sites := collectEmitSites(t)
 	// A walk that found no emit at all reports exactly like a tree where every
 	// type has one owner, which is the failure mode this gate is closing in a
@@ -220,6 +242,9 @@ func TestEveryEventTypeHasOneEmittingModule(t *testing.T) {
 		t.Fatal("found no event payload literals at all; this gate would pass vacuously")
 	}
 	t.Logf("examined %d event types built across the module and compose trees", len(sites))
+	// Armed after the vacuity fatal, for the reason spelled out in the orphan
+	// gate below: a sweep deferred above it drowns the real message.
+	defer sharedEventTypes.AssertAllMatched(t)
 
 	for _, eventType := range slices.Sorted(maps.Keys(sites)) {
 		modules := modulesEmitting(sites[eventType])
@@ -230,11 +255,12 @@ func TestEveryEventTypeHasOneEmittingModule(t *testing.T) {
 			if sharedEventTypes.Waived(t, eventType+" <- "+module) {
 				continue
 			}
-			t.Errorf("event type %q is emitted by %s, and by %d modules in all (%s) — one module owns "+
-				"a type, so exactly one decides what the name MEANS; move the emit into the owning "+
-				"module, or ratify this emitter in sharedEventTypes[%q] with a rationale saying why "+
-				"it is correct for THIS module to announce it",
-				eventType, module, len(modules), strings.Join(modules, ", "), eventType+" <- "+module)
+			t.Errorf("event type %q is built at %s, and by %d modules in all (%s) — one module owns "+
+				"a type, so exactly one decides what the name MEANS. If %s is not that module, move "+
+				"the emit into the one that is; if it IS, the new emitter is one of the others. "+
+				"Ratify a correct sharing in sharedEventTypes[%q]",
+				eventType, strings.Join(positionsFor(sites[eventType], module), ", "),
+				len(modules), strings.Join(modules, ", "), module, eventType+" <- "+module)
 		}
 	}
 }
@@ -265,11 +291,15 @@ var unemittedEventTypes = gatekit.Waive(map[string]string{
 // schemas. What this refuses is a type that quietly stops being emitted — the
 // contract keeps promising it, subscribers keep waiting, and nothing fails.
 func TestEveryUnemittedEventTypeSaysWhyNothingEmitsIt(t *testing.T) {
-	defer unemittedEventTypes.AssertAllMatched(t)
-
-	types := payloadEventTypes(t)
 	sites := collectEmitSites(t)
-	for _, eventType := range slices.Sorted(slices.Values(slices.Collect(maps.Values(types)))) {
+	// Armed after the walk, which can fatal. Deferred above it, the sweep runs on
+	// the way out and buries the one true line under an entry per waiver, each
+	// telling the reader to delete a correct one.
+	defer unemittedEventTypes.AssertAllMatched(t)
+	// Iterating the generated map rather than the derived values: it is keyed on
+	// the event type, so it is deduped by construction, and payloadEventTypes has
+	// already asserted the two agree.
+	for _, eventType := range slices.Sorted(maps.Keys(crmcontracts.PublicEventVersions)) {
 		if len(sites[eventType]) > 0 || unemittedEventTypes.Waived(t, eventType) {
 			continue
 		}
@@ -277,4 +307,52 @@ func TestEveryUnemittedEventTypeSaysWhyNothingEmitsIt(t *testing.T) {
 			"promising it and no subscriber will ever receive one. Emit it, or record it in "+
 			"unemittedEventTypes with the reason nothing does", eventType)
 	}
+}
+
+// positionsFor answers where one module builds a given event type, so a finding
+// names the file and line instead of leaving the reader to grep a module for a
+// literal.
+func positionsFor(sites []emitSite, module string) []string {
+	var out []string
+	for _, site := range sites {
+		if site.module == module {
+			out = append(out, site.pos)
+		}
+	}
+	return slices.Sorted(slices.Values(out))
+}
+
+// payloadTypeName answers the payload struct a node CONSTRUCTS.
+//
+// The elided cases are the ones a naive walk misses: inside
+// []crmcontracts.PublicEventX{{…}} the inner element's own Type node is nil and
+// the name lives on the enclosing slice or map literal, so a module
+// batch-building payloads that way would emit without this gate seeing it.
+//
+// A bare `var p crmcontracts.PublicEventX` declaration is deliberately NOT one
+// of them, and the tree says why: both such declarations here are DECODE
+// targets, immediately json.Unmarshal-ed from an inbound envelope
+// (compose/leadsla.go reading lead.sla_breached, compose/personautoenrich.go
+// reading person.merged). Counting them made two consumers look like emitters
+// and would have had this gate ratify a sharing that does not exist. A
+// declaration cannot be told from a construction without dataflow, and here the
+// false positives are real while the construction case is hypothetical.
+func payloadTypeName(n ast.Node) (string, bool) {
+	lit, ok := n.(*ast.CompositeLit)
+	if !ok {
+		return "", false
+	}
+	switch typ := lit.Type.(type) {
+	case *ast.SelectorExpr:
+		return typ.Sel.Name, true
+	case *ast.ArrayType:
+		if sel, ok := typ.Elt.(*ast.SelectorExpr); ok {
+			return sel.Sel.Name, true
+		}
+	case *ast.MapType:
+		if sel, ok := typ.Value.(*ast.SelectorExpr); ok {
+			return sel.Sel.Name, true
+		}
+	}
+	return "", false
 }
