@@ -385,15 +385,15 @@ func TestSimilarEntitiesFiltersIdentityAndDoesNotCrossDimCrash(t *testing.T) {
 	// Task 6's migration made possible, and Task 7's read-side filter
 	// must survive.
 	if _, err := e.Owner.Exec(ctx, `
-		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-		VALUES ($1, 'person', $2, 0, 'hash-three', 'm@3', '[1,2,3]'::vector)`,
-		e.WS, threeDim); err != nil {
+		INSERT INTO embedding (entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+		VALUES ('person', $1, 0, 'hash-three', 'm@3', '[1,2,3]'::vector)`,
+		threeDim); err != nil {
 		t.Fatalf("seeding the 3-dim row: %v", err)
 	}
 	if _, err := e.Owner.Exec(ctx, `
-		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-		VALUES ($1, 'person', $2, 0, 'hash-two', 'm@2', '[1,2]'::vector)`,
-		e.WS, twoDim); err != nil {
+		INSERT INTO embedding (entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+		VALUES ('person', $1, 0, 'hash-two', 'm@2', '[1,2]'::vector)`,
+		twoDim); err != nil {
 		t.Fatalf("seeding the 2-dim row: %v", err)
 	}
 

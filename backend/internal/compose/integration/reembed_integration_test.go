@@ -198,9 +198,9 @@ func TestReembedIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 	}
 	personID := e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Drift Person', 'manual', 'human:x')`)
 	if _, err := e.Owner.Exec(ctx, `
-		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-		VALUES ($1, 'person', $2, 0, 'stale-hash', $3, '[1,2,3]'::vector)`,
-		e.WS, personID, staleRowIdentity); err != nil {
+		INSERT INTO embedding (entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+		VALUES ('person', $1, 0, 'stale-hash', $2, '[1,2,3]'::vector)`,
+		personID, staleRowIdentity); err != nil {
 		t.Fatalf("seeding the stale-identity row: %v", err)
 	}
 
