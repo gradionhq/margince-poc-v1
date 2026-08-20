@@ -19,6 +19,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// testRegion is what this lane names its region. Any value satisfies MinIO; the
+// point is that the lane chooses one, because blobstore.New refuses an empty
+// region and a lane that relied on a default would stop exercising the product.
+const testRegion = "us-east-1"
+
 // newS3Store builds a real MinIO-backed store from the MARGINCE_TEST_BLOBSTORE_*
 // contract. Like every integration test here, it fails loudly without its
 // dependency — it never skips (a skipped blobstore test looks exactly like a
@@ -34,6 +39,10 @@ func newS3Store(t *testing.T) blobstore.Store {
 		AccessKey: os.Getenv("MARGINCE_TEST_BLOBSTORE_ACCESS_KEY"),
 		SecretKey: os.Getenv("MARGINCE_TEST_BLOBSTORE_SECRET_KEY"),
 		Bucket:    os.Getenv("MARGINCE_TEST_BLOBSTORE_BUCKET"),
+		// MinIO ignores the value; New requires one because on real S3 it decides
+		// where the bucket is created. The lane names it rather than inheriting a
+		// default, which is the property under test everywhere else.
+		Region: testRegion,
 	})
 	if err != nil {
 		t.Fatalf("blobstore.New: %v", err)
@@ -71,6 +80,7 @@ func TestFromEnvConfiguredConnects(t *testing.T) {
 		blobstore.EnvAccessKey: os.Getenv("MARGINCE_TEST_BLOBSTORE_ACCESS_KEY"),
 		blobstore.EnvSecretKey: os.Getenv("MARGINCE_TEST_BLOBSTORE_SECRET_KEY"),
 		blobstore.EnvBucket:    os.Getenv("MARGINCE_TEST_BLOBSTORE_BUCKET"),
+		blobstore.EnvRegion:    testRegion,
 	}))
 	if err != nil {
 		t.Fatalf("FromEnv: %v", err)
