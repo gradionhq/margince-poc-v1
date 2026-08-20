@@ -506,17 +506,27 @@ test("AC-settings-16: the audit log renders attributed entries, filters live, an
 }) => {
   // The audit log is the last card on the Privacy & audit entry — the trail
   // that proves the consent, retention and DSR surfaces above it were honoured
-  // — and it renders attribution in human terms (AuditEntryLine): the signed-in
-  // human (u1) reads as "Du", agents/connectors show their readable slug —
-  // never the raw `type:uuid`.
+  // — and it names the PERSON behind each entry (AuditEntryLine, PD-002): the
+  // signed-in human reads "Du", and a machine acting under someone's authority
+  // reads as THAT PERSON with the tool as a qualifier. An agent's own id is
+  // never the label — attribution exists so somebody can be asked about a
+  // change, and an identifier cannot be asked anything.
   await page.goto("/#/settings/privacy");
   await expect(page.getByText("Du", { exact: true })).toBeVisible();
-  await expect(page.getByText("runner", { exact: true })).toBeVisible();
+  await expect(page.getByText("Marcus Brandt", { exact: true })).toBeVisible();
+  await expect(page.getByText("über einen Agenten")).toBeVisible();
+  // The agent's own identifier is not shown at all when a human stands behind it.
+  await expect(page.getByText("agent:runner", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Mehr laden" }).click();
-  await expect(page.getByText("gmail", { exact: true })).toBeVisible();
-  // The actor filter still speaks the API's `type:id` vocabulary.
+  // A bare connector presented no grant, so there is no human to name and no
+  // gap to claim — it shows what acted.
+  await expect(
+    page.getByText("connector:gmail", { exact: true }),
+  ).toBeVisible();
+  // The actor filter still speaks the API's `type:id` vocabulary, which is the
+  // spelling the column itself carries.
   await page.getByRole("textbox", { name: "Akteur" }).fill("agent:runner");
-  await expect(page.getByText("runner", { exact: true })).toBeVisible();
+  await expect(page.getByText("Marcus Brandt", { exact: true })).toBeVisible();
   await expect(page.getByText("Du", { exact: true })).toHaveCount(0);
 });
 

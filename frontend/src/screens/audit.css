@@ -35,6 +35,12 @@
   color: var(--textMeta);
 }
 
+/* WHO acted — the half a reader's eye should land on, so it carries the
+ * actor line's weight while the qualifier beside it stays light. */
+.audit-actor-name:empty {
+  display: none;
+}
+
 /* A machine's own identifier, shown only when it is the last thing left to
  * show — a connector's readable name, or an agent whose granting human the
  * row never recorded. Subordinate for the same reason .audit-behalf is: an

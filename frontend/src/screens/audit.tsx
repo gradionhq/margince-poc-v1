@@ -139,7 +139,12 @@ export function ActorTag({
   return (
     <span className="audit-actor">
       <Icon aria-hidden />
-      {name ?? (labelKey ? t(labelKey) : null)}
+      {/* The person is its own element, not a bare text node: it is the
+          primary half of the attribution, and a reader (or a test) should be
+          able to address who acted separately from what they acted through. */}
+      <span className="audit-actor-name">
+        {name ?? (labelKey ? t(labelKey) : null)}
+      </span>
       {identifier && (
         <span className="t-mono audit-actor-id">{identifier}</span>
       )}
