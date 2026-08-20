@@ -43,14 +43,18 @@ func TestTheRegisteredDefaultBindsNothing(t *testing.T) {
 // registered default — refusing it would make every unset installation fail its
 // own catalog. Everything else is held to the bar the file loader applies.
 func TestValidationAcceptsUnconfiguredAndRefusesAHalfBinding(t *testing.T) {
+	// The zero document is the registered default, so refusing it would make
+	// every unset installation fail its own catalog.
 	if err := Routing.ValidateJSON([]byte(`{}`)); err != nil {
 		t.Errorf("the unconfigured binding was refused: %v", err)
 	}
-	// A profile with no tiers routes nothing. Accepting it would build a Router
-	// that refuses every call it is handed, which reads as an outage rather
-	// than as the misconfiguration it is.
-	if err := Routing.ValidateJSON([]byte(`{"profile":"eu_hosted","tiers":{}}`)); err != nil {
-		t.Errorf("a profile with no tiers must read as unconfigured, not as invalid: %v", err)
+	// A profile with no tiers is REFUSED, and the exemption above is narrower
+	// than it looks for that reason. Both documents serve nothing, but this one
+	// somebody wrote — storing it would accept a binding that reads as
+	// configured, routes nothing, and reports no fault. The file loader refuses
+	// it ("no tiers bound"), and a stored binding is held to the same bar.
+	if err := Routing.ValidateJSON([]byte(`{"profile":"eu_hosted","tiers":{}}`)); err == nil {
+		t.Error("a profile binding no tiers was stored; it reads as configured and routes nothing")
 	}
 	if err := Routing.ValidateJSON([]byte(`{"profile":"nowhere","tiers":{"premium":{"provider":"gemini","model":"m"}}}`)); err == nil {
 		t.Error("an unknown profile was accepted; a stored binding must meet the bar the file loader applies")
