@@ -9358,7 +9358,7 @@ paths:
         may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
         archived users. Row-scoped by workspace RLS. `User.roles` rides the row only for an admin caller,
         who is the only one who can act on it.
-      x-mcp-tool: { verb: search_records, record_type: app_user, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_colleagues, record_type: app_user, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -9836,7 +9836,18 @@ paths:
       description: |
         Teams available as record-share subjects, with a member count. Any authenticated member may read.
         Excludes archived teams. Row-scoped by workspace RLS.
-      x-mcp-tool: { verb: search_records, record_type: team, tier: auto_execute, scope: read }
+      # NO annotation, and that is the fix rather than an omission. It said
+      # x-mcp-tool search_records/team, and search_records has never served
+      # `team` — the parity gate checks only that the named VERB is registered,
+      # never that the verb serves the named record_type, so the false claim
+      # sat unnoticed beside the identical one on /users.
+      #
+      # An unannotated READ is admitted (agentgate.go: "a mutating route absent
+      # from the table is refused, a read absent from it is admitted"), so this
+      # stays as readable for an agent as it was on main — which the
+      # description above promises — while no longer naming a tool that does
+      # not serve it. If the surface ever wants the team roster it gets its own
+      # verb, as the colleague roster did.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'

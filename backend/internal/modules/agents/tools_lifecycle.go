@@ -132,7 +132,7 @@ func (t disqualifyLead) Spec() mcp.ToolSpec {
 		OpenAPIOp: "disqualifyLead",
 		InputSchema: schema(`{"type":"object","required":["lead_id"],"properties":{
 			"lead_id":{"type":"string","format":"uuid","description":"The lead to disqualify"},
-			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after approval"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}
@@ -195,7 +195,7 @@ func (t advanceProjectPhase) Spec() mcp.ToolSpec {
 			"to_phase":{"type":"string","enum":["initiative","pursuing","delivering","closed"]},
 			"reason":{"type":"string","description":"Required when to_phase is closed; recorded on the phase-history row either way"},
 			"if_version":{"type":"integer","description":"The version the caller read; the write is refused as skew if the project moved since"},
-			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after approval"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}

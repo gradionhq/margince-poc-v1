@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 44 |
+| Tools | 45 |
 | Resources | 8 |
-| Tool catalog | 123.0 KB |
+| Tool catalog | 124.3 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 32255 |
+| Approx. wire tokens | 32599 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,10 +28,10 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 53.8 KB | 43% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 31.8 KB | 25% | Yes, every step |
-| Input schemas | 28.0 KB | 22% | Yes, every step |
-| _Names, annotations, punctuation_ | 9.4 KB | 7% | Partly |
+| Output schemas | 54.9 KB | 44% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 32.3 KB | 25% | Yes, every step |
+| Input schemas | 27.6 KB | 22% | Yes, every step |
+| _Names, annotations, punctuation_ | 9.6 KB | 7% | Partly |
 | **Description + input schema** | **59.8 KB** | **48%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
@@ -55,7 +55,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (44)
+### Tools (45)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
@@ -64,23 +64,24 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
-| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 3.0 KB |
+| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.9 KB |
 | [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.7 KB |
-| [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.3 KB |
+| [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.2 KB |
 | [`create_record`](#create_record) | Create a record |  |  | 2.6 KB |
 | [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 3.0 KB |
 | [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 3.0 KB |
-| [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 2.0 KB |
+| [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 1.9 KB |
 | [`draft_email`](#draft_email) | Draft an email |  |  | 2.6 KB |
 | [`draft_follow_ups_for`](#draft_follow_ups_for) | Draft follow-ups |  |  | 2.7 KB |
-| [`enrich`](#enrich) | Enrich an organization from its website |  |  | 2.6 KB |
+| [`enrich`](#enrich) | Enrich an organization from its website |  |  | 2.5 KB |
 | [`intro_path_to`](#intro_path_to) | Find a warm introduction path | yes |  | 2.3 KB |
 | [`list_approvals`](#list_approvals) | List what is waiting for a decision | yes |  | 2.9 KB |
 | [`list_channel_providers`](#list_channel_providers) | List messaging transports | yes |  | 2.0 KB |
+| [`list_colleagues`](#list_colleagues) | List colleagues | yes |  | 1.9 KB |
 | [`list_pipelines`](#list_pipelines) | List pipelines and their stages | yes |  | 2.3 KB |
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
-| [`log_activity`](#log_activity) | Log an activity |  |  | 3.3 KB |
-| [`merge_records`](#merge_records) | Merge two records |  |  | 2.5 KB |
+| [`log_activity`](#log_activity) | Log an activity |  |  | 3.2 KB |
+| [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.0 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
@@ -96,8 +97,8 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`run_report`](#run_report) | Run a report | yes |  | 4.6 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
-| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.6 KB |
-| [`send_email`](#send_email) | Send an email |  |  | 3.1 KB |
+| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.5 KB |
+| [`send_email`](#send_email) | Send an email |  |  | 3.0 KB |
 | [`send_message`](#send_message) | Reply on a channel conversation |  |  | 2.4 KB |
 | [`update_record`](#update_record) | Update a record |  |  | 3.9 KB |
 | [`whats_slipping_this_week`](#whats_slipping_this_week) | What's slipping this week | yes | [`ui://margince/pipeline-review.html`](#pipeline_review_view) | 2.3 KB |
@@ -673,7 +674,7 @@ Move a project to another phase — initiative, pursuing, delivering, closed. Th
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -826,7 +827,7 @@ Retire a record that should no longer be worked — a duplicate, a dead account,
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -1157,12 +1158,12 @@ Hold a slot in the host's calendar and record the meeting against the records it
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
     "end": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -1206,7 +1207,7 @@ Hold a slot in the host's calendar and record the meeting against the records it
       "type": "array"
     },
     "start": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -1557,7 +1558,7 @@ Find when a host is free, so a time can be proposed to someone. It reads free/bu
       "type": "integer"
     },
     "from": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -1567,7 +1568,7 @@ Find when a host is free, so a time can be proposed to someone. It reads free/bu
       "type": "string"
     },
     "to": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     }
@@ -2303,7 +2304,7 @@ Close out a lead that is not going anywhere, so it stops appearing as live work.
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -2807,7 +2808,7 @@ Learn about an organization by reading its public website, and propose what was 
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -3465,6 +3466,158 @@ Find out which messaging transports exist in THIS installation, and what each is
 
 </details>
 
+### list_colleagues
+
+**List colleagues**
+
+List the people who work HERE — colleagues holding a seat, not the contacts stored as person records. Reads only, and lists seats that can actually receive work — archived, suspended and locked-out ones are absent. `truncated` means there are more. search_records/person finds a CUSTOMER contact; this finds a colleague. user_id is what assignee_id and owner_id take. Never assign to an is_agent seat. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "q": {
+      "description": "Narrow by name or email; omit for the whole roster",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "colleagues": {
+          "items": {
+            "properties": {
+              "display_name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "is_agent": {
+                "type": "boolean"
+              },
+              "seat_type": {
+                "type": "string"
+              },
+              "user_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "display_name",
+              "email",
+              "is_agent",
+              "seat_type",
+              "user_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "colleagues"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ### list_pipelines
 
 **List pipelines and their stages**
@@ -3839,7 +3992,7 @@ Record something that happened — a call, a meeting, a note, a message — on t
       "type": "string"
     },
     "due_at": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -3888,7 +4041,7 @@ Record something that happened — a call, a meeting, a note, a message — on t
       "type": "array"
     },
     "occurred_at": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -4037,7 +4190,7 @@ Collapse two records for the same real person or company into one, moving the so
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -4915,7 +5068,7 @@ Turn a lead who has genuinely engaged into a person record, carrying their histo
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -7219,7 +7372,7 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -7273,7 +7426,7 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
       "type": "array"
     },
     "scheduled_at": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -7432,7 +7585,7 @@ Put a mail on the wire to a real recipient, from this workspace, and record it o
       "type": "string"
     },
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -7456,7 +7609,7 @@ Put a mail on the wire to a real recipient, from this workspace, and record it o
       "type": "string"
     },
     "scheduled_at": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -7616,7 +7769,7 @@ Reply on a captured chat conversation — the channels this workspace has connec
       "type": "string"
     },
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },

@@ -39,3 +39,27 @@ func actingIdentity(pool *pgxpool.Pool) agents.IdentityReader {
 		}, nil
 	}
 }
+
+// colleagueLister reads the workspace roster.
+//
+// Same posture as actingIdentity above and as identity.SeatNames: a seat is
+// not a record, so there is no object to grant on, and what it discloses — a
+// colleague's name and work address — who_knows and account_coverage already
+// answer to any authenticated reader.
+func colleagueLister(pool *pgxpool.Pool) agents.ColleagueLister {
+	service := identity.NewService(pool)
+	return func(ctx context.Context, q string) ([]agents.Colleague, bool, error) {
+		seats, truncated, err := service.Colleagues(ctx, q)
+		if err != nil {
+			return nil, false, err
+		}
+		out := make([]agents.Colleague, 0, len(seats))
+		for _, s := range seats {
+			out = append(out, agents.Colleague{
+				UserID: s.UserID, DisplayName: s.DisplayName, Email: s.Email,
+				SeatType: s.SeatType, IsAgent: s.IsAgent,
+			})
+		}
+		return out, truncated, nil
+	}
+}
