@@ -80,6 +80,23 @@ jobs:
         uses: ./.github/actions/go-build-cache
         with:
           flavor: plain
+      # `make check-backend` runs golangci over every module, so the gate
+      # binaries have to be here or lint-modules fails before it compiles
+      # anything — which is what this job exists to do. Same cache and same key
+      # as the ci lane's own step, so the two share one entry rather than each
+      # paying the ~75s compile.
+      - name: Cache the gate binaries
+        id: gate-binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin
+          key: gate-binaries-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/Makefile') }}
+      - name: Install the pinned gate binaries
+        if: steps.gate-binaries.outputs.cache-hit != 'true'
+        working-directory: .
+        run: make tools
+      - name: Gate binaries onto PATH
+        run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
       - name: Compile what the gate compiles (make check-backend)
         working-directory: .
         env:
