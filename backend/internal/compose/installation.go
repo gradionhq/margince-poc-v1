@@ -23,6 +23,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"gopkg.in/yaml.v3"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -255,6 +256,9 @@ func configuredSeed(seeds deployconfig.Seeds, dealsH dealsHandlers) func(context
 		if err := seedRetentionPosture(ctx, tx, seeds); err != nil {
 			return err
 		}
+		if err := seedRoutingBinding(ctx, tx, seeds.AIRouting); err != nil {
+			return err
+		}
 		if err := ai.SeedWorkspaceDefaultsTx(ctx, tx, time.Now().UTC()); err != nil {
 			return err
 		}
@@ -318,6 +322,38 @@ func seedRetentionPosture(ctx context.Context, tx pgx.Tx, seeds deployconfig.See
 	// Nothing an operator supplied is lost, which is exactly what separates it
 	// from the identity trio.
 	_, err := settings.SeedValue(ctx, tx, privacy.RetainOnly, true)
+	return err
+}
+
+// seedRoutingBinding plants the tier→model binding a deployment declared, so a
+// fresh installation serves AI without anyone calling an API after first boot.
+//
+// It runs INSIDE the bootstrap transaction, beside the rest of the seeds: an
+// installation that declared a binding must not be reachable in a state where
+// the organization exists and the binding does not, even briefly, or the first
+// request through an AI surface answers as unconfigured.
+//
+// The document is decoded through the ai module's own parser rather than a
+// mirror of it here, so a seed is refused for exactly the reasons a stored
+// binding would be — an unknown tier, a cloud provider under the sovereign
+// profile, an embeddings width out of range. A bad seed fails the BOOTSTRAP,
+// which is the only moment anybody is watching.
+func seedRoutingBinding(ctx context.Context, tx pgx.Tx, declared *yaml.Node) error {
+	if declared == nil {
+		return nil
+	}
+	raw, err := yaml.Marshal(declared)
+	if err != nil {
+		return fmt.Errorf("compose: re-encoding seeds.ai_routing: %w", err)
+	}
+	cfg, err := ai.ParseRouting(raw)
+	if err != nil {
+		return fmt.Errorf("compose: seeds.ai_routing: %w", err)
+	}
+	// The stored answer is discarded deliberately: inside the bootstrap
+	// transaction there is no row to conflict with, because an installation
+	// being created cannot already hold a binding.
+	_, err = settings.SeedValue(ctx, tx, ai.Routing, cfg)
 	return err
 }
 
