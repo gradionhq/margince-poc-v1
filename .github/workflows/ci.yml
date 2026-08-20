@@ -14,42 +14,33 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   # The merge queue builds `main + everything ahead in the queue + this entry` on
-  # a throwaway ref and gates THAT tree, before it lands. This event — not the
-  # push above, which stops gating in a later commit on this branch — is what
-  # makes "main is green" a claim about a tree somebody actually tested.
+  # a throwaway ref and gates THAT tree, before it lands. This is the merge
+  # verdict, and it is why there is no `push: [main]` trigger here: a push to main
+  # is the RECORD of a verdict already reached, not an occasion to reach one.
   merge_group:
   workflow_dispatch:
 
-# ONE live run per ref, main included: a new push cancels the stale lane instead
-# of running beside it or queueing behind it. The invariant that buys is that the
-# commit being gated is always main's TIP.
+# ONE live run per pull request; a new push supersedes the review in flight.
 #
-# Gating every main commit — what a group keyed by commit buys — is not
-# affordable at this repository's size. A full-stack merge schedules 28 jobs
-# against an org-wide ceiling of 20 concurrent, so two overlapping merges turn a
-# 9-minute gate into a two-hour one and starve every PR lane behind them. A
-# verdict that lands hours after the merge gates nothing.
+# There is no main-push lane to reason about any more. The merge queue gates the
+# tree before it lands (`merge_group` above), so every commit on main arrives with
+# a verdict already attached. Each queue entry gets its own throwaway ref, so
+# entries never collide in this group, and cancel-in-progress narrows to pull
+# requests so a merge verdict can never be cancelled.
 #
-# `cancel-in-progress: false` is not the conservative setting it reads as, which
-# is the trap worth stating where the next reader will look: it protects the run
-# already RUNNING, and a group holds ONE pending run, so an arriving merge
-# cancels the pending one and takes its place. The superseded merge is reported
-# `cancelled` with zero jobs — indistinguishable from a green skip on every
-# dashboard — while the tip still waits out a lane gating an older tree.
-# `queue: max` lifts that pending limit to 100 and would gate every commit, but
-# it cannot be combined with cancellation, and it puts the tip's verdict behind
-# every lane ahead of it: the latency this setting exists to remove.
-#
-# main is a linear history of squash merges, so the tip's tree contains every
-# merge below it and "main is green" stays a true statement about all of them.
-# The price is per-commit attribution: a bisect over main cannot assume every
-# commit was gated, and a red lane can be superseded before anyone reads it —
-# `workflow_dispatch` on that commit brings the verdict back.
+# What this replaces, and why it could not stay: a group keyed on `github.ref`
+# with cancellation across ALL events meant a push to main cancelled the RUNNING
+# main lane. At this repository's merge velocity 64% of main pushes were
+# cancelled, and the survivors were mostly classifier skips averaging 4.5 minutes
+# against a real lane's 16 — so roughly one main commit in twenty-five was ever
+# gated, and "main is green" was a statement about almost nothing. The argument
+# that used to live here traded per-commit gating away to keep the tip's verdict
+# fast, on the grounds that 28 jobs against a 20-concurrent ceiling made the
+# alternative unaffordable. The ceiling moved, and the invariant it bought —
+# main's tip is always the gated commit — is contradicted by the run history.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   # PR lanes still supersede themselves: a new push obsoletes the review in
@@ -381,20 +372,6 @@ jobs:
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
           MIGRATION_VERSIONS_REQUIRE_BASE: "1"
         run: make check-backend
-      # Refresh the shared cache from main only. On a PR this step does not run,
-      # so the twelve shards and this job never race to write the same key and a
-      # PR can never poison what the next PR restores. `!cancelled()` rather than
-      # success(): a red lint or a failed test still compiled the tree, and those
-      # artifacts are exactly as reusable as a green run's.
-      - name: Refresh the shared build cache
-        if: >-
-          !cancelled()
-          && github.event_name == 'push'
-          && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/go-build
-          key: ${{ steps.go-cache.outputs.key }}
 
   # The composed-build lane (ADR-0069): materialize the walking-skeleton
   # reference extension into extensions/, compose, and run the backend
@@ -669,20 +646,6 @@ jobs:
           path: ${{ runner.temp }}/shard-out
           if-no-files-found: error
           retention-days: 1
-      # ONE shard refreshes the `integration` flavour, and only from main. Every
-      # shard compiles substantially the same set, so a second writer would add
-      # nothing but a race for the same key — and twelve runners each uploading a
-      # ~550 MB cache would evict the entry they were meant to seed.
-      - name: Refresh the shared build cache
-        if: >-
-          !cancelled()
-          && matrix.shard == 1
-          && github.event_name == 'push'
-          && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/go-build
-          key: ${{ steps.go-cache.outputs.key }}
 
   # Unit coverage for SonarCloud. The shards run only the integration-tagged
   # packages, but the unit-only packages need a `-cover` pass of their own —
@@ -927,22 +890,24 @@ jobs:
     # PR the scan proceeds without it, because new code there is the diff and
     # a diff that skipped an area has no lines in it for that area to cover.
     #
-    # That reasoning does NOT survive the move to a push. main's new-code
-    # period is `previous_version`, so its new code is every line added since
-    # the last release marker — weeks of Go — and a push REPLACES main's
-    # stored analysis rather than adding a second one. The scanner's Zero
-    # Coverage Sensor scores every executable line it holds no report for as
-    # uncovered, so a push that skipped the Go coverage producer publishes
-    # those weeks at 0% and the quality gate reads red until some later push
-    # happens to rescan them. A docs-only merge skips every producer, which
-    # makes it the common way in. Measuring nothing is not a measurement of
-    # zero, so such a push does not scan and main keeps its last real reading.
+    # The last clause below — `event_name == 'pull_request' || integration
+    # succeeded` — is what stops a partial run from publishing an analysis that
+    # reads as a measurement. The scanner's Zero Coverage Sensor scores every
+    # executable line it holds no report for as UNCOVERED, so a scan that ran
+    # without the Go coverage producer publishes that code at 0% rather than
+    # declining to answer. Measuring nothing is not a measurement of zero.
     #
-    # `integration` alone stands for the Go coverage, and the backend
-    # classifier scope starts every backend producer together — so a run that
-    # has it has the profile that dominates main's new code. A frontend-only
-    # push therefore waits for the next backend one rather than publishing
-    # main with no Go coverage at all.
+    # On a pull request that cannot happen in a way that matters: new code is the
+    # diff, and a diff that skipped an area has no lines in it for that area to
+    # cover. Off a pull request it can, so `integration` — which alone stands for
+    # the Go coverage, and which the backend classifier scope starts together with
+    # every other backend producer — must genuinely have SUCCEEDED, not merely
+    # not-failed.
+    #
+    # On merge_group the classifier is overridden and every producer runs, so the
+    # clause is satisfied whenever the lane is green. It is kept rather than
+    # simplified away because it is the thing that would catch a future event, or
+    # a future skip, that reintroduces a partial scan.
     #
     # deterministic-gates is gated directly, not just transitively. Now that
     # integration runs in parallel with the build gate rather than behind it, a
