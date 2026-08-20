@@ -478,24 +478,3 @@ func marshalResult[T any](result T, err error) (json.RawMessage, error) {
 	}
 	return json.Marshal(result)
 }
-
-// WhoamiResult is the human a passport acts for. Every field can be empty:
-// a system principal acts for nobody, and a person who never chose a language
-// has no locale — an empty one is the honest answer, not 'en'.
-type WhoamiResult struct {
-	ActingUserID ids.UUID `json:"acting_user_id"`
-	DisplayName  string   `json:"display_name"`
-	Email        string   `json:"email"`
-	Locale       string   `json:"locale,omitempty"`
-	Timezone     string   `json:"timezone,omitempty"`
-}
-
-// ListColleaguesResult is the workspace roster. Empty is a real answer — a
-// filter that matches nobody — never an error.
-type ListColleaguesResult struct {
-	Colleagues []Colleague `json:"colleagues"`
-	// Truncated says the roster is longer than one answer. A caller told
-	// nothing would read a capped list as the whole roster and report that a
-	// colleague does not work here.
-	Truncated bool `json:"truncated,omitempty"`
-}
