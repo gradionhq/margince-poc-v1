@@ -1977,6 +1977,48 @@ func (e ColdStartProposalStatus) Valid() bool {
 	}
 }
 
+// Defines values for CommissionAttribution.
+const (
+	CommissionAttributionInfluenced CommissionAttribution = "influenced"
+	CommissionAttributionSourced    CommissionAttribution = "sourced"
+)
+
+// Valid indicates whether the value is a known member of the CommissionAttribution enum.
+func (e CommissionAttribution) Valid() bool {
+	switch e {
+	case CommissionAttributionInfluenced:
+		return true
+	case CommissionAttributionSourced:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CommissionStatus.
+const (
+	CommissionStatusAccrued  CommissionStatus = "accrued"
+	CommissionStatusApproved CommissionStatus = "approved"
+	CommissionStatusPaid     CommissionStatus = "paid"
+	CommissionStatusVoid     CommissionStatus = "void"
+)
+
+// Valid indicates whether the value is a known member of the CommissionStatus enum.
+func (e CommissionStatus) Valid() bool {
+	switch e {
+	case CommissionStatusAccrued:
+		return true
+	case CommissionStatusApproved:
+		return true
+	case CommissionStatusPaid:
+		return true
+	case CommissionStatusVoid:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompanyContextSchemaVersion.
 const (
 	N1 CompanyContextSchemaVersion = 1
@@ -3780,6 +3822,24 @@ func (e DealForecastCategory) Valid() bool {
 	}
 }
 
+// Defines values for DealPartnerAttribution.
+const (
+	DealPartnerAttributionInfluenced DealPartnerAttribution = "influenced"
+	DealPartnerAttributionSourced    DealPartnerAttribution = "sourced"
+)
+
+// Valid indicates whether the value is a known member of the DealPartnerAttribution enum.
+func (e DealPartnerAttribution) Valid() bool {
+	switch e {
+	case DealPartnerAttributionInfluenced:
+		return true
+	case DealPartnerAttributionSourced:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DealStatus.
 const (
 	DealStatusLost DealStatus = "lost"
@@ -3852,6 +3912,27 @@ func (e DealCoverageRiskKind) Valid() bool {
 	case DealCoverageRiskKindSingleThreadedTheirs:
 		return true
 	case DealCoverageRiskKindStakeholderLeft:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DecideCommissionRequestDecision.
+const (
+	DecideCommissionRequestDecisionApprove DecideCommissionRequestDecision = "approve"
+	DecideCommissionRequestDecisionPay     DecideCommissionRequestDecision = "pay"
+	DecideCommissionRequestDecisionVoid    DecideCommissionRequestDecision = "void"
+)
+
+// Valid indicates whether the value is a known member of the DecideCommissionRequestDecision enum.
+func (e DecideCommissionRequestDecision) Valid() bool {
+	switch e {
+	case DecideCommissionRequestDecisionApprove:
+		return true
+	case DecideCommissionRequestDecisionPay:
+		return true
+	case DecideCommissionRequestDecisionVoid:
 		return true
 	default:
 		return false
@@ -8895,6 +8976,24 @@ func (e UpdateDealRequestForecastCategory) Valid() bool {
 	}
 }
 
+// Defines values for UpdateDealRequestPartnerAttribution.
+const (
+	UpdateDealRequestPartnerAttributionInfluenced UpdateDealRequestPartnerAttribution = "influenced"
+	UpdateDealRequestPartnerAttributionSourced    UpdateDealRequestPartnerAttribution = "sourced"
+)
+
+// Valid indicates whether the value is a known member of the UpdateDealRequestPartnerAttribution enum.
+func (e UpdateDealRequestPartnerAttribution) Valid() bool {
+	switch e {
+	case UpdateDealRequestPartnerAttributionInfluenced:
+		return true
+	case UpdateDealRequestPartnerAttributionSourced:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpdateDealRequestStatus.
 const (
 	UpdateDealRequestStatusLost UpdateDealRequestStatus = "lost"
@@ -10253,16 +10352,16 @@ func (e ListDealsParamsStatus) Valid() bool {
 
 // Defines values for ListDealsParamsPartnerAttribution.
 const (
-	Influenced ListDealsParamsPartnerAttribution = "influenced"
-	Sourced    ListDealsParamsPartnerAttribution = "sourced"
+	ListDealsParamsPartnerAttributionInfluenced ListDealsParamsPartnerAttribution = "influenced"
+	ListDealsParamsPartnerAttributionSourced    ListDealsParamsPartnerAttribution = "sourced"
 )
 
 // Valid indicates whether the value is a known member of the ListDealsParamsPartnerAttribution enum.
 func (e ListDealsParamsPartnerAttribution) Valid() bool {
 	switch e {
-	case Influenced:
+	case ListDealsParamsPartnerAttributionInfluenced:
 		return true
-	case Sourced:
+	case ListDealsParamsPartnerAttributionSourced:
 		return true
 	default:
 		return false
@@ -12861,6 +12960,92 @@ type ColdStartRequest1 = interface{}
 // ColdStartRequest2 defines model for .
 type ColdStartRequest2 = interface{}
 
+// CommissionAttribution What the partner did for the deal the entry was accrued on.
+type CommissionAttribution string
+
+// CommissionEntry What one partner earned on one won deal. Mirrors the `commission_entry` table.
+// Every rate-bearing value is frozen at accrual: the tier a human can change next
+// quarter, and the deal amount that can be corrected after the close, would
+// otherwise make the same entry answer a different question each time it is read.
+// Carries no owner — visibility is inherited from the deal.
+type CommissionEntry struct {
+	// AmountMinor What the rate produced.
+	AmountMinor int64 `json:"amount_minor"`
+
+	// AttributionAtAccrual What the partner did for the deal the entry was accrued on.
+	AttributionAtAccrual CommissionAttribution `json:"attribution_at_accrual"`
+
+	// BasisAmountMinor The deal amount the rate applied to.
+	BasisAmountMinor int64 `json:"basis_amount_minor"`
+
+	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
+	CapturedBy *string   `json:"captured_by,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	Currency   string    `json:"currency"`
+
+	// DealId The won deal this was accrued on.
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// FxRateToBase Native→base at won time, carried so a base-currency roll-up reproduces without re-reading a deal whose frozen rate may since have been cleared.
+	FxRateToBase *string            `json:"fx_rate_to_base,omitempty"`
+	Id           openapi_types.UUID `json:"id"`
+
+	// MarginTierAtAccrual The partner's tier as it stood at accrual; the rate below was derived from it.
+	MarginTierAtAccrual *string `json:"margin_tier_at_accrual,omitempty"`
+
+	// PartnerOrgId The partner who earned it.
+	PartnerOrgId openapi_types.UUID `json:"partner_org_id"`
+
+	// RateBps Basis points, so 15% is 1500 — no fractional-percent rounding enters the row.
+	RateBps int `json:"rate_bps"`
+
+	// ReversalOf The entry this one undoes. A reversal is born void and is never approved or paid.
+	ReversalOf *openapi_types.UUID `json:"reversal_of,omitempty"`
+
+	// Status accrued → approved → paid, with void as the exit at any point.
+	Status CommissionStatus `json:"status"`
+
+	// TriggerEventId The won-deal transition that produced this entry; null on one a human created. Unique, so a replayed event cannot accrue twice.
+	TriggerEventId *openapi_types.UUID `json:"trigger_event_id,omitempty"`
+	UpdatedAt      time.Time           `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version *RowVersion `json:"version,omitempty"`
+
+	// VoidReason Required on a void; what a partner dispute is answered from.
+	VoidReason *string `json:"void_reason,omitempty"`
+}
+
+// CommissionEntryListResponse defines model for CommissionEntryListResponse.
+type CommissionEntryListResponse struct {
+	Data []CommissionEntry `json:"data"`
+	Page PageInfo          `json:"page"`
+}
+
+// CommissionStatus accrued → approved → paid, with void as the exit at any point.
+type CommissionStatus string
+
+// CommissionSummaryResponse defines model for CommissionSummaryResponse.
+type CommissionSummaryResponse struct {
+	Data []CommissionSummaryRow `json:"data"`
+}
+
+// CommissionSummaryRow defines model for CommissionSummaryRow.
+type CommissionSummaryRow struct {
+	// AmountMinor Summed per currency, never across: two currencies added together is a number that means nothing.
+	AmountMinor  int64              `json:"amount_minor"`
+	Currency     string             `json:"currency"`
+	EntryCount   int                `json:"entry_count"`
+	PartnerOrgId openapi_types.UUID `json:"partner_org_id"`
+
+	// Status accrued → approved → paid, with void as the exit at any point.
+	Status CommissionStatus `json:"status"`
+}
+
 // CompanyContext defines model for CompanyContext.
 type CompanyContext struct {
 	// Fingerprint Deterministic SHA-256 digest of the selected confirmed values and accepted facts.
@@ -14389,7 +14574,7 @@ type Deal struct {
 	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// PartnerAttribution What the partner named by `partner_org_id` did: `sourced` (brought the deal) or `influenced` (helped one we had). Travels with the partner — naming a partner defaults it to `sourced`. Commission accrues on `sourced` only.
-	PartnerAttribution *string `json:"partner_attribution,omitempty"`
+	PartnerAttribution *DealPartnerAttribution `json:"partner_attribution,omitempty"`
 
 	// PartnerOrgId Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.
 	PartnerOrgId *openapi_types.UUID `json:"partner_org_id,omitempty"`
@@ -14430,6 +14615,9 @@ type Deal struct {
 
 // DealForecastCategory defines model for Deal.ForecastCategory.
 type DealForecastCategory string
+
+// DealPartnerAttribution What the partner named by `partner_org_id` did: `sourced` (brought the deal) or `influenced` (helped one we had). Travels with the partner — naming a partner defaults it to `sourced`. Commission accrues on `sourced` only.
+type DealPartnerAttribution string
 
 // DealStatus defines model for Deal.Status.
 type DealStatus string
@@ -14475,6 +14663,20 @@ type DealListResponse struct {
 	Data []Deal   `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// DecideCommissionRequest defines model for DecideCommissionRequest.
+type DecideCommissionRequest struct {
+	// Decision `approve` moves an accrued entry to approved; `pay` moves an approved one to paid.
+	// `void` cancels an entry in any live state and writes the reversal beside it.
+	Decision DecideCommissionRequestDecision `json:"decision"`
+
+	// Reason Required for `void` — an entry cancelled without a stated reason cannot be explained to the partner later.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// DecideCommissionRequestDecision `approve` moves an accrued entry to approved; `pay` moves an approved one to paid.
+// `void` cancels an entry in any live state and writes the reversal beside it.
+type DecideCommissionRequestDecision string
 
 // DedupeCandidate One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8).
 type DedupeCandidate struct {
@@ -20952,16 +21154,19 @@ type UpdateDealRequest struct {
 	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// PartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
-	PartnerAttribution   *string                  `json:"partner_attribution,omitempty"`
-	PartnerOrgId         *openapi_types.UUID      `json:"partner_org_id,omitempty"`
-	ProjectId            *openapi_types.UUID      `json:"project_id,omitempty"`
-	Status               *UpdateDealRequestStatus `json:"status,omitempty"`
-	WaitUntil            *openapi_types.Date      `json:"wait_until,omitempty"`
-	AdditionalProperties map[string]interface{}   `json:"-"`
+	PartnerAttribution   *UpdateDealRequestPartnerAttribution `json:"partner_attribution,omitempty"`
+	PartnerOrgId         *openapi_types.UUID                  `json:"partner_org_id,omitempty"`
+	ProjectId            *openapi_types.UUID                  `json:"project_id,omitempty"`
+	Status               *UpdateDealRequestStatus             `json:"status,omitempty"`
+	WaitUntil            *openapi_types.Date                  `json:"wait_until,omitempty"`
+	AdditionalProperties map[string]interface{}               `json:"-"`
 }
 
 // UpdateDealRequestForecastCategory defines model for UpdateDealRequest.ForecastCategory.
 type UpdateDealRequestForecastCategory string
+
+// UpdateDealRequestPartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+type UpdateDealRequestPartnerAttribution string
 
 // UpdateDealRequestStatus defines model for UpdateDealRequest.Status.
 type UpdateDealRequestStatus string
@@ -22299,6 +22504,39 @@ type ListWorkspaceCaptureActivityParams struct {
 type ListConsumerMailBaselineParams struct {
 	// Q Case-insensitive substring filter. Absent or empty lists from the top.
 	Q *string `form:"q,omitempty" json:"q,omitempty"`
+}
+
+// ListCommissionEntriesParams defines parameters for ListCommissionEntries.
+type ListCommissionEntriesParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// PartnerOrgId The entries owed to one partner.
+	PartnerOrgId *openapi_types.UUID `form:"partner_org_id,omitempty" json:"partner_org_id,omitempty"`
+
+	// DealId The entries accrued on one deal.
+	DealId *openapi_types.UUID `form:"deal_id,omitempty" json:"deal_id,omitempty"`
+	Status *CommissionStatus   `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// DecideCommissionEntryParams defines parameters for DecideCommissionEntry.
+type DecideCommissionEntryParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // GetCompanyContextParams defines parameters for GetCompanyContext.
@@ -25558,6 +25796,9 @@ type ColdStartReadbackJSONRequestBody = ColdStartRequest
 
 // ColdStartPreviewJSONRequestBody defines body for ColdStartPreview for application/json ContentType.
 type ColdStartPreviewJSONRequestBody = ColdStartRequest
+
+// DecideCommissionEntryJSONRequestBody defines body for DecideCommissionEntry for application/json ContentType.
+type DecideCommissionEntryJSONRequestBody = DecideCommissionRequest
 
 // PutCompanyJSONRequestBody defines body for PutCompany for application/json ContentType.
 type PutCompanyJSONRequestBody = CompanyProfileInput
@@ -32310,6 +32551,18 @@ type ServerInterface interface {
 	// Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
 	// (POST /coldstart/preview)
 	ColdStartPreview(w http.ResponseWriter, r *http.Request)
+	// The commission ledger — what partners earned on won deals.
+	// (GET /commissions)
+	ListCommissionEntries(w http.ResponseWriter, r *http.Request, params ListCommissionEntriesParams)
+	// What is owed, by partner and status — the open-liability figure.
+	// (GET /commissions/summary)
+	GetCommissionSummary(w http.ResponseWriter, r *http.Request)
+	// One ledger entry.
+	// (GET /commissions/{id})
+	GetCommissionEntry(w http.ResponseWriter, r *http.Request, id Id)
+	// Approve, pay, or void one entry.
+	// (POST /commissions/{id}/decide)
+	DecideCommissionEntry(w http.ResponseWriter, r *http.Request, id Id, params DecideCommissionEntryParams)
 	// The installation's own company (the anchor organization).
 	// (GET /company)
 	GetCompany(w http.ResponseWriter, r *http.Request)
@@ -33843,6 +34096,30 @@ func (_ Unimplemented) ColdStartReadback(w http.ResponseWriter, r *http.Request)
 // Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
 // (POST /coldstart/preview)
 func (_ Unimplemented) ColdStartPreview(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The commission ledger — what partners earned on won deals.
+// (GET /commissions)
+func (_ Unimplemented) ListCommissionEntries(w http.ResponseWriter, r *http.Request, params ListCommissionEntriesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What is owed, by partner and status — the open-liability figure.
+// (GET /commissions/summary)
+func (_ Unimplemented) GetCommissionSummary(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// One ledger entry.
+// (GET /commissions/{id})
+func (_ Unimplemented) GetCommissionEntry(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Approve, pay, or void one entry.
+// (POST /commissions/{id}/decide)
+func (_ Unimplemented) DecideCommissionEntry(w http.ResponseWriter, r *http.Request, id Id, params DecideCommissionEntryParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -39183,6 +39460,211 @@ func (siw *ServerInterfaceWrapper) ColdStartPreview(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ColdStartPreview(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCommissionEntries operation middleware
+func (siw *ServerInterfaceWrapper) ListCommissionEntries(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCommissionEntriesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "partner_org_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "partner_org_id", r.URL.Query(), &params.PartnerOrgId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "partner_org_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "partner_org_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "deal_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "deal_id", r.URL.Query(), &params.DealId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "deal_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deal_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCommissionEntries(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCommissionSummary operation middleware
+func (siw *ServerInterfaceWrapper) GetCommissionSummary(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCommissionSummary(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCommissionEntry operation middleware
+func (siw *ServerInterfaceWrapper) GetCommissionEntry(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCommissionEntry(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DecideCommissionEntry operation middleware
+func (siw *ServerInterfaceWrapper) DecideCommissionEntry(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DecideCommissionEntryParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DecideCommissionEntry(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -55081,6 +55563,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart/preview", wrapper.ColdStartPreview)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/commissions", wrapper.ListCommissionEntries)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/commissions/summary", wrapper.GetCommissionSummary)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/commissions/{id}", wrapper.GetCommissionEntry)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/commissions/{id}/decide", wrapper.DecideCommissionEntry)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/company", wrapper.GetCompany)

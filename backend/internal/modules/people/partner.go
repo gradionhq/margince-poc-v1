@@ -11,6 +11,7 @@ package people
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -449,4 +450,31 @@ func intPtr(v *int16) *int {
 	}
 	w := int(*v)
 	return &w
+}
+
+// MarginTierOf answers what commercial tier a partner organization is on, or
+// nil when it is not a partner or its tier was never set.
+//
+// A narrow accessor rather than a use of GetPartner because the caller is the
+// commission accrual, which needs exactly one field and holds no `partner`
+// grant of its own: it runs as a system actor pricing a win, not as a person
+// reading a partner record. Answering nil rather than an error for "not a
+// partner" is what lets the accrual treat an unpriced win as an ordinary
+// outcome instead of a failure to retry forever.
+func (s *Store) MarginTierOf(ctx context.Context, organizationID ids.OrganizationID) (*string, error) {
+	var tier *string
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx,
+			`SELECT margin_tier FROM partner WHERE organization_id = $1 AND archived_at IS NULL`,
+			organizationID).Scan(&tier)
+		if errors.Is(err, pgx.ErrNoRows) {
+			tier = nil
+			return nil
+		}
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read partner margin tier: %w", err)
+	}
+	return tier, nil
 }

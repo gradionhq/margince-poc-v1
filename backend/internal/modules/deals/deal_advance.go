@@ -140,7 +140,8 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		// The §5.3 payload carries the amount snapshot so as-of-date
 		// pipeline reports and the overnight stalled/forecast sweep react
 		// without a read-back; to_status records the 🟡 won/lost class.
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, dealStageChangedPayload(current, in.ToStageID, status, winProbability)); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID,
+			dealStageChangedPayload(current, in.ToStageID, status, winProbability, frozenFxFromPatch(p, current))); err != nil {
 			return fmt.Errorf("emit deal.stage_changed: %w", err)
 		}
 		// Winning the deal turns the correspondence filed against it into
@@ -167,8 +168,8 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 // that maps AdvanceDeal's local values onto the published schema, so a
 // future field rename shows up here (and at its call site) rather than at
 // two independently-drifting map literals.
-func dealStageChangedPayload(current crmcontracts.Deal, toStageID ids.StageID, toStatus string, winProbability int) crmcontracts.PublicEventDealStageChanged {
-	return crmcontracts.PublicEventDealStageChanged{
+func dealStageChangedPayload(current crmcontracts.Deal, toStageID ids.StageID, toStatus string, winProbability int, frozenFx *string) crmcontracts.PublicEventDealStageChanged {
+	payload := crmcontracts.PublicEventDealStageChanged{
 		FromStageId:         current.StageId,
 		ToStageId:           openapi_types.UUID(toStageID.UUID),
 		FromStatus:          string(current.Status),
@@ -176,7 +177,32 @@ func dealStageChangedPayload(current crmcontracts.Deal, toStageID ids.StageID, t
 		AmountMinorAtChange: current.AmountMinor,
 		CurrencyAtChange:    current.Currency,
 		WinProbability:      winProbability,
+		PartnerOrgId:        current.PartnerOrgId,
+		FxRateToBase:        frozenFx,
 	}
+	if current.PartnerAttribution != nil {
+		attribution := string(*current.PartnerAttribution)
+		payload.PartnerAttribution = &attribution
+	}
+	return payload
+}
+
+// frozenFxFromPatch reads the rate this transition froze out of the patch that
+// froze it. Taken from the patch rather than from the pre-move snapshot because
+// the freeze happens IN this transaction: the snapshot predates it, and a
+// consumer reading the deal back afterwards can lose the rate entirely — a
+// reopen clears the column.
+func frozenFxFromPatch(p *storekit.Patch, current crmcontracts.Deal) *string {
+	rate, changed := p.After()["fx_rate_to_base"]
+	if !changed {
+		return current.FxRateToBase
+	}
+	frozen, ok := rate.(string)
+	if !ok {
+		// Cleared on the way out of won, which carries no rate to publish.
+		return nil
+	}
+	return &frozen
 }
 
 // resolveAdvanceTarget reads the target stage's semantic and win
