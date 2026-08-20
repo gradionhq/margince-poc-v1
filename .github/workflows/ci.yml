@@ -924,7 +924,11 @@ jobs:
     # Analysis" check over a broken build (result == 'failure' fails this
     # condition, so the scan is skipped); the PR is already red, so nothing that
     # wasn't already blocked is blocked.
-    needs: [deterministic-gates, integration, frontend, extension-reference]
+    # `ci` is in needs for the merge_group case ONLY, and it is not a cycle: the
+    # aggregate deliberately omits sonarcloud from its own needs, so nothing waits
+    # on this job to reach a verdict — the queue merges on `ci` alone and this scan
+    # may finish after the merge.
+    needs: [ci, deterministic-gates, integration, frontend, extension-reference]
     if: >-
       !cancelled()
       && (needs.deterministic-gates.result == 'success' || needs.deterministic-gates.result == 'skipped')
@@ -933,6 +937,7 @@ jobs:
       && (needs.extension-reference.result == 'success' || needs.extension-reference.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
       && (github.event_name == 'pull_request' || needs.integration.result == 'success')
+      && (github.event_name != 'merge_group' || needs.ci.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -985,9 +990,14 @@ jobs:
       # keep reporting the last real verdict indefinitely, which is a green that
       # measures nothing — the exact failure this pipeline change exists to end.
       #
-      # Safe because this job runs only on a green lane, and a green batch merges
-      # (the queue's HEADGREEN strategy merges the green prefix), so a tree
-      # published as main is a tree that became main.
+      # What makes it safe is the `needs.ci.result == 'success'` clause above, and
+      # nothing weaker would: this job's other conditions cover only its COVERAGE
+      # producers, so without that clause a merge_group build whose secret-scan,
+      # license-gate, craft-residue or dco failed would still publish. That tree
+      # does not merge — and it would have replaced the stored analysis every
+      # scheduled check reads for main, describing a tree main never became.
+      # Requiring the aggregate verdict is what makes "published as main" mean
+      # "became main".
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1

@@ -399,9 +399,15 @@ Wiring details:
   verdict indefinitely. Its own comment says a *missing* analysis "reads
   identically to green on every dashboard"; a frozen one reads the same way.
 
-  Safe because the job runs only on a green lane, and a green batch merges (the
-  queue's `HEADGREEN` strategy merges the green prefix), so a tree published as
-  `main` is a tree that became `main`.
+  **Publication waits for the `ci` aggregate verdict**, and nothing weaker would
+  do. This job's other conditions cover only its *coverage producers*, so without
+  that clause a `merge_group` build whose `secret-scan`, `license-gate`,
+  `craft-residue` or `dco` failed would still publish — a tree that does not
+  merge, replacing the stored analysis every scheduled check reads for `main`.
+  Requiring `needs.ci.result == 'success'` on `merge_group` is what makes
+  "published as `main`" mean "became `main`". Nothing waits on this job in turn:
+  the aggregate deliberately omits `sonarcloud` from its own `needs`, so the queue
+  merges on `ci` alone and the scan may finish after the merge.
 - **A report's paths are read from the repo root, not from the directory that
   wrote it.** The scanner resolves every `SF:` entry in an lcov against its own
   base directory; vitest's root is `frontend/`, so the default report named
