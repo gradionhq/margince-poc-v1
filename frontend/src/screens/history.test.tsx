@@ -40,22 +40,28 @@ afterEach(() => {
   window.location.hash = "";
 });
 
+// The wire spells a human actor "human:<uuid>", and the read path resolves the
+// display name beside it — both as the real writer and reader produce them.
 const created = {
   id: "h1",
   actor_type: "human",
-  actor_id: "u1",
+  actor_id: "human:u1",
+  actor_name: "Demo Admin",
   action: "create",
   occurred_at: "2026-07-13T10:00:00Z",
   summary: "Demo Admin created the record",
 };
+// A machine acting under a human's authority. `summary` is server-composed and
+// already NAMES that human as its subject (PD-002), so the row must not also
+// append an on-behalf-of suffix — that would say Anna twice.
 const updated = {
   id: "h2",
   actor_type: "agent",
-  actor_id: "sdr",
+  actor_id: "agent:sdr",
   on_behalf_of_name: "Anna Weber",
   action: "update",
   occurred_at: "2026-07-14T10:00:00Z",
-  summary: "Overnight agent updated the record",
+  summary: "Anna Weber, via an agent, updated the record",
 };
 
 describe("RecordHistory", () => {
@@ -70,8 +76,18 @@ describe("RecordHistory", () => {
     await waitFor(() =>
       expect(screen.getByText("Demo Admin created the record")).toBeTruthy(),
     );
-    expect(screen.getByText("Overnight agent updated the record")).toBeTruthy();
-    expect(screen.getByText(/Anna Weber/)).toBeTruthy(); // on_behalf_of_name surfaced
+    // The person is the subject of the sentence, and named exactly once: the
+    // suffix that used to complete the old machine-first phrasing would now be
+    // a second copy of the same name.
+    expect(
+      screen.getByText("Anna Weber, via an agent, updated the record"),
+    ).toBeTruthy();
+    expect(screen.getAllByText(/Anna Weber/)).toHaveLength(1);
+    // A human row names the person on the provenance chip too, which without a
+    // resolved name says a person acted without saying which one. Twice here is
+    // correct and not the doubling above: once as the sentence's subject, once
+    // as the "typed by" chip in the meta row.
+    expect(screen.getAllByText(/Demo Admin/)).toHaveLength(2);
   });
 
   it("shows an honest empty state", async () => {
