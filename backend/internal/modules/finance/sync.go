@@ -200,7 +200,10 @@ func mirrorCustomer(
 		customer.UpdatedAt, hash, source, by); err != nil {
 		return fmt.Errorf("mirror the source's customer: %w", err)
 	}
-	return auditFinanceCreate(ctx, tx, entityExternalCustomer, id, after)
+	if _, err := storekit.Audit(ctx, tx, "create", entityExternalCustomer, id, nil, after); err != nil {
+		return fmt.Errorf("record the mirrored customer: %w", err)
+	}
+	return nil
 }
 
 // updateExternalCustomer rewrites one directory entry the source restated.
@@ -222,7 +225,10 @@ func updateExternalCustomer(
 		id, customer.DisplayName, customer.UpdatedAt, hash); err != nil {
 		return fmt.Errorf("update the mirrored customer: %w", err)
 	}
-	return auditFinanceUpdate(ctx, tx, entityExternalCustomer, id, before, after)
+	if _, err := storekit.Audit(ctx, tx, "update", entityExternalCustomer, id, before, after); err != nil {
+		return fmt.Errorf("record the restated customer: %w", err)
+	}
+	return nil
 }
 
 // findExternalCustomer reads what the mirror already holds for one directory

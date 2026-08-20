@@ -651,12 +651,15 @@ func TestARestatedSourceAuditsTheUpdateWithBothImages(t *testing.T) {
 	}
 	created := auditRowsByEntity(e.ctx, t, e)
 
-	// The source corrects the tax it charged, the amount it received, and the
-	// name it files the customer under. Three tables, three update arms.
+	// A tax correction that leaves GROSS UNCHANGED — net 10000 → 11000, tax
+	// 1900 → 900, gross still 11900 — plus a restated payment and a renamed
+	// customer. Gross is held still deliberately: it is the case an audit image
+	// narrower than the change key cannot record, because the only columns that
+	// moved are ones such an image does not carry, and the row would say money
+	// changed without saying what.
 	source.customer.DisplayName = "Ledger GmbH (Hamburg)"
-	source.ledger.Invoices[0].TaxMinor = 3090
-	source.ledger.Invoices[0].GrossMinor = 13090
-	source.ledger.Invoices[0].PaidMinor = 6000
+	source.ledger.Invoices[0].NetMinor = 11000
+	source.ledger.Invoices[0].TaxMinor = 900
 	source.ledger.Payments[0].AmountMinor = 6000
 	if _, err := e.store.SyncConnection(e.ctx, source); err != nil {
 		t.Fatalf("second sync: %v", err)
@@ -673,14 +676,57 @@ func TestARestatedSourceAuditsTheUpdateWithBothImages(t *testing.T) {
 	// figures rendered twice. A writer that rebuilt it from the source would
 	// pass every count above and record a change that did not happen.
 	before, after := updateImages(e.ctx, t, e, entityInvoice)
-	if before["gross_minor"] != float64(11900) || after["gross_minor"] != float64(13090) {
-		t.Errorf("the invoice's update reads %v → %v, want 11900 → 13090",
+	if before["net_minor"] != float64(10000) || after["net_minor"] != float64(11000) {
+		t.Errorf("the invoice's update reads net %v → %v, want 10000 → 11000",
+			before["net_minor"], after["net_minor"])
+	}
+	if before["gross_minor"] != after["gross_minor"] {
+		t.Errorf("gross moved (%v → %v) and this case is about the columns that move UNDER a fixed gross",
 			before["gross_minor"], after["gross_minor"])
 	}
 	before, after = updateImages(e.ctx, t, e, entityPayment)
 	if before["amount_minor"] != float64(5000) || after["amount_minor"] != float64(6000) {
 		t.Errorf("the payment's update reads %v → %v, want 5000 → 6000",
 			before["amount_minor"], after["amount_minor"])
+	}
+}
+
+// What the mirror's rows say ADMITTED them. The sweep holds no grant — it runs
+// on a path ratified as ungated, with no request and nobody behind it — and the
+// row has to say that rather than render a merged policy it never had.
+//
+// The value is append-only once written, which is why it is asserted here and
+// not left to a reader to notice years later.
+func TestTheMirrorsAuditRowsNameNoGrantTheSweepDoesNotHold(t *testing.T) {
+	e := setupFinance(t)
+	if _, err := e.store.SyncConnection(e.ctx, e.provider()); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	var rules []string
+	if err := e.store.tx(e.ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.ctx, `
+			SELECT array_agg(DISTINCT authorization_rule) FROM audit_log
+			 WHERE workspace_id = $1 AND entity_type LIKE 'finance\_%'`,
+			e.ws).Scan(&rules)
+	}); err != nil {
+		t.Fatalf("reading the mirror's authorization rules: %v", err)
+	}
+	if len(rules) != 1 || rules[0] != "system" {
+		t.Errorf("the mirror's rows record authorization_rule %v, want exactly [system] — "+
+			"anything shaped like `role[] x.create row_scope=` claims a policy the sweep never held", rules)
+	}
+	var actorTypes []string
+	if err := e.store.tx(e.ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.ctx, `
+			SELECT array_agg(DISTINCT actor_type) FROM audit_log
+			 WHERE workspace_id = $1 AND entity_type LIKE 'finance\_%'`,
+			e.ws).Scan(&actorTypes)
+	}); err != nil {
+		t.Fatalf("reading the mirror's actor types: %v", err)
+	}
+	if len(actorTypes) != 1 || actorTypes[0] != "connector" {
+		t.Errorf("the mirror's rows record actor_type %v, want exactly [connector] — "+
+			"a `system` type beside a `connector:` actor_id is a row that contradicts itself", actorTypes)
 	}
 }
 

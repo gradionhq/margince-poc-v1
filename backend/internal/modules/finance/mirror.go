@@ -221,15 +221,23 @@ func findInvoice(
 	// FOR UPDATE, because this read starts a read-modify-write: two sweeps
 	// racing on the same invoice would otherwise both see the old hash, both
 	// decide it changed, and both write. The row is held to commit.
+	// Every column the sync writes, because every one of them can be the sole
+	// reason it writes: the change key covers them, so a narrower read would
+	// produce a before image that cannot explain the update beside it.
 	err = tx.QueryRow(ctx, `
-		SELECT id, sync_hash, fx_rate_to_base, number, currency,
-		       gross_minor, open_minor, credited_minor, status
+		SELECT id, sync_hash, fx_rate_to_base, organization_id, number,
+		       issued_at, due_at, status, currency, net_minor, tax_minor,
+		       gross_minor, open_minor, credited_minor,
+		       fully_paid_at, disputed_at, void_at
 		  FROM finance_invoice
 		 WHERE connection_id = $1 AND external_id = $2
 		   FOR UPDATE`,
 		connectionID, externalID).Scan(&row.id, &row.hash, &row.fxRate,
-		&row.image.Number, &row.image.Currency, &row.image.GrossMinor,
-		&row.image.OpenMinor, &row.image.CreditedMinor, &row.image.Status)
+		&row.image.OrganizationID, &row.image.Number,
+		&row.image.IssuedAt, &row.image.DueAt, &row.image.Status,
+		&row.image.Currency, &row.image.NetMinor, &row.image.TaxMinor,
+		&row.image.GrossMinor, &row.image.OpenMinor, &row.image.CreditedMinor,
+		&row.image.FullyPaidAt, &row.image.DisputedAt, &row.image.VoidAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return mirroredInvoice{}, false, nil
 	}
@@ -237,16 +245,22 @@ func findInvoice(
 		return mirroredInvoice{}, false, fmt.Errorf("read the mirrored invoice: %w", err)
 	}
 	row.image.SyncHash = row.hash
+	row.image.FxRateToBase = row.fxRate
 	return row, true, nil
 }
 
 // invoiceImageOf renders what this pass is about to write, in the shape
 // findInvoice read the previous one in.
-func invoiceImageOf(inv SourceInvoice, values invoiceValues, hash string) invoiceImage {
+func invoiceImageOf(args mirrorArgs, values invoiceValues, hash string) invoiceImage {
+	inv := args.invoice
 	return invoiceImage{
-		Number: nullable(inv.Number), Currency: inv.Currency,
+		OrganizationID: args.organizationID, Number: nullable(inv.Number),
+		IssuedAt: inv.IssuedOn, DueAt: inv.DueOn, Status: values.status,
+		Currency: inv.Currency, NetMinor: inv.NetMinor, TaxMinor: inv.TaxMinor,
 		GrossMinor: inv.GrossMinor, OpenMinor: values.openMinor,
-		CreditedMinor: values.credited, Status: values.status, SyncHash: hash,
+		CreditedMinor: values.credited, FullyPaidAt: inv.FullyPaidAt,
+		DisputedAt: values.disputedAt, VoidAt: values.voidAt,
+		FxRateToBase: values.fxRate, SyncHash: hash,
 	}
 }
 
@@ -322,7 +336,11 @@ func insertInvoice(
 	if err != nil {
 		return fmt.Errorf("mirror the invoice: %w", err)
 	}
-	return auditFinanceCreate(ctx, tx, entityInvoice, id, invoiceImageOf(inv, values, hash))
+	if _, err := storekit.Audit(ctx, tx, "create", entityInvoice, id,
+		nil, invoiceImageOf(args, values, hash)); err != nil {
+		return fmt.Errorf("record the mirrored invoice: %w", err)
+	}
+	return nil
 }
 
 // updateInvoice rewrites EVERY hashed field, not only the derived ones.
@@ -364,7 +382,11 @@ func updateInvoice(
 	if err != nil {
 		return fmt.Errorf("update the mirrored invoice: %w", err)
 	}
-	return auditFinanceUpdate(ctx, tx, entityInvoice, id, before, invoiceImageOf(inv, values, hash))
+	if _, err := storekit.Audit(ctx, tx, "update", entityInvoice, id,
+		before, invoiceImageOf(args, values, hash)); err != nil {
+		return fmt.Errorf("record the restated invoice: %w", err)
+	}
+	return nil
 }
 
 // applyCredits folds every credit note in this ledger onto the invoice it

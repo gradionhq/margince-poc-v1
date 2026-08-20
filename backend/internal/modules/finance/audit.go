@@ -3,13 +3,17 @@
 
 package finance
 
-// The ledger row every mirror write commits beside the row it wrote.
+// The images the mirror's audit rows carry, and the connection's transition
+// rule. The `storekit.Audit` calls themselves sit at the six write statements,
+// so each one is ratified on its own key in `auditOnlyWrites` — a seventh
+// finance write would arrive unratified rather than inheriting a waiver
+// somebody wrote about four tables.
 //
-// The mirror holds MONEY, and an audit row cannot be written after the fact:
-// an invoice mirrored without one stays permanently unaccounted for, and the
-// erasure and retention reasoning that reads audit_log is blind to it. So the
-// audit row is committed in the same transaction as the domain row, from the
-// same connector principal that stamped `captured_by`.
+// Why the audit row at all: the mirror holds MONEY, and an audit row cannot be
+// written after the fact. An invoice mirrored without one stays permanently
+// unaccounted for, and the erasure and retention reasoning that reads
+// audit_log is blind to it. So it commits in the same transaction as the
+// domain row, from the same connector principal that stamped `captured_by`.
 //
 // AUDIT-ONLY, deliberately, and this is the whole rationale — read it before
 // adding an emit. The event catalog is CLOSED: an event type exists because a
@@ -21,10 +25,6 @@ package finance
 // would tell every subscriber that a company record changed when none did.
 // Publishing under either is worse than publishing nothing: a wrong envelope
 // is acted on, an absent one is not.
-//
-// The audit row is the half that was missing and the half that cannot wait,
-// because it cannot be reconstructed. The event is a product decision about
-// which finance types the contract should carry, tracked as its own issue.
 
 import (
 	"context"
@@ -47,69 +47,57 @@ const (
 	entityConnection       = "finance_connection"
 )
 
-// auditFinanceCreate records a row this pass brought into the mirror.
+// invoiceImage is one mirrored invoice as the audit trail carries it.
 //
-// The verb is a literal here rather than a parameter because the audit-verb
-// gate reads the SOURCE for it: a call that built the verb from a variable
-// would leave the DDL's CHECK and the contract in perfect agreement and still
-// fail at INSERT. `create` and not `import`: `import` is the bulk-import run's
-// verb, and one mirrored row is not an import run.
-func auditFinanceCreate[T mirrorImage](
-	ctx context.Context, tx pgx.Tx, entityType string, id ids.UUID, after T,
-) error {
-	if _, err := storekit.Audit(ctx, tx, "create", entityType, id, nil, after); err != nil {
-		return fmt.Errorf("record that the mirror took in a %s: %w", entityType, err)
-	}
-	return nil
-}
-
-// auditFinanceUpdate records a mirrored row the source restated, with both
-// images so a reader can see what the money was before it moved.
-func auditFinanceUpdate[T mirrorImage](
-	ctx context.Context, tx pgx.Tx, entityType string, id ids.UUID, before, after T,
-) error {
-	if _, err := storekit.Audit(ctx, tx, "update", entityType, id, before, after); err != nil {
-		return fmt.Errorf("record that the mirror restated a %s: %w", entityType, err)
-	}
-	return nil
-}
-
-// mirrorImage is the closed set of audit images this module writes — one shape
-// per table it owns. A constraint rather than a bare `any`, because the set
-// really is closed: a fifth shape means a fifth table, which is a schema change
-// nobody makes by accident. It also makes auditFinanceUpdate take its two
-// images as the SAME type, so a before read off one table can never be recorded
-// against an after derived for another.
-type mirrorImage interface {
-	invoiceImage | paymentImage | externalCustomerImage | connectionImage
-}
-
-// invoiceImage is one mirrored invoice as the audit trail carries it: the
-// money, the state it is in, and the source hash that decided it changed.
+// It covers EVERY column the sync writes, and that is not thoroughness for its
+// own sake: the change key is `invoiceHash`, so anything inside the hash can be
+// the sole reason a row was rewritten. An image narrower than the hash produces
+// audit rows whose before and after differ only in `sync_hash` — a trail saying
+// money moved without saying what moved, which is the gap this exists to close.
+// A source restating net 1000 → 1200 as a tax correction, gross unchanged, is
+// the case that finds it.
 //
-// One shape for both sides on purpose. The before image is read off the row
-// and the after image is derived for the write, and a reader diffing them has
-// to be comparing like with like — two shapes would make an absent field
-// indistinguishable from a field that went away.
+// `fx_rate_to_base` is here although the hash does not cover it, because the
+// repair path rewrites a row on an UNCHANGED hash precisely to fill it in;
+// without it that write would record before == after.
+//
+// One shape for both sides. The before image is read off the row and the after
+// is derived for the write, and a reader diffing them has to be comparing like
+// with like — two shapes would make an absent field indistinguishable from a
+// field that went away.
+//
+// There is no `paid_minor`: the mirror does not store it. What the source said
+// it received arrives as `open_minor`, which is gross less paid, clamped at
+// nothing-owed.
 type invoiceImage struct {
-	Number        *string `json:"number"`
-	Currency      string  `json:"currency"`
-	GrossMinor    int64   `json:"gross_minor"`
-	OpenMinor     int64   `json:"open_minor"`
-	CreditedMinor int64   `json:"credited_minor"`
-	Status        string  `json:"status"`
-	SyncHash      string  `json:"sync_hash"`
+	OrganizationID ids.OrganizationID `json:"organization_id"`
+	Number         *string            `json:"number"`
+	IssuedAt       time.Time          `json:"issued_at"`
+	DueAt          *time.Time         `json:"due_at"`
+	Status         string             `json:"status"`
+	Currency       string             `json:"currency"`
+	NetMinor       int64              `json:"net_minor"`
+	TaxMinor       int64              `json:"tax_minor"`
+	GrossMinor     int64              `json:"gross_minor"`
+	OpenMinor      int64              `json:"open_minor"`
+	CreditedMinor  int64              `json:"credited_minor"`
+	FullyPaidAt    *time.Time         `json:"fully_paid_at"`
+	DisputedAt     *time.Time         `json:"disputed_at"`
+	VoidAt         *time.Time         `json:"void_at"`
+	FxRateToBase   *float64           `json:"fx_rate_to_base"`
+	SyncHash       string             `json:"sync_hash"`
 }
 
 // paymentImage is one mirrored payment as the audit trail carries it,
 // including the invoice it settles: a payment reassigned to another invoice is
 // money moving between accounts, and the before image is where that shows.
 type paymentImage struct {
-	InvoiceID   *ids.UUID `json:"invoice_id"`
-	Currency    string    `json:"currency"`
-	AmountMinor int64     `json:"amount_minor"`
-	PaidAt      time.Time `json:"paid_at"`
-	SyncHash    string    `json:"sync_hash"`
+	OrganizationID ids.OrganizationID `json:"organization_id"`
+	InvoiceID      *ids.UUID          `json:"invoice_id"`
+	Currency       string             `json:"currency"`
+	AmountMinor    int64              `json:"amount_minor"`
+	PaidAt         time.Time          `json:"paid_at"`
+	SyncHash       string             `json:"sync_hash"`
 }
 
 // externalCustomerImage is one mirrored directory entry. It carries no money;
@@ -125,12 +113,15 @@ type externalCustomerImage struct {
 // `last_error_code` is a plain string and not a pointer, because this struct is
 // compared BY VALUE to decide whether anything changed. Two pointers holding
 // the same code are not equal, so a pointer field would report a transition on
-// every failed pass — the exact noise the comparison exists to suppress. The
-// column is nullable and "no error" is its empty string here, which `omitempty`
-// keeps out of the recorded image rather than writing it as a value.
+// every failed pass — the exact noise the comparison exists to suppress.
+//
+// It carries no `omitempty`, deliberately. On recovery the after image's job is
+// to say the error code was CLEARED, and a projection that walks the after
+// image's keys cannot record a change to a key that is not there. The empty
+// string is the cleared state, written rather than implied.
 type connectionImage struct {
 	Status    string `json:"status"`
-	ErrorCode string `json:"last_error_code,omitempty"`
+	ErrorCode string `json:"last_error_code"`
 }
 
 // auditConnectionTransition records a connection that changed STATE, and
@@ -147,7 +138,10 @@ func auditConnectionTransition(
 	if before == after {
 		return nil
 	}
-	return auditFinanceUpdate(ctx, tx, entityConnection, id, before, after)
+	if _, err := storekit.Audit(ctx, tx, "update", entityConnection, id, before, after); err != nil {
+		return fmt.Errorf("record the connection's change of state: %w", err)
+	}
+	return nil
 }
 
 // readConnectionState reads the state a status write is about to change, under

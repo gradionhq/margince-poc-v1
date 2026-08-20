@@ -54,12 +54,14 @@ func findPayment(
 	// FOR UPDATE for the reason findInvoice takes it: this read is the first
 	// half of a read-modify-write, and two sweeps must not both write.
 	err = tx.QueryRow(ctx, `
-		SELECT id, sync_hash, invoice_id, currency, amount_minor, paid_at
+		SELECT id, sync_hash, organization_id, invoice_id, currency,
+		       amount_minor, paid_at
 		  FROM finance_payment
 		 WHERE connection_id = $1 AND external_id = $2
 		   FOR UPDATE`,
-		connectionID, externalID).Scan(&id, &image.SyncHash, &image.InvoiceID,
-		&image.Currency, &image.AmountMinor, &image.PaidAt)
+		connectionID, externalID).Scan(&id, &image.SyncHash,
+		&image.OrganizationID, &image.InvoiceID, &image.Currency,
+		&image.AmountMinor, &image.PaidAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ids.UUID{}, paymentImage{}, false, nil
 	}
@@ -94,7 +96,10 @@ func updatePayment(
 		after.PaidAt, after.Currency, after.AmountMinor, args.payment.UpdatedAt, hash); err != nil {
 		return fmt.Errorf("update the mirrored payment: %w", err)
 	}
-	return auditFinanceUpdate(ctx, tx, entityPayment, id, before, after)
+	if _, err := storekit.Audit(ctx, tx, "update", entityPayment, id, before, after); err != nil {
+		return fmt.Errorf("record the restated payment: %w", err)
+	}
+	return nil
 }
 
 func insertPayment(ctx context.Context, tx pgx.Tx, args paymentArgs, hash string) error {
@@ -111,7 +116,10 @@ func insertPayment(ctx context.Context, tx pgx.Tx, args paymentArgs, hash string
 		args.payment.UpdatedAt, hash, args.source, args.capturedBy); err != nil {
 		return fmt.Errorf("mirror the payment: %w", err)
 	}
-	return auditFinanceCreate(ctx, tx, entityPayment, id, after)
+	if _, err := storekit.Audit(ctx, tx, "create", entityPayment, id, nil, after); err != nil {
+		return fmt.Errorf("record the mirrored payment: %w", err)
+	}
+	return nil
 }
 
 // paymentImageOf renders what this pass is about to write, in the shape
@@ -119,7 +127,8 @@ func insertPayment(ctx context.Context, tx pgx.Tx, args paymentArgs, hash string
 func paymentImageOf(args paymentArgs, hash string) paymentImage {
 	pay := args.payment
 	return paymentImage{
-		InvoiceID: resolveInvoice(pay, args.rowIDs), Currency: pay.Currency,
+		OrganizationID: args.organizationID,
+		InvoiceID:      resolveInvoice(pay, args.rowIDs), Currency: pay.Currency,
 		AmountMinor: pay.AmountMinor, PaidAt: pay.PaidAt, SyncHash: hash,
 	}
 }

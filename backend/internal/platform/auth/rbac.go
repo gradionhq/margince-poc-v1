@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -153,8 +154,23 @@ var auditActionGrant = map[string]principal.Action{
 
 // AuthzRule renders the audit_log.authorization_rule attribution for a
 // permitted mutation: which merged role policy allowed which action.
+//
+// A principal with NO HUMAN BEHIND IT renders "system" instead, and a bare
+// connector is one — the scheduled sweeps run on paths ratified as ungated in
+// `ungatedEntryPoints`, where nothing was checked because there was no grant to
+// check and nobody to hold one. Rendering the merged policy for one writes
+// `role[] finance_invoice.create row_scope=`, which reads years later as a
+// principal that HELD a role and a row scope and had neither. audit_log is
+// append-only, so that reading cannot be corrected once written.
+//
+// "No human behind it" is the same test `storekit.OwnerOrActor` already applies
+// when it leaves such a row ownerless, and it is what `OnBehalfOf` records: a
+// connector acting for somebody — the capture path's, which carries the
+// granting human's own RBAC — falls through to the policy below and renders it,
+// because there a rule really did admit the call.
 func AuthzRule(p principal.Principal, entityType string, auditAction string) string {
-	if p.Type == principal.PrincipalSystem {
+	if p.Type == principal.PrincipalSystem ||
+		(p.Type == principal.PrincipalConnector && p.OnBehalfOf == ids.Nil) {
 		return "system"
 	}
 	action, ok := auditActionGrant[auditAction]

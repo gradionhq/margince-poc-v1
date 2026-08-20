@@ -148,10 +148,10 @@ var auditOnlyWrites = gatekit.Waive(map[string]string{
 	"internal/compose/briefs:markItem":                      "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/compose/briefs:resurfaceExpiredSnoozes":       "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/people:recordDedupeCandidate":         "a dedupe candidate is a QUESTION the system is asking about two records, not something that happened to either \u2014 the closed catalog (events.md \u00a75) defines no dedupe.* type, nothing downstream acts on a proposal, and an outbox row nobody consumes would be a kind invented to satisfy the rule rather than a reader. Audited because who proposed a merge, when, and on what evidence belongs on the record's own history rather than only in operator telemetry",
-	// The finance mirror's two ledger writers, and one rationale covering both:
-	// they are the single spelling of `create` and `update` for every row the
-	// accounting sweep writes (invoice, payment, directory entry, connection
-	// state), so waiving them waives the mirror rather than a call site.
+	// The finance mirror's seven write sites. One rationale covers all of them,
+	// and each is keyed on its own function so an EIGHTH finance write arrives
+	// unratified instead of inheriting a waiver somebody wrote about four
+	// tables.
 	//
 	// The event catalog is CLOSED: an event type exists because the contract
 	// declares one, and a build may not mint a type to satisfy this rule. The
@@ -167,10 +167,15 @@ var auditOnlyWrites = gatekit.Waive(map[string]string{
 	// written afterwards: an invoice mirrored without one stays permanently
 	// unaccounted for, and the erasure and retention reasoning that reads
 	// audit_log is blind to it. Which finance types the contract should carry is
-	// a product decision, tracked as its own issue; ratifying them removes these
-	// two entries and nothing else.
-	"internal/modules/finance:auditFinanceCreate": "the mirror's `create` writer \u2014 see the note above these two entries: the closed event catalog carries no finance type, and the two adjacent types would each misroute an accounting fact. Audit-only until the contract ratifies one",
-	"internal/modules/finance:auditFinanceUpdate": "the mirror's `update` writer, on exactly the same ground as auditFinanceCreate above it",
+	// a product decision, tracked as its own issue; ratifying them replaces
+	// these seven entries with emits at the same call sites.
+	"internal/modules/finance:insertInvoice":             "the mirror takes in an invoice \u2014 see the note above these seven entries",
+	"internal/modules/finance:updateInvoice":             "the source restated an invoice \u2014 same ground",
+	"internal/modules/finance:insertPayment":             "the mirror takes in a received payment \u2014 same ground",
+	"internal/modules/finance:updatePayment":             "the source restated a payment \u2014 same ground",
+	"internal/modules/finance:mirrorCustomer":            "the mirror takes in a directory entry \u2014 same ground, and this row carries no money at all: it records which name in the accounting source a link points at",
+	"internal/modules/finance:updateExternalCustomer":    "the source renamed a directory entry \u2014 same ground",
+	"internal/modules/finance:auditConnectionTransition": "the accounting source went down or came back \u2014 same ground. This one is a STATE change rather than a record fact, so even a ratified finance catalog would want a connection verb rather than an invoice one",
 	// WriteFiltered no longer belongs here: the bulk export is a non-entity
 	// operational event, so it moved from storekit.Audit to storekit.LogSystem
 	// (system_log, 0074) \u2014 it writes no audit_log row at all now.
