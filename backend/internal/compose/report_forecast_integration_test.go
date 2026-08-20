@@ -93,7 +93,7 @@ func setupForecast(t *testing.T) *forecastEnv {
 		t.Fatal(err)
 	}
 	for email, u := range map[string]ids.UUID{"rep1@forecast.test": e.Rep1, "rep3@forecast.test": e.Rep3} {
-		if _, err := owner.Exec(ctx, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`, u, e.WS, email); err != nil {
+		if _, err := owner.Exec(ctx, `INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep')`, u, email); err != nil {
 			t.Fatal(err)
 		}
 	}

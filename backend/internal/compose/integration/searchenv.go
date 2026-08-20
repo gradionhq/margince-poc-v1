@@ -78,8 +78,7 @@ func SetupSearch(t *testing.T) *SearchEnv {
 		t.Fatal(err)
 	}
 	for i, u := range []ids.UUID{e.Rep1, e.Rep3} {
-		if _, err := owner.Exec(ctx, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
-			u, e.WS, fmt.Sprintf("rep%d@search.test", i)); err != nil {
+		if _, err := owner.Exec(ctx, `INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep')`, u, fmt.Sprintf("rep%d@search.test", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -108,15 +107,19 @@ func SetupSearch(t *testing.T) *SearchEnv {
 	return e
 }
 
-// Seed writes one row through the owner connection, minting its id and binding
-// the workspace. It rides the owner rather than the app pool because the suites
-// that use it are testing READ semantics — the write shape has its own suites,
-// and going through a store here would make the fixture depend on the thing
-// under test.
+// Seed writes one row through the owner connection, minting its id as $1. It
+// rides the owner rather than the app pool because the suites that use it are
+// testing READ semantics — the write shape has its own suites, and going
+// through a store here would make the fixture depend on the thing under test.
+//
+// It used to bind the workspace as $2 for every caller. ADR-0091 §8 phase D has
+// taken the tenant column off all but the append-only ledgers, so a caller that
+// still needs it passes e.WS itself rather than every caller carrying a
+// parameter most of their tables no longer have.
 func (e *SearchEnv) Seed(t *testing.T, sql string, args ...any) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	if _, err := e.Owner.Exec(context.Background(), sql, append([]any{id, e.WS}, args...)...); err != nil {
+	if _, err := e.Owner.Exec(context.Background(), sql, append([]any{id}, args...)...); err != nil {
 		t.Fatalf("seeding: %v", err)
 	}
 	return id

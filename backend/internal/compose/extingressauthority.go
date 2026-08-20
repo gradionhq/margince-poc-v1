@@ -138,7 +138,6 @@ func extensionMemberConsented(ctx context.Context, pool *pgxpool.Pool, unit stri
 				WHERE s.extension_name = $1
 				  AND s.user_id = $2
 				  AND s.key = ANY($3)
-				  AND u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			)`, unit, member, declared).Scan(&consented)
 	})
 	if err != nil {

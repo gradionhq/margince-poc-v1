@@ -358,7 +358,6 @@ func requireMember(ctx context.Context, tx pgx.Tx, user *ids.UserID) error {
 		SELECT EXISTS (
 			SELECT 1 FROM app_user
 			 WHERE id = $1
-			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		)`, *user).Scan(&member); err != nil {
 		return err
 	}

@@ -128,8 +128,7 @@ func (e *estEnv) seedUser(t *testing.T, ws ids.UUID) ids.UserID {
 	t.Helper()
 	uid := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
-		uid, ws, uid.String()+"@example.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep')`, uid, uid.String()+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
 	return ids.From[ids.UserKind](uid)

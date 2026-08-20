@@ -44,7 +44,6 @@ type ListUsersInput struct {
 
 type userRow struct {
 	ID          ids.UUID
-	WorkspaceID ids.UUID
 	Email       string
 	DisplayName string
 	Status      string
@@ -71,7 +70,7 @@ const roleKeys = `CASE WHEN $1::boolean THEN
 	     WHERE ra.user_id = app_user.id)
 	  ELSE NULL::text[] END`
 
-const userColumns = `id, workspace_id, email, display_name, status, is_agent, ` + roleKeys + `, created_at`
+const userColumns = `id, email, display_name, status, is_agent, ` + roleKeys + `, created_at`
 
 // $1 is the "read role keys?" flag on every user query below, so the aggregate
 // stays inside ONE fixed query string instead of two the caller picks between.
@@ -83,7 +82,6 @@ const listUsersQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL AND status = 'active'
-	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
 	ORDER BY created_at, id
 	LIMIT $4`
@@ -92,7 +90,6 @@ const listUsersFilteredQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL AND status = 'active'
-	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND (display_name ILIKE $2 OR email ILIKE $2)
 	  AND ($3::timestamptz IS NULL OR (created_at, id) > ($3, $4))
 	ORDER BY created_at, id
@@ -104,7 +101,6 @@ const listUsersAllQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL
-	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND ($2::timestamptz IS NULL OR (created_at, id) > ($2, $3))
 	ORDER BY created_at, id
 	LIMIT $4`
@@ -113,7 +109,6 @@ const listUsersAllFilteredQuery = `
 	SELECT ` + userColumns + `
 	FROM app_user
 	WHERE archived_at IS NULL
-	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND (display_name ILIKE $2 OR email ILIKE $2)
 	  AND ($3::timestamptz IS NULL OR (created_at, id) > ($3, $4))
 	ORDER BY created_at, id
@@ -121,13 +116,12 @@ const listUsersAllFilteredQuery = `
 
 func scanUser(r pgx.Row) (userRow, error) {
 	var u userRow
-	err := r.Scan(&u.ID, &u.WorkspaceID, &u.Email, &u.DisplayName, &u.Status, &u.IsAgent, &u.Roles, &u.CreatedAt)
+	err := r.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Status, &u.IsAgent, &u.Roles, &u.CreatedAt)
 	return u, err
 }
 
 const getUserQuery = `SELECT ` + userColumns + ` FROM app_user
-	WHERE id = $2 AND archived_at IS NULL
-	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+	WHERE id = $2 AND archived_at IS NULL`
 
 // GetUser reads one member by id regardless of status, bounded to the bound
 // workspace by the query's own predicate — the read every admin write returns

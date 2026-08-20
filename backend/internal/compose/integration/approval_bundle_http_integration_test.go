@@ -73,7 +73,7 @@ func stageBundleRows(t *testing.T, e *apptest.AppEnv, orgID string, kinds ...str
 		t.Fatalf("workspace lookup: %v", err)
 	}
 	if err := e.Owner.QueryRow(ctx,
-		`SELECT id FROM app_user WHERE workspace_id = $1 AND is_agent = false ORDER BY created_at LIMIT 1`, wsID).Scan(&adminID); err != nil {
+		`SELECT id FROM app_user WHERE is_agent = false ORDER BY created_at LIMIT 1`).Scan(&adminID); err != nil {
 		t.Fatalf("admin lookup: %v", err)
 	}
 	for i, kind := range kinds {

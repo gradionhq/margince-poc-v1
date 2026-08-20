@@ -94,10 +94,9 @@ func seedRecord(ctx context.Context, t *testing.T, db *database.DB,
 		// The ledger's owner is a foreign key: a dangling one would make this a
 		// test about referential integrity instead of about the join.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO app_user (id, workspace_id, email, display_name, status)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, 'Member', 'active')
-			ON CONFLICT (id) DO NOTHING`,
-			owner, "member-"+owner.String()+"@example.test"); err != nil {
+			INSERT INTO app_user (id, email, display_name, status)
+			VALUES ($1, $2, 'Member', 'active')
+			ON CONFLICT (id) DO NOTHING`, owner, "member-"+owner.String()+"@example.test"); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `

@@ -200,7 +200,6 @@ func extensionJobActor(ctx context.Context, pool *pgxpool.Pool, ws ids.UUID) (id
 		return tx.QueryRow(ctx,
 			`SELECT id FROM app_user
 			  WHERE is_agent AND status = 'active' AND archived_at IS NULL
-			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			  ORDER BY created_at LIMIT 1`).Scan(&actor)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

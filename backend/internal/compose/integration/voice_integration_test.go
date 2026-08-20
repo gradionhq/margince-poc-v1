@@ -382,8 +382,8 @@ func TestVoiceProfileIsInvisibleAcrossTenants(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := e.Owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'bea@example.com', 'Bea Boss')`,
-		userB, wsB); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, 'bea@example.com', 'Bea Boss')`,
+		userB); err != nil {
 		t.Fatal(err)
 	}
 	ctxB := principal.WithCorrelationID(principal.WithWorkspaceID(ctx, wsB), ids.NewV7())

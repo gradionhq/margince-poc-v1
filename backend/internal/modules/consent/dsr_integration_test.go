@@ -84,8 +84,7 @@ func setupDSR(t *testing.T) *dsrEnv {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Officer')`,
-		e.user, e.ws, "dpo-"+e.user.String()+"@dsr.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Officer')`, e.user, "dpo-"+e.user.String()+"@dsr.test"); err != nil {
 		t.Fatal(err)
 	}
 

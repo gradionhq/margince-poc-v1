@@ -134,8 +134,8 @@ func (s *Service) mintLentAuthorizationCode(
 func lockConsentingUser(ctx context.Context, tx pgx.Tx, id Identity) error {
 	var locked ids.UserID
 	err := tx.QueryRow(ctx,
-		`SELECT id FROM app_user WHERE id = $1 AND workspace_id = $2 FOR KEY SHARE`,
-		id.UserID, id.WorkspaceID).Scan(&locked)
+		`SELECT id FROM app_user WHERE id = $1 FOR KEY SHARE`,
+		id.UserID).Scan(&locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("oauth: consent for user %s: the app_user row is absent", id.UserID)
 	}

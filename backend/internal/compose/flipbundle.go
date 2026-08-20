@@ -238,8 +238,7 @@ func presentOwners(ctx context.Context, pool *pgxpool.Pool, owners map[string]id
 			// installation passes the filter and the import then fails on the
 			// owner FK (ADR-0091 §8 phase A).
 			`SELECT id FROM app_user
-			  WHERE id = ANY($1)
-			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, candidates)
+			  WHERE id = ANY($1)`, candidates)
 		if err != nil {
 			return fmt.Errorf("reconstruction: checking which bundle owners exist here: %w", err)
 		}

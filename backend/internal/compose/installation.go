@@ -32,7 +32,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/config"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/ownedfile"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
@@ -335,9 +334,8 @@ func seedBookingPage(ctx context.Context, tx pgx.Tx) error {
 	var adminID ids.UserID
 	if err := tx.QueryRow(ctx,
 		`SELECT id FROM app_user
-		  WHERE workspace_id = $1 AND is_agent = false
-		  ORDER BY created_at LIMIT 1`,
-		storekit.MustWorkspace(ctx)).Scan(&adminID); err != nil {
+		  WHERE is_agent = false
+		  ORDER BY created_at LIMIT 1`).Scan(&adminID); err != nil {
 		return err
 	}
 	_, err := activities.SeedBookingPageTx(ctx, tx, adminID)

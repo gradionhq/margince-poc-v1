@@ -409,8 +409,7 @@ func seedUnmappedAppUser(t *testing.T, ws ids.UUID) ids.UUID {
 	owner := integration.OwnerConn(t)
 	userID := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Unmapped')`,
-		userID, ws, "unmapped-"+userID.String()+"@overlay.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Unmapped')`, userID, "unmapped-"+userID.String()+"@overlay.test"); err != nil {
 		t.Fatalf("seeding the unmapped app_user: %v", err)
 	}
 	return userID

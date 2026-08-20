@@ -426,7 +426,7 @@ func TestWebhookFanOutStopsAtRevokedOwner(t *testing.T) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, we.wsID.String()); err != nil {
 		t.Fatalf("set guc: %v", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE app_user SET archived_at = now() WHERE workspace_id = $1`, we.wsID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE app_user SET archived_at = now()`); err != nil {
 		t.Fatalf("revoke owner: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

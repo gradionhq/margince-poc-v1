@@ -61,8 +61,7 @@ func setupFacts(t *testing.T) *factsEnv {
 	})
 	e := &factsEnv{owner: owner, ws: ids.NewV7(), user: ids.NewV7()}
 	e.exec(t, `INSERT INTO workspace (id, slug) VALUES ($1, $2)`, e.ws, "facts-"+e.ws.String())
-	e.exec(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
-		e.user, e.ws, "rep-"+e.user.String()+"@facts.test")
+	e.exec(t, `INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep')`, e.user, "rep-"+e.user.String()+"@facts.test")
 	pool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
 		t.Fatal(err)
@@ -204,8 +203,7 @@ func TestReadingPipelineFactsTakesTheRowScopeNotJustTheGrant(t *testing.T) {
 	e := setupFacts(t)
 	id := e.seed(t, capturedRow{kind: "email"})
 	other := ids.NewV7()
-	e.exec(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Other')`,
-		other, e.ws, "other-"+other.String()+"@facts.test")
+	e.exec(t, `INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Other')`, other, "other-"+other.String()+"@facts.test")
 	person := ids.NewV7()
 	e.exec(t, `INSERT INTO person (id, full_name, source, captured_by, owner_id, visibility)
 		VALUES ($1, 'Theirs', 'test', 'connector:gmail', $2, 'owner')`, person, other)

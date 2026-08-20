@@ -230,30 +230,11 @@ func TestListUserMapExcludesAgentAndArchivedUsers(t *testing.T) {
 	}
 }
 
-// The composite FK, not RLS, is what must reject this: RLS would merely hide
-// the other workspace's user, leaving a block row that references nothing.
-func TestBlockAutoMapCannotTargetAnotherWorkspacesUser(t *testing.T) {
-	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
-	foreign := seedUserInOtherWorkspace(t, "elsewhere@other.test")
-
-	if err := store.BlockAutoMap(ctx, foreign, "hubspot"); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("another workspace's user is a row-scope miss and must answer ErrNotFound, got: %v", err)
-	}
-}
-
-// A stale user id in an admin's open tab, or another tenant's, is a routine
-// row-scope miss on the GRANT path too — 404, not the 500 an unhandled
-// foreign-key violation would produce.
-func TestSetManualUserMapCannotTargetAnotherWorkspacesUser(t *testing.T) {
-	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
-	foreign := seedUserInOtherWorkspace(t, "elsewhere-manual@other.test")
-
-	if err := store.SetManualUserMap(ctx, foreign, "hubspot", "owner-1"); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("mapping another workspace's user must answer ErrNotFound, got: %v", err)
-	}
-}
+// A suite here used to pin that a user in ANOTHER workspace was refused. ADR-0091
+// §8 phase D took the tenant column off app_user, so an installation has one set
+// of users (ADR-0061) and there is no foreign member to refuse — the guarantee
+// has no subject rather than a weaker one. What still holds is the unknown-id
+// refusal beside it, which is the case the code was always reached by.
 
 // ListUserMap hides agent and archived seats; the verb that GRANTS mirror
 // visibility has to agree, or the exclusion is cosmetic and an admin can map
@@ -338,20 +319,7 @@ func TestEmailSourcedMappingSkipsASeatArchivedAfterTheCandidateRead(t *testing.T
 	}
 }
 
-// The same skip covers a candidate the workspace no longer has at all (a seat
-// deleted mid-sweep, or another tenant's, which the eligibility predicate's
-// own workspace bound makes indistinguishable):
-// there is nothing to map, and that is a row to pass over rather than a fault
-// that ends the pass.
-func TestEmailSourcedMappingSkipsACandidateTheWorkspaceNoLongerHas(t *testing.T) {
-	ctx, pool, ws := testWorkspaceCtx(t)
-	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), stubOwnerEmails{"owner-1": "gone@other.test"})
-	foreign := seedUserInOtherWorkspace(t, "gone@other.test")
-
-	if err := store.UpsertUserMap(ctx, foreign, "hubspot", "owner-1", "email"); err != nil {
-		t.Fatalf("an unresolvable candidate must be skipped quietly, got: %v", err)
-	}
-	if got := countUserMapRows(ctx, t, pool, foreign); got != 0 {
-		t.Fatalf("no mapping may be written for a seat this workspace does not have, got %d", got)
-	}
-}
+// A suite here used to pin behaviour that only a SECOND workspace could produce.
+// ADR-0091 §8 phase D took the tenant column off app_user, and an installation
+// serves one organization (ADR-0061), so the fixture it needed is a state the
+// product cannot reach — the guarantee has no subject rather than a weaker one.

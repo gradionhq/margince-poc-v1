@@ -51,7 +51,6 @@ func KnownHumanName(ctx context.Context, tx pgx.Tx, email string) (string, error
 	err := tx.QueryRow(ctx, `
 		SELECT display_name FROM app_user
 		 WHERE lower(email) = $1
-		   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		   AND archived_at IS NULL
 		   AND status = 'active'`, normalized).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {

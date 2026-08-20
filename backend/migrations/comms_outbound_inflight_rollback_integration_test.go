@@ -86,11 +86,10 @@ func seedChannelDeliveryForRollback(t *testing.T, conn *pgx.Conn, ws string, inF
 	var deliveryID string
 	if err := withGUC(t, conn, ws, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		var userID, activityID string
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO app_user (workspace_id, email, display_name)
-			VALUES (`+wsClause+`, 'rep-' || gen_random_uuid() || '@inflight.test', 'Rep')
+			INSERT INTO app_user (email, display_name)
+			VALUES ('rep-' || gen_random_uuid() || '@inflight.test', 'Rep')
 			RETURNING id`).Scan(&userID); err != nil {
 			return err
 		}

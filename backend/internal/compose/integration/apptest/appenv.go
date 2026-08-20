@@ -188,7 +188,7 @@ func (e *AppEnv) SetWorkspaceSeat(t *testing.T, slug, seat string) {
 		t.Fatalf("set guc: %v", err)
 	}
 	if _, err := tx.Exec(ctx,
-		`UPDATE app_user SET seat_type = $2 WHERE workspace_id = $1 AND NOT is_agent`, wsID, seat); err != nil {
+		`UPDATE app_user SET seat_type = $1 WHERE NOT is_agent`, seat); err != nil {
 		t.Fatalf("seat update: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

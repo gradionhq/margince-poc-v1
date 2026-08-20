@@ -237,7 +237,6 @@ func (s *MirrorStore) usersMatchingEmail(ctx context.Context, email, incumbent s
 		rows, err := tx.Query(ctx, `
 			SELECT u.id FROM app_user u
 			WHERE lower(trim(u.email)) = lower(trim($1))
-			  AND u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			  AND NOT u.is_agent
 			  AND u.archived_at IS NULL
 			  AND NOT EXISTS (

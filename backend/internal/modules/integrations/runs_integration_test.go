@@ -75,9 +75,8 @@ func setupRuns(t *testing.T, cfg runsConfig) *runsEnv {
 	}
 	actor := ids.NewV7()
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO app_user (id, workspace_id, email, display_name, status)
-		VALUES ($1, $2, $3, 'Test Rep', 'active')`,
-		actor, e.ws, "rep-"+actor.String()+"@example.com"); err != nil {
+		INSERT INTO app_user (id, email, display_name, status)
+		VALUES ($1, $2, 'Test Rep', 'active')`, actor, "rep-"+actor.String()+"@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	// A SECOND user, on no shared team, to own the record the acting rep must
@@ -87,9 +86,8 @@ func setupRuns(t *testing.T, cfg runsConfig) *runsEnv {
 	// ELSE owning it.
 	stranger := ids.NewV7()
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO app_user (id, workspace_id, email, display_name, status)
-		VALUES ($1, $2, $3, 'Another Rep', 'active')`,
-		stranger, e.ws, "other-"+stranger.String()+"@example.com"); err != nil {
+		INSERT INTO app_user (id, email, display_name, status)
+		VALUES ($1, $2, 'Another Rep', 'active')`, stranger, "other-"+stranger.String()+"@example.com"); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []struct {

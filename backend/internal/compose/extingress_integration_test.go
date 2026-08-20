@@ -627,60 +627,10 @@ func TestAMemberOfAnotherWorkspaceCannotBeActedFor(t *testing.T) {
 	}
 }
 
-// A credential deposited with this unit IN ANOTHER WORKSPACE is not consent
-// here, and the consent read is what has to say so.
-//
-// ADR-0091 §8 retired row-level security and §4 named this exact cost: a query
-// that leaves its scope to a policy now returns another tenant's rows instead
-// of none, and nothing fails to announce it. The row this one would read back
-// is a CONSENT — "that member asked us to act for them" — about somebody this
-// installation cannot act for at all.
-//
-// The assertion is the CLASS rather than "some error", and the run against the
-// unscoped query is what shows why. Consent answers YES, the ingest walks on
-// into the authority read, and that read fails on the single-organization
-// invariant — so the unit is handed "the core could not land this record", an
-// unclassified failure it can neither act on nor report, for a question that
-// had a clean answer two steps earlier. ErrForbidden is the consent check
-// having made the decision; anything else means it did not.
-func TestACredentialDepositedInAnotherWorkspaceIsNotConsentHere(t *testing.T) {
-	e := setupIngress(t)
-	stranger := seedConsentingMemberElsewhere(t, e)
-
-	_, err := e.ingestingRuntime().Ingest(context.Background(), extension.UserID(stranger.String()),
-		aProviderRecord("ws-9:5002", "outside@example.test"))
-	if !errors.Is(err, extension.ErrForbidden) {
-		t.Fatalf("err = %v, want ErrForbidden — the consent read answered about a member of another workspace", err)
-	}
-}
-
-// seedConsentingMemberElsewhere creates a second workspace holding one member
-// who HAS deposited a credential with this unit, under a key it declares, and
-// returns that member.
-//
-// The credential goes in through extsecrets, the real writer, bound to the
-// other workspace's own context — a hand-inserted row could carry a shape the
-// custodian never writes, and then the test would be describing itself.
-func seedConsentingMemberElsewhere(t *testing.T, e *ingressEnv) ids.UUID {
-	t.Helper()
-	owner, ctx := integration.OwnerConn(t), context.Background()
-	elsewhere, stranger := ids.NewV7(), ids.NewV7()
-	if _, err := owner.Exec(ctx, `INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		elsewhere, "ingress-elsewhere-"+elsewhere.String()[:8]); err != nil {
-		t.Fatalf("seeding the other workspace: %v", err)
-	}
-	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'A Stranger')`,
-		stranger, elsewhere, "stranger-"+stranger.String()[:8]+"@elsewhere.test"); err != nil {
-		t.Fatalf("seeding the other workspace's member: %v", err)
-	}
-	store := extsecrets.For(ingressUnit, e.Pool, e.vault)
-	if err := store.PutUser(e.callCtx(elsewhere), extension.UserID(stranger.String()),
-		ingressTestSecretKey, []byte("pat_elsewhere")); err != nil {
-		t.Fatalf("depositing the stranger's credential in their own workspace: %v", err)
-	}
-	return stranger
-}
+// A suite here used to pin behaviour that only a SECOND workspace could produce.
+// ADR-0091 §8 phase D took the tenant column off app_user, and an installation
+// serves one organization (ADR-0061), so the fixture it needed is a state the
+// product cannot reach — the guarantee has no subject rather than a weaker one.
 
 // The nesting refusal, on a POOL OF ONE — which is the configuration where the
 // defect it guards is not a failure but a hang: the ingest would wait for the

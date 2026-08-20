@@ -169,8 +169,7 @@ func newCaptureRegistryFixture(t *testing.T) (context.Context, *capture.Registry
 		t.Fatalf("seeding workspace: %v", err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Fixture User')`,
-		userUUID, wsUUID, "user-"+userUUID.String()+"@"+slug+".test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Fixture User')`, userUUID, "user-"+userUUID.String()+"@"+slug+".test"); err != nil {
 		t.Fatalf("seeding app_user: %v", err)
 	}
 

@@ -84,7 +84,7 @@ func setupChannelSend(t *testing.T) *channelSendEnv {
 	c.personID = person.ID
 	if err := apptest.InWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT workspace_id, id FROM app_user WHERE email = $1`, "rep@fable.test").Scan(&c.ws, &c.user)
+			`SELECT current_setting('app.workspace_id', true), id FROM app_user WHERE email = $1`, "rep@fable.test").Scan(&c.ws, &c.user)
 	}); err != nil {
 		t.Fatalf("resolving the acting human: %v", err)
 	}
