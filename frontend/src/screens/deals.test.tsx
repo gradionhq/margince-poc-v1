@@ -329,12 +329,19 @@ function stubBackend(
     agentTools?: components["schemas"]["AgentTool"][];
     stageTotalsRows?: Record<string, unknown>[];
     onStageTotalsBody?: (body: unknown) => void;
+    savedViews?: Record<string, unknown>[];
   } = {},
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
+    if (method === "GET" && url.includes("/views")) {
+      return jsonResponse({
+        data: opts.savedViews ?? [],
+        page: { next_cursor: null },
+      });
+    }
     if (url.includes("/agent-tools")) {
       return jsonResponse({
         data: opts.agentTools ?? [],
@@ -465,6 +472,67 @@ describe("DealsScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Table" }));
     expect(screen.getByText("Fleet retrofit")).toBeTruthy(); // same set, table view
     expect(dealFetches()).toBe(before); // no reload
+  });
+
+  // A view saved on the deals list is a server row, and the tab rail has to
+  // read it. The rail carried only the one hardcoded sort before, so a saved
+  // view was storable through the contract and then invisible.
+  it("offers a saved view as a tab beside the standing sort", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        savedViews: [
+          {
+            id: "v1",
+            resource: "deals",
+            name: "Slipping this quarter",
+            query: {
+              list: { sort: "-amount_minor", filters: { stalled: "true" } },
+            },
+            created_at: "2026-06-01T00:00:00Z",
+            updated_at: "2026-06-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    render(<DealsScreen />);
+    await userEvent.click(await screen.findByRole("button", { name: "Table" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Slipping this quarter" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Newest" })).toBeTruthy();
+  });
+
+  // Picking the tab has to narrow the list, not just highlight: the saved
+  // filters travel to the server or the view is decoration.
+  it("applies a saved view's filters to the deals request", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        onDealsUrl: (url) => urls.push(url),
+        savedViews: [
+          {
+            id: "v1",
+            resource: "deals",
+            name: "My stalled deals",
+            query: { list: { sort: "", filters: { stalled: "true" } } },
+            created_at: "2026-06-01T00:00:00Z",
+            updated_at: "2026-06-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    render(<DealsScreen />);
+    await userEvent.click(await screen.findByRole("button", { name: "Table" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "My stalled deals" }),
+    );
+
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("stalled=true"))).toBe(true),
+    );
   });
 
   // The board's column total must come from the deals-by-stage

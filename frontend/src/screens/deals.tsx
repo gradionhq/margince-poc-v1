@@ -84,6 +84,7 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { DealCoverageCard } from "./network";
+import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import { ShareAction } from "./share";
 
 // Deal surfaces (B-EP09.11a/b/c): the five-stage Kanban with drag-to-advance
@@ -785,6 +786,7 @@ export function DealsScreen({
   const overlay = useSorMode() === "overlay";
   const pipelinesQuery = usePipelines(!overlay);
   const meQuery = useMe();
+  const savedViews = useSavedViewTabs("deals");
   const tierMap = useAgentTierMap();
   const [pipelineId, setPipelineId] = useState("");
   const [query, setQuery] = useState<ListQuery>({
@@ -1051,6 +1053,17 @@ export function DealsScreen({
       setQuery={setQuery}
     />
   );
+
+  // The save action rides beside the dials on the table only. A saved view
+  // restores a sort and a set of filters, and the board reads neither: its
+  // order is the pipeline's stage order, so a view restored there would
+  // silently change nothing a reader could see.
+  const tableTools = (
+    <>
+      {dealTools}
+      <SaveViewAction resource="deals" query={dealsListState.query} />
+    </>
+  );
   const dealChips = dealFilterChips(stages, t);
   // The companies this screen already read for the create form's picker carry
   // their resolved marks, so the board can show them without a second read.
@@ -1147,8 +1160,9 @@ export function DealsScreen({
             ) : undefined
           }
           action={createAction}
-          tools={dealTools}
+          tools={tableTools}
           dataChips={dealChips}
+          dataViews={savedViews}
           chips={[
             {
               key: "stalled",
