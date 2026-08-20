@@ -459,17 +459,16 @@ func grantReadPeopleRole(t *testing.T, e *integration.Env, user ids.UUID, rowSco
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var roleID ids.UUID
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO role (workspace_id, key, name, permissions)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'ghost_owner_' || $1, 'Ghost owner test',
+			INSERT INTO role (key, name, permissions)
+			VALUES ('ghost_owner_' || $1, 'Ghost owner test',
 			        format('{"row_scope":"%s","objects":{"person":{"read":true}}}', $1)::jsonb)
 			ON CONFLICT (key) DO UPDATE SET name = EXCLUDED.name
 			RETURNING id`, rowScope).Scan(&roleID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO role_assignment (workspace_id, user_id, role_id)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)
+			INSERT INTO role_assignment (user_id, role_id)
+			VALUES ($1, $2)
 			ON CONFLICT DO NOTHING`, user, roleID)
 		return err
 	}); err != nil {

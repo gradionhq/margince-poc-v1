@@ -85,15 +85,15 @@ func seedRequesterCanReadPeople(t *testing.T, e *integration.Env, user ids.UUID)
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var roleID ids.UUID
 		if err := tx.QueryRow(ctx,
-			`INSERT INTO role (workspace_id, key, name, permissions)
-			 VALUES ($1, 'site_read_requester', 'Site Read Requester',
+			`INSERT INTO role (key, name, permissions)
+			 VALUES ('site_read_requester', 'Site Read Requester',
 			         '{"objects":{"person":{"read":true},"lead":{"read":true}},"row_scope":"all"}'::jsonb)
-			 RETURNING id`, e.WS).Scan(&roleID); err != nil {
+			 RETURNING id`).Scan(&roleID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
-			e.WS, roleID, user)
+			`INSERT INTO role_assignment (role_id, user_id) VALUES ($1, $2)`,
+			roleID, user)
 		return err
 	})
 	if err != nil {

@@ -51,13 +51,13 @@ func sendWorkerCtx(ws ids.UUID) context.Context {
 func grantOwnScopeRepRole(t *testing.T, e *Env, user ids.UUID) {
 	t.Helper()
 	roleKey := "sendrep-" + user.String()[:8]
-	e.WsExec(t, `INSERT INTO role (workspace_id, key, name, permissions)
-		VALUES ($1, $2, 'Send Rep', $3::jsonb)`,
-		e.WS, roleKey,
+	e.WsExec(t, `INSERT INTO role (key, name, permissions)
+		VALUES ($1, 'Send Rep', $2::jsonb)`,
+		roleKey,
 		`{"objects":{"person":{"read":true}},"row_scope":"own"}`)
-	e.WsExec(t, `INSERT INTO role_assignment (workspace_id, role_id, user_id)
-		SELECT $1, r.id, $2 FROM role r WHERE r.workspace_id = $1 AND r.key = $3`,
-		e.WS, user, roleKey)
+	e.WsExec(t, `INSERT INTO role_assignment (role_id, user_id)
+		SELECT r.id, $1 FROM role r WHERE r.key = $2`,
+		user, roleKey)
 }
 
 // A file its sender can still read transmits. Without this case the refusals

@@ -132,8 +132,8 @@ func TestBootstrapMintsAnAgentSeatThatCarriesNoAuthorityOfItsOwn(t *testing.T) {
 
 	var grants int
 	if err := owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM role_assignment WHERE workspace_id = $1 AND user_id = $2`,
-		wsID, seat.id).Scan(&grants); err != nil {
+		`SELECT count(*) FROM role_assignment WHERE user_id = $1`,
+		seat.id).Scan(&grants); err != nil {
 		t.Fatalf("counting the seat's role assignments: %v", err)
 	}
 	if grants != 0 {

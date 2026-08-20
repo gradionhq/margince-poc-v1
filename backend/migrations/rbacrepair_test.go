@@ -92,11 +92,18 @@ var guardedVerbGrantPattern = regexp.MustCompile(
 // list, the write would grant to every system role, and the reconciliation
 // would see one write and one read and call it covered.
 //
-// What it anchors on is the workspace predicate every one of these carries —
-// required of any migration writing tenant rows, since RLS discards an unbound
-// write — so a role grant that skips it is not read as guarded either, and the
-// unread-write check refuses it. One anchor, two obligations.
-const predicateEnd = `\s*AND role\.workspace_id = \w+;`
+// It used to anchor on `AND role.workspace_id = <ws>`, which carried a SECOND
+// obligation: a migration writing tenant rows had to bind its workspace or RLS
+// discarded the write. That obligation is gone — core 0217 retired row-level
+// security and ADR-0091 §8 phase D dropped the column — so the terminator is
+// the anchor now, and only the prefix obligation is left for it to hold.
+//
+// The predicate stays OPTIONAL rather than being deleted, because both eras are
+// in this tree at once: a migration that shipped before the drop still carries
+// it and still has to be read, and one written after cannot. Anchoring on
+// either alone makes half the tree's backfills invisible to the coverage check
+// — which is the one failure this file exists to prevent.
+const predicateEnd = `(?:\s*AND role\.workspace_id = \w+)?\s*;`
 
 // Every write to role.permissions, however it is spelled. This has to be
 // STRICTLY BROADER than guardedBackfillPattern, not a prefix of it: a canary
@@ -350,7 +357,7 @@ func TestNoGuardedPatternReadsAWiderPredicateAsItsOwn(t *testing.T) {
       permissions, '{objects,automation}', '{"read":true}'::jsonb)
     WHERE (is_system AND key = 'rep'
       AND NOT permissions->'objects' ? 'automation')
-      AND role.workspace_id = ws OR is_system;`,
+      OR is_system;`,
 		},
 		{
 			name: "verb-level grant widened by a trailing OR",
@@ -358,15 +365,13 @@ func TestNoGuardedPatternReadsAWiderPredicateAsItsOwn(t *testing.T) {
       permissions, '{objects,capture_settings,create}', 'true'::jsonb)
     WHERE is_system AND key IN ('rep')
       AND permissions->'objects' ? 'capture_settings'
-      AND role.workspace_id = ws OR is_system;`,
+      OR is_system;`,
 		},
-		{
-			name: "verb-level grant with no workspace predicate at all",
-			sql: `UPDATE role SET permissions = jsonb_set(
-      permissions, '{objects,capture_settings,create}', 'true'::jsonb)
-    WHERE is_system AND key IN ('rep')
-      AND permissions->'objects' ? 'capture_settings';`,
-		},
+		// A third case here used to pin "no workspace predicate at all". It is
+		// the shape every one of these statements has now — core 0217 retired
+		// row-level security and phase D dropped role.workspace_id — so it is
+		// the guarded grant, not a widened one, and asserting otherwise would
+		// refuse the tree's own migrations.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if guardedBackfillPattern.MatchString(tc.sql) {
@@ -388,13 +393,11 @@ func TestBothGuardedShapesAreStillRead(t *testing.T) {
 	wholeObject := `UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,automation}', '{"read":true}'::jsonb)
     WHERE (is_system AND key = 'rep'
-      AND NOT permissions->'objects' ? 'automation')
-      AND role.workspace_id = ws;`
+      AND NOT permissions->'objects' ? 'automation');`
 	verbLevel := `UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,capture_settings,create}', 'true'::jsonb)
     WHERE is_system AND key IN ('admin','rep')
-      AND permissions->'objects' ? 'capture_settings'
-      AND role.workspace_id = ws;`
+      AND permissions->'objects' ? 'capture_settings';`
 	if !guardedBackfillPattern.MatchString(wholeObject) {
 		t.Error("the whole-object shape this tree's backfills use is no longer read as a guarded grant")
 	}

@@ -282,6 +282,11 @@ func policyDocument(alreadyHeld []rbacBackfill) []byte {
 	return raw
 }
 
+// seedRole plants a role in the ROLLED-BACK schema this suite seeds against, so
+// it still names workspace_id: the column is dropped by the newest core
+// migration, and rolling core back past any backfill under test rolls that drop
+// back too. readGrant below reads at HEAD and cannot name it — the two run in
+// different eras of the same schema, which is why they are not one helper.
 func seedRole(t *testing.T, conn *pgx.Conn, workspaceID, key string, system bool, permissions []byte) {
 	t.Helper()
 	if _, err := conn.Exec(context.Background(),
@@ -301,9 +306,9 @@ func readGrant(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID, k
 	var present bool
 	var raw []byte
 	err := conn.QueryRow(ctx,
-		`SELECT COALESCE(permissions->'objects' ? $3, false), permissions->'objects'->$3
-		   FROM role WHERE workspace_id = $1 AND key = $2`,
-		workspaceID, key, object).Scan(&present, &raw)
+		`SELECT COALESCE(permissions->'objects' ? $2, false), permissions->'objects'->$2
+		   FROM role WHERE key = $1`,
+		key, object).Scan(&present, &raw)
 	if err != nil {
 		t.Fatalf("reading %s grant for %s: %v", object, key, err)
 	}

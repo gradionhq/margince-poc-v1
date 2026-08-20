@@ -55,6 +55,15 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 				resetSchema(t, admin)
 				migrator := asMigrator(t, admin)
 				migrateAll(t, migrator)
+				// Then back ONE core step, because the newest core migration is
+				// ADR-0091 §8 phase D's drop of role.workspace_id and these
+				// repairs name it. The migration is correct in its own position
+				// — core runs in order, so core/0192 executes while the column
+				// is still there — and replaying it at head asks it to run in an
+				// era it never belonged to. One step back IS that era, and the
+				// suite migrates forward again below so every assertion is read
+				// at head.
+				rollBackThePhaseDDrop(t, admin)
 
 				want := grantsWrittenBy(t, repair)
 				objects := objectsIn(want)
@@ -91,6 +100,9 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 				if _, err := migrator.Exec(ctx, repair.UpSQL); err != nil {
 					t.Fatalf("applying the %s/%s repair: %v", namespace.Name, repair.Version, err)
 				}
+				// Forward again: every assertion below reads the schema an
+				// installation actually runs on, not the era the replay needed.
+				migrateAll(t, migrator)
 
 				for _, object := range objects {
 					for _, role := range systemRoleKeys {
@@ -139,6 +151,10 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 				resetSchema(t, admin)
 				narrowMigrator := repointed(t, admin, migrator)
 				migrateAll(t, narrowMigrator)
+				// Same one step back as above, for the same reason: the replay
+				// below runs a migration from before role.workspace_id was
+				// dropped, so the fixture is seeded in that era too.
+				rollBackThePhaseDDrop(t, admin)
 				narrowed := seedWorkspace(t, admin, "repair-narrowed-"+namespace.Name+"-"+repair.Version)
 				for _, role := range systemRoleKeys {
 					seedRole(t, admin, narrowed, role, true, documentGranting(t, objects, alteredGrant))
@@ -245,4 +261,27 @@ func repointed(t *testing.T, admin, conn *pgx.Conn) *pgx.Conn {
 		t.Fatalf("re-pointing the migrator at the recreated schema: %v", err)
 	}
 	return conn
+}
+
+// rollBackThePhaseDDrop takes core back one migration and proves the step
+// landed where it was aimed: the assertion is what stops this from silently
+// becoming a no-op if the newest core migration is ever something else, which
+// would leave the replay below failing for a reason nobody could read off the
+// error.
+func rollBackThePhaseDDrop(t *testing.T, conn *pgx.Conn) {
+	t.Helper()
+	core, _ := namespaces(t)
+	if _, err := dbmigrate.Down(context.Background(), conn, core, 1); err != nil {
+		t.Fatalf("rolling core back one step to the era these repairs belong to: %v", err)
+	}
+	var present bool
+	if err := conn.QueryRow(context.Background(), `
+		SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		                WHERE table_name = 'role' AND column_name = 'workspace_id')`).Scan(&present); err != nil {
+		t.Fatalf("checking whether the rollback restored role.workspace_id: %v", err)
+	}
+	if !present {
+		t.Fatal("one core step back did not restore role.workspace_id — the newest core migration is no longer " +
+			"the phase D drop these repairs need rolled back, so this suite is replaying them in the wrong era again")
+	}
 }

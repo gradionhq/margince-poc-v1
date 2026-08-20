@@ -64,7 +64,7 @@ func TestAConfirmFirstFactCallAgainstAnUnseeableOrganizationStagesNothing(t *tes
 		stmt(`UPDATE app_user SET password_hash = (SELECT password_hash FROM app_user WHERE email = 'ada@example.com') WHERE id = $1`, rep),
 		// 'rep' is an ordinary human seat: it reads every account except one
 		// whose capture is private to somebody else.
-		stmt(`INSERT INTO role_assignment (workspace_id, role_id, user_id) SELECT $2, r.id, $1 FROM role r WHERE r.key = 'rep'`, rep, wsA),
+		stmt(`INSERT INTO role_assignment (role_id, user_id) SELECT r.id, $1 FROM role r WHERE r.key = 'rep'`, rep),
 	)
 	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
 		"email": "rep@example.com", "password": "correct-horse-battery",

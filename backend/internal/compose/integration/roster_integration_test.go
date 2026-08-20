@@ -115,9 +115,9 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	seedInWorkspace(
 		t, e, wsB,
 		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'eve@other.example', 'Eve Other')`, eve, wsB),
-		stmt(`INSERT INTO role (workspace_id, key, name) VALUES ($1, 'other-tenant-only', 'Other Tenant Only')`, wsB),
-		stmt(`INSERT INTO role_assignment (workspace_id, role_id, user_id)
-		      SELECT $1, r.id, $2 FROM role r WHERE r.key = 'other-tenant-only'`, wsB, eve),
+		stmt(`INSERT INTO role (key, name) VALUES ('other-tenant-only', 'Other Tenant Only')`),
+		stmt(`INSERT INTO role_assignment (role_id, user_id)
+		      SELECT r.id, $1 FROM role r WHERE r.key = 'other-tenant-only'`, eve),
 	)
 
 	// (e) No session → 401, before we lean on the authenticated reads.
@@ -232,8 +232,8 @@ func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
 		// the gate under test reads the request principal, so the assertion is
 		// only worth anything from a real non-admin session.
 		stmt(`UPDATE app_user SET password_hash = (SELECT password_hash FROM app_user WHERE email = 'ada@example.com') WHERE id = $1`, rep),
-		stmt(`INSERT INTO role_assignment (workspace_id, role_id, user_id)
-		      SELECT $2, r.id, $1 FROM role r WHERE r.key = 'rep'`, rep, wsA),
+		stmt(`INSERT INTO role_assignment (role_id, user_id)
+		      SELECT r.id, $1 FROM role r WHERE r.key = 'rep'`, rep),
 	)
 
 	// The admin arm first, from the session the bootstrap left: every row

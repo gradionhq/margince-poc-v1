@@ -287,8 +287,8 @@ func readPermissions(ctx context.Context, t *testing.T, conn *pgx.Conn, workspac
 	t.Helper()
 	var raw []byte
 	err := conn.QueryRow(ctx,
-		`SELECT permissions FROM role WHERE workspace_id = $1 AND key = $2`,
-		workspaceID, key).Scan(&raw)
+		`SELECT permissions FROM role WHERE key = $1`,
+		key).Scan(&raw)
 	if err != nil {
 		t.Fatalf("reading the permissions document for role %q: %v", key, err)
 	}

@@ -1,3 +1,12 @@
+-- AMENDED (ADR-0091 §8 phase D): the `AND role.workspace_id = ws` predicate
+-- that each UPDATE below carried was removed, and with it the per-workspace
+-- loop's reason to exist. `dbmigrate.Up` applies ALL of `core` before ANY of
+-- `custom`, so on a FRESH database this file runs against the FINAL core
+-- schema — where `role.workspace_id` no longer exists — and the install fails
+-- outright. Amending is what keeps a fresh install working; a deployed
+-- database already ran the original and is unaffected, because a
+-- single-organization installation (ADR-0061) has exactly one workspace, which
+-- made the predicate a no-op the day it was written.
 -- Re-apply every fork-owned RBAC backfill that row-level security may have
 -- discarded, for databases that already recorded the migration carrying it.
 -- The core namespace's counterpart is 0192_rbac_backfill_repair; this is the
@@ -13,31 +22,24 @@
 -- TestTheRepairsCoverEveryGuardedRBACBackfill derives both sides from the tree
 -- and fails if they ever disagree.
 DO $$
-DECLARE ws uuid;
 BEGIN
-  FOR ws IN SELECT id FROM workspace LOOP
-    PERFORM set_config('app.workspace_id', ws::text, true);
 
     -- 20260716130000_overlay_connection_rbac
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,overlay_connection}',
       '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
     WHERE (is_system AND key IN ('admin','ops')
-      AND NOT permissions->'objects' ? 'overlay_connection')
-      AND role.workspace_id = ws;
+      AND NOT permissions->'objects' ? 'overlay_connection');
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,overlay_connection}',
       '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
     WHERE (is_system AND key IN ('manager','rep','read_only')
-      AND NOT permissions->'objects' ? 'overlay_connection')
-      AND role.workspace_id = ws;
+      AND NOT permissions->'objects' ? 'overlay_connection');
 
     -- 20260730130000_import_run_rbac
     UPDATE role SET permissions = jsonb_set(
       permissions, '{objects,import_run}',
       '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
     WHERE (is_system AND key IN ('admin','ops')
-      AND NOT permissions->'objects' ? 'import_run')
-      AND role.workspace_id = ws;
-  END LOOP;
+      AND NOT permissions->'objects' ? 'import_run');
 END $$;

@@ -181,15 +181,15 @@ func seedTaskCreatePermission(t *testing.T, owner *pgx.Conn, ws, user ids.UUID) 
 	t.Helper()
 	var roleID ids.UUID
 	if err := owner.QueryRow(context.Background(),
-		`INSERT INTO role (workspace_id, key, name, permissions)
-		 VALUES ($1, 'reminder_owner', 'Reminder Owner',
+		`INSERT INTO role (key, name, permissions)
+		 VALUES ('reminder_owner', 'Reminder Owner',
 		         '{"objects":{"activity":{"create":true,"read":true}},"row_scope":"own"}'::jsonb)
-		 RETURNING id`, ws).Scan(&roleID); err != nil {
+		 RETURNING id`).Scan(&roleID); err != nil {
 		t.Fatalf("seeding the create_task test role: %v", err)
 	}
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
-		ws, roleID, user); err != nil {
+		`INSERT INTO role_assignment (role_id, user_id) VALUES ($1, $2)`,
+		roleID, user); err != nil {
 		t.Fatalf("assigning the create_task test role: %v", err)
 	}
 }

@@ -162,15 +162,15 @@ func seedCaptureRole(t *testing.T, e *integration.SearchEnv) {
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var roleID string
 		if err := tx.QueryRow(context.Background(), `
-			INSERT INTO role (workspace_id, key, name, permissions)
-			VALUES ($1, 'capture_rep', 'Capture Rep',
+			INSERT INTO role (key, name, permissions)
+			VALUES ('capture_rep', 'Capture Rep',
 			        '{"objects":{"activity":{"create":true,"read":true},"person":{"create":true,"read":true},"organization":{"create":true,"read":true}},"row_scope":"all"}'::jsonb)
-			RETURNING id`, e.WS).Scan(&roleID); err != nil {
+			RETURNING id`).Scan(&roleID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(context.Background(),
-			`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
-			e.WS, roleID, e.Rep1)
+			`INSERT INTO role_assignment (role_id, user_id) VALUES ($1, $2)`,
+			roleID, e.Rep1)
 		return err
 	})
 	if err != nil {
