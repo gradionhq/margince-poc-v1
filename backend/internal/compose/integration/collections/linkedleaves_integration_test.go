@@ -114,9 +114,9 @@ func TestAnUnownedRecordIsCoveredByNoTeam(t *testing.T) {
 // Link walks team_membership on t.owner_id, and compileLinkLeaf owns the
 // `exists:false` → NOT EXISTS turn for every link leaf alike. It is that ONE
 // NOT EXISTS covers two different data shapes, and only real rows tell them
-// apart: an owner that is NULL (the test above) and an owner that is present
-// with no membership row (this one). A leaf that answered only the first would
-// be `owner_id exists: false` under another name.
+// apart: an owner that is NULL, which TestAnUnownedRecordIsCoveredByNoTeam owns,
+// and an owner that is present with no membership row, which this one does. A
+// leaf answering only the first would be `owner_id exists: false` renamed.
 //
 // AdminUser is the seat in no team — integration.Setup seeds four seats and
 // three memberships — so this arm needs no fixture of its own. The precondition
@@ -149,10 +149,9 @@ func TestARecordWhoseOwnerIsInNoTeamIsCoveredByNoTeam(t *testing.T) {
 	if got[inATeam] {
 		t.Error("an account whose owner IS in a team is reported as covered by none")
 	}
-	// Owned by the teamless seat SPECIFICALLY, which is the whole precondition:
-	// an explicit owner that silently fell back to the caller would leave a row
-	// owned by Rep1, who is in Team1, and this test would then be re-proving the
-	// in-a-team case under a name that claims otherwise.
+	// Owned by the teamless seat SPECIFICALLY: an explicit owner falling back to
+	// the caller would leave the row owned by Rep1, who is in Team1, and this
+	// test would re-prove the in-a-team case under a name claiming otherwise.
 	if owned := f.e.WsCount(t,
 		"SELECT count(*) FROM organization WHERE id = $1 AND owner_id = $2",
 		teamlessOwner, f.e.AdminUser); owned != 1 {
