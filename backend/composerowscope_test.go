@@ -246,6 +246,16 @@ func collectMapKeys(t *testing.T, expr ast.Expr, into map[string]bool) {
 	}
 }
 
+// stringConst is gatekit.LiteralText's question with the opposite answer for one
+// case, and the difference is deliberate: a literal strconv cannot unquote is
+// DROPPED here, where gatekit keeps its raw form.
+//
+// Each is right for its own gate. gatekit's censuses ask "does this text name a
+// table" — a raw form still answers that, and dropping it would leave a read
+// nobody judged. This gate parses SQL structurally, and a literal it cannot
+// unquote is text it cannot locate a projection inside; treating the quoted form
+// as SQL would make it find columns at the wrong offsets and report a bound as
+// missing.
 func stringConst(expr ast.Expr) (string, bool) {
 	lit, ok := expr.(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {

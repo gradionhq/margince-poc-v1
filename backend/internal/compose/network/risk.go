@@ -25,6 +25,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -126,10 +127,15 @@ type DealCoverage struct {
 // The sections of a coverage view that stand or fall with the edge grant. All
 // three together: OurSide is derived from the seats, and every risk rule but
 // going-cold reads them, so there is no partial answer to give.
+//
+// Derived from the contract's own enum rather than respelled beside it. These
+// strings go out on the wire under a closed enum, so a rename in crm.yaml must
+// be a compile error here — spelled by hand it would be a schema rejection on a
+// restricted caller's request, which is the one request nobody makes by hand.
 const (
-	SectionStakeholders = "stakeholders"
-	SectionOurSide      = "our_side"
-	SectionRisks        = "risks"
+	SectionStakeholders = string(crmcontracts.DealCoverageSectionsOmittedStakeholders)
+	SectionOurSide      = string(crmcontracts.DealCoverageSectionsOmittedOurSide)
+	SectionRisks        = string(crmcontracts.DealCoverageSectionsOmittedRisks)
 )
 
 // edgeWithheldSections is the whole withheld set, in the contract's own order.

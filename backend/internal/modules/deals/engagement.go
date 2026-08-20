@@ -30,11 +30,30 @@ import (
 // EngagementWindowDays is the window the engagement test looks back over.
 const EngagementWindowDays = healthEngagementWindowDays
 
-// scopeAll is the clause an UNBOUNDED caller gets. auth returns "" for a caller
-// bounded by nothing, and an empty string interpolated into a WHERE reads as a
-// syntax error rather than as "no restriction" — so the substitution is spelled
-// once, here, the same way org360 spells it.
-const scopeAll = "true"
+// predicateAlways is a WHERE fragment that admits every row.
+//
+// It is what an absent clause becomes on the way into a statement: auth answers
+// "" for a caller bounded by nothing and a nil filter has nothing to say, and an
+// empty string interpolated into a WHERE is a syntax error rather than "no
+// restriction". Named because three statements in this package make that
+// substitution and the SQL they build must agree about it.
+const predicateAlways = "true"
+
+// edgeBound resolves the edge's read admission and returns the clause bounding
+// WHICH edges, admitting every edge for a caller bounded by nothing.
+//
+// A function rather than two copies of an `if clause == ""`: both reads in this
+// file take the same admission, so they take it through the same three lines.
+func edgeBound(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	clause, err := auth.EdgeReadScope(ctx, alias, arg)
+	if err != nil {
+		return "", err
+	}
+	if clause == "" {
+		return predicateAlways, nil
+	}
+	return clause, nil
+}
 
 // EngagedStakeholders lists the deal's live stakeholders who have had a
 // two-way exchange inside the window, in deterministic id order.
@@ -54,13 +73,13 @@ func EngagedStakeholders(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now 
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	dealPos := arg(dealID)
 	windowPos := arg(windowStart)
-	edgeBound, err := auth.EdgeReadScope(ctx, "r", arg)
+	bound, err := edgeBound(ctx, "r", arg)
 	if err != nil {
 		return nil, err
 	}
-	if edgeBound == "" {
-		edgeBound = scopeAll
-	}
+	// The kind list is an ARGUMENT to Sprintf, not concatenated into its format
+	// string. Concatenated, a `%` ever appearing in a kind would be read as a
+	// verb and corrupt the statement at runtime with nothing to catch it.
 	return collectIDs(tx.Query(ctx, fmt.Sprintf(`
 		SELECT DISTINCT r.person_id FROM relationship r
 		WHERE r.kind = 'deal_stakeholder' AND r.deal_id = $%[1]d AND r.archived_at IS NULL
@@ -68,14 +87,14 @@ func EngagedStakeholders(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now 
 		  AND EXISTS (
 			SELECT 1 FROM activity a
 			JOIN activity_link l ON l.activity_id = a.id AND l.person_id = r.person_id
-			WHERE a.kind IN `+healthActivityKinds+` AND a.archived_at IS NULL
+			WHERE a.kind IN %[4]s AND a.archived_at IS NULL
 			  AND a.occurred_at >= $%[2]d AND a.direction = 'inbound')
 		  AND EXISTS (
 			SELECT 1 FROM activity a
 			JOIN activity_link l ON l.activity_id = a.id AND l.person_id = r.person_id
-			WHERE a.kind IN `+healthActivityKinds+` AND a.archived_at IS NULL
+			WHERE a.kind IN %[4]s AND a.archived_at IS NULL
 			  AND a.occurred_at >= $%[2]d AND a.direction = 'outbound')
-		ORDER BY r.person_id`, dealPos, windowPos, edgeBound), args...))
+		ORDER BY r.person_id`, dealPos, windowPos, bound, healthActivityKinds), args...))
 }
 
 // DealStakeholder is one seat on a deal: who, in what role, and whether they
@@ -110,21 +129,18 @@ func Stakeholders(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Ti
 	dealPos := arg(dealID)
 	// The edge's own admission FIRST, and the person row scope after it. Both,
 	// because they answer different questions: the edge grant asks whether this
-	// caller may read seats at all, the person scope asks which of them. Taking
-	// the second alone is the defect #1846 closed — a caller holding the deal
-	// and person grants was served a pair neither of them covers.
-	edgeBound, err := auth.EdgeReadScope(ctx, "r", arg)
+	// caller may read seats at all, the person scope asks which of them. A
+	// caller holding the deal and person grants and neither of these is served a
+	// pair that neither grant covers.
+	bound, err := edgeBound(ctx, "r", arg)
 	if err != nil {
 		return nil, err
-	}
-	if edgeBound == "" {
-		edgeBound = scopeAll
 	}
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
 		return nil, err
 	}
-	visible := scopeAll
+	visible := predicateAlways
 	if scope != "" {
 		visible = scope
 	}
@@ -135,7 +151,7 @@ func Stakeholders(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Ti
 		 WHERE r.kind = 'deal_stakeholder' AND r.deal_id = $%d AND r.archived_at IS NULL
 		   AND (%s)
 		   AND (%s)
-		 ORDER BY r.person_id`, dealPos, edgeBound, visible), args...)
+		 ORDER BY r.person_id`, dealPos, bound, visible), args...)
 	if err != nil {
 		return nil, err
 	}

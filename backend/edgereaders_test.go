@@ -58,16 +58,9 @@ import (
 // relationshipReadLiteral matches a SQL string literal that reads the
 // relationship table by name.
 //
-// The pattern comes from gatekit, which is where the rule became one rule. It
-// was spelled here, and in restrictedreaders_test.go, with the same two-part
-// flaw in both: a required trailing SPACE missed every line ending in
-// `FROM relationship` — this census undercounted its own subject by five sites
-// that way — and matching against ast.BasicLit.Value leaves the closing
-// backquote in the text, so the end-of-text alternate could never fire either.
-// The second one survived the first mutation drill, because that probe ended the
-// LINE rather than the LITERAL. Two copies of a rule meant two copies of the
-// bug (review-loop rule 1), and gatekit.TableReadPattern is the answer to that
-// rather than a tidier spelling of the same risk.
+// The pattern is gatekit's, and it is shared rather than spelled here because a
+// matcher that stops seeing this tree's SQL finds nothing to object to and reads
+// exactly like a clean tree. Its boundary cases are tested where it lives.
 var relationshipReadLiteral = gatekit.TableReadPattern(edgeTable)
 
 // edgeTable is the table this census is about, named once so the pattern above
@@ -350,7 +343,7 @@ func pkgOf(filePath string) string { return path.Dir(filePath) }
 func relationshipReadSites(parsed gatekit.ParsedFile) []site {
 	var sites []site
 	for _, decl := range parsed.File.Decls {
-		reads := gatekit.TableReads(&ast.File{Decls: []ast.Decl{decl}}, relationshipReadLiteral)
+		reads := gatekit.DeclReads(decl, relationshipReadLiteral)
 		if len(reads) == 0 {
 			continue
 		}
@@ -576,10 +569,3 @@ func namesTheEdge(call *ast.CallExpr) bool {
 	}
 	return false
 }
-
-// The extractor's own boundary test now lives with the extractor:
-// gatekit.TestTableReadPatternSeesEveryBoundary. It moved because the pattern
-// did — this census had its own copy of both, which is how the same blind spot
-// came to exist twice and be drilled for once. The cases it holds are this
-// census's own history: a read ending at the literal, a read ending the line, a
-// table whose name merely starts with this one.

@@ -5,24 +5,21 @@ package gatekit
 
 // Finding the reads of one table, for the gates that judge them.
 //
-// Three census gates in this module derive their SITES the same way — a regex
-// over the SQL string literals in the tree, attributed to the function holding
-// them — and each judges those sites by its own rule: a held row must be
-// excluded, an edge read must be admitted, a served reference must be bounded.
-// The rules are genuinely different. The FINDING was three copies of one walk.
+// Several census gates derive their SITES the same way — a pattern over the SQL
+// string literals in the tree, attributed to the declaration holding them — and
+// each then judges those sites by its own rule: a held row must be excluded, an
+// edge read must be admitted, a served reference must be bounded. The rules
+// differ; the walk does not, so the walk lives once.
 //
-// It is factored here because the duplication had already cost something. Two
-// of the copies carried the same two-part flaw: the pattern demanded a trailing
-// SPACE, so every statement ending at `FROM activity` was invisible, and the
-// match ran against ast.BasicLit.Value, whose closing backquote means the `$`
-// alternate can never fire either. One rule with two copies is not a rule
-// (review-loop rule 1), and this is the spelling that makes it one — a gate
-// reaching TableReadPattern cannot inherit a blind spot it did not write.
+// A census that stops recognising this tree's SQL finds nothing objectionable
+// and reads exactly like a clean tree. Nothing fails. That is why the matching
+// is here rather than in each gate: one place to be right, one place to test,
+// and a gate cannot inherit a blind spot it did not write.
 //
 // What is deliberately NOT here: the verdicts. Which markers satisfy, which
-// waiver sets exist, whether a file or a function is the unit of judgement —
+// waiver sets exist, whether a file or a declaration is the unit of judgement —
 // those are each gate's own policy, and a shared "satisfied" would be one
-// definition of correctness for three different obligations.
+// definition of correctness for several different obligations.
 
 import (
 	"go/ast"
@@ -34,16 +31,15 @@ import (
 
 // TableReadPattern matches a SQL string literal that reads the named table.
 //
-// Both halves of the trailing alternation matter, and both were got wrong once:
+// Two properties carry it, and a census silently under-reports without either:
 //
-//   - the alternation must end the match on whitespace, a NEWLINE, the end of
-//     the text, or a delimiter. A pattern requiring a trailing space misses
-//     every statement whose line ends at `FROM person`, which is how one census
-//     undercounted its own subject by five sites;
-//   - `$` only fires if the text has been UNQUOTED. Matched against
-//     ast.BasicLit.Value the closing backquote is still there, so a literal
-//     ENDING at the table name is invisible. Use LiteralText, which is what
-//     TableReads does.
+//   - the match ends on whitespace, a NEWLINE, the end of the text, or a
+//     delimiter. Requiring a trailing space misses every statement whose line
+//     ends at `FROM person`;
+//   - the end-of-text alternate only fires against UNQUOTED text. A literal's
+//     token still carries its closing delimiter, so a statement ENDING at the
+//     table name is invisible unless the text has been unquoted — which is what
+//     LiteralText is for, and what TableReads does.
 //
 // The table name is quoted into the pattern rather than interpolated raw: a
 // caller naming a table with a regex metacharacter would otherwise silently
@@ -93,13 +89,25 @@ type TableRead struct {
 func TableReads(file *ast.File, pattern *regexp.Regexp) []TableRead {
 	var reads []TableRead
 	for _, decl := range file.Decls {
-		name := ""
-		if fn, isFunc := decl.(*ast.FuncDecl); isFunc {
-			name = fn.Name.Name
-		}
-		for _, sql := range matchingLiterals(decl, pattern) {
-			reads = append(reads, TableRead{Function: name, SQL: sql})
-		}
+		reads = append(reads, DeclReads(decl, pattern)...)
+	}
+	return reads
+}
+
+// DeclReads is TableReads over ONE top-level declaration, for a gate whose unit
+// of judgement is the function rather than the file.
+//
+// Exported because both of this module's per-function censuses want it, and
+// without it they reached TableReads by wrapping a declaration in a synthetic
+// ast.File — a fixture standing in for the thing the function documents.
+func DeclReads(decl ast.Decl, pattern *regexp.Regexp) []TableRead {
+	name := ""
+	if fn, isFunc := decl.(*ast.FuncDecl); isFunc {
+		name = fn.Name.Name
+	}
+	var reads []TableRead
+	for _, sql := range matchingLiterals(decl, pattern) {
+		reads = append(reads, TableRead{Function: name, SQL: sql})
 	}
 	return reads
 }

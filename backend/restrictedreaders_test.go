@@ -34,13 +34,9 @@ import (
 // table by name. `activity_link`, `activity_participant` and the other
 // activity_* tables are deliberately not matched: they carry no content.
 //
-// The pattern is gatekit's, not this file's. It used to be spelled here, and
-// twice carried a flaw the sibling censuses carried too: a required trailing
-// space missed every statement ending at `FROM activity`, and matching against
-// the quoted token meant the end-of-text alternate could never fire either. One
-// rule with three copies is not a rule (review-loop rule 1) — gatekit is where
-// it is one, and a gate that reaches for it cannot inherit a blind spot it did
-// not write.
+// The pattern is gatekit's, shared with the sibling censuses: a matcher that
+// stops seeing this tree's SQL judges nothing and reads exactly like a clean
+// tree, so it has one place to be right and one place to be tested.
 var activityReadLiteral = gatekit.TableReadPattern("activity")
 
 // scopeMarkers are the shared gates that carry the availability test for the
@@ -116,7 +112,7 @@ func unguardedActivityReaders(file *ast.File) []string {
 	var offenders []string
 	for _, decl := range file.Decls {
 		fn, isFunc := decl.(*ast.FuncDecl)
-		reads := gatekit.TableReads(&ast.File{Decls: []ast.Decl{decl}}, activityReadLiteral)
+		reads := gatekit.DeclReads(decl, activityReadLiteral)
 		if len(reads) == 0 {
 			continue
 		}

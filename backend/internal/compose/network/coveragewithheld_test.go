@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -99,21 +98,5 @@ func TestTheWirePayloadCarriesTheOmissionAndIsNeverNull(t *testing.T) {
 	}
 	if len(ordinary.SectionsOmitted) != 0 {
 		t.Errorf("the ordinary payload names %v withheld, want none", ordinary.SectionsOmitted)
-	}
-}
-
-// The section names on the wire are the contract's enum members, and this asks
-// the generated type rather than a second copy of the list.
-//
-// Two spellings of one vocabulary is the shape that drifts: a rename in
-// crm.yaml would leave this package emitting a value no client can parse, and
-// the failure would surface as a schema rejection on a restricted caller's
-// request — the one request nobody makes by hand.
-func TestEveryWithheldSectionNameIsAContractEnumMember(t *testing.T) {
-	for _, section := range edgeWithheldSections() {
-		if !crmcontracts.DealCoverageSectionsOmitted(section).Valid() {
-			t.Errorf("%q is not a member of DealCoverage.sections_omitted — this package would "+
-				"emit a value the contract rejects", section)
-		}
 	}
 }
