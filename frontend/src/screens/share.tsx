@@ -14,6 +14,7 @@ import type { components } from "../api/schema";
 import type { EntityKind } from "../app/entity";
 import { navigate } from "../app/router";
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -27,7 +28,12 @@ import { Select } from "../design-system/select";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessageOf, QueryGate, throwProblem } from "./common";
+import {
+  problemCodeOf,
+  problemMessageOf,
+  QueryGate,
+  throwProblem,
+} from "./common";
 import { EntityRef, useRoster } from "./entityref";
 import "./share.css";
 
@@ -56,6 +62,60 @@ type RosterSubject = {
   note: string;
   kind: "user" | "team";
 };
+
+/**
+ * What a submit does to a grant the subject ALREADY holds.
+ *
+ * `POST /record-grants` is idempotent on
+ * `(record_type, record_id, subject_type, subject_id)` and a re-assert
+ * RESTATES the grant — access, expires_at and reason all take the new
+ * request's values (crm.yaml, createRecordGrant) — so the screen offers an
+ * already-granted subject rather than refusing one. It then owes the reader
+ * the difference between the four things that press can mean: `lower` is the
+ * only one that takes authority away, and the only one asked about first.
+ */
+type ReassertKind = "raise" | "lower" | "amend" | "unchanged";
+
+type DraftFields = Readonly<{
+  subject: RosterSubject;
+  access: Access;
+  expiresAt?: string;
+  reason?: string;
+}>;
+
+/**
+ * A submit against a subject who already holds a grant. `heldAccess` is
+ * REQUIRED here rather than optional on one shared shape: the downgrade
+ * confirm has to name the level being taken away, and a field that might be
+ * missing would put a fallback level in that sentence — a made-up number in
+ * the one place the reader is deciding something.
+ */
+type ReassertDraft = DraftFields &
+  Readonly<{ change: ReassertKind; heldAccess: Access }>;
+
+/**
+ * One submit, in full: the subject, the three fields a re-assert restates,
+ * and what this press does to whatever is already there.
+ *
+ * Built in the render whose button the reader pressed and carried into the
+ * mutation as its variable, so nothing here can be older than that control —
+ * and so the downgrade confirm, which submits from a LATER render, still sends
+ * the choices the reader actually made.
+ */
+type GrantDraft = (DraftFields & Readonly<{ change: "new" }>) | ReassertDraft;
+
+function reassertKind(held: RecordGrant, next: DraftFields): ReassertKind {
+  if (held.access !== next.access) {
+    return next.access === "write" ? "raise" : "lower";
+  }
+  // Same level, so nothing about what the subject CAN DO moves — but the
+  // re-assert still rewrites the other two fields, and a press that resets an
+  // expiry or replaces the recorded reason is not a no-op. Only all three
+  // matching is.
+  const sameExpiry = (held.expires_at ?? null) === (next.expiresAt ?? null);
+  const sameReason = (held.reason ?? "") === (next.reason ?? "");
+  return sameExpiry && sameReason ? "unchanged" : "amend";
+}
 
 const RECORD_TYPES: readonly RecordType[] = [
   "person",
@@ -115,6 +175,14 @@ function expiresAtFor(days: number): string | undefined {
     return undefined;
   }
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+// One word for a level, wherever the screen names one: the picker's own
+// control, the who-has-access list, and the sentence a downgrade asks. A
+// level worded one way in the list and another in the dialog reads as two
+// different permissions.
+function accessLabel(level: Access, t: ReturnType<typeof useT>): string {
+  return t(level === "write" ? "share.access.write" : "share.access.read");
 }
 
 // Marks a 403 whose code is `approval_required` (createRecordGrant/
@@ -182,9 +250,16 @@ function SubjectKindIcon({
 // partial-roster-failure path (one roster query succeeded, the other
 // didn't) — kept as one function so a future field change on a row only
 // needs one edit.
+//
+// A subject who already holds a grant is SELECTABLE, and their row says which
+// level they hold. Disabling the row (what it did before the API became
+// idempotent on the grant tuple) left one way to change a colleague's level:
+// revoke it and start again — and it said "already has a grant" without
+// saying which, so the reader could not tell an upgrade from a downgrade
+// before pressing anything.
 function renderSubjectList(
   candidates: RosterSubject[],
-  grantedSubjectIds: Set<string>,
+  held: ReadonlyMap<string, RecordGrant>,
   selected: RosterSubject | null,
   t: ReturnType<typeof useT>,
   onPick: (candidate: RosterSubject) => void,
@@ -192,12 +267,11 @@ function renderSubjectList(
   return (
     <ul className="share-subject-list">
       {candidates.map((candidate) => {
-        const already = grantedSubjectIds.has(candidate.id);
+        const heldGrant = held.get(candidate.id);
         return (
           <li key={candidate.id}>
             <Button
               className="share-subject-row"
-              disabled={already}
               aria-pressed={selected?.id === candidate.id}
               onClick={() => onPick(candidate)}
             >
@@ -205,8 +279,19 @@ function renderSubjectList(
                 <SubjectKindIcon kind={candidate.kind} t={t} />
                 <span>{candidate.name}</span>
               </span>
-              <span className="share-subject-note">
-                {already ? t("share.alreadyGranted") : candidate.note}
+              <span className="share-subject-held">
+                {heldGrant && (
+                  <Badge
+                    tone={heldGrant.access === "write" ? "accent" : undefined}
+                  >
+                    {t(
+                      heldGrant.access === "write"
+                        ? "share.holdsWrite"
+                        : "share.holdsRead",
+                    )}
+                  </Badge>
+                )}
+                <span className="share-subject-note">{candidate.note}</span>
               </span>
             </Button>
           </li>
@@ -224,7 +309,7 @@ function RosterPicker({
   usersQuery,
   teamsQuery,
   filteredRoster,
-  grantedSubjectIds,
+  held,
   subject,
   t,
   onPick,
@@ -232,7 +317,8 @@ function RosterPicker({
   usersQuery: { isPending: boolean; isError: boolean; refetch: () => unknown };
   teamsQuery: { isPending: boolean; isError: boolean; refetch: () => unknown };
   filteredRoster: RosterSubject[];
-  grantedSubjectIds: Set<string>;
+  // The grant each subject already holds on this record, by subject id.
+  held: ReadonlyMap<string, RecordGrant>;
   subject: RosterSubject | null;
   t: ReturnType<typeof useT>;
   onPick: (candidate: RosterSubject) => void;
@@ -272,13 +358,7 @@ function RosterPicker({
         {/* A partial failure still lets the subject that DID load be picked
             — the error is informational, not a hard block. */}
         {filteredRoster.length > 0 &&
-          renderSubjectList(
-            filteredRoster,
-            grantedSubjectIds,
-            subject,
-            t,
-            onPick,
-          )}
+          renderSubjectList(filteredRoster, held, subject, t, onPick)}
       </div>
     );
   }
@@ -289,13 +369,7 @@ function RosterPicker({
       </p>
     );
   }
-  return renderSubjectList(
-    filteredRoster,
-    grantedSubjectIds,
-    subject,
-    t,
-    onPick,
-  );
+  return renderSubjectList(filteredRoster, held, subject, t, onPick);
 }
 
 function ShareScreenBody({
@@ -322,10 +396,17 @@ function ShareScreenBody({
   const usersQuery = useRoster("user", true);
   const teamsQuery = useRoster("team", true);
 
-  const grantedSubjectIds = useMemo(
-    () => new Set((grantsQuery.data ?? []).map((g) => g.subject_id)),
-    [grantsQuery.data],
-  );
+  // At most one grant per subject on one record — the tuple the create is
+  // idempotent on is exactly `(record, subject)` — so the grant itself is the
+  // value, not just the fact that one exists: the picker row states the level,
+  // and a re-assert is measured against it.
+  const heldBySubject = useMemo(() => {
+    const byId = new Map<string, RecordGrant>();
+    for (const grantRow of grantsQuery.data ?? []) {
+      byId.set(grantRow.subject_id, grantRow);
+    }
+    return byId;
+  }, [grantsQuery.data]);
 
   const roster: RosterSubject[] = useMemo(() => {
     // Agent seats carry is_agent (spec §2.1) precisely so the share picker
@@ -379,20 +460,32 @@ function ShareScreenBody({
     setReason("");
   }
 
-  // The picked subject arrives as the mutation's variable, not through this
+  // A restatement that moved nothing, kept so the screen can say so. The
+  // subject's name and level are copied out of the draft rather than read back
+  // off the form, which the success has already cleared.
+  const [unchanged, setUnchanged] = useState<{
+    name: string;
+    access: Access;
+  } | null>(null);
+  // The draft a downgrade is waiting on: the dialog is open exactly while one
+  // exists, and confirming submits THIS draft rather than re-reading a form
+  // the reader has been looking at a dialog instead of.
+  const [downgrade, setDowngrade] = useState<ReassertDraft | null>(null);
+
+  // The whole submit arrives as the mutation's variable, not through this
   // closure: react-query re-arms a mutation's options in a passive effect, so a
   // submit landing between the commit that enables the button and that effect
   // runs the previous render's function — where nothing had been picked yet.
   const grant = useMutation({
-    mutationFn: async (subject: RosterSubject) => {
+    mutationFn: async (draft: GrantDraft) => {
       const body: CreateRecordGrantRequest = {
         record_type: recordType,
         record_id: recordId,
-        subject_type: subject.kind,
-        subject_id: subject.id,
-        access,
-        reason: reason.trim() || undefined,
-        expires_at: expiresAtFor(expiryDays),
+        subject_type: draft.subject.kind,
+        subject_id: draft.subject.id,
+        access: draft.access,
+        reason: draft.reason,
+        expires_at: draft.expiresAt,
       };
       const { data, error } = await api.POST("/record-grants", { body });
       if (error) {
@@ -403,8 +496,17 @@ function ShareScreenBody({
       }
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, draft) => {
       queryClient.invalidateQueries({ queryKey: grantsKey });
+      // A re-assert of the same level, expiry and reason leaves the list below
+      // looking exactly as it did. Silence there reads as "my change landed",
+      // which is the one thing that did not happen, so this press says so.
+      setUnchanged(
+        draft.change === "unchanged"
+          ? { name: draft.subject.name, access: draft.access }
+          : null,
+      );
+      setDowngrade(null);
       resetForm();
     },
   });
@@ -428,11 +530,16 @@ function ShareScreenBody({
     },
   });
 
-  // A 403 approval_required needs the surface's own sentence; every other
-  // refusal reads best in the server's words.
+  // A 403 approval_required and a 403 seat_tier_insufficient each need the
+  // surface's own sentence — the second one names the RECIPIENT's licence, not
+  // the actor's permission, and "forbidden" sends the reader looking in the
+  // wrong place. Every other refusal reads best in the server's words.
   function honestMessage(error: unknown): string {
     if (error instanceof ApprovalRequiredError) {
       return t("share.approvalRequired");
+    }
+    if (problemCodeOf(error) === "seat_tier_insufficient") {
+      return t("share.seatCeiling");
     }
     return problemMessageOf(error, t);
   }
@@ -442,13 +549,48 @@ function ShareScreenBody({
     ? honestMessage(revoke.error)
     : null;
 
-  // A stale grant error must not outlive the edit that could fix it — clearing
-  // it as the user changes any field mirrors the revoke path's reset(). Guarded
-  // so a keystroke in an already-clean form doesn't churn react-query state.
-  function dismissGrantError() {
+  // A stale grant error, or a "nothing changed" from the last press, must not
+  // outlive the edit that could change the answer — clearing both as the user
+  // changes any field mirrors the revoke path's reset(). The react-query reset
+  // is guarded so a keystroke in an already-clean form doesn't churn its state.
+  function dismissGrantFeedback() {
     if (grant.isError) {
       grant.reset();
     }
+    setUnchanged(null);
+  }
+
+  // Everything this press means, decided here in the committed render and
+  // handed to the mutation whole.
+  function draftFor(picked: RosterSubject): GrantDraft {
+    const fields: DraftFields = {
+      subject: picked,
+      access,
+      expiresAt: expiresAtFor(expiryDays),
+      reason: reason.trim() || undefined,
+    };
+    const heldGrant = heldBySubject.get(picked.id);
+    if (!heldGrant) {
+      return { ...fields, change: "new" };
+    }
+    return {
+      ...fields,
+      change: reassertKind(heldGrant, fields),
+      heldAccess: heldGrant.access,
+    };
+  }
+
+  // Taking a colleague's level DOWN is the one direction the actor may not
+  // have meant, so it is asked about first. Raising it, restating it, and
+  // granting a subject their first access all go straight through: none of
+  // them removes an authority somebody is already relying on.
+  function submit(picked: RosterSubject) {
+    const draft = draftFor(picked);
+    if (draft.change === "lower") {
+      setDowngrade(draft);
+      return;
+    }
+    grant.mutate(draft);
   }
 
   return (
@@ -492,20 +634,36 @@ function ShareScreenBody({
               onChange={(event) => {
                 setTerm(event.target.value);
                 setSubject(null);
-                dismissGrantError();
+                dismissGrantFeedback();
               }}
             />
             <RosterPicker
               usersQuery={usersQuery}
               teamsQuery={teamsQuery}
               filteredRoster={filteredRoster}
-              grantedSubjectIds={grantedSubjectIds}
+              held={heldBySubject}
               subject={subject}
               t={t}
               onPick={(candidate) => {
                 setSubject(candidate);
                 setTerm(candidate.name);
-                dismissGrantError();
+                const heldGrant = heldBySubject.get(candidate.id);
+                if (heldGrant) {
+                  // The form opens on what this subject holds TODAY, because a
+                  // re-assert restates every field: left on the compose
+                  // defaults, pressing Update would quietly downgrade a write
+                  // holder to read and clear the reason on record. An expiry
+                  // that is already set has no day-count to come back to — the
+                  // four options are relative to now — so that one control
+                  // stays where it is and the consequence line below says what
+                  // the chosen option will do.
+                  setAccess(heldGrant.access);
+                  setReason(heldGrant.reason ?? "");
+                  if (!heldGrant.expires_at) {
+                    setExpiryDays(0);
+                  }
+                }
+                dismissGrantFeedback();
               }}
             />
           </div>
@@ -524,7 +682,7 @@ function ShareScreenBody({
                 label={t("share.access")}
                 onChange={(next) => {
                   setAccess(next);
-                  dismissGrantError();
+                  dismissGrantFeedback();
                 }}
                 labels={{
                   read: t("share.access.read"),
@@ -548,7 +706,7 @@ function ShareScreenBody({
                 value={String(expiryDays)}
                 onChange={(value) => {
                   setExpiryDays(Number(value));
-                  dismissGrantError();
+                  dismissGrantFeedback();
                 }}
                 options={EXPIRY_OPTIONS.map((option) => ({
                   value: String(option.days),
@@ -581,11 +739,24 @@ function ShareScreenBody({
                 value={reason}
                 onChange={(event) => {
                   setReason(event.target.value);
-                  dismissGrantError();
+                  dismissGrantFeedback();
                 }}
               />
             )}
           </Field>
+
+          {unchanged && (
+            <p
+              className="t-caption"
+              role="status"
+              data-testid="share-unchanged"
+            >
+              {t("share.unchanged", {
+                name: unchanged.name,
+                access: accessLabel(unchanged.access, t),
+              })}
+            </p>
+          )}
 
           {grantErrorMessage && (
             <p className="t-caption share-error">{grantErrorMessage}</p>
@@ -594,10 +765,15 @@ function ShareScreenBody({
           <Button
             variant="primary"
             disabled={!subject || grant.isPending}
-            onClick={() => subject && grant.mutate(subject)}
+            onClick={() => subject && submit(subject)}
             data-testid="share-grant-submit"
           >
-            {t("share.grant")}
+            {/* A subject who already holds a grant is not being granted one:
+                the press restates what they hold, and the word on the button
+                is the reader's last cue to which of the two they are doing. */}
+            {subject && heldBySubject.has(subject.id)
+              ? t("share.update")
+              : t("share.grant")}
           </Button>
         </div>
       </Card>
@@ -614,15 +790,12 @@ function ShareScreenBody({
                       <EntityRef kind={g.subject_type} id={g.subject_id} />
                     </span>
                     <div className="share-acl-meta">
-                      <span
-                        className={`share-access-pill share-access-${g.access}`}
-                      >
-                        {t(
-                          g.access === "read"
-                            ? "share.access.read"
-                            : "share.access.write",
-                        )}
-                      </span>
+                      {/* The same badge, in the same tone, as the picker row
+                          for this subject: one drawing of a level per screen,
+                          or the reader has two things to learn instead of one. */}
+                      <Badge tone={g.access === "write" ? "accent" : undefined}>
+                        {accessLabel(g.access, t)}
+                      </Badge>
                       <span className="t-caption">
                         {t("share.grantedBy")}{" "}
                         <EntityRef kind="user" id={g.granted_by} />
@@ -671,6 +844,35 @@ function ShareScreenBody({
       >
         <p>{t("share.revokeConfirm")}</p>
       </ConfirmModal>
+
+      {/* Mounted only while a downgrade is waiting, because its copy names the
+          person and the two levels — a dialog kept mounted with nothing to ask
+          about would have to word that question about nobody. */}
+      {downgrade && (
+        <ConfirmModal
+          open
+          onClose={() => {
+            setDowngrade(null);
+            grant.reset();
+          }}
+          title={t("share.downgradeTitle")}
+          confirmLabel={t("share.downgradeConfirm", {
+            to: accessLabel(downgrade.access, t),
+          })}
+          confirmVariant="danger"
+          onConfirm={() => grant.mutate(downgrade)}
+          pending={grant.isPending}
+          error={grantErrorMessage}
+        >
+          <p data-testid="share-downgrade-body">
+            {t("share.downgradeBody", {
+              name: downgrade.subject.name,
+              from: accessLabel(downgrade.heldAccess, t),
+              to: accessLabel(downgrade.access, t),
+            })}
+          </p>
+        </ConfirmModal>
+      )}
     </div>
   );
 }

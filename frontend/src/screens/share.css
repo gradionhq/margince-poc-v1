@@ -1,7 +1,9 @@
 /* Scoped styles for the record-share screen (AS-3/4/5, A52/ADR-0039).
-   Layout only — atoms (Button, SegmentedControl, ConfirmModal) carry their
-   own look; this file owns the header ceiling note, the subject picker
-   list, the access/expiry pills, and the who-has-access rows. Mirrors the
+   Layout only — atoms (Badge, Button, SegmentedControl, ConfirmModal) carry
+   their own look; this file owns the header ceiling note, the subject picker
+   list, the expiry badge, and the who-has-access rows. An access level is a
+   `Badge`, in the picker row and in the list alike — the pill this file used
+   to draw for the list was a second spelling of one. Mirrors the
    share.html mockup's structure with our own CSS-custom-property tokens
    (design-system/tokens.css) — no hex/rgb literals (make ds-purity). */
 
@@ -68,6 +70,16 @@
   padding: 8px 10px;
 }
 
+/* The right-hand end of a picker row: the level this subject already holds,
+   when they hold one, and then their address or member count. The badge draws
+   itself, so this owns only the gap between the two. */
+.share-subject-held {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .share-subject-note {
   font-size: 11.5px;
   color: var(--textTertiary);
@@ -90,27 +102,6 @@
   height: 15px;
   color: var(--textTertiary);
   flex: none;
-}
-
-.share-access-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: var(--r-full);
-  padding: 3px 9px;
-  text-transform: capitalize;
-}
-
-.share-access-read {
-  background: var(--tealLight);
-  color: var(--teal);
-}
-
-.share-access-write {
-  background: var(--accentLight);
-  color: var(--accent);
 }
 
 .share-expiry-badge {
