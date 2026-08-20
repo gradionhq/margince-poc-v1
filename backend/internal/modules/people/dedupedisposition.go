@@ -101,9 +101,18 @@ func (s *Store) DisposeDedupeCandidate(ctx context.Context, id ids.UUID, disposi
 }
 
 // disposeMerge is the merge arm: validate the winner, mark first (a CAS on
-// open, so a concurrent decision cannot double-merge), then run the ONE
-// merge verb in its own transaction. A merge failure re-opens the row —
-// the queue never claims a merge that did not happen.
+// open, so a concurrent decision cannot double-merge), then run the ONE merge
+// verb in its own transaction. A merge the verb REFUSES re-opens the row.
+//
+// That compensation is not a guarantee, and saying so is the point: the mark
+// and the merge are separate transactions, so a reopen that itself fails — or
+// a process that stops between the two — leaves the candidate at 'merged' with
+// no merge behind it, suppressed for the whole workspace. errors.Join reports
+// it and nothing repairs it. Dismiss and undo do not have this shape; they
+// commit their probe and their write together through writePairDecision. The
+// merge arm cannot yet, because the merge verbs are Store methods that open
+// their own transactions rather than joining a caller's. Tracked as its own
+// issue (#1970); do not read the compensation as atomicity.
 func (s *Store) disposeMerge(ctx context.Context, id ids.UUID, row DedupeCandidateRow, winnerID *ids.UUID, by ids.UUID) error {
 	if winnerID == nil || (*winnerID != row.LeftID && *winnerID != row.RightID) {
 		return &DedupeInputError{Field: "winner_id", Msg: "must be one of the pair"}
@@ -200,7 +209,7 @@ func reopenDedupeCandidateTx(ctx context.Context, tx pgx.Tx, id ids.UUID) error 
 		UPDATE dedupe_candidate SET disposition = 'open', disposed_by = NULL, disposed_at = NULL
 		WHERE id = $1 AND disposition <> 'open'`, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("people: re-opening dedupe candidate: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		// Already open (a concurrent undo) — the desired state holds.
