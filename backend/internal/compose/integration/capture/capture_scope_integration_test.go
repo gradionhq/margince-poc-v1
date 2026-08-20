@@ -98,7 +98,7 @@ func TestCaptureStagesAMergeForALeadCollidingWithAnotherTeamsLead(t *testing.T) 
 	registry, stager := newScopeCaptureRegistry(t, e, fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t 
 	registry, _ := newScopeCaptureRegistry(t, e, fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}

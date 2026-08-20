@@ -25,18 +25,6 @@ const providerIMAP = "imap"
 
 const codeConnectorStoreFailed = "connector_store_failed"
 
-// sharingNotAcknowledged is the refusal every capture connect answers until
-// the human has ticked the mail-sharing acknowledgment (one sentence, one
-// checkbox): what the connector captures becomes readable to colleagues who
-// can see the contact.
-func sharingNotAcknowledged() *httperr.DetailedError {
-	return &httperr.DetailedError{
-		Status: http.StatusUnprocessableEntity,
-		Code:   "sharing_not_acknowledged",
-		Detail: "Connecting a capture source needs share_acknowledged: true — captured correspondence becomes readable to colleagues who can see the contact.",
-	}
-}
-
 // connectIMAP establishes a STANDING imap connection: the credentials are
 // probed (dial + login, session closed), sealed to the vault by
 // Registry.Connect, and the background sweep takes over — the same lifecycle
@@ -70,10 +58,6 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 	// never conflated with the credential check below.
 	var req crmcontracts.ConnectConnectorRequest
 	if !httperr.Decode(w, r, &req) {
-		return
-	}
-	if req.ShareAcknowledged == nil || !*req.ShareAcknowledged {
-		httperr.Write(w, r, sharingNotAcknowledged())
 		return
 	}
 	if req.Imap == nil || req.Imap.Secret == nil || req.Imap.Host == "" || req.Imap.Username == "" {
@@ -129,7 +113,7 @@ func (h connectorHandlers) connectIMAP(w http.ResponseWriter, r *http.Request) {
 // persistIMAPConnection stores the sealed bundle and answers with the
 // connected row — the connect's terminal half.
 func (h connectorHandlers) persistIMAPConnection(w http.ResponseWriter, r *http.Request, auth connector.Auth) {
-	if _, err := h.registry.Connect(r.Context(), providerIMAP, auth, true); err != nil {
+	if _, err := h.registry.Connect(r.Context(), providerIMAP, auth); err != nil {
 		if errors.Is(err, apperrors.ErrScopeExceeded) {
 			// Defense-in-depth: connectIMAP grants the descriptor's scopes from
 			// the human's authority, so a human cannot normally trip this. Kept

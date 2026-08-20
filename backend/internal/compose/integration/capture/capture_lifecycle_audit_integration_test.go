@@ -66,7 +66,7 @@ func TestReconnectDeletesSupersededCredentialWhenTheCallerHangsUp(t *testing.T) 
 	registry.Register(&authAssertingFake{})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("first-token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("first-token"))
 	if err != nil {
 		t.Fatalf("first connect: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestReconnectDeletesSupersededCredentialWhenTheCallerHangsUp(t *testing.T) 
 	reqCtx, cancel := context.WithCancel(humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead}))
 	defer cancel()
 	hangUp.hangUp = cancel
-	if _, err := registry.Connect(reqCtx, "graph", connector.Auth("second-token"), true); err != nil {
+	if _, err := registry.Connect(reqCtx, "graph", connector.Auth("second-token")); err != nil {
 		t.Fatalf("reconnect: %v", err)
 	}
 
@@ -93,7 +93,7 @@ func TestDisconnectDeletesTheCredentialWhenTheCallerHangsUp(t *testing.T) {
 	registry.Register(&authAssertingFake{})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestConnectAndDisconnectLeaveAnAttributableAuditRow(t *testing.T) {
 	registry.Register(&authAssertingFake{})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestARetriedDisconnectDoesNotReAuditTheWithdrawal(t *testing.T) {
 	registry.Register(&authAssertingFake{})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestAConnectThatFailsLeavesNoAuditRow(t *testing.T) {
 	refuseSyncStateUpdates(t, e)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"), true); err == nil {
+	if _, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token")); err == nil {
 		t.Fatal("connect must fail while the sync-state update is refused")
 	}
 

@@ -51,7 +51,7 @@ func (h captureSettingsHandlers) UpdateCaptureSettings(w http.ResponseWriter, r 
 		httperr.Write(w, r, httperr.Validation("body", "invalid_json", "request body is not valid JSON"))
 		return
 	}
-	settings, err := h.store.Update(r.Context(), req.AutoEnrich)
+	settings, err := h.store.Update(r.Context(), req.AutoEnrich, req.MailSharing)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -61,5 +61,5 @@ func (h captureSettingsHandlers) UpdateCaptureSettings(w http.ResponseWriter, r 
 
 // toContractCaptureSettings maps the stored posture onto the wire shape.
 func toContractCaptureSettings(s capture.Settings) crmcontracts.CaptureSettings {
-	return crmcontracts.CaptureSettings{AutoEnrich: s.AutoEnrich}
+	return crmcontracts.CaptureSettings{AutoEnrich: s.AutoEnrich, MailSharing: s.MailSharing}
 }

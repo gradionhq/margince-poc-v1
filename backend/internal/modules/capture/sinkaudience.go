@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -44,3 +45,25 @@ func limitLinkLessAudience(ctx context.Context, tx pgx.Tx, id ids.ActivityID, re
 // audienceParticipants is the activity audience a link-less captured message
 // is held in (platform/auth ActivityContentClause names the arms).
 const audienceParticipants = "participants"
+
+// capturedAudience answers the audience a freshly captured activity is born
+// with. Mail sharing ON (the default) births an email workspace-readable —
+// the point of capturing into a shared CRM. Switched OFF, an email is held to
+// its participants and the capturing mailbox owner from the moment it lands;
+// the setting moves the default for NEW mail only, and non-mail kinds
+// (meetings, channel messages) keep the workspace default either way.
+func capturedAudience(ctx context.Context, tx pgx.Tx, kind string) (string, error) {
+	if kind != "email" {
+		return audienceWorkspace, nil
+	}
+	sharing, err := settings.ApplyTx(ctx, tx, MailSharing)
+	if err != nil {
+		return "", fmt.Errorf("capture: reading the mail-sharing posture: %w", err)
+	}
+	if sharing {
+		return audienceWorkspace, nil
+	}
+	return audienceParticipants, nil
+}
+
+const audienceWorkspace = "workspace"

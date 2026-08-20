@@ -24,25 +24,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// Connect grants one connector under the CALLING human's authority. Three
-// guards run here, all at grant time rather than discovered at 3am
-// mid-sync: the granting human must still resolve as live authority, a
-// connector demanding scopes they do not hold is refused, and a grant
-// without the mail-sharing acknowledgment is refused — captured
-// correspondence is workspace-readable by default, and that default is a
-// stated choice recorded on the row (share_acknowledged_at) before the
-// first pull. The transports collect the acknowledgment (422 without it);
-// this refusal is the single write point holding the invariant that an
-// unacknowledged connection cannot exist.
+// Connect grants one connector under the CALLING human's authority. Two
+// guards run here, both at grant time rather than discovered at 3am
+// mid-sync: the granting human must still resolve as live authority, and
+// a connector demanding scopes they do not hold is refused. Mail sharing
+// is a workspace SETTING (capture.mail_sharing, ON by default) rather
+// than a per-connect acknowledgment; share_acknowledged_at records when
+// this grant connected under that regime.
 //
 // note: the returned id (and the connectionID threaded through SyncOnce and
 // the sync-state recording) names a capture_connection row, which the kernel
 // does not model as a first-class entity — no kind exists for it, so it stays
 // ids.UUID rather than inventing one.
-func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth, shareAcknowledged bool) (ids.UUID, error) {
-	if !shareAcknowledged {
-		return ids.Nil, errors.New("capture: a connector grant needs the mail-sharing acknowledgment — the transport asks for it before calling here")
-	}
+func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth) (ids.UUID, error) {
 	c, err := r.connector(name)
 	if err != nil {
 		return ids.Nil, err

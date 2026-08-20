@@ -198,7 +198,7 @@ func newCaptureEnv(t *testing.T) captureEnv {
 	seedCaptureRole(t, e)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true)
+	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

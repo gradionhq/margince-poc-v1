@@ -41,7 +41,7 @@ func TestConnectPersistsTheProviderGrantedScopes(t *testing.T) {
 	registry.Register(&grantingFake{granted: granted})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestAConnectorThatCannotReportItsGrantRecordsNoClaim(t *testing.T) {
 	registry.Register(&mailFake{})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}

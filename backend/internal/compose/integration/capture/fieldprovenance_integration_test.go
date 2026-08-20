@@ -35,7 +35,7 @@ func TestFieldProvenanceCoversCaptureAcrossObjectTypes(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}

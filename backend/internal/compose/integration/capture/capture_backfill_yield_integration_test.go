@@ -122,7 +122,7 @@ func TestBackfillCountsOnlyTheCounterpartiesItsOwnPagesCreated(t *testing.T) {
 	})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	rep := ids.From[ids.UserKind](e.Rep1)
@@ -186,7 +186,7 @@ func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
 	registry.Register(prov)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	rep := ids.From[ids.UserKind](e.Rep1)
@@ -289,7 +289,7 @@ func TestBackfillYieldsSurviveATransientFault(t *testing.T) {
 	registry.Register(prov)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	rep := ids.From[ids.UserKind](e.Rep1)
@@ -352,7 +352,7 @@ func TestBackfillYieldsSurviveACancelUnderTheRunningPage(t *testing.T) {
 	registry.Register(prov)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	rep := ids.From[ids.UserKind](e.Rep1)
@@ -403,7 +403,7 @@ func TestBackfillYieldsAreCreditedOnceAtTheRetryCeiling(t *testing.T) {
 	registry.Register(prov)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	rep := ids.From[ids.UserKind](e.Rep1)

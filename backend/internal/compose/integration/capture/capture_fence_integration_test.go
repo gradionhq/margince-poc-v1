@@ -83,7 +83,7 @@ func TestASyncDisconnectedMidFlightCommitsNothing(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true)
+	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestABackfillPageDisconnectedMidFlightCommitsNothing(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	run, err := registry.StartBackfill(grantCtx, "gmail", ids.From[ids.UserKind](e.Rep1), 6, 25, enqueueNothing)

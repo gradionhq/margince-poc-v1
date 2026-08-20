@@ -7019,7 +7019,7 @@ paths:
             examples:
               oauth:
                 summary: OAuth provider — server returns the authorize_url to redirect to
-                value: { share_acknowledged: true, redirect_uri: 'https://app.example.com/activation' }
+                value: { redirect_uri: 'https://app.example.com/activation' }
       responses:
         '200':
           description: OAuth redirect target (OAuth providers).
@@ -14037,8 +14037,16 @@ components:
       description: |
         The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
         changed only by admin/ops.
-      required: [auto_enrich]
+      required: [auto_enrich, mail_sharing]
       properties:
+        mail_sharing:
+          type: boolean
+          description: |
+            The workspace's mail-sharing posture, ON by default: a captured email is readable by
+            every colleague who can see the contact. Switched OFF, every email captured FROM THEN ON
+            is held to its participants and the capturing mailbox owner — already-captured mail keeps
+            the audience it has. Turning it off makes shared pipeline work hard; the setting exists
+            for installations that accept that cost.
         auto_enrich:
           type: boolean
           description: |
@@ -14049,6 +14057,7 @@ components:
       description: A sparse capture-settings patch (admin/ops).
       properties:
         auto_enrich: { type: boolean, description: Toggle captured-organization auto-enrichment. }
+        mail_sharing: { type: boolean, description: 'Toggle the workspace mail-sharing posture; affects mail captured from now on.' }
 
     BlockedDomain:
       type: object
@@ -14250,13 +14259,11 @@ components:
       properties:
         share_acknowledged:
           type: boolean
+          deprecated: true
           description: |
-            The connecting human's one-time acknowledgment that what this connector captures
-            becomes readable to colleagues who can see the contact (they can limit individual
-            messages afterwards, and exclude addresses or domains up front). Required `true`
-            for every capture provider — the connect refuses with 422 `sharing_not_acknowledged`
-            without it — and recorded on the connection as `share_acknowledged_at` before the
-            first pull.
+            Accepted and ignored. Mail sharing is a workspace setting (`CaptureSettings.mail_sharing`,
+            ON by default, admin-switchable) rather than a per-connect acknowledgment; this field
+            remains only so a client that still sends it keeps working.
         redirect_uri: { type: string, format: uri, description: 'App page to return to after OAuth consent (OAuth providers).' }
         return_to:
           type: string

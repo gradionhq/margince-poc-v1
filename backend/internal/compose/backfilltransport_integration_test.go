@@ -183,10 +183,10 @@ func setupBackfillWire(t *testing.T) *backfillWireEnv {
 			RowScope: principal.RowScopeTeam,
 		},
 	})
-	if _, err := registry.Connect(human, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(human, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect gmail: %v", err)
 	}
-	if _, err := registry.Connect(human, "graph", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(human, "graph", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect graph: %v", err)
 	}
 	inserter, err := jobs.NewInserter(e.Pool, quiet)

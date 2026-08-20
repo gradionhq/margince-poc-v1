@@ -92,7 +92,7 @@ func TestSyncFailureNeverKillsAConnection(t *testing.T) {
 	registry.Register(moody)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true)
+	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestSyncFailureNeverKillsAConnection(t *testing.T) {
 		}
 
 		// Reconnect (the OAuth callback path) un-parks it with a clean ladder.
-		if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("fresh"), true); err != nil {
+		if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("fresh")); err != nil {
 			t.Fatalf("reconnect: %v", err)
 		}
 		status, row = readSyncState(t, e, connID)

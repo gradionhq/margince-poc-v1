@@ -45,6 +45,9 @@ type mailFake struct {
 	linkTo    ids.UUID
 	scopes    []principal.Scope
 	syncCount int
+	// emitSecondMessage adds a second, distinct email to the sync — for the
+	// suites that need mail captured BEFORE and AFTER a posture change.
+	emitSecondMessage bool
 }
 
 func (m *mailFake) Descriptor() connector.Descriptor {
@@ -85,6 +88,16 @@ func (m *mailFake) Sync(ctx context.Context, _ connector.Auth, cursor connector.
 			Fields:     capturemod.LeadFields{FullName: "Lead Sender", Email: "sender@graph.test", CompanyName: "Mailfake GmbH"},
 			Source:     "graph", CapturedBy: "connector:graph",
 		},
+	}
+	if m.emitSecondMessage {
+		records = append(records, connector.NormalizedRecord{
+			EntityType: datasource.EntityActivity,
+			NaturalKey: connector.NaturalKey{SourceSystem: "graph", SourceID: "msg-2"},
+			Fields:     capturemod.ActivityFields{Kind: "email", Subject: "Second thoughts", Body: "one more question", OccurredAt: fixedCaptureTime, Direction: "inbound"},
+			Links:      []datasource.EntityRef{{Type: datasource.EntityPerson, ID: m.linkTo}},
+			Source:     "graph", CapturedBy: "connector:graph",
+			Raw: []byte(`{"provider":"graph","message_id":"msg-2"}`),
+		})
 	}
 	for _, rec := range records {
 		if _, err := sink.Upsert(ctx, rec); err != nil {
@@ -136,7 +149,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +222,7 @@ func TestCaptureScopeIntersectionRefusesOverScopedConnector(t *testing.T) {
 	registry.Register(&mailFake{scopes: []principal.Scope{principal.ScopeRead, principal.ScopeSend}})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	_, err := registry.Connect(grantCtx, "graph", nil, true)
+	_, err := registry.Connect(grantCtx, "graph", nil)
 	if !errors.Is(err, apperrors.ErrScopeExceeded) {
 		t.Fatalf("over-scoped connector grant → %v, want ErrScopeExceeded", err)
 	}
@@ -228,7 +241,7 @@ func TestReconnectUnarchivesTheConnection(t *testing.T) {
 	registry.Register(&mailFake{})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +258,7 @@ func TestReconnectUnarchivesTheConnection(t *testing.T) {
 	}
 
 	// Reconnect the same provider for the same human.
-	if _, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "graph", connector.Auth("token")); err != nil {
 		t.Fatalf("reconnect: %v", err)
 	}
 	views, err := registry.Connections(grantCtx)
@@ -275,7 +288,7 @@ func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", nil, true)
+	connID, err := registry.Connect(grantCtx, "graph", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
