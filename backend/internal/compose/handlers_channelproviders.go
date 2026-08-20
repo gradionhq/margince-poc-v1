@@ -26,6 +26,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // channelProvidersHandlers serves the directory. It holds NO state for
@@ -60,16 +61,23 @@ func (channelProvidersHandlers) ListChannelProviders(w http.ResponseWriter, r *h
 // handler so the shaping is testable without a request, and sorted so the page
 // is stable — a directory that reorders between calls makes a diff of two
 // deployments unreadable.
-func publishedChannelProviders(registered, sending []string) []crmcontracts.ChannelProviderEntry {
+func publishedChannelProviders(registered []string, sending map[string]connector.Carriage) []crmcontracts.ChannelProviderEntry {
 	facts := channelProviderFactsFor(registered, sending)
 	out := make([]crmcontracts.ChannelProviderEntry, 0, len(facts))
 	for _, f := range facts {
-		out = append(out, crmcontracts.ChannelProviderEntry{
+		entry := crmcontracts.ChannelProviderEntry{
 			Provider:          f.provider,
 			Label:             f.label,
 			CredentialModel:   crmcontracts.ChannelProviderEntryCredentialModel(f.credentialModel),
 			SuppliesTransport: f.suppliesTransport,
-		})
+		}
+		// Field by field rather than a shared struct: the contract's entry
+		// declares the object inline, so there is no named type to convert to.
+		entry.Attachments.Carries = f.carriage.Carries
+		entry.Attachments.MaxFiles = f.carriage.MaxFiles
+		entry.Attachments.MaxBytesPerFile = f.carriage.MaxBytesPerFile
+		entry.Attachments.MaxBodyWithFiles = f.carriage.MaxBodyWithFiles
+		out = append(out, entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Provider < out[j].Provider })
 	return out

@@ -65,6 +65,24 @@ type AttachmentCarrier interface {
 // the same type, or the bounds a gate checks are two sets that can disagree.
 type Carriage = extension.Carriage
 
+// CarriageOf asks a resolved sender what it can carry.
+//
+// A sender that does not implement AttachmentCarrier answers the ZERO Carriage
+// — carries nothing. That is the no-default rule in one line, and it lives HERE,
+// beside the interface, because three callers now ask it: the send seam that
+// gates a delivery, the registry that publishes the transport directory, and the
+// tests that pin both. A second spelling of this assertion is a second place a
+// silent "presumably it carries" could creep in.
+//
+//craft:ignore naked-any the type assertion seam: a sender is whichever connector the resolver or the registry bound
+func CarriageOf(sender any) Carriage {
+	carrier, ok := sender.(AttachmentCarrier)
+	if !ok {
+		return Carriage{}
+	}
+	return carrier.Carriage()
+}
+
 // OutboundFile is one file to transmit — the published extension.OutboundFile,
 // aliased for the reason part.go states.
 type OutboundFile = extension.OutboundFile

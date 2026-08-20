@@ -144,6 +144,28 @@ func (r *Registry) ChannelProviders() []string {
 	return out
 }
 
+// ChannelCarriage is what each composed channel sender can carry, keyed by
+// provider — the registry's answer to the question the transport directory
+// publishes and the dispatcher's carriage gate enforces.
+//
+// PRESENCE in the map means the binary composed a sender; the VALUE is what that
+// sender declared, which is the zero Carriage for one that never declared any.
+// The two facts travel together because they are one answer: a caller that had
+// to join a name list against a carriage map could hold a sending provider with
+// no entry, and nothing would say whether that meant "carries nothing" or "not
+// asked".
+func (r *Registry) ChannelCarriage() map[string]connector.Carriage {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]connector.Carriage, len(r.connectors))
+	for name, c := range r.connectors {
+		if _, sends := c.(connector.MessageSender); sends {
+			out[name] = connector.CarriageOf(c)
+		}
+	}
+	return out
+}
+
 // SyncOnce runs one incremental sync for a connection: builds the
 // connector principal from the granting human's live authority, hands
 // the connector the sink, and advances the stored cursor only when the

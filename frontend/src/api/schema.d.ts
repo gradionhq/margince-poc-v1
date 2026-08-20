@@ -13624,6 +13624,32 @@ export interface components {
              *     re-conflate a deployment fact with a tenant one.
              */
             supplies_transport: boolean;
+            /**
+             * @description What this transport can carry alongside a message. Published because the
+             *     composer must warn BEFORE a human presses send: a mismatch discovered at
+             *     transmission parks the delivery, which is correct but late.
+             *
+             *     `carries` false means files cannot go at all on this transport — there is no
+             *     default, so a connector that never declared carriage reports false rather than
+             *     being mistaken for capable. A zero bound means "no limit beyond the contract's
+             *     own", never "zero allowed".
+             */
+            attachments: {
+                carries: boolean;
+                /** @description Most files in one message. Never more than the contract's own `attachment_ids` cap of 10. */
+                max_files: number;
+                /**
+                 * Format: int64
+                 * @description Largest single file, in bytes.
+                 */
+                max_bytes_per_file: number;
+                /**
+                 * @description Longest message text, in characters, when the message ALSO carries files —
+                 *     a transport that sends text-with-files as a caption bounds it far below a
+                 *     text-only message. Zero means no extra bound.
+                 */
+                max_body_with_files: number;
+            };
         };
         CreateActivityRequest: {
             /** @enum {string} */

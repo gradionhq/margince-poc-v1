@@ -24,6 +24,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"sync"
 
@@ -33,6 +34,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // ReconcileChannelProviders writes this binary's channel vocabulary into the
@@ -68,6 +70,30 @@ func ReconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool) error {
 // documents as optional for exactly that.
 func CoreChannelProviders() []string {
 	return NewCaptureRegistry(nil, nil, CaptureConfig{}).ChannelProviders()
+}
+
+// CoreChannelCarriage is what each of those core transports can carry, from the
+// connector itself. Derived from the same enumeration as CoreChannelProviders
+// and for the same reason: the registry stays the only place that knows what
+// this binary compiled in.
+func CoreChannelCarriage() map[string]connector.Carriage {
+	return NewCaptureRegistry(nil, nil, CaptureConfig{}).ChannelCarriage()
+}
+
+// sendableCarriage pairs every transport a reply can leave on with what it can
+// carry.
+//
+// A name present in sendable with no entry in core is a UNIT transport, and it
+// takes the zero Carriage — carries nothing — because extension.Channel declares
+// no carriage yet (design D6). That is the no-default rule reaching the
+// directory, so a unit reply with files parks rather than going out stripped;
+// when a unit can declare carriage, this is the one place that learns it.
+func sendableCarriage(sendable []string, core map[string]connector.Carriage) map[string]connector.Carriage {
+	out := make(map[string]connector.Carriage, len(sendable))
+	for _, provider := range sendable {
+		out[provider] = core[provider]
+	}
+	return out
 }
 
 // reconcileChannelProviders upserts a channel_provider row for every transport
@@ -110,7 +136,7 @@ func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, provider
 		if units, err = unitChannelFacts(reserved); err != nil {
 			return err
 		}
-		for _, facts := range append(channelProviderFactsFor(providers, providers), units...) {
+		for _, facts := range append(channelProviderFactsFor(providers, CoreChannelCarriage()), units...) {
 			if err := upsertChannelProvider(ctx, tx, facts); err != nil {
 				return err
 			}
@@ -222,11 +248,17 @@ var composedChannelProviders struct {
 	mu sync.RWMutex
 	// registered is every transport in the registry — what a message MAY name.
 	registered []string
-	// sending is the subset this binary composed a sender for — what a reply
-	// CAN leave on. Held separately because the two differ (whatsapp is
-	// registered and unsendable) and collapsing them is the conflation this
-	// decision removed.
-	sending []string
+	// sending maps the subset this binary composed a sender for — what a reply
+	// CAN leave on — to what that sender can carry alongside the message. Held
+	// separately from registered because the two differ (whatsapp is registered
+	// and unsendable) and collapsing them is the conflation this decision
+	// removed.
+	//
+	// A map rather than a name list plus a carriage lookup: presence answers
+	// "can a reply leave on it", the value answers "carrying what", and one
+	// collection cannot hold a provider that is in one half and missing from the
+	// other.
+	sending map[string]connector.Carriage
 }
 
 // LoadChannelProviderDirectory fills the directory snapshot from the registry
@@ -281,23 +313,23 @@ func LoadChannelProviderDirectory(ctx context.Context, pool *pgxpool.Pool) error
 	if err != nil {
 		return err
 	}
-	setComposedChannelProviders(registered, activities.SendableChannelProviders())
+	setComposedChannelProviders(registered, sendableCarriage(activities.SendableChannelProviders(), CoreChannelCarriage()))
 	return nil
 }
 
-func setComposedChannelProviders(registered, sending []string) {
+func setComposedChannelProviders(registered []string, sending map[string]connector.Carriage) {
 	composedChannelProviders.mu.Lock()
 	defer composedChannelProviders.mu.Unlock()
 	composedChannelProviders.registered = slices.Clone(registered)
-	composedChannelProviders.sending = slices.Clone(sending)
+	composedChannelProviders.sending = maps.Clone(sending)
 }
 
-// ComposedChannelProviders returns this boot's registered transports and the
-// subset that can carry an outbound message.
-func ComposedChannelProviders() (registered, sending []string) {
+// ComposedChannelProviders returns this boot's registered transports and, for
+// the subset that can carry an outbound message, what each one can carry.
+func ComposedChannelProviders() (registered []string, sending map[string]connector.Carriage) {
 	composedChannelProviders.mu.RLock()
 	defer composedChannelProviders.mu.RUnlock()
-	return slices.Clone(composedChannelProviders.registered), slices.Clone(composedChannelProviders.sending)
+	return slices.Clone(composedChannelProviders.registered), maps.Clone(composedChannelProviders.sending)
 }
 
 // loadChannelProviderDirectoryOrLog fills the directory snapshot at server

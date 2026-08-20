@@ -19190,7 +19190,7 @@ components:
     ChannelProviderEntry:
       type: object
       description: One registered transport, as the directory publishes it.
-      required: [provider, label, credential_model, supplies_transport]
+      required: [provider, label, credential_model, supplies_transport, attachments]
       properties:
         provider: { $ref: '#/components/schemas/ProviderRef' }
         label:
@@ -19215,6 +19215,33 @@ components:
             transport reports false. Deliberately NOT "can this workspace send" — that
             reads `channel_connection`, a tenant table, and answering both here would
             re-conflate a deployment fact with a tenant one.
+        attachments:
+          type: object
+          required: [carries, max_files, max_bytes_per_file, max_body_with_files]
+          description: |
+            What this transport can carry alongside a message. Published because the
+            composer must warn BEFORE a human presses send: a mismatch discovered at
+            transmission parks the delivery, which is correct but late.
+
+            `carries` false means files cannot go at all on this transport — there is no
+            default, so a connector that never declared carriage reports false rather than
+            being mistaken for capable. A zero bound means "no limit beyond the contract's
+            own", never "zero allowed".
+          properties:
+            carries: { type: boolean }
+            max_files:
+              type: integer
+              description: Most files in one message. Never more than the contract's own `attachment_ids` cap of 10.
+            max_bytes_per_file:
+              type: integer
+              format: int64
+              description: Largest single file, in bytes.
+            max_body_with_files:
+              type: integer
+              description: |
+                Longest message text, in characters, when the message ALSO carries files —
+                a transport that sends text-with-files as a caption bounds it far below a
+                text-only message. Zero means no extra bound.
 
     CreateActivityRequest:
       type: object

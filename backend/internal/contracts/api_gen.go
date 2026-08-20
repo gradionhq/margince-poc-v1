@@ -12688,6 +12688,29 @@ type ChannelProviderDirectory struct {
 
 // ChannelProviderEntry One registered transport, as the directory publishes it.
 type ChannelProviderEntry struct {
+	// Attachments What this transport can carry alongside a message. Published because the
+	// composer must warn BEFORE a human presses send: a mismatch discovered at
+	// transmission parks the delivery, which is correct but late.
+	//
+	// `carries` false means files cannot go at all on this transport — there is no
+	// default, so a connector that never declared carriage reports false rather than
+	// being mistaken for capable. A zero bound means "no limit beyond the contract's
+	// own", never "zero allowed".
+	Attachments struct {
+		Carries bool `json:"carries"`
+
+		// MaxBodyWithFiles Longest message text, in characters, when the message ALSO carries files —
+		// a transport that sends text-with-files as a caption bounds it far below a
+		// text-only message. Zero means no extra bound.
+		MaxBodyWithFiles int `json:"max_body_with_files"`
+
+		// MaxBytesPerFile Largest single file, in bytes.
+		MaxBytesPerFile int64 `json:"max_bytes_per_file"`
+
+		// MaxFiles Most files in one message. Never more than the contract's own `attachment_ids` cap of 10.
+		MaxFiles int `json:"max_files"`
+	} `json:"attachments"`
+
 	// CredentialModel How a connection to this transport is credentialed — one shared bot for the
 	// installation, or a secret each member deposits. Closed on purpose, unlike the
 	// provider vocabulary: this describes the SHAPE of a credential, which is

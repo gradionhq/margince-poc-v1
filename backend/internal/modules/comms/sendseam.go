@@ -78,7 +78,7 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		if err != nil {
 			return sendSeam{}, err
 		}
-		return sendSeam{carriage: carriageOf(sender), transmit: func(ctx context.Context) (connector.SendReceipt, error) {
+		return sendSeam{carriage: connector.CarriageOf(sender), transmit: func(ctx context.Context) (connector.SendReceipt, error) {
 			// The SAME helper the mail branch calls, deliberately: a channel
 			// variant would be a second attachment path, and the one exercised
 			// less is the one that would quietly stop matching the other.
@@ -116,7 +116,7 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 	return sendSeam{
 		granted:          granted,
 		detectsPriorSend: true,
-		carriage:         carriageOf(sender),
+		carriage:         connector.CarriageOf(sender),
 		transmit: func(ctx context.Context) (connector.SendReceipt, error) {
 			// The bytes, read HERE rather than carried in the delivery row: a
 			// message on a retry ladder would otherwise hold every attachment
@@ -205,23 +205,6 @@ func (d *Dispatcher) guardAtMostOnce(ctx context.Context, del Delivery, seam sen
 		return d.retry(ctx, del.ID, fmt.Errorf("comms: marking the transmission in flight: %w", err))
 	}
 	return outcomeUndecided, 0, nil
-}
-
-// carriageOf asks a resolved sender what it can carry.
-//
-// A sender that does not implement connector.AttachmentCarrier answers the zero
-// Carriage — carries nothing. That is the seam's no-default rule in one line: an
-// adapter written before attachments existed, or one whose provider cannot carry
-// them, is never mistaken for capable — so a staged message with files parks
-// rather than going out as text that lies about its contents (ADR-0086/A131).
-//
-//craft:ignore naked-any the type assertion seam: a sender is whichever connector the resolver bound
-func carriageOf(sender any) connector.Carriage {
-	carrier, ok := sender.(connector.AttachmentCarrier)
-	if !ok {
-		return connector.Carriage{}
-	}
-	return carrier.Carriage()
 }
 
 // outboundFiles renders the staged snapshot into the provider-neutral shape.
