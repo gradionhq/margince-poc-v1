@@ -36,10 +36,12 @@ type Colleague struct {
 	DisplayName string
 	Email       string
 	SeatType    string
-	// Active is false for a suspended or locked-out seat, which is the whole
-	// reason status is read: assigning work to a seat nobody can sign into is
-	// a task that will never be seen.
-	Active bool
+	// No Active field, and its absence is the answer: only a seat that can
+	// actually receive work is listed at all. Suspended, deactivated and
+	// locked-out seats are filtered in the query rather than reported with a
+	// flag, because WHICH colleague is suspended is an admin's fact — the REST
+	// roster honours `include_inactive` only for an admin caller, and a tool
+	// any read passport can call must not be the way around that.
 	// IsAgent marks a machine seat (the workspace's own agent account). Named
 	// rather than filtered out, because an assistant listing colleagues should
 	// not silently pretend the agent seat does not exist — and must not offer
@@ -52,33 +54,47 @@ type Colleague struct {
 //
 // Archived seats are absent: a person who has left is not a colleague, and
 // naming one would offer work to an account that cannot receive it.
-func (s *Service) Colleagues(ctx context.Context, q string) ([]Colleague, error) {
+func (s *Service) Colleagues(ctx context.Context, q string) ([]Colleague, bool, error) {
+	trimmed := strings.TrimSpace(q)
+	// `%` and `_` are LIKE metacharacters, and the tool advertises this as a
+	// plain narrowing filter — a caller typing an underscore in a name means
+	// that character, not "any character".
+	escaped := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(trimmed)
+	pattern := "%" + escaped + "%"
 	var out []Colleague
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT id, display_name, email, seat_type, status, is_agent
+			SELECT id, display_name, email, seat_type, is_agent
 			  FROM app_user
 			 WHERE archived_at IS NULL
-			   AND ($1 = '' OR display_name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
-			 ORDER BY display_name
-			 LIMIT $2`, strings.TrimSpace(q), colleagueCap)
+			   AND status = 'active'
+			   AND locked_until IS NULL
+			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			   AND ($1 = '' OR display_name ILIKE $2 OR email ILIKE $2)
+			 ORDER BY display_name, id
+			 LIMIT $3`, trimmed, pattern, colleagueCap+1)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var c Colleague
-			var status string
-			if err := rows.Scan(&c.UserID, &c.DisplayName, &c.Email, &c.SeatType, &status, &c.IsAgent); err != nil {
+			if err := rows.Scan(&c.UserID, &c.DisplayName, &c.Email, &c.SeatType, &c.IsAgent); err != nil {
 				return err
 			}
-			c.Active = status == "active"
 			out = append(out, c)
 		}
 		return rows.Err()
 	})
 	if err != nil {
-		return nil, fmt.Errorf("identity: listing colleagues: %w", err)
+		return nil, false, fmt.Errorf("identity: listing colleagues: %w", err)
 	}
-	return out, nil
+	// One over the cap was asked for, so a full page is distinguishable from a
+	// truncated one. A roster that silently stopped at 200 would read as the
+	// whole roster, and an assistant would report that a colleague does not
+	// work here.
+	if len(out) > colleagueCap {
+		return out[:colleagueCap], true, nil
+	}
+	return out, false, nil
 }

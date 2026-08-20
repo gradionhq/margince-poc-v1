@@ -35,13 +35,12 @@ type Colleague struct {
 	DisplayName string   `json:"display_name"`
 	Email       string   `json:"email"`
 	SeatType    string   `json:"seat_type"`
-	Active      bool     `json:"active"`
 	IsAgent     bool     `json:"is_agent"`
 }
 
 // ColleagueLister answers the roster. Declared here, implemented in compose,
 // so this module never imports identity.
-type ColleagueLister func(ctx context.Context, q string) ([]Colleague, error)
+type ColleagueLister func(ctx context.Context, q string) (colleagues []Colleague, truncated bool, err error)
 
 // RegisterColleaguesTool joins list_colleagues to the surface; a nil lister
 // registers nothing.
@@ -74,7 +73,7 @@ func (t listColleagues) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	colleagues, err := t.list(ctx, args.Q)
+	colleagues, truncated, err := t.list(ctx, args.Q)
 	if err != nil {
 		return nil, err
 	}
@@ -84,5 +83,5 @@ func (t listColleagues) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	if colleagues == nil {
 		colleagues = []Colleague{}
 	}
-	return json.Marshal(ListColleaguesResult{Colleagues: colleagues})
+	return json.Marshal(ListColleaguesResult{Colleagues: colleagues, Truncated: truncated})
 }

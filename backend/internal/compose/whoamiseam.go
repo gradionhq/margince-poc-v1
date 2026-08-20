@@ -48,18 +48,18 @@ func actingIdentity(pool *pgxpool.Pool) agents.IdentityReader {
 // answer to any authenticated reader.
 func colleagueLister(pool *pgxpool.Pool) agents.ColleagueLister {
 	service := identity.NewService(pool)
-	return func(ctx context.Context, q string) ([]agents.Colleague, error) {
-		seats, err := service.Colleagues(ctx, q)
+	return func(ctx context.Context, q string) ([]agents.Colleague, bool, error) {
+		seats, truncated, err := service.Colleagues(ctx, q)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		out := make([]agents.Colleague, 0, len(seats))
 		for _, s := range seats {
 			out = append(out, agents.Colleague{
 				UserID: s.UserID, DisplayName: s.DisplayName, Email: s.Email,
-				SeatType: s.SeatType, Active: s.Active, IsAgent: s.IsAgent,
+				SeatType: s.SeatType, IsAgent: s.IsAgent,
 			})
 		}
-		return out, nil
+		return out, truncated, nil
 	}
 }

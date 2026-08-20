@@ -10,16 +10,16 @@
   "totals": {
     "tools": 45,
     "resources": 8,
-    "tool_catalog_bytes": 127260,
+    "tool_catalog_bytes": 127290,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 32592,
+    "approx_wire_tokens_total": 32599,
     "largest_tool_bytes": 4709,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
-      "description_bytes": 33020,
+      "description_bytes": 33056,
       "input_schema_bytes": 28217,
-      "output_schema_bytes": 56199,
-      "description_plus_input_schema_bytes": 61237
+      "output_schema_bytes": 56193,
+      "description_plus_input_schema_bytes": 61273
     }
   },
   "tools": {
@@ -3057,7 +3057,7 @@
           "readOnlyHint": true,
           "title": "List colleagues"
         },
-        "description": "List the people who work HERE — colleagues holding a seat, not the contacts stored as person records. Reads only, and answers seats: no permissions, and an archived one is absent. search_records/person finds a CUSTOMER contact; this finds a colleague. user_id is what assignee_id and owner_id take. Check active before assigning, and never assign to an is_agent seat. (Governance: runs immediately; requires passport scope \"read\".)",
+        "description": "List the people who work HERE — colleagues holding a seat, not the contacts stored as person records. Reads only, and lists seats that can actually receive work — archived, suspended and locked-out ones are absent. `truncated` means there are more. search_records/person finds a CUSTOMER contact; this finds a colleague. user_id is what assignee_id and owner_id take. Never assign to an is_agent seat. (Governance: runs immediately; requires passport scope \"read\".)",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -3076,9 +3076,6 @@
                 "colleagues": {
                   "items": {
                     "properties": {
-                      "active": {
-                        "type": "boolean"
-                      },
                       "display_name": {
                         "type": "string"
                       },
@@ -3097,7 +3094,6 @@
                       }
                     },
                     "required": [
-                      "active",
                       "display_name",
                       "email",
                       "is_agent",
@@ -3107,6 +3103,9 @@
                     "type": "object"
                   },
                   "type": "array"
+                },
+                "truncated": {
+                  "type": "boolean"
                 }
               },
               "required": [

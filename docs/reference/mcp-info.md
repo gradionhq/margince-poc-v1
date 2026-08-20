@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 8 |
 | Tool catalog | 124.3 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 32592 |
+| Approx. wire tokens | 32599 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -29,7 +29,7 @@ budget in `agenttooldescriptions_test.go`.
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
 | Output schemas | 54.9 KB | 44% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 32.2 KB | 25% | Yes, every step |
+| Descriptions (incl. governance clause) | 32.3 KB | 25% | Yes, every step |
 | Input schemas | 27.6 KB | 22% | Yes, every step |
 | _Names, annotations, punctuation_ | 9.6 KB | 7% | Partly |
 | **Description + input schema** | **59.8 KB** | **48%** | **the recurring cost** |
@@ -3470,7 +3470,7 @@ Find out which messaging transports exist in THIS installation, and what each is
 
 **List colleagues**
 
-List the people who work HERE — colleagues holding a seat, not the contacts stored as person records. Reads only, and answers seats: no permissions, and an archived one is absent. search_records/person finds a CUSTOMER contact; this finds a colleague. user_id is what assignee_id and owner_id take. Check active before assigning, and never assign to an is_agent seat. (Governance: runs immediately; requires passport scope "read".)
+List the people who work HERE — colleagues holding a seat, not the contacts stored as person records. Reads only, and lists seats that can actually receive work — archived, suspended and locked-out ones are absent. `truncated` means there are more. search_records/person finds a CUSTOMER contact; this finds a colleague. user_id is what assignee_id and owner_id take. Never assign to an is_agent seat. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -3499,9 +3499,6 @@ List the people who work HERE — colleagues holding a seat, not the contacts st
         "colleagues": {
           "items": {
             "properties": {
-              "active": {
-                "type": "boolean"
-              },
               "display_name": {
                 "type": "string"
               },
@@ -3520,7 +3517,6 @@ List the people who work HERE — colleagues holding a seat, not the contacts st
               }
             },
             "required": [
-              "active",
               "display_name",
               "email",
               "is_agent",
@@ -3530,6 +3526,9 @@ List the people who work HERE — colleagues holding a seat, not the contacts st
             "type": "object"
           },
           "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
         }
       },
       "required": [

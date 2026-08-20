@@ -494,4 +494,8 @@ type WhoamiResult struct {
 // filter that matches nobody — never an error.
 type ListColleaguesResult struct {
 	Colleagues []Colleague `json:"colleagues"`
+	// Truncated says the roster is longer than one answer. A caller told
+	// nothing would read a capped list as the whole roster and report that a
+	// colleague does not work here.
+	Truncated bool `json:"truncated,omitempty"`
 }

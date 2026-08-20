@@ -9836,14 +9836,18 @@ paths:
       description: |
         Teams available as record-share subjects, with a member count. Any authenticated member may read.
         Excludes archived teams. Row-scoped by workspace RLS.
-      # Declared human-only rather than as a tool it does not have. It said
-      # search_records/team, and search_records has never served `team` — the
-      # parity gate only checks that the named VERB is registered, not that the
-      # verb serves the named record_type, so the mismatch sat unnoticed beside
-      # the identical one on /users. A team is not a record either; if the tool
-      # surface ever needs the roster of teams it wants its own verb, as the
-      # colleague roster did.
-      x-agent-access: human-only
+      # NO annotation, and that is the fix rather than an omission. It said
+      # x-mcp-tool search_records/team, and search_records has never served
+      # `team` — the parity gate checks only that the named VERB is registered,
+      # never that the verb serves the named record_type, so the false claim
+      # sat unnoticed beside the identical one on /users.
+      #
+      # An unannotated READ is admitted (agentgate.go: "a mutating route absent
+      # from the table is refused, a read absent from it is admitted"), so this
+      # stays as readable for an agent as it was on main — which the
+      # description above promises — while no longer naming a tool that does
+      # not serve it. If the surface ever wants the team roster it gets its own
+      # verb, as the colleague roster did.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
