@@ -14,6 +14,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -26,6 +27,17 @@ import (
 // paths; compose implements it over the one store both transports use.
 type Comms interface {
 	DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (subject, body string, err error)
+	// DraftAccountEmail composes the FIRST message to a record, where
+	// DraftEmail can only continue a thread that already exists. It takes the
+	// records the conversation would be filed under instead of an anchor —
+	// the same shape SendAccountEmail takes, for the same reason: there is no
+	// prior message, and the product refuses to fabricate a placeholder
+	// activity to obtain one (ADR-0087).
+	//
+	// Without it there is no way to draft the follow-up after a first meeting,
+	// which is the case the web app's own "Draft a follow-up" button serves;
+	// an assistant asked for one had to fall back on a note nobody can send.
+	DraftAccountEmail(ctx context.Context, links []RecordLink, intent string) (subject, body string, err error)
 	SendEmail(ctx context.Context, anchor ids.UUID, in SendEmailArgs) (SendEmailResult, error)
 	// SendAccountEmail starts a NEW conversation instead of continuing one
 	// (ADR-0087). It takes no anchor — there is no prior message, and the
@@ -122,9 +134,12 @@ func (t draftEmailTool) Spec() mcp.ToolSpec {
 		Description:   draftEmailCopy.render(),
 		RequiredScope: principal.ScopeDraft, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "draftEmail",
-		InputSchema: schema(`{"type":"object","required":["activity_id"],"properties":{
-			"activity_id":{"type":"string","format":"uuid","description":"The thread being replied to"},
-			"intent":{"type":"string","description":"What the reply should accomplish"}},
+		InputSchema: schema(`{"type":"object","properties":{
+			"activity_id":{"type":"string","format":"uuid","description":"The thread replied to; omit and give links for a first message"},
+			"links":{"type":"array","minItems":1,"maxItems":25,"items":{"type":"object","required":["entity_type","entity_id"],"properties":{
+				"entity_type":{"type":"string","enum":` + activityLinkEntityTypeEnum + `},
+				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}},
+			"intent":{"type":"string"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[DraftEmailResult](),
 	}
@@ -132,11 +147,41 @@ func (t draftEmailTool) Spec() mcp.ToolSpec {
 
 func (t draftEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
-		ActivityID ids.UUID `json:"activity_id"`
-		Intent     string   `json:"intent"`
+		ActivityID ids.UUID     `json:"activity_id"`
+		Links      []RecordLink `json:"links"`
+		Intent     string       `json:"intent"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
+	}
+	// Two shapes, one verb: continue a thread, or open one. A first message
+	// used to be impossible here — the anchor was required, and after a first
+	// meeting with no inbound mail there was no thread to name, so the
+	// follow-up the web app offers a button for could not be drafted at all.
+	//
+	// Kept on this tool rather than split into a second: the caller's question
+	// is the same ("draft an email"), and the tool listing rides in every
+	// prompt — a near-duplicate schema is paid for on every call by every
+	// caller, including the ones that never draft anything.
+	if args.ActivityID == (ids.UUID{}) {
+		if len(args.Links) == 0 {
+			return nil, &BadArgsError{Cause: errors.New(
+				"give activity_id to reply to a thread, or links to open a new conversation")}
+		}
+		subject, body, err := t.comms.DraftAccountEmail(ctx, args.Links, args.Intent)
+		if err != nil {
+			return nil, err
+		}
+		// No noteDerivedContent: this composes from the caller's own intent,
+		// not from captured thread content, so it carries no external tier.
+		for _, l := range args.Links {
+			noteEvidence(ctx, datasource.EntityType(l.EntityType), l.EntityID)
+		}
+		return json.Marshal(DraftEmailResult{Subject: subject, Body: body, Links: args.Links})
+	}
+	if len(args.Links) > 0 {
+		return nil, &BadArgsError{Cause: errors.New(
+			"give activity_id or links, not both: a reply is filed where its thread already is")}
 	}
 	subject, body, err := t.comms.DraftEmail(ctx, args.ActivityID, args.Intent)
 	if err != nil {

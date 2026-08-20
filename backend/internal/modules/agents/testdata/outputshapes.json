@@ -1539,13 +1539,31 @@
             "type": "string",
             "format": "uuid"
           },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "entity_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "entity_type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "entity_id",
+                "entity_type"
+              ]
+            }
+          },
           "subject": {
             "type": "string"
           }
         },
         "required": [
           "body",
-          "in_reply_to_activity_id",
           "subject"
         ]
       },

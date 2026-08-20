@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 43 |
 | Resources | 8 |
-| Tool catalog | 121.5 KB |
+| Tool catalog | 121.7 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 31892 |
+| Approx. wire tokens | 31933 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,9 +28,9 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 52.5 KB | 43% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 31.6 KB | 26% | Yes, every step |
-| Input schemas | 28.1 KB | 23% | Yes, every step |
+| Output schemas | 52.7 KB | 43% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 31.4 KB | 25% | Yes, every step |
+| Input schemas | 28.4 KB | 23% | Yes, every step |
 | _Names, annotations, punctuation_ | 9.2 KB | 7% | Partly |
 | **Description + input schema** | **59.8 KB** | **49%** | **the recurring cost** |
 
@@ -71,7 +71,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 3.0 KB |
 | [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 3.0 KB |
 | [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 2.0 KB |
-| [`draft_email`](#draft_email) | Draft an email reply |  |  | 2.4 KB |
+| [`draft_email`](#draft_email) | Draft an email reply |  |  | 2.6 KB |
 | [`draft_follow_ups_for`](#draft_follow_ups_for) | Draft follow-ups |  |  | 2.7 KB |
 | [`enrich`](#enrich) | Enrich an organization from its website |  |  | 2.6 KB |
 | [`intro_path_to`](#intro_path_to) | Find a warm introduction path | yes |  | 2.3 KB |
@@ -2426,7 +2426,7 @@ Close out a lead that is not going anywhere, so it stops appearing as live work.
 
 **Draft an email reply**
 
-Compose a reply to a conversation already recorded here, anchored on the thread it answers. It writes the message and stops. Nothing is sent, nobody is notified, and the draft is returned for a person — or a later send — to use. It needs the activity_id of the thread being replied to; it cannot compose from a goal alone. Read what comes back before sending it: where no drafting model is configured this falls back to a short deterministic note built from the thread's subject. Use draft_follow_ups_for to draft across a whole set of slipping deals at once, and send_email only once a drafted message exists to send. Keep the drafted subject and body and the activity_id; send_email takes all three, and re-writing the text between the draft and the send means a person approves one message and a different one goes out. (Governance: runs immediately; requires passport scope "draft".)
+Compose an email: a reply to a recorded thread (activity_id), or a FIRST message to a record (links). It writes the message and stops: nothing is sent. With no drafting model configured the text is a short deterministic note rather than a composed one. draft_follow_ups_for drafts across a set of slipping deals at once; send_email sends a reply, send_account_email a first message. Keep what comes back — subject, body, and the activity_id or links echoed with it; the send takes them. Re-writing the text in between means a person approves one message and another goes out. (Governance: runs immediately; requires passport scope "draft".)
 
 <details><summary>Input schema</summary>
 
@@ -2435,7 +2435,7 @@ Compose a reply to a conversation already recorded here, anchored on the thread 
   "additionalProperties": false,
   "properties": {
     "activity_id": {
-      "description": "The thread being replied to",
+      "description": "The thread replied to; omit and give links for a first message",
       "format": "uuid",
       "type": "string"
     },
@@ -2445,13 +2445,38 @@ Compose a reply to a conversation already recorded here, anchored on the thread 
       "type": "string"
     },
     "intent": {
-      "description": "What the reply should accomplish",
       "type": "string"
+    },
+    "links": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "entity_type": {
+            "enum": [
+              "person",
+              "organization",
+              "deal",
+              "lead",
+              "project"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_id"
+        ],
+        "type": "object"
+      },
+      "maxItems": 25,
+      "minItems": 1,
+      "type": "array"
     }
   },
-  "required": [
-    "activity_id"
-  ],
   "type": "object"
 }
 ```
@@ -2472,13 +2497,31 @@ Compose a reply to a conversation already recorded here, anchored on the thread 
           "format": "uuid",
           "type": "string"
         },
+        "links": {
+          "items": {
+            "properties": {
+              "entity_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "entity_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "entity_id",
+              "entity_type"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
         "subject": {
           "type": "string"
         }
       },
       "required": [
         "body",
-        "in_reply_to_activity_id",
         "subject"
       ],
       "type": "object"
