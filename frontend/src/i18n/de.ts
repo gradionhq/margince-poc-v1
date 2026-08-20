@@ -286,6 +286,7 @@ export const de = {
   "commission.panelSub":
     "Was dieser Partner an selbst gebrachten Deals verdient hat",
   "commission.none": "Noch nichts verdient",
+  "commission.column.deal": "Deal",
   "commission.column.amount": "Verdient",
   "commission.column.rate": "Satz",
   "commission.column.basis": "Deal-Wert",

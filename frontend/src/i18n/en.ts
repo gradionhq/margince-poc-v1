@@ -294,6 +294,7 @@ export const en = {
   "commission.panelTitle": "Commission",
   "commission.panelSub": "What this partner has earned on deals they brought",
   "commission.none": "Nothing earned yet",
+  "commission.column.deal": "Deal",
   "commission.column.amount": "Earned",
   "commission.column.rate": "Rate",
   "commission.column.basis": "Deal value",

@@ -293,6 +293,7 @@ export const vi = {
   "commission.panelSub":
     "Đối tác này đã kiếm được bao nhiêu từ các deal họ mang về",
   "commission.none": "Chưa kiếm được gì",
+  "commission.column.deal": "Thuộc deal",
   "commission.column.amount": "Đã kiếm",
   "commission.column.rate": "Tỷ lệ",
   "commission.column.basis": "Giá trị deal",
