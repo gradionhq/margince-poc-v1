@@ -87,6 +87,32 @@ export function AiRoutingCard() {
   );
 }
 
+// The ladder, cheapest to most capable. Tiers are shown in THIS order rather
+// than alphabetically, because alphabetical puts cheap_cloud above frontier and
+// local_small above premium — an order that tells a reader nothing about what
+// they are choosing between.
+//
+// A tier this list does not know still renders, last and in a stable order: the
+// vocabulary comes from the task contract, so a new one must appear rather than
+// vanish from a form that is the only way to bind it.
+const TIER_ORDER = [
+  "local_small",
+  "cheap_cloud",
+  "premium",
+  "frontier",
+  "local_large",
+];
+
+function orderedTiers(tiers: Routing["tiers"] | undefined): string[] {
+  const rank = (tier: string) => {
+    const i = TIER_ORDER.indexOf(tier);
+    return i === -1 ? TIER_ORDER.length : i;
+  };
+  return Object.keys(tiers ?? {}).sort(
+    (a, b) => rank(a) - rank(b) || a.localeCompare(b),
+  );
+}
+
 function RoutingForm({
   routing,
   canManage,
@@ -102,7 +128,7 @@ function RoutingForm({
   // Defensive on a field the contract marks required: a client that dies on an
   // unexpected shape takes the whole settings page with it, and the shape it
   // dies on is the one an error path or an older server produces.
-  const tiers = Object.keys(draft.tiers ?? {}).sort();
+  const tiers = orderedTiers(draft.tiers);
   if (tiers.length === 0) {
     // Not an error and not an empty form: this installation binds nothing, and
     // the way to give it a first binding is the deployment file's seed, which
@@ -112,7 +138,7 @@ function RoutingForm({
   }
 
   const setTier = (tier: string, next: TierBinding) =>
-    setDraft((d) => ({ ...d, tiers: { ...(d.tiers ?? {}), [tier]: next } }));
+    setDraft((d) => ({ ...d, tiers: { ...d.tiers, [tier]: next } }));
 
   return (
     <>

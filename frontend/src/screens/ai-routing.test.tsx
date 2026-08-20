@@ -147,4 +147,36 @@ describe("AiRoutingCard", () => {
     expect(await screen.findByText(/no models bound/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /save routing/i })).toBeNull();
   });
+
+  // Cheapest first, most capable last — the ladder, not the alphabet.
+  // Alphabetically `cheap_cloud` sits above `frontier` and `local_small` above
+  // `premium`, an order that tells a reader nothing about what they are
+  // choosing between.
+  it("lists the tiers in ladder order, not alphabetically", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor(ROUTING_EDITOR, {
+        profile: "eu_hosted",
+        tiers: {
+          frontier: { provider: "gemini", model: "f" },
+          local_small: { provider: "gemini", model: "ls" },
+          premium: { provider: "gemini", model: "p" },
+          cheap_cloud: { provider: "gemini", model: "cc" },
+        },
+        embeddings: { provider: "gemini", model: "e" },
+      }).fetchMock,
+    );
+    render(<AiRoutingCard />);
+
+    await screen.findByDisplayValue("ls");
+    const shown = screen
+      .getAllByTestId(/^ai-routing-tier-/)
+      .map((el) => el.getAttribute("data-testid"));
+    expect(shown).toEqual([
+      "ai-routing-tier-local_small",
+      "ai-routing-tier-cheap_cloud",
+      "ai-routing-tier-premium",
+      "ai-routing-tier-frontier",
+    ]);
+  });
 });
