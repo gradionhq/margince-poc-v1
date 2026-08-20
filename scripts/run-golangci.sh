@@ -124,7 +124,15 @@ outside=()
 while IFS= read -r reported; do
   [[ -n "$reported" ]] || continue
   absolute="$(lexical_abs "$reported")"
-  if [[ "$absolute" != "$root" && "$absolute" != "$root"/* ]]; then
+  # Two ways a path can belong to another checkout, and the second is the one
+  # this guard was originally blind to. A sibling worktree resolves OUTSIDE the
+  # root. But `EnterWorktree` puts this repo's own worktrees under
+  # .claude/worktrees/, which is lexically INSIDE it — so a cache entry filled
+  # by a parallel session read as one of this checkout's own findings, under
+  # module names that do exist here, which is precisely the failure the guard
+  # exists to prevent.
+  if [[ "$absolute" != "$root" && "$absolute" != "$root"/* ]] \
+    || [[ "$absolute" == "$root/.claude/worktrees/"* ]]; then
     outside+=("$absolute")
   fi
 done < <(LC_ALL=C sed -n -e "s/${escape}\[[0-9;]*m//g" \
@@ -134,7 +142,7 @@ if ((${#outside[@]} > 0)); then
   echo
   echo "STALE CACHE — the findings above are not about this checkout."
   echo
-  echo "golangci-lint reported ${#outside[@]} file(s) that lie outside $root:"
+  echo "golangci-lint reported ${#outside[@]} file(s) that belong to another checkout:"
   # Capped, and the cap says so — a poisoned entry for a large package can name
   # hundreds of files, and a page of them buries the sentence that explains it.
   printf '  %s\n' "${outside[@]:0:10}"
