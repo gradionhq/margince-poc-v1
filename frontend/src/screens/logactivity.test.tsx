@@ -400,7 +400,25 @@ describe("log activity from a 360", () => {
     expect(post?.body).toMatchObject({
       kind: "meeting",
       body: "discussed pricing, follow up Tuesday",
+      // A hand-logged meeting already took place, and `held` is what lets
+      // the lead status ladder read it as engagement.
+      meeting_status: "held",
     });
+  });
+
+  it("sends no meeting_status for a note — the server refuses the pairing as a 422", async () => {
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="deal" entityId="d1" />);
+    await userEvent.type(screen.getByLabelText("Subject *"), "Just a note");
+    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
+    );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    expect(post?.body).not.toHaveProperty("meeting_status");
   });
 
   it("posts source_system: transcript only once the writer checks 'this text is a transcript'", async () => {

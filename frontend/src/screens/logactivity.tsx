@@ -89,6 +89,51 @@ function occurredInstant(input: ActivityDraft): string {
   return middayInstant(input.day, RECORD_ZONE);
 }
 
+// The wire body one drafted entry becomes.
+function activityRequestBody(
+  input: ActivityDraft,
+  entityType: EntityKind,
+  entityId: string,
+) {
+  // source_system: transcript is what routes the body through the
+  // server's ADR-0058 normalizer and what the activity/transcript
+  // retention scope keys its sweep on (see backend logActivity's
+  // `transcript` example) — only when the writer has explicitly marked
+  // this text as one (asTranscript), never inferred from kind: meeting
+  // alone, or ordinary meeting notes would carry a marker meaning
+  // something else and sweep on a different retention schedule.
+  const isTranscript = input.kind === "meeting" && input.asTranscript;
+  // A transcript is sent RAW, not trimmed: the server's normalizer
+  // (transcriptnorm.go) is the one place line-1-indexing gets decided,
+  // and it only trims trailing whitespace per line — a leading blank
+  // line or leading indentation the client stripped first would make a
+  // transcript pasted here normalize to different stored text (and
+  // different line numbers) than the identical paste sent by an agent
+  // or another client straight to the API.
+  const outgoingBody = isTranscript ? input.body : input.body.trim();
+  return {
+    kind: input.kind,
+    subject: input.subject.trim(),
+    body: outgoingBody || null,
+    occurred_at: occurredInstant(input),
+    // A due date becomes the instant that day ENDS in the writer's
+    // own zone (format/calendarday). Handing the bare `yyyy-mm-dd` to
+    // `new Date` reads it as UTC midnight instead, which is neither the
+    // end of the day nor, west of UTC, the day the writer picked: the task
+    // arrived already overdue, and the tasks list — which buckets in the
+    // reader's zone — filed it under yesterday.
+    ...(input.kind === "task" && input.day
+      ? { due_at: dueInstant(input.day) }
+      : {}),
+    // Held: a hand-logged meeting already took place (the date caps at
+    // today), and held is what the lead ladder reads as engagement.
+    ...(input.kind === "meeting" ? { meeting_status: "held" as const } : {}),
+    ...(isTranscript ? { source_system: "transcript" } : {}),
+    links: [{ entity_type: entityType, entity_id: entityId }],
+    source: "manual",
+  };
+}
+
 /**
  * LogActivityForm is the composer itself, without a frame, so the same fields
  * serve the standing card on the person and deal screens and the modal the
@@ -116,42 +161,8 @@ export function LogActivityForm({
 
   const log = useMutation({
     mutationFn: async (input: ActivityDraft) => {
-      const trimmedBody = input.body.trim();
-      // source_system: transcript is what routes the body through the
-      // server's ADR-0058 normalizer and what the activity/transcript
-      // retention scope keys its sweep on (see backend logActivity's
-      // `transcript` example) — only when the writer has explicitly marked
-      // this text as one (asTranscript), never inferred from kind: meeting
-      // alone, or ordinary meeting notes would carry a marker meaning
-      // something else and sweep on a different retention schedule.
-      const isTranscript = input.kind === "meeting" && input.asTranscript;
-      // A transcript is sent RAW, not trimmed: the server's normalizer
-      // (transcriptnorm.go) is the one place line-1-indexing gets decided,
-      // and it only trims trailing whitespace per line — a leading blank
-      // line or leading indentation the client stripped first would make a
-      // transcript pasted here normalize to different stored text (and
-      // different line numbers) than the identical paste sent by an agent
-      // or another client straight to the API.
-      const outgoingBody = isTranscript ? input.body : trimmedBody;
       const { data, error } = await api.POST("/activities", {
-        body: {
-          kind: input.kind,
-          subject: input.subject.trim(),
-          body: outgoingBody || null,
-          occurred_at: occurredInstant(input),
-          // A due date becomes the instant that day ENDS in the writer's
-          // own zone (format/calendarday). Handing the bare `yyyy-mm-dd` to
-          // `new Date` reads it as UTC midnight instead, which is neither the
-          // end of the day nor, west of UTC, the day the writer picked: the task
-          // arrived already overdue, and the tasks list — which buckets in the
-          // reader's zone — filed it under yesterday.
-          ...(input.kind === "task" && input.day
-            ? { due_at: dueInstant(input.day) }
-            : {}),
-          ...(isTranscript ? { source_system: "transcript" } : {}),
-          links: [{ entity_type: entityType, entity_id: entityId }],
-          source: "manual",
-        },
+        body: activityRequestBody(input, entityType, entityId),
       });
       if (error) {
         throwProblem(error, t);
