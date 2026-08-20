@@ -117,3 +117,76 @@ components:
 		t.Fatalf("property names that look like keywords must not fail the downgrade: %v", err)
 	}
 }
+
+// TestNullEnumMemberIsDropped proves the null member of a 3.1 nullable enum
+// does not survive into the 3.0.3 document.
+//
+// It used to. oapi-codegen renders an enum member with %v, so a YAML null
+// became the four-character string "<nil>" and the identifier sanitiser turned
+// `<` into `LessThan` — ActivityMeetingStatusLessThannil = "<nil>", 84 such
+// constants across 42 enums in two generated files. Every generated Valid()
+// then answered true for a value the database CHECK refuses, so the one method
+// that looks like a guard was not one.
+//
+// Nullability is not lost: rewriteTypeUnion emits `nullable: true` for the
+// same schema, which is how 3.0 spells it.
+func TestNullEnumMemberIsDropped(t *testing.T) {
+	src := `
+openapi: 3.1.0
+components:
+  schemas:
+    Activity:
+      type: object
+      properties:
+        meeting_status:
+          type: [string, "null"]
+          enum: [null, booked, held, no_show, canceled]
+`
+	out, err := Bytes([]byte(src))
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	got := string(out)
+	if strings.Contains(got, "null\n") && strings.Contains(got, "- null") {
+		t.Errorf("a null enum member survived the downgrade:\n%s", got)
+	}
+	if !strings.Contains(got, "nullable: true") {
+		t.Errorf("nullability was lost with the null member — 3.0 spells it `nullable: true`:\n%s", got)
+	}
+	for _, want := range []string{"booked", "held", "no_show", "canceled"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("real enum member %q was dropped:\n%s", want, got)
+		}
+	}
+}
+
+// TestEnumMembersAreNotDescendedInto keeps the example-corruption guarantee
+// while `enum` is handled in rewriteKeyword rather than left opaque: a member
+// spelled like a schema keyword is DATA and must pass through unrewritten.
+func TestEnumMembersAreNotDescendedInto(t *testing.T) {
+	src := `
+openapi: 3.1.0
+components:
+  schemas:
+    Thing:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [type, openapi, examples]
+`
+	out, err := Bytes([]byte(src))
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	got := string(out)
+	for _, want := range []string{"type", "openapi", "examples"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("enum member %q was rewritten as a schema keyword:\n%s", want, got)
+		}
+	}
+	// The document version is rewritten; a member spelled "openapi" is not.
+	if strings.Contains(got, "- 3.0.3") {
+		t.Errorf("an enum member was rewritten as the document version:\n%s", got)
+	}
+}

@@ -15590,6 +15590,8 @@ components:
         email_type:
           type: [string, 'null']
           enum: [professional, personal, null]
+          # Pinned: see OrganizationFactSuspectReason.
+          x-enum-varnames: [PersonProviderEmailEmailTypeProfessional, PersonProviderEmailEmailTypePersonal]
           description: May be classified from the frozen requested cascade when Surfe omits `emailType`.
         email_type_source:
           type: [string, 'null']
@@ -19340,7 +19342,14 @@ components:
       type: object
       required: [kind, source]
       properties:
-        kind: { type: string, enum: [email, call, meeting, note, task, message] }
+        kind:
+          type: string
+          enum: [email, call, meeting, note, task, message]
+          # Pinned: this type is part of the PUBLIC extension API
+          # (pkg/extension/crm). The generator only prefixes a constant to
+          # break a collision, so an unrelated contract edit can un-prefix it
+          # and break every extension that names it.
+          x-enum-varnames: [CreateActivityRequestKindEmail, CreateActivityRequestKindCall, CreateActivityRequestKindMeeting, CreateActivityRequestKindNote, CreateActivityRequestKindTask, CreateActivityRequestKindMessage]
         channel_provider:
           allOf: [{ $ref: '#/components/schemas/ProviderRef' }]
           nullable: true
@@ -21865,6 +21874,8 @@ components:
         trust_tier:
           type: [string, 'null']
           enum: [authoritative, external, unverified, null]
+          # Pinned for the same reason as OrganizationFactSuspectReason above.
+          x-enum-varnames: [SearchResultTrustTierAuthoritative, SearchResultTrustTierExternal, SearchResultTrustTierUnverified]
           description: >
             Provenance tier of the underlying record. In native mode every stored record is
             `authoritative`; `external`/`unverified` are reserved for overlay/connector-sourced rows
@@ -22291,6 +22302,10 @@ components:
         suspect_reason:
           type: [string, 'null']
           enum: [null, phone_shaped_location, not_a_phone, not_a_year, not_an_email, not_a_size]
+          # Pinned: without the null member the generator no longer needs the
+          # type prefix to disambiguate, and a bare `NotAPhone` in the shared
+          # contracts package reads as nobody's constant.
+          x-enum-varnames: [OrganizationFactSuspectReasonPhoneShapedLocation, OrganizationFactSuspectReasonNotAPhone, OrganizationFactSuspectReasonNotAYear, OrganizationFactSuspectReasonNotAnEmail, OrganizationFactSuspectReasonNotASize]
           readOnly: true
           description: >-
             Why this fact's VALUE contradicts its FIELD, or null when it does not. The extractor
@@ -22578,7 +22593,10 @@ components:
         next_required_field:
           type: [string, 'null']
           enum: [null, display_name, offer_summary, icp]
-          x-enum-varnames: [OnboardingNextRequiredNone, OnboardingNextRequiredDisplayName, OnboardingNextRequiredOfferSummary, OnboardingNextRequiredICP]
+          # The null member is gone in 3.0 (nullable: true carries it), so the
+          # pin must not label a slot that no longer exists — a stale name here
+          # shifts every later name onto the wrong value.
+          x-enum-varnames: [OnboardingNextRequiredDisplayName, OnboardingNextRequiredOfferSummary, OnboardingNextRequiredICP]
         remaining_required_fields:
           type: array
           uniqueItems: true
@@ -22589,7 +22607,8 @@ components:
         available_action:
           type: [string, 'null']
           enum: [null, confirm_company, start_voice_build, upload_voice_source, connect_inbox, finish]
-          x-enum-varnames: [OnboardingAvailableActionNone, OnboardingAvailableActionConfirmCompany, OnboardingAvailableActionStartVoiceBuild, OnboardingAvailableActionUploadVoiceSource, OnboardingAvailableActionConnectInbox, OnboardingAvailableActionFinish]
+          # See next_required_field above: no name for the dropped null slot.
+          x-enum-varnames: [OnboardingAvailableActionConfirmCompany, OnboardingAvailableActionStartVoiceBuild, OnboardingAvailableActionUploadVoiceSource, OnboardingAvailableActionConnectInbox, OnboardingAvailableActionFinish]
         ai_runtime: { $ref: '#/components/schemas/AiRunSummary' }
 
     OnboardingAct:
@@ -22684,7 +22703,8 @@ components:
         stopped_reason:
           type: [string, 'null']
           enum: [budget, page_cap, byte_cap, deadline, null]
-          x-enum-varnames: [CompanySiteReadStoppedReasonBudget, CompanySiteReadStoppedReasonPageCap, CompanySiteReadStoppedReasonByteCap, CompanySiteReadStoppedReasonDeadline, CompanySiteReadStoppedReasonNull]
+          # See next_required_field above: no name for the dropped null slot.
+          x-enum-varnames: [CompanySiteReadStoppedReasonBudget, CompanySiteReadStoppedReasonPageCap, CompanySiteReadStoppedReasonByteCap, CompanySiteReadStoppedReasonDeadline]
           description: 'Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.'
         phase: { type: [string, 'null'], enum: [crawling, extracting] }
         pages_read: { type: integer, minimum: 0 }
@@ -22837,7 +22857,13 @@ components:
         skipped:
           type: array
           items: { $ref: '#/components/schemas/SiteReadSkip' }
-        stopped_reason: { type: [string, 'null'], enum: [budget, page_cap, byte_cap, deadline, null], description: 'Why the crawl ended early; null when it exhausted discovery.' }
+        stopped_reason:
+          type: [string, 'null']
+          enum: [budget, page_cap, byte_cap, deadline, null]
+          # Pinned: see OrganizationFactSuspectReason. No name for the null
+          # slot — 3.0 carries nullability with `nullable: true`.
+          x-enum-varnames: [SiteReadReportStoppedReasonBudget, SiteReadReportStoppedReasonPageCap, SiteReadReportStoppedReasonByteCap, SiteReadReportStoppedReasonDeadline]
+          description: 'Why the crawl ended early; null when it exhausted discovery.'
         fact_count: { type: integer, description: Evidenced fields staged in the deepread proposal. }
         phase: { type: [string, 'null'], enum: [crawling, extracting, null], description: 'Live position while status is running; null once terminal.' }
         pages_read: { type: integer, description: 'Pages committed so far — live progress while running, final count once terminal.' }

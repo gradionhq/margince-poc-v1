@@ -72,13 +72,18 @@ var arbitraryKeyContainers = map[string]struct{}{
 }
 
 // opaqueValueKeys hold arbitrary DATA, not a schema: their subtree passes
-// through untouched. An `example`/`default`/`enum` value may itself contain a
+// through untouched. An `example`/`default` value may itself contain a
 // member named "type", "openapi", or "examples" (it is data, not a
 // type-union, a version, or a plural-examples form to rewrite), so the walker
 // must not descend into it interpreting those as schema keywords (the
 // example-corruption bug).
+//
+// `enum` belongs to the same class and is handled in rewriteKeyword instead:
+// it needs one 3.0 rewrite (dropping a null member) and is returned handled,
+// so its members are never descended into either. The guarantee is the same;
+// only the door differs.
 var opaqueValueKeys = map[string]struct{}{
-	"example": {}, "default": {}, "enum": {},
+	"example": {}, "default": {},
 }
 
 // Node downgrades a parsed OpenAPI 3.1 YAML node tree to 3.0.3 in place. The
@@ -171,6 +176,33 @@ func rewriteKeyword(mapping, key, val *yaml.Node) (bool, error) {
 			if err := rewriteTypeUnion(mapping, val); err != nil {
 				return false, err
 			}
+		}
+		return true, nil
+	case "enum":
+		// A 3.1 nullable enum spells its null member INSIDE the list
+		// (`enum: [null, booked, held]`); 3.0 has no such member and says
+		// nullable with the sibling `nullable: true` that rewriteTypeUnion
+		// already emits for the very same schemas. Passing the null through
+		// cost us a generated constant per nullable enum: oapi-codegen
+		// renders it with %v, so the member became the four-character string
+		// "<nil>" and the identifier sanitiser turned `<` into `LessThan`
+		// (ActivityMeetingStatusLessThannil = "<nil>", 84 of them across 42
+		// enums). Every generated Valid() then answered true for a value no
+		// column accepts.
+		//
+		// Dropping the member loses nothing 3.0 can express, and it is done
+		// HERE rather than in opaqueValueKeys' branch so the element contents
+		// stay opaque: the members themselves are still never descended into,
+		// which is what the example-corruption guard protects.
+		if val.Kind == yaml.SequenceNode {
+			kept := val.Content[:0]
+			for _, member := range val.Content {
+				if member.Kind == yaml.ScalarNode && member.Tag == "!!null" {
+					continue
+				}
+				kept = append(kept, member)
+			}
+			val.Content = kept
 		}
 		return true, nil
 	case "const":

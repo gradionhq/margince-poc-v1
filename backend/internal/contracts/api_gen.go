@@ -230,18 +230,15 @@ func (e AccountDraftReasonKind) Valid() bool {
 
 // Defines values for ActivityCaptureLabel.
 const (
-	ActivityCaptureLabelCommitment  ActivityCaptureLabel = "commitment"
-	ActivityCaptureLabelLessThannil ActivityCaptureLabel = "<nil>"
-	ActivityCaptureLabelMeeting     ActivityCaptureLabel = "meeting"
-	ActivityCaptureLabelNoise       ActivityCaptureLabel = "noise"
+	ActivityCaptureLabelCommitment ActivityCaptureLabel = "commitment"
+	ActivityCaptureLabelMeeting    ActivityCaptureLabel = "meeting"
+	ActivityCaptureLabelNoise      ActivityCaptureLabel = "noise"
 )
 
 // Valid indicates whether the value is a known member of the ActivityCaptureLabel enum.
 func (e ActivityCaptureLabel) Valid() bool {
 	switch e {
 	case ActivityCaptureLabelCommitment:
-		return true
-	case ActivityCaptureLabelLessThannil:
 		return true
 	case ActivityCaptureLabelMeeting:
 		return true
@@ -272,17 +269,14 @@ func (e ActivityContentState) Valid() bool {
 
 // Defines values for ActivityDirection.
 const (
-	ActivityDirectionInbound     ActivityDirection = "inbound"
-	ActivityDirectionLessThannil ActivityDirection = "<nil>"
-	ActivityDirectionOutbound    ActivityDirection = "outbound"
+	ActivityDirectionInbound  ActivityDirection = "inbound"
+	ActivityDirectionOutbound ActivityDirection = "outbound"
 )
 
 // Valid indicates whether the value is a known member of the ActivityDirection enum.
 func (e ActivityDirection) Valid() bool {
 	switch e {
 	case ActivityDirectionInbound:
-		return true
-	case ActivityDirectionLessThannil:
 		return true
 	case ActivityDirectionOutbound:
 		return true
@@ -323,11 +317,10 @@ func (e ActivityKind) Valid() bool {
 
 // Defines values for ActivityMeetingStatus.
 const (
-	ActivityMeetingStatusBooked      ActivityMeetingStatus = "booked"
-	ActivityMeetingStatusCanceled    ActivityMeetingStatus = "canceled"
-	ActivityMeetingStatusHeld        ActivityMeetingStatus = "held"
-	ActivityMeetingStatusLessThannil ActivityMeetingStatus = "<nil>"
-	ActivityMeetingStatusNoShow      ActivityMeetingStatus = "no_show"
+	ActivityMeetingStatusBooked   ActivityMeetingStatus = "booked"
+	ActivityMeetingStatusCanceled ActivityMeetingStatus = "canceled"
+	ActivityMeetingStatusHeld     ActivityMeetingStatus = "held"
+	ActivityMeetingStatusNoShow   ActivityMeetingStatus = "no_show"
 )
 
 // Valid indicates whether the value is a known member of the ActivityMeetingStatus enum.
@@ -338,8 +331,6 @@ func (e ActivityMeetingStatus) Valid() bool {
 	case ActivityMeetingStatusCanceled:
 		return true
 	case ActivityMeetingStatusHeld:
-		return true
-	case ActivityMeetingStatusLessThannil:
 		return true
 	case ActivityMeetingStatusNoShow:
 		return true
@@ -492,7 +483,6 @@ func (e AdvanceDealRequestStatus) Valid() bool {
 // Defines values for AdvanceDealRequestWonWithoutContractReason.
 const (
 	AdvanceDealRequestWonWithoutContractReasonImported       AdvanceDealRequestWonWithoutContractReason = "imported"
-	AdvanceDealRequestWonWithoutContractReasonLessThannil    AdvanceDealRequestWonWithoutContractReason = "<nil>"
 	AdvanceDealRequestWonWithoutContractReasonOther          AdvanceDealRequestWonWithoutContractReason = "other"
 	AdvanceDealRequestWonWithoutContractReasonPurchaseOrder  AdvanceDealRequestWonWithoutContractReason = "purchase_order"
 	AdvanceDealRequestWonWithoutContractReasonRenewalByEmail AdvanceDealRequestWonWithoutContractReason = "renewal_by_email"
@@ -503,8 +493,6 @@ const (
 func (e AdvanceDealRequestWonWithoutContractReason) Valid() bool {
 	switch e {
 	case AdvanceDealRequestWonWithoutContractReasonImported:
-		return true
-	case AdvanceDealRequestWonWithoutContractReasonLessThannil:
 		return true
 	case AdvanceDealRequestWonWithoutContractReasonOther:
 		return true
@@ -808,7 +796,6 @@ func (e ApprovalBundleMemberOutcome) Valid() bool {
 const (
 	ApprovalEvidenceSourceTypeActivity     ApprovalEvidenceSourceType = "activity"
 	ApprovalEvidenceSourceTypeDeal         ApprovalEvidenceSourceType = "deal"
-	ApprovalEvidenceSourceTypeLessThannil  ApprovalEvidenceSourceType = "<nil>"
 	ApprovalEvidenceSourceTypePage         ApprovalEvidenceSourceType = "page"
 	ApprovalEvidenceSourceTypeRelationship ApprovalEvidenceSourceType = "relationship"
 	ApprovalEvidenceSourceTypeSignal       ApprovalEvidenceSourceType = "signal"
@@ -820,8 +807,6 @@ func (e ApprovalEvidenceSourceType) Valid() bool {
 	case ApprovalEvidenceSourceTypeActivity:
 		return true
 	case ApprovalEvidenceSourceTypeDeal:
-		return true
-	case ApprovalEvidenceSourceTypeLessThannil:
 		return true
 	case ApprovalEvidenceSourceTypePage:
 		return true
@@ -1505,19 +1490,16 @@ func (e BackfillStatusState) Valid() bool {
 
 // Defines values for BackfillStatusWindow.
 const (
-	BackfillStatusWindowLessThannil BackfillStatusWindow = "<nil>"
-	BackfillStatusWindowN12m        BackfillStatusWindow = "12m"
-	BackfillStatusWindowN24m        BackfillStatusWindow = "24m"
-	BackfillStatusWindowN3m         BackfillStatusWindow = "3m"
-	BackfillStatusWindowN60m        BackfillStatusWindow = "60m"
-	BackfillStatusWindowN6m         BackfillStatusWindow = "6m"
+	BackfillStatusWindowN12m BackfillStatusWindow = "12m"
+	BackfillStatusWindowN24m BackfillStatusWindow = "24m"
+	BackfillStatusWindowN3m  BackfillStatusWindow = "3m"
+	BackfillStatusWindowN60m BackfillStatusWindow = "60m"
+	BackfillStatusWindowN6m  BackfillStatusWindow = "6m"
 )
 
 // Valid indicates whether the value is a known member of the BackfillStatusWindow enum.
 func (e BackfillStatusWindow) Valid() bool {
 	switch e {
-	case BackfillStatusWindowLessThannil:
-		return true
 	case BackfillStatusWindowN12m:
 		return true
 	case BackfillStatusWindowN24m:
@@ -2265,15 +2247,12 @@ func (e CompanySiteReadStatus) Valid() bool {
 // Defines values for CompanySiteReadStatusCode.
 const (
 	CompanySiteReadStatusCodeBudgetDeferred CompanySiteReadStatusCode = "budget_deferred"
-	CompanySiteReadStatusCodeLessThannil    CompanySiteReadStatusCode = "<nil>"
 )
 
 // Valid indicates whether the value is a known member of the CompanySiteReadStatusCode enum.
 func (e CompanySiteReadStatusCode) Valid() bool {
 	switch e {
 	case CompanySiteReadStatusCodeBudgetDeferred:
-		return true
-	case CompanySiteReadStatusCodeLessThannil:
 		return true
 	default:
 		return false
@@ -2285,7 +2264,6 @@ const (
 	CompanySiteReadStoppedReasonBudget   CompanySiteReadStoppedReason = "budget"
 	CompanySiteReadStoppedReasonByteCap  CompanySiteReadStoppedReason = "byte_cap"
 	CompanySiteReadStoppedReasonDeadline CompanySiteReadStoppedReason = "deadline"
-	CompanySiteReadStoppedReasonNull     CompanySiteReadStoppedReason = "<nil>"
 	CompanySiteReadStoppedReasonPageCap  CompanySiteReadStoppedReason = "page_cap"
 )
 
@@ -2297,8 +2275,6 @@ func (e CompanySiteReadStoppedReason) Valid() bool {
 	case CompanySiteReadStoppedReasonByteCap:
 		return true
 	case CompanySiteReadStoppedReasonDeadline:
-		return true
-	case CompanySiteReadStoppedReasonNull:
 		return true
 	case CompanySiteReadStoppedReasonPageCap:
 		return true
@@ -2348,11 +2324,10 @@ func (e CompanySiteReadComparisonClassification) Valid() bool {
 
 // Defines values for CompanySiteReadComparisonCurrentSource.
 const (
-	CompanySiteReadComparisonCurrentSourceConnector   CompanySiteReadComparisonCurrentSource = "connector"
-	CompanySiteReadComparisonCurrentSourceHuman       CompanySiteReadComparisonCurrentSource = "human"
-	CompanySiteReadComparisonCurrentSourceLessThannil CompanySiteReadComparisonCurrentSource = "<nil>"
-	CompanySiteReadComparisonCurrentSourceMigration   CompanySiteReadComparisonCurrentSource = "migration"
-	CompanySiteReadComparisonCurrentSourceSiteRead    CompanySiteReadComparisonCurrentSource = "site_read"
+	CompanySiteReadComparisonCurrentSourceConnector CompanySiteReadComparisonCurrentSource = "connector"
+	CompanySiteReadComparisonCurrentSourceHuman     CompanySiteReadComparisonCurrentSource = "human"
+	CompanySiteReadComparisonCurrentSourceMigration CompanySiteReadComparisonCurrentSource = "migration"
+	CompanySiteReadComparisonCurrentSourceSiteRead  CompanySiteReadComparisonCurrentSource = "site_read"
 )
 
 // Valid indicates whether the value is a known member of the CompanySiteReadComparisonCurrentSource enum.
@@ -2361,8 +2336,6 @@ func (e CompanySiteReadComparisonCurrentSource) Valid() bool {
 	case CompanySiteReadComparisonCurrentSourceConnector:
 		return true
 	case CompanySiteReadComparisonCurrentSourceHuman:
-		return true
-	case CompanySiteReadComparisonCurrentSourceLessThannil:
 		return true
 	case CompanySiteReadComparisonCurrentSourceMigration:
 		return true
@@ -2801,9 +2774,8 @@ func (e ConsentQualifyingEventKind) Valid() bool {
 
 // Defines values for ConsentQualifyingEventSourceEntityType.
 const (
-	ConsentQualifyingEventSourceEntityTypeActivity    ConsentQualifyingEventSourceEntityType = "activity"
-	ConsentQualifyingEventSourceEntityTypeDeal        ConsentQualifyingEventSourceEntityType = "deal"
-	ConsentQualifyingEventSourceEntityTypeLessThannil ConsentQualifyingEventSourceEntityType = "<nil>"
+	ConsentQualifyingEventSourceEntityTypeActivity ConsentQualifyingEventSourceEntityType = "activity"
+	ConsentQualifyingEventSourceEntityTypeDeal     ConsentQualifyingEventSourceEntityType = "deal"
 )
 
 // Valid indicates whether the value is a known member of the ConsentQualifyingEventSourceEntityType enum.
@@ -2812,8 +2784,6 @@ func (e ConsentQualifyingEventSourceEntityType) Valid() bool {
 	case ConsentQualifyingEventSourceEntityTypeActivity:
 		return true
 	case ConsentQualifyingEventSourceEntityTypeDeal:
-		return true
-	case ConsentQualifyingEventSourceEntityTypeLessThannil:
 		return true
 	default:
 		return false
@@ -3023,22 +2993,19 @@ func (e ConversationMemoryEntryDirection) Valid() bool {
 
 // Defines values for ConversationMemoryEntryStatus.
 const (
-	ConversationMemoryEntryStatusAwaitingThem ConversationMemoryEntryStatus = "awaiting_them"
-	ConversationMemoryEntryStatusLessThannil  ConversationMemoryEntryStatus = "<nil>"
-	ConversationMemoryEntryStatusReplied      ConversationMemoryEntryStatus = "replied"
-	ConversationMemoryEntryStatusUnanswered   ConversationMemoryEntryStatus = "unanswered"
+	AwaitingThem ConversationMemoryEntryStatus = "awaiting_them"
+	Replied      ConversationMemoryEntryStatus = "replied"
+	Unanswered   ConversationMemoryEntryStatus = "unanswered"
 )
 
 // Valid indicates whether the value is a known member of the ConversationMemoryEntryStatus enum.
 func (e ConversationMemoryEntryStatus) Valid() bool {
 	switch e {
-	case ConversationMemoryEntryStatusAwaitingThem:
+	case AwaitingThem:
 		return true
-	case ConversationMemoryEntryStatusLessThannil:
+	case Replied:
 		return true
-	case ConversationMemoryEntryStatusReplied:
-		return true
-	case ConversationMemoryEntryStatusUnanswered:
+	case Unanswered:
 		return true
 	default:
 		return false
@@ -3047,17 +3014,14 @@ func (e ConversationMemoryEntryStatus) Valid() bool {
 
 // Defines values for CreateActivityRequestDirection.
 const (
-	CreateActivityRequestDirectionInbound     CreateActivityRequestDirection = "inbound"
-	CreateActivityRequestDirectionLessThannil CreateActivityRequestDirection = "<nil>"
-	CreateActivityRequestDirectionOutbound    CreateActivityRequestDirection = "outbound"
+	CreateActivityRequestDirectionInbound  CreateActivityRequestDirection = "inbound"
+	CreateActivityRequestDirectionOutbound CreateActivityRequestDirection = "outbound"
 )
 
 // Valid indicates whether the value is a known member of the CreateActivityRequestDirection enum.
 func (e CreateActivityRequestDirection) Valid() bool {
 	switch e {
 	case CreateActivityRequestDirectionInbound:
-		return true
-	case CreateActivityRequestDirectionLessThannil:
 		return true
 	case CreateActivityRequestDirectionOutbound:
 		return true
@@ -3125,11 +3089,10 @@ func (e CreateActivityRequestLinksEntityType) Valid() bool {
 
 // Defines values for CreateActivityRequestMeetingStatus.
 const (
-	CreateActivityRequestMeetingStatusBooked      CreateActivityRequestMeetingStatus = "booked"
-	CreateActivityRequestMeetingStatusCanceled    CreateActivityRequestMeetingStatus = "canceled"
-	CreateActivityRequestMeetingStatusHeld        CreateActivityRequestMeetingStatus = "held"
-	CreateActivityRequestMeetingStatusLessThannil CreateActivityRequestMeetingStatus = "<nil>"
-	CreateActivityRequestMeetingStatusNoShow      CreateActivityRequestMeetingStatus = "no_show"
+	CreateActivityRequestMeetingStatusBooked   CreateActivityRequestMeetingStatus = "booked"
+	CreateActivityRequestMeetingStatusCanceled CreateActivityRequestMeetingStatus = "canceled"
+	CreateActivityRequestMeetingStatusHeld     CreateActivityRequestMeetingStatus = "held"
+	CreateActivityRequestMeetingStatusNoShow   CreateActivityRequestMeetingStatus = "no_show"
 )
 
 // Valid indicates whether the value is a known member of the CreateActivityRequestMeetingStatus enum.
@@ -3140,8 +3103,6 @@ func (e CreateActivityRequestMeetingStatus) Valid() bool {
 	case CreateActivityRequestMeetingStatusCanceled:
 		return true
 	case CreateActivityRequestMeetingStatusHeld:
-		return true
-	case CreateActivityRequestMeetingStatusLessThannil:
 		return true
 	case CreateActivityRequestMeetingStatusNoShow:
 		return true
@@ -3335,21 +3296,18 @@ func (e CreateListRequestListType) Valid() bool {
 
 // Defines values for CreateOrganizationRequestSizeBand.
 const (
-	CreateOrganizationRequestSizeBandLessThannil CreateOrganizationRequestSizeBand = "<nil>"
-	CreateOrganizationRequestSizeBandN10015000   CreateOrganizationRequestSizeBand = "1001-5000"
-	CreateOrganizationRequestSizeBandN110        CreateOrganizationRequestSizeBand = "1-10"
-	CreateOrganizationRequestSizeBandN1150       CreateOrganizationRequestSizeBand = "11-50"
-	CreateOrganizationRequestSizeBandN201500     CreateOrganizationRequestSizeBand = "201-500"
-	CreateOrganizationRequestSizeBandN5000       CreateOrganizationRequestSizeBand = "5000+"
-	CreateOrganizationRequestSizeBandN5011000    CreateOrganizationRequestSizeBand = "501-1000"
-	CreateOrganizationRequestSizeBandN51200      CreateOrganizationRequestSizeBand = "51-200"
+	CreateOrganizationRequestSizeBandN10015000 CreateOrganizationRequestSizeBand = "1001-5000"
+	CreateOrganizationRequestSizeBandN110      CreateOrganizationRequestSizeBand = "1-10"
+	CreateOrganizationRequestSizeBandN1150     CreateOrganizationRequestSizeBand = "11-50"
+	CreateOrganizationRequestSizeBandN201500   CreateOrganizationRequestSizeBand = "201-500"
+	CreateOrganizationRequestSizeBandN5000     CreateOrganizationRequestSizeBand = "5000+"
+	CreateOrganizationRequestSizeBandN5011000  CreateOrganizationRequestSizeBand = "501-1000"
+	CreateOrganizationRequestSizeBandN51200    CreateOrganizationRequestSizeBand = "51-200"
 )
 
 // Valid indicates whether the value is a known member of the CreateOrganizationRequestSizeBand enum.
 func (e CreateOrganizationRequestSizeBand) Valid() bool {
 	switch e {
-	case CreateOrganizationRequestSizeBandLessThannil:
-		return true
 	case CreateOrganizationRequestSizeBandN10015000:
 		return true
 	case CreateOrganizationRequestSizeBandN110:
@@ -3543,7 +3501,6 @@ func (e CreateSavedViewRequestResource) Valid() bool {
 // Defines values for CreateSignalRequestEntityType.
 const (
 	CreateSignalRequestEntityTypeDeal         CreateSignalRequestEntityType = "deal"
-	CreateSignalRequestEntityTypeLessThannil  CreateSignalRequestEntityType = "<nil>"
 	CreateSignalRequestEntityTypeOrganization CreateSignalRequestEntityType = "organization"
 	CreateSignalRequestEntityTypePerson       CreateSignalRequestEntityType = "person"
 )
@@ -3552,8 +3509,6 @@ const (
 func (e CreateSignalRequestEntityType) Valid() bool {
 	switch e {
 	case CreateSignalRequestEntityTypeDeal:
-		return true
-	case CreateSignalRequestEntityTypeLessThannil:
 		return true
 	case CreateSignalRequestEntityTypeOrganization:
 		return true
@@ -3803,11 +3758,10 @@ func (e DataSubjectRequestStatus) Valid() bool {
 
 // Defines values for DealForecastCategory.
 const (
-	DealForecastCategoryBestCase    DealForecastCategory = "best_case"
-	DealForecastCategoryCommit      DealForecastCategory = "commit"
-	DealForecastCategoryLessThannil DealForecastCategory = "<nil>"
-	DealForecastCategoryOmitted     DealForecastCategory = "omitted"
-	DealForecastCategoryPipeline    DealForecastCategory = "pipeline"
+	DealForecastCategoryBestCase DealForecastCategory = "best_case"
+	DealForecastCategoryCommit   DealForecastCategory = "commit"
+	DealForecastCategoryOmitted  DealForecastCategory = "omitted"
+	DealForecastCategoryPipeline DealForecastCategory = "pipeline"
 )
 
 // Valid indicates whether the value is a known member of the DealForecastCategory enum.
@@ -3816,8 +3770,6 @@ func (e DealForecastCategory) Valid() bool {
 	case DealForecastCategoryBestCase:
 		return true
 	case DealForecastCategoryCommit:
-		return true
-	case DealForecastCategoryLessThannil:
 		return true
 	case DealForecastCategoryOmitted:
 		return true
@@ -3852,7 +3804,6 @@ func (e DealStatus) Valid() bool {
 // Defines values for DealWonWithoutContractReason.
 const (
 	DealWonWithoutContractReasonImported       DealWonWithoutContractReason = "imported"
-	DealWonWithoutContractReasonLessThannil    DealWonWithoutContractReason = "<nil>"
 	DealWonWithoutContractReasonOther          DealWonWithoutContractReason = "other"
 	DealWonWithoutContractReasonPurchaseOrder  DealWonWithoutContractReason = "purchase_order"
 	DealWonWithoutContractReasonRenewalByEmail DealWonWithoutContractReason = "renewal_by_email"
@@ -3863,8 +3814,6 @@ const (
 func (e DealWonWithoutContractReason) Valid() bool {
 	switch e {
 	case DealWonWithoutContractReasonImported:
-		return true
-	case DealWonWithoutContractReasonLessThannil:
 		return true
 	case DealWonWithoutContractReasonOther:
 		return true
@@ -5195,7 +5144,6 @@ const (
 	OnboardingAvailableActionConfirmCompany    OnboardingCompanyMessageReplyAvailableAction = "confirm_company"
 	OnboardingAvailableActionConnectInbox      OnboardingCompanyMessageReplyAvailableAction = "connect_inbox"
 	OnboardingAvailableActionFinish            OnboardingCompanyMessageReplyAvailableAction = "finish"
-	OnboardingAvailableActionNone              OnboardingCompanyMessageReplyAvailableAction = "<nil>"
 	OnboardingAvailableActionStartVoiceBuild   OnboardingCompanyMessageReplyAvailableAction = "start_voice_build"
 	OnboardingAvailableActionUploadVoiceSource OnboardingCompanyMessageReplyAvailableAction = "upload_voice_source"
 )
@@ -5208,8 +5156,6 @@ func (e OnboardingCompanyMessageReplyAvailableAction) Valid() bool {
 	case OnboardingAvailableActionConnectInbox:
 		return true
 	case OnboardingAvailableActionFinish:
-		return true
-	case OnboardingAvailableActionNone:
 		return true
 	case OnboardingAvailableActionStartVoiceBuild:
 		return true
@@ -5224,7 +5170,6 @@ func (e OnboardingCompanyMessageReplyAvailableAction) Valid() bool {
 const (
 	OnboardingNextRequiredDisplayName  OnboardingCompanyMessageReplyNextRequiredField = "display_name"
 	OnboardingNextRequiredICP          OnboardingCompanyMessageReplyNextRequiredField = "icp"
-	OnboardingNextRequiredNone         OnboardingCompanyMessageReplyNextRequiredField = "<nil>"
 	OnboardingNextRequiredOfferSummary OnboardingCompanyMessageReplyNextRequiredField = "offer_summary"
 )
 
@@ -5234,8 +5179,6 @@ func (e OnboardingCompanyMessageReplyNextRequiredField) Valid() bool {
 	case OnboardingNextRequiredDisplayName:
 		return true
 	case OnboardingNextRequiredICP:
-		return true
-	case OnboardingNextRequiredNone:
 		return true
 	case OnboardingNextRequiredOfferSummary:
 		return true
@@ -5303,16 +5246,13 @@ func (e OnboardingStatePath) Valid() bool {
 
 // Defines values for OnboardingStateSourceMode.
 const (
-	OnboardingStateSourceModeLessThannil OnboardingStateSourceMode = "<nil>"
-	OnboardingStateSourceModeManual      OnboardingStateSourceMode = "manual"
-	OnboardingStateSourceModeWebsite     OnboardingStateSourceMode = "website"
+	OnboardingStateSourceModeManual  OnboardingStateSourceMode = "manual"
+	OnboardingStateSourceModeWebsite OnboardingStateSourceMode = "website"
 )
 
 // Valid indicates whether the value is a known member of the OnboardingStateSourceMode enum.
 func (e OnboardingStateSourceMode) Valid() bool {
 	switch e {
-	case OnboardingStateSourceModeLessThannil:
-		return true
 	case OnboardingStateSourceModeManual:
 		return true
 	case OnboardingStateSourceModeWebsite:
@@ -5354,16 +5294,15 @@ func (e OnboardingStateStep) Valid() bool {
 
 // Defines values for OrganizationClassification.
 const (
-	OrganizationClassificationAgency      OrganizationClassification = "agency"
-	OrganizationClassificationCompetitor  OrganizationClassification = "competitor"
-	OrganizationClassificationCustomer    OrganizationClassification = "customer"
-	OrganizationClassificationLessThannil OrganizationClassification = "<nil>"
-	OrganizationClassificationOther       OrganizationClassification = "other"
-	OrganizationClassificationPartner     OrganizationClassification = "partner"
-	OrganizationClassificationPlatform    OrganizationClassification = "platform"
-	OrganizationClassificationProspect    OrganizationClassification = "prospect"
-	OrganizationClassificationReseller    OrganizationClassification = "reseller"
-	OrganizationClassificationTechVendor  OrganizationClassification = "tech_vendor"
+	OrganizationClassificationAgency     OrganizationClassification = "agency"
+	OrganizationClassificationCompetitor OrganizationClassification = "competitor"
+	OrganizationClassificationCustomer   OrganizationClassification = "customer"
+	OrganizationClassificationOther      OrganizationClassification = "other"
+	OrganizationClassificationPartner    OrganizationClassification = "partner"
+	OrganizationClassificationPlatform   OrganizationClassification = "platform"
+	OrganizationClassificationProspect   OrganizationClassification = "prospect"
+	OrganizationClassificationReseller   OrganizationClassification = "reseller"
+	OrganizationClassificationTechVendor OrganizationClassification = "tech_vendor"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationClassification enum.
@@ -5374,8 +5313,6 @@ func (e OrganizationClassification) Valid() bool {
 	case OrganizationClassificationCompetitor:
 		return true
 	case OrganizationClassificationCustomer:
-		return true
-	case OrganizationClassificationLessThannil:
 		return true
 	case OrganizationClassificationOther:
 		return true
@@ -5462,21 +5399,18 @@ func (e OrganizationRelationshipTypes) Valid() bool {
 
 // Defines values for OrganizationSizeBand.
 const (
-	OrganizationSizeBandLessThannil OrganizationSizeBand = "<nil>"
-	OrganizationSizeBandN10015000   OrganizationSizeBand = "1001-5000"
-	OrganizationSizeBandN110        OrganizationSizeBand = "1-10"
-	OrganizationSizeBandN1150       OrganizationSizeBand = "11-50"
-	OrganizationSizeBandN201500     OrganizationSizeBand = "201-500"
-	OrganizationSizeBandN5000       OrganizationSizeBand = "5000+"
-	OrganizationSizeBandN5011000    OrganizationSizeBand = "501-1000"
-	OrganizationSizeBandN51200      OrganizationSizeBand = "51-200"
+	OrganizationSizeBandN10015000 OrganizationSizeBand = "1001-5000"
+	OrganizationSizeBandN110      OrganizationSizeBand = "1-10"
+	OrganizationSizeBandN1150     OrganizationSizeBand = "11-50"
+	OrganizationSizeBandN201500   OrganizationSizeBand = "201-500"
+	OrganizationSizeBandN5000     OrganizationSizeBand = "5000+"
+	OrganizationSizeBandN5011000  OrganizationSizeBand = "501-1000"
+	OrganizationSizeBandN51200    OrganizationSizeBand = "51-200"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationSizeBand enum.
 func (e OrganizationSizeBand) Valid() bool {
 	switch e {
-	case OrganizationSizeBandLessThannil:
-		return true
 	case OrganizationSizeBandN10015000:
 		return true
 	case OrganizationSizeBandN110:
@@ -5573,17 +5507,14 @@ func (e Organization360ContactConsent) Valid() bool {
 
 // Defines values for Organization360ContactTitleSource.
 const (
-	Organization360ContactTitleSourceCanonical   Organization360ContactTitleSource = "canonical"
-	Organization360ContactTitleSourceLessThannil Organization360ContactTitleSource = "<nil>"
-	Organization360ContactTitleSourceProvider    Organization360ContactTitleSource = "provider"
+	Organization360ContactTitleSourceCanonical Organization360ContactTitleSource = "canonical"
+	Organization360ContactTitleSourceProvider  Organization360ContactTitleSource = "provider"
 )
 
 // Valid indicates whether the value is a known member of the Organization360ContactTitleSource enum.
 func (e Organization360ContactTitleSource) Valid() bool {
 	switch e {
 	case Organization360ContactTitleSourceCanonical:
-		return true
-	case Organization360ContactTitleSourceLessThannil:
 		return true
 	case Organization360ContactTitleSourceProvider:
 		return true
@@ -5796,7 +5727,6 @@ func (e Organization360SuggestionKind) Valid() bool {
 // Defines values for Organization360SuggestionSubjectType.
 const (
 	Organization360SuggestionSubjectTypeDeal         Organization360SuggestionSubjectType = "deal"
-	Organization360SuggestionSubjectTypeLessThannil  Organization360SuggestionSubjectType = "<nil>"
 	Organization360SuggestionSubjectTypeOrganization Organization360SuggestionSubjectType = "organization"
 	Organization360SuggestionSubjectTypePerson       Organization360SuggestionSubjectType = "person"
 )
@@ -5805,8 +5735,6 @@ const (
 func (e Organization360SuggestionSubjectType) Valid() bool {
 	switch e {
 	case Organization360SuggestionSubjectTypeDeal:
-		return true
-	case Organization360SuggestionSubjectTypeLessThannil:
 		return true
 	case Organization360SuggestionSubjectTypeOrganization:
 		return true
@@ -6038,7 +5966,6 @@ func (e OrganizationFactSource) Valid() bool {
 
 // Defines values for OrganizationFactSuspectReason.
 const (
-	OrganizationFactSuspectReasonLessThannil         OrganizationFactSuspectReason = "<nil>"
 	OrganizationFactSuspectReasonNotAPhone           OrganizationFactSuspectReason = "not_a_phone"
 	OrganizationFactSuspectReasonNotASize            OrganizationFactSuspectReason = "not_a_size"
 	OrganizationFactSuspectReasonNotAYear            OrganizationFactSuspectReason = "not_a_year"
@@ -6049,8 +5976,6 @@ const (
 // Valid indicates whether the value is a known member of the OrganizationFactSuspectReason enum.
 func (e OrganizationFactSuspectReason) Valid() bool {
 	switch e {
-	case OrganizationFactSuspectReasonLessThannil:
-		return true
 	case OrganizationFactSuspectReasonNotAPhone:
 		return true
 	case OrganizationFactSuspectReasonNotASize:
@@ -6179,19 +6104,16 @@ func (e OrganizationGraphNodeKind) Valid() bool {
 
 // Defines values for OrganizationGraphNodeStrengthBucket.
 const (
-	OrganizationGraphNodeStrengthBucketDormant     OrganizationGraphNodeStrengthBucket = "dormant"
-	OrganizationGraphNodeStrengthBucketLessThannil OrganizationGraphNodeStrengthBucket = "<nil>"
-	OrganizationGraphNodeStrengthBucketStrong      OrganizationGraphNodeStrengthBucket = "strong"
-	OrganizationGraphNodeStrengthBucketWarm        OrganizationGraphNodeStrengthBucket = "warm"
-	OrganizationGraphNodeStrengthBucketWeak        OrganizationGraphNodeStrengthBucket = "weak"
+	OrganizationGraphNodeStrengthBucketDormant OrganizationGraphNodeStrengthBucket = "dormant"
+	OrganizationGraphNodeStrengthBucketStrong  OrganizationGraphNodeStrengthBucket = "strong"
+	OrganizationGraphNodeStrengthBucketWarm    OrganizationGraphNodeStrengthBucket = "warm"
+	OrganizationGraphNodeStrengthBucketWeak    OrganizationGraphNodeStrengthBucket = "weak"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationGraphNodeStrengthBucket enum.
 func (e OrganizationGraphNodeStrengthBucket) Valid() bool {
 	switch e {
 	case OrganizationGraphNodeStrengthBucketDormant:
-		return true
-	case OrganizationGraphNodeStrengthBucketLessThannil:
 		return true
 	case OrganizationGraphNodeStrengthBucketStrong:
 		return true
@@ -6494,17 +6416,14 @@ func (e PartnerCertStatus) Valid() bool {
 
 // Defines values for PartnerMarginTier.
 const (
-	PartnerMarginTierLessThannil PartnerMarginTier = "<nil>"
-	PartnerMarginTierTier115     PartnerMarginTier = "tier1_15"
-	PartnerMarginTierTier220     PartnerMarginTier = "tier2_20"
-	PartnerMarginTierTier325     PartnerMarginTier = "tier3_25"
+	PartnerMarginTierTier115 PartnerMarginTier = "tier1_15"
+	PartnerMarginTierTier220 PartnerMarginTier = "tier2_20"
+	PartnerMarginTierTier325 PartnerMarginTier = "tier3_25"
 )
 
 // Valid indicates whether the value is a known member of the PartnerMarginTier enum.
 func (e PartnerMarginTier) Valid() bool {
 	switch e {
-	case PartnerMarginTierLessThannil:
-		return true
 	case PartnerMarginTierTier115:
 		return true
 	case PartnerMarginTierTier220:
@@ -6910,7 +6829,6 @@ func (e PersonMomentActionState) Valid() bool {
 const (
 	PersonMomentDestinationEntityTypeActivity     PersonMomentDestinationEntityType = "activity"
 	PersonMomentDestinationEntityTypeDeal         PersonMomentDestinationEntityType = "deal"
-	PersonMomentDestinationEntityTypeLessThannil  PersonMomentDestinationEntityType = "<nil>"
 	PersonMomentDestinationEntityTypeOrganization PersonMomentDestinationEntityType = "organization"
 	PersonMomentDestinationEntityTypePerson       PersonMomentDestinationEntityType = "person"
 )
@@ -6921,8 +6839,6 @@ func (e PersonMomentDestinationEntityType) Valid() bool {
 	case PersonMomentDestinationEntityTypeActivity:
 		return true
 	case PersonMomentDestinationEntityTypeDeal:
-		return true
-	case PersonMomentDestinationEntityTypeLessThannil:
 		return true
 	case PersonMomentDestinationEntityTypeOrganization:
 		return true
@@ -7121,7 +7037,6 @@ func (e PersonProfileFieldVerdict) Valid() bool {
 
 // Defines values for PersonProviderEmailEmailType.
 const (
-	PersonProviderEmailEmailTypeLessThannil  PersonProviderEmailEmailType = "<nil>"
 	PersonProviderEmailEmailTypePersonal     PersonProviderEmailEmailType = "personal"
 	PersonProviderEmailEmailTypeProfessional PersonProviderEmailEmailType = "professional"
 )
@@ -7129,8 +7044,6 @@ const (
 // Valid indicates whether the value is a known member of the PersonProviderEmailEmailType enum.
 func (e PersonProviderEmailEmailType) Valid() bool {
 	switch e {
-	case PersonProviderEmailEmailTypeLessThannil:
-		return true
 	case PersonProviderEmailEmailTypePersonal:
 		return true
 	case PersonProviderEmailEmailTypeProfessional:
@@ -7142,7 +7055,6 @@ func (e PersonProviderEmailEmailType) Valid() bool {
 
 // Defines values for PersonProviderEmailEmailTypeSource.
 const (
-	PersonProviderEmailEmailTypeSourceLessThannil      PersonProviderEmailEmailTypeSource = "<nil>"
 	PersonProviderEmailEmailTypeSourceProvider         PersonProviderEmailEmailTypeSource = "provider"
 	PersonProviderEmailEmailTypeSourceRequestedCascade PersonProviderEmailEmailTypeSource = "requested_cascade"
 )
@@ -7150,8 +7062,6 @@ const (
 // Valid indicates whether the value is a known member of the PersonProviderEmailEmailTypeSource enum.
 func (e PersonProviderEmailEmailTypeSource) Valid() bool {
 	switch e {
-	case PersonProviderEmailEmailTypeSourceLessThannil:
-		return true
 	case PersonProviderEmailEmailTypeSourceProvider:
 		return true
 	case PersonProviderEmailEmailTypeSourceRequestedCascade:
@@ -7541,7 +7451,6 @@ const (
 	ProviderRunSkipReasonAlreadyFresh              ProviderRunSkipReason = "already_fresh"
 	ProviderRunSkipReasonBudgetExhausted           ProviderRunSkipReason = "budget_exhausted"
 	ProviderRunSkipReasonDuplicateSubjectCandidate ProviderRunSkipReason = "duplicate_subject_candidate"
-	ProviderRunSkipReasonLessThannil               ProviderRunSkipReason = "<nil>"
 	ProviderRunSkipReasonLowBalance                ProviderRunSkipReason = "low_balance"
 	ProviderRunSkipReasonNotEligible               ProviderRunSkipReason = "not_eligible"
 	ProviderRunSkipReasonRateLimited               ProviderRunSkipReason = "rate_limited"
@@ -7556,8 +7465,6 @@ func (e ProviderRunSkipReason) Valid() bool {
 	case ProviderRunSkipReasonBudgetExhausted:
 		return true
 	case ProviderRunSkipReasonDuplicateSubjectCandidate:
-		return true
-	case ProviderRunSkipReasonLessThannil:
 		return true
 	case ProviderRunSkipReasonLowBalance:
 		return true
@@ -7652,16 +7559,13 @@ func (e ProviderRunTrigger) Valid() bool {
 
 // Defines values for PutOnboardingStateRequestSourceMode.
 const (
-	PutOnboardingStateRequestSourceModeLessThannil PutOnboardingStateRequestSourceMode = "<nil>"
-	PutOnboardingStateRequestSourceModeManual      PutOnboardingStateRequestSourceMode = "manual"
-	PutOnboardingStateRequestSourceModeWebsite     PutOnboardingStateRequestSourceMode = "website"
+	PutOnboardingStateRequestSourceModeManual  PutOnboardingStateRequestSourceMode = "manual"
+	PutOnboardingStateRequestSourceModeWebsite PutOnboardingStateRequestSourceMode = "website"
 )
 
 // Valid indicates whether the value is a known member of the PutOnboardingStateRequestSourceMode enum.
 func (e PutOnboardingStateRequestSourceMode) Valid() bool {
 	switch e {
-	case PutOnboardingStateRequestSourceModeLessThannil:
-		return true
 	case PutOnboardingStateRequestSourceModeManual:
 		return true
 	case PutOnboardingStateRequestSourceModeWebsite:
@@ -8099,28 +8003,25 @@ func (e SavedViewSharedScope) Valid() bool {
 
 // Defines values for ScheduledSendHeldReason.
 const (
-	ScheduledSendHeldReasonConsentWithdrawn ScheduledSendHeldReason = "consent_withdrawn"
-	ScheduledSendHeldReasonLessThannil      ScheduledSendHeldReason = "<nil>"
-	ScheduledSendHeldReasonMissedWindow     ScheduledSendHeldReason = "missed_window"
-	ScheduledSendHeldReasonSendRefused      ScheduledSendHeldReason = "send_refused"
-	ScheduledSendHeldReasonSenderInactive   ScheduledSendHeldReason = "sender_inactive"
-	ScheduledSendHeldReasonTimerExhausted   ScheduledSendHeldReason = "timer_exhausted"
+	ConsentWithdrawn ScheduledSendHeldReason = "consent_withdrawn"
+	MissedWindow     ScheduledSendHeldReason = "missed_window"
+	SendRefused      ScheduledSendHeldReason = "send_refused"
+	SenderInactive   ScheduledSendHeldReason = "sender_inactive"
+	TimerExhausted   ScheduledSendHeldReason = "timer_exhausted"
 )
 
 // Valid indicates whether the value is a known member of the ScheduledSendHeldReason enum.
 func (e ScheduledSendHeldReason) Valid() bool {
 	switch e {
-	case ScheduledSendHeldReasonConsentWithdrawn:
+	case ConsentWithdrawn:
 		return true
-	case ScheduledSendHeldReasonLessThannil:
+	case MissedWindow:
 		return true
-	case ScheduledSendHeldReasonMissedWindow:
+	case SendRefused:
 		return true
-	case ScheduledSendHeldReasonSendRefused:
+	case SenderInactive:
 		return true
-	case ScheduledSendHeldReasonSenderInactive:
-		return true
-	case ScheduledSendHeldReasonTimerExhausted:
+	case TimerExhausted:
 		return true
 	default:
 		return false
@@ -8158,7 +8059,6 @@ func (e ScheduledSendStatus) Valid() bool {
 const (
 	SearchResultTrustTierAuthoritative SearchResultTrustTier = "authoritative"
 	SearchResultTrustTierExternal      SearchResultTrustTier = "external"
-	SearchResultTrustTierLessThannil   SearchResultTrustTier = "<nil>"
 	SearchResultTrustTierUnverified    SearchResultTrustTier = "unverified"
 )
 
@@ -8168,8 +8068,6 @@ func (e SearchResultTrustTier) Valid() bool {
 	case SearchResultTrustTierAuthoritative:
 		return true
 	case SearchResultTrustTierExternal:
-		return true
-	case SearchResultTrustTierLessThannil:
 		return true
 	case SearchResultTrustTierUnverified:
 		return true
@@ -8307,7 +8205,6 @@ func (e SetProjectStakeholderRequestRole) Valid() bool {
 // Defines values for SignalEntityType.
 const (
 	SignalEntityTypeDeal         SignalEntityType = "deal"
-	SignalEntityTypeLessThannil  SignalEntityType = "<nil>"
 	SignalEntityTypeOrganization SignalEntityType = "organization"
 	SignalEntityTypePerson       SignalEntityType = "person"
 )
@@ -8316,8 +8213,6 @@ const (
 func (e SignalEntityType) Valid() bool {
 	switch e {
 	case SignalEntityTypeDeal:
-		return true
-	case SignalEntityTypeLessThannil:
 		return true
 	case SignalEntityTypeOrganization:
 		return true
@@ -8470,7 +8365,6 @@ func (e SignalStatus) Valid() bool {
 const (
 	SignalEvidenceSourceTypeActivity     SignalEvidenceSourceType = "activity"
 	SignalEvidenceSourceTypeDeal         SignalEvidenceSourceType = "deal"
-	SignalEvidenceSourceTypeLessThannil  SignalEvidenceSourceType = "<nil>"
 	SignalEvidenceSourceTypePage         SignalEvidenceSourceType = "page"
 	SignalEvidenceSourceTypeRelationship SignalEvidenceSourceType = "relationship"
 	SignalEvidenceSourceTypeSignal       SignalEvidenceSourceType = "signal"
@@ -8482,8 +8376,6 @@ func (e SignalEvidenceSourceType) Valid() bool {
 	case SignalEvidenceSourceTypeActivity:
 		return true
 	case SignalEvidenceSourceTypeDeal:
-		return true
-	case SignalEvidenceSourceTypeLessThannil:
 		return true
 	case SignalEvidenceSourceTypePage:
 		return true
@@ -8612,9 +8504,8 @@ func (e SiteReadPageKind) Valid() bool {
 
 // Defines values for SiteReadReportPhase.
 const (
-	SiteReadReportPhaseCrawling    SiteReadReportPhase = "crawling"
-	SiteReadReportPhaseExtracting  SiteReadReportPhase = "extracting"
-	SiteReadReportPhaseLessThannil SiteReadReportPhase = "<nil>"
+	SiteReadReportPhaseCrawling   SiteReadReportPhase = "crawling"
+	SiteReadReportPhaseExtracting SiteReadReportPhase = "extracting"
 )
 
 // Valid indicates whether the value is a known member of the SiteReadReportPhase enum.
@@ -8623,8 +8514,6 @@ func (e SiteReadReportPhase) Valid() bool {
 	case SiteReadReportPhaseCrawling:
 		return true
 	case SiteReadReportPhaseExtracting:
-		return true
-	case SiteReadReportPhaseLessThannil:
 		return true
 	default:
 		return false
@@ -8667,15 +8556,12 @@ func (e SiteReadReportStatus) Valid() bool {
 // Defines values for SiteReadReportStatusCode.
 const (
 	SiteReadReportStatusCodeBudgetDeferred SiteReadReportStatusCode = "budget_deferred"
-	SiteReadReportStatusCodeLessThannil    SiteReadReportStatusCode = "<nil>"
 )
 
 // Valid indicates whether the value is a known member of the SiteReadReportStatusCode enum.
 func (e SiteReadReportStatusCode) Valid() bool {
 	switch e {
 	case SiteReadReportStatusCodeBudgetDeferred:
-		return true
-	case SiteReadReportStatusCodeLessThannil:
 		return true
 	default:
 		return false
@@ -8684,11 +8570,10 @@ func (e SiteReadReportStatusCode) Valid() bool {
 
 // Defines values for SiteReadReportStoppedReason.
 const (
-	SiteReadReportStoppedReasonBudget      SiteReadReportStoppedReason = "budget"
-	SiteReadReportStoppedReasonByteCap     SiteReadReportStoppedReason = "byte_cap"
-	SiteReadReportStoppedReasonDeadline    SiteReadReportStoppedReason = "deadline"
-	SiteReadReportStoppedReasonLessThannil SiteReadReportStoppedReason = "<nil>"
-	SiteReadReportStoppedReasonPageCap     SiteReadReportStoppedReason = "page_cap"
+	SiteReadReportStoppedReasonBudget   SiteReadReportStoppedReason = "budget"
+	SiteReadReportStoppedReasonByteCap  SiteReadReportStoppedReason = "byte_cap"
+	SiteReadReportStoppedReasonDeadline SiteReadReportStoppedReason = "deadline"
+	SiteReadReportStoppedReasonPageCap  SiteReadReportStoppedReason = "page_cap"
 )
 
 // Valid indicates whether the value is a known member of the SiteReadReportStoppedReason enum.
@@ -8699,8 +8584,6 @@ func (e SiteReadReportStoppedReason) Valid() bool {
 	case SiteReadReportStoppedReasonByteCap:
 		return true
 	case SiteReadReportStoppedReasonDeadline:
-		return true
-	case SiteReadReportStoppedReasonLessThannil:
 		return true
 	case SiteReadReportStoppedReasonPageCap:
 		return true
@@ -8780,25 +8663,25 @@ func (e StageSemantic) Valid() bool {
 
 // Defines values for StartBackfillRequestWindow.
 const (
-	N12m StartBackfillRequestWindow = "12m"
-	N24m StartBackfillRequestWindow = "24m"
-	N3m  StartBackfillRequestWindow = "3m"
-	N60m StartBackfillRequestWindow = "60m"
-	N6m  StartBackfillRequestWindow = "6m"
+	StartBackfillRequestWindowN12m StartBackfillRequestWindow = "12m"
+	StartBackfillRequestWindowN24m StartBackfillRequestWindow = "24m"
+	StartBackfillRequestWindowN3m  StartBackfillRequestWindow = "3m"
+	StartBackfillRequestWindowN60m StartBackfillRequestWindow = "60m"
+	StartBackfillRequestWindowN6m  StartBackfillRequestWindow = "6m"
 )
 
 // Valid indicates whether the value is a known member of the StartBackfillRequestWindow enum.
 func (e StartBackfillRequestWindow) Valid() bool {
 	switch e {
-	case N12m:
+	case StartBackfillRequestWindowN12m:
 		return true
-	case N24m:
+	case StartBackfillRequestWindowN24m:
 		return true
-	case N3m:
+	case StartBackfillRequestWindowN3m:
 		return true
-	case N60m:
+	case StartBackfillRequestWindowN60m:
 		return true
-	case N6m:
+	case StartBackfillRequestWindowN6m:
 		return true
 	default:
 		return false
@@ -8930,17 +8813,14 @@ func (e UpdateAttachmentMetadataRequestDocState) Valid() bool {
 
 // Defines values for UpdateAutomationRequestStatus.
 const (
-	UpdateAutomationRequestStatusEnabled     UpdateAutomationRequestStatus = "enabled"
-	UpdateAutomationRequestStatusLessThannil UpdateAutomationRequestStatus = "<nil>"
-	UpdateAutomationRequestStatusPaused      UpdateAutomationRequestStatus = "paused"
+	UpdateAutomationRequestStatusEnabled UpdateAutomationRequestStatus = "enabled"
+	UpdateAutomationRequestStatusPaused  UpdateAutomationRequestStatus = "paused"
 )
 
 // Valid indicates whether the value is a known member of the UpdateAutomationRequestStatus enum.
 func (e UpdateAutomationRequestStatus) Valid() bool {
 	switch e {
 	case UpdateAutomationRequestStatusEnabled:
-		return true
-	case UpdateAutomationRequestStatusLessThannil:
 		return true
 	case UpdateAutomationRequestStatusPaused:
 		return true
@@ -8993,11 +8873,10 @@ func (e UpdateDataSubjectRequestStatus) Valid() bool {
 
 // Defines values for UpdateDealRequestForecastCategory.
 const (
-	UpdateDealRequestForecastCategoryBestCase    UpdateDealRequestForecastCategory = "best_case"
-	UpdateDealRequestForecastCategoryCommit      UpdateDealRequestForecastCategory = "commit"
-	UpdateDealRequestForecastCategoryLessThannil UpdateDealRequestForecastCategory = "<nil>"
-	UpdateDealRequestForecastCategoryOmitted     UpdateDealRequestForecastCategory = "omitted"
-	UpdateDealRequestForecastCategoryPipeline    UpdateDealRequestForecastCategory = "pipeline"
+	UpdateDealRequestForecastCategoryBestCase UpdateDealRequestForecastCategory = "best_case"
+	UpdateDealRequestForecastCategoryCommit   UpdateDealRequestForecastCategory = "commit"
+	UpdateDealRequestForecastCategoryOmitted  UpdateDealRequestForecastCategory = "omitted"
+	UpdateDealRequestForecastCategoryPipeline UpdateDealRequestForecastCategory = "pipeline"
 )
 
 // Valid indicates whether the value is a known member of the UpdateDealRequestForecastCategory enum.
@@ -9006,8 +8885,6 @@ func (e UpdateDealRequestForecastCategory) Valid() bool {
 	case UpdateDealRequestForecastCategoryBestCase:
 		return true
 	case UpdateDealRequestForecastCategoryCommit:
-		return true
-	case UpdateDealRequestForecastCategoryLessThannil:
 		return true
 	case UpdateDealRequestForecastCategoryOmitted:
 		return true
@@ -9128,21 +9005,18 @@ func (e UpdateOrganizationRequestRelationshipTypes) Valid() bool {
 
 // Defines values for UpdateOrganizationRequestSizeBand.
 const (
-	UpdateOrganizationRequestSizeBandLessThannil UpdateOrganizationRequestSizeBand = "<nil>"
-	UpdateOrganizationRequestSizeBandN10015000   UpdateOrganizationRequestSizeBand = "1001-5000"
-	UpdateOrganizationRequestSizeBandN110        UpdateOrganizationRequestSizeBand = "1-10"
-	UpdateOrganizationRequestSizeBandN1150       UpdateOrganizationRequestSizeBand = "11-50"
-	UpdateOrganizationRequestSizeBandN201500     UpdateOrganizationRequestSizeBand = "201-500"
-	UpdateOrganizationRequestSizeBandN5000       UpdateOrganizationRequestSizeBand = "5000+"
-	UpdateOrganizationRequestSizeBandN5011000    UpdateOrganizationRequestSizeBand = "501-1000"
-	UpdateOrganizationRequestSizeBandN51200      UpdateOrganizationRequestSizeBand = "51-200"
+	UpdateOrganizationRequestSizeBandN10015000 UpdateOrganizationRequestSizeBand = "1001-5000"
+	UpdateOrganizationRequestSizeBandN110      UpdateOrganizationRequestSizeBand = "1-10"
+	UpdateOrganizationRequestSizeBandN1150     UpdateOrganizationRequestSizeBand = "11-50"
+	UpdateOrganizationRequestSizeBandN201500   UpdateOrganizationRequestSizeBand = "201-500"
+	UpdateOrganizationRequestSizeBandN5000     UpdateOrganizationRequestSizeBand = "5000+"
+	UpdateOrganizationRequestSizeBandN5011000  UpdateOrganizationRequestSizeBand = "501-1000"
+	UpdateOrganizationRequestSizeBandN51200    UpdateOrganizationRequestSizeBand = "51-200"
 )
 
 // Valid indicates whether the value is a known member of the UpdateOrganizationRequestSizeBand enum.
 func (e UpdateOrganizationRequestSizeBand) Valid() bool {
 	switch e {
-	case UpdateOrganizationRequestSizeBandLessThannil:
-		return true
 	case UpdateOrganizationRequestSizeBandN10015000:
 		return true
 	case UpdateOrganizationRequestSizeBandN110:
@@ -9269,17 +9143,14 @@ func (e UpsertPartnerRequestCertStatus) Valid() bool {
 
 // Defines values for UpsertPartnerRequestMarginTier.
 const (
-	UpsertPartnerRequestMarginTierLessThannil UpsertPartnerRequestMarginTier = "<nil>"
-	UpsertPartnerRequestMarginTierTier115     UpsertPartnerRequestMarginTier = "tier1_15"
-	UpsertPartnerRequestMarginTierTier220     UpsertPartnerRequestMarginTier = "tier2_20"
-	UpsertPartnerRequestMarginTierTier325     UpsertPartnerRequestMarginTier = "tier3_25"
+	UpsertPartnerRequestMarginTierTier115 UpsertPartnerRequestMarginTier = "tier1_15"
+	UpsertPartnerRequestMarginTierTier220 UpsertPartnerRequestMarginTier = "tier2_20"
+	UpsertPartnerRequestMarginTierTier325 UpsertPartnerRequestMarginTier = "tier3_25"
 )
 
 // Valid indicates whether the value is a known member of the UpsertPartnerRequestMarginTier enum.
 func (e UpsertPartnerRequestMarginTier) Valid() bool {
 	switch e {
-	case UpsertPartnerRequestMarginTierLessThannil:
-		return true
 	case UpsertPartnerRequestMarginTierTier115:
 		return true
 	case UpsertPartnerRequestMarginTierTier220:
@@ -9419,25 +9290,22 @@ func (e VoiceBuildReason) Valid() bool {
 
 // Defines values for VoiceBuildStage.
 const (
-	VoiceBuildStageActivate    VoiceBuildStage = "activate"
-	VoiceBuildStageEvaluate    VoiceBuildStage = "evaluate"
-	VoiceBuildStageExtract     VoiceBuildStage = "extract"
-	VoiceBuildStageLessThannil VoiceBuildStage = "<nil>"
-	VoiceBuildStageSnapshot    VoiceBuildStage = "snapshot"
+	Activate VoiceBuildStage = "activate"
+	Evaluate VoiceBuildStage = "evaluate"
+	Extract  VoiceBuildStage = "extract"
+	Snapshot VoiceBuildStage = "snapshot"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStage enum.
 func (e VoiceBuildStage) Valid() bool {
 	switch e {
-	case VoiceBuildStageActivate:
+	case Activate:
 		return true
-	case VoiceBuildStageEvaluate:
+	case Evaluate:
 		return true
-	case VoiceBuildStageExtract:
+	case Extract:
 		return true
-	case VoiceBuildStageLessThannil:
-		return true
-	case VoiceBuildStageSnapshot:
+	case Snapshot:
 		return true
 	default:
 		return false
@@ -9473,31 +9341,28 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
-		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -9506,16 +9371,16 @@ func (e VoiceBuildStatusCode) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewRequestFormat.
 const (
-	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
-	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
+	Text       VoiceCorpusPreviewRequestFormat = "text"
+	Transcript VoiceCorpusPreviewRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
 func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 	switch e {
-	case VoiceCorpusPreviewRequestFormatText:
+	case Text:
 		return true
-	case VoiceCorpusPreviewRequestFormatTranscript:
+	case Transcript:
 		return true
 	default:
 		return false
@@ -10745,31 +10610,31 @@ func (e ListOrganizationsParamsRelationshipType) Valid() bool {
 
 // Defines values for ListOrganizationsParamsSizeBand.
 const (
-	N10015000 ListOrganizationsParamsSizeBand = "1001-5000"
-	N110      ListOrganizationsParamsSizeBand = "1-10"
-	N1150     ListOrganizationsParamsSizeBand = "11-50"
-	N201500   ListOrganizationsParamsSizeBand = "201-500"
-	N5000     ListOrganizationsParamsSizeBand = "5000+"
-	N5011000  ListOrganizationsParamsSizeBand = "501-1000"
-	N51200    ListOrganizationsParamsSizeBand = "51-200"
+	ListOrganizationsParamsSizeBandN10015000 ListOrganizationsParamsSizeBand = "1001-5000"
+	ListOrganizationsParamsSizeBandN110      ListOrganizationsParamsSizeBand = "1-10"
+	ListOrganizationsParamsSizeBandN1150     ListOrganizationsParamsSizeBand = "11-50"
+	ListOrganizationsParamsSizeBandN201500   ListOrganizationsParamsSizeBand = "201-500"
+	ListOrganizationsParamsSizeBandN5000     ListOrganizationsParamsSizeBand = "5000+"
+	ListOrganizationsParamsSizeBandN5011000  ListOrganizationsParamsSizeBand = "501-1000"
+	ListOrganizationsParamsSizeBandN51200    ListOrganizationsParamsSizeBand = "51-200"
 )
 
 // Valid indicates whether the value is a known member of the ListOrganizationsParamsSizeBand enum.
 func (e ListOrganizationsParamsSizeBand) Valid() bool {
 	switch e {
-	case N10015000:
+	case ListOrganizationsParamsSizeBandN10015000:
 		return true
-	case N110:
+	case ListOrganizationsParamsSizeBandN110:
 		return true
-	case N1150:
+	case ListOrganizationsParamsSizeBandN1150:
 		return true
-	case N201500:
+	case ListOrganizationsParamsSizeBandN201500:
 		return true
-	case N5000:
+	case ListOrganizationsParamsSizeBandN5000:
 		return true
-	case N5011000:
+	case ListOrganizationsParamsSizeBandN5011000:
 		return true
-	case N51200:
+	case ListOrganizationsParamsSizeBandN51200:
 		return true
 	default:
 		return false
@@ -10835,22 +10700,22 @@ func (e ListOrganizationDocumentsParamsCategory) Valid() bool {
 
 // Defines values for ListOrganizationDocumentsParamsDocState.
 const (
-	Current    ListOrganizationDocumentsParamsDocState = "current"
-	Draft      ListOrganizationDocumentsParamsDocState = "draft"
-	Final      ListOrganizationDocumentsParamsDocState = "final"
-	Superseded ListOrganizationDocumentsParamsDocState = "superseded"
+	ListOrganizationDocumentsParamsDocStateCurrent    ListOrganizationDocumentsParamsDocState = "current"
+	ListOrganizationDocumentsParamsDocStateDraft      ListOrganizationDocumentsParamsDocState = "draft"
+	ListOrganizationDocumentsParamsDocStateFinal      ListOrganizationDocumentsParamsDocState = "final"
+	ListOrganizationDocumentsParamsDocStateSuperseded ListOrganizationDocumentsParamsDocState = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the ListOrganizationDocumentsParamsDocState enum.
 func (e ListOrganizationDocumentsParamsDocState) Valid() bool {
 	switch e {
-	case Current:
+	case ListOrganizationDocumentsParamsDocStateCurrent:
 		return true
-	case Draft:
+	case ListOrganizationDocumentsParamsDocStateDraft:
 		return true
-	case Final:
+	case ListOrganizationDocumentsParamsDocStateFinal:
 		return true
-	case Superseded:
+	case ListOrganizationDocumentsParamsDocStateSuperseded:
 		return true
 	default:
 		return false

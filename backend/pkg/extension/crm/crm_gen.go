@@ -9,18 +9,15 @@ import (
 
 // Defines values for ActivityCaptureLabel.
 const (
-	ActivityCaptureLabelCommitment  ActivityCaptureLabel = "commitment"
-	ActivityCaptureLabelLessThannil ActivityCaptureLabel = "<nil>"
-	ActivityCaptureLabelMeeting     ActivityCaptureLabel = "meeting"
-	ActivityCaptureLabelNoise       ActivityCaptureLabel = "noise"
+	ActivityCaptureLabelCommitment ActivityCaptureLabel = "commitment"
+	ActivityCaptureLabelMeeting    ActivityCaptureLabel = "meeting"
+	ActivityCaptureLabelNoise      ActivityCaptureLabel = "noise"
 )
 
 // Valid indicates whether the value is a known member of the ActivityCaptureLabel enum.
 func (e ActivityCaptureLabel) Valid() bool {
 	switch e {
 	case ActivityCaptureLabelCommitment:
-		return true
-	case ActivityCaptureLabelLessThannil:
 		return true
 	case ActivityCaptureLabelMeeting:
 		return true
@@ -51,17 +48,14 @@ func (e ActivityContentState) Valid() bool {
 
 // Defines values for ActivityDirection.
 const (
-	ActivityDirectionInbound     ActivityDirection = "inbound"
-	ActivityDirectionLessThannil ActivityDirection = "<nil>"
-	ActivityDirectionOutbound    ActivityDirection = "outbound"
+	ActivityDirectionInbound  ActivityDirection = "inbound"
+	ActivityDirectionOutbound ActivityDirection = "outbound"
 )
 
 // Valid indicates whether the value is a known member of the ActivityDirection enum.
 func (e ActivityDirection) Valid() bool {
 	switch e {
 	case ActivityDirectionInbound:
-		return true
-	case ActivityDirectionLessThannil:
 		return true
 	case ActivityDirectionOutbound:
 		return true
@@ -102,11 +96,10 @@ func (e ActivityKind) Valid() bool {
 
 // Defines values for ActivityMeetingStatus.
 const (
-	ActivityMeetingStatusBooked      ActivityMeetingStatus = "booked"
-	ActivityMeetingStatusCanceled    ActivityMeetingStatus = "canceled"
-	ActivityMeetingStatusHeld        ActivityMeetingStatus = "held"
-	ActivityMeetingStatusLessThannil ActivityMeetingStatus = "<nil>"
-	ActivityMeetingStatusNoShow      ActivityMeetingStatus = "no_show"
+	ActivityMeetingStatusBooked   ActivityMeetingStatus = "booked"
+	ActivityMeetingStatusCanceled ActivityMeetingStatus = "canceled"
+	ActivityMeetingStatusHeld     ActivityMeetingStatus = "held"
+	ActivityMeetingStatusNoShow   ActivityMeetingStatus = "no_show"
 )
 
 // Valid indicates whether the value is a known member of the ActivityMeetingStatus enum.
@@ -117,8 +110,6 @@ func (e ActivityMeetingStatus) Valid() bool {
 	case ActivityMeetingStatusCanceled:
 		return true
 	case ActivityMeetingStatusHeld:
-		return true
-	case ActivityMeetingStatusLessThannil:
 		return true
 	case ActivityMeetingStatusNoShow:
 		return true
@@ -177,17 +168,14 @@ func (e ActivityLinkEntityType) Valid() bool {
 
 // Defines values for CreateActivityRequestDirection.
 const (
-	CreateActivityRequestDirectionInbound     CreateActivityRequestDirection = "inbound"
-	CreateActivityRequestDirectionLessThannil CreateActivityRequestDirection = "<nil>"
-	CreateActivityRequestDirectionOutbound    CreateActivityRequestDirection = "outbound"
+	CreateActivityRequestDirectionInbound  CreateActivityRequestDirection = "inbound"
+	CreateActivityRequestDirectionOutbound CreateActivityRequestDirection = "outbound"
 )
 
 // Valid indicates whether the value is a known member of the CreateActivityRequestDirection enum.
 func (e CreateActivityRequestDirection) Valid() bool {
 	switch e {
 	case CreateActivityRequestDirectionInbound:
-		return true
-	case CreateActivityRequestDirectionLessThannil:
 		return true
 	case CreateActivityRequestDirectionOutbound:
 		return true
@@ -255,25 +243,22 @@ func (e CreateActivityRequestLinksEntityType) Valid() bool {
 
 // Defines values for CreateActivityRequestMeetingStatus.
 const (
-	Booked      CreateActivityRequestMeetingStatus = "booked"
-	Canceled    CreateActivityRequestMeetingStatus = "canceled"
-	Held        CreateActivityRequestMeetingStatus = "held"
-	LessThannil CreateActivityRequestMeetingStatus = "<nil>"
-	NoShow      CreateActivityRequestMeetingStatus = "no_show"
+	CreateActivityRequestMeetingStatusBooked   CreateActivityRequestMeetingStatus = "booked"
+	CreateActivityRequestMeetingStatusCanceled CreateActivityRequestMeetingStatus = "canceled"
+	CreateActivityRequestMeetingStatusHeld     CreateActivityRequestMeetingStatus = "held"
+	CreateActivityRequestMeetingStatusNoShow   CreateActivityRequestMeetingStatus = "no_show"
 )
 
 // Valid indicates whether the value is a known member of the CreateActivityRequestMeetingStatus enum.
 func (e CreateActivityRequestMeetingStatus) Valid() bool {
 	switch e {
-	case Booked:
+	case CreateActivityRequestMeetingStatusBooked:
 		return true
-	case Canceled:
+	case CreateActivityRequestMeetingStatusCanceled:
 		return true
-	case Held:
+	case CreateActivityRequestMeetingStatusHeld:
 		return true
-	case LessThannil:
-		return true
-	case NoShow:
+	case CreateActivityRequestMeetingStatusNoShow:
 		return true
 	default:
 		return false
