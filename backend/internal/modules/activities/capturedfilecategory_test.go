@@ -25,49 +25,40 @@ func capturePrincipalCtx() context.Context {
 	})
 }
 
-// The writer refuses a file whose category nobody derived, and names the seam
-// that owes it. The column's own CHECK would refuse the row too, but its report
-// names a vocabulary rather than the caller that failed to fill it — which sends
-// the reader looking at the enum instead of at the seam that failed.
+// The guard refuses a file whose category nobody derived, and admits one whose
+// category was. BOTH arms, because a guard that refuses everything passes any
+// test that only checks the refusal — and it would fail every capture in
+// production with an error blaming a caller that did its job.
+func TestOnlyAFileWithNoDerivedCategoryIsRefused(t *testing.T) {
+	if err := refuseUnderivedCategory(CapturedFileSource{
+		System: "imap", MessageID: "m-1", CapturedBy: "connector:imap",
+	}); !errors.Is(err, ErrCapturedFileCategoryMissing) {
+		t.Errorf("an unset category: %v, want it to wrap ErrCapturedFileCategoryMissing", err)
+	}
+	for _, category := range []string{"email_attachment", "message_attachment", "other"} {
+		if err := refuseUnderivedCategory(CapturedFileSource{
+			System: "imap", MessageID: "m-1", CapturedBy: "connector:imap", Category: category,
+		}); err != nil {
+			t.Errorf("a derived category %q was refused: %v", category, err)
+		}
+	}
+}
+
+// And the guard is WIRED INTO the entry point, not merely present beside it. The
+// writer's own refusal is what a caller meets, and a guard nothing calls is the
+// same as no guard at all.
 //
-// A NIL TRANSACTION IS THE ASSERTION. If the guard ran anywhere but before the
-// first query this would panic rather than return, so passing nil proves the
-// refusal costs no round trip and cannot be confused with a missing parent row —
-// a claim a live database could not make, because there the two are
-// indistinguishable from the outside.
-func TestTheWriterRefusesACapturedFileWithNoCategory(t *testing.T) {
+// A nil transaction is safe here precisely because the refusal precedes the first
+// query — which is the second thing this asserts. If that ever stops being true
+// the call panics, and a panic fails the test rather than passing it, which is
+// what an earlier version of this test got backwards.
+func TestTheWriterItselfRefusesAFileWithNoCategory(t *testing.T) {
 	staged := []StagedFile{{file: CapturedFile{PartID: "part:1", Filename: "deck.png"}}}
 	err := (&Store{}).RecordCapturedFiles(capturePrincipalCtx(), nil,
 		ids.From[ids.ActivityKind](ids.NewV7()),
 		CapturedFileSource{System: "imap", MessageID: "m-1", CapturedBy: "connector:imap"},
 		staged)
 	if !errors.Is(err, ErrCapturedFileCategoryMissing) {
-		t.Fatalf("refusal = %v, want it to wrap ErrCapturedFileCategoryMissing", err)
+		t.Fatalf("the writer answered %v, want it to wrap ErrCapturedFileCategoryMissing", err)
 	}
-}
-
-// And it refuses only THAT. A file whose category was derived must get past the
-// guard — otherwise the guard is a wall, not a gate, and every capture fails
-// with an error blaming a caller that did its job.
-//
-// The nil transaction is what pins the boundary: reaching it means the guard let
-// this through, so the panic IS the pass condition, and no live fixture can
-// distinguish "the guard let it through" from "the query happened to succeed".
-func TestTheWriterAdmitsACapturedFileWhoseCategoryWasDerived(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("a file with a derived category was refused before any query ran")
-		}
-	}()
-	staged := []StagedFile{{file: CapturedFile{PartID: "part:1", Filename: "deck.png"}}}
-	err := (&Store{}).RecordCapturedFiles(capturePrincipalCtx(), nil,
-		ids.From[ids.ActivityKind](ids.NewV7()),
-		CapturedFileSource{
-			System: "imap", MessageID: "m-1", CapturedBy: "connector:imap",
-			Category: "message_attachment",
-		},
-		staged)
-	// Only reachable if the call RETURNED, which means a guard refused a file
-	// whose category was derived. The panic is the pass; this line is the report.
-	t.Fatalf("a file with a derived category was refused before any query ran: %v", err)
 }

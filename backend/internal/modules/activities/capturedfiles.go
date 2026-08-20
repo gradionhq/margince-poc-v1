@@ -155,15 +155,8 @@ func (s *Store) RecordCapturedFiles(
 	if len(staged) == 0 {
 		return nil
 	}
-	// Named here rather than left to the column's CHECK. An unset category is a
-	// caller that forgot to derive one, and the constraint's own report — a
-	// violation on a value it will not print — sends the reader looking at the
-	// vocabulary instead of at the seam that failed to fill it.
-	if from.Category == "" {
-		return fmt.Errorf(
-			"record a captured file: no category supplied; capture derives it from the "+
-				"record's transport, so a caller reaching this writer must carry it: %w",
-			ErrCapturedFileCategoryMissing)
+	if err := refuseUnderivedCategory(from); err != nil {
+		return err
 	}
 	account, filed, err := accountForCapturedActivity(ctx, tx, activityID)
 	if err != nil {
@@ -225,6 +218,28 @@ func insertCapturedAttachment(
 		return fmt.Errorf("audit a captured file: %w", err)
 	}
 	return nil
+}
+
+// refuseUnderivedCategory rejects a file whose category nobody derived.
+//
+// Named here rather than left to the column's CHECK. An unset category is a
+// caller that forgot to derive one, and the constraint's own report — a violation
+// on a value it will not print — sends the reader looking at the vocabulary
+// instead of at the seam that failed to fill it.
+//
+// A function of its argument alone, which is what lets both arms be asserted
+// directly. The alternative was a test that called the writer with a nil
+// transaction and read a PANIC as the pass, and any panic would have satisfied
+// it — an unrelated nil dereference on the same path would have looked exactly
+// like this guard admitting a file correctly.
+func refuseUnderivedCategory(from CapturedFileSource) error {
+	if from.Category != "" {
+		return nil
+	}
+	return fmt.Errorf(
+		"record a captured file: no category supplied; capture derives it from how the "+
+			"message arrived, so a caller reaching this writer must carry it: %w",
+		ErrCapturedFileCategoryMissing)
 }
 
 // providerMessageKey is the stored message identity, and it names the SYSTEM

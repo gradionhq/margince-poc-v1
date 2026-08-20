@@ -226,6 +226,12 @@ describe("the person's files tab", () => {
           entity_id: "p-1",
           filename: "deck.png",
           category: "message_attachment",
+          // The fixture has to be a payload the API can actually produce: the
+          // server refuses a provenance category on an uploaded row, so a
+          // `source: "upload"` row carrying this category is a shape no reader
+          // ever receives.
+          source: "telegram",
+          captured_by: "connector:telegram",
         }),
       ],
       page: { has_more: false },

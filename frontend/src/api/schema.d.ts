@@ -32796,7 +32796,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
-            /** @description `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a value outside the closed vocabulary. */
+            /** @description `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a value outside the closed vocabulary; `category_not_assertable` when the patch claims a provenance category (`email_attachment`, `message_attachment`) on an uploaded file, which has no arrival to claim. */
             422: {
                 headers: {
                     [name: string]: unknown;
