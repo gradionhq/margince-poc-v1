@@ -34,6 +34,7 @@ type recordHistoryEntryWire struct {
 	ActorType         string         `json:"actor_type"`
 	ActorID           string         `json:"actor_id"`
 	OnBehalfOf        *string        `json:"on_behalf_of"`
+	ActorName         *string        `json:"actor_name"`
 	OnBehalfOfName    *string        `json:"on_behalf_of_name"`
 	Action            string         `json:"action"`
 	OccurredAt        time.Time      `json:"occurred_at"`
@@ -62,6 +63,13 @@ type recordHistoryHTTPFixture struct {
 	adaID    ids.UUID
 }
 
+// recordHistoryFixtureRows is how many audit rows seedRecordHistoryHTTPFixture
+// leaves on the person: the create genesis, a human row whose actor_id no
+// app_user matches, an agent row with a granting human, and a human row spelled
+// the way the real writer spells it. Named once so the page-walk bound and the
+// single-page count cannot drift apart from the fixture.
+const recordHistoryFixtureRows = 4
+
 func seedRecordHistoryHTTPFixture(t *testing.T, e *apptest.AppEnv, dbEnv *Env) recordHistoryHTTPFixture {
 	t.Helper()
 	var person apptest.AnyMap
@@ -87,6 +95,14 @@ func seedRecordHistoryHTTPFixture(t *testing.T, e *apptest.AppEnv, dbEnv *Env) r
 	seedRecordAuditRow(t, dbEnv, "update", personID, "agent", "agent:enrich", &adaID,
 		map[string]any{"title": "VP"}, map[string]any{"title": "CTO"}, agentAt)
 
+	// A human actor spelled the way the real writer spells it — storekit
+	// stamps 'human:<uuid>' — so the display-name join has something to
+	// resolve. The row above deliberately keeps the helper's unresolvable
+	// 'user-1' id, which covers the opposite arm.
+	umaID := seedWorkspaceUser(t, dbEnv, "Uma Underwriter")
+	seedRecordAuditRow(t, dbEnv, "update", personID, "human", "human:"+umaID.String(), nil,
+		nil, map[string]any{"title": "SVP"}, time.Now().Add(3*time.Hour).UTC().Truncate(time.Microsecond))
+
 	return recordHistoryHTTPFixture{personID: personID, adaID: adaID}
 }
 
@@ -101,8 +117,9 @@ func assertRecordHistoryHappyPath(t *testing.T, e *apptest.AppEnv, fx recordHist
 	if status != http.StatusOK {
 		t.Fatalf("record-history status = %d, want 200: %+v", status, page)
 	}
-	if len(page.Data) != 3 {
-		t.Fatalf("want exactly 3 entries (create genesis + human diff + agent diff): %+v", page.Data)
+	if len(page.Data) != recordHistoryFixtureRows {
+		t.Fatalf("want exactly %d entries (create genesis + unresolvable human + agent + named human): %+v",
+			recordHistoryFixtureRows, page.Data)
 	}
 	for i := 1; i < len(page.Data); i++ {
 		if page.Data[i].OccurredAt.Before(page.Data[i-1].OccurredAt) {
@@ -133,6 +150,13 @@ func assertRecordHistoryHappyPath(t *testing.T, e *apptest.AppEnv, fx recordHist
 	if len(human.After) != 1 || human.After["phone"] != "555-0199" {
 		t.Errorf("human after = %v, want exactly {phone: 555-0199}", human.After)
 	}
+	// seedAuditActionRow writes a bare 'user-1' actor_id, which no app_user
+	// row can match. That is the honest-fallback case: no name resolves, and
+	// the field is null rather than an invented or guessed one. The resolvable
+	// human is asserted separately below.
+	if human.ActorName != nil {
+		t.Errorf("human actor_name = %v, want null when no user row resolves", human.ActorName)
+	}
 
 	agent := page.Data[2]
 	if agent.ActorType != "agent" {
@@ -144,8 +168,21 @@ func assertRecordHistoryHappyPath(t *testing.T, e *apptest.AppEnv, fx recordHist
 	if agent.OnBehalfOfName == nil || *agent.OnBehalfOfName != "Ada Authority" {
 		t.Errorf("agent on_behalf_of_name = %v, want Ada Authority", agent.OnBehalfOfName)
 	}
-	if agent.Summary != "Agent acting for Ada Authority updated the record" {
-		t.Errorf("agent summary = %q, want the delegating authority woven in", agent.Summary)
+	if agent.Summary != "Ada Authority, via an agent, updated the record" {
+		t.Errorf("agent summary = %q, want the granting human named first (PD-002)", agent.Summary)
+	}
+	if agent.ActorName != nil {
+		t.Errorf("agent actor_name = %v, want null for a machine actor", agent.ActorName)
+	}
+
+	// The resolved name reaches the WIRE, not just the store read: a client
+	// renders the person from this field rather than parsing `summary`.
+	named := page.Data[3]
+	if named.ActorName == nil || *named.ActorName != "Uma Underwriter" {
+		t.Errorf("named human actor_name = %v, want Uma Underwriter", named.ActorName)
+	}
+	if named.Summary != "Uma Underwriter updated the record" {
+		t.Errorf("named human summary = %q, want the person as the subject", named.Summary)
 	}
 
 	// page.has_more is a required (non-pointer) field on the wire — its
@@ -182,10 +219,13 @@ func TestRecordHistoryHTTP(t *testing.T) {
 	})
 
 	t.Run("keyset page walk over the wire", func(t *testing.T) {
-		var walked []string
+		// One row per page, walked to genuine exhaustion. The bound is the
+		// fixture's own row count so adding a seeded actor grows the walk
+		// instead of turning "has_more lied" into a fixture-arithmetic failure.
+		walked := map[string]bool{}
 		var cursor string
 		url := "/v1/records/person/" + fx.personID.String() + "/history?limit=1"
-		for page := 1; page <= 3; page++ {
+		for page := 1; page <= recordHistoryFixtureRows; page++ {
 			var got recordHistoryListWire
 			reqURL := url
 			if cursor != "" {
@@ -198,18 +238,18 @@ func TestRecordHistoryHTTP(t *testing.T) {
 			if len(got.Data) != 1 {
 				t.Fatalf("page %d entries = %d, want 1: %+v", page, len(got.Data), got.Data)
 			}
-			walked = append(walked, got.Data[0].ID)
-			if page < 3 {
+			if walked[got.Data[0].ID] {
+				t.Fatalf("page %d revisited row %s — keyset overlap", page, got.Data[0].ID)
+			}
+			walked[got.Data[0].ID] = true
+			if page < recordHistoryFixtureRows {
 				if !got.Page.HasMore || got.Page.NextCursor == nil {
 					t.Fatalf("page %d must report more rows follow: %+v", page, got.Page)
 				}
 				cursor = *got.Page.NextCursor
 			} else if got.Page.HasMore || got.Page.NextCursor != nil {
-				t.Fatalf("page 3 is genuine exhaustion — has_more must not lie: %+v", got.Page)
+				t.Fatalf("page %d is genuine exhaustion — has_more must not lie: %+v", page, got.Page)
 			}
-		}
-		if walked[0] == walked[1] || walked[1] == walked[2] || walked[0] == walked[2] {
-			t.Fatalf("walked ids not distinct across pages: %v — keyset overlap", walked)
 		}
 	})
 }

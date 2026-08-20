@@ -64,6 +64,7 @@ func recordHistoryEntryToWire(e RecordHistoryEntry) crmcontracts.AuditHistoryEnt
 		Id:                openapi_types.UUID(e.ID),
 		ActorType:         crmcontracts.AuditHistoryEntryActorType(e.ActorType),
 		ActorId:           e.ActorID,
+		ActorName:         e.ActorName,
 		Action:            e.Action,
 		OccurredAt:        e.OccurredAt,
 		AuthorizationRule: e.AuthorizationRule,

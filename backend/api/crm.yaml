@@ -8099,6 +8099,13 @@ paths:
         AC-settings-16 (B-EP09.13b) — the live-filterable audit view. Every entry attributes the actor
         (`human:*` / `agent:*` + `passport_id`), the action, and the target. Admin/compliance scope;
         read-only.
+
+        Attribution names the PERSON, not the machine (PD-002): `actor_name` and
+        `on_behalf_of_name` resolve the human behind a row so a reader gets somebody
+        who can be asked about the change. An agent's identifier is the qualifier on
+        that person, never the label — "MCP did it" cannot be asked anything. Both
+        names are null when no user row resolves, which is honest rather than invented:
+        a deactivated member's audit rows outlive their account.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -21442,6 +21449,15 @@ components:
         actor_id: { type: string, description: "User uuid, agent id, connector name (e.g. connector:gmail), or 'system'." }
         passport_id: { type: [string, 'null'], format: uuid, description: Agent Seat Passport that authorized an agent action. }
         on_behalf_of: { type: [string, 'null'], format: uuid, description: The human authority for an agent action. }
+        actor_name:
+          type: [string, 'null']
+          description: |
+            The actor's display name, resolved from `app_user` on the read path.
+            Present only for a human actor: agent, connector and system ids name
+            a machine, and their human authority is `on_behalf_of_name`. Null
+            when no user row resolves — a deactivated or deleted member still has
+            audit rows, and an honest identifier is better than an invented name.
+        on_behalf_of_name: { type: [string, 'null'], description: Resolved display name for on_behalf_of. }
         action:
           type: string
           # Every mutation is attributable (P12). connector captures audit as actor_type=connector.
@@ -21610,6 +21626,7 @@ components:
         id: { type: string, format: uuid }
         actor_type: { type: string, enum: [human, agent, system, connector] }
         actor_id: { type: string }
+        actor_name: { type: [string, 'null'], description: "Resolved display name for a human actor_id; null for machine actors and for a member whose user row no longer resolves." }
         on_behalf_of: { type: [string, 'null'], format: uuid, description: Granting human's user id for agent actions. }
         on_behalf_of_name: { type: [string, 'null'], description: Resolved display name for on_behalf_of. }
         action: { type: string }

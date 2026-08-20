@@ -119,6 +119,26 @@ var recordHistoryVerbs = map[string]string{ // #nosec G101 -- audit verbs and th
 	"pin":      "pinned for statutory retention",
 }
 
+// auditActorNameJoins resolves the two display names every audit read owes
+// its reader: the human who acted, and the human whose authority a machine
+// acted under. It is ONE spelling shared by the two audit read paths in this
+// package — the per-record history here and the workspace-wide compliance log
+// in auditlog.go — because two surfaces resolving attribution differently is
+// how a reader ends up trusting one and doubting the other.
+//
+// The audit row is aliased `a`; the caller supplies that alias and selects
+// `actor_user.display_name, obo.display_name` in that order.
+//
+// The actor join builds the prefixed key FROM app_user ('human:' || id) rather
+// than casting actor_id, so a non-uuid actor id (agent:*, connector:*, system)
+// simply resolves to no name instead of raising a cast error. A LEFT JOIN both
+// times: a deactivated or deleted member still has audit rows, and no name is
+// honest where an invented one would not be.
+const auditActorNameJoins = `
+		LEFT JOIN app_user actor_user
+		  ON a.actor_type = 'human' AND a.actor_id = 'human:' || actor_user.id::text
+		LEFT JOIN app_user obo ON obo.id = a.on_behalf_of`
+
 // RecordHistoryFilter carries the validated query surface of
 // (GET /records/{entity_type}/{id}/history).
 type RecordHistoryFilter struct {
@@ -140,6 +160,7 @@ type RecordHistoryEntry struct {
 	ID                ids.UUID
 	ActorType         string
 	ActorID           string
+	ActorName         *string
 	OnBehalfOf        *ids.UUID
 	OnBehalfOfName    *string
 	Action            string
@@ -191,6 +212,7 @@ func recordHistoryEntry(row recordAuditRow, mask entityFieldMask) RecordHistoryE
 		ID:                row.id,
 		ActorType:         row.actorType,
 		ActorID:           row.actorID,
+		ActorName:         row.actorDisplayName,
 		OnBehalfOf:        row.onBehalfOf,
 		OnBehalfOfName:    row.onBehalfOfName,
 		Action:            row.action,
@@ -277,11 +299,9 @@ func ListRecordHistory(ctx context.Context, db *database.DB, f RecordHistoryFilt
 }
 
 // queryRecordHistoryWindow fetches one chronological keyset window of the
-// record's audit spine, with both display-name joins resolved in SQL. The
-// actor join builds the prefixed key FROM app_user ('human:' || id), so a
-// non-UUID actor_id (agent:*, connector:*, system) simply resolves to no
-// name — never a cast error. RLS carries the workspace scope on both
-// tables, exactly like every sibling read.
+// record's audit spine, with both display names resolved in SQL by the
+// shared auditActorNameJoins. The workspace scope is carried by the
+// transaction's binding on both tables, exactly like every sibling read.
 func queryRecordHistoryWindow(ctx context.Context, tx pgx.Tx, f RecordHistoryFilter,
 	boundary scrubBoundary, cursor storekit.Cursor, useCursor bool, fetch int,
 ) ([]recordAuditRow, error) {
@@ -307,10 +327,7 @@ func queryRecordHistoryWindow(ctx context.Context, tx pgx.Tx, f RecordHistoryFil
 		SELECT a.id, a.actor_type, a.actor_id, a.on_behalf_of, a.action, a.occurred_at,
 		       a.authorization_rule, a.before, a.after,
 		       actor_user.display_name, obo.display_name
-		FROM audit_log a
-		LEFT JOIN app_user actor_user
-		  ON a.actor_type = 'human' AND a.actor_id = 'human:' || actor_user.id::text
-		LEFT JOIN app_user obo ON obo.id = a.on_behalf_of
+		FROM audit_log a`+auditActorNameJoins+`
 		WHERE %s
 		ORDER BY a.occurred_at ASC, a.id ASC
 		LIMIT $%d`, strings.Join(conds, " AND "), len(args)), args...)
@@ -338,29 +355,60 @@ func queryRecordHistoryWindow(ctx context.Context, tx pgx.Tx, f RecordHistoryFil
 	return out, rows.Err()
 }
 
+// machineQualifier names the tool a delegated change was typed through, as
+// the phrase that qualifies the PERSON who authorized it — "via an agent",
+// not "an agent". The generic word is deliberate: the passport's own label
+// ("Claude Desktop", "Cursor") would name the tool precisely, but a revoked
+// passport's label outliving the grant on every audit row it ever wrote is a
+// separate decision from this one.
+var machineQualifier = map[string]string{
+	actorTypeAgent:     "via an agent",
+	actorTypeConnector: "via a connector",
+}
+
 // composeRecordSummary renders one audit row as a plain-language sentence,
 // the record-history read's `summary` field. It is pure: callers resolve
 // actorDisplayName/onBehalfOfName (app_user lookups) before calling in, so
-// this stays testable without a database. onBehalfOfName is set only for
-// an agent acting under a human's delegated authority (D2's authority
+// this stays testable without a database. onBehalfOfName is set only for a
+// machine acting under a human's delegated authority (D2's authority
 // weaving); an empty string is treated the same as nil — a resolved-but-
 // blank name is not authority to report.
+//
+// The sentence NAMES THE PERSON FIRST and says a machine did the typing
+// second (PD-002). A rep working through a passport is the rep: the line
+// reads "Devin, via an agent, archived the record", never "an agent archived
+// the record" with the person demoted to a trailing phrase. Attribution
+// exists so somebody can be asked about a change, and a machine is not a
+// party to anything — a line whose subject is the tool lets every human in
+// the chain disclaim it.
 func composeRecordSummary(actorType, actorDisplayName string, onBehalfOfName *string, action string) string {
 	verb := recordHistoryVerbs[action]
 	if verb == "" {
 		verb = action
 	}
+	if qualifier, delegated := machineQualifier[actorType]; delegated && onBehalfOfName != nil && *onBehalfOfName != "" {
+		return fmt.Sprintf("%s, %s, %s the record", *onBehalfOfName, qualifier, verb)
+	}
 	switch actorType {
-	case actorTypeAgent:
-		if onBehalfOfName != nil && *onBehalfOfName != "" {
-			return fmt.Sprintf("Agent acting for %s %s the record", *onBehalfOfName, verb)
-		}
-		return fmt.Sprintf("Agent %s the record", verb)
 	case actorTypeHuman:
 		return fmt.Sprintf("%s %s the record", actorDisplayName, verb)
+	case actorTypeAgent:
+		// An agent with no authority to name. This says the authority is
+		// MISSING rather than falling back to "System": every passport is
+		// granted by a specific human (passport.on_behalf_of is NOT NULL), so
+		// an agent row without one is a gap in what the write carried — and
+		// system is reserved for a change that genuinely has nobody behind it
+		// (a migration, an installation-wide sweep). Letting system absorb a
+		// failed attribution would hide the gap on the one surface that exists
+		// to expose it.
+		return fmt.Sprintf("An agent with no recorded human authority %s the record", verb)
 	case actorTypeSystem:
 		return fmt.Sprintf("System %s the record", verb)
 	case actorTypeConnector:
+		// A bare connector is NOT the same gap. Some connectors have no
+		// connect flow and therefore no granting human by design
+		// (compose/jobs_finance.go writes one), so naming a missing authority
+		// here would report a defect where there is none.
 		return fmt.Sprintf("Connector %s the record", verb)
 	default:
 		return fmt.Sprintf("%s %s the record", actorType, verb)

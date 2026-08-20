@@ -2326,10 +2326,11 @@ export const vi = {
   "jobs.generatedAt": "Đọc lúc {time}",
 
   "audit.you": "Bạn",
-  "audit.teammate": "Một đồng nghiệp",
   "audit.system": "Hệ thống",
-  "audit.onBehalfOfYou": "thay mặt bạn",
-  "audit.onBehalfOfTeammate": "thay mặt một đồng nghiệp",
+  "audit.unknownMember": "Thành viên không xác định",
+  "audit.viaAgent": "qua một agent",
+  "audit.viaConnector": "qua một connector",
+  "audit.noHumanAuthority": "Không ghi nhận người uỷ quyền",
   "settings.auditSub":
     "mọi hành động đều được quy trách — người, Agent hay connector",
   "settings.auditAdminOnly":

@@ -99,6 +99,8 @@ func auditEntryToWire(e AuditEntry) (crmcontracts.AuditLogEntry, error) {
 		Id:                openapi_types.UUID(e.ID),
 		ActorType:         crmcontracts.AuditLogEntryActorType(e.ActorType),
 		ActorId:           e.ActorID,
+		ActorName:         e.ActorName,
+		OnBehalfOfName:    e.OnBehalfOfName,
 		Action:            crmcontracts.AuditLogEntryAction(e.Action),
 		EntityType:        e.EntityType,
 		AuthorizationRule: e.AuthorizationRule,

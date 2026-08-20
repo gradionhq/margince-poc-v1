@@ -2351,10 +2351,11 @@ export const de = {
   "jobs.generatedAt": "Gelesen um {time}",
 
   "audit.you": "Du",
-  "audit.teammate": "Ein Teammitglied",
   "audit.system": "System",
-  "audit.onBehalfOfYou": "in deinem Auftrag",
-  "audit.onBehalfOfTeammate": "im Auftrag eines Teammitglieds",
+  "audit.unknownMember": "Unbekanntes Mitglied",
+  "audit.viaAgent": "über einen Agenten",
+  "audit.viaConnector": "über einen Connector",
+  "audit.noHumanAuthority": "Keine menschliche Autorisierung erfasst",
   "settings.auditSub": "jede Aktion, zugeordnet — Mensch, Agent oder Connector",
   "settings.auditAdminOnly":
     "Nur Admins lesen den vollständigen Verlauf. Er hält jede handelnde Person und jeden berührten Datensatz fest — deshalb ist er nicht weiter zugänglich.",

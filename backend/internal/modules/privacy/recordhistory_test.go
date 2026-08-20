@@ -31,19 +31,28 @@ func TestComposeRecordSummary(t *testing.T) {
 			want:             "Alice updated the record",
 		},
 		{
-			name:             "agent acting with authority",
+			// PD-002: the granting human is the SUBJECT and the agent is a
+			// qualifier on them. The old phrasing made the machine the subject
+			// and the person a prepositional phrase, which is the inversion
+			// this decision exists to forbid: "an agent did it" names nobody
+			// who can be asked about the change.
+			name:             "agent acting with authority names the human first",
 			actorType:        "agent",
 			actorDisplayName: "Bot",
 			onBehalfOfName:   strPtr("Devin"),
 			action:           "archive",
-			want:             "Agent acting for Devin archived the record",
+			want:             "Devin, via an agent, archived the record",
 		},
 		{
-			name:             "agent without authority",
+			// An agent that carries no human authority is NOT rendered as
+			// "System" — system is reserved for a change that genuinely has
+			// nobody behind it, and letting it absorb a missing attribution
+			// would hide the gap instead of showing it.
+			name:             "agent without authority says the authority is missing, never 'System'",
 			actorType:        "agent",
 			actorDisplayName: "Bot",
 			action:           "create",
-			want:             "Agent created the record",
+			want:             "An agent with no recorded human authority created the record",
 		},
 		{
 			name:             "agent with empty onBehalfOfName treated as absent",
@@ -51,7 +60,17 @@ func TestComposeRecordSummary(t *testing.T) {
 			actorDisplayName: "Bot",
 			onBehalfOfName:   strPtr(""),
 			action:           "create",
-			want:             "Agent created the record",
+			want:             "An agent with no recorded human authority created the record",
+		},
+		{
+			// A connector's human authority resolves the same way an agent's
+			// does: an inbound sync a person authorized reads as that person.
+			name:             "connector acting with authority names the human first",
+			actorType:        "connector",
+			actorDisplayName: "gmail",
+			onBehalfOfName:   strPtr("Devin"),
+			action:           "import",
+			want:             "Devin, via a connector, imported the record",
 		},
 		{
 			name:             "system",
@@ -61,7 +80,12 @@ func TestComposeRecordSummary(t *testing.T) {
 			want:             "System exported the record",
 		},
 		{
-			name:             "connector",
+			// A bare connector keeps its own subject rather than reporting a
+			// missing authority: some connectors have no connect flow and so no
+			// granting human BY DESIGN (compose/jobs_finance.go writes one), and
+			// naming a gap there would report a defect that does not exist. This
+			// is the deliberate asymmetry with the agent case above.
+			name:             "connector with no authority is not a gap, unlike an agent",
 			actorType:        "connector",
 			actorDisplayName: "hubspot-sync",
 			action:           "import",

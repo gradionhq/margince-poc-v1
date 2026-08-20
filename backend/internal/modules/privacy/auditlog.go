@@ -48,10 +48,17 @@ type AuditFilter struct {
 // entity — and EntityID stays untyped as the envelope's polymorphic
 // target; the concrete workspace/passport/on-behalf ids type cleanly.
 type AuditEntry struct {
-	ID                ids.UUID
-	WorkspaceID       ids.WorkspaceID
-	ActorType         string
-	ActorID           string
+	ID          ids.UUID
+	WorkspaceID ids.WorkspaceID
+	ActorType   string
+	ActorID     string
+	// ActorName and OnBehalfOfName are resolved on the read path, not stored:
+	// the ledger row keeps the identifier that was true when it was written,
+	// and a display name is looked up when somebody reads it. Both are nil
+	// when no app_user resolves — a machine actor, or a member whose account
+	// is gone while their audit rows remain.
+	ActorName         *string
+	OnBehalfOfName    *string
 	PassportID        *ids.PassportID
 	OnBehalfOf        *ids.UserID
 	Action            string
@@ -111,11 +118,13 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 	var page AuditPage
 	err = db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of,
-			        action, entity_type, entity_id, before, after, authorization_rule,
-			        evidence, occurred_at
-			 FROM audit_log WHERE `+where+`
-			 ORDER BY occurred_at DESC, id DESC
+			`SELECT a.id, a.workspace_id, a.actor_type, a.actor_id, a.passport_id, a.on_behalf_of,
+			        a.action, a.entity_type, a.entity_id, a.before, a.after, a.authorization_rule,
+			        a.evidence, a.occurred_at,
+			        actor_user.display_name, obo.display_name
+			 FROM audit_log a`+auditActorNameJoins+`
+			 WHERE `+where+`
+			 ORDER BY a.occurred_at DESC, a.id DESC
 			 LIMIT `+arg(limit+1), args...)
 		if err != nil {
 			return err
@@ -128,7 +137,8 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 			var passportID, onBehalfOf *ids.UUID
 			if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.ActorType, &e.ActorID,
 				&passportID, &onBehalfOf, &e.Action, &e.EntityType, &e.EntityID,
-				&e.Before, &e.After, &e.AuthorizationRule, &e.Evidence, &e.OccurredAt); err != nil {
+				&e.Before, &e.After, &e.AuthorizationRule, &e.Evidence, &e.OccurredAt,
+				&e.ActorName, &e.OnBehalfOfName); err != nil {
 				return err
 			}
 			if passportID != nil {
@@ -160,6 +170,10 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 // its ordered args. The keyset predicate matches the newest-first ORDER BY
 // the caller appends. It leaves the trailing LIMIT arg to the caller so the
 // same $-numbering stays contiguous.
+//
+// Every column is qualified with the audit row's `a` alias, which is required
+// rather than tidy: the read joins app_user twice for the display names, and
+// `id` alone would be ambiguous across those relations.
 func buildAuditWhere(f AuditFilter) (string, []any, error) {
 	where := "TRUE"
 	args := []any{}
@@ -168,29 +182,29 @@ func buildAuditWhere(f AuditFilter) (string, []any, error) {
 		return "$" + strconv.Itoa(len(args))
 	}
 	if f.Actor != nil {
-		where += " AND actor_id = " + arg(*f.Actor)
+		where += " AND a.actor_id = " + arg(*f.Actor)
 	}
 	if f.EntityType != nil {
-		where += " AND entity_type = " + arg(*f.EntityType)
+		where += " AND a.entity_type = " + arg(*f.EntityType)
 	}
 	if f.EntityID != nil {
-		where += " AND entity_id = " + arg(*f.EntityID)
+		where += " AND a.entity_id = " + arg(*f.EntityID)
 	}
 	if f.Action != nil {
-		where += " AND action = " + arg(*f.Action)
+		where += " AND a.action = " + arg(*f.Action)
 	}
 	if f.From != nil {
-		where += " AND occurred_at >= " + arg(*f.From)
+		where += " AND a.occurred_at >= " + arg(*f.From)
 	}
 	if f.To != nil {
-		where += " AND occurred_at <= " + arg(*f.To)
+		where += " AND a.occurred_at <= " + arg(*f.To)
 	}
 	if f.Cursor != nil && *f.Cursor != "" {
 		c, err := storekit.DecodeCursor(*f.Cursor)
 		if err != nil {
 			return "", nil, err
 		}
-		where += " AND (occurred_at, id) < (" + arg(c.CreatedAt) + ", " + arg(c.ID) + ")"
+		where += " AND (a.occurred_at, a.id) < (" + arg(c.CreatedAt) + ", " + arg(c.ID) + ")"
 	}
 	return where, args, nil
 }

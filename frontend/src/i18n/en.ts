@@ -2349,10 +2349,11 @@ export const en = {
   "jobs.generatedAt": "Read at {time}",
 
   "audit.you": "You",
-  "audit.teammate": "A teammate",
   "audit.system": "System",
-  "audit.onBehalfOfYou": "on behalf of you",
-  "audit.onBehalfOfTeammate": "on behalf of a teammate",
+  "audit.unknownMember": "Unknown member",
+  "audit.viaAgent": "via an agent",
+  "audit.viaConnector": "via a connector",
+  "audit.noHumanAuthority": "No human authority recorded",
   "settings.auditSub": "every action, attributed — human, agent, or connector",
   "settings.auditAdminOnly":
     "Only an admin can read the full trail. It records every actor and every record they touched, so it is not shown more widely.",
