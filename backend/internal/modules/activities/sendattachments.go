@@ -18,6 +18,8 @@ import (
 	"context"
 	"fmt"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -31,6 +33,24 @@ type OutboundFile struct {
 	ContentType  string
 	ByteSize     int64
 	Checksum     string
+}
+
+// attachmentIDsFrom reads the contract's optional attachment_ids into the
+// module's own id type.
+//
+// ONE spelling for both transports: mail and a channel reply accept the same
+// field with the same meaning, and two hand-rolled conversions are two places a
+// nil list could become a non-nil empty one — which is the difference between
+// "no files" and "a set the send has to resolve".
+func attachmentIDsFrom(attachments *[]openapi_types.UUID) []ids.UUID {
+	if attachments == nil {
+		return nil
+	}
+	out := make([]ids.UUID, 0, len(*attachments))
+	for _, id := range *attachments {
+		out = append(out, ids.UUID(id))
+	}
+	return out
 }
 
 // resolveAttachments turns the caller's ids into the snapshot the delivery

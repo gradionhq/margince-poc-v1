@@ -383,6 +383,7 @@ func (s commsStager) StageChannelTx(ctx context.Context, tx pgx.Tx, in activitie
 		Provider:       in.Provider,
 		Recipient:      in.Recipient,
 		Body:           in.Body,
+		Attachments:    commsFiles(in.Attachments),
 		ConsentPurpose: in.ConsentPurpose,
 	})
 	if err != nil {

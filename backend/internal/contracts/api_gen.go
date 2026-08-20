@@ -20333,6 +20333,23 @@ type SendEmailRequest struct {
 // and no Cc, and the recipient is resolved from the conversation being answered (see the
 // operation), never named by the caller.
 type SendMessageRequest struct {
+	// AttachmentIds Files already in the record library to send with this message, named by id
+	// — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+	// archiving or superseding one later cannot rewrite what the timeline says a
+	// sent message carried.
+	//
+	// A message is transmitted with ALL its files or not at all. A connector whose
+	// provider cannot carry them parks the delivery rather than sending the text
+	// alone, and a file the scanner has since quarantined — or one the sender has
+	// since lost the right to read — parks it too: a recipient seeing fewer files
+	// than the record claims is a wrong record nobody is told about.
+	//
+	// A messaging channel carries this message's text as a CAPTION, which is bounded
+	// far below a text-only message; `GET /v1/channel-providers` publishes that bound
+	// as `attachments.max_body_with_files`. A body over it parks rather than being
+	// split or shortened.
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+
 	// Body The (possibly edited) final message text that is sent. A messaging provider rejects a
 	// text-less message, so an empty or whitespace-only body is refused at request time
 	// (422 `empty_message_body`) rather than staged for a delivery that could only park.

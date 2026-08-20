@@ -17,6 +17,7 @@ package comms
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -43,6 +44,11 @@ type StageChannelInput struct {
 	Recipient      connector.ChannelIdentity
 	Body           string
 	ConsentPurpose string
+	// Attachments is the snapshot of what this message carries, written into the
+	// SAME attachments column mail writes (0196). One column for both shapes
+	// because the dispatcher reads one field: a channel-only column would be a
+	// second place for the set to be missing from.
+	Attachments []OutboundFile
 	// ReplyTo anchors this message on one the provider already delivered; empty
 	// starts an unanchored message. It shares the row's in_reply_to column with
 	// mail's RFC822 anchor because both name the message being replied to, each
@@ -83,19 +89,23 @@ func (s *Store) StageChannelTx(ctx context.Context, tx pgx.Tx, in StageChannelIn
 	if strings.TrimSpace(in.Body) == "" {
 		return ids.UUID{}, ErrNoChannelBody
 	}
+	files, err := json.Marshal(orEmptyFiles(in.Attachments))
+	if err != nil {
+		return ids.UUID{}, fmt.Errorf("comms: encoding the attachment snapshot: %w", err)
+	}
 	id := ids.NewV7()
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO comms_outbound
 		  (id, activity_id, user_id, provider, channel_user_id,
 		   body, consent_purpose, in_reply_to,
 		   message_id, recipients, cc, subject, references_chain,
-		   status, created_at)
+		   status, created_at, attachments)
 		VALUES ($1, $2, $3, $4, $5,
 		        $6, $7, NULLIF($8,''),
 		        NULL, NULL, NULL, NULL, NULL,
-		        'pending', $9)`,
+		        'pending', $9, $10)`,
 		id, in.ActivityID, userID, in.Provider, in.Recipient.ChannelUserID,
-		in.Body, in.ConsentPurpose, in.ReplyTo, s.now().UTC()); err != nil {
+		in.Body, in.ConsentPurpose, in.ReplyTo, s.now().UTC(), files); err != nil {
 		return ids.UUID{}, fmt.Errorf("comms: staging channel delivery: %w", err)
 	}
 	return id, nil

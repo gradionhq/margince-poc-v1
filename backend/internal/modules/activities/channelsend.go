@@ -43,7 +43,12 @@ import (
 // SendMessageInput is one consented channel reply. There is no recipient field
 // and no subject: see the file comment.
 type SendMessageInput struct {
-	Body           string
+	Body string
+	// AttachmentIDs names files already in the record library, exactly as mail's
+	// SendEmailInput does. The send resolves each to a SNAPSHOT of its metadata
+	// rather than keeping the id, so superseding the document later cannot
+	// rewrite what the timeline says this message carried (ADR-0086/A131 §4).
+	AttachmentIDs  []ids.UUID
 	ConsentPurpose string
 }
 
@@ -67,10 +72,15 @@ type ChannelDeliveryStager interface {
 // workspace's bot transmits, but the human is still the sender the seat gate
 // re-reads at transmission.
 type ChannelDeliveryRequest struct {
-	ActivityID     ids.ActivityID
-	Provider       string
-	Recipient      connector.ChannelIdentity
-	Body           string
+	ActivityID ids.ActivityID
+	Provider   string
+	Recipient  connector.ChannelIdentity
+	Body       string
+	// Attachments is what this message carries, snapshotted at staging — the
+	// same type and the same meaning as DeliveryRequest.Attachments, because a
+	// second spelling of the snapshot is a second set of fields that can
+	// disagree about what was sent.
+	Attachments    []OutboundFile
 	ConsentPurpose string
 }
 
@@ -247,7 +257,20 @@ func (s *Store) SendMessage(ctx context.Context, anchorID ids.ActivityID, in Sen
 		return crmcontracts.Activity{}, err
 	}
 
-	message := outboundChannelMessage{in: in, provider: provider, conversation: conversation, links: inheritedLinks(anchor)}
+	// The files, resolved to snapshots while the sender's own read gate still
+	// applies and BEFORE the transaction — mail's ordering, for mail's reason:
+	// the transaction holds writes only, and the whole send is refused when one
+	// file cannot be resolved, because a message carrying fewer files than the
+	// sender attached is one nobody is told is wrong.
+	files, err := s.resolveAttachments(ctx, in.AttachmentIDs)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+
+	message := outboundChannelMessage{
+		in: in, provider: provider, conversation: conversation,
+		links: inheritedLinks(anchor), files: files,
+	}
 	var sent crmcontracts.Activity
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// The staged delivery names the anchor's conversation and the person it
@@ -372,6 +395,7 @@ type outboundChannelMessage struct {
 	provider     string
 	conversation channelConversation
 	links        []ActivityLinkInput
+	files        []OutboundFile
 }
 
 // activity is the timeline row the reply commits — the row that makes the sent
@@ -420,6 +444,7 @@ func (m outboundChannelMessage) delivery(activityID ids.ActivityID) ChannelDeliv
 		Provider:       m.provider,
 		Recipient:      m.conversation.recipient,
 		Body:           m.in.Body,
+		Attachments:    m.files,
 		ConsentPurpose: m.in.ConsentPurpose,
 	}
 }
