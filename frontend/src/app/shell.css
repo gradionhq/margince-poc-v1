@@ -294,7 +294,7 @@
 
 .rail .navitem:focus-visible,
 .rail .railmore:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
 }
 /* The label is absolutely positioned for the collapse animation, so it does not
@@ -776,7 +776,7 @@
    2.5:1 over a hovered row, which is where this ring is actually drawn. A focus
    ring is a UI state and takes the state colour. */
 .rail .raillicense:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
 }
 .rail .raillicense svg {

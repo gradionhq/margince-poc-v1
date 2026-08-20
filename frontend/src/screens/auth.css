@@ -283,7 +283,7 @@
   border-color: color-mix(in srgb, var(--accent) 34%, var(--borderStrong));
 }
 .auth-social:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 /* In-flight: momentary, and the control is coming back. Pale reads as "wait". */
@@ -391,7 +391,7 @@
   text-decoration: underline;
 }
 .auth-link:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }
@@ -497,7 +497,7 @@
   color: var(--textPrimary);
 }
 .auth-legal a:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }

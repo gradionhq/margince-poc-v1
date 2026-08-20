@@ -140,7 +140,7 @@
   text-decoration: underline;
 }
 .co-rowlink:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }
@@ -290,7 +290,7 @@
   text-decoration-color: var(--accent);
 }
 .co-brief-cite:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }
@@ -435,7 +435,7 @@
   cursor: pointer;
 }
 .co-since-open:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--r-full);
 }

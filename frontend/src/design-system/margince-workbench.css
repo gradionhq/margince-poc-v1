@@ -335,7 +335,7 @@
   background: color-mix(in srgb, var(--ai) 14%, var(--bgElevated));
 }
 .mw-aistat-btn:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
   box-shadow: 0 0 0 3px var(--aiLight);
 }

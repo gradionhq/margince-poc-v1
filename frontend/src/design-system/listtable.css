@@ -536,7 +536,7 @@
   text-overflow: ellipsis;
 }
 .lt-cellink:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
   border-radius: var(--r-sm);
 }
@@ -1031,4 +1031,37 @@
   border-radius: var(--r-md);
   background: var(--bgElevated);
   margin-bottom: var(--space-2);
+}
+
+/*
+ * The ring, for the surface's own controls.
+ *
+ * Every one of these was reachable by keyboard and drew nothing but the
+ * platform's default when it got there — and the platform's default is a colour
+ * this product does not use, on a fill this product chose, which on the toolbar's
+ * elevated ground is close to invisible. A list is the densest surface here and
+ * the one a keyboard reader spends the most time inside: view tabs, filter
+ * segments, the sort handles, the menu rows, the pager. Losing your place in a
+ * table of twenty-five rows is losing it completely.
+ *
+ * Grouped, deliberately. These are one family — the chrome around a list — and a
+ * family that shares a ring is a family a reader can recognise. Spelling them
+ * apart is how a tree ends up with ten rings for one promise.
+ *
+ * Inset by 2px rather than outset: each of these sits flush inside a toolbar, a
+ * menu, or a table header that clips its own overflow, and an outset ring there
+ * is drawn half underneath the neighbour.
+ */
+.lt-vtab:focus-visible,
+.lt-btn:focus-visible,
+.lt-chip:focus-visible,
+.lt-mi:focus-visible,
+.lt-sort:focus-visible,
+.lt-frow-seg:focus-visible,
+.lt-frow-more:focus-visible,
+.lt-linkish:focus-visible,
+.lt-pager button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--r-sm);
 }

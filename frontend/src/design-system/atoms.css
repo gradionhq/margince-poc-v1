@@ -488,9 +488,9 @@
 /* Keyboard focus reads an accent-token ring (matches .input/.textarea) rather
  * than the browser's off-palette native outline. */
 .segmented button:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 /* A lighter, secondary text affordance for in-row actions that must not
@@ -536,7 +536,7 @@
  * box-shadow entirely — the transparent-outline trick the filled controls use
  * exists only to keep something there when it does. */
 .link-button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -802,8 +802,40 @@
 }
 .input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
+/*
+ * A field nobody may edit says so. Until this rule, it did not: `.input` sets
+ * its own `background` and `color`, and an author declaration beats the
+ * platform's disabled painting, so a disabled field was pixel-identical to a
+ * live one. The only signal was the cursor — which is no signal at all to
+ * somebody reading rather than pointing, and none to a touch screen.
+ *
+ * Both controls in one rule because they are one control with two shapes, and
+ * the fill is the same fill a disabled Select already uses (select.css) so a
+ * form with both in it does not dim in two different greys.
+ *
+ * `[aria-disabled]` alongside `:disabled` because a control that must stay
+ * focusable to be discoverable says it the ARIA way — a `disabled` attribute
+ * takes it out of the tab order, which is the wrong answer for a field whose
+ * label a reader still needs to reach.
+ */
+.input:disabled,
+.input[aria-disabled="true"],
+.textarea:disabled,
+.textarea[aria-disabled="true"] {
+  color: var(--textTertiary);
+  background: var(--bgCard);
+  cursor: not-allowed;
+}
+/* The shell owns the boundary for a field that has something inside it, so it
+   is the shell that has to dim — the input within it draws no fill of its own. */
+.field-shell:has(:disabled),
+.field-shell:has([aria-disabled="true"]) {
+  color: var(--textTertiary);
+  background: var(--bgCard);
+}
+
 /* iOS Safari zooms the page whenever a focused input's text is under 16px, and
    the field is 13.5px — so on an iPhone every form in this product jerked the
    viewport on focus. The sign-in screens were the only surface that ever fixed
@@ -834,7 +866,7 @@
 }
 .field-shell:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 /* A refused field says so in its boundary as well as in its words — but never
    ONLY in its boundary: the sentence under it carries the meaning, and this is
@@ -849,13 +881,13 @@
   border-color: var(--danger);
 }
 .input[aria-invalid="true"]:focus {
-  box-shadow: 0 0 0 3px var(--dangerBg);
+  box-shadow: var(--focus-glow-danger);
 }
 .field-shell:has([aria-invalid="true"]) {
   border-color: var(--danger);
 }
 .field-shell:has([aria-invalid="true"]):focus-within {
-  box-shadow: 0 0 0 3px var(--dangerBg);
+  box-shadow: var(--focus-glow-danger);
 }
 /* Inside the shell the input is only the text: the shell owns the fill, the
    boundary, the radius, the focus ring and the horizontal padding. */
@@ -932,9 +964,20 @@
 .checkfield > span {
   grid-row: 1 / span 2;
 }
-/* A disabled control is not actionable, so its row does not invite the click. */
+/* A disabled control is not actionable, so its row does not invite the click —
+   and its label dims with it, because the cursor is the one signal a reader who
+   is not pointing never receives. */
 .checkfield:has(input:disabled) {
   cursor: not-allowed;
+  color: var(--textTertiary);
+}
+/* The box is native, so it was taking the PLATFORM's focus ring — the one blue
+   this product otherwise refuses (see the caret and accent-color declarations in
+   app.css). Its `accent-color` was already themed, which made the mismatch worse
+   rather than better: a green tick inside a blue ring. */
+.checkfield > input:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .input-icon {
@@ -979,7 +1022,7 @@
 }
 .textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 .explain {
@@ -1096,7 +1139,7 @@
   color: var(--textPrimary);
 }
 .disclosure-summary:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }

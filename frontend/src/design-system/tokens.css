@@ -252,6 +252,41 @@
   --shadow-pop: 0 8px 30px rgba(41, 37, 36, 0.14);
 
   /*
+   * The focus ring, in the two shapes this product actually uses — and there
+   * were ten spellings of them before this. Ten, for one promise: 2px against
+   * 3px, an offset of 2 in one file and 3 in the next, `--accent` in most and a
+   * transparent outline plus a glow in three others, and two controls where the
+   * ring was suppressed and nothing put back.
+   *
+   * TWO, not one, because the mechanism is genuinely different. A control that
+   * sits ON a surface takes an OUTLINE: it is drawn outside the box, so it never
+   * changes the control's size and never has to agree with its border. A FIELD
+   * takes the glow, because a field already has a boundary and the honest signal
+   * is that boundary lighting up — an outline around a bordered box reads as two
+   * boxes.
+   *
+   * The offset is not in the token, because it is the one part that is genuinely
+   * per-component: a control clipped by its own container has to draw the ring
+   * inside itself (`-2px`) or lose half of it. The WIDTH and the COLOUR are the
+   * promise, and those are here.
+   */
+  --focus-ring: 2px solid var(--accent);
+  --focus-glow: 0 0 0 3px var(--accentLight);
+  /* Paired with the glow on a control that is NOT a field — a segmented button,
+     a rich-text verb, an inline editor. Two jobs, and both matter. It replaces
+     the platform's own outline, which is off-palette; and it holds the outline
+     PROPERTY at a real width, so forced-colors mode (which discards every
+     box-shadow and repaints outlines in the user's own colours) still has a ring
+     to paint. Written as a transparent outline rather than `none` for exactly
+     that second reason — `none` there leaves the control with no focus state at
+     all for the readers who most need one. */
+  --focus-ring-forced: 2px solid transparent;
+  /* A refused field keeps the glow and changes only what colour it is: focus is
+     still focus, and the reader should not have to notice which ring they got in
+     order to know where they are. */
+  --focus-glow-danger: 0 0 0 3px var(--dangerBg);
+
+  /*
    * Motion. Three durations and three curves, and the reason there are so few is
    * the same reason there are four font weights: the tree had 43 distinct
    * duration literals and 7 curves, which is not a vocabulary, it is the absence

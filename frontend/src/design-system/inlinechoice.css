@@ -34,9 +34,9 @@
   background: var(--bgHover);
 }
 .inline-editable:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 /* The OPEN text field, sized to the value it replaces rather than to a form.

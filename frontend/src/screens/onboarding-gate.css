@@ -147,7 +147,7 @@
 }
 .ob-gate-field:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 /* A refused field wears the danger boundary, focused or not. The accent ring
    means "this is where you are", which on the value the gate just rejected
@@ -158,7 +158,7 @@
   border-color: var(--danger);
 }
 .ob-gate-field:has([aria-invalid="true"]):focus-within {
-  box-shadow: 0 0 0 3px var(--dangerBg);
+  box-shadow: var(--focus-glow-danger);
 }
 .ob-gate-input {
   flex: 1;
@@ -555,7 +555,7 @@
    one. It leaves the moment the read settles: a ring on a finished row would
    claim work that is over. */
 .ob-scan:not(.is-settled) .ob-scan-strip li:last-child .ob-scan-tile {
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 .ob-scan-counts {

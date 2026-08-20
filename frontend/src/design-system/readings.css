@@ -83,3 +83,10 @@
 .chip-link:hover svg {
   color: var(--accent);
 }
+
+/* The ring. Same shape as the file chip it sits beside — both are a bordered
+   pill that leads somewhere, so both light up the same way. */
+.chip-link:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}

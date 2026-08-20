@@ -18,7 +18,7 @@
  * expects when the two are one field. */
 .richtext:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 .richtext-bar {
@@ -49,9 +49,9 @@
 }
 
 .richtext-btn:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 .richtext-input {

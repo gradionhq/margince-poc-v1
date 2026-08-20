@@ -57,9 +57,9 @@
   background: var(--bgHover);
 }
 .agentdocktrigger:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
+  box-shadow: var(--focus-glow);
 }
 
 /* The orb IS the Core primitive (WDS-CORE-1) — the same sphere sign-in and

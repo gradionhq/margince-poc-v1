@@ -669,3 +669,17 @@
   padding-inline-start: 0.6rem;
   border-inline-start: 2px solid var(--borderSubtle);
 }
+
+/*
+ * The ring, for the timeline's own controls — the link out of a captured
+ * message, and the two toggles that expand a quoted tail. A timeline is a long
+ * list of these, so a reader who cannot see which one has focus cannot use the
+ * keyboard on it at all.
+ */
+.tl-text-link:focus-visible,
+.tl-text-toggle:focus-visible,
+.tl-text-tail-toggle:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}

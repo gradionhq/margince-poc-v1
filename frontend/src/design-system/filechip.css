@@ -52,3 +52,10 @@
 .file-chip:hover svg {
   color: var(--accent);
 }
+
+/* The ring. A chip is a link to a document; it had a hover state and nothing for
+   the keyboard, which is the pattern this sweep exists to end. */
+.file-chip:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}

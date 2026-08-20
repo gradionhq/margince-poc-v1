@@ -268,3 +268,30 @@ button.evidence-chip:hover {
   border-radius: var(--r-full);
   padding: 1px 8px;
 }
+
+/*
+ * The ring, for the evidence surfaces. Every control here is the reader's way
+ * INTO a provenance claim — what the agent read, what it proposes to change —
+ * and the one thing a keyboard reader must be able to do on this surface is know
+ * which claim they are about to open.
+ *
+ * `.staged-edit` is a bare `<input>` with no `.input` class, so it inherits
+ * neither the field's boundary nor its glow: it takes the field's ring here
+ * rather than the control ring, because it IS a field.
+ *
+ * `.field-diff-long` is not a control at all — it is a scroll region made an
+ * explicit tab stop so a long diff can be read without a mouse. A tab stop that
+ * paints nothing is the same defect as a button that paints nothing.
+ */
+.evidence-chip:focus-visible,
+.evidence-chip-toggle:focus-visible,
+.field-diff-long:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.staged-edit:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-glow);
+}

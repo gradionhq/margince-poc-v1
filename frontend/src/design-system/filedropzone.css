@@ -36,7 +36,7 @@
 
 /* The ring belongs to the zone, because the input it wraps is invisible. */
 .fdz:focus-within {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -63,4 +63,16 @@
  * reading as placeholder prose and takes the content colour. */
 .fdz-label.chosen {
   color: var(--textContent);
+}
+
+/* A dropzone nobody may drop into. It carries a hover and a dragover state and
+   had nothing for the state where neither is possible, so a disabled zone still
+   lit up under the pointer and still read as an invitation. */
+.fdz:has(:disabled) {
+  color: var(--textTertiary);
+  background: var(--bgCard);
+  cursor: not-allowed;
+}
+.fdz:has(:disabled):hover {
+  border-color: var(--borderSubtle);
 }

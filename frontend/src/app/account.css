@@ -39,7 +39,7 @@
   background: var(--bgHover);
 }
 .account .user:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 2px;
 }
 /* Two lines in a box that is narrower than either of them can be: both clip
@@ -171,7 +171,7 @@
   color: var(--textContent);
 }
 .acctrow:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
 }
 /* The label takes the room the row has, so what follows it — the flyout's

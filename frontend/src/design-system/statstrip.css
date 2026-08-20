@@ -92,7 +92,7 @@
     inset 0 0 0 2px var(--accent);
 }
 .stat-strip > *:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
 }
 

@@ -693,3 +693,54 @@ describe("pending states", () => {
     ).toEqual(["src/design-system/atoms.css .skeleton"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The focus ring. Ten spellings of one promise grew here: 2px against 3px,
+// `--accent` in most files and a transparent outline plus a glow in three
+// others, and two controls where the ring was suppressed and nothing put back —
+// which is a WCAG 2.4.7 failure that reads, in a diff, as tidying.
+//
+// The width and the colour are now tokens; the OFFSET stays per-component,
+// because a control clipped by its own container has to draw the ring inside
+// itself or lose half of it. So the gate asks about the half that is a promise.
+// ---------------------------------------------------------------------------
+
+describe("focus", () => {
+  it("draws every focus ring from the one token", () => {
+    const spelled = cssFiles.flatMap((file) => {
+      if (file.endsWith("tokens.css")) {
+        return [];
+      }
+      // Comments first, or a sentence ABOUT an outline is read as one: the
+      // conversation sheet explains at length why it leaves `outline: 0` unset,
+      // and the earlier form of this gate reported that paragraph as a finding.
+      const text = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      return (
+        [...text.matchAll(/outline:\s*([^;]+);/g)]
+          .map((match) => match[1].trim())
+          // `none` and `0` are the suppression half of the pattern, and legitimate
+          // wherever something else draws the ring — a field's own boundary, a
+          // wrapper's `:focus-within`. What is not legitimate is spelling a NEW
+          // ring by hand.
+          .filter((value) => !/^(none|0)$/.test(value))
+          .filter((value) => !/var\(--focus-ring(-forced)?\)/.test(value))
+          .map((value) => `${relative(frontendRoot, file)}: outline: ${value}`)
+      );
+    });
+    expect(
+      spelled,
+      "a focus ring reads `outline: var(--focus-ring)`, or " +
+        "`var(--focus-ring-forced)` where a glow does the drawing; these spell " +
+        "their own width and colour, which is how one promise became ten rules",
+    ).toEqual([
+      // The outlines in this tree that are NOT focus, and must not read as it.
+      // Two say "you may drop here" — dashed, and an outline rather than a
+      // border so accepting a drag does not resize the thing being dragged
+      // onto. One marks a refused field on the sign-in surface, which is a
+      // different fact from where the keyboard is.
+      "src/design-system/composed.css: outline: 2px dashed var(--accent)",
+      "src/screens/auth.css: outline: 2px solid var(--danger)",
+      "src/screens/onboarding-conversation/conversation.css: outline: 2px dashed var(--aiMed)",
+    ]);
+  });
+});

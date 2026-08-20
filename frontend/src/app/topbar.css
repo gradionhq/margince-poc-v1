@@ -64,7 +64,7 @@
   color: var(--textPrimary);
 }
 .topbar-toggle:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 1px;
 }
 
@@ -95,7 +95,7 @@
   color: var(--textSecondary);
 }
 .topbar-search:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 1px;
 }
 .topbar-searchlabel {
@@ -154,7 +154,7 @@
   color: var(--textPrimary);
 }
 .topbar-bell:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: 1px;
 }
 /* On the glyph rather than beside it, so the count cannot widen the strip and
