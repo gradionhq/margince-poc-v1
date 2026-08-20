@@ -235,7 +235,7 @@ export const vi = {
   "share.grant": "Cấp quyền truy cập",
   "share.update": "Cập nhật quyền truy cập",
   "share.unchanged":
-    "Không có gì thay đổi — {name} đã có quyền {access} với bản ghi này.",
+    "Không có gì thay đổi. {name} đã có quyền {access} với bản ghi này.",
   "share.downgradeTitle": "Giảm quyền truy cập?",
   "share.downgradeBody":
     "{name} đang có quyền {from} với bản ghi này. Nếu tiếp tục, họ chỉ còn quyền {to}. Cả hai chiều đều được ghi vào sổ kiểm toán.",
@@ -1426,7 +1426,7 @@ export const vi = {
   "lead.signalReason": "Bạn biết điều này từ đâu?",
   "lead.signalReasonHint":
     "Không bắt buộc. Nội dung bạn viết sẽ được lưu cùng điểm.",
-  "lead.signalReasonUnstated": "Không nêu nguồn — nhập thủ công.",
+  "lead.signalReasonUnstated": "Không nêu nguồn. Nhập thủ công.",
   "lead.signalSave": "Đưa vào điểm",
   "lead.signal.web_traffic": "Lưu lượng web",
   "lead.signal.employees": "Nhân sự",
@@ -5483,8 +5483,7 @@ export const vi = {
   "sched.sub":
     "Nh\u1eefng tin nh\u1eafn b\u1ea1n \u0111\u00e3 vi\u1ebft m\u00e0 ch\u01b0a g\u1eedi \u0111i. Ch\u1ec9 b\u1ea1n th\u1ea5y \u0111\u01b0\u1ee3c ch\u00fang.",
   "sched.empty": "B\u1ea1n ch\u01b0a h\u1eb9n gi\u1edd tin nh\u1eafn n\u00e0o.",
-  "sched.group.held":
-    "\u0110\u00e3 d\u1eebng \u2014 \u0111ang ch\u1edd b\u1ea1n",
+  "sched.group.held": "Đã dừng, đang chờ bạn",
   "sched.group.heldEmpty":
     "Kh\u00f4ng c\u00f3 tin nh\u1eafn n\u00e0o b\u1ecb d\u1eebng.",
   "sched.group.waiting": "\u0110ang ch\u1edd g\u1eedi",

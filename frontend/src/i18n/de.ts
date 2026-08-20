@@ -226,7 +226,7 @@ export const de = {
   "share.grant": "Zugriff gewähren",
   "share.update": "Zugriff ändern",
   "share.unchanged":
-    "Nichts geändert — {name} hatte bereits {access}-Zugriff auf diesen Datensatz.",
+    "Nichts geändert. {name} hatte bereits {access}-Zugriff auf diesen Datensatz.",
   "share.downgradeTitle": "Zugriff reduzieren?",
   "share.downgradeBody":
     "{name} hat {from}-Zugriff auf diesen Datensatz. Wenn Sie fortfahren, bleibt nur noch {to}-Zugriff. Beide Richtungen werden im Audit-Protokoll festgehalten.",
@@ -1432,7 +1432,7 @@ export const de = {
   "lead.signalReason": "Woher wissen Sie das?",
   "lead.signalReasonHint":
     "Optional. Was Sie hier schreiben, wird mit dem Score festgehalten.",
-  "lead.signalReasonUnstated": "Keine Quelle angegeben — manuell erfasst.",
+  "lead.signalReasonUnstated": "Keine Quelle angegeben. Manuell erfasst.",
   "lead.signalSave": "In den Score aufnehmen",
   "lead.signal.web_traffic": "Web-Traffic",
   "lead.signal.employees": "Mitarbeiter",
@@ -5526,7 +5526,7 @@ export const de = {
   "sched.sub":
     "Nachrichten, die Sie geschrieben haben und die noch nicht hinausgegangen sind. Nur Sie sehen sie.",
   "sched.empty": "Sie haben noch keine Nachricht geplant.",
-  "sched.group.held": "Angehalten — wartet auf Sie",
+  "sched.group.held": "Angehalten, wartet auf Sie",
   "sched.group.heldEmpty": "Nichts wurde angehalten.",
   "sched.group.waiting": "Wartet auf den Versand",
   "sched.group.waitingEmpty": "Nichts wartet auf den Versand.",

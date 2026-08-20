@@ -162,7 +162,7 @@ describe("LeadManualSignals", () => {
       // the enum can say and claims no certainty at all.
       signal_kind: "assumption",
       confidence: null,
-      reason: "No source given — entered by hand.",
+      reason: "No source given. Entered by hand.",
     });
   });
 
@@ -186,7 +186,7 @@ describe("LeadManualSignals", () => {
       band: "confirmed",
       signal_kind: "fact",
       confidence: 0.9,
-      reason: "No source given — entered by hand.",
+      reason: "No source given. Entered by hand.",
     });
   });
 

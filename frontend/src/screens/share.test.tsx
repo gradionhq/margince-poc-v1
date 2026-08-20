@@ -359,6 +359,31 @@ describe("ShareScreen", () => {
     expect(posts[0]).toMatchObject({ subject_id: "u-2", access: "read" });
   });
 
+  it("returns focus to the subject field after a reduction, whose trigger is gone", async () => {
+    const posts: Record<string, unknown>[] = [];
+    installBaseFetch({ "/record-grants": grantEndpoint(posts, writeGrant) });
+    render(<ShareScreen recordType="deal" recordId="d-1" />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Mor Adler/ }));
+    await user.click(screen.getByRole("button", { name: "Read" }));
+    await user.click(screen.getByTestId("share-grant-submit"));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Reduce to Read" }),
+    );
+
+    // The press that opened this dialog cleared the picker on success, so the
+    // control the reader came from no longer takes focus. Landing on the body
+    // would restart the surface for anyone not using a pointer.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByLabelText("Person or team"),
+      ),
+    );
+  });
+
   it("sends nothing when the reduction is cancelled", async () => {
     const posts: Record<string, unknown>[] = [];
     installBaseFetch({ "/record-grants": grantEndpoint(posts, writeGrant) });

@@ -167,7 +167,7 @@ it("puts what needs a person first, and says why it stopped", async () => {
   mount([SENT, WAITING, HELD]);
   const headings = await screen.findAllByRole("heading", { level: 2 });
   expect(headings.map((heading) => heading.textContent)).toEqual([
-    "Stopped — waiting on you",
+    "Stopped, waiting on you",
     "Waiting to send",
     "No longer waiting",
   ]);

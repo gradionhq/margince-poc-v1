@@ -404,6 +404,14 @@ function ShareScreenBody({
   const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const queryClient = useQueryClient();
   const headingId = useId();
+  // Where focus lands when a dialog closes on a control that no longer exists.
+  // Both dialogs here destroy their own trigger on success — a revoked grant's
+  // row leaves the roster, and a downgrade clears the picker that opened it —
+  // so without this focus falls to the document body and a keyboard reader
+  // starts the surface over. The subject field is the one control on this page
+  // that is always present, which is what makes it the honest landing place.
+  const returnFocusToSubject = () =>
+    document.getElementById(`${headingId}-subject`);
   const grantsKey = ["record-grants", recordType, recordId];
 
   const grantsQuery = useQuery({
@@ -860,6 +868,7 @@ function ShareScreenBody({
         title={t("share.revoke")}
         confirmLabel={t("share.revoke")}
         confirmVariant="danger"
+        returnFocusTo={returnFocusToSubject}
         onConfirm={() => {
           if (revokingId) {
             revoke.mutate(revokingId);
@@ -886,6 +895,7 @@ function ShareScreenBody({
             to: accessLabel(downgrade.access, t),
           })}
           confirmVariant="danger"
+          returnFocusTo={returnFocusToSubject}
           onConfirm={() => grant.mutate(downgrade)}
           pending={grant.isPending}
           error={grantErrorMessage}

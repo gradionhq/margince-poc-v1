@@ -237,7 +237,7 @@ export const en = {
   "share.grant": "Grant access",
   "share.update": "Update access",
   "share.unchanged":
-    "Nothing changed — {name} already had {access} access to this record.",
+    "Nothing changed. {name} already had {access} access to this record.",
   "share.downgradeTitle": "Reduce access?",
   "share.downgradeBody":
     "{name} has {from} access to this record. Continuing leaves them with {to} access only. Either direction is recorded in the audit trail.",
@@ -1441,7 +1441,7 @@ export const en = {
   "lead.signalReason": "How do you know?",
   "lead.signalReasonHint":
     "Optional. Whatever you write is stored with the score.",
-  "lead.signalReasonUnstated": "No source given — entered by hand.",
+  "lead.signalReasonUnstated": "No source given. Entered by hand.",
   "lead.signalSave": "Add to the score",
   "lead.signal.web_traffic": "Web traffic",
   "lead.signal.employees": "Employees",
@@ -5552,7 +5552,7 @@ export const en = {
   "sched.sub":
     "Messages you have written that have not gone out yet. Only you can see them.",
   "sched.empty": "You have not scheduled a message yet.",
-  "sched.group.held": "Stopped — waiting on you",
+  "sched.group.held": "Stopped, waiting on you",
   "sched.group.heldEmpty": "Nothing has been stopped.",
   "sched.group.waiting": "Waiting to send",
   "sched.group.waitingEmpty": "Nothing is waiting to send.",
