@@ -117,23 +117,23 @@ func grantCapture(t *testing.T, e *extRuntimeEnv, member ids.UUID) {
 	var roleID ids.UUID
 	if err := owner.QueryRow(context.Background(),
 		`WITH existing AS (
-		     SELECT id FROM role WHERE workspace_id = $1 AND key = 'ingress-probe'
+		     SELECT id FROM role WHERE key = 'ingress-probe'
 		 ), created AS (
-		     INSERT INTO role (workspace_id, key, name, permissions)
-		     SELECT $1, 'ingress-probe', 'Ingress Probe', $2::jsonb
+		     INSERT INTO role (key, name, permissions)
+		     SELECT 'ingress-probe', 'Ingress Probe', $1::jsonb
 		     WHERE NOT EXISTS (SELECT 1 FROM existing)
 		     RETURNING id
 		 )
 		 SELECT id FROM created UNION ALL SELECT id FROM existing`,
-		e.WS, capturePolicy).Scan(&roleID); err != nil {
+		capturePolicy).Scan(&roleID); err != nil {
 		t.Fatalf("seeding the capture role: %v", err)
 	}
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO role_assignment (workspace_id, role_id, user_id)
-		 SELECT $1, $2, $3
+		`INSERT INTO role_assignment (role_id, user_id)
+		 SELECT $1, $2
 		 WHERE NOT EXISTS (
-		     SELECT 1 FROM role_assignment WHERE workspace_id = $1 AND role_id = $2 AND user_id = $3)`,
-		e.WS, roleID, member); err != nil {
+		     SELECT 1 FROM role_assignment WHERE role_id = $1 AND user_id = $2)`,
+		roleID, member); err != nil {
 		t.Fatalf("granting %s the capture role: %v", member, err)
 	}
 }
@@ -145,7 +145,7 @@ func revokeRoles(t *testing.T, e *extRuntimeEnv, member ids.UUID) {
 	t.Helper()
 	owner := integration.OwnerConn(t)
 	if _, err := owner.Exec(context.Background(),
-		`DELETE FROM role_assignment WHERE workspace_id = $1 AND user_id = $2`, e.WS, member); err != nil {
+		`DELETE FROM role_assignment WHERE user_id = $1`, member); err != nil {
 		t.Fatalf("revoking %s's grants: %v", member, err)
 	}
 }

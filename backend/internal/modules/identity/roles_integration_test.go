@@ -90,7 +90,7 @@ func TestSettingOneGrantLeavesTheRestOfTheDocumentIntact(t *testing.T) {
 	// would leave one behind.
 	if _, err := e.owner.Exec(context.Background(),
 		`UPDATE role SET permissions = jsonb_set(permissions, '{objects,ext_gone_thing}', '{"read":true}'::jsonb, true)
-		  WHERE workspace_id = $1 AND key = 'rep'`, e.admin.WorkspaceID); err != nil {
+		  WHERE key = 'rep'`); err != nil {
 		t.Fatalf("planting the orphaned grant: %v", err)
 	}
 
@@ -100,8 +100,7 @@ func TestSettingOneGrantLeavesTheRestOfTheDocumentIntact(t *testing.T) {
 
 	var raw []byte
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT permissions FROM role WHERE workspace_id = $1 AND key = 'rep'`,
-		e.admin.WorkspaceID).Scan(&raw); err != nil {
+		`SELECT permissions FROM role WHERE key = 'rep'`).Scan(&raw); err != nil {
 		t.Fatalf("reading the document back: %v", err)
 	}
 	var doc struct {

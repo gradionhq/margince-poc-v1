@@ -187,15 +187,15 @@ func (in *BootstrapInput) normalize() error {
 // seedSystemRoles lays down the compiled-in role set for a fresh
 // workspace and assigns the admin role to its first user — part of the
 // Bootstrap transaction, so a partial role set can never survive.
-func seedSystemRoles(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, adminUserID ids.UserID) error {
+func seedSystemRoles(ctx context.Context, tx pgx.Tx, adminUserID ids.UserID) error {
 	// note: role is not a first-class entity in the id kind vocabulary, so
 	// its ids stay ids.UUID (kernel gap — no RoleKind to assert).
 	var adminRoleID ids.UUID
 	for _, role := range systemRoles {
 		var roleID ids.UUID
 		err := tx.QueryRow(ctx,
-			`INSERT INTO role (workspace_id, key, name, is_system, permissions) VALUES ($1, $2, $3, true, $4) RETURNING id`,
-			wsID, role.key, role.name, policy.MustDefaultJSON(role.key)).Scan(&roleID)
+			`INSERT INTO role (key, name, is_system, permissions) VALUES ($1, $2, true, $3) RETURNING id`,
+			role.key, role.name, policy.MustDefaultJSON(role.key)).Scan(&roleID)
 		if err != nil {
 			return err
 		}
@@ -204,8 +204,8 @@ func seedSystemRoles(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, admin
 		}
 	}
 	_, err := tx.Exec(ctx,
-		`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
-		wsID, adminRoleID, adminUserID)
+		`INSERT INTO role_assignment (role_id, user_id) VALUES ($1, $2)`,
+		adminRoleID, adminUserID)
 	return err
 }
 

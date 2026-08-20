@@ -608,10 +608,10 @@ func (we *webhookEnv) dropObjectReadFromEveryRole(t *testing.T, object string) {
 			"this one delivered on that grant, and this one is about its absence", object)
 	}
 	rewritten := we.execInWorkspace(t,
-		`UPDATE role SET permissions = jsonb_set(permissions, ARRAY['objects', $2::text],
+		`UPDATE role SET permissions = jsonb_set(permissions, ARRAY['objects', $1::text],
 			'{"create":true,"read":false,"update":true,"delete":true}'::jsonb)
-		 WHERE workspace_id = $1 AND permissions -> 'objects' IS NOT NULL`,
-		we.wsID, object)
+		 WHERE permissions -> 'objects' IS NOT NULL`,
+		object)
 	if rewritten == 0 {
 		t.Fatal("the rewrite matched no role document, so the grants the fan-out reads are the ones it started with")
 	}
@@ -633,8 +633,8 @@ func (we *webhookEnv) rolesGranting(t *testing.T, object, action string) int {
 	we.inWorkspaceTx(t, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM role
-			 WHERE workspace_id = $1 AND permissions -> 'objects' -> $2 ->> $3 = 'true'`,
-			we.wsID, object, action).Scan(&count)
+			 WHERE permissions -> 'objects' -> $1 ->> $2 = 'true'`,
+			object, action).Scan(&count)
 	})
 	return count
 }

@@ -122,8 +122,8 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 			return insErr
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
-			wsID, roleID, newUserID); err != nil {
+			`INSERT INTO role_assignment (role_id, user_id) VALUES ($1, $2)`,
+			roleID, newUserID); err != nil {
 			return err
 		}
 		if err := joinTeamsTx(ctx, tx, newUserID.UUID, in.TeamIDs); err != nil {
@@ -459,8 +459,7 @@ func (s *Service) ChangeUserRole(ctx context.Context, actor Identity, userID ids
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO role_assignment (workspace_id, role_id, user_id)
-			 VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)`,
+			`INSERT INTO role_assignment (role_id, user_id) VALUES ($1, $2)`,
 			roleID, userID); err != nil {
 			return err
 		}

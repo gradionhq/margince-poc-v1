@@ -223,7 +223,7 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 		origin == originConfigured).Scan(&userID); err != nil {
 		return ids.WorkspaceID{}, err
 	}
-	if err := seedSystemRoles(ctx, tx, wsID, userID); err != nil {
+	if err := seedSystemRoles(ctx, tx, userID); err != nil {
 		return ids.WorkspaceID{}, err
 	}
 	if err := seedAgentSeat(ctx, tx, wsID, boot); err != nil {

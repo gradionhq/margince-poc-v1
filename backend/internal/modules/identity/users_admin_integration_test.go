@@ -356,9 +356,9 @@ func TestTheAgentSeatIsNotTheOtherAdminWhoCouldRecoverTheOrganization(t *testing
 	e := setupRevocationEnv(t, "agent-lockout")
 	seat := agentSeatOf(t, e)
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO role_assignment (workspace_id, role_id, user_id)
-		 SELECT $1, r.id, $2 FROM role r WHERE r.workspace_id = $1 AND r.key = 'admin'`,
-		e.admin.WorkspaceID, seat); err != nil {
+		`INSERT INTO role_assignment (role_id, user_id)
+		 SELECT r.id, $1 FROM role r WHERE r.key = 'admin'`,
+		seat); err != nil {
 		t.Fatalf("granting the agent seat the admin role directly: %v", err)
 	}
 

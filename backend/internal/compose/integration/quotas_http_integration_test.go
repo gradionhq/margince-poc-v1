@@ -105,15 +105,15 @@ func demoteToRep(t *testing.T, e *apptest.AppEnv) {
 		t.Fatalf("admin lookup: %v", err)
 	}
 	if err := tx.QueryRow(ctx,
-		`SELECT id FROM role WHERE workspace_id = $1 AND key = 'rep'`, wsID).Scan(&repRoleID); err != nil {
+		`SELECT id FROM role WHERE key = 'rep'`).Scan(&repRoleID); err != nil {
 		t.Fatalf("rep role lookup: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM role_assignment WHERE user_id = $1`, userID); err != nil {
 		t.Fatalf("clear role assignment: %v", err)
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
-		wsID, repRoleID, userID); err != nil {
+		`INSERT INTO role_assignment (role_id, user_id) VALUES ($1, $2)`,
+		repRoleID, userID); err != nil {
 		t.Fatalf("assign rep role: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

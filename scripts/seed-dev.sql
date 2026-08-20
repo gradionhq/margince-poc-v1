@@ -149,10 +149,10 @@ BEGIN
   -- (seeded at workspace bootstrap): team-scoped read/write, so Rep One sees the
   -- team's records plus whatever is explicitly shared. Idempotent via NOT EXISTS
   -- (role_assignment's uniqueness is an expression index over COALESCE(team_id)).
-  INSERT INTO role_assignment (workspace_id, role_id, user_id)
-  SELECT ws, r.id, rep_id
+  INSERT INTO role_assignment (role_id, user_id)
+  SELECT r.id, rep_id
     FROM role r
-    WHERE r.workspace_id = ws AND r.key = 'rep'
+    WHERE r.key = 'rep'
       AND NOT EXISTS (
         SELECT 1 FROM role_assignment ra
         WHERE ra.user_id = rep_id AND ra.role_id = r.id AND ra.team_id IS NULL
@@ -164,11 +164,11 @@ BEGIN
   -- lockstep) with row_scope overridden to 'own'. Not a system role — it exists
   -- so the individual demo seat (Rep Two, below) makes record sharing OBSERVABLE:
   -- with no team and no owned records, a grant is the sole reason a record shows.
-  INSERT INTO role (workspace_id, key, name, is_system, permissions)
-  SELECT ws, 'individual', 'Individual (own records)', false,
+  INSERT INTO role (key, name, is_system, permissions)
+  SELECT 'individual', 'Individual (own records)', false,
          jsonb_set(r.permissions, '{row_scope}', '"own"'::jsonb)
     FROM role r
-    WHERE r.workspace_id = ws AND r.key = 'rep'
+    WHERE r.key = 'rep'
   ON CONFLICT (key) DO NOTHING;
 
   -- Rep Two: an individual contributor — own-scoped, in NO team. Contrast with
@@ -182,10 +182,10 @@ BEGIN
     FROM app_user
     WHERE workspace_id = ws AND lower(email) = lower('rep2@demo.test');
 
-  INSERT INTO role_assignment (workspace_id, role_id, user_id)
-  SELECT ws, r.id, rep2_id
+  INSERT INTO role_assignment (role_id, user_id)
+  SELECT r.id, rep2_id
     FROM role r
-    WHERE r.workspace_id = ws AND r.key = 'individual'
+    WHERE r.key = 'individual'
       AND NOT EXISTS (
         SELECT 1 FROM role_assignment ra
         WHERE ra.user_id = rep2_id AND ra.role_id = r.id AND ra.team_id IS NULL
