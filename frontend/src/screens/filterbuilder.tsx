@@ -24,6 +24,11 @@ import type { MessageKey } from "../i18n/en";
 import "./filterbuilder.css";
 import { fieldLabel, groupFields, type VocabularyField } from "./filterdata";
 import {
+  boundedReference,
+  type Reference,
+  useReferenceOptions,
+} from "./filterreference";
+import {
   addToGroup,
   type FilterOp,
   type Group,
@@ -346,6 +351,7 @@ function ClauseRow({
       />
       <ValueControl
         type={chosen?.type ?? "text"}
+        references={chosen?.references}
         op={op}
         value={value}
         onChange={(nextValue) =>
@@ -383,11 +389,14 @@ function ClauseRow({
  */
 function ValueControl({
   type,
+  references,
   op,
   value,
   onChange,
 }: Readonly<{
   type: VocabularyField["type"];
+  /** What an id field's values point at, when the vocabulary named one. */
+  references: Reference | undefined;
   op: FilterOp;
   value: LeafValue;
   onChange: (next: LeafValue) => void;
@@ -415,7 +424,53 @@ function ValueControl({
       />
     );
   }
+  if (boundedReference(references)) {
+    return (
+      <RecordValue
+        reference={references}
+        value={typeof value === "string" ? value : ""}
+        onChange={onChange}
+      />
+    );
+  }
   return <ScalarValue type={type} value={value} onChange={onChange} />;
+}
+
+/**
+ * An id comparison as the RECORD it names, not its uuid.
+ *
+ * Only for a target the options module can enumerate. An organization reference
+ * falls through to the plain box, because a workspace's accounts are as many as
+ * its customers and a dropdown cannot hold them — the async picker that case
+ * needs is its own change, and a half-filled list would be worse than a box.
+ *
+ * A stored id whose record is gone still shows: Select renders its placeholder
+ * for a value matching no option, so the clause reads as needing attention
+ * rather than silently appearing empty.
+ */
+function RecordValue({
+  reference,
+  value,
+  onChange,
+}: Readonly<{
+  reference: Reference | undefined;
+  value: string;
+  onChange: (next: LeafValue) => void;
+}>) {
+  const t = useT();
+  const { options, loading } = useReferenceOptions(reference);
+  return (
+    <Select
+      options={options}
+      value={value}
+      onChange={onChange}
+      disabled={loading}
+      placeholder={
+        loading ? t("filters.loadingRecords") : t("filters.pickRecord")
+      }
+      aria-label={t("filters.value")}
+    />
+  );
 }
 
 /** The two-way choice that `exists` and a boolean field both need. */

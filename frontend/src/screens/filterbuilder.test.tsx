@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { FilterBuilder } from "./filterbuilder";
 import type { VocabularyField } from "./filterdata";
@@ -30,6 +31,18 @@ const VOCAB: VocabularyField[] = [
     type: "id",
     operators: ["eq", "neq", "in", "exists"],
     custom: false,
+    // The vocabulary names an id field's target, so the fixture does too — a
+    // stub that omitted it would exercise a response the server cannot send.
+    references: "app_user",
+  },
+  {
+    // An unbounded target: too many accounts to enumerate, so this one keeps the
+    // plain box until the async picker exists.
+    name: "organization_id",
+    type: "id",
+    operators: ["eq", "neq", "in", "exists"],
+    custom: false,
+    references: "organization",
   },
   {
     name: "full_name",
@@ -61,13 +74,41 @@ const VOCAB: VocabularyField[] = [
  *  only that a callback fired. */
 function Harness({ start }: Readonly<{ start: Node }>) {
   const [tree, setTree] = useState<Node>(start);
+  // A fresh client per mount: the record pickers read rosters, and a shared
+  // cache would let one test's options answer another's assertion.
+  const [client] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  );
   return (
-    <>
+    <QueryClientProvider client={client}>
       <FilterBuilder tree={tree} onChange={setTree} fields={VOCAB} />
       {/* The encoded tree is the thing the server would receive, so the test
           asserts against that rather than against the DOM's rendering of it. */}
       <pre data-testid="wire">{JSON.stringify(encode(tree))}</pre>
-    </>
+    </QueryClientProvider>
+  );
+}
+
+/** The seats a record picker offers. Named, so an assertion reads as a person. */
+function stubSeats() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const body = url.includes("/users")
+        ? {
+            data: [
+              { id: "u-1", display_name: "Ann Lee" },
+              { id: "u-2", display_name: "Bruno Sá" },
+            ],
+            page: { next_cursor: null, has_more: false },
+          }
+        : { data: [], page: { next_cursor: null, has_more: false } };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }),
   );
 }
 
@@ -130,6 +171,62 @@ describe("what the builder offers", () => {
     );
 
     expect(screen.queryByText("custom field")).toBeNull();
+  });
+});
+
+describe("an id clause names a record, not a uuid", () => {
+  it("offers the records the vocabulary's target points at", async () => {
+    resetIDsForTest();
+    stubSeats();
+    const user = userEvent.setup();
+    render(
+      <Harness start={newGroup("and", [newLeaf("owner_id", "eq", "")])} />,
+    );
+
+    // The seat is chosen by NAME. Before this, the same clause needed a uuid
+    // typed into a text box, and a typo read as a filter matching nothing.
+    await pickOption(
+      user,
+      await screen.findByRole("combobox", { name: "Value" }),
+      "Bruno Sá",
+    );
+
+    // And the wire still carries the id, which is what the engine compares.
+    expect(wire()).toEqual({
+      and: [{ field: "owner_id", op: "eq", value: "u-2" }],
+    });
+  });
+
+  it("keeps a plain box for a target too large to enumerate", async () => {
+    resetIDsForTest();
+    stubSeats();
+    render(
+      <Harness
+        start={newGroup("and", [newLeaf("organization_id", "eq", "")])}
+      />,
+    );
+
+    // An account list grows with the business, so it is not a dropdown. The box
+    // stays until the async picker exists — a half-filled list would be worse,
+    // since a reader could not tell a missing account from an absent one.
+    expect(await screen.findByLabelText("Value")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Value" })).toBeNull();
+  });
+
+  it("asks nothing of a reader when the operator already answered", async () => {
+    resetIDsForTest();
+    stubSeats();
+    render(
+      <Harness
+        start={newGroup("and", [newLeaf("owner_id", "exists", true)])}
+      />,
+    );
+
+    // `exists` on an id field is a two-way question the operator itself asked, so
+    // offering a record to compare against would ask for an operand the engine
+    // ignores. The operator arms come first in the control for that reason.
+    expect(screen.queryByRole("combobox", { name: "Value" })).toBeNull();
+    expect(screen.getByRole("button", { name: "has a value" })).toBeTruthy();
   });
 });
 
