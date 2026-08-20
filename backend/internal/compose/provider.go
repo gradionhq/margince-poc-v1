@@ -325,6 +325,8 @@ func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasou
 		return p.people.Archive(ctx, r)
 	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Archive(ctx, r)
+	case datasource.EntityActivity:
+		return p.activities.Archive(ctx, r)
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}

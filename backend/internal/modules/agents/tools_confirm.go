@@ -13,7 +13,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -22,6 +24,28 @@ import (
 )
 
 // --- archive_record (🟡 write — visibility change, hard to undo) ---
+
+// archivableRecordTypes is what SystemOfRecordProvider.Archive actually routes
+// (compose/provider.go) — narrower than datasource.EntityTypes(), which is the
+// whole seam vocabulary and includes `lead`, a type Archive does not serve.
+//
+// Stage-time truth has to equal execute-time truth here: this tool stages a
+// confirmation FIRST and archives on the approved retry, so a type admitted at
+// staging and refused at execution spends a human's approval on a call that
+// could never run. That is what happened to `activity` — the contract declared
+// archiveActivity as this tool's, the seam had no branch for it, and the
+// refusal arrived only after a human had said yes. The list is stated here
+// rather than derived so adding a branch to Archive is a deliberate edit in
+// both places.
+var archivableRecordTypes = []string{
+	string(datasource.EntityPerson), string(datasource.EntityOrganization),
+	string(datasource.EntityDeal), string(datasource.EntityProject),
+	string(datasource.EntityRelationship), string(datasource.EntityActivity),
+}
+
+func archivableByTheRecordSeam(recordType string) bool {
+	return slices.Contains(archivableRecordTypes, recordType)
+}
 
 type archiveArgs struct {
 	RecordType string   `json:"record_type"`
@@ -37,9 +61,9 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 		Name: "archive_record", Title: "Archive a record", Version: toolVersionV1,
 		Description:   archiveRecordCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
-		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal/archiveProject/archiveRelationship",
+		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal/archiveProject/archiveRelationship/archiveActivity",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","project","relationship"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","project","relationship","activity"]},
 			"id":{"type":"string","format":"uuid"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
@@ -60,13 +84,17 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 // ONE check runs HERE, before the command is built, for exactly the reason
 // createRecord.StageInfo's does (tools.go): a record type this verb's OWN
 // write path cannot express. Handle archives exclusively through
-// datasource.SystemOfRecordProvider.Archive, which cannot name a type outside
-// the seam's vocabulary — and the surface does not enforce the InputSchema
-// enum at this layer, so a raw tool call can put any string here. Without it,
-// `record_type:"tag"` stages an approval a human releases onto a retry that
-// dies at the provider, and an arbitrary string stages one with a target type
-// the approvals surface has no visibility rule for at all: a zombie authority
-// object, minted at the caller's choosing.
+// datasource.SystemOfRecordProvider.Archive — and the surface does not enforce
+// the InputSchema enum at this layer, so a raw tool call can put any string
+// here. Without it, `record_type:"tag"` stages an approval a human releases
+// onto a retry that dies at the provider, and an arbitrary string stages one
+// with a target type the approvals surface has no visibility rule for at all:
+// a zombie authority object, minted at the caller's choosing.
+//
+// It asks archivableRecordTypes rather than the seam's whole vocabulary,
+// because those two are not the same question: `lead` is a seam entity that
+// Archive does not route, so the broader check let it stage and fail after
+// approval — the trap `activity` fell into until Archive learned to serve it.
 //
 // That is a fact about THIS door's executor rather than about the operation,
 // which is why it cannot live in the resolver: the same command reaching it
@@ -77,10 +105,10 @@ func (t archiveRecord) StageInfo(ctx context.Context, in json.RawMessage) (Stage
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	if !servedByTheRecordSeam(args.RecordType) {
+	if !archivableByTheRecordSeam(args.RecordType) {
 		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
-			"this verb does not archive %q records, so no approval of it could ever be carried out",
-			args.RecordType)}
+			"this verb does not archive %q records, so no approval of it could ever be carried out; it archives %s",
+			args.RecordType, strings.Join(archivableRecordTypes, ", "))}
 	}
 	return StageSubject(ctx, NewArchiveCall(t.p, ArchiveCommand(args)))
 }
