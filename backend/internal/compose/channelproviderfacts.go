@@ -175,11 +175,9 @@ func unitChannelFacts(reserved map[string]bool) ([]channelProviderFacts, error) 
 				label:             providerLabel(ch.Provider),
 				credentialModel:   credentialPerMember,
 				suppliesTransport: ch.SuppliesTransport(),
-				// A unit declares no carriage yet — extension.Channel has no
-				// Carriage field until the first unit needs one (design D6), so
-				// every unit transport publishes the zero descriptor. That is
-				// the no-default rule holding, not a gap: a unit reply with
-				// files parks rather than going out stripped.
+				// The zero descriptor: extension.Channel has no field for a
+				// unit to declare carriage on yet. sendableCarriage states why
+				// that is the no-default rule holding rather than a gap.
 				carriage: connector.Carriage{},
 			})
 		}

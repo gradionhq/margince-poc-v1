@@ -37,6 +37,15 @@ func (rec *recorder) record(path, body string) {
 	rec.bodies = append(rec.bodies, body)
 }
 
+// calls is how many requests reached the stand-in, which is what a case about a
+// message the connector must NOT transmit has to assert on: an error return is
+// only half the property.
+func (rec *recorder) calls() int {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return len(rec.paths)
+}
+
 // lastPath and lastBody report the most recent request, failing the test when
 // nothing reached the server at all.
 func (rec *recorder) lastPath(t *testing.T) string {

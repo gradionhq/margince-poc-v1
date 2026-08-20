@@ -53,7 +53,13 @@ type sendSeam struct {
 	// credential and to the row it was built from. One call for either
 	// transport is what lets the receipt handling, the metering and the failure
 	// classification below stay shape-blind.
-	transmit func(ctx context.Context) (connector.SendReceipt, error)
+	//
+	// The FILES are a parameter rather than something the closure reads for
+	// itself, and that is the at-most-once contract rather than a style choice:
+	// the dispatcher resolves them BEFORE it commits the in-flight marker, so a
+	// blobstore fault or an over-size refusal cannot leave a message that never
+	// reached the provider parked as one whose outcome nobody learned.
+	transmit func(ctx context.Context, files []connector.OutboundFile) (connector.SendReceipt, error)
 
 	// detectsPriorSend reports whether a RETRY of this seam could discover that
 	// an earlier attempt already put the message on the wire.
@@ -78,14 +84,7 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		if err != nil {
 			return sendSeam{}, err
 		}
-		return sendSeam{carriage: connector.CarriageOf(sender), transmit: func(ctx context.Context) (connector.SendReceipt, error) {
-			// The SAME helper the mail branch calls, deliberately: a channel
-			// variant would be a second attachment path, and the one exercised
-			// less is the one that would quietly stop matching the other.
-			files, err := d.attachedFiles(ctx, del)
-			if err != nil {
-				return connector.SendReceipt{}, err
-			}
+		return sendSeam{carriage: connector.CarriageOf(sender), transmit: func(ctx context.Context, files []connector.OutboundFile) (connector.SendReceipt, error) {
 			return sender.SendMessage(ctx, auth, connector.ChannelMessage{
 				// The provider plus the account id ARE the recipient key. The
 				// username is deliberately absent: a handle can be released and
@@ -117,19 +116,7 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		granted:          granted,
 		detectsPriorSend: true,
 		carriage:         connector.CarriageOf(sender),
-		transmit: func(ctx context.Context) (connector.SendReceipt, error) {
-			// The bytes, read HERE rather than carried in the delivery row: a
-			// message on a retry ladder would otherwise hold every attachment
-			// it might ever send in the database, duplicated per delivery, for
-			// as long as the maximum age allows.
-			//
-			// It is the last thing before the wire and it fails the whole
-			// transmit rather than sending a subset, which is the obligation
-			// the file set below already carries (ADR-0086/A131).
-			files, err := d.attachedFiles(ctx, del)
-			if err != nil {
-				return connector.SendReceipt{}, err
-			}
+		transmit: func(ctx context.Context, files []connector.OutboundFile) (connector.SendReceipt, error) {
 			// Every staged field travels: a retry must rebuild an identical
 			// message, and a field dropped here is a header silently missing
 			// from real mail.

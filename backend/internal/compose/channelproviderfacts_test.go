@@ -75,3 +75,30 @@ func TestThePublishedEntryCarriesEveryBound(t *testing.T) {
 		t.Errorf("the entry publishes %+v; a composer reading it cannot warn before a rep presses send", got)
 	}
 }
+
+// A transport a reply CAN leave on but whose connector declared no carriage
+// carries nothing — and that is the answer every unit transport gets today.
+//
+// Asserted rather than explained: the reason a unit reports the zero descriptor
+// is written where the map is built, and a comment is not what keeps a later
+// change from defaulting an unknown provider to "carries, limits unknown", which
+// would send a rep's files at a transport that drops them.
+func TestSendableCarriageGivesAnUndeclaredTransportNothing(t *testing.T) {
+	got := sendableCarriage(
+		[]string{"telegram", "zalo_personal"},
+		map[string]connector.Carriage{"telegram": {Carries: true, MaxFiles: 10}},
+	)
+	if len(got) != 2 {
+		t.Fatalf("paired %d of 2 sendable transports; one missing from the map reads as unable to send at all", len(got))
+	}
+	if !got["telegram"].Carries || got["telegram"].MaxFiles != 10 {
+		t.Errorf("telegram's declared carriage was not carried through: %+v", got["telegram"])
+	}
+	carriage, present := got["zalo_personal"]
+	if !present {
+		t.Fatal("a unit transport dropped out of the sendable map, so the directory would report it cannot send")
+	}
+	if carriage.Carries {
+		t.Errorf("a transport whose connector declared no carriage was published as able to carry files: %+v", carriage)
+	}
+}

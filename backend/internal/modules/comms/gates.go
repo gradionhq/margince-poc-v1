@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -115,9 +117,9 @@ func carriageRefusal(del Delivery, carriage connector.Carriage) string {
 	for _, file := range del.Attachments {
 		if carriage.MaxBytesPerFile > 0 && file.ByteSize > carriage.MaxBytesPerFile {
 			return fmt.Sprintf(
-				"%q is larger than the %d MiB the %s channel accepts for one file; it was not sent — "+
+				"%q is larger than the %s the %s channel accepts for one file; it was not sent — "+
 					"share it another way, or send a smaller version",
-				file.Filename, carriage.MaxBytesPerFile>>20, del.Provider)
+				file.Filename, humanBytes(carriage.MaxBytesPerFile), del.Provider)
 		}
 	}
 	if body := utf8.RuneCountInString(del.Body); carriage.MaxBodyWithFiles > 0 && body > carriage.MaxBodyWithFiles {
@@ -130,12 +132,37 @@ func carriageRefusal(del Delivery, carriage connector.Carriage) string {
 	return ""
 }
 
+// humanBytes renders a size bound the way the person who has to act on it reads
+// sizes.
+//
+// It rounds DOWN to one decimal, deliberately: a bound reported as larger than
+// it is sends a rep back to shrink a file to a size that will be refused again.
+// Integer-dividing by a MiB — the obvious spelling — reports a 900 KiB bound as
+// "0 MiB" and a 10,000,000-byte one as "9 MiB", both of which are instructions
+// nobody can follow.
+func humanBytes(size int64) string {
+	switch {
+	case size >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", math.Floor(float64(size)/float64(1<<20)*10)/10)
+	case size >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", math.Floor(float64(size)/float64(1<<10)*10)/10)
+	default:
+		return fmt.Sprintf("%d bytes", size)
+	}
+}
+
 // attachmentNames is the staged filenames, for a reason a person can act on:
 // "this could not be sent" with no subject leaves them guessing which file.
+//
+// QUOTED, like the size branch already quotes its one name. A filename is
+// supplied by whoever produced the file — a stranger who sent it, or a rep's own
+// upload — and this reason is read back in a log line, a CSV export and a JSON
+// string. An unquoted name carrying a line break rewrites the record that quotes
+// it; quoting is what keeps a name a name.
 func attachmentNames(del Delivery) []string {
 	names := make([]string, 0, len(del.Attachments))
 	for _, file := range del.Attachments {
-		names = append(names, file.Filename)
+		names = append(names, strconv.Quote(file.Filename))
 	}
 	return names
 }

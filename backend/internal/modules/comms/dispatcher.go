@@ -235,12 +235,30 @@ func (d *Dispatcher) pace(ctx context.Context, del Delivery) (Outcome, time.Dura
 // seam already carries the shape-specific half (sendseam.go), so what follows is
 // the same for a mail message and a channel one.
 func (d *Dispatcher) transmit(ctx context.Context, del Delivery, seam sendSeam) (Outcome, time.Duration, error) {
+	// The attachment BYTES, resolved before the marker below and not inside the
+	// provider call.
+	//
+	// The ordering is the whole point. A seam that cannot detect a prior send
+	// commits an in-flight marker and then treats any later attempt as "the
+	// outcome was never learned", so a fault BETWEEN the marker and the wire —
+	// an unreadable object, a store that would not answer, a file set too large
+	// to carry — would park a message that never left with a reason telling the
+	// rep it may have arrived and discouraging a resend. Read first, and such a
+	// fault is what it is: nothing transmitted, and the ladder may try again.
+	//
+	// They are still not on the delivery row: a message on a retry ladder would
+	// otherwise hold every attachment it might ever send in the database,
+	// duplicated per delivery, for as long as the maximum age allows.
+	files, err := d.attachedFiles(ctx, del)
+	if err != nil {
+		return d.retry(ctx, del.ID, fmt.Errorf("comms: reading this message's files before transmitting: %w", err))
+	}
 	// At-most-once, for the seams that need it: a transmission whose outcome was
 	// never learned is never attempted a second time.
 	if outcome, wait, err := d.guardAtMostOnce(ctx, del, seam); outcome != outcomeUndecided {
 		return outcome, wait, err
 	}
-	receipt, err := seam.transmit(ctx)
+	receipt, err := seam.transmit(ctx, files)
 	if err != nil {
 		return d.classifySendFailure(ctx, del, err)
 	}

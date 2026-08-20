@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // AttachmentInput is one upload's server-validated inputs. captured_by is
@@ -97,6 +98,19 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 
 	id := ids.NewV7()
 	key := blobstore.WorkspaceKey(workspaceID(ctx), "attachment", id.String())
+	// The name a stranger or a rep TYPED, made safe before it reaches the column
+	// — the same function the capture path runs every sender-supplied name
+	// through, for the same reasons: a name is presentational only (nothing opens
+	// a file by it), it is read back in a log line, a CSV export and a park
+	// reason, and it renders in a list. A path separator, a line break, or a
+	// bidirectional override in it rewrites whichever of those quotes it.
+	//
+	// It runs HERE rather than at the transport, so every producer of an
+	// attachment row is covered by one call rather than by each transport
+	// remembering: an uploaded file and a captured one land in the same column
+	// and are shown by the same list.
+	in.Filename = extension.SafeFilename(in.Filename, 0)
+
 	checksum, size, err := digest(in.Content)
 	if err != nil {
 		return crmcontracts.Attachment{}, err

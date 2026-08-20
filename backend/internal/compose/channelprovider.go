@@ -84,10 +84,11 @@ func CoreChannelCarriage() map[string]connector.Carriage {
 // carry.
 //
 // A name present in sendable with no entry in core is a UNIT transport, and it
-// takes the zero Carriage — carries nothing — because extension.Channel declares
-// no carriage yet (design D6). That is the no-default rule reaching the
-// directory, so a unit reply with files parks rather than going out stripped;
-// when a unit can declare carriage, this is the one place that learns it.
+// takes the zero Carriage — carries nothing — because extension.Channel has no
+// field for a unit to declare one on yet. That is the no-default rule reaching
+// the directory rather than a gap: a unit reply with files parks rather than
+// going out stripped. When a unit can declare carriage, this is the one place
+// that learns it.
 func sendableCarriage(sendable []string, core map[string]connector.Carriage) map[string]connector.Carriage {
 	out := make(map[string]connector.Carriage, len(sendable))
 	for _, provider := range sendable {
@@ -136,7 +137,11 @@ func reconcileChannelProviders(ctx context.Context, pool *pgxpool.Pool, provider
 		if units, err = unitChannelFacts(reserved); err != nil {
 			return err
 		}
-		for _, facts := range append(channelProviderFactsFor(providers, CoreChannelCarriage()), units...) {
+		// sendableCarriage over the ARGUMENT, not the freshly-enumerated registry:
+		// what this call writes must be decided by the set it was handed, or a
+		// caller passing a transport this enumeration does not hold would silently
+		// write supplies_transport = false for it.
+		for _, facts := range append(channelProviderFactsFor(providers, sendableCarriage(providers, CoreChannelCarriage())), units...) {
 			if err := upsertChannelProvider(ctx, tx, facts); err != nil {
 				return err
 			}

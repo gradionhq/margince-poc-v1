@@ -216,7 +216,9 @@ func truncateFilename(s string, limit int) string {
 // carries text-with-files as a CAPTION bounds that text far below what it accepts
 // on a text-only message. A message over the bound cannot be split into two
 // provider calls without reintroducing the partial send this seam exists to
-// prevent, and it cannot be truncated at all, so it parks at staging instead.
+// prevent, and it cannot be truncated at all, so the delivery parks instead.
+// The bound is published on the channel directory so the composer warns BEFORE a
+// human presses send — a park discovered at transmission is correct but late.
 type Carriage struct {
 	Carries         bool
 	MaxBytesPerFile int64

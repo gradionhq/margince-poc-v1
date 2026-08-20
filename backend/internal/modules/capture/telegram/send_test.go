@@ -244,3 +244,25 @@ func TestSendMessageRefusesAnUnaddressableMessageWithoutCallingTheProvider(t *te
 		})
 	}
 }
+
+// A message handed files this connector cannot build a part for is REFUSED, and
+// nothing reaches the provider.
+//
+// The carriage gate stops this earlier by reading what the connector declares —
+// and this is the case that gate cannot cover: a declaration added before the
+// part-building would let the covering text go out alone, which is a message
+// that lies about what it contains. The connector is the last place that can
+// refuse its own mistake.
+func TestSendMessageRefusesFilesItCannotBuildAPartFor(t *testing.T) {
+	api, rec := serve(t, 200, `{"ok":true,"result":{"message_id":9911}}`)
+	c := New(api)
+
+	msg := reply()
+	msg.Files = []connector.OutboundFile{{AttachmentID: "a-1", Filename: "quote.pdf", Body: []byte("bytes")}}
+	if _, err := c.SendMessage(context.Background(), connector.Auth("1:secret"), msg); !errors.Is(err, connector.ErrFilesNotCarried) {
+		t.Fatalf("SendMessage with files → %v, want ErrFilesNotCarried", err)
+	}
+	if rec.calls() != 0 {
+		t.Errorf("the connector called the provider %d time(s) for a message it cannot carry whole", rec.calls())
+	}
+}

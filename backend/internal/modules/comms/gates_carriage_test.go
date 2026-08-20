@@ -27,14 +27,13 @@ func gateHarness(t *testing.T) (*Dispatcher, *fakeStore) {
 		func() time.Time { return testNow }, time.Hour, 3), store
 }
 
-// carriageCase builds the delivery shape under test: mail or channel, a given
-// number of staged files, and a body of a given length in characters.
-func carriageCase(channel bool, files int, fileBytes int64, bodyLen int) Delivery {
+// carriageCase builds the delivery shape under test: a given number of staged
+// files, each of a given size, and a body of a given length in characters.
+//
+// It builds ONE shape rather than a mail and a channel variant, because the gate
+// reads no field that distinguishes them — see the test's own comment.
+func carriageCase(files int, fileBytes int64, bodyLen int) Delivery {
 	del := Delivery{ID: ids.NewV7(), Provider: "gmail", Body: strings.Repeat("a", bodyLen)}
-	if channel {
-		recipient := "77123"
-		del.Provider, del.ChannelUserID = "telegram", &recipient
-	}
 	for i := range files {
 		del.Attachments = append(del.Attachments, OutboundFile{
 			AttachmentID: ids.NewV7(),
@@ -51,13 +50,16 @@ func carriageCase(channel bool, files int, fileBytes int64, bodyLen int) Deliver
 // fewer files than the record claims is a permanently wrong record nobody is
 // told about.
 //
-// Mail and channel run through THIS gate, not two of them. A channel-only branch
-// is the shape that would quietly stop matching the rules the mail path keeps.
+// The gate is TRANSPORT-BLIND by construction — it reads the provider name, the
+// staged set and the body, and nothing that says which seam resolved them — so
+// every case here is stated once rather than twice. That one gate serves both
+// transports is a claim about which seam the dispatcher resolves, and it is
+// proved where that happens: TestAChannelReplyHandsItsFilesToTheProvider in
+// dispatcher_channel_integration_test.go.
 func TestAttachmentCarriageGateParksRatherThanStripping(t *testing.T) {
 	carrying := connector.Carriage{Carries: true, MaxFiles: 10, MaxBytesPerFile: 1 << 20, MaxBodyWithFiles: 1024}
 	for _, c := range []struct {
 		name       string
-		channel    bool
 		carriage   connector.Carriage
 		files      int
 		fileBytes  int64
@@ -72,13 +74,12 @@ func TestAttachmentCarriageGateParksRatherThanStripping(t *testing.T) {
 		{name: "over the body-with-files bound", carriage: connector.Carriage{Carries: true, MaxFiles: 10, MaxBytesPerFile: 1 << 20, MaxBodyWithFiles: 8}, files: 1, bodyLen: 9, wantPark: true, wantReason: []string{"caption", "8"}},
 		{name: "within every bound", carriage: carrying, files: 2, bodyLen: 10},
 		{name: "a long body with NO files is not the caption case", carriage: connector.Carriage{Carries: true, MaxBodyWithFiles: 8}, files: 0, bodyLen: 4096},
-		{name: "channel: carries nothing", channel: true, files: 1, wantPark: true, wantReason: []string{"cannot carry files", "telegram"}},
-		{name: "channel: over the file count", channel: true, carriage: connector.Carriage{Carries: true, MaxFiles: 1, MaxBytesPerFile: 1 << 20}, files: 2, wantPark: true, wantReason: []string{"telegram", "at most 1"}},
-		{name: "channel: within every bound", channel: true, carriage: carrying, files: 1, bodyLen: 10},
+		{name: "a sub-MiB bound is reported as itself, not as 0 MiB", carriage: connector.Carriage{Carries: true, MaxBytesPerFile: 900 << 10}, files: 1, fileBytes: 1 << 20, wantPark: true, wantReason: []string{"900.0 KiB"}},
+		{name: "a bound that is not a whole MiB is not rounded up", carriage: connector.Carriage{Carries: true, MaxBytesPerFile: 10_000_000}, files: 1, fileBytes: 20 << 20, wantPark: true, wantReason: []string{"9.5 MiB"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			d, store := gateHarness(t)
-			del := carriageCase(c.channel, c.files, c.fileBytes, c.bodyLen)
+			del := carriageCase(c.files, c.fileBytes, c.bodyLen)
 
 			outcome, _, err := d.gateAttachmentCarriage(context.Background(), del, sendSeam{carriage: c.carriage})
 			if err != nil {

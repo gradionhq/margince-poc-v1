@@ -53,6 +53,65 @@ func attachmentIDsFrom(attachments *[]openapi_types.UUID) []ids.UUID {
 	return out
 }
 
+// maxAttachmentsPerSend is the most files one message may name.
+//
+// It mirrors `attachment_ids`' own `maxItems: 10` in the contract, and mirroring
+// it in code is not belt-and-braces: NOTHING in this stack validates a request
+// body against the schema, so the contract's cap is documentation until some Go
+// enforces it. Unenforced, one request naming the same readable file thousands of
+// times costs a transaction per element here, a jsonb array of that size on the
+// delivery row, and a re-read of every element on every retry attempt — from a
+// body well inside the chassis ceiling.
+//
+// Bound in ONE place because both transports resolve through here, and the pair
+// is held to the contract by
+// TestTheSendAttachmentCapMatchesTheContract.
+const maxAttachmentsPerSend = 10
+
+// TooManyAttachmentsError refuses a send naming more files than one message may
+// carry. It maps to 422 with the limit in the message, because the caller can
+// only fix it by sending fewer.
+type TooManyAttachmentsError struct{ Named, Limit int }
+
+func (e *TooManyAttachmentsError) Error() string {
+	return fmt.Sprintf(
+		"this message names %d files and a message may carry at most %d; send the rest as a second message",
+		e.Named, e.Limit)
+}
+
+// FieldFault names the field the caller must shorten.
+func (e *TooManyAttachmentsError) FieldFault() (field, code, message string) {
+	return "attachment_ids", "too_many_attachments", e.Error()
+}
+
+// boundAttachmentIDs collapses repeats and refuses a set larger than one
+// message may carry.
+//
+// A function of its ARGUMENT alone, apart from the resolve it guards, so both
+// answers are provable without a database — and so the refusal happens before
+// anything is read, which is the point of a bound on how much work a request may
+// ask for.
+//
+// The cap applies to the DE-DUPLICATED count. Counting repeats would refuse a
+// legitimate send while admitting the same total work under a shorter list, and
+// a message carrying one file twice is not something a message can mean: the
+// recipient would see the same document in two parts.
+func boundAttachmentIDs(attachmentIDs []ids.UUID) ([]ids.UUID, error) {
+	unique := make([]ids.UUID, 0, len(attachmentIDs))
+	seen := make(map[ids.UUID]bool, len(attachmentIDs))
+	for _, id := range attachmentIDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		unique = append(unique, id)
+	}
+	if len(unique) > maxAttachmentsPerSend {
+		return nil, &TooManyAttachmentsError{Named: len(unique), Limit: maxAttachmentsPerSend}
+	}
+	return unique, nil
+}
+
 // resolveAttachments turns the caller's ids into the snapshot the delivery
 // keeps.
 //
@@ -61,12 +120,16 @@ func attachmentIDsFrom(attachments *[]openapi_types.UUID) []ids.UUID {
 // than the sender attached is a message nobody is told is wrong — the same
 // reasoning the dispatcher's carriage gate applies later, applied here at the
 // first point where the difference is visible.
-func (s *Store) resolveAttachments(ctx context.Context, ids []ids.UUID) ([]OutboundFile, error) {
-	if len(ids) == 0 {
+func (s *Store) resolveAttachments(ctx context.Context, attachmentIDs []ids.UUID) ([]OutboundFile, error) {
+	if len(attachmentIDs) == 0 {
 		return nil, nil
 	}
-	out := make([]OutboundFile, 0, len(ids))
-	for _, id := range ids {
+	unique, err := boundAttachmentIDs(attachmentIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]OutboundFile, 0, len(unique))
+	for _, id := range unique {
 		meta, err := s.GetAttachmentMeta(ctx, id)
 		if err != nil {
 			// The sentinel travels: a file the sender cannot see is the same

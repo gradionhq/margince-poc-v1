@@ -84,9 +84,19 @@ func publishedChannelProviders(registered []string, sending map[string]connector
 }
 
 // channelProviderDirectory adapts the boot snapshot to the agent surface's
-// seam. It reports the SAME entries the HTTP directory serves, by calling the
+// seam. It reports the same entries the HTTP directory serves, by calling the
 // same shaping function — two surfaces answering one question two ways is
 // exactly the drift this arc has spent its budget removing.
+//
+// THE ONE FIELD IT DELIBERATELY DROPS is `attachments`, and the reason is a
+// budget rather than a decision about what an agent should know. The core tool
+// listing rides in every Surface-B prompt and is already within a few hundred
+// tokens of the ceiling TestTheToolListingLeavesTheRunRoomInTheWindow holds it
+// to; the carriage object plus the copy that would explain it takes the listing
+// past that ceiling, which comes out of the run's own observations. So an agent
+// staging a channel message with files still learns the bounds the way it does
+// today — by having the delivery parked with a reason that names them. Widening
+// the tool surface needs the listing's budget looked at first (issue #1985).
 type channelProviderDirectory struct{}
 
 func (channelProviderDirectory) ChannelProviders(context.Context) ([]agents.ChannelProviderEntry, error) {

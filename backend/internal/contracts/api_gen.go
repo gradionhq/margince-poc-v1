@@ -20207,6 +20207,10 @@ type SendAccountEmailRequest struct {
 	// alone, and a file the scanner has since quarantined — or one the sender has
 	// since lost the right to read — parks it too: a recipient seeing fewer files
 	// than the record claims is a wrong record nobody is told about.
+	//
+	// Repeated ids are collapsed — attaching one file twice is not something a message
+	// can mean — and naming more distinct files than `maxItems` is refused with
+	// 422 `too_many_attachments`.
 	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
 
 	// Bcc Blind copies. They receive the message and are therefore owed consent
@@ -20289,6 +20293,10 @@ type SendEmailRequest struct {
 	// alone, and a file the scanner has since quarantined — or one the sender has
 	// since lost the right to read — parks it too: a recipient seeing fewer files
 	// than the record claims is a wrong record nobody is told about.
+	//
+	// Repeated ids are collapsed — attaching one file twice is not something a message
+	// can mean — and naming more distinct files than `maxItems` is refused with
+	// 422 `too_many_attachments`.
 	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
 
 	// Bcc Blind copies. They receive the message and are therefore owed consent
@@ -20366,6 +20374,10 @@ type SendMessageRequest struct {
 	// alone, and a file the scanner has since quarantined — or one the sender has
 	// since lost the right to read — parks it too: a recipient seeing fewer files
 	// than the record claims is a wrong record nobody is told about.
+	//
+	// Repeated ids are collapsed — attaching one file twice is not something a message
+	// can mean — and naming more distinct files than `maxItems` is refused with
+	// 422 `too_many_attachments`.
 	//
 	// A messaging channel carries this message's text as a CAPTION, which is bounded
 	// far below a text-only message; `GET /v1/channel-providers` publishes that bound

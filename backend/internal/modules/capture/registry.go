@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/mail"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -132,14 +134,15 @@ func (r *Registry) Connectors() []connector.Descriptor {
 // (DESIGN-SP4 §4): compose calls this once at boot to reconcile
 // channel_provider against what this binary actually has compiled in.
 func (r *Registry) ChannelProviders() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var out []string
-	for name, c := range r.connectors {
-		if _, sends := c.(connector.MessageSender); sends {
-			out = append(out, name)
-		}
+	// Derived from ChannelCarriage rather than filtering the connectors again:
+	// two copies of the same MessageSender test are two answers to "which
+	// transports can send", and the one asked less often is the one that would
+	// drift.
+	carriage := r.ChannelCarriage()
+	if len(carriage) == 0 {
+		return nil
 	}
+	out := slices.Collect(maps.Keys(carriage))
 	sort.Strings(out)
 	return out
 }

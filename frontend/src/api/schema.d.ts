@@ -14006,6 +14006,10 @@ export interface components {
              *     alone, and a file the scanner has since quarantined — or one the sender has
              *     since lost the right to read — parks it too: a recipient seeing fewer files
              *     than the record claims is a wrong record nobody is told about.
+             *
+             *     Repeated ids are collapsed — attaching one file twice is not something a message
+             *     can mean — and naming more distinct files than `maxItems` is refused with
+             *     422 `too_many_attachments`.
              */
             attachment_ids?: string[];
             to: string[];
@@ -14158,6 +14162,10 @@ export interface components {
              *     alone, and a file the scanner has since quarantined — or one the sender has
              *     since lost the right to read — parks it too: a recipient seeing fewer files
              *     than the record claims is a wrong record nobody is told about.
+             *
+             *     Repeated ids are collapsed — attaching one file twice is not something a message
+             *     can mean — and naming more distinct files than `maxItems` is refused with
+             *     422 `too_many_attachments`.
              */
             attachment_ids?: string[];
             /**
@@ -14255,6 +14263,10 @@ export interface components {
              *     alone, and a file the scanner has since quarantined — or one the sender has
              *     since lost the right to read — parks it too: a recipient seeing fewer files
              *     than the record claims is a wrong record nobody is told about.
+             *
+             *     Repeated ids are collapsed — attaching one file twice is not something a message
+             *     can mean — and naming more distinct files than `maxItems` is refused with
+             *     422 `too_many_attachments`.
              *
              *     A messaging channel carries this message's text as a CAPTION, which is bounded
              *     far below a text-only message; `GET /v1/channel-providers` publishes that bound
