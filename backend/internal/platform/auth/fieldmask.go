@@ -82,6 +82,14 @@ func WritableSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.U
 		}
 		return out, nil
 	}
+	// The row arm alone is not write authority: a caller whose role lost the
+	// object's update verb can still OWN a row, and a mask conditioned on
+	// write authority must not lift for them. EnsureWritable never sees this
+	// case because its handlers Require(update) first; this helper is asked
+	// bare, so it asks itself.
+	if !p.Permissions.Allows(table, principal.ActionUpdate) {
+		return out, nil
+	}
 	if len(rowIDs) == 0 {
 		return out, nil
 	}
@@ -106,4 +114,44 @@ func WritableSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.U
 		out[id] = true
 	}
 	return out, rows.Err()
+}
+
+// MaskExcludedClause renders the predicate for the rows on which the caller
+// may READ one maskable column — the filter an AGGREGATE over that column
+// applies, so a sum never includes a value the row itself would withhold and
+// the drill-through that explains the sum shows exactly the rows inside it.
+// Returns ("", false) when no mask names the (object, field) pair for this
+// caller; "FALSE" when a mask withholds the column on every row. The alias
+// names the row like the caller's FROM clause does.
+func MaskExcludedClause(ctx context.Context, object, field, alias string, arg func(any) int) (string, bool, error) {
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	if Unbounded(p) {
+		return "", false, nil
+	}
+	clause, masked := "", false
+	for _, m := range p.Permissions.FieldMasks {
+		if m.Object != object || m.Field != field {
+			continue
+		}
+		masked = true
+		if m.Condition != principal.MaskOutsideWriteAuthority {
+			// MaskAlways (and any future stricter condition this switch does
+			// not know) withholds the column on every row: fail closed.
+			return "FALSE", true, nil
+		}
+		// Write authority is the object's update verb AND the row arm — a
+		// caller whose role lost the verb owns no write authority anywhere,
+		// however many rows the row arm alone would name (the same pair
+		// WritableSubset asks).
+		if !p.Permissions.Allows(object, principal.ActionUpdate) {
+			return "FALSE", true, nil
+		}
+		if clause == "" {
+			clause = writeAuthorityPredicateAs(p, object, alias, arg)
+		}
+	}
+	return clause, masked, nil
 }

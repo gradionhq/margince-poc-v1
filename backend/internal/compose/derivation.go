@@ -18,10 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -63,14 +60,17 @@ type derivationQuery struct {
 // derivationOutcome is a resolved handle: definition, drill-through
 // rows, and the aggregates recomputed over exactly those rows.
 type derivationOutcome struct {
-	Report      string
-	Definition  string
-	Plan        map[string]any
-	Columns     []string
-	Rows        []map[string]any
-	Aggregates  map[string]any
-	TotalRows   int
-	GeneratedAt time.Time
+	Report     string
+	Definition string
+	Plan       map[string]any
+	Columns    []string
+	Rows       []map[string]any
+	Aggregates map[string]any
+	TotalRows  int
+	// ExcludedByPermission counts the visible rows a field mask withheld —
+	// nil when no mask applied, exactly like the report envelope it explains.
+	ExcludedByPermission *int
+	GeneratedAt          time.Time
 }
 
 // derivationURL mints the handle for one aggregate row (or, with a nil
@@ -301,119 +301,6 @@ func compileDerivation(spec reportSpec, q derivationQuery) (derivationPlan, erro
 		plan.aggSelects = append(plan.aggSelects, sel)
 	}
 	return plan, nil
-}
-
-// fetchDerivation executes a compiled plan: the drill-through rows and
-// the aggregate recompute run over the identical WHERE side (validated
-// predicates + the caller's row-scope clause) in one transaction.
-func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec reportSpec, plan derivationPlan, out *derivationOutcome) error {
-	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-		var args []any
-		arg := func(v any) int { args = append(args, v); return len(args) }
-
-		where, err := derivationWhere(ctx, spec, plan, arg)
-		if err != nil {
-			return err
-		}
-		whereSQL := strings.Join(where, " AND ")
-
-		rowsSQL, rowsArgs, err := bindInstallationZone(ctx, tx, fmt.Sprintf(
-			"SELECT %s FROM %s WHERE %s ORDER BY t.id LIMIT %d",
-			strings.Join(plan.selects, ", "), spec.fromClause(), whereSQL, reportRowLimit), args)
-		if err != nil {
-			return err
-		}
-		pgRows, err := tx.Query(ctx, rowsSQL, rowsArgs...)
-		if err != nil {
-			return fmt.Errorf("derivation %s rows: %w", report, err)
-		}
-		defer pgRows.Close()
-		out.Rows, err = scanDerivationRows(pgRows, plan.columns)
-		if err != nil {
-			return err
-		}
-		pgRows.Close()
-
-		// Recompute the explained aggregates over the identical row set
-		// (count(*) rides along as the honest total behind the capped
-		// rows slice). Values are read positionally, so a caller alias
-		// cannot shadow the total.
-		aggSQL, aggArgs, err := bindInstallationZone(ctx, tx, fmt.Sprintf(
-			"SELECT count(*), %s FROM %s WHERE %s",
-			strings.Join(plan.aggSelects, ", "), spec.fromClause(), whereSQL), args)
-		if err != nil {
-			return err
-		}
-		values := make([]any, len(plan.aggColumns)+1)
-		ptrs := make([]any, len(values))
-		for i := range values {
-			ptrs[i] = &values[i]
-		}
-		if err := tx.QueryRow(ctx, aggSQL, aggArgs...).Scan(ptrs...); err != nil {
-			return fmt.Errorf("derivation %s aggregates: %w", report, err)
-		}
-		total, ok := values[0].(int64)
-		if !ok {
-			return fmt.Errorf("derivation %s: count(*) returned %T, not int64", report, values[0])
-		}
-		out.TotalRows = int(total)
-		for i, name := range plan.aggColumns {
-			out.Aggregates[name] = wireValue(values[i+1])
-		}
-		return nil
-	})
-}
-
-// derivationWhere renders the drill-through's WHERE side: the report's
-// base predicate, the validated equality predicates ("" = SQL NULL), and
-// the caller's row-scope clause (the activity link-walk when the report
-// rides on activities). The identical clause backs both the rows query
-// and the aggregate recompute, so the explanation can never out-see the
-// number it explains.
-func derivationWhere(ctx context.Context, spec reportSpec, plan derivationPlan, arg func(any) int) ([]string, error) {
-	where := []string{spec.baseWhere}
-	for _, p := range plan.preds {
-		if p.isNull {
-			where = append(where, p.expr+" IS NULL")
-		} else {
-			where = append(where, fmt.Sprintf("%s = $%d", p.expr, arg(p.value)))
-		}
-	}
-	var scope string
-	var err error
-	if spec.activityWalk {
-		scope, err = auth.ActivityContentClause(ctx, "t", arg)
-	} else {
-		scope, err = auth.ScopeClauseFor(ctx, string(spec.entity), "t", arg)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if scope != "" {
-		where = append(where, scope)
-	}
-	return where, nil
-}
-
-// scanDerivationRows materializes the drill-through rows, mapping each
-// column to its wire value positionally.
-func scanDerivationRows(pgRows pgx.Rows, columns []string) ([]map[string]any, error) {
-	var out []map[string]any
-	for pgRows.Next() {
-		values, err := pgRows.Values()
-		if err != nil {
-			return nil, err
-		}
-		row := make(map[string]any, len(columns))
-		for i, col := range columns {
-			row[col] = wireValue(values[i])
-		}
-		out = append(out, row)
-	}
-	if err := pgRows.Err(); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 // boundPredicate is one field = value binding rendered into the

@@ -4608,6 +4608,9 @@
           "derivation_url": {
             "type": "string"
           },
+          "excluded_by_permission": {
+            "type": "integer"
+          },
           "generated_at": {
             "type": "string"
           },

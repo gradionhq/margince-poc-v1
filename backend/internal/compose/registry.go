@@ -293,7 +293,7 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(map[string]any{
+		result := map[string]any{
 			"report":  outcome.Report,
 			"plan":    outcome.Plan,
 			"columns": outcome.Columns,
@@ -304,7 +304,14 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 			"rows":         outcome.Rows,
 			"total_rows":   len(outcome.Rows),
 			"generated_at": outcome.GeneratedAt,
-		})
+		}
+		// A field mask shrank this run's row set: say so, exactly like the
+		// HTTP envelope does — a reduced total with no signal is the
+		// ambiguity the field exists to prevent, and a model acts on it.
+		if outcome.ExcludedByPermission != nil {
+			result["excluded_by_permission"] = *outcome.ExcludedByPermission
+		}
+		return json.Marshal(result)
 	}
 }
 

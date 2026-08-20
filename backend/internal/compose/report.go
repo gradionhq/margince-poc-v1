@@ -319,14 +319,18 @@ func (s reportSpec) fromClause() string {
 // Filters/GroupBy/Aggregates carry the EFFECTIVE plan (defaults applied)
 // so the transport can mint derivation handles for exactly what ran.
 type reportOutcome struct {
-	Report      string
-	Plan        map[string]any
-	Filters     map[string]any
-	GroupBy     []string
-	Aggregates  []reportAggregate
-	Columns     []string
-	Rows        []map[string]any
-	GeneratedAt time.Time
+	Report     string
+	Plan       map[string]any
+	Filters    map[string]any
+	GroupBy    []string
+	Aggregates []reportAggregate
+	Columns    []string
+	Rows       []map[string]any
+	// ExcludedByPermission counts the visible rows a field mask withheld from
+	// this run — nil when no mask applied, so the wire can tell "no masking"
+	// from "masked, none excluded".
+	ExcludedByPermission *int
+	GeneratedAt          time.Time
 }
 
 type reportEngine struct {
@@ -358,13 +362,14 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 		return reportOutcome{}, err
 	}
 
-	rows, err := e.fetchRows(ctx, report, spec, req, groupBy, selects, columns)
+	rows, excluded, err := e.fetchRows(ctx, report, spec, req, groupBy, selects, columns)
 	if err != nil {
 		return reportOutcome{}, err
 	}
 
 	return reportOutcome{
-		Report: report,
+		ExcludedByPermission: excluded,
+		Report:               report,
 		Plan: map[string]any{
 			"object":     string(spec.entity),
 			"filters":    req.Filters,

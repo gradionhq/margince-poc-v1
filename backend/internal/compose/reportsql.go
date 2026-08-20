@@ -31,14 +31,31 @@ const reportRowLimit = 1000
 // fetchRows assembles the WHERE side (validated filters + the caller's
 // row-scope clause), runs the plan inside the workspace-bound
 // transaction, and shapes each row for the wire.
-func (e *reportEngine) fetchRows(ctx context.Context, report string, spec reportSpec, req reportRequest, groupBy, selects, columns []string) ([]map[string]any, error) {
+func (e *reportEngine) fetchRows(ctx context.Context, report string, spec reportSpec, req reportRequest, groupBy, selects, columns []string) ([]map[string]any, *int, error) {
 	var rows []map[string]any
+	var excluded *int
 	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		where, err := buildReportWhere(ctx, spec, req, arg)
 		if err != nil {
 			return err
+		}
+		// Field masks exclude their rows from the whole statement — the
+		// aggregate and the drill-through must keep reading the identical
+		// row set (reportmask.go) — and the withheld count rides the
+		// envelope as excluded_by_permission.
+		maskClauses, masked, err := maskExclusionClauses(ctx, spec, arg)
+		if err != nil {
+			return err
+		}
+		if masked {
+			n, err := countMaskExcluded(ctx, tx, spec, where, maskClauses, args)
+			if err != nil {
+				return err
+			}
+			excluded = &n
+			where = append(where, maskClauses...)
 		}
 		sql, args, err := bindInstallationZone(ctx, tx, reportSQL(spec, selects, where, groupBy), args)
 		if err != nil {
@@ -53,9 +70,9 @@ func (e *reportEngine) fetchRows(ctx context.Context, report string, spec report
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return rows, nil
+	return rows, excluded, nil
 }
 
 // buildReportWhere assembles the WHERE side — the spec's base predicate,

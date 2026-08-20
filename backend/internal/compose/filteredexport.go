@@ -41,6 +41,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -174,13 +175,13 @@ func readRowsByID(ctx context.Context, tx pgx.Tx, table string, columns []string
 	if len(idList) == 0 {
 		return nil, nil
 	}
-	selects := make([]string, len(columns))
-	for i, col := range columns {
-		selects[i] = "t." + col
+	selects, args, err := maskedRowSelects(ctx, tx, table, columns, idList)
+	if err != nil {
+		return nil, err
 	}
 	sql := fmt.Sprintf("SELECT %s FROM %s t WHERE t.id = ANY($1) ORDER BY t.id",
 		strings.Join(selects, ", "), table)
-	pgRows, err := tx.Query(ctx, sql, idList)
+	pgRows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("filtered export read %s: %w", table, err)
 	}
@@ -198,6 +199,67 @@ func readRowsByID(ctx context.Context, tx pgx.Tx, table string, columns []string
 		return nil, err
 	}
 	return out, nil
+}
+
+// maskedRowSelects renders the per-column SELECT list with the caller's
+// field masks applied in the statement itself: an always-masked column goes
+// out NULL on every row, a write-authority-conditioned one only on the rows
+// the caller could not change — the identical decision the deal list makes
+// per row, spelled here once for the export and the filter preview, which
+// otherwise print every column of every visible row.
+func maskedRowSelects(ctx context.Context, tx pgx.Tx, table string, columns []string, idList []ids.UUID) ([]string, []any, error) {
+	args := []any{idList}
+	p, err := storekit.Actor(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	alwaysMasked := map[string]bool{}
+	for _, f := range auth.MaskedFields(p, table, true) {
+		alwaysMasked[f] = true
+	}
+	conditioned := map[string]bool{}
+	for _, f := range auth.MaskedFields(p, table, false) {
+		if !alwaysMasked[f] {
+			conditioned[f] = true
+		}
+	}
+	// Only a conditioned mask naming a REAL column earns the writable-set
+	// bind: a stale mask row naming no column would otherwise register a
+	// parameter no CASE references, which Postgres refuses outright.
+	rendered := false
+	for _, col := range columns {
+		if conditioned[col] {
+			rendered = true
+			break
+		}
+	}
+	writablePos := 0
+	if rendered {
+		writable, err := auth.WritableSubset(ctx, tx, table, idList)
+		if err != nil {
+			return nil, nil, err
+		}
+		writableIDs := make([]ids.UUID, 0, len(writable))
+		for id, ok := range writable {
+			if ok {
+				writableIDs = append(writableIDs, id)
+			}
+		}
+		args = append(args, writableIDs)
+		writablePos = len(args)
+	}
+	selects := make([]string, len(columns))
+	for i, col := range columns {
+		switch {
+		case alwaysMasked[col]:
+			selects[i] = fmt.Sprintf("NULL AS %s", col)
+		case conditioned[col]:
+			selects[i] = fmt.Sprintf("CASE WHEN t.id = ANY($%d) THEN t.%s END AS %s", writablePos, col, col)
+		default:
+			selects[i] = "t." + col
+		}
+	}
+	return selects, args, nil
 }
 
 // renderExport renders one member as the requested open format, reusing the

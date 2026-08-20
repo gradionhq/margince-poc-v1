@@ -80,3 +80,26 @@ func TestARepReadsEveryDealButNotAnotherTeamsAmount(t *testing.T) {
 		t.Errorf("the admin's read = amount %v masked %v (%v), want the amount", full.AmountMinor, full.MaskedFields, err)
 	}
 }
+
+// The list surface's twin of the report case: a rep whose role lost
+// deal.update owns write authority over NO row, so the mask holds on their
+// own deal too — revoking a verb must never widen what a role reads.
+func TestARevokedUpdateVerbMasksTheRepsOwnAmount(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	mine := e.SeedDeal(t, "Mine", pipeline, open, &e.Rep1)
+	e.WsExec(t, `UPDATE deal SET amount_minor = $2, currency = 'EUR' WHERE id = $1`, mine, int64(250000))
+
+	perms := activityLifecyclePerms
+	perms.Objects = map[string]principal.ObjectGrant{"deal": {Read: true}, "pipeline": {Read: true}}
+	perms.FieldMasks = []principal.FieldMask{{Object: "deal", Field: "amount_minor", Condition: principal.MaskOutsideWriteAuthority}}
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, perms)
+
+	got, err := e.Deals.GetDeal(rep, ids.From[ids.DealKind](mine), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AmountMinor != nil || got.MaskedFields == nil {
+		t.Errorf("own deal without the update verb = amount %v masked %v, want the amount withheld", got.AmountMinor, got.MaskedFields)
+	}
+}
