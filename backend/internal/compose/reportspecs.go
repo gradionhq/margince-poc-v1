@@ -52,7 +52,11 @@ var prebuiltReports = map[string]reportSpec{
 			fieldPipelineID: colPipelineID,
 			fieldCurrency:   colCurrency,
 		},
-		defaultBy: []string{fieldOrganizationID},
+		// The company a deal points at is row-scoped and masked on a normal
+		// deal read, so grouping by it carries the same obligation the partner
+		// dimension does.
+		referenceScopes: map[string]string{colOrganizationID: tableOrganization},
+		defaultBy:       []string{fieldOrganizationID},
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: "open_deals"},
 		},
