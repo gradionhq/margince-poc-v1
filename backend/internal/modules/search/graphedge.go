@@ -226,7 +226,7 @@ func recomputePairs(ctx context.Context, tx pgx.Tx, pairs []pair) error {
 		        ON pp.activity_id = up.activity_id
 		       AND pp.person_id = t.person_id AND pp.role IN `+interactionRoles+`
 		      JOIN activity a
-		        ON a.id = up.activity_id AND a.archived_at IS NULL
+		        ON a.id = up.activity_id AND a.archived_at IS NULL`+audienceWorkspaceOnly+`
 		     GROUP BY t.user_id, t.person_id
 		)
 		INSERT INTO graph_interaction_edge AS e
@@ -260,7 +260,7 @@ func recomputePairs(ctx context.Context, tx pgx.Tx, pairs []pair) error {
 		       SELECT 1
 		         FROM activity_participant up
 		         JOIN activity_participant pp ON pp.activity_id = up.activity_id
-		         JOIN activity a ON a.id = up.activity_id AND a.archived_at IS NULL
+		         JOIN activity a ON a.id = up.activity_id AND a.archived_at IS NULL`+audienceWorkspaceOnly+`
 		        WHERE up.user_id = t.user_id AND up.role IN `+interactionRoles+`
 		          AND pp.person_id = t.person_id AND pp.role IN `+interactionRoles+`)`,
 		users, people); err != nil {
@@ -268,6 +268,15 @@ func recomputePairs(ctx context.Context, tx pgx.Tx, pairs []pair) error {
 	}
 	return nil
 }
+
+// audienceWorkspaceOnly is the projection's audience rule, spelled once for
+// the fold, the prune and the rebuild: a limited message (audience
+// participants|selected) contributes NOTHING to the global projection — its
+// participants and timings are content (auth's activity gates), and an edge
+// readable by everyone would disclose who talked to whom and when. The
+// graph-edge consumer already refolds on activity.updated, which is the event
+// a Limit emits, so an edge whose last evidence is limited is re-folded away.
+const audienceWorkspaceOnly = ` AND a.audience = 'workspace'`
 
 // liveMemberJoin is the ONE spelling of "someone who still works here" for
 // these reads, and both halves are load-bearing: deactivation sets status and
@@ -417,7 +426,7 @@ func RebuildEdges(ctx context.Context, tx pgx.Tx) error {
 		       now()
 		  FROM activity_participant up
 		  JOIN activity_participant pp ON pp.activity_id = up.activity_id
-		  JOIN activity a ON a.id = up.activity_id AND a.archived_at IS NULL
+		  JOIN activity a ON a.id = up.activity_id AND a.archived_at IS NULL`+audienceWorkspaceOnly+`
 		 WHERE up.user_id IS NOT NULL AND up.role IN `+interactionRoles+`
 		   AND pp.person_id IS NOT NULL AND pp.role IN `+interactionRoles+`
 		 GROUP BY up.user_id, pp.person_id`); err != nil {

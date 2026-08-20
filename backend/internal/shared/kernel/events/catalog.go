@@ -391,6 +391,14 @@ func Groups() []Group {
 		// rebuild must not be able to stall embedding freshness, and the two
 		// have unrelated failure modes.
 		{Name: "cg:graph-edge", Streams: forEntities(activityStreamEntity, personStreamEntity)},
+		// The audience-change corrector: when a human LIMITS a message after
+		// the derived models were built, the derived signals citing it narrow
+		// and the thread's scan watermark drops so the next extraction pass
+		// re-reads under the new audience. Its own group rather than a second
+		// handler on cg:graph-edge for the same isolation reason: re-scoping
+		// signals must not be able to stall the edge projection, and vice
+		// versa.
+		{Name: "cg:audience-rescope", Streams: forEntities(activityStreamEntity)},
 		// The LinkedIn ghost matcher (ADR-0078 §8b). Its own group rather than
 		// a second handler on cg:graph-edge: that consumer lives in the search
 		// module and this call belongs to people, and a module never reaches

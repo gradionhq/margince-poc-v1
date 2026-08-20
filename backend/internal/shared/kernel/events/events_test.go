@@ -147,6 +147,10 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 		// edge, person events (merge, archive, restore) move every edge to
 		// that contact.
 		"cg:graph-edge": {"gw:events:crm:activity", "gw:events:crm:person"},
+		// The audience-change corrector: an activity.updated carrying an
+		// audience narrows the derived signals citing the message and drops
+		// the thread's scan watermark.
+		"cg:audience-rescope": {"gw:events:crm:activity"},
 		// The LinkedIn ghost matcher (ADR-0078 §8b): a contact appearing is a
 		// chance to attach a ghost, and so is an account appearing — employer
 		// resolution is what most unmatched ghosts are waiting on.

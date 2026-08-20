@@ -366,6 +366,14 @@ func startProjectionLanes(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Cl
 	_, _ = fmt.Fprintln(stdout, "worker maintaining interaction edges")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:graph-edge", edges.HandleEvent, logger, 0) })
 
+	// The audience-change corrector: a Limit on an already-summarised message
+	// narrows the derived signals citing it and makes the thread due for a
+	// re-read, so yesterday's workspace-visible summary follows today's
+	// audience. Deterministic like the edge projection, so it runs everywhere.
+	rescope := compose.NewAudienceRescopeGen(pool)
+	_, _ = fmt.Fprintln(stdout, "worker re-scoping derived models on audience changes")
+	background.Go(func() { runSubscriber(ctx, rdb, "cg:audience-rescope", rescope.HandleEvent, logger, 0) })
+
 	// The LinkedIn ghost matcher (ADR-0078 §8b): a ghost attaches the moment
 	// its contact exists, whoever created them. Deterministic like the edge
 	// projection above, so it runs on every worker.
