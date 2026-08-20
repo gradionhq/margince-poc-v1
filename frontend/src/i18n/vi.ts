@@ -2123,6 +2123,7 @@ export const vi = {
 
   "settings.identity": "Hồ sơ",
   "settings.preferences": "Tùy chọn",
+  "settings.saved": "Đã lưu.",
   "settings.signature": "Chữ ký email",
   "settings.signatureSub":
     "Được thêm dưới mỗi thư bạn gửi, phía trên phần hủy đăng ký.",

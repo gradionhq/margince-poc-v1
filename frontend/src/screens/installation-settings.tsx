@@ -19,6 +19,7 @@ import {
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { ToastRegion, useToast } from "../design-system/toast";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
 
@@ -51,7 +52,7 @@ import { problemMessage, QueryGate } from "./common";
 type InstallationSettings = components["schemas"]["InstallationSettings"];
 type Patch = components["schemas"]["UpdateInstallationSettingsRequest"];
 
-function useUpdateInstallationSettings() {
+function useUpdateInstallationSettings(onSaved: () => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (patch: Patch) => {
@@ -65,6 +66,7 @@ function useUpdateInstallationSettings() {
     },
     onSuccess: (data) => {
       queryClient.setQueryData(INSTALLATION_SETTINGS_KEY, data);
+      onSaved();
     },
     // A refused patch can still have committed nothing OR something: the
     // server applies the fields in one transaction, but a validation refusal
@@ -100,7 +102,15 @@ function InstallationSettingsForm({
   canManage: boolean;
 }) {
   const t = useT();
-  const update = useUpdateInstallationSettings();
+  const toast = useToast();
+  // The save's only visible answer was the button going disabled, because the
+  // draft now matched the server. A control losing its affordance reads as the
+  // form having given up, not as the write having landed — and on this form the
+  // patch is SPARSE, so an operator who changed one field of three had no way to
+  // tell which of them the installation now holds.
+  const update = useUpdateInstallationSettings(() =>
+    toast.show(t("settings.saved")),
+  );
   const [draft, setDraft] = useState(settings);
   const seeded = useRef(serverSignature(settings));
 
@@ -255,6 +265,7 @@ function InstallationSettingsForm({
                 : t("common.error")}
             </Callout>
           ) : null}
+          <ToastRegion toast={toast} />
         </PanelBody>
       </Panel>
     </form>

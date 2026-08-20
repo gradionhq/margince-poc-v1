@@ -2145,6 +2145,7 @@ export const de = {
 
   "settings.identity": "Profil",
   "settings.preferences": "Voreinstellungen",
+  "settings.saved": "Gespeichert.",
   "settings.signature": "E-Mail-Signatur",
   "settings.signatureSub":
     "Steht unter jeder Nachricht, die Sie senden — über dem Abmelde-Hinweis.",

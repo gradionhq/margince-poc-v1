@@ -42,6 +42,7 @@ import { type ListChip, ListSurface } from "../design-system/listsurface";
 import type { ListColumn } from "../design-system/listtable";
 import { FieldGuard } from "../design-system/rbac";
 import { Select } from "../design-system/select";
+import { ToastRegion, useToast } from "../design-system/toast";
 import { AutonomyDot, ProvenanceTag } from "../design-system/trust";
 import {
   formatDate,
@@ -822,7 +823,7 @@ export function DealsScreen({
   );
   const [pending, setPending] = useState<PendingAdvance | null>(null);
   const [lostReason, setLostReason] = useState("");
-  const [toast, setToast] = useState<string | null>(null);
+  const toast = useToast();
   const dragging = useRef<string | null>(null);
   const lastDragEnd = useRef(0);
 
@@ -859,8 +860,7 @@ export function DealsScreen({
     },
     onSuccess: (_deal, input) => {
       queryClient.invalidateQueries({ queryKey: ["deals"] });
-      setToast(t("deals.advanced", { stage: input.toStage.name }));
-      setTimeout(() => setToast(null), 3500);
+      toast.show(t("deals.advanced", { stage: input.toStage.name }));
     },
   });
 
@@ -1192,14 +1192,7 @@ export function DealsScreen({
           {problemMessageOf(advance.error, t)}
         </p>
       )}
-      {toast && (
-        <div className="toast-region">
-          <output className="toast">
-            <span className="dot dot-auto" />
-            {toast}
-          </output>
-        </div>
-      )}
+      <ToastRegion toast={toast} />
       <Modal
         open={pending !== null}
         onClose={() => setPending(null)}

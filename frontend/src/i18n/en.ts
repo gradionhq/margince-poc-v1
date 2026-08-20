@@ -2139,6 +2139,7 @@ export const en = {
 
   "settings.identity": "Profile",
   "settings.preferences": "Preferences",
+  "settings.saved": "Saved.",
   "settings.signature": "Email signature",
   "settings.signatureSub":
     "Appended below every message you send, above the unsubscribe footer.",

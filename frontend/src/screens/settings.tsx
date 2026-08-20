@@ -58,6 +58,7 @@ import { Panel, PanelBody, PanelPlate, PanelRow } from "../design-system/panel";
 import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import { Select } from "../design-system/select";
+import { ToastRegion, useToast } from "../design-system/toast";
 import {
   AutonomyDot,
   EvidenceChip,
@@ -142,8 +143,8 @@ import "./settings.css";
 // than stubbed (STATE-5). The entry is selected by the route id
 // (#/settings/<id>), so it is linkable and the palette can deep-link one.
 //
-// Thirteen, and it used to be fifteen tabs plus nine routes outside them. What
-// collapsed and why: two surfaces both called "Capture" became one; the
+// It used to be fifteen tabs plus nine routes outside them. What collapsed and
+// why: two surfaces both called "Capture" became one; the
 // installation and the company profile were always the same organization;
 // currency rates joined the base currency they convert to while model prices
 // joined the AI runtime they price; user administration and extension
@@ -193,7 +194,13 @@ import "./settings.css";
 // column, the control constrains itself (`.settings-intrinsic`, and each
 // surface's own field widths) — that is a property of the control, which knows
 // how wide it wants to be, not of the page, which does not.
-const SETTINGS_TABS = [
+// Exported for the nav suite, which derives its expected label list from THIS
+// register rather than restating it. A restated list is a second source of truth
+// that nothing updates: the copy in the test omitted `license` for as long as
+// that entry existed, so a fully wired fourteenth tab — register, predicate,
+// content, sidebar deep link, two locales — was invisible to every assertion in
+// the file, including the two that claim to check the whole level.
+export const SETTINGS_TABS = [
   { id: "account", icon: UserRound, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
   { id: "agents", icon: KeyRound, group: "you" },
@@ -788,6 +795,7 @@ function IdentityCard() {
 function EmailSignatureCard() {
   const t = useT();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [body, setBody] = useState<string | null>(null);
   const signature = useQuery({
     queryKey: ["me-email-signature"],
@@ -816,6 +824,11 @@ function EmailSignatureCard() {
       // save a difference that exists only in the browser.
       setBody(saved?.body ?? "");
       queryClient.invalidateQueries({ queryKey: ["me-email-signature"] });
+      // The save had no visible answer at all: the button went disabled because
+      // the draft now matched the server, and that was the whole signal — a
+      // control losing its affordance, which reads as the form having given up
+      // rather than as the write having landed. Only failure spoke.
+      toast.show(t("settings.saved"));
     },
   });
 
@@ -853,6 +866,7 @@ function EmailSignatureCard() {
           )}
         </Field>
         <p className="t-caption">{t("settings.signatureHint")}</p>
+        <ToastRegion toast={toast} />
         {save.isError && (
           <Callout tone="danger" live="alert">
             {problemMessageOf(save.error, t)}

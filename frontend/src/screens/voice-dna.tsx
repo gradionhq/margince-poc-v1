@@ -6,6 +6,7 @@ import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
 import { Badge, Button, EmptyState, Textarea } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
+import { ToastRegion, useToast } from "../design-system/toast";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { VoiceCorpusIntake } from "./voice-corpus-settings";
@@ -294,6 +295,7 @@ function PersonalityEditor({
   const t = useT();
   const [text, setText] = useState(profile.personality_md);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const save = useMutation({
     mutationFn: async () => {
       const { error: err } = await api.PATCH("/voice-profiles/{id}", {
@@ -310,6 +312,10 @@ function PersonalityEditor({
     onSuccess: () => {
       setError(null);
       onSaved();
+      // The voice a member writes for their own mail is the one save on this
+      // page a reader most wants confirmed, and it said nothing: the button
+      // simply stopped being pressable once the draft matched the server.
+      toast.show(t("settings.saved"));
     },
     onError: reportFailure(setError, t),
   });
@@ -341,6 +347,7 @@ function PersonalityEditor({
               {error}
             </span>
           )}
+          <ToastRegion toast={toast} />
         </div>
       )}
     </div>

@@ -16,8 +16,14 @@ import { type GrantSpec, meFixture } from "../app/mefixture";
 import { SettingsRail } from "../app/shell";
 import { pickOption } from "../design-system/select-testing";
 import { LOCALES, LocaleProvider, localeNameKey, translate } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { companyContextCapabilitiesQueryKey } from "./company-context";
-import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
+import {
+  AuditLogCard,
+  PipelinesCard,
+  SETTINGS_TABS,
+  SettingsScreen,
+} from "./settings";
 
 // The Organization tab group is composed from its MEMBERS, and OPENING AN ENTRY
 // IS A READ: every predicate asks for a read grant on something the entry shows,
@@ -843,40 +849,44 @@ function navGroupTabs(heading: HTMLElement): string[] {
     .map((link) => link.textContent ?? "");
 }
 
-// The personal group, which no grant gates — every case below opens with exactly
-// these four, and the assertions differ only in what follows them. `agents` is
-// among them because the passports it carries are the PERSON's to lend, so gating
-// it would regress passport minting for every seat that is not an admin; and
-// `connections` because a mailbox and a LinkedIn network nobody else can see are
-// that person's, not the installation's configuration.
-const PERSONAL_TABS = [
-  "Account",
-  "Writing voice",
-  "Agents",
-  "Connections",
-  // What those connections DID. Personal like the rest of this group and
-  // ungated for the same reason: it answers only for the caller's own traffic.
-  "Capture activity",
-];
+// The expected labels, DERIVED from the register rather than restated beside it.
+//
+// This is the fix for a live hole rather than a tidy-up. The restated lists this
+// replaces omitted `license` — a fourteenth entry with a register row, a
+// predicate, a content component, labels in two locales and a deep link from the
+// sidebar's seat meter — so every assertion in this file, including the two that
+// claim to walk the whole level, was checking thirteen of fourteen entries and
+// passing. A list of labels beside a list of entries is a second source of
+// truth, and nothing updates it.
+//
+// `agents` and `connections` are in the personal group because what they carry
+// is the PERSON's: gating `agents` would regress passport minting for every seat
+// that is not an admin, and a mailbox and a LinkedIn network nobody else can see
+// are not the installation's configuration.
+const labelOf = (id: string) =>
+  translate("en", `settings.tab.${id}` as MessageKey);
+const tabsIn = (group: "you" | "org") =>
+  SETTINGS_TABS.filter((entry) => entry.group === group).map((entry) =>
+    labelOf(entry.id),
+  );
 
-// The eight Organization entries, in the order they are declared.
-const ORG_TABS = [
-  "General",
-  "People & access",
-  "Integrations",
-  "Capture",
-  "Data model",
-  "AI",
-  "Privacy & audit",
-  "Maintenance",
-];
-
+const PERSONAL_TABS = tabsIn("you");
+const ORG_TABS = tabsIn("org");
 const EVERY_TAB = [...PERSONAL_TABS, ...ORG_TABS];
 
-// Maintenance is declared last, so "every entry but Maintenance" is this list
-// without its tail — the eleven a principal holding the seeded reads and no
-// admin role reaches.
-const EVERY_TAB_BUT_MAINTENANCE = EVERY_TAB.slice(0, -1);
+// What a seat holding the seeded reads and no admin role reaches: everything
+// except the two entries that ask for a grant only admin and ops hold — the
+// reindex read behind Maintenance, and `license:read` behind License (core
+// migration 0261 grants it to admin and ops, and to nobody else).
+//
+// Named rather than sliced. The old form took the tail off the list and called
+// it "every entry but Maintenance", which was true only while Maintenance was
+// declared last — and the moment License landed beside it, the same slice
+// silently claimed a read seat could reach the licensing page.
+const ADMIN_ONLY_TABS = [labelOf("license"), labelOf("maintenance")];
+const SEAT_READ_TABS = EVERY_TAB.filter(
+  (tab) => !ADMIN_ONLY_TABS.includes(tab),
+);
 
 // What mere membership buys: the ONE Organization entry with no grant to ask for.
 // No RBAC object describes identity administration and none can, and `GET /users`
@@ -899,7 +909,9 @@ const MEMBER_TABS_WITH_MAINTENANCE = [
 ];
 
 // Every entry open at once: the admin role for Maintenance, and one read apiece
-// for the five that follow an object.
+// for the entries that follow an object. `license` belongs here for the same
+// reason as the rest — it was the omission that made the whole-level assertions
+// pass against thirteen of fourteen entries.
 const EVERY_TAB_GRANTED: GrantSpec = {
   person: ["read"],
   installation_settings: ["read"],
@@ -907,6 +919,7 @@ const EVERY_TAB_GRANTED: GrantSpec = {
   capture_settings: ["read"],
   custom_field: ["read"],
   automation: ["read"],
+  license: ["read"],
 };
 
 // The read grant on ONE object, as a GrantSpec.
@@ -954,14 +967,18 @@ const SEEDED_READS: GrantSpec = {
   webhook_subscription: ["read"],
 };
 
-// What the matrix adds for ops, the four objects it shares with admin alone —
-// and `embedding_reindex` among them is what opens the twelfth entry.
+// What the matrix adds for ops: the objects it shares with admin alone.
+// `embedding_reindex` among them is what opens Maintenance, and `license` — which
+// core migration 0261 grants to admin and ops and to nobody else — is what opens
+// License. That last one was missing here, which is why an ops seat's licensing
+// page had no test at all.
 const SEEDED_OPS_READS: GrantSpec = {
   ...SEEDED_READS,
   ai_model_rate: ["read"],
   embedding_reindex: ["read"],
   fx_rate: ["read"],
   retention_policy: ["read"],
+  license: ["read"],
 };
 
 describe("SettingsScreen Organization group", () => {
@@ -971,7 +988,7 @@ describe("SettingsScreen Organization group", () => {
   // inside each entry gate themselves, so no case below needs a write to reach a
   // page and none of them proves anything by granting one.
 
-  it("renders the thirteen entries in their declared order, split across the two groups", async () => {
+  it("renders every entry in its declared order, split across the two groups", async () => {
     vi.stubGlobal(
       "fetch",
       orgNavBackend({ roles: ["admin"], allow: EVERY_TAB_GRANTED }),
@@ -1133,7 +1150,7 @@ describe("SettingsScreen Organization group", () => {
   // The licensing seat is named here too, and must not narrow the level either: a
   // read seat READS every page behind these entries, and the server clamps it on
   // the write.
-  it("reaches every entry but Maintenance for a read_only role on a read seat", async () => {
+  it("reaches every entry a read seat is granted, and neither admin-only one", async () => {
     vi.stubGlobal(
       "fetch",
       orgNavBackend({
@@ -1143,7 +1160,7 @@ describe("SettingsScreen Organization group", () => {
       }),
     );
     renderNav();
-    await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB_BUT_MAINTENANCE));
+    await waitFor(() => expect(navTabs()).toEqual(SEAT_READ_TABS));
   });
 
   it.each(["manager", "rep"] as const)(
@@ -1154,15 +1171,15 @@ describe("SettingsScreen Organization group", () => {
         orgNavBackend({ roles: [role], allow: SEEDED_READS }),
       );
       renderNav();
-      await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB_BUT_MAINTENANCE));
+      await waitFor(() => expect(navTabs()).toEqual(SEAT_READ_TABS));
     },
   );
 
-  it("reaches all thirteen entries for a seeded ops, whose reindex read opens Maintenance", async () => {
-    // Maintenance is the one entry that genuinely narrows, and it narrows to
-    // admin/ops rather than to admin: ops holds the reindex read, so the entry
-    // opens on the grant and not on a role name — which is what lets an edited
-    // role holding the same read reach it too.
+  it("reaches every entry for a seeded ops, whose reindex and licence reads open the last two", async () => {
+    // The two entries that genuinely narrow, and they narrow to admin/ops rather
+    // than to admin: ops holds both the reindex read and `license:read`, so each
+    // opens on its grant and not on a role name — which is what lets an edited
+    // role holding the same read reach them too.
     vi.stubGlobal(
       "fetch",
       orgNavBackend({ roles: ["ops"], allow: SEEDED_OPS_READS }),
