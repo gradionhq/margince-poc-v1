@@ -210,7 +210,26 @@ func (h Handlers) ApplyTag(w http.ResponseWriter, r *http.Request, id crmcontrac
 	httperr.WriteJSON(w, http.StatusCreated, wireTaggable(applied))
 }
 
-// GetFilterVocabulary answers what a filter may say about one record type.
+// RemoveTag is applyTag's undo, and the reason it exists is that archiveTag is
+// not one: retiring a tag for the whole workspace to correct one mistaken
+// tagging is a wider act than the mistake.
+//
+// Same posture as ApplyTag above: the polymorphic target stays untyped and the
+// store gates it, and the entity_type vocabulary is the store's refusal to
+// make, after its own auth gate.
+func (h Handlers) RemoveTag(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	var req crmcontracts.ApplyTagRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	if err := h.store.RemoveTag(r.Context(), pathID[ids.TagKind](id), string(req.EntityType), ids.UUID(req.EntityId)); err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetFilterVocabulary answers what a filter may say about one record type.// GetFilterVocabulary answers what a filter may say about one record type.
 //
 // The generated wrapper binds `resource` as a plain string and never calls the
 // Valid() it also generates, so an unknown value arrives here rather than being
