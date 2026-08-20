@@ -150,7 +150,10 @@ func jsonValue(v any) any {
 	}
 }
 
-// csvCell renders a driver value as a single CSV field.
+// csvCell renders a driver value as a single CSV field. Free-text cells pass
+// through guardCSVFormula so a stored value like `=HYPERLINK(...)` exports as
+// literal text rather than a live formula; the typed branches (ids, timestamps,
+// numbers, bools) are system-rendered and carry no injection surface.
 //
 //craft:ignore naked-any a driver row value spans every SQL type the exported tables carry; the switch narrows each
 func csvCell(v any) string {
@@ -160,9 +163,9 @@ func csvCell(v any) string {
 	case [16]byte:
 		return ids.UUID(t).String()
 	case []byte:
-		return string(t)
+		return guardCSVFormula(string(t))
 	case string:
-		return t
+		return guardCSVFormula(t)
 	case time.Time:
 		return t.UTC().Format(time.RFC3339Nano)
 	case bool:
@@ -170,6 +173,24 @@ func csvCell(v any) string {
 	default:
 		return fmt.Sprint(t)
 	}
+}
+
+// guardCSVFormula defuses CSV/formula injection (OWASP): a spreadsheet opening
+// an exported CSV auto-evaluates any cell whose first character is a formula
+// lead (= + - @ TAB CR), so a text value beginning with one is prefixed with a
+// single quote to force the cell to be read as the literal text the record
+// holds. encoding/csv only quotes for delimiters and never neutralizes this.
+// Scoped to csvCell's text branches on purpose — a typed negative number must
+// keep its sign, not gain a spurious quote.
+func guardCSVFormula(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
 }
 
 // bundleManifest describes the bundle: format, provenance, the members
