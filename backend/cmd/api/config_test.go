@@ -184,3 +184,23 @@ func TestOneFaultIsNotRenderedAsAList(t *testing.T) {
 		t.Errorf("a single fault was rendered as a bullet list:\n%s", err)
 	}
 }
+
+// A fault found while REGISTERING the flags joins the ones found after
+// parsing, instead of pre-empting them.
+//
+// A malformed duration in the environment used to return before the flag set
+// even existed, so it hid a missing DSN for a boot — the same one-fault-per-run
+// this collection exists to end, reintroduced by ordering.
+func TestAMalformedEnvDurationIsReportedBesideTheOtherFaults(t *testing.T) {
+	t.Setenv("MARGINCE_DSN", "")
+	t.Setenv(oauthAccessTokenTTLEnv, "not-a-duration")
+	_, err := parseAPIFlags(nil)
+	if err == nil {
+		t.Fatal("parsing answered no error, want both faults")
+	}
+	for _, want := range []string{"--dsn", oauthAccessTokenTTLEnv} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %s:\n%s", want, err)
+		}
+	}
+}
