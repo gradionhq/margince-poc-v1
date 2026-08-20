@@ -221,9 +221,9 @@ func (w *siteDeepReadWorker) settleTriage(ctx context.Context, args SiteDeepRead
 	claim := people.SiteReadClaim{OrganizationID: &res.OrganizationID.UUID, SeedURL: payload.SeedURL}
 	// The logo, on the same terms as every other company (A55): a 🟢 display
 	// asset read off the seed page's own markup. Nothing else would ever give
-	// these organizations one — the auto-enrich sweep only offers rows with
-	// name_source='domain' and no finished read, and a triage company has
-	// neither — so skipping it here means faceless forever.
+	// these organizations one — the auto-enrich sweep only offers rows with no
+	// finished read, and a triage company already has one — so skipping it here
+	// means faceless forever.
 	w.resolveLogo(ctx, args, claim, payload.Crawl)
 	// One verdict, one bundle, one transaction: the people this triage published
 	// were all asked about by the same act, and reach the inbox as one question.

@@ -12544,8 +12544,9 @@ type CaptureExclusionScope string
 // CaptureSettings The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
 // changed only by admin/ops.
 type CaptureSettings struct {
-	// AutoEnrich When true, every surviving auto-created organization gets a governed web deep-read
-	// under a daily spend cap. Default is ON (the testing posture).
+	// AutoEnrich When true, every organization with a primary domain and no dossier gets a governed
+	// web deep-read under a daily spend cap — however it was named. The anchor is
+	// excluded (cold start reads it). Default is ON (the testing posture).
 	AutoEnrich bool `json:"auto_enrich"`
 
 	// MailSharing The workspace's mail-sharing posture, ON by default: a captured email is readable by
