@@ -713,6 +713,8 @@ describe("DealsScreen", () => {
 
     await user.click(screen.getByRole("button", { name: "Archive" }));
     expect(deleted).toBe(0);
+    // One deal reads as one deal, not "1 deals".
+    expect(screen.getByText("Archive this deal?")).toBeTruthy();
 
     // The dialog's own Archive button, not the bar's.
     const dialog = screen.getByRole("dialog");

@@ -1560,9 +1560,10 @@ export const en = {
   "deals.bulkStagePick": "Pick a stage",
   "deals.bulkMove": "Move",
   "deals.bulkArchive": "Archive",
-  "deals.bulkArchiveConfirmTitle": "Archive {count} deals?",
+  "deals.bulkArchiveConfirmTitle.one": "Archive this deal?",
+  "deals.bulkArchiveConfirmTitle.other": "Archive {count} deals?",
   "deals.bulkArchiveConfirmBody":
-    "They leave every list and report. Restoring one is done from the deal itself, one at a time.",
+    "They leave every list and report, and there is no way to bring one back from here yet.",
   "deals.bulkFailed": "{count} not applied —",
   "deals.bulkFailedRow": "could not be saved",
 
