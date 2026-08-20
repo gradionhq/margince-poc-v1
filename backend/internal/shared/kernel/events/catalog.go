@@ -211,6 +211,12 @@ var catalog = map[string]struct {
 	"project.updated":       {dealStreamEntity, 1},
 	"project.phase_changed": {dealStreamEntity, 1},
 	"project.archived":      {dealStreamEntity, 1},
+	// A commission entry rides the deal family stream for the same reason a
+	// contract does: it is what a WON deal produced, and a consumer following
+	// the commercial arc of one deal wants the money that came out of it on
+	// the same stream as the win that caused it.
+	"commission.accrued": {dealStreamEntity, 1},
+	"commission.decided": {dealStreamEntity, 1},
 	// A contract rides the deal family stream too: it is what a won deal
 	// points at, and a consumer following the commercial arc wants both.
 	"contract.created":        {dealStreamEntity, 1},
@@ -408,6 +414,13 @@ func Groups() []Group {
 		// account appearing, because employer resolution is what most ghosts
 		// are waiting on.
 		{Name: "cg:linkedin-match", Streams: forEntities(personStreamEntity, organizationStreamEntity)},
+		// Turning a won deal into what its partner earned. Its own group
+		// because accrual is money: a projection rebuild or an embedding
+		// backlog must never be able to stall it, and a failure to accrue must
+		// never look like a failure to index. It listens on the deal stream,
+		// where deal.stage_changed carries both the win and the reopen that
+		// reverses one.
+		{Name: "cg:commissions", Streams: forEntities(dealStreamEntity)},
 		// Filling a contact from what their employer's site already published
 		// (ADR-0072 arc). Its own group for the same reason as the matcher
 		// above: the deep read fills a published person DURING the crawl, so

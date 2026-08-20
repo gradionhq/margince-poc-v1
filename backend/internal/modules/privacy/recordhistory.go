@@ -54,6 +54,8 @@ var recordHistoryVerbs = map[string]string{ // #nosec G101 -- audit verbs and th
 	"advance_stage":    "advanced the stage of",
 	"advance_phase":    "advanced the phase of",
 	"approve":          "approved",
+	"accrue":           "accrued commission on",
+	"pay":              "paid",
 	"reject":           "rejected",
 	"consent_grant":    "granted consent for",
 	"consent_withdraw": "withdrew consent for",

@@ -19,17 +19,18 @@ import (
 // withheld (fieldmask.go). They are wire names, which is why they are not the
 // column constants they happen to match today.
 const (
-	filterOrganizationID = "organization_id"
-	filterOwnerID        = "owner_id"
-	filterPartnerOrgID   = "partner_org_id"
-	filterPartnerSourced = "partner_sourced"
-	filterPipelineID     = "pipeline_id"
-	filterProjectID      = "project_id"
-	filterStageID        = "stage_id"
-	filterStalled        = "stalled"
-	filterStatus         = "status"
-	filterKey            = "key"
-	filterPhase          = "phase"
+	filterOrganizationID     = "organization_id"
+	filterOwnerID            = "owner_id"
+	filterPartnerOrgID       = "partner_org_id"
+	filterPartnerAttribution = "partner_attribution"
+	filterPartnerSourced     = "partner_sourced"
+	filterPipelineID         = "pipeline_id"
+	filterProjectID          = "project_id"
+	filterStageID            = "stage_id"
+	filterStalled            = "stalled"
+	filterStatus             = "status"
+	filterKey                = "key"
+	filterPhase              = "phase"
 )
 
 var dealListFilters = storekit.FilterSet[ListDealsInput]{
@@ -38,6 +39,8 @@ var dealListFilters = storekit.FilterSet[ListDealsInput]{
 	filterOwnerID: storekit.FilterID(func(in *ListDealsInput, id *ids.UserID) { in.OwnerID = id }),
 	filterPartnerOrgID: storekit.FilterID(
 		func(in *ListDealsInput, id *ids.OrganizationID) { in.PartnerOrgID = id }),
+	filterPartnerAttribution: storekit.FilterWord(
+		func(in *ListDealsInput, v *string) { in.PartnerAttribution = v }),
 	filterPartnerSourced: storekit.FilterFlag(func(in *ListDealsInput, v *bool) { in.PartnerSourced = v }),
 	filterPipelineID:     storekit.FilterID(func(in *ListDealsInput, id *ids.PipelineID) { in.PipelineID = id }),
 	filterProjectID:      storekit.FilterID(func(in *ListDealsInput, id *ids.ProjectID) { in.ProjectID = id }),

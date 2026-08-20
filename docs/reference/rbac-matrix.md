@@ -67,6 +67,7 @@ the workspace but changes none of them.
 | `capture_settings` | CRU- | CR-- | CR-- | CR-- | -R-- | CRU- |
 | `capture_trace` | -R-- | -R-- | -R-- | ---- | ---- | -R-- |
 | `channel_connection` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
+| `commission` | CRUD | CRUD | CRUD | -R-- | -R-- | CRUD |
 | `computed_field` | -R-- | -R-- | -R-- | -R-- | -R-- | -R-- |
 | `contract` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `custom_field` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |

@@ -175,3 +175,13 @@ func (ContractKind) kind() string { return "contract" }
 
 // ContractID names one contract row — an agreement an account has signed.
 type ContractID = ID[ContractKind]
+
+// CommissionEntryKind is the commission-ledger entity tag. Declared
+// out-of-line for the reason given above OfferTemplateKind.
+type CommissionEntryKind struct{}
+
+func (CommissionEntryKind) kind() string { return "commission_entry" }
+
+// CommissionEntryID names one commission_entry row — what one partner earned
+// on one won deal.
+type CommissionEntryID = ID[CommissionEntryKind]

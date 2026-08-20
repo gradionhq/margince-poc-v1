@@ -2689,6 +2689,107 @@ paths:
                   data: { type: array, items: { $ref: '#/components/schemas/Partner' } }
                   page: { $ref: '#/components/schemas/PageInfo' }
 
+  # --------------------------- /commissions ---------------------------------
+  /commissions:
+    get:
+      tags: [Commissions]
+      operationId: listCommissionEntries
+      summary: The commission ledger — what partners earned on won deals.
+      description: |
+        Accrued automatically when a deal attributed `sourced` is won, at the partner's
+        margin tier as it stood that day. A clawback is a reversal row plus a void on the
+        original, never an edit — so the ledger reads the same tomorrow as it did when a
+        partner was told what they had earned.
+      x-mcp-tool: { verb: list_records, record_type: commission, tier: auto_execute, scope: read }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: partner_org_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: The entries owed to one partner.
+        - name: deal_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: The entries accrued on one deal.
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/CommissionStatus' }
+      responses:
+        '200':
+          description: A page of ledger entries.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommissionEntryListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /commissions/summary:
+    get:
+      tags: [Commissions]
+      operationId: getCommissionSummary
+      summary: What is owed, by partner and status — the open-liability figure.
+      x-mcp-tool: { verb: run_report, record_type: commission, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: One row per partner and status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommissionSummaryResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /commissions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Commissions]
+      operationId: getCommissionEntry
+      summary: One ledger entry.
+      x-mcp-tool: { verb: read_record, record_type: commission, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: The entry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommissionEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /commissions/{id}/decide:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Commissions]
+      operationId: decideCommissionEntry
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Approve, pay, or void one entry.
+      description: |
+        Human-only. Approving and paying commit money to a partner, and voiding takes it
+        back; none is a decision an assistant makes on someone's behalf.
+
+        `void` requires a reason and writes a reversal row alongside the void, so the
+        ledger records what was undone and why rather than losing the original.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecideCommissionRequest' }
+      responses:
+        '200':
+          description: The entry in its new state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommissionEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ------------------------------ /deals ------------------------------------
   /deals:
     get:
@@ -2732,7 +2833,11 @@ paths:
         - name: partner_sourced
           in: query
           schema: { type: boolean }
-          description: true ⇒ partner_org_id IS NOT NULL; false ⇒ partner_org_id IS NULL. Drives the partner-sourced pipeline slice.
+          description: true ⇒ a partner is named; false ⇒ none is. The partner pipeline slice.
+        - name: partner_attribution
+          in: query
+          schema: { type: string, enum: [sourced, influenced] }
+          description: Deals a partner brought (`sourced`) or merely helped (`influenced`).
       responses:
         '200':
           description: A page of deals.
@@ -18721,6 +18826,13 @@ components:
         stage_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null stage FK; must belong to pipeline_id. Overlay mode: NULL (see pipeline_id; the incumbent dealstage id rides `raw`, OVA-MAP-6).' }
         organization_id: { type: [string, 'null'], format: uuid, description: 'Primary org; never a raw lead. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
         partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
+        partner_attribution:
+          type: [string, 'null']
+          enum: [sourced, influenced, null]
+          description: >-
+            What the partner named by `partner_org_id` did: `sourced` (brought the deal) or
+            `influenced` (helped one we had). Travels with the partner — naming a partner
+            defaults it to `sourced`. Commission accrues on `sourced` only.
         project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422. Null when the caller may not read that project, in which case `masked_fields` names it.' }
         owner_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [open, won, lost], default: open }
@@ -18789,6 +18901,12 @@ components:
         currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
         organization_id: { type: [string, 'null'], format: uuid }
         partner_org_id: { type: [string, 'null'], format: uuid }
+        partner_attribution:
+          type: [string, 'null']
+          enum: [sourced, influenced, null]
+          description: >-
+            `sourced` or `influenced`. Naming a partner without this field attributes the
+            deal `sourced`; an attribution for a deal naming no partner is refused 422.
         project_id: { type: [string, 'null'], format: uuid }
         owner_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [open, won, lost] }
@@ -18826,6 +18944,103 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Deal' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Commission ----
+    CommissionStatus:
+      type: string
+      enum: [accrued, approved, paid, void]
+      description: 'accrued → approved → paid, with void as the exit at any point.'
+
+    CommissionAttribution:
+      type: string
+      enum: [sourced, influenced]
+      description: What the partner did for the deal the entry was accrued on.
+
+    CommissionEntry:
+      type: object
+      description: |
+        What one partner earned on one won deal. Mirrors the `commission_entry` table.
+        Every rate-bearing value is frozen at accrual: the tier a human can change next
+        quarter, and the deal amount that can be corrected after the close, would
+        otherwise make the same entry answer a different question each time it is read.
+        Carries no owner — visibility is inherited from the deal.
+      required: [id, deal_id, partner_org_id, status, attribution_at_accrual, rate_bps,
+                 basis_amount_minor, currency, amount_minor, captured_by, version,
+                 created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        deal_id: { type: string, format: uuid, description: The won deal this was accrued on. }
+        partner_org_id: { type: string, format: uuid, description: The partner who earned it. }
+        status: { $ref: '#/components/schemas/CommissionStatus' }
+        trigger_event_id:
+          type: [string, 'null']
+          format: uuid
+          readOnly: true
+          description: 'The won-deal transition that produced this entry; null on one a human created. Unique, so a replayed event cannot accrue twice.'
+        attribution_at_accrual: { $ref: '#/components/schemas/CommissionAttribution' }
+        margin_tier_at_accrual:
+          type: [string, 'null']
+          description: The partner's tier as it stood at accrual; the rate below was derived from it.
+        rate_bps:
+          type: integer
+          description: 'Basis points, so 15% is 1500 — no fractional-percent rounding enters the row.'
+        basis_amount_minor: { type: integer, format: int64, description: The deal amount the rate applied to. }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        fx_rate_to_base:
+          type: [string, 'null']
+          description: 'Native→base at won time, carried so a base-currency roll-up reproduces without re-reading a deal whose frozen rate may since have been cleared.'
+        amount_minor: { type: integer, format: int64, description: What the rate produced. }
+        reversal_of:
+          type: [string, 'null']
+          format: uuid
+          description: 'The entry this one undoes. A reversal is born void and is never approved or paid.'
+        void_reason: { type: [string, 'null'], description: Required on a void; what a partner dispute is answered from. }
+        captured_by: { type: string, readOnly: true, description: Server-stamped from the authenticated principal; never client-supplied. }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CommissionEntryListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/CommissionEntry' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    CommissionSummaryRow:
+      type: object
+      required: [partner_org_id, status, currency, entry_count, amount_minor]
+      properties:
+        partner_org_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/CommissionStatus' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        entry_count: { type: integer }
+        amount_minor:
+          type: integer
+          format: int64
+          description: 'Summed per currency, never across: two currencies added together is a number that means nothing.'
+
+    CommissionSummaryResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/CommissionSummaryRow' }
+
+    DecideCommissionRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approve, pay, void]
+          description: |
+            `approve` moves an accrued entry to approved; `pay` moves an approved one to paid.
+            `void` cancels an entry in any live state and writes the reversal beside it.
+        reason:
+          type: [string, 'null']
+          description: Required for `void` — an entry cancelled without a stated reason cannot be explained to the partner later.
 
     # ---- Project ----
     Contract:
@@ -21334,7 +21549,7 @@ components:
          computed_field, quota, offer_template, overlay_connection, embedding_reindex,
          webhook_subscription, fx_rate, ai_model_rate, capture_settings, project,
          channel_connection, import_run, installation_settings, finance, integrations,
-         retention_policy, capture_trace, license, contract, ai_routing]
+         retention_policy, capture_trace, license, contract, ai_routing, commission]
 
     RbacAction:
       type: string
@@ -21662,7 +21877,7 @@ components:
           # floor instead of destroying it, and an administrator placed a record
           # under the floor the derivation could not see. `resolve` was in the DDL
           # since 0047 and missing here — a row a strict client could not decode.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold, expire, resolve, restrict, pin]
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold, expire, resolve, restrict, pin, accrue, pay]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before: { type: [object, 'null'], additionalProperties: true }
@@ -22065,6 +22280,7 @@ components:
           enum:
             - activity
             - app_user
+            - commission
             - custom_field
             - data_subject_request
             - deal

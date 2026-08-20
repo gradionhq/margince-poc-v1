@@ -113,6 +113,8 @@ const (
 	ColdstartAccepted         SubscribableEventType = "coldstart.accepted"
 	ColdstartReadBackProposed SubscribableEventType = "coldstart.read_back_proposed"
 	ColdstartRejected         SubscribableEventType = "coldstart.rejected"
+	CommissionAccrued         SubscribableEventType = "commission.accrued"
+	CommissionDecided         SubscribableEventType = "commission.decided"
 	ConsentChanged            SubscribableEventType = "consent.changed"
 	ContractArchived          SubscribableEventType = "contract.archived"
 	ContractCreated           SubscribableEventType = "contract.created"
@@ -209,6 +211,10 @@ func (e SubscribableEventType) Valid() bool {
 	case ColdstartReadBackProposed:
 		return true
 	case ColdstartRejected:
+		return true
+	case CommissionAccrued:
+		return true
+	case CommissionDecided:
 		return true
 	case ConsentChanged:
 		return true
@@ -507,6 +513,35 @@ type PublicEventColdstartRejected struct {
 	DecidedBy openapi_types.UUID `json:"decided_by"`
 }
 
+// PublicEventCommissionAccrued Payload for commission.accrued — a won deal earned its partner a commission.
+type PublicEventCommissionAccrued struct {
+	// AmountMinor What the rate produced, in minor units of `currency`.
+	AmountMinor int64 `json:"amount_minor"`
+
+	// Currency The deal's currency at won time; commission is never summed across currencies.
+	Currency string `json:"currency"`
+
+	// DealId The won deal the entry was accrued on.
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// PartnerOrgId The partner who earned it.
+	PartnerOrgId openapi_types.UUID `json:"partner_org_id"`
+
+	// RateBps The rate applied, in basis points, frozen from the partner's tier at accrual.
+	RateBps int `json:"rate_bps"`
+}
+
+// PublicEventCommissionDecided Payload for commission.decided — an entry was approved, paid, or voided.
+type PublicEventCommissionDecided struct {
+	// Decision approve, pay, or void.
+	Decision   string `json:"decision"`
+	FromStatus string `json:"from_status"`
+
+	// Reason Why the entry was voided; absent for approve and pay.
+	Reason   *string `json:"reason,omitempty"`
+	ToStatus string  `json:"to_status"`
+}
+
 // PublicEventConsentChanged Payload for consent.changed — a subject's per-purpose consent state was recorded (consent/store.go's Record). The subject is a person XOR a lead (data-model §7, before promotion) — a RUNTIME choice Record resolves via consentSubject, not a fixed type this schema can name, so this is the first dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
 type PublicEventConsentChanged struct {
 	// NewState The state now on record (granted | withdrawn).
@@ -609,6 +644,15 @@ type PublicEventDealStageChanged struct {
 
 	// FromStatus Deal status before the move (open | won | lost).
 	FromStatus string `json:"from_status"`
+
+	// FxRateToBase The native→base rate frozen at close, carried because REOPENING a deal clears it: a consumer reading the deal back after a reopen could not recover the rate the win was priced at.
+	FxRateToBase *string `json:"fx_rate_to_base,omitempty"`
+
+	// PartnerAttribution What that partner did — sourced or influenced — at the moment of the move. Commission accrues on sourced only.
+	PartnerAttribution *string `json:"partner_attribution,omitempty"`
+
+	// PartnerOrgId The partner the deal named at the moment of the move, when it named one. Frozen here for the same reason the amount is: the commission a win earns is priced on what was true that day, and re-reading the deal later would price it on an attribution somebody edited afterwards.
+	PartnerOrgId *openapi_types.UUID `json:"partner_org_id,omitempty"`
 
 	// ToStageId Stage the deal entered.
 	ToStageId openapi_types.UUID `json:"to_stage_id"`
@@ -1493,6 +1537,14 @@ func (PublicEventColdstartRejected) EventType() string { return "coldstart.rejec
 
 func (PublicEventColdstartRejected) EntityType() string { return "approval" }
 
+func (PublicEventCommissionAccrued) EventType() string { return "commission.accrued" }
+
+func (PublicEventCommissionAccrued) EntityType() string { return "commission" }
+
+func (PublicEventCommissionDecided) EventType() string { return "commission.decided" }
+
+func (PublicEventCommissionDecided) EntityType() string { return "commission" }
+
 func (PublicEventConsentChanged) EventType() string { return "consent.changed" }
 
 func (PublicEventConsentChanged) EntityType() string { return "dynamic" }
@@ -1804,6 +1856,8 @@ var PublicEventVersions = map[string]int{
 	"coldstart.accepted":           1,
 	"coldstart.read_back_proposed": 1,
 	"coldstart.rejected":           1,
+	"commission.accrued":           1,
+	"commission.decided":           1,
 	"consent.changed":              1,
 	"contract.archived":            1,
 	"contract.created":             1,

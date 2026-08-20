@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
+	"github.com/gradionhq/margince/backend/internal/modules/commissions"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
@@ -50,6 +51,7 @@ type (
 	peopleHandlers         = people.Handlers
 	dealsHandlers          = deals.Handlers
 	contractsHandlers      = contracts.Handlers
+	commissionsHandlers    = commissions.Handlers
 	activitiesHandlers     = activities.Handlers
 	approvalsHandlers      = approvals.Handlers
 	searchHandlers         = search.Handlers

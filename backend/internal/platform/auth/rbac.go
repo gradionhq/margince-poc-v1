@@ -132,7 +132,13 @@ var auditActionGrant = map[string]principal.Action{
 	"erase":            principal.ActionUpdate,
 	"export":           principal.ActionDelete,
 	"record_share":     principal.ActionUpdate,
-	"record_unshare":   principal.ActionUpdate,
+	// The commission ledger. Accruing MAKES a row, so it is the create grant
+	// commissions.Store.Accrue actually requires; paying moves an existing
+	// entry's state, which is the update grant Decide requires. The rule
+	// recorded on the row has to be the grant the write really took.
+	"accrue":         principal.ActionCreate,
+	"pay":            principal.ActionUpdate,
+	"record_unshare": principal.ActionUpdate,
 	// Binding a data provider's credential is a create and cutting it is a
 	// delete, matching what integrations.Store.Connect and .Disconnect
 	// actually require — the rule recorded on the row has to be the grant the

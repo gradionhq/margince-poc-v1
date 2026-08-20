@@ -27,6 +27,10 @@ func (h Handlers) ListDeals(w http.ResponseWriter, r *http.Request, params crmco
 	in.ProjectID = idArg[ids.ProjectKind](params.ProjectId)
 	in.PartnerOrgID = idArg[ids.OrganizationKind](params.PartnerOrgId)
 	in.PartnerSourced = params.PartnerSourced
+	if params.PartnerAttribution != nil {
+		a := string(*params.PartnerAttribution)
+		in.PartnerAttribution = &a
+	}
 	in.Stalled = params.Stalled
 	if params.Status != nil {
 		s := string(*params.Status)

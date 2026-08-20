@@ -21,7 +21,8 @@ func TestEveryDeclaredDealsFilterNarrowsSomething(t *testing.T) {
 	id := ids.NewV7().String()
 	assertEveryFilterNarrows(t, "deal", dealListFilters, map[string]string{
 		"organization_id": id, "owner_id": id, "partner_org_id": id, "partner_sourced": "true",
-		"pipeline_id": id, "project_id": id, "stage_id": id, "stalled": "false", "status": "open",
+		"partner_attribution": "sourced",
+		"pipeline_id":         id, "project_id": id, "stage_id": id, "stalled": "false", "status": "open",
 	})
 	assertEveryFilterNarrows(t, "project", projectListFilters, map[string]string{
 		"key": "ACME", "organization_id": id, "owner_id": id, "phase": "delivering",
@@ -39,7 +40,7 @@ func TestEachDealsEntityIsOfferedItsOwnVocabulary(t *testing.T) {
 		want   []string
 	}{
 		{datasource.EntityDeal, []string{
-			"organization_id", "owner_id", "partner_org_id", "partner_sourced",
+			"organization_id", "owner_id", "partner_attribution", "partner_org_id", "partner_sourced",
 			"pipeline_id", "project_id", "stage_id", "stalled", "status",
 		}},
 		{datasource.EntityProject, []string{"key", "organization_id", "owner_id", "phase"}},

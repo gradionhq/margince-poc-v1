@@ -131,7 +131,7 @@ func (t listRecords) Spec() mcp.ToolSpec {
 func (t listRecords) describeFilters() string {
 	lines := make([]string, 0, len(listRecordTypes)+1)
 	lines = append(lines, "Narrow the list. Every operand is a string, booleans included (\"true\"). "+
-		"Each record_type takes only its own filters:")
+		"Each record_type takes only its own:")
 	for _, recordType := range listRecordTypes {
 		names := make([]string, 0, len(t.filters[recordType]))
 		for _, filter := range t.filters[recordType] {
@@ -170,12 +170,18 @@ func (t listRecords) sourceOfStageIDs() []string {
 // the operand a caller gets wrong, and otherwise the operand's own type where it
 // is not a string — every operand travels as a string on this wire, so `true`
 // and `3` are the two a caller would otherwise have to guess the spelling of.
+//
+// The non-string types are abbreviated to their first letter. The whole listing
+// rides in every Surface-B prompt against a hard ceiling, and the sentence above
+// this vocabulary already says booleans travel as "true" — so spelling the word
+// out on each of them buys nothing a caller did not already read, while the
+// closed vocabularies, which nothing else states, stay in full.
 func (f listFilter) describe() string {
 	switch {
 	case len(f.Enum) > 0:
 		return f.Name + " (" + strings.Join(f.Enum, "|") + ")"
 	case f.Type != "" && f.Type != schemaString:
-		return f.Name + " (" + f.Type + ")"
+		return f.Name + " (" + f.Type[:1] + ")"
 	default:
 		return f.Name
 	}

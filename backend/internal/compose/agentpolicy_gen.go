@@ -35,6 +35,7 @@ type agentRecordType string
 const (
 	recordTypeActivity            agentRecordType = "activity"
 	recordTypeAppUser             agentRecordType = "app_user"
+	recordTypeCommission          agentRecordType = "commission"
 	recordTypeCustomField         agentRecordType = "custom_field"
 	recordTypeDataSubjectRequest  agentRecordType = "data_subject_request"
 	recordTypeDeal                agentRecordType = "deal"
@@ -167,6 +168,9 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/capture/traces/{id}":                                        {Op: "readCaptureTracePipeline", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/channel-connections":                                        {Op: "listChannelConnections", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/channel-providers":                                          {Op: "listChannelProviders", Access: "tool", Tool: "list_channel_providers", RecordType: "activity", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/commissions":                                                {Op: "listCommissionEntries", Access: "tool", Tool: "list_records", RecordType: "commission", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/commissions/summary":                                        {Op: "getCommissionSummary", Access: "tool", Tool: "run_report", RecordType: "commission", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/commissions/{id}":                                           {Op: "getCommissionEntry", Access: "tool", Tool: "read_record", RecordType: "commission", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/company":                                                    {Op: "getCompany", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/company/context":                                            {Op: "getCompanyContext", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/company/context/capabilities":                               {Op: "getCompanyContextCapabilities", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
@@ -330,6 +334,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/channel-connections":                                       {Op: "connectChannel", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/coldstart":                                                 {Op: "coldStartReadback", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/coldstart/preview":                                         {Op: "coldStartPreview", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/commissions/{id}/decide":                                   {Op: "decideCommissionEntry", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/company/site-reads":                                        {Op: "startCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/company/site-reads/{readId}/confirm":                       {Op: "confirmCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/company/site-reads/{readId}/messages":                      {Op: "messageCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

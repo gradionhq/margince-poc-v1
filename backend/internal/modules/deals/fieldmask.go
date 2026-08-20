@@ -37,7 +37,10 @@ var dealMaskableFields = map[string]func(*crmcontracts.Deal){
 	// question, answered per row by unreadableReferences.
 	filterOrganizationID: func(d *crmcontracts.Deal) { d.OrganizationId = nil },
 	filterProjectID:      func(d *crmcontracts.Deal) { d.ProjectId = nil },
-	filterPartnerOrgID:   func(d *crmcontracts.Deal) { d.PartnerOrgId = nil },
+	// The attribution describes the partner it travels with, so a withheld
+	// partner takes it along: "sourced" beside a null partner would disclose
+	// that SOME partner brought the deal to a reader who may not know which.
+	filterPartnerOrgID: func(d *crmcontracts.Deal) { d.PartnerOrgId, d.PartnerAttribution = nil, nil },
 }
 
 // withheldFields is the ordered set of columns withheld from ONE row. Ordered
