@@ -105,11 +105,15 @@ func TestARoleRefusedTheEdgeSeesTheAccountPageWithoutItsEdgesAndIsToldSo(t *test
 	}
 	// The honesty channel. Absent-and-named is the whole point: absent alone
 	// reads as "nobody works here", which is a different and false statement.
-	for _, want := range []crmcontracts.OrganizationGraphGroupsOmitted{"contacts", "intro_path"} {
-		if !slices.Contains(graph.GroupsOmitted, want) {
-			t.Errorf("groups_omitted = %v without the edge grant, want it to name %q — a card that "+
-				"withholds silently tells the reader there is nothing to see", graph.GroupsOmitted, want)
-		}
+	//
+	// `contacts` only. intro_path is NOT named, and that is correct rather than
+	// a gap: readRouteIn returns before it reaches the edge when the account
+	// carries no open resolved signal, and this fixture seeds none — "there is
+	// no active path to propose" is not "a group you may not read", which is
+	// the distinction that read states in its own comment.
+	if !slices.Contains(graph.GroupsOmitted, "contacts") {
+		t.Errorf("groups_omitted = %v without the edge grant, want it to name \"contacts\" — a card "+
+			"that withholds silently tells the reader there is nothing to see", graph.GroupsOmitted)
 	}
 	// The required fields stay present. There is no response validation on this
 	// path and the generated client types make them non-optional, so a nil
