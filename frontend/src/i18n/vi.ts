@@ -3762,10 +3762,10 @@ export const vi = {
   "setup.pageTitle": "Thiết lập Margince",
   "setup.title": "Nhận quyền quản trị bản cài đặt này",
   "setup.body":
-    "Bản cài đặt Margince này chưa có tổ chức nào. Người vận hành của bạn có mã thiết lập dùng một lần trong tệp mã mà máy chủ ghi ở lần khởi động đầu tiên.",
+    "Bản cài đặt Margince này chưa có tổ chức nào. Người vận hành của bạn lấy mã dùng một lần từ tệp chứa mã thiết lập mà máy chủ ghi ở lần khởi động đầu tiên.",
   "setup.token": "Mã thiết lập",
   "setup.tokenHint":
-    "Lấy từ tệp mã mà máy chủ ghi ở lần khởi động đầu tiên — đường dẫn của tệp nằm trong nhật ký máy chủ.",
+    "Lấy từ tệp chứa mã thiết lập mà máy chủ ghi ở lần khởi động đầu tiên — đường dẫn của tệp nằm trong nhật ký máy chủ.",
   "setup.organization": "Tên tổ chức",
   "setup.adminName": "Tên của bạn",
   "setup.adminEmail": "Email của bạn",
@@ -3777,7 +3777,7 @@ export const vi = {
   "setup.claim": "Tạo tổ chức",
   "setup.claiming": "Đang tạo…",
   "setup.errorToken":
-    "Mã thiết lập không hợp lệ với bản cài đặt này. Hãy kiểm tra tệp mã mà nhật ký máy chủ nêu ở lần khởi động đầu tiên.",
+    "Mã thiết lập không hợp lệ với bản cài đặt này. Hãy kiểm tra tệp chứa mã thiết lập mà nhật ký máy chủ nêu ở lần khởi động đầu tiên.",
   "setup.errorAlready":
     "Bản cài đặt này đã có tổ chức. Hãy đăng nhập, hoặc nhờ người vận hành đặt lại.",
   "setup.errorFields":

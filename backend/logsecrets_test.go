@@ -86,12 +86,23 @@ var logMethods = map[string]int{
 }
 
 // attrConstructors are slog's typed attribute builders, whose FIRST argument is
-// a key. They may appear anywhere in a tail, and each consumes one slot rather
-// than a pair, which is why the tail is walked rather than indexed by parity.
+// a key and whose remaining arguments are ONE value. They may appear anywhere in
+// a tail, and each consumes a single slot rather than a pair, which is why the
+// tail is walked rather than indexed by parity.
+//
+// slog.Group is deliberately absent and handled apart: it is the one constructor
+// whose remaining arguments are a tail of their own rather than a value, and
+// reading a scalar constructor's value as if it were a nested tail puts it in key
+// position — `slog.String("grant_type", "password")` then reports a disclosure
+// where nothing was disclosed, which is the very confusion the key/value walk
+// exists to end.
 var attrConstructors = []string{
-	"Any", "Bool", "Duration", "Float64", "Group",
+	"Any", "Bool", "Duration", "Float64",
 	"Int", "Int64", "String", "Time", "Uint64",
 }
+
+// attrGroup is slog's one nesting constructor: a key followed by a whole tail.
+const attrGroup = "Group"
 
 // TestACredentialIsLoggedOnlyWhenItsOwnChannelFailed walks every hand-written Go
 // file and refuses a structured-log call that carries a credential-shaped
@@ -360,18 +371,25 @@ func collectCredentialKeys(tail []ast.Expr, found *[]string) {
 }
 
 // attrConstructor answers a typed attribute's key expression and the tail nested
-// inside it — slog.Group carries a whole tail of its own, and a credential one
-// level down is still a credential in the log.
+// inside it. Only slog.Group carries a tail — a credential one level down is
+// still a credential in the log; every other constructor carries a value, and
+// the empty tail returned for it is what keeps that value out of key position.
 func attrConstructor(expr ast.Expr) (nested []ast.Expr, key ast.Expr, isAttr bool) {
 	call, isCall := expr.(*ast.CallExpr)
 	if !isCall {
 		return nil, nil, false
 	}
 	selector, isSelector := call.Fun.(*ast.SelectorExpr)
-	if !isSelector || !slices.Contains(attrConstructors, selector.Sel.Name) || len(call.Args) == 0 {
+	if !isSelector || len(call.Args) == 0 {
 		return nil, nil, false
 	}
-	return call.Args[1:], call.Args[0], true
+	switch name := selector.Sel.Name; {
+	case name == attrGroup:
+		return call.Args[1:], call.Args[0], true
+	case slices.Contains(attrConstructors, name):
+		return nil, call.Args[0], true
+	}
+	return nil, nil, false
 }
 
 // recordCredentialKey adds a key expression to the findings when it is a string
