@@ -65,12 +65,16 @@ var org360SignalPerms = withSignalRead(integration.AccountRepPerms)
 
 // org360NoDealPerms is the same rep with the deal grant taken away — the
 // fixture that proves omission is distinguishable from emptiness.
+// The one thing withheld is the DEAL grant, so the edge grant is present:
+// every seeded role holds it, and a missing one would withhold the contacts
+// this test asserts are intact.
 var org360NoDealPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
 		"organization":          {Read: true},
 		"person":                {Read: true},
 		"activity":              {Read: true},
+		"relationship":          {Read: true},
 		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
@@ -616,12 +620,18 @@ func TestOrganization360OmitsRoutesWithoutTheActivityGrant(t *testing.T) {
 }
 
 // A reader who may see people and companies but not activities.
+//
+// It carries the relationship grant for the same reason it carries person:
+// every seeded role holds it, and the ONE thing this fixture withholds is the
+// activity grant. Without it the roster would be withheld too and the test
+// would pass for the wrong reason.
 var org360NoActivityPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
 		"organization":          {Read: true},
 		"person":                {Read: true},
 		"deal":                  {Read: true},
+		"relationship":          {Read: true},
 		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,

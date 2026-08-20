@@ -47,6 +47,11 @@ type accountContact struct {
 // The coworkers are row-scoped in the query itself rather than probed
 // afterwards: one outside the caller's scope must be ABSENT, and fetching then
 // filtering would leak their existence through the dropped total.
+// narrowsNothing is the predicate an UNBOUNDED caller gets, where the scope
+// helpers answer the empty string. The statements below interpolate these into
+// a WHERE, and an empty string is a syntax error rather than "no bound".
+const narrowsNothing = "true"
+
 func (h Reads) addAccountGroup(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -87,12 +92,25 @@ func readAccountContacts(ctx context.Context, tx pgx.Tx, personID ids.PersonID) 
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
+	// A coworker set IS the edge: it answers "who else works where this person
+	// works", which is a fact about the pairs and not about either record. The
+	// gate is taken here, before the statement, so the denial reaches
+	// addAccountGroup and the group is NAMED in groups_omitted — and so the
+	// count(*) OVER () total below is never computed over rows the caller may
+	// not learn the number of.
+	edgeBound, err := auth.EdgeReadScope(ctx, "colleague", arg)
+	if err != nil {
+		return nil, 0, err
+	}
+	if edgeBound == "" {
+		edgeBound = narrowsNothing
+	}
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
 		return nil, 0, err
 	}
 	if scope == "" {
-		scope = "true"
+		scope = narrowsNothing
 	}
 	limitPos := arg(graphAccountCap)
 
@@ -113,8 +131,9 @@ func readAccountContacts(ctx context.Context, tx pgx.Tx, personID ids.PersonID) 
 		   AND theirs.archived_at IS NULL
 		   AND p.id <> $%d
 		   AND (%s)
+		   AND (%s)
 		 ORDER BY p.full_name, p.id
-		 LIMIT $%d`, personPos, personPos, scope, limitPos), args...)
+		 LIMIT $%d`, personPos, personPos, edgeBound, scope, limitPos), args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("network: reading who else works at a contact's company: %w", err)
 	}

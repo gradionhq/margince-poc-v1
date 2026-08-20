@@ -38,6 +38,14 @@ const (
 	objDeal     = "deal"
 	objOrg      = "organization"
 	objPipeline = "pipeline"
+	// objRelationship gates the EDGE — an employment or a stakeholder seat.
+	// Every seeded role holds read on it (identity/internal/policy.go: crud for
+	// admin, management, manager and ops, create+read+update for rep, read for
+	// read_only), so every fixture mirroring one of those roles carries it. A
+	// fixture that did not would make a surface reading an edge look refused for
+	// want of a grant that production always grants — this file's own opening
+	// paragraph, applied to the one object that had drifted from it.
+	objRelationship = "relationship"
 	// objInstallSettings gates the read of the installation's own values —
 	// name, base currency, timezone. Every fixture that reads deals or
 	// accounts carries it, because those reads resolve the basis they are
@@ -54,6 +62,7 @@ var (
 			objPerson:          {Create: true, Read: true, Update: true},
 			objDeal:            {Create: true, Read: true, Update: true},
 			objPipeline:        {Read: true},
+			objRelationship:    {Create: true, Read: true, Update: true},
 			objInstallSettings: {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
@@ -72,6 +81,7 @@ var (
 			objDeal:            {Create: true, Read: true, Update: true},
 			"contract":         {Create: true, Read: true, Update: true},
 			objPipeline:        {Read: true},
+			objRelationship:    {Create: true, Read: true, Update: true},
 			objInstallSettings: {Read: true},
 		},
 		RowScope: principal.RowScopeTeam,
@@ -91,6 +101,7 @@ var (
 			objDeal:            {Create: true, Read: true, Update: true},
 			objActivity:        {Create: true, Read: true, Update: true},
 			objPipeline:        {Read: true},
+			objRelationship:    {Create: true, Read: true, Update: true},
 			"tag":              {Read: true},
 			"list":             {Read: true},
 			objInstallSettings: {Read: true},
@@ -101,6 +112,7 @@ var (
 		RoleKeys: []string{roleReadOnly},
 		Objects: map[string]principal.ObjectGrant{
 			objPerson: {Read: true}, objDeal: {Read: true}, objPipeline: {Read: true},
+			objRelationship:    {Read: true},
 			objInstallSettings: {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
@@ -166,7 +178,7 @@ var (
 			// base currency through this gate.
 			objInstallSettings: {Read: true, Update: true},
 			"project":          {Create: true, Read: true, Update: true, Delete: true},
-			"relationship":     {Create: true, Read: true, Update: true, Delete: true},
+			objRelationship:    {Create: true, Read: true, Update: true, Delete: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}

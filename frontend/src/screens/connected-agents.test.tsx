@@ -22,10 +22,19 @@ import { SettingsScreen } from "./settings";
 
 beforeEach(() => {
   globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
+  // The clock is pinned for the WHOLE file, because these fixtures carry
+  // absolute expiry dates and the card's state is derived by comparing them to
+  // now. Left on the real clock, every row here reads as live until the day
+  // CONNECTION.expires_at arrives and lapsed from then on — so the suite passed
+  // for a month and then began failing by the calendar, naming code nobody had
+  // touched. Two cases already stubbed their own time; pinning it here is the
+  // invariant rather than three more copies of the same guard.
+  vi.setSystemTime(new Date("2026-08-03T09:00:00Z"));
 });
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   globalThis.localStorage.clear();
 });

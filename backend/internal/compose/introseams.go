@@ -175,6 +175,18 @@ func accountContacts(ctx context.Context, tx pgx.Tx, orgID ids.UUID) ([]accountC
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
+	// The edge grant, taken BEFORE the read for the same reason the person
+	// grant above is: an intro route IS the employment edge — "who works there
+	// that we know" — so a caller refused edges must be refused here rather
+	// than handed an empty route list. An empty list is a believable answer,
+	// and this tool's whole subject is the pair.
+	edgeBound, err := auth.EdgeReadScope(ctx, "r", arg)
+	if err != nil {
+		return nil, err
+	}
+	if edgeBound == "" {
+		edgeBound = jsonTrue
+	}
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
 		return nil, err
@@ -195,8 +207,8 @@ func accountContacts(ctx context.Context, tx pgx.Tx, orgID ids.UUID) ([]accountC
 		   -- gone while the other calls them current.
 		   AND r.archived_at IS NULL
 		   AND (r.ended_at IS NULL OR r.ended_at > current_date)
-		   AND (%s)
-		 ORDER BY p.id LIMIT %d`, orgPos, visible, accountContactFetch+1), args...)
+		   AND (%s) AND (%s)
+		 ORDER BY p.id LIMIT %d`, orgPos, edgeBound, visible, accountContactFetch+1), args...)
 	if err != nil {
 		return nil, fmt.Errorf("compose: reading an account's contacts for an intro route: %w", err)
 	}

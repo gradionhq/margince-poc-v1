@@ -155,6 +155,12 @@ func RankRouteIn(edges []RouteInEdge, score func(ids.PersonID) (int, bool)) []Ro
 // never whether they may see people at all — so a caller holding the signal
 // grant and not the person one is refused here rather than at whichever call
 // site remembered to ask.
+//
+// It carries the EDGE gate for the same reason, and the name says why: these
+// ARE edges, returned with their kind and role. Refusing is the honest answer
+// on both surfaces — org360 names `intro_path` in groups_omitted, and the warm
+// room refuses outright rather than reporting a COLD verdict it reached by not
+// being allowed to look for warmth.
 func RouteInEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]RouteInEdge, error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return nil, err
@@ -162,6 +168,13 @@ func RouteInEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]R
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
+	edgeBound, err := auth.EdgeReadScope(ctx, "r", arg)
+	if err != nil {
+		return nil, err
+	}
+	if edgeBound != "" {
+		edgeBound = " AND " + edgeBound
+	}
 
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
@@ -179,8 +192,8 @@ func RouteInEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]R
 		WHERE r.archived_at IS NULL AND r.ended_at IS NULL AND r.person_id IS NOT NULL
 		  AND ((r.kind = 'employment' AND r.organization_id = $%[1]d)
 		    OR (r.kind = 'deal_stakeholder' AND r.deal_id IN (
-		          SELECT d.id FROM deal d WHERE d.organization_id = $%[1]d AND d.archived_at IS NULL)))%s
-		ORDER BY p.id, r.kind`, orgPos, visible), args...)
+		          SELECT d.id FROM deal d WHERE d.organization_id = $%[1]d AND d.archived_at IS NULL)))%s%s
+		ORDER BY p.id, r.kind`, orgPos, edgeBound, visible), args...)
 	if err != nil {
 		return nil, fmt.Errorf("contact edges: %w", err)
 	}

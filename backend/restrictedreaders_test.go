@@ -34,7 +34,15 @@ import (
 // activityReadLiteral matches a SQL string literal that reads the activity
 // table by name. `activity_link`, `activity_participant` and the other
 // activity_* tables are deliberately not matched: they carry no content.
-var activityReadLiteral = regexp.MustCompile(`(?i)\b(FROM|JOIN)\s+activity(\s|$|\n)`)
+//
+// It is matched against the literal's TEXT, not its quoted token. With the
+// delimiters still attached the `$` alternate can never fire, so a literal
+// ENDING at `FROM activity` was invisible to this gate — a held row reachable
+// through a reader nothing judged. Found while building edgereaders_test.go,
+// which had inherited the same expression and the same blind spot; the rule has
+// two copies and both are fixed, because one spelling of it is not a rule
+// (review-loop rule 1).
+var activityReadLiteral = regexp.MustCompile(`(?i)\b(FROM|JOIN)\s+activity(\s|$|[,;)])`)
 
 // scopeMarkers are the shared gates that carry the availability test for the
 // whole file: a reader reaching activity through one of them cannot see a held
@@ -98,7 +106,7 @@ func readsActivityTable(path string, file *ast.File) bool {
 func activityReadLiterals(file *ast.File) []string {
 	var reads []string
 	ast.Inspect(file, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok && activityReadLiteral.MatchString(lit.Value) {
+		if lit, ok := n.(*ast.BasicLit); ok && activityReadLiteral.MatchString(activityLiteralText(lit)) {
 			reads = append(reads, lit.Value)
 		}
 		return true
@@ -126,7 +134,7 @@ func unguardedActivityReaders(file *ast.File) []string {
 		fn, isFunc := decl.(*ast.FuncDecl)
 		var reads []string
 		ast.Inspect(decl, func(n ast.Node) bool {
-			if lit, ok := n.(*ast.BasicLit); ok && activityReadLiteral.MatchString(lit.Value) {
+			if lit, ok := n.(*ast.BasicLit); ok && activityReadLiteral.MatchString(activityLiteralText(lit)) {
 				reads = append(reads, lit.Value)
 			}
 			return true
@@ -204,4 +212,14 @@ func firstLineOf(literal string) string {
 		return trimmed[:idx] + " …"
 	}
 	return trimmed
+}
+
+// activityLiteralText is the literal's content without its quoting, so the
+// read-matcher above is not looking at a delimiter where SQL should be.
+func activityLiteralText(lit *ast.BasicLit) string {
+	text, isString := literalText(lit)
+	if !isString {
+		return ""
+	}
+	return text
 }

@@ -42,6 +42,14 @@ func (g *graphAssembly) readEmployment() error {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(g.orgID)
+	// The edge's own gate and bound. It is asked BEFORE the statement, not
+	// applied to its rows: the headcount below rides the same statement, so a
+	// row filtered after the read would leave a headcount describing employees
+	// the caller may not learn about.
+	edgeBound, err := edgeScope(g.ctx, arg)
+	if err != nil {
+		return err
+	}
 	personScope, err := scopeClause(g.ctx, "person", "p", arg)
 	if err != nil {
 		return err
@@ -53,12 +61,13 @@ func (g *graphAssembly) readEmployment() error {
 			FROM relationship r
 			JOIN person p ON p.id = r.person_id AND p.archived_at IS NULL
 			WHERE r.kind = 'employment' AND r.organization_id = $%d
-			  AND r.ended_at IS NULL AND r.archived_at IS NULL AND (%s)
+			  AND r.ended_at IS NULL AND r.archived_at IS NULL
+			  AND (%s) AND (%s)
 		)
 		SELECT id, full_name, title, role, count(*) OVER () AS headcount
 		FROM employed WHERE edge_rank = 1
 		ORDER BY id
-		LIMIT %d`, orgPos, personScope, graphScanCap), args...)
+		LIMIT %d`, orgPos, edgeBound, personScope, graphScanCap), args...)
 	if err != nil {
 		return err
 	}
@@ -144,9 +153,9 @@ func (g *graphAssembly) selectedDealIDs() []ids.UUID {
 }
 
 // readSeats reads the stakeholder seats on the given deals. It carries its own
-// PERSON gate rather than trusting the order the groups happen to run in: a
-// seat names a person, so this is a person read, and a reordered group list
-// must not be able to turn it into an ungated one.
+// PERSON and EDGE gates rather than trusting the order the groups happen to run
+// in: a seat names a person AND is itself an edge, so a reordered group list
+// must not be able to turn it into an ungated read of either.
 func (g *graphAssembly) readSeats(dealIDs []ids.UUID) error {
 	if err := auth.Require(g.ctx, "person", principal.ActionRead); err != nil {
 		return err
@@ -157,6 +166,10 @@ func (g *graphAssembly) readSeats(dealIDs []ids.UUID) error {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	dealsPos := arg(dealIDs)
+	edgeBound, err := edgeScope(g.ctx, arg)
+	if err != nil {
+		return err
+	}
 	personScope, err := scopeClause(g.ctx, "person", "p", arg)
 	if err != nil {
 		return err
@@ -166,8 +179,9 @@ func (g *graphAssembly) readSeats(dealIDs []ids.UUID) error {
 		FROM relationship r
 		JOIN person p ON p.id = r.person_id AND p.archived_at IS NULL
 		WHERE r.kind = 'deal_stakeholder' AND r.deal_id = ANY($%d)
-		  AND r.ended_at IS NULL AND r.archived_at IS NULL AND (%s)
-		ORDER BY r.deal_id, p.id, r.id`, dealsPos, personScope), args...)
+		  AND r.ended_at IS NULL AND r.archived_at IS NULL
+		  AND (%s) AND (%s)
+		ORDER BY r.deal_id, p.id, r.id`, dealsPos, edgeBound, personScope), args...)
 	if err != nil {
 		return err
 	}

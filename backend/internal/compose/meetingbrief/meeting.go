@@ -108,13 +108,24 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 		touchScope = scopeAll
 	}
 
+	// The seat's ROLE is the only thing the edge contributes here, so a caller
+	// refused the edge gets the join matched away rather than the room emptied:
+	// `deal_role` reads as the empty string, exactly as it does for an attendee
+	// who holds no seat. Nothing is filtered, so the attendee list and its cap
+	// are untouched — which is what keeps this a withheld FIELD and not a
+	// withheld section, on a response that carries no channel to name one.
+	edgeJoin, err := seatJoinPredicate(ctx, "r", arg)
+	if err != nil {
+		return meeting{}, err
+	}
+
 	var out meeting
 	var subject *string
 	var deal dealRow
 	var dealID *ids.UUID
 	var stage, currency *string
 	var attendees []byte
-	err = tx.QueryRow(ctx, fmt.Sprintf(meetingQuery, dealScope, personScope, idPos, touchScope), args...).
+	err = tx.QueryRow(ctx, fmt.Sprintf(meetingQuery, dealScope, personScope, idPos, touchScope, edgeJoin), args...).
 		Scan(&out.ID, &out.StartsAt, &subject,
 			&dealID, &deal.Name, &stage, &deal.AmountMinor, &currency, &deal.CloseDate,
 			&attendees)
@@ -144,9 +155,10 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 	return out, nil
 }
 
-// meetingQuery reads the room in one statement. The two %s are the deal and
-// person row-scope clauses, which decide what the caller is allowed to be told
-// about rather than filtering it afterwards.
+// meetingQuery reads the room in one statement. The %s are the deal, person and
+// last-touch row-scope clauses, which decide what the caller is allowed to be
+// told about rather than filtering it afterwards, plus the seat edge's own
+// admission on the LEFT JOIN that carries the deal role.
 //
 // last_touch is the most recent captured conversation with that attendee, and
 // it is what makes the first-time flag honest: null means we have never
@@ -173,6 +185,7 @@ const meetingQuery = `
 	         JOIN person p ON p.id = parts.person_id AND p.archived_at IS NULL
 	         LEFT JOIN relationship r ON r.person_id = p.id AND r.deal_id = d.id
 	              AND r.kind = 'deal_stakeholder' AND r.archived_at IS NULL
+	              AND %[5]s
 	         WHERE %[2]s
 	       ), '[]'::json)
 	FROM activity a
@@ -186,6 +199,28 @@ const meetingQuery = `
 	  LIMIT 1
 	) d ON TRUE
 	WHERE a.id = $%[3]d AND a.kind = 'meeting' AND a.archived_at IS NULL`
+
+// seatJoinPredicate renders the edge's admission as a JOIN predicate: the
+// endpoint conjunction for a caller who holds the edge grant, and the
+// never-matches predicate for one who does not.
+//
+// A refusal becomes `false` rather than an error because this edge decorates a
+// row it does not select. The alternative shapes are both worse: failing the
+// read would deny a meeting brief the caller may otherwise see in full, and
+// dropping the attendee would make a withheld ROLE look like an absent PERSON.
+func seatJoinPredicate(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	clause, err := auth.EdgeReadScope(ctx, alias, arg)
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		return "FALSE", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if clause == "" {
+		return scopeAll, nil
+	}
+	return clause, nil
+}
 
 // scopeFor renders one object's row-scope clause, substituting the
 // narrows-nothing predicate for the helper's empty string. An empty clause

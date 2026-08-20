@@ -101,12 +101,15 @@ func TestOrganizationCounts_UngatedRoleSeesContactsButNoDealCount(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// person:read and deal:read granted, computed_field:read not: this is the
-	// STATE-4 case for the deal count alone.
+	// person:read, deal:read and relationship:read granted, computed_field:read
+	// not: this is the STATE-4 case for the deal count ALONE, so every grant the
+	// contact count needs is present — the edge one included, since the count is
+	// over employment pairs.
 	perms := principal.Permissions{
 		RoleKeys: computedFieldNoGrantPerms.RoleKeys,
 		Objects: map[string]principal.ObjectGrant{
 			"organization": {Read: true}, "person": {Read: true}, "deal": {Read: true},
+			"relationship":          {Read: true},
 			"installation_settings": {Read: true},
 		},
 		RowScope: principal.RowScopeAll,

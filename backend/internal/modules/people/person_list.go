@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
@@ -112,9 +113,24 @@ func personTagClause(tag *string, arg func(any) int) string {
 // EXISTS rather than a join, for the same reason the tag filter uses one: a
 // join multiplies a person by their matching edges, and the keyset cursor
 // would page over those copies as though they were distinct people.
-func personEmployerClause(orgID *ids.OrganizationID, arg func(any) int) string {
+//
+// It carries the EDGE grant, and the reason is worth stating because the edge
+// contributes nothing to the response: filtering by employer answers "who works
+// at Acme" one page at a time, which is a stronger disclosure than the contact
+// count on the account itself — a listing beats a count. A caller refused the
+// edge is refused the FILTER rather than handed an empty page: they asked a
+// question about the pairs, and an empty page would answer it with "nobody",
+// which is false.
+func personEmployerClause(ctx context.Context, orgID *ids.OrganizationID, arg func(any) int) (string, error) {
 	if orgID == nil {
-		return ""
+		return "", nil
+	}
+	edgeBound, err := auth.EdgeReadScope(ctx, "rel", arg)
+	if err != nil {
+		return "", err
+	}
+	if edgeBound == "" {
+		edgeBound = "TRUE"
 	}
 	return storekit.SQLf(`EXISTS (
 		SELECT 1 FROM relationship rel
@@ -122,7 +138,8 @@ func personEmployerClause(orgID *ids.OrganizationID, arg func(any) int) string {
 		  AND rel.kind = 'employment'
 		  AND `+CurrentPrimaryEmploymentSQL("rel")+`
 		  AND rel.archived_at IS NULL
-		  AND rel.organization_id = $%d)`, arg(*orgID))
+		  AND `+edgeBound+`
+		  AND rel.organization_id = $%d)`, arg(*orgID)), nil
 }
 
 // foldTagName matches how the tag vocabulary is stored and compared: names
@@ -158,8 +175,12 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 			if clause := personTagClause(in.Tag, arg); clause != "" {
 				where = append(where, clause)
 			}
-			if clause := personEmployerClause(in.OrganizationID, arg); clause != "" {
-				where = append(where, clause)
+			employer, err := personEmployerClause(ctx, in.OrganizationID, arg)
+			if err != nil {
+				return nil, err
+			}
+			if employer != "" {
+				where = append(where, employer)
 			}
 			return where, nil
 		},
