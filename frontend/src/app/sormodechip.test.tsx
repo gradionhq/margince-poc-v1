@@ -86,8 +86,11 @@ it("reports the mode to a seat that cannot open Integrations, without linking", 
   // not get is the affordance: Integrations lives in Admin settings, and a link
   // that lands on the Account fallback is a chip that lied.
   mount("overlay", ["rep"]);
-  const chip = await screen.findByLabelText(/settings → integrations/i);
+  // Found by its TEXT, because a plain span is not a labelable element: the
+  // explanation is visually-hidden text inside the chip rather than an
+  // `aria-label` a screen reader is free to ignore there.
+  const explanation = await screen.findByText(/settings → integrations/i);
   // No jest-dom in this file: the DOM is read directly, as the cases above do.
-  expect(chip.textContent).toMatch(/hubspot/i);
+  expect(explanation.closest("span")?.textContent).toMatch(/hubspot/i);
   expect(screen.queryByRole("link")).toBeNull();
 });

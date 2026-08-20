@@ -1,55 +1,53 @@
 /* The units an installation composed, as offered in Settings (Connections and
-   Integrations both draw the same card). A sheet of its own rather than a
-   reuse of connectors.css: the two lists look alike today, and a change to how
-   a mailbox row is drawn is not a change to how a unit row is drawn. */
+   Integrations both draw the same card). Each unit is a SettingRow now, so the
+   row's geometry — the two columns, the hairline between them, the vertical
+   rhythm — comes from the design system. What is left here is what the CONTENT
+   of the two halves needs. */
 
-.extunits-list {
-  list-style: none;
-  margin: var(--space-3) 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-/* The whole row is the link, so the hit target is the row rather than the few
-   characters of a unit's name. */
-.extunits-row {
-  display: flex;
+/* The unit's mark beside its name, in the row's naming column. The name wraps
+   with the column rather than truncating: a row that ellipsised a directory
+   name hid the one word that tells two units apart, and the naming column is
+   as wide as the card. */
+.extunits-name {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  color: var(--textPrimary);
-  text-decoration: none;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
-.extunits-row:hover {
-  background: var(--bgHover);
-}
-.extunits-row:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: 2px;
-}
-.extunits-row > svg {
+
+.extunits-name > svg {
   width: 18px;
   height: 18px;
   color: var(--accent);
   flex: none;
 }
-/* The chevron is the row's affordance, not part of its identity: it sits at
-   the far edge and takes the meta colour so the unit's name stays the one
-   thing read first. */
-.extunits-row > svg:last-child {
-  margin-left: auto;
-  color: var(--textMeta);
+
+/* The way in, in the row's control column: a link, not a Button, because it
+   navigates. The chevron is the affordance and takes the meta colour so the
+   verb stays the thing read first. */
+.extunits-open {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
 }
 
-/* Lets a long unit name truncate instead of pushing the chevron off the row. */
-.extunits-name {
-  font-weight: var(--fw-semibold);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.extunits-open:hover {
+  text-decoration: underline;
+}
+
+.extunits-open:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.extunits-open > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--textMeta);
+  flex: none;
 }

@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
@@ -55,20 +55,50 @@ describe("SettingsScreen RBAC surfaces", () => {
 
   // Appearance is chosen from the account menu, not from here: it is the
   // setting a reader changes most often and from wherever they are standing.
-  // Language stays, so the claim is that the card lost ONE control rather than
-  // that Preferences went away — and it is made against the rendered page,
-  // because an import that no longer exists is not evidence about what a reader
-  // sees.
+  // Language stays, so the claim is that the account card lost ONE control
+  // rather than that the surface went away — and it is made against the
+  // rendered page, because an import that no longer exists is not evidence
+  // about what a reader sees.
   it("offers no theme control on the Account tab", async () => {
     render(<SettingsScreen route={settingsAddress()} />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
 
-    expect(screen.getByText("Preferences")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your account" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Language" })).toBeTruthy();
     for (const name of ["Light", "Dark", "System", "Theme"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
       expect(screen.queryByRole("group", { name })).toBeNull();
     }
+  });
+
+  // Identity, credential, sign-off and language are ONE card, not four: a
+  // reader auditing their own account reads one title and finds three answers
+  // at one x. The claim is about the three ROWS being there, in the one card —
+  // a page that grew a second panel back would still pass a query for any one
+  // of them on its own.
+  it("carries the identity, the password, the signature and the language in ONE card", async () => {
+    render(<SettingsScreen route={settingsAddress()} />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+
+    const card = screen
+      .getByRole("heading", { name: "Your account" })
+      .closest("section");
+    if (!(card instanceof HTMLElement)) {
+      throw new Error("the account card is not a section");
+    }
+    // The identity block, and the three verbs/answers that belong to it.
+    expect(within(card).getByText("ada@acme.test")).toBeTruthy();
+    expect(
+      within(card).getByRole("button", { name: "Change password…" }),
+    ).toBeTruthy();
+    expect(
+      within(card).getByRole("button", { name: "Edit signature…" }),
+    ).toBeTruthy();
+    expect(
+      within(card).getByRole("combobox", { name: "Language" }),
+    ).toBeTruthy();
+    // And nothing else on the tab: four panels became one.
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
   });
 
   it("switches the language from the Account tab, through the design-system select", async () => {
@@ -84,7 +114,7 @@ describe("SettingsScreen RBAC surfaces", () => {
     // The choice reaches the chrome around the control, not just the control's
     // own face — which is the whole point of changing a language here.
     expect(screen.getByRole("combobox", { name: "Sprache" })).toBeTruthy();
-    expect(screen.getByText("Voreinstellungen")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Ihr Konto" })).toBeTruthy();
   });
 
   // WCAG 2.2 AA 3.1.2. This is the one picker in the product where every option
@@ -288,11 +318,12 @@ describe("SettingsScreen restructured entries", () => {
       await screen.findByRole("heading", { name: "Consent purposes" }),
     ).toBeTruthy();
     // ...and the trail that proves those purposes were honoured, which had a
-    // tab of its own before: its filters, and an entry answering them.
-    expect(screen.getByRole("heading", { name: "Filters" })).toBeTruthy();
+    // tab of its own before: its filters — in a disclosure now, closed on
+    // arrival — and an entry answering them.
     expect(
       await screen.findByRole("heading", { name: "Audit log" }),
     ).toBeTruthy();
+    expect(screen.getByLabelText("Actor").closest("details")).not.toBeNull();
     expect(screen.getByText("update")).toBeTruthy();
   });
 
@@ -351,8 +382,8 @@ describe("SettingsScreen restructured entries", () => {
       screen.getByText(/only an admin can read the full trail/i),
     ).toBeTruthy();
     // Six inputs that narrow a list you cannot see are a control with nothing
-    // behind it, so the filter row is absent rather than withheld.
-    expect(screen.queryByRole("heading", { name: "Filters" })).toBeNull();
+    // behind it, so the filter disclosure is absent rather than withheld.
+    expect(screen.queryByLabelText("Actor")).toBeNull();
     // And the request is never issued: it could only ever come back 403, and a
     // red failure with a futile Retry is what the withheld body replaces.
     const asked = backend.mock.calls.map((call) =>

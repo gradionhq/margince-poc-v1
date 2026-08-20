@@ -168,31 +168,52 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The paste box is a form — a whole email typed into one box and then
+// committed — so the settings row keeps the verb and the dialog keeps the form.
+// A test whose subject is that box opens the dialog first and scopes its
+// queries to it; the claims themselves are unchanged.
+async function openFirstSample(): Promise<HTMLElement> {
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Paste your first sample…" }),
+  );
+  return screen.getByRole("dialog");
+}
+
 describe("the Settings Voice DNA card with no profile yet", () => {
   it("offers the add control the empty state points at", async () => {
     stubApi();
     render(<VoiceDnaCard />);
     expect(await screen.findByText("No Voice DNA yet")).toBeTruthy();
+    // The row names the sample and carries the verb that asks for one.
     expect(screen.getByText("Your first writing sample")).toBeTruthy();
+
+    const dialog = await openFirstSample();
     expect(
-      screen.getByPlaceholderText(
+      within(dialog).getByPlaceholderText(
         "Paste an email, post, or anything you've written…",
       ),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Add it and start my Voice DNA" }),
+      within(dialog).getByRole("button", {
+        name: "Add it and start my Voice DNA",
+      }),
     ).toBeTruthy();
   });
 
   it("mints exactly one profile on the first add and then shows the build control", async () => {
     const calls = stubApi();
     render(<VoiceDnaCard />);
-    const box = await screen.findByPlaceholderText(
-      "Paste an email, post, or anything you've written…",
+    const dialog = await openFirstSample();
+    await userEvent.type(
+      within(dialog).getByPlaceholderText(
+        "Paste an email, post, or anything you've written…",
+      ),
+      "Short sentences. Concrete nouns.",
     );
-    await userEvent.type(box, "Short sentences. Concrete nouns.");
     await userEvent.click(
-      screen.getByRole("button", { name: "Add it and start my Voice DNA" }),
+      within(dialog).getByRole("button", {
+        name: "Add it and start my Voice DNA",
+      }),
     );
 
     // The build control only exists inside the body that requires a profile,
@@ -207,7 +228,8 @@ describe("the Settings Voice DNA card with no profile yet", () => {
   it("keeps the add disabled until there is something to add", async () => {
     stubApi();
     render(<VoiceDnaCard />);
-    const add = await screen.findByRole("button", {
+    const dialog = await openFirstSample();
+    const add = within(dialog).getByRole("button", {
       name: "Add it and start my Voice DNA",
     });
     expect(add.hasAttribute("disabled")).toBe(true);
@@ -230,24 +252,31 @@ describe("the Settings Voice DNA card with no profile yet", () => {
   });
 
   // An owner with no voice yet has one thing to do. Splitting the surface into
-  // a card per subject would hand them five headings over five empty bodies —
-  // a description of a profile that does not exist.
+  // a card per subject would hand them headings over empty bodies — a
+  // description of a profile that does not exist.
   it("stays one card, naming no subject the owner has nothing in yet", async () => {
     stubApi();
     render(<VoiceDnaCard />);
     expect(await screen.findByText("No Voice DNA yet")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Voice DNA" })).toBeTruthy();
-    for (const absent of ["Writing samples", "Builds", "Your preferences"]) {
+    for (const absent of ["Writing samples", "Builds"]) {
       expect(screen.queryByRole("heading", { name: absent })).toBeNull();
+    }
+    // The preferences and the derived text are rows inside the voice card once
+    // there is a profile; with none, neither is named at all.
+    for (const absent of ["Your preferences", "Your derived voice"]) {
+      expect(screen.queryByText(absent)).toBeNull();
     }
   });
 });
 
-// A profile that exists carries five subjects, each with controls of its own,
-// so each states itself: a reader looking for the rebuild button should find a
-// heading that says where it is rather than scrolling one long card.
+// A profile that exists answers three questions — what the voice IS, what it is
+// built FROM, and what its builds have DONE — so it is three cards, and every
+// decision inside one is a row with its own label. A reader looking for the
+// rebuild button finds a heading that says which card it is in, and then a row
+// that names it.
 describe("the Settings Voice DNA card with a profile", () => {
-  it("gives every subject its own named card", async () => {
+  function stubProfile() {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (request: Request) => {
@@ -264,35 +293,51 @@ describe("the Settings Voice DNA card with a profile", () => {
         return jsonResponse(emptyPage);
       }),
     );
+  }
 
+  it("gives every subject its own named card", async () => {
+    stubProfile();
     render(<VoiceDnaCard />);
 
-    // "Your derived voice" belongs to this list only while the profile is not
-    // ready — a ready one is described by the insights panel above instead.
-    for (const heading of [
-      "Voice DNA",
-      "Your derived voice",
-      "Your preferences",
-      "Writing samples",
-      "Builds",
-    ]) {
+    for (const heading of ["Voice DNA", "Writing samples", "Builds"]) {
       expect(
         await screen.findByRole("heading", { name: heading }),
       ).toBeTruthy();
     }
-    // The corpus card holds the manifest AND the box that adds to it, so the
-    // reader who just read "420 of 30,000 words" can act on it without moving.
+    // The preferences and the derived text belong to the voice itself, as rows
+    // inside its card rather than as two more header bands. "Your derived
+    // voice" is there only while the profile is not ready — a ready one is
+    // described by the insights above instead.
+    const voice = (
+      await screen.findByRole("heading", { name: "Voice DNA" })
+    ).closest("section");
+    if (!voice) {
+      throw new Error("the voice heading is not inside a card");
+    }
+    expect(within(voice).getByText("Your preferences")).toBeTruthy();
+    expect(within(voice).getByText("Your derived voice")).toBeTruthy();
+  });
+
+  it("keeps the corpus and the way to add to it in one card", async () => {
+    stubProfile();
+    render(<VoiceDnaCard />);
+
+    // The manifest is the subject of the card and stays in it at full width;
+    // the box that adds to it is a form, so the card carries the verb. Both
+    // are here, so the reader who just read "420 of 30,000 words" can act on
+    // it without moving.
     const corpus = (
       await screen.findByRole("heading", { name: "Writing samples" })
     ).closest("section");
     if (!corpus) {
       throw new Error("the corpus heading is not inside a card");
     }
-    expect(within(corpus).getByText(/420 of 30,000 words/)).toBeTruthy();
+    expect(await within(corpus).findByText(/420 of 30,000 words/)).toBeTruthy();
     expect(
-      within(corpus).getByPlaceholderText(
-        "Paste an email, post, or anything you've written…",
-      ),
+      within(corpus).getByRole("button", { name: "Paste writing…" }),
+    ).toBeTruthy();
+    expect(
+      within(corpus).getByRole("button", { name: /Choose files/ }),
     ).toBeTruthy();
   });
 
@@ -301,30 +346,20 @@ describe("the Settings Voice DNA card with a profile", () => {
   // field a screen reader was told about loses its name exactly when its
   // content starts to matter.
   it("names every writing box without relying on its placeholder", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (request: Request) => {
-        const path = new URL(request.url).pathname.replace(/^\/v1/, "");
-        if (path === "/me") {
-          return jsonResponse(meFixture({ allow: VOICE_EDITOR }));
-        }
-        if (path === "/voice-profiles") {
-          return jsonResponse({ data: [PROFILE], page: emptyPage.page });
-        }
-        if (path === "/voice-profiles/vp-1/sources") {
-          return jsonResponse({ data: [SOURCE], summary: SUMMARY });
-        }
-        return jsonResponse(emptyPage);
-      }),
-    );
+    stubProfile();
     render(<VoiceDnaCard />);
-    // The preferences box takes its name from the card that holds it rather
-    // than drawing the same words twice.
+    // The preferences box takes its name from the row that names the decision,
+    // so the words on screen and the name it announces are one string.
     expect(
       await screen.findByRole("textbox", { name: "Your preferences" }),
     ).toBeTruthy();
-    // The add box draws its own label, and the label is tied to the control.
-    expect(screen.getByLabelText("Add sample")).toBeTruthy();
+    // The add box draws its own label inside the dialog, and the label is tied
+    // to the control — and it names the dialog too.
+    await userEvent.click(
+      screen.getByRole("button", { name: "Paste writing…" }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Add sample" });
+    expect(within(dialog).getByLabelText("Add sample")).toBeTruthy();
   });
 });
 

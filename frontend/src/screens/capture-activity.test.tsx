@@ -312,6 +312,33 @@ describe("capture activity", () => {
     expect(row.getByText(/waiting on a verdict/i)).toBeInTheDocument();
   });
 
+  // The row language: the counters and the log are the SUBJECT of this card
+  // rather than answers to a question that would fit beside them, so each is
+  // named and then given the whole width below its naming. A log squeezed into
+  // a right-hand column is the shape this replaced.
+  it("gives the log a named row of its own, at the card's full width", async () => {
+    renderTab(windowBody());
+    const naming = await screen.findByText("Messages");
+    const row = naming.closest(".settingrow");
+    expect(row).not.toBeNull();
+    if (row instanceof HTMLElement) {
+      expect(row.className).toContain("settingrow-stack");
+      expect(within(row).getByRole("list")).toBeInTheDocument();
+    }
+    // And the counters are their own row, with what they are counting stated as
+    // that row's description rather than as a paragraph between the two.
+    const counters = screen.getByText("Outcomes").closest(".settingrow");
+    expect(counters).not.toBeNull();
+    if (counters instanceof HTMLElement) {
+      expect(
+        within(counters).getByTestId("capture-activity-funnel"),
+      ).toBeInTheDocument();
+      expect(
+        within(counters).getByText(/filtered on its own side/i),
+      ).toBeInTheDocument();
+    }
+  });
+
   it("reports an empty window as empty rather than as a failure", async () => {
     renderTab(windowBody({ data: [], funnel: {} }));
     expect(

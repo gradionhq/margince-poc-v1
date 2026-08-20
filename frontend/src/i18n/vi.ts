@@ -1109,6 +1109,7 @@ export const vi = {
     "Chưa ai trong số kết nối của bạn làm việc tại một tài khoản đã có trong hồ sơ.",
   "linkedinReach.allUnresolved":
     "Cả {unresolved} kết nối của bạn đều làm việc ở nơi chưa có trong hồ sơ tài khoản.",
+  "linkedinReach.accountsLabel": "Tài khoản bạn vươn tới",
   "linkedinReach.account": "Tài khoản",
   "linkedinReach.connections": "Bạn quen",
   "linkedinReach.onFile": "Đã là contact",
@@ -1288,6 +1289,10 @@ export const vi = {
   "leadSources.removeBody":
     '"{label}" không được khách hàng tiềm năng nào dùng và sẽ biến mất khỏi danh sách.',
   "leadSources.newLabel": "Nguồn mới",
+  "leadSources.labelField": "Nhãn",
+  "leadSources.addOpen": "Thêm một nguồn…",
+  "leadSources.listLabel": "Các nguồn trong danh sách",
+  "leadSources.discovered": "Giá trị phát hiện được",
   "leadSources.newPlaceholder": "Hội chợ",
   "leadSources.add": "Thêm nguồn",
   "leadSources.discoveredSub":
@@ -1301,6 +1306,7 @@ export const vi = {
   "leadReasons.inUse":
     "{count} khách hàng tiềm năng mang lý do này — hãy tắt thay vì xóa.",
   "leadReasons.newLabel": "Lý do mới",
+  "leadReasons.listLabel": "Các lý do trong danh sách",
   "leadReasons.add": "Thêm lý do",
   "leadReasons.removeTitle": "Xóa lý do này?",
   "leadReasons.removeBody":
@@ -2197,8 +2203,7 @@ export const vi = {
     "Hãy tạo một passport trong Cài đặt rồi trỏ bất kỳ Agent hỗ trợ MCP nào vào tổ chức của bạn. Agent chỉ đọc được những gì bạn thấy được.",
   "ai.paletteHint": "Hỏi từ bất cứ đâu bằng",
 
-  "settings.identity": "Hồ sơ",
-  "settings.preferences": "Tùy chọn",
+  "settings.accountCard": "Tài khoản của bạn",
   "unsaved.title": "Bạn có thay đổi chưa lưu",
   "unsaved.body":
     "Rời trang này bây giờ sẽ bỏ những gì bạn đã nhập. Hãy quay lại để lưu trước.",
@@ -2212,8 +2217,10 @@ export const vi = {
   "settings.signatureHint":
     "Chỉ văn bản thuần. Để trống nghĩa là gửi không chữ ký. AI không bao giờ tự viết lời kết — chữ ký này mới là thứ được gửi đi.",
   "settings.signatureSaving": "Đang lưu…",
-  "settings.preferencesSub":
-    "Giao diện được trình duyệt này ghi nhớ. Ngôn ngữ chỉ giữ trong phiên làm việc.",
+  "settings.signatureEdit": "Sửa chữ ký…",
+  "settings.signatureNone": "Chưa đặt lời kết",
+  "settings.signatureCancel": "Hủy",
+  "settings.languageHelp": "Chỉ giữ trong phiên làm việc.",
   "role.admin": "Quản trị",
   "role.management": "Ban lãnh đạo",
   "role.manager": "Trưởng nhóm",
@@ -2239,6 +2246,8 @@ export const vi = {
   "settings.minting": "Đang tạo…",
   "settings.mintCancel": "Huỷ",
   "settings.mintDone": "Xong",
+  "settings.mintOpen": "Tạo…",
+  "settings.mintLabel": "Tạo passport mới",
   "settings.passportScopes": "Tác nhân này được phép làm gì",
   "settings.passportScopesHint":
     "Chọn ít nhất một mục. Tác nhân không bao giờ được làm nhiều hơn bạn.",
@@ -2251,13 +2260,14 @@ export const vi = {
   "agents.connectedOn": "kết nối {date}",
   "agents.lentFrom": "cho mượn từ “{label}”",
   "agents.disconnect": "Ngắt kết nối",
+  "agents.disconnectOpen": "Ngắt kết nối…",
   "agents.disconnectNamed": "Ngắt kết nối {client}",
   "agents.disconnected": "đã ngắt kết nối",
   "agents.lapsed": "thông tin xác thực đã hết hạn",
   "agents.renewing": "đang gia hạn",
   "agents.renewsBy": "thông tin xác thực gia hạn trước {date}",
   "agents.expiredOn": "thông tin xác thực hết hạn {date}",
-  "agents.revokeGrant": "Kết thúc kết nối",
+  "agents.revokeGrantOpen": "Kết thúc kết nối…",
   "agents.revokeGrantNamed": "Kết thúc kết nối tới {client}",
   "agents.disconnectConfirm":
     "Việc này kết thúc toàn bộ kết nối, không chỉ một thông tin xác thực: Agent mất quyền truy cập ở lần gọi kế tiếp và không gia hạn được. Muốn kết nối lại thì phải cho mượn passport lần nữa.",
@@ -2356,6 +2366,8 @@ export const vi = {
   "settings.resetDataDesc":
     "Đưa bản cài đặt này về trạng thái khởi động lần đầu. Dữ liệu nghiệp vụ và cấu hình của tổ chức bị xoá sạch; tổ chức cùng người dùng của nó được giữ lại và vẫn đang đăng nhập.",
   "settings.resetDataButton": "Xoá sạch dữ liệu…",
+  "settings.resetDataLabel": "Xóa toàn bộ dữ liệu",
+  "settings.resetDataConfirmButton": "Xóa dữ liệu",
   "settings.resetDataConfirmTitle": "Xoá sạch toàn bộ dữ liệu?",
   "settings.resetDataConfirmBody":
     "Nhập tên tổ chức của bạn để xác nhận. Không thể hoàn tác.",
@@ -2424,6 +2436,7 @@ export const vi = {
     "Chỉ quản trị viên đọc được toàn bộ dấu vết. Nó ghi lại mọi người thực hiện và mọi bản ghi họ chạm tới, nên không mở rộng hơn.",
   "settings.auditFilters": "Bộ lọc",
   "settings.auditEntries": "Nhật ký kiểm toán",
+  "settings.auditTrailLabel": "Các hành động đã ghi",
   "settings.auditActor": "Tác nhân",
   "settings.auditEntity": "Loại thực thể",
   "settings.auditEntityId": "ID thực thể",
@@ -2582,6 +2595,7 @@ export const vi = {
   "settings.pipelinesSub":
     "Các giai đoạn một deal đi qua — mỗi pipeline một thang.",
   "pipeline.new": "Pipeline mới",
+  "pipeline.addLabel": "Thêm một pipeline",
   "pipeline.edit": "Sửa pipeline",
   "pipeline.name": "Tên",
   "pipeline.default": "Mặc định",
@@ -2949,6 +2963,8 @@ export const vi = {
   // surface the onboarding copy promises.
   // Các đơn vị bản cài đặt này ghép vào, đặt trên trang cài đặt vốn đã giữ đúng
   // loại thông tin đăng nhập mà đơn vị đó dùng để cấu hình.
+  "extUnits.open": "Mở",
+  "extUnits.openNamed": "Mở trang {name}",
   "extUnits.user.title": "Tài khoản khác của bạn",
   "extUnits.user.sub":
     "Những tài khoản bản cài đặt này có thể kết nối thay bạn. Mỗi tài khoản chỉ thuộc về bạn — không ai khác nhìn thấy, và ngắt kết nối chỉ ảnh hưởng tới bạn.",
@@ -4051,6 +4067,7 @@ export const vi = {
   "cf.obj.organization": "Công ty",
   "cf.obj.person": "Contact",
   "cf.obj.lead": "Lead",
+  "cf.listLabel": "Các trường trên {object}",
   "cf.col.field": "Trường",
   "cf.col.type": "Loại",
   "cf.col.addedBy": "Người thêm",
@@ -4071,6 +4088,7 @@ export const vi = {
   "cf.type.picklist": "Danh sách chọn",
   "cf.type.boolean": "Có / Không",
   "cf.builder.addTo": "Thêm một trường vào {object}",
+  "cf.builder.open": "Thêm một trường…",
   "cf.builder.noCode": "không cần viết mã",
   "cf.builder.intro":
     "Trường mới là một cột thật trên bảng sẵn có — lọc được, đưa vào báo cáo được, xuất ra được, và có trong API như mọi trường lõi. Đó không phải một đối tượng mới.",
@@ -4097,7 +4115,6 @@ export const vi = {
   "cf.refuse.route":
     "Hãy đưa việc đó qua con đường phát triển — kỹ sư của chính bạn, một đối tác triển khai, hoặc dịch vụ của Gradion.",
   "cf.confirm": "Xác nhận và thêm trường",
-  "cf.reset": "Đặt lại",
   "cf.writing": "đang ghi…",
   "cf.added":
     'Đã thêm trường "{label}" — dùng được ngay trên 360, bộ lọc, bản xuất và API',
@@ -4132,6 +4149,8 @@ export const vi = {
   "captureActivity.sub":
     "Điều gì đã xảy ra với tin nhắn của bạn trong 24 giờ qua.",
   "captureActivity.scope.label": "Hoạt động của ai",
+  "captureActivity.outcomes": "Kết quả",
+  "captureActivity.messages": "Tin nhắn",
   "captureActivity.scope.mine": "Của tôi",
   "captureActivity.scope.workspace": "Kênh dùng chung",
   "captureActivity.scopeNote":
@@ -4345,6 +4364,7 @@ export const vi = {
     "Ghi chú về giọng văn bạn muốn — giữ nguyên đúng như bạn viết; mô hình không bao giờ ghi đè phần này.",
   "settings.voice.savePreferences": "Lưu tuỳ chọn",
   "settings.voice.corpusLabel": "Mẫu văn",
+  "settings.voice.corpusRowLabel": "Hiện có trong kho văn của bạn",
   "settings.voice.meter": "{count} trên {target} từ",
   "settings.voice.register.email": "email",
   "settings.voice.register.social": "mạng xã hội",
@@ -4396,6 +4416,8 @@ export const vi = {
   "voice.history.empty":
     "Chưa có phiên bản nào — hãy dựng giọng văn của bạn trước.",
   "voice.history.deltasLabel": "Những gì đã thay đổi",
+  "voice.history.deltasEmpty":
+    "Chưa có gì để so sánh \u2014 thay đổi sẽ xuất hiện từ bản dựng thứ hai.",
   "voice.history.deltaRow": "v{from} → v{to}",
   "voice.history.learning":
     "Học liên tục — bản nháp đã phục vụ: {drafted} · đã sửa trước khi gửi: {edited} · đã từ chối: {rejected}.",
@@ -4407,7 +4429,10 @@ export const vi = {
   "settings.voice.addPlaceholder":
     "Dán một email, bài đăng, hay bất cứ gì bạn đã viết…",
   "settings.voice.addSource": "Thêm mẫu văn",
+  "settings.voice.addSourceOpen": "Dán văn bản…",
+  "settings.voice.pasteCancel": "Huỷ",
   "settings.voice.addFirstLabel": "Mẫu văn đầu tiên của bạn",
+  "settings.voice.addFirstOpen": "Dán mẫu văn đầu tiên…",
   "settings.voice.addFirstCta": "Thêm và bắt đầu Voice DNA của tôi",
   "settings.voice.browseFiles": "Chọn tệp",
   "settings.voice.dropHint":
@@ -4436,6 +4461,7 @@ export const vi = {
   "settings.voice.refusalUnsupported":
     "{name} có định dạng mà kho văn bản không đọc được.",
   "settings.voice.buildsTitle": "Bản dựng",
+  "settings.voice.buildRowLabel": "Dựng từ mẫu văn của bạn",
   "settings.voice.building": "Đang dựng…",
   "settings.voice.rebuild": "Dựng lại Voice DNA",
   "settings.voice.buildNeedsWords":
@@ -4466,7 +4492,6 @@ export const vi = {
   "extAccess.brings.routes": "Tuyến đường dẫn",
   "extAccess.brings.jobs": "Tác vụ nền",
   "extAccess.brings.none": "Không có",
-  "extAccess.grants.heading": "Ai được dùng nó",
   "extAccess.noObjects":
     "Đơn vị này không đăng ký đối tượng phân quyền nào, nên không có gì để cấp.",
   "extAccess.roleColumn": "Vai trò",
@@ -4656,6 +4681,7 @@ export const vi = {
     "Bề mặt có kiểm soát mà một passport gọi được — đúng danh sách mà một client MCP thấy.",
   "tools.egress": "có gọi ra ngoài",
   "tools.scopeAll": "Mọi passport",
+  "tools.scopeLabel": "Giới hạn theo passport",
   "tools.scopedTo": "{label} gọi được",
   "tools.unreachable": "chưa được cấp phạm vi",
 

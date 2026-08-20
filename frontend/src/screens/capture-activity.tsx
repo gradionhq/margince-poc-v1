@@ -9,6 +9,7 @@ import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
 import { Button, SegmentedControl, StatCard } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { StatStrip } from "../design-system/statstrip";
 import { SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
@@ -116,24 +117,39 @@ export function CaptureActivityTab() {
     // `--fs-sm`/`fw-medium` through `.panel-head h2`: this was the one card in
     // the product whose title was a different size from the thirteen beside it.
     <Panel title={t("captureActivity.title")}>
-      <PanelBody className="form-stack">
+      <PanelBody>
         {/* The description belongs in the body, which is where the other ten
             settings cards put theirs — Panel's header band holds the title
             alone, by design. */}
         <p className="t-small settings-panel-sub">{t("captureActivity.sub")}</p>
-        {canReadWorkspace && (
-          <SegmentedControl<Scope>
-            label={t("captureActivity.scope.label")}
-            value={scope}
-            onChange={setScope}
-            options={SCOPES}
-            labels={{
-              mine: t("captureActivity.scope.mine"),
-              workspace: t("captureActivity.scope.workspace"),
-            }}
-          />
-        )}
-        <CaptureActivityWindow scope={canReadWorkspace ? scope : "mine"} />
+        <SettingList>
+          {/* Whose activity is a one-of-two ANSWER, so it sits beside its
+              naming in the right column like every other answer on the page.
+              The control keeps the same words as its own accessible name — the
+              row draws them, the fieldset announces them. */}
+          {canReadWorkspace && (
+            <SettingRow
+              label={t("captureActivity.scope.label")}
+              control={
+                <SegmentedControl<Scope>
+                  label={t("captureActivity.scope.label")}
+                  value={scope}
+                  onChange={setScope}
+                  options={SCOPES}
+                  labels={{
+                    mine: t("captureActivity.scope.mine"),
+                    workspace: t("captureActivity.scope.workspace"),
+                  }}
+                />
+              }
+            />
+          )}
+          {/* The window contributes the card's other two rows itself: the
+              funnel and the log are the SUBJECT here rather than answers to a
+              question, and both need the full width below their naming. They
+              are the query's children so a single read feeds both. */}
+          <CaptureActivityWindow scope={canReadWorkspace ? scope : "mine"} />
+        </SettingList>
       </PanelBody>
     </Panel>
   );
@@ -193,67 +209,86 @@ function CaptureActivityWindow({ scope }: Readonly<{ scope: Scope }>) {
           : entries;
         return (
           <>
-            <CaptureFunnel
-              funnel={first.funnel}
-              selected={filter}
-              onSelect={setFilter}
+            {/* The counters, and what they are counting — the note is the
+                naming's own qualification rather than a paragraph floating
+                between two blocks, which is where it read as a footnote to
+                whichever of them the eye reached first. */}
+            <SettingRow
+              label={t("captureActivity.outcomes")}
+              description={t("captureActivity.scopeNote")}
+              layout="stack"
+              control={
+                <CaptureFunnel
+                  funnel={first.funnel}
+                  selected={filter}
+                  onSelect={setFilter}
+                />
+              }
             />
-            <p className="capture-activity__scope-note">
-              {t("captureActivity.scopeNote")}
-            </p>
-            {filter && (
-              // Both numbers, always. The funnel counts the WINDOW and this
-              // filters what is loaded, so a bare "12" under a counter reading
-              // 26 would look like the counter was wrong.
-              <p className="capture-activity__count">
-                {t("captureActivity.filtered", {
-                  shown: shown.length,
-                  total: first.funnel[filter] ?? 0,
-                  outcome: t(`captureActivity.outcome.${filter}`),
-                })}
-              </p>
-            )}
-            {shown.length === 0 && (
-              // A filter that matched nothing LOADED is not an empty window.
-              // The counter above may say 3 while all three sit on pages
-              // nobody has fetched, and saying "no capture activity" there
-              // would contradict the number beside it.
-              <SurfaceState
-                state="empty"
-                emptyLabel={t(
-                  filter
-                    ? "captureActivity.emptyFiltered"
-                    : "captureActivity.empty",
-                )}
-              >
-                {null}
-              </SurfaceState>
-            )}
-            {shown.length > 0 && (
-              <ul className="capture-activity__list">
-                {shown.map((entry) => (
-                  <CaptureEntryRow
-                    key={entry.id}
-                    entry={entry}
-                    payloads={first.payload_capture_enabled}
-                    onOpen={() => setOpenTrace(entry.id)}
-                  />
-                ))}
-              </ul>
-            )}
-            {/* Outside the rows, so a filter matching nothing on this page can
-                still reach the pages that hold its matches. Hiding it there was
-                a dead end: the counter promised rows the reader had no way to
-                fetch. */}
-            {query.hasNextPage && (
-              <Button
-                small
-                disabled={query.isFetchingNextPage}
-                onClick={() => void query.fetchNextPage()}
-              >
-                {t("captureActivity.loadMore")}
-              </Button>
-            )}
+            {/* The log. A row of its own rather than more content under the
+                funnel: it is what a reader came here to read, and it takes the
+                width the card has instead of the space left over. */}
+            <SettingRow
+              label={t("captureActivity.messages")}
+              layout="stack"
+              control={
+                <div className="capture-activity__log">
+                  {filter && (
+                    // Both numbers, always. The funnel counts the WINDOW and
+                    // this filters what is loaded, so a bare "12" under a
+                    // counter reading 26 would look like the counter was wrong.
+                    <p className="capture-activity__count">
+                      {t("captureActivity.filtered", {
+                        shown: shown.length,
+                        total: first.funnel[filter] ?? 0,
+                        outcome: t(`captureActivity.outcome.${filter}`),
+                      })}
+                    </p>
+                  )}
+                  {shown.length === 0 && (
+                    // A filter that matched nothing LOADED is not an empty
+                    // window. The counter above may say 3 while all three sit
+                    // on pages nobody has fetched, and saying "no capture
+                    // activity" there would contradict the number beside it.
+                    <SurfaceState
+                      state="empty"
+                      emptyLabel={t(
+                        filter
+                          ? "captureActivity.emptyFiltered"
+                          : "captureActivity.empty",
+                      )}
+                    >
+                      {null}
+                    </SurfaceState>
+                  )}
+                  {shown.length > 0 && (
+                    <ul className="capture-activity__list">
+                      {shown.map((entry) => (
+                        <CaptureEntryRow
+                          key={entry.id}
+                          entry={entry}
+                          payloads={first.payload_capture_enabled}
+                          onOpen={() => setOpenTrace(entry.id)}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                  {/* Outside the rows, so a filter matching nothing on this
+                      page can still reach the pages that hold its matches.
+                      Hiding it there was a dead end: the counter promised rows
+                      the reader had no way to fetch. */}
+                  {query.hasNextPage && (
+                    <Button
+                      small
+                      disabled={query.isFetchingNextPage}
+                      onClick={() => void query.fetchNextPage()}
+                    >
+                      {t("captureActivity.loadMore")}
+                    </Button>
+                  )}
+                </div>
+              }
+            />
             {openTrace && (
               <CaptureActivityDrawer
                 traceId={openTrace}
@@ -301,7 +336,10 @@ function CaptureFunnel({
 }>) {
   const t = useT();
   return (
-    <StatStrip testId="capture-activity-funnel">
+    <StatStrip
+      className="capture-activity__funnel"
+      testId="capture-activity-funnel"
+    >
       {OUTCOMES.map((outcome) => (
         <button
           key={outcome}

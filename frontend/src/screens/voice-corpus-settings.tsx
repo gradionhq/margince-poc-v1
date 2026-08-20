@@ -1,7 +1,8 @@
 import { Upload } from "lucide-react";
 import type { ChangeEvent } from "react";
-import { useEffect, useRef, useState } from "react";
-import { Button, Field, Radio, Textarea } from "../design-system/atoms";
+import { useEffect, useId, useRef, useState } from "react";
+import { Button, Field, Modal, Radio, Textarea } from "../design-system/atoms";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import { problemMessageOf } from "./common";
 import { useFileDrop } from "./use-file-drop";
@@ -14,6 +15,20 @@ import { ACCEPTED_CORPUS_ATTR } from "./voice-intake-core";
 // so the build control beside it can be disabled while a source is still
 // arriving — a build started mid-ingest describes a corpus that no longer
 // exists by the time it finishes.
+//
+// The settings row language decides the SHAPE. Adding writing is one decision,
+// so it is one row: what it is on the left, and the two ways in on the right.
+// The paste box is a form — a box somebody types a whole email into and then
+// commits — so it sits behind the verb, in a dialog, which keeps the row an
+// answer rather than a card-sized composer.
+//
+// What deliberately did NOT move into that dialog is everything the intake has
+// to say back. The queue, the unanswered speaker questions and the per-source
+// notices all live in this component's hook, so a dialog holding them would
+// discard a pending question and stop reporting `busy` the moment the reader
+// closed it — the build guard beside this card reads that flag. They stay on
+// the card, where a reader who has just handed over six files can see what
+// happened to each.
 
 type VoiceCorpusIntakeProps = Readonly<{
   /** null for an owner who has no profile yet: the first sample mints it. */
@@ -21,8 +36,8 @@ type VoiceCorpusIntakeProps = Readonly<{
   onChanged: () => void;
   /** Told when intake is in progress, so the caller can hold the build. */
   onBusyChange?: (busy: boolean) => void;
-  /** The empty-state box names itself and opens taller — it is the one a
-   * person pastes a whole email into. */
+  /** The first sample is the one that MINTS the profile: the row names itself
+   * for that, and its verb leads rather than sitting beside a peer. */
   first?: boolean;
 }>;
 
@@ -35,6 +50,8 @@ export function VoiceCorpusIntake({
   const t = useT();
   const intake = useVoiceIntake({ profileId, onChanged });
   const [paste, setPaste] = useState("");
+  const [pasting, setPasting] = useState(false);
+  const pasteLabelId = useId();
   const fileRef = useRef<HTMLInputElement>(null);
   const zoneRef = useRef<HTMLDivElement>(null);
 
@@ -62,15 +79,72 @@ export function VoiceCorpusIntake({
     event.target.value = "";
   };
 
+  // The box is emptied only once its contents are on their way, and the dialog
+  // closes with them: the reader is done, and the outcome arrives as a notice
+  // on the card behind. Closing the dialog any other way KEEPS what was typed —
+  // a whole pasted email is a draft, and a dialog that discards one punishes
+  // the reader for pressing Escape.
+  const submitPaste = () => {
+    intake.addPaste(paste, t("settings.voice.pastedLabel"));
+    setPaste("");
+    setPasting(false);
+  };
+
+  const sampleLabel = t(
+    first ? "settings.voice.addFirstLabel" : "settings.voice.addSource",
+  );
+
   return (
     <div
       ref={zoneRef}
       className={`vdna-intake${dragOver ? " vdna-intake-dragover" : ""}`}
     >
+      <SettingList>
+        <SettingRow
+          label={sampleLabel}
+          description={t("settings.voice.dropHint")}
+          control={
+            <>
+              {/* The ellipsis form, because it opens a dialog rather than
+                  performing the add; the button inside that dialog keeps the
+                  plain verb. Two controls reading the same is ambiguous for a
+                  reader and for getByRole. */}
+              <Button
+                small
+                variant={first ? "primary" : undefined}
+                onClick={() => setPasting(true)}
+              >
+                {t(
+                  first
+                    ? "settings.voice.addFirstOpen"
+                    : "settings.voice.addSourceOpen",
+                )}
+              </Button>
+              <Button small onClick={() => fileRef.current?.click()}>
+                <Upload aria-hidden /> {t("settings.voice.browseFiles")}
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept={ACCEPTED_CORPUS_ATTR}
+                hidden
+                onChange={onBrowsed}
+              />
+            </>
+          }
+        />
+      </SettingList>
+
       {intake.pendingAsk && (
         // Keyed by the source: when the queue advances to the next file the
         // panel is a NEW panel, so the previous file's chosen speaker cannot
         // survive into a question about different people.
+        //
+        // Not a SettingRow: this is not a setting the reader may leave as it
+        // is. It is a file held out of the corpus until a question about it is
+        // answered, and it carries the warn surface that says so — a row would
+        // draw it in the same neutral ink as the decisions above it.
         <SpeakerPanel
           key={intake.pendingAsk.ref}
           ask={intake.pendingAsk}
@@ -79,58 +153,6 @@ export function VoiceCorpusIntake({
         />
       )}
 
-      <div className="vdna-composer">
-        {/* Field, not a div plus an aria-label: the words above the box have to
-            BE its accessible name, or the two drift — this box read "Your first
-            writing sample" while announcing "Add sample", which is the
-            label-in-name mismatch WCAG 2.5.3 exists to catch, and a reader
-            driving it by voice would ask for the wrong control. Field owns the
-            id and draws a real <label for>, so clicking the words also focuses
-            the box. */}
-        <Field
-          label={t(
-            first ? "settings.voice.addFirstLabel" : "settings.voice.addSource",
-          )}
-        >
-          {(control) => (
-            <Textarea
-              {...control}
-              rows={first ? 8 : 4}
-              value={paste}
-              placeholder={t("settings.voice.addPlaceholder")}
-              onChange={(e) => setPaste(e.target.value)}
-            />
-          )}
-        </Field>
-        <div className="vdna-composer-actions">
-          <Button
-            small
-            variant={first ? "primary" : undefined}
-            disabled={paste.trim().length === 0}
-            onClick={() => {
-              intake.addPaste(paste, t("settings.voice.pastedLabel"));
-              setPaste("");
-            }}
-          >
-            {first
-              ? t("settings.voice.addFirstCta")
-              : t("settings.voice.addSource")}
-          </Button>
-          <Button small onClick={() => fileRef.current?.click()}>
-            <Upload aria-hidden /> {t("settings.voice.browseFiles")}
-          </Button>
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            accept={ACCEPTED_CORPUS_ATTR}
-            hidden
-            onChange={onBrowsed}
-          />
-        </div>
-        <p className="t-small vdna-drophint">{t("settings.voice.dropHint")}</p>
-      </div>
-
       {intake.notices.length > 0 && (
         <ul className="vdna-notices">
           {intake.notices.map((notice) => (
@@ -138,6 +160,53 @@ export function VoiceCorpusIntake({
           ))}
         </ul>
       )}
+
+      <Modal
+        open={pasting}
+        onClose={() => setPasting(false)}
+        labelledBy={pasteLabelId}
+      >
+        {/* A real form, so Enter-with-modifier and the submit button are the
+            same path. The dialog is named by the field's own label rather than
+            by a heading repeating it: the box IS the dialog, and two spellings
+            of one name is how a control ends up announcing something other
+            than the words above it (WCAG 2.5.3). */}
+        <form
+          className="form-stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (paste.trim().length > 0) {
+              submitPaste();
+            }
+          }}
+        >
+          <Field label={<span id={pasteLabelId}>{sampleLabel}</span>}>
+            {(control) => (
+              <Textarea
+                {...control}
+                rows={8}
+                value={paste}
+                placeholder={t("settings.voice.addPlaceholder")}
+                onChange={(e) => setPaste(e.target.value)}
+              />
+            )}
+          </Field>
+          <div className="form-actions">
+            <Button variant="ghost" onClick={() => setPasting(false)}>
+              {t("settings.voice.pasteCancel")}
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={paste.trim().length === 0}
+            >
+              {first
+                ? t("settings.voice.addFirstCta")
+                : t("settings.voice.addSource")}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

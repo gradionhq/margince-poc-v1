@@ -5,15 +5,30 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
 import { useUnsavedGuard } from "../app/unsaved";
-import { Badge, Button, EmptyState, Textarea } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  Disclosure,
+  EmptyState,
+  Textarea,
+} from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
+import {
+  type SettingControlProps,
+  SettingList,
+  SettingRow,
+} from "../design-system/settingrow";
 import { ToastRegion, useToast } from "../design-system/toast";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { VoiceCorpusIntake } from "./voice-corpus-settings";
 import { VOICE_MIN_WORDS } from "./voice-intake-core";
 import { useVoiceProfile } from "./voice-profile";
-import { ActiveVoiceInsights, VoiceHistory } from "./voice-versions";
+import {
+  ActiveVoiceInsights,
+  VoiceChangeLog,
+  VoiceHistory,
+} from "./voice-versions";
 import "./voice-dna.css";
 
 type VoiceProfile = components["schemas"]["VoiceProfile"];
@@ -81,10 +96,9 @@ function bandFor(totalWords: number): string {
 }
 
 // The "…later in Settings" surface the onboarding Voice step promises: the
-// owner's own profile, its corpus, and its builds. A built profile carries five
-// subjects, each with its own controls, so each gets a card of its own; a
-// profile that does not exist yet is ONE card, because five headings over five
-// empty bodies would describe a surface the owner does not have.
+// owner's own profile, its corpus, and its builds. A profile that does not
+// exist yet is ONE card, because a heading over an empty body describes a
+// surface the owner does not have.
 export function VoiceDnaCard() {
   const t = useT();
   const canCreate = useCanWrite("voice_profile", "create");
@@ -154,9 +168,15 @@ function bandLabel(
   }
 }
 
+// A profile that exists answers three questions, so it is three cards: what
+// the voice IS (its state, what the last build learned, the preferences that
+// steer it), what it is BUILT FROM, and what its builds have DONE. Five cards
+// stood here before, one per component; the row language is what let the
+// preferences editor and the derived text rejoin the subject they belong to
+// instead of each needing a header band to be findable.
 function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
   const t = useT();
-  // useCanWrite, not useCan: every affordance these two children hold issues a
+  // useCanWrite, not useCan: every affordance these children hold issues a
   // mutation, and the seat ceiling has to fold in — a read seat holding the
   // grant would otherwise be offered a write the server clamps.
   const canEdit = useCanWrite("voice_profile", "update");
@@ -179,7 +199,7 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
             {t("settings.voice.intro")}
           </p>
           {/* Said ONCE, for the whole surface, rather than beside each of the
-              five controls a denial disables. The affordances below may then be
+              controls a denial disables. The affordances below may then be
               absent without the page making a claim about the data — which is
               the split design-system/README.md draws between a withheld surface
               and a withheld write. */}
@@ -200,73 +220,106 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
             </span>
           </div>
 
-          {/* The insights panel also carries the candidate-review banner, so it
-            renders for EVERY profile state: a review-required first build must
-            be actionable while the profile is still collecting. It sits with
-            the status it can contradict — a card of its own would separate
-            "Ready" from the version waiting to replace it. */}
+          {/* Above the rows, and deliberately not inside one: it also carries
+              the candidate-review banner, which is the most actionable thing on
+              this page, and a review waiting on a human does not belong under
+              two settings rows. It renders for EVERY profile state — a
+              review-required first build must be actionable while the profile
+              is still collecting. */}
           <ActiveVoiceInsights
             profileId={profile.id}
             canEdit={canEdit}
             onChanged={invalidate}
           />
-        </PanelBody>
-      </Panel>
 
-      {/* The raw derived text is what a profile can show BEFORE it is ready;
-          once it is, the insights panel above quotes the same build back in a
-          form a reader can use, and repeating the markdown under it would say
-          the same thing twice. */}
-      {profile.status !== "ready" && (
-        <Panel title={t("settings.voice.derivedLabel")}>
-          <PanelBody>
-            <DerivedVoice profile={profile} />
-          </PanelBody>
-        </Panel>
-      )}
-
-      <Panel title={t("settings.voice.personalityLabel")}>
-        <PanelBody>
-          <PersonalityEditor
-            profile={profile}
-            canEdit={canEdit}
-            onSaved={invalidate}
-          />
+          <SettingList>
+            {/* Stacked: the preferences are the longest thing anybody types in
+                settings, and a control that IS the subject takes the width
+                rather than the right column. The row draws the label the box
+                announces, so the two cannot drift apart. */}
+            <SettingRow
+              label={t("settings.voice.personalityLabel")}
+              layout="stack"
+              control={(control) => (
+                <PersonalityEditor
+                  control={control}
+                  profile={profile}
+                  canEdit={canEdit}
+                  onSaved={invalidate}
+                />
+              )}
+            />
+            {/* The raw derived text is what a profile can show BEFORE it is
+                ready; once it is, the insights above quote the same build back
+                in a form a reader can use, and repeating the markdown under it
+                would say the same thing twice. Closed by default either way:
+                it is the artifact behind the reading, not the reading. */}
+            {profile.status !== "ready" && (
+              <Disclosure summary={t("settings.voice.derivedLabel")}>
+                <DerivedVoice profile={profile} />
+              </Disclosure>
+            )}
+          </SettingList>
         </PanelBody>
       </Panel>
 
       <Panel title={t("settings.voice.corpusLabel")}>
         <PanelBody>
-          <CorpusManifest
-            profileId={profile.id}
-            canEdit={canEdit}
-            onChanged={invalidate}
-          />
-          {canEdit && (
-            <VoiceCorpusIntake
-              profileId={profile.id}
-              onChanged={invalidate}
-              onBusyChange={setIntakeBusy}
+          <SettingList>
+            {/* The manifest is the subject of this card, not an answer to a
+                question beside it, so it takes the full width and stays in the
+                card. A modal would hide the list a reader came here to audit. */}
+            <SettingRow
+              label={t("settings.voice.corpusRowLabel")}
+              layout="stack"
+              control={
+                <CorpusManifest
+                  profileId={profile.id}
+                  canEdit={canEdit}
+                  onChanged={invalidate}
+                />
+              }
             />
-          )}
+            {canEdit && (
+              <VoiceCorpusIntake
+                profileId={profile.id}
+                onChanged={invalidate}
+                onBusyChange={setIntakeBusy}
+              />
+            )}
+          </SettingList>
         </PanelBody>
       </Panel>
 
       <Panel title={t("settings.voice.buildsTitle")}>
         <PanelBody>
-          {/* A build started while a sample is still arriving would describe a
-            corpus that no longer exists by the time it finishes. */}
-          <BuildControls
-            profile={profile}
-            canEdit={canEdit}
-            onBuilt={invalidate}
-            intakeBusy={intakeBusy}
-          />
-          <VoiceHistory
-            profileId={profile.id}
-            canEdit={canEdit}
-            onChanged={invalidate}
-          />
+          <SettingList>
+            {/* A build started while a sample is still arriving would describe
+                a corpus that no longer exists by the time it finishes. */}
+            <BuildControls
+              profile={profile}
+              canEdit={canEdit}
+              onBuilt={invalidate}
+              intakeBusy={intakeBusy}
+            />
+            <SettingRow
+              label={t("voice.history.label")}
+              layout="stack"
+              control={
+                <VoiceHistory
+                  profileId={profile.id}
+                  canEdit={canEdit}
+                  onChanged={invalidate}
+                />
+              }
+            />
+            {/* Diagnostic: version-to-version deltas answer "why did it
+                change", which is a question a reader asks occasionally and
+                never on arrival. */}
+            <Disclosure summary={t("voice.history.deltasLabel")}>
+              <VoiceChangeLog profileId={profile.id} />
+            </Disclosure>
+          </SettingList>
         </PanelBody>
       </Panel>
     </>
@@ -285,10 +338,14 @@ function DerivedVoice({ profile }: Readonly<{ profile: VoiceProfile }>) {
 // personality_md is the owner-authored preferences the model output never
 // overwrites; the PATCH is version-guarded (If-Match on the profile version).
 function PersonalityEditor({
+  control,
   profile,
   canEdit,
   onSaved,
 }: Readonly<{
+  /** The naming its row already draws, so the box announces that same string
+   * rather than a second aria-label nobody can see drifting from it. */
+  control: SettingControlProps;
   profile: VoiceProfile;
   canEdit: boolean;
   onSaved: () => void;
@@ -324,16 +381,21 @@ function PersonalityEditor({
   // A voice profile is the longest thing anybody types in settings, which makes
   // it the draft a silent discard costs the most.
   useUnsavedGuard(dirty);
+  // `settingrow-measure` is the row primitive's own hook for a control that
+  // takes the stacked row's full width: without it the wrapper sizes to its
+  // content and the box inside falls back to a textarea's 20-column intrinsic
+  // width, which is the defect atoms.css already documents for callers who
+  // forgot it.
   return (
-    <div className="vdna-composer">
+    <div className="form-stack settingrow-measure">
       {/* readOnly rather than disabled: the preferences are a READ this seat
           still holds, and a disabled textarea drops out of the tab order, so a
           keyboard reader could not reach the words to read them. */}
       <Textarea
+        {...control}
         rows={4}
         value={text}
         readOnly={!canEdit}
-        aria-label={t("settings.voice.personalityLabel")}
         placeholder={t("settings.voice.personalityPlaceholder")}
         onChange={(e) => setText(e.target.value)}
       />
@@ -393,7 +455,7 @@ function CorpusManifest({
   });
 
   return (
-    <>
+    <div className="vdna-manifest settingrow-measure">
       <QueryGate query={sources}>
         {(manifest) => (
           <div>
@@ -430,11 +492,11 @@ function CorpusManifest({
         )}
       </QueryGate>
       {error && (
-        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
+        <p className="t-small" role="alert">
           {error}
         </p>
       )}
-    </>
+    </div>
   );
 }
 
@@ -563,6 +625,13 @@ function SourceRow({
 
 // Build creates a durable background build; poll to a terminal state. A slow or
 // budget-deferred build is honestly reported, not spun on forever.
+//
+// One row: what the verb does on the left, the verb and what the last build
+// said on the right. The distance still to go is the row's DESCRIPTION rather
+// than a sentence beside the button, because it is two sentences of prose and
+// the naming column is the one wide enough to read them — and when that
+// distance is a refusal, `reasonId` points the button at the very same words
+// instead of printing them twice.
 function BuildControls({
   profile,
   canEdit,
@@ -649,39 +718,46 @@ function BuildControls({
       : null;
 
   return (
-    <div className="vdna-composer">
-      {/* The title rides the wrapper, not the button: a disabled control fires
-          no pointer events, so a tooltip on it would never appear at the exact
-          moment someone is asking why they cannot click. */}
-      {canEdit && (
-        <span className="vdna-build" title={blocked ?? undefined}>
-          <Button
-            variant="primary"
-            small
-            disabled={build.isPending || tooThin || intakeBusy}
-            onClick={() => build.mutate()}
-          >
-            <Sparkles aria-hidden />{" "}
-            {build.isPending
-              ? t("settings.voice.building")
-              : t("settings.voice.rebuild")}
-          </Button>
-        </span>
-      )}
-      {(blocked ?? reach) && <p className="t-small">{blocked ?? reach}</p>}
-      {/* Mounted whether or not there is an outcome yet. A build runs for about
-          a minute behind a poll, so the reader who started it has looked away —
-          and a live region inserted together with its text is not reliably
-          announced, which would leave the one thing they are waiting for
-          arriving in silence. */}
-      <p className="t-small" role="status">
-        {status ? t(`settings.voice.buildStatus.${status}`) : ""}
-      </p>
-      {error && (
-        <p className="t-small" role="alert">
-          {error}
-        </p>
-      )}
-    </div>
+    <SettingRow
+      label={t("settings.voice.buildRowLabel")}
+      description={blocked ?? reach ?? undefined}
+      control={(control) =>
+        canEdit ? (
+          <div className="vdna-buildcell">
+            <Button
+              variant="primary"
+              small
+              // A refusal the reader can act on, attached to the control rather
+              // than left in a `title` no screen reader announces on a disabled
+              // button. It points at the description this row already draws.
+              reasonId={
+                blocked === null ? undefined : control["aria-describedby"]
+              }
+              aria-describedby={control["aria-describedby"]}
+              disabled={build.isPending || tooThin || intakeBusy}
+              onClick={() => build.mutate()}
+            >
+              <Sparkles aria-hidden />{" "}
+              {build.isPending
+                ? t("settings.voice.building")
+                : t("settings.voice.rebuild")}
+            </Button>
+            {/* Mounted whether or not there is an outcome yet. A build runs for
+                about a minute behind a poll, so the reader who started it has
+                looked away — and a live region inserted together with its text
+                is not reliably announced, which would leave the one thing they
+                are waiting for arriving in silence. */}
+            <p className="t-small" role="status">
+              {status ? t(`settings.voice.buildStatus.${status}`) : ""}
+            </p>
+            {error && (
+              <p className="t-small" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+        ) : null
+      }
+    />
   );
 }

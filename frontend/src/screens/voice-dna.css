@@ -26,17 +26,8 @@
   line-height: 1.55;
 }
 
-/* The add-a-source composer: the paste area is a block of its own rather than
-   an inline field, so the submit button sits under it instead of alongside. */
-.vdna-composer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-
-/* The action sits on its own row under the paste area, so the control reads as
-   one composer rather than a field with something stuck to its edge. */
+/* The action sits on its own row under the box it commits, so the control reads
+   as one composer rather than a field with something stuck to its edge. */
 .vdna-composer-actions {
   display: flex;
   align-items: center;
@@ -57,14 +48,6 @@
 .vdna-intake-dragover {
   border-color: var(--accent);
   background: var(--bgHover);
-}
-
-/* --textMeta, not --textMuted: --textMuted is the placeholder-grade ink and
-   measures 1.54:1 on this ground, while tokens.css names --textMeta the
-   canonical AA small-text role. Every line below is prose a reader is meant to
-   READ. */
-.vdna-drophint {
-  color: var(--textMeta);
 }
 
 /* The distance to the first build, shown only below the floor. */
@@ -115,11 +98,25 @@
   gap: var(--space-1);
 }
 
-/* Wraps the build button so a tooltip has something that still receives
-   pointer events while the button itself is disabled. */
-.vdna-build {
-  display: inline-flex;
-  align-self: flex-start;
+/* The build verb with what the last build said under it: an outcome belongs to
+   the control the reader pressed, not to a line further down the card. Capped,
+   because the sentences a build can report are long and a control column as
+   wide as the longest one would leave the naming beside it three words per
+   line. */
+.vdna-buildcell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  gap: var(--space-1);
+  max-width: 18rem;
+}
+
+/* The corpus manifest and the one line that reports a removal that failed. */
+.vdna-manifest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .vdna-list {
@@ -265,10 +262,6 @@
 .vdna-reasons {
   margin: var(--space-1) 0 0;
   padding-left: var(--space-3);
-}
-
-.vdna-deltas {
-  margin-top: var(--space-2);
 }
 
 .vdna-learning {

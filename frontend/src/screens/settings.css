@@ -21,9 +21,9 @@
    because the width belonged to the entry rather than to settings. And the
    exemption was a knob every new entry had to answer, which is how a register
    grows a column of values nobody revisits. A control that should not stretch is
-   a control that knows its own width — see `.settings-intrinsic` below — and
-   that is where the constraint belongs, on the thing with an opinion rather than
-   on the page around it. */
+   a control that knows its own width — `.settingrow-measure`, which the row
+   language owns — and that is where the constraint belongs, on the thing with an
+   opinion rather than on the page around it. */
 .settings-stack {
   display: flex;
   flex-direction: column;
@@ -48,19 +48,6 @@
    or the rows it describes, and it pays for its own interval to them. */
 .settings-panel-sub {
   margin-bottom: var(--space-4);
-}
-
-/* A control whose width is intrinsic: a language dropdown is one language wide.
-   It sits in a `.field`, which is a flex COLUMN — its default
-   `align-items: stretch` is what dragged it across the whole page column.
-   Stated once here rather than as an inline width per control, because the rule
-   is about what the control IS, not about this page. */
-.settings-intrinsic {
-  align-items: flex-start;
-}
-.settings-intrinsic .input {
-  width: auto;
-  min-width: 12rem;
 }
 
 /* The one panel that announces its own danger: the red border is what separates
@@ -127,27 +114,14 @@
   text-decoration: line-through;
 }
 
-/* AutonomyCard: the tier, its name, and — on the locked row — the badge saying
-   so, on one line each. */
-.autonomy-row {
+/* PipelinesCard. One pipeline per stacked SettingRow: its name is the row's
+   label, and under it the standing badge, the verbs, and the stage ladder.
+   A standing badge plus two verbs is wider than a phone, so the strip wraps —
+   an unwrapped one ran past the panel's edge and clipped the last verb away. */
+.pipeline-standing {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-/* PipelinesCard. One pipeline per full-bleed row: its own heading (a real
-   `h3` through SectionHeader), the verbs beside it, and its stages under. */
-.pipeline-row > .section-header {
-  margin: 0 0 var(--space-2);
-  /* A pipeline name plus a standing badge plus two verbs is wider than a phone.
-     `.section-header` keeps its actions on one unwrapped line by default, which
-     is right for a page header and wrong here: the strip simply ran past the
-     panel's edge and the last verb was clipped away. Wrapping costs a line and
-     keeps every verb reachable. */
-  flex-wrap: wrap;
-}
-.pipeline-row > .section-header .section-header-actions {
   flex-wrap: wrap;
 }
 .stage-rows {
@@ -194,19 +168,23 @@
   }
 }
 
-/* AuditLogCard. Six narrow filters as a grid of labelled cells rather than one
-   long row — in a row each control took the width of the card and the six of
-   them stacked into a page-tall form. */
-.audit-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: var(--space-3);
-  margin-top: var(--space-2);
+/* AuditLogCard. The trail is the control of ONE stacked row, so the rules
+   between its entries are its own: a log is a list of records rather than a list
+   of settings decisions, and the `SettingList` above it rules between DECISIONS.
+   The interval belongs to the list holding both entries, never to each entry —
+   the same reason `.settinglist` owns its hairline. */
+.audit-entries {
+  display: flex;
+  flex-direction: column;
+}
+.audit-entries > * + * {
+  border-top: 1px solid var(--borderSubtle);
 }
 .audit-row {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  padding: var(--space-3) 0;
 }
 .audit-row-head {
   display: flex;
@@ -237,33 +215,13 @@
   margin: var(--space-2) 0 var(--space-3);
 }
 
-/* Tool console's passport-scope filter (AgentToolsCard): the gap between the
-   selector and the inventory it scopes, on the shared spacing scale rather
-   than the off-scale value the inline <select> style used to carry. */
-.tool-scope-filter {
-  margin-bottom: var(--space-3);
-}
-/* One of a handful of passports is an intrinsic choice, like the language
-   dropdown beside the theme on Account: it takes the width its longest option
-   needs, not the width of the card it narrows. */
-.tool-scope-filter .input {
-  width: auto;
-  min-width: 14rem;
-  max-width: 100%;
-}
+/* Tool console rows (AgentToolsCard). One tool is one SettingRow: the verb and
+   its written title name it on the left, its governance answers on the right,
+   and the text an agent selects it by is the row's description. What is left
+   here is the two clusters and the strikethrough on a tool the chosen passport
+   cannot reach — a state with one spelling, not a per-row decision.
 
-/* Tool console rows (AgentToolsCard): the verb and its governance badges on
-   one line, the selection prose under them. All of it lives here rather than in
-   inline styles so it reads on the spacing scale — including the strikethrough
-   on a tool the chosen passport cannot reach, which is a state with one
-   spelling and not a per-row decision. */
-.tool-row-body {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-1);
-}
-/* The verb is the identifier an agent selects on, so it reads in the accent
+   The verb is the identifier an agent selects on, so it reads in the accent
    the rest of the product gives an identifier. */
 .tool-name {
   color: var(--accent);
@@ -292,13 +250,4 @@
    inside itself rather than set the row's minimum width. */
 .tool-row-head .t-mono {
   overflow-wrap: anywhere;
-}
-
-/* The tool console's selection prose (AgentToolsCard). It hangs under the
-   verb, indented past the autonomy dot so a scan down the column still reads
-   as one tool per line, and its measure is capped: this text is written to be
-   read by a model and a person needs a line length they can follow. */
-.tool-description {
-  margin: 0 0 var(--space-1) calc(var(--space-3) + var(--space-2));
-  max-width: 76ch;
 }

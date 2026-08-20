@@ -5,14 +5,28 @@
  * right in both themes, and a literal colour is the one thing that cannot be.
  */
 
-/* No margin of its own. The body is a `form-stack` now, so ONE gap separates
- * every block in this card; before, the intervals down the card read
- * 0 / 12 / 8 / 0 / 0 because three blocks paid their own margin and three paid
- * nothing — which is how the Load-more button ended up butted against the last
- * row with no separation at all. */
-.capture-activity__scope-note {
-  color: var(--textMeta);
-  font-size: var(--fs-sm);
+/* The counters plate fills the stacked row that names it. A grid of `1fr`
+ * slots has no width of its own, and the control half of a stacked SettingRow
+ * is a flex ROW — so without this the strip is as wide as its widest reading
+ * and the rest of the card is empty beside it. */
+.capture-activity__funnel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The log's own column, inside the stacked SettingRow that names it. A
+ * stacked row's control half is a flex ROW, so the count line, the list and
+ * the Load-more button would otherwise sit side by side; this is what stacks
+ * them and owns the ONE gap between them. `align-items: flex-start` keeps the
+ * button its own width — a stretched Load-more reads as a banner — and the
+ * list asks for the full width itself, below. */
+.capture-activity__log {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 /* A ruled list, not a stack of separated cards. The gap was 8px and every row
@@ -26,6 +40,7 @@
   list-style: none;
   margin: 0;
   padding: 0;
+  width: 100%;
 }
 
 /* One row per message, read left to right as when → where → what happened.

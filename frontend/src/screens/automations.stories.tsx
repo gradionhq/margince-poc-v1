@@ -4,8 +4,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
-import { AutomationRow } from "./automations";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import { AutomationRow, AutomationsAdmin } from "./automations";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // AutomationRow with its two lazy panel toggles (Runs / Preview). The panels
 // only fetch once opened; a benign stub answers the run list and preview POST
@@ -158,6 +163,79 @@ export const ReadOnly: Story = {
             canDelete={false}
           />
         </ul>
+      </StoryProviders>
+    );
+  },
+};
+
+// The row's Edit verb opens the definition in a DIALOG — a name plus every
+// parameter the schema declares is a form submitted together, so it cannot be
+// a panel unfolding under the row without the list stopping being a list.
+//
+// Both the menu panel and the dialog are portalled to the document body, so
+// the trigger is found in the canvas and everything the trigger opens is found
+// in the body. A play scoped to the canvas alone would look for the item in the
+// one place it is not.
+const openEditor: NonNullable<Story["play"]> = async ({ canvasElement }) => {
+  const user = userEvent.setup();
+  await user.click(
+    within(canvasElement).getByRole("button", { name: /Actions for/ }),
+  );
+  const body = within(canvasElement.ownerDocument.body);
+  await user.click(await body.findByRole("button", { name: "Edit" }));
+};
+
+export const EditingInADialog: Story = {
+  play: openEditor,
+  render: renderConfigurable,
+};
+
+// The dialog in dark. It paints its own surface over the card, so it is the
+// element that reads as a leftover light panel if a surface token does not
+// re-resolve — and the params form inside it carries every field kind the
+// catalog can ask for.
+export const EditingInADialogDark: Story = {
+  globals: { theme: "dark" },
+  play: openEditor,
+  render: renderConfigurable,
+};
+
+// The whole card, which is what the row language changed: two decisions, each
+// of which IS a list rather than an answer that would fit beside its naming, so
+// both take the full width below it. What is running comes first; the closed
+// library that feeds it comes second, with the verb that authors from an entry
+// at the entry's right edge.
+const CARD_ROUTES = {
+  "GET /me": meRoute({ automation: ["create", "read", "update", "delete"] }),
+  "GET /automations/catalog": () => jsonResponse({ data: [entry] }),
+  "GET /automations": () =>
+    jsonResponse({ data: [automation], page: { next_cursor: null } }),
+};
+
+export const AdminCard: Story = {
+  render: () => {
+    installFetchStub(CARD_ROUTES);
+    return (
+      <StoryProviders>
+        <AutomationsAdmin />
+      </StoryProviders>
+    );
+  },
+};
+
+// The same card for a seat that may read the surface and change nothing: the
+// library stays readable — no object grant gates the catalog — while the verb
+// that authors from it, the row's switch and the row's menu items are the parts
+// that answer to a grant. The card says once, above the rows, why.
+export const AdminCardReadOnly: Story = {
+  render: () => {
+    installFetchStub({
+      ...CARD_ROUTES,
+      "GET /me": meRoute({ automation: ["read"] }),
+    });
+    return (
+      <StoryProviders>
+        <AutomationsAdmin />
       </StoryProviders>
     );
   },

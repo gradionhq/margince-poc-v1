@@ -1,14 +1,8 @@
 /* The reach table: which accounts a member's imported network reaches.
    The table itself is DataTable now, so its header type, cell padding, row
-   rules and sideways scroll all come from the design system. What is left here
+   rules and sideways scroll all come from the design system, and the interval
+   above it belongs to the stacked SettingRow that holds it. What is left here
    is only what the CONTENT of a cell needs. */
-
-/* The interval between the sentence above the table and the footnote below it.
-   DataTable draws no outer margin — a primitive that spaced itself would space
-   itself differently in the next card. */
-.li-reach {
-  margin: var(--space-3) 0;
-}
 
 /* An account name plus two counts is wider than a phone, so every cell holds
    its line and the table takes the sideways scroll instead of the page. It sits

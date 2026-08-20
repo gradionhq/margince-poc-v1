@@ -1111,6 +1111,7 @@ export const de = {
     "Noch keine deiner Verbindungen arbeitet bei einer erfassten Firma.",
   "linkedinReach.allUnresolved":
     "Alle {unresolved} deiner Verbindungen arbeiten bei Firmen, die noch nicht erfasst sind.",
+  "linkedinReach.accountsLabel": "Firmen, die du erreichst",
   "linkedinReach.account": "Firma",
   "linkedinReach.connections": "Du kennst",
   "linkedinReach.onFile": "Bereits Personen",
@@ -1291,6 +1292,10 @@ export const de = {
   "leadSources.removeBody":
     "„{label}“ wird von keinem Lead genutzt und verschwindet aus der Liste.",
   "leadSources.newLabel": "Neue Quelle",
+  "leadSources.labelField": "Bezeichnung",
+  "leadSources.addOpen": "Quelle hinzufügen…",
+  "leadSources.listLabel": "Quellen in der Liste",
+  "leadSources.discovered": "Entdeckte Werte",
   "leadSources.newPlaceholder": "Messe",
   "leadSources.add": "Quelle hinzufügen",
   "leadSources.discoveredSub":
@@ -1304,6 +1309,7 @@ export const de = {
   "leadReasons.inUse":
     "{count} Leads tragen diesen Grund — stattdessen abschalten.",
   "leadReasons.newLabel": "Neuer Grund",
+  "leadReasons.listLabel": "Gründe in der Liste",
   "leadReasons.add": "Grund hinzufügen",
   "leadReasons.removeTitle": "Diesen Grund entfernen?",
   "leadReasons.removeBody":
@@ -2219,8 +2225,7 @@ export const de = {
     "Erstell in den Einstellungen einen Passport und häng einen MCP-fähigen Agenten an deine Organisation. Er liest nur, was du sehen kannst.",
   "ai.paletteHint": "Frag von überall mit",
 
-  "settings.identity": "Profil",
-  "settings.preferences": "Voreinstellungen",
+  "settings.accountCard": "Ihr Konto",
   "unsaved.title": "Du hast ungespeicherte Änderungen",
   "unsaved.body":
     "Wenn du die Seite jetzt verlässt, gehen deine Eingaben verloren. Geh zurück, um sie zuerst zu speichern.",
@@ -2234,8 +2239,10 @@ export const de = {
   "settings.signatureHint":
     "Nur Text. Leer lassen heißt: ohne Signatur senden. Die KI schreibt nie eine Grußformel — diese hier geht raus.",
   "settings.signatureSaving": "Wird gespeichert…",
-  "settings.preferencesSub":
-    "Das Design merkt sich dieser Browser. Die Sprache gilt für diese Sitzung.",
+  "settings.signatureEdit": "Signatur bearbeiten…",
+  "settings.signatureNone": "Keine Grußformel gesetzt",
+  "settings.signatureCancel": "Abbrechen",
+  "settings.languageHelp": "Gilt für diese Sitzung.",
   "role.admin": "Admin",
   "role.management": "Geschäftsleitung",
   "role.manager": "Teamleitung",
@@ -2261,6 +2268,8 @@ export const de = {
   "settings.minting": "Wird ausgestellt…",
   "settings.mintCancel": "Abbrechen",
   "settings.mintDone": "Fertig",
+  "settings.mintOpen": "Ausstellen…",
+  "settings.mintLabel": "Neuen Passport ausstellen",
   "settings.passportScopes": "Was dieser Agent darf",
   "settings.passportScopesHint":
     "Mindestens eins auswählen. Ein Agent darf nie mehr als Sie selbst.",
@@ -2273,13 +2282,14 @@ export const de = {
   "agents.connectedOn": "verbunden {date}",
   "agents.lentFrom": "verliehen aus „{label}“",
   "agents.disconnect": "Trennen",
+  "agents.disconnectOpen": "Trennen…",
   "agents.disconnectNamed": "{client} trennen",
   "agents.disconnected": "getrennt",
   "agents.lapsed": "Credential abgelaufen",
   "agents.renewing": "wird erneuert",
   "agents.renewsBy": "Credential erneuert bis {date}",
   "agents.expiredOn": "Credential abgelaufen {date}",
-  "agents.revokeGrant": "Verbindung beenden",
+  "agents.revokeGrantOpen": "Verbindung beenden…",
   "agents.revokeGrantNamed": "Verbindung zu {client} beenden",
   "agents.disconnectConfirm":
     "Das beendet die ganze Verbindung, nicht nur ein Credential: der Agent verliert den Zugriff beim nächsten Aufruf und kann nicht erneuern. Für eine neue Verbindung verleihst du wieder einen Passport.",
@@ -2380,6 +2390,8 @@ export const de = {
   "settings.resetDataDesc":
     "Setzt diese Installation auf den Zustand nach der Ersteinrichtung zurück. Fach- und Konfigurationsdaten werden gelöscht; die Organisation und ihre Nutzer bleiben erhalten und angemeldet.",
   "settings.resetDataButton": "Daten zurücksetzen…",
+  "settings.resetDataLabel": "Alle Daten zurücksetzen",
+  "settings.resetDataConfirmButton": "Daten zurücksetzen",
   "settings.resetDataConfirmTitle": "Alle Daten zurücksetzen?",
   "settings.resetDataConfirmBody":
     "Gib zur Bestätigung den Namen deiner Organisation ein. Dies kann nicht rückgängig gemacht werden.",
@@ -2448,6 +2460,7 @@ export const de = {
     "Nur Admins lesen den vollständigen Verlauf. Er hält jede handelnde Person und jeden berührten Datensatz fest — deshalb ist er nicht weiter zugänglich.",
   "settings.auditFilters": "Filter",
   "settings.auditEntries": "Audit-Log",
+  "settings.auditTrailLabel": "Aufgezeichnete Aktionen",
   "settings.auditActor": "Akteur",
   "settings.auditEntity": "Entitätstyp",
   "settings.auditEntityId": "Entitäts-ID",
@@ -2608,6 +2621,7 @@ export const de = {
   "settings.pipelinesSub":
     "Die Phasen, die ein Deal durchläuft — eine Leiter je Pipeline.",
   "pipeline.new": "Neue Pipeline",
+  "pipeline.addLabel": "Pipeline hinzufügen",
   "pipeline.edit": "Pipeline bearbeiten",
   "pipeline.name": "Name",
   "pipeline.default": "Standard",
@@ -2976,6 +2990,8 @@ export const de = {
   // Die Einheiten dieser Installation, auf der Einstellungsseite, die bereits
   // die Art von Zugangsdaten trägt, mit der die jeweilige Einheit konfiguriert
   // wird.
+  "extUnits.open": "Öffnen",
+  "extUnits.openNamed": "Seite {name} öffnen",
   "extUnits.user.title": "Deine weiteren Konten",
   "extUnits.user.sub":
     "Konten, die diese Installation in deinem Namen verbinden kann. Jedes gehört dir allein — niemand sonst sieht es, und ein Trennen betrifft nur dich.",
@@ -4079,6 +4095,7 @@ export const de = {
   "cf.obj.organization": "Firma",
   "cf.obj.person": "Kontakt",
   "cf.obj.lead": "Lead",
+  "cf.listLabel": "Felder auf {object}",
   "cf.col.field": "Feld",
   "cf.col.type": "Typ",
   "cf.col.addedBy": "Hinzugefügt von",
@@ -4099,6 +4116,7 @@ export const de = {
   "cf.type.picklist": "Auswahlliste",
   "cf.type.boolean": "Ja / Nein",
   "cf.builder.addTo": "Feld zu {object} hinzufügen",
+  "cf.builder.open": "Feld hinzufügen…",
   "cf.builder.noCode": "ohne Code",
   "cf.builder.intro":
     "Ein neues Feld ist eine echte Spalte auf der bestehenden Tabelle — es filtert, erscheint in Berichten, Exporten und in der API wie jedes Kernfeld. Es ist kein neues Objekt.",
@@ -4125,7 +4143,6 @@ export const de = {
   "cf.refuse.route":
     "Leite es über den Entwicklungsweg — deine eigenen Entwickler, einen Implementierungspartner oder Gradion-Services.",
   "cf.confirm": "Bestätigen & Feld hinzufügen",
-  "cf.reset": "Zurücksetzen",
   "cf.writing": "wird geschrieben…",
   "cf.added":
     'Feld "{label}" hinzugefügt — live auf 360, Filtern, Export & API',
@@ -4161,6 +4178,8 @@ export const de = {
   "captureActivity.sub":
     "Was in den letzten 24 Stunden mit Ihren Nachrichten geschehen ist.",
   "captureActivity.scope.label": "Wessen Aktivität",
+  "captureActivity.outcomes": "Ergebnisse",
+  "captureActivity.messages": "Nachrichten",
   "captureActivity.scope.mine": "Meine",
   "captureActivity.scope.workspace": "Gemeinsame Kanäle",
   "captureActivity.scopeNote":
@@ -4377,6 +4396,7 @@ export const de = {
     "Notizen dazu, wie du klingen willst — genau so behalten, wie du sie schreibst; das Modell überschreibt das nie.",
   "settings.voice.savePreferences": "Vorgaben speichern",
   "settings.voice.corpusLabel": "Schreibproben",
+  "settings.voice.corpusRowLabel": "Aktuell in deinem Korpus",
   "settings.voice.meter": "{count} von {target} W\u00f6rtern",
   "settings.voice.register.email": "E-Mail",
   "settings.voice.register.social": "Social",
@@ -4428,6 +4448,8 @@ export const de = {
   "voice.history.empty":
     "Noch keine Versionen \u2014 baue zuerst deine Stimme.",
   "voice.history.deltasLabel": "Was sich ge\u00e4ndert hat",
+  "voice.history.deltasEmpty":
+    "Noch nichts zu vergleichen \u2014 ab deinem zweiten Build steht hier eine \u00c4nderung.",
   "voice.history.deltaRow": "v{from} \u2192 v{to}",
   "voice.history.learning":
     "Lernt kontinuierlich \u2014 erstellte Entw\u00fcrfe: {drafted} \u00b7 vor dem Senden bearbeitet: {edited} \u00b7 abgelehnt: {rejected}.",
@@ -4439,7 +4461,10 @@ export const de = {
   "settings.voice.addPlaceholder":
     "Füg eine E-Mail, einen Post oder etwas Geschriebenes ein…",
   "settings.voice.addSource": "Probe hinzufügen",
+  "settings.voice.addSourceOpen": "Text einfügen…",
+  "settings.voice.pasteCancel": "Abbrechen",
   "settings.voice.addFirstLabel": "Deine erste Schreibprobe",
+  "settings.voice.addFirstOpen": "Erste Probe einfügen…",
   "settings.voice.addFirstCta": "Hinzufügen und Voice DNA starten",
   "settings.voice.browseFiles": "Dateien auswählen",
   "settings.voice.dropHint":
@@ -4471,6 +4496,7 @@ export const de = {
   "settings.voice.refusalUnsupported":
     "{name} liegt in einem Format vor, das nicht gelesen werden kann.",
   "settings.voice.buildsTitle": "Builds",
+  "settings.voice.buildRowLabel": "Aus deinen Proben bauen",
   "settings.voice.building": "Baue…",
   "settings.voice.rebuild": "Voice DNA neu bauen",
   "settings.voice.buildNeedsWords":
@@ -4501,7 +4527,6 @@ export const de = {
   "extAccess.brings.routes": "Routen",
   "extAccess.brings.jobs": "Hintergrundjobs",
   "extAccess.brings.none": "Keine",
-  "extAccess.grants.heading": "Wer sie nutzen darf",
   "extAccess.noObjects":
     "Diese Einheit registriert keine Berechtigungsobjekte — es gibt nichts zu vergeben.",
   "extAccess.roleColumn": "Rolle",
@@ -4694,6 +4719,7 @@ export const de = {
     "Die geregelte Oberfläche, die ein Passport aufrufen kann — dieselbe Liste, die ein MCP-Client sieht.",
   "tools.egress": "ruft nach außen",
   "tools.scopeAll": "Alle Passports",
+  "tools.scopeLabel": "Auf einen Passport eingrenzen",
   "tools.scopedTo": "Erreichbar durch {label}",
   "tools.unreachable": "Bereich nicht gewährt",
 

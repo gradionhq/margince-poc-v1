@@ -114,11 +114,13 @@ function mintBackend(
 
 // One instance per test, never per interaction: a second instance silently
 // forgets which keys and buttons the first left held.
+//
+// The ROW's verb takes the ellipsis form ("Mint…") and the drawer's submit keeps
+// the plain one ("Mint passport"), so the two are never one name for two acts —
+// which is what lets every assertion below name the button it means.
 async function openDrawer(user: ReturnType<typeof userEvent.setup>) {
   render("agents");
-  await user.click(
-    await screen.findByRole("button", { name: "Mint passport" }),
-  );
+  await user.click(await screen.findByRole("button", { name: "Mint…" }));
   return screen.findByRole("dialog");
 }
 
@@ -301,9 +303,9 @@ describe("PassportCard — minting", () => {
     await within(dialog).findByText("mgp_live_0f3a91c4");
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
 
-    await screen.findByRole("button", { name: "Mint passport" });
+    await screen.findByRole("button", { name: "Mint…" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Mint passport" }));
+    await user.click(screen.getByRole("button", { name: "Mint…" }));
     const reopened = await screen.findByRole("dialog");
     expect(reopened).toBeTruthy();
     expect(within(reopened).queryByText("mgp_live_0f3a91c4")).toBeNull();

@@ -1128,6 +1128,7 @@ export const en = {
     "None of your connections work at an account on file yet.",
   "linkedinReach.allUnresolved":
     "All {unresolved} of your connections work somewhere that is not an account on file yet.",
+  "linkedinReach.accountsLabel": "Accounts you reach",
   "linkedinReach.account": "Account",
   "linkedinReach.connections": "You know",
   "linkedinReach.onFile": "Already contacts",
@@ -1305,6 +1306,10 @@ export const en = {
   "leadSources.removeBody":
     '"{label}" is not used by any lead and will disappear from the list.',
   "leadSources.newLabel": "New source",
+  "leadSources.labelField": "Label",
+  "leadSources.addOpen": "Add a source…",
+  "leadSources.listLabel": "Sources in the list",
+  "leadSources.discovered": "Discovered values",
   "leadSources.newPlaceholder": "Trade show",
   "leadSources.add": "Add source",
   "leadSources.discoveredSub":
@@ -1318,6 +1323,7 @@ export const en = {
   "leadReasons.inUse":
     "{count} leads carry this reason — switch it off instead.",
   "leadReasons.newLabel": "New reason",
+  "leadReasons.listLabel": "Reasons in the list",
   "leadReasons.add": "Add reason",
   "leadReasons.removeTitle": "Remove this reason?",
   "leadReasons.removeBody":
@@ -2220,8 +2226,7 @@ export const en = {
     "Mint a passport in Settings and point any MCP-capable agent at your organization. It reads only what you can see.",
   "ai.paletteHint": "Ask from anywhere with",
 
-  "settings.identity": "Profile",
-  "settings.preferences": "Preferences",
+  "settings.accountCard": "Your account",
   "unsaved.title": "You have unsaved changes",
   "unsaved.body":
     "Leaving this page now discards what you have typed. Go back to save it first.",
@@ -2235,8 +2240,10 @@ export const en = {
   "settings.signatureHint":
     "Plain text. Leave it empty to send unsigned. The AI never writes a sign-off — this is the one that goes out.",
   "settings.signatureSaving": "Saving…",
-  "settings.preferencesSub":
-    "Theme is remembered in this browser. Language lasts for this session.",
+  "settings.signatureEdit": "Edit signature…",
+  "settings.signatureNone": "No sign-off set",
+  "settings.signatureCancel": "Cancel",
+  "settings.languageHelp": "Lasts for this session.",
   "role.admin": "Admin",
   "role.management": "Management",
   "role.manager": "Team Lead",
@@ -2266,6 +2273,8 @@ export const en = {
   "settings.minting": "Minting…",
   "settings.mintCancel": "Cancel",
   "settings.mintDone": "Done",
+  "settings.mintOpen": "Mint…",
+  "settings.mintLabel": "Mint a new passport",
   "settings.passportScopes": "What this agent may do",
   "settings.passportScopesHint":
     "Pick at least one. An agent can never do more than you can.",
@@ -2278,13 +2287,14 @@ export const en = {
   "agents.connectedOn": "connected {date}",
   "agents.lentFrom": "lent from “{label}”",
   "agents.disconnect": "Disconnect",
+  "agents.disconnectOpen": "Disconnect…",
   "agents.disconnectNamed": "Disconnect {client}",
   "agents.disconnected": "disconnected",
   "agents.lapsed": "credential expired",
   "agents.renewing": "renewing",
   "agents.renewsBy": "credential renews by {date}",
   "agents.expiredOn": "credential expired {date}",
-  "agents.revokeGrant": "End connection",
+  "agents.revokeGrantOpen": "End connection…",
   "agents.revokeGrantNamed": "End the connection to {client}",
   "agents.disconnectConfirm":
     "This ends the whole connection, not just one credential: the agent loses access on its next call and cannot renew. Reconnecting means lending a passport again.",
@@ -2386,6 +2396,8 @@ export const en = {
   "settings.resetDataDesc":
     "Reset this installation to its first-boot state. Domain and configuration data is wiped; the organization and its users are preserved and stay signed in.",
   "settings.resetDataButton": "Reset data…",
+  "settings.resetDataLabel": "Reset all data",
+  "settings.resetDataConfirmButton": "Reset data",
   "settings.resetDataConfirmTitle": "Reset all data?",
   "settings.resetDataConfirmBody":
     "Type your organization's name to confirm. This cannot be undone.",
@@ -2453,6 +2465,7 @@ export const en = {
     "Only an admin can read the full trail. It records every actor and every record they touched, so it is not shown more widely.",
   "settings.auditFilters": "Filters",
   "settings.auditEntries": "Audit log",
+  "settings.auditTrailLabel": "Recorded actions",
   "settings.auditActor": "Actor",
   "settings.auditEntity": "Entity type",
   "settings.auditEntityId": "Entity id",
@@ -2608,6 +2621,7 @@ export const en = {
   "settings.pipelinesSub":
     "The stages a deal moves through, one ladder per pipeline.",
   "pipeline.new": "New pipeline",
+  "pipeline.addLabel": "Add a pipeline",
   "pipeline.edit": "Edit pipeline",
   "pipeline.name": "Name",
   "pipeline.default": "Default",
@@ -2973,6 +2987,8 @@ export const en = {
   // already holds the kind of credential each one is configured with. The two
   // headings differ because the two pages mean different things — one is your
   // own account somewhere, the other is the installation's.
+  "extUnits.open": "Open",
+  "extUnits.openNamed": "Open the {name} page",
   "extUnits.user.title": "Your other accounts",
   "extUnits.user.sub":
     "Accounts this installation can connect on your behalf. Each one is yours alone — nobody else sees it, and disconnecting it affects only you.",
@@ -4097,6 +4113,7 @@ export const en = {
   "cf.obj.organization": "Company",
   "cf.obj.person": "Contact",
   "cf.obj.lead": "Lead",
+  "cf.listLabel": "Fields on {object}",
   "cf.col.field": "Field",
   "cf.col.type": "Type",
   "cf.col.addedBy": "Added by",
@@ -4117,6 +4134,7 @@ export const en = {
   "cf.type.picklist": "Picklist",
   "cf.type.boolean": "Yes / No",
   "cf.builder.addTo": "Add a field to {object}",
+  "cf.builder.open": "Add a field…",
   "cf.builder.noCode": "no code",
   "cf.builder.intro":
     "A new field is a real column on the existing table — it filters, reports, exports, and is in the API like any core field. It is not a new object.",
@@ -4143,7 +4161,6 @@ export const en = {
   "cf.refuse.route":
     "Route it through the development path — your own engineers, an implementation partner, or Gradion services.",
   "cf.confirm": "Confirm & add field",
-  "cf.reset": "Reset",
   "cf.writing": "writing…",
   "cf.added": 'Field "{label}" added — live on 360, filters, export & API',
   "cf.edit": "Edit label",
@@ -4183,6 +4200,8 @@ export const en = {
   "captureActivity.title": "Capture activity",
   "captureActivity.sub": "What happened to your messages in the last 24 hours.",
   "captureActivity.scope.label": "Whose activity",
+  "captureActivity.outcomes": "Outcomes",
+  "captureActivity.messages": "Messages",
   "captureActivity.scope.mine": "Mine",
   "captureActivity.scope.workspace": "Shared channels",
   "captureActivity.scopeNote":
@@ -4392,6 +4411,7 @@ export const en = {
     "Notes on how you want to sound — kept exactly as you write them; the model never overwrites this.",
   "settings.voice.savePreferences": "Save preferences",
   "settings.voice.corpusLabel": "Writing samples",
+  "settings.voice.corpusRowLabel": "In your corpus now",
   "settings.voice.meter": "{count} of {target} words",
   "settings.voice.register.email": "email",
   "settings.voice.register.social": "social",
@@ -4441,6 +4461,8 @@ export const en = {
   "voice.history.label": "Versions and learning",
   "voice.history.empty": "No versions yet \u2014 build your voice first.",
   "voice.history.deltasLabel": "What changed",
+  "voice.history.deltasEmpty":
+    "Nothing to compare yet \u2014 a change appears here from your second build on.",
   "voice.history.deltaRow": "v{from} \u2192 v{to}",
   "voice.history.learning":
     "Learning continuously \u2014 drafts served: {drafted} \u00b7 edited before sending: {edited} \u00b7 rejected: {rejected}.",
@@ -4452,7 +4474,10 @@ export const en = {
   "settings.voice.addPlaceholder":
     "Paste an email, post, or anything you've written…",
   "settings.voice.addSource": "Add sample",
+  "settings.voice.addSourceOpen": "Paste writing…",
+  "settings.voice.pasteCancel": "Cancel",
   "settings.voice.addFirstLabel": "Your first writing sample",
+  "settings.voice.addFirstOpen": "Paste your first sample…",
   "settings.voice.addFirstCta": "Add it and start my Voice DNA",
   "settings.voice.browseFiles": "Choose files",
   "settings.voice.dropHint":
@@ -4480,6 +4505,7 @@ export const en = {
   "settings.voice.refusalUnsupported":
     "{name} is not a format the corpus can read.",
   "settings.voice.buildsTitle": "Builds",
+  "settings.voice.buildRowLabel": "Build from your samples",
   "settings.voice.building": "Building…",
   "settings.voice.rebuild": "Rebuild Voice DNA",
   "settings.voice.buildNeedsWords":
@@ -4508,7 +4534,6 @@ export const en = {
   "extAccess.brings.routes": "Routes",
   "extAccess.brings.jobs": "Background jobs",
   "extAccess.brings.none": "None",
-  "extAccess.grants.heading": "Who may use it",
   "extAccess.noObjects":
     "This unit registers no permission objects, so there is nothing to grant.",
   "extAccess.roleColumn": "Role",
@@ -4697,6 +4722,7 @@ export const en = {
     "The governed surface a passport can call — same inventory an MCP client sees.",
   "tools.egress": "reaches out",
   "tools.scopeAll": "All passports",
+  "tools.scopeLabel": "Scope to a passport",
   "tools.scopedTo": "Reachable by {label}",
   "tools.unreachable": "scope not granted",
 

@@ -7,6 +7,7 @@ import type { components } from "../api/schema";
 import { DataTable, EmptyState, Skeleton } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import "./linkedin-reach.css";
@@ -18,10 +19,10 @@ import "./linkedin-reach.css";
 // knows an account has no content when there is one member, while asking
 // whether your own network reaches it has content immediately.
 //
-// The card holds ONE report and no decision, so it draws no `SettingList`: a
-// row exists to put an answer at the same x as the answers above and below it,
-// and there is nothing here to line up against. A single row whose label
-// repeated the card's own title would be noise.
+// The report is the card's SUBJECT rather than an answer to a question, so it
+// takes a stacked `SettingRow`: full width under its own naming, at the same x
+// as the naming column of every other card on this page. The row is what makes
+// the caveat land in the right place — see the footnote comment below.
 
 type LinkedInReach = components["schemas"]["LinkedInReachResponse"];
 type ReachAccount = LinkedInReach["accounts"][number];
@@ -30,8 +31,9 @@ type ReachAccount = LinkedInReach["accounts"][number];
 // view has no cursor — the endpoint declares no cursor parameter and the
 // response carries none — so ONE page is the whole of what a reader can reach,
 // which makes where the list stops this screen's stated choice rather than the
-// server's unnamed default of 50. The footnote reads `accounts_total`, computed
-// over everything, so what sits past the edge is still counted out loud.
+// server's unnamed default of 50. The row's caveat reads `accounts_total`,
+// computed over everything, so what sits past the edge is still counted out
+// loud.
 const REACH_PAGE_LIMIT = 200;
 
 const REACH_KEY = ["linkedin-reach", REACH_PAGE_LIMIT] as const;
@@ -61,7 +63,7 @@ export function LinkedInReachCard() {
     // No per-card bottom margin: the tab owns the rhythm between its cards.
     <Panel title={t("linkedinReach.title")}>
       <PanelBody>
-        <p className="t-caption">{t("linkedinReach.sub")}</p>
+        <p className="t-small settings-panel-sub">{t("linkedinReach.sub")}</p>
         {query.isPending && <Skeleton width="70%" />}
         {/* A failed read is not an empty one. EmptyState drew "no accounts
             reached" chrome around the server's own refusal, so a read nobody
@@ -89,21 +91,35 @@ export function LinkedInReachCard() {
           </>
         )}
         {accounts.length > 0 && (
-          <>
-            <div className="li-reach" data-testid="linkedin-reach-table">
-              <ReachTable accounts={accounts} />
-            </div>
-            {/* What this view cannot show, said out loud. A truncated list read
-              as the whole network would understate reach, and the unresolved
-              count is the number that shrinks as accounts are created. */}
-            <p className="co-muted">
-              {t("linkedinReach.footnote", {
+          <SettingList>
+            <SettingRow
+              testId="linkedin-reach-table"
+              layout="stack"
+              label={t("linkedinReach.accountsLabel")}
+              // What this view cannot show, said out loud — and said ABOVE the
+              // figures rather than under them. It was a footnote, which is
+              // where a caveat arrives after the reader has already believed
+              // the list: a truncated list read as the whole network
+              // understates reach, and the unresolved count is the number that
+              // shrinks as accounts are created. The row's description is the
+              // slot for exactly this, and it is the same ordering
+              // `SurfaceState` makes for a stale read.
+              description={t("linkedinReach.footnote", {
                 shown: accounts.length,
                 total: query.data?.accounts_total ?? accounts.length,
                 unresolved: query.data?.unresolved_connections ?? 0,
               })}
-            </p>
-          </>
+              // `.settingrow-measure` is what lets the table's own
+              // `.table-scroll` box scroll: `.settingrow-control` is a flex row,
+              // so a child with the default `min-width: auto` would grow to the
+              // table's full width and push the card sideways instead.
+              control={
+                <div className="settingrow-measure">
+                  <ReachTable accounts={accounts} />
+                </div>
+              }
+            />
+          </SettingList>
         )}
       </PanelBody>
     </Panel>

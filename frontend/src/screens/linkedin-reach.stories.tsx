@@ -11,6 +11,11 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // network reaches, a fresh workspace where nothing resolved yet (which still
 // has to report the unresolved count), and a read that failed — which is NOT
 // an empty network.
+//
+// Only the first of the three draws a row at all: the report is the card's
+// subject, so it lives in a stacked `SettingRow` whose description carries what
+// the view cannot show, and the other two states replace the whole list rather
+// than filling a row.
 
 function reachStory(body: unknown, status = 200) {
   return () => {
@@ -71,14 +76,27 @@ export const ReadFailed: Story = {
   ),
 };
 
+// The table in dark. Two things here are token-driven and only prove it against
+// the other palette: the hairline `SettingList` rules between its rows (there is
+// one row today, so what shows is the absence of a trailing rule above the
+// card's own edge), and the muted ink of the caveat line above the figures,
+// which has to stay legibly below the label without disappearing into the card
+// ground.
+export const ReachesDark: Story = {
+  globals: { theme: "dark" },
+  render: reachStory(REACHED),
+};
+
 // The reach table at 390px. Every cell in it still holds its line
-// (`.li-reach-cell`) — an account name, two figures — and the table is now a
-// real `<table>` inside DataTable's `.table-scroll` box, which is the whole of
-// its narrow-screen answer: a German company name plus two counts is wider than
-// a phone, so the table scrolls and the page does not. What to check is that the
-// scroll really is the table's and not the page's. The header row can no longer
-// come apart from the figures it names — that was a `display: block` table's
-// failure mode, and the scroll now belongs to the wrapper rather than the table.
+// (`.li-reach-cell`) — an account name, two figures — and the table is a real
+// `<table>` inside DataTable's `.table-scroll` box, which is the whole of its
+// narrow-screen answer: a German company name plus two counts is wider than a
+// phone, so the table scrolls and the page does not. What to check is that the
+// scroll really is the table's and not the page's — the stacked row wraps it in
+// `.settingrow-measure`, which is what supplies the `min-width: 0` a scroll box
+// needs inside a flex control column. The header row can no longer come apart
+// from the figures it names — that was a `display: block` table's failure mode,
+// and the scroll belongs to the wrapper rather than the table.
 //
 // Storybook applies the viewport from the MANAGER, by resizing the preview
 // iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at

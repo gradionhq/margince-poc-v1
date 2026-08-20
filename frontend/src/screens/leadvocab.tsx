@@ -3,11 +3,12 @@ import { useId, useState } from "react";
 import { api } from "../api/client";
 import { useCanWrite } from "../app/capability";
 import { isOption } from "../app/options";
-import { Badge, Button, Field, TextInput } from "../design-system/atoms";
+import { Badge, Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
-import { Panel, PanelBody, PanelRow } from "../design-system/panel";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -239,6 +240,98 @@ function LeadSourceRow({
   );
 }
 
+// A label and a weight, committed together — the settings page's dialog case
+// rather than its row case, and mounted only while it is open so a half-typed
+// source is gone the next time the verb is pressed rather than waiting there
+// under an intent nobody re-chose.
+function AddSourceDialog({
+  create,
+  onClose,
+}: Readonly<{
+  create: ReturnType<typeof useSourceMutations>["create"];
+  onClose: () => void;
+}>) {
+  const t = useT();
+  const titleId = useId();
+  const [label, setLabel] = useState("");
+  const [intent, setIntent] = useState<LeadSourceIntent>("neutral");
+  const ready = label.trim() !== "";
+  return (
+    <Modal open onClose={onClose} labelledBy={titleId}>
+      {/* A real form, so Enter commits it: two fields a reader types into and
+          then has to reach for a button is not how anyone adds a list entry. */}
+      <form
+        className="form-stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!ready || create.isPending) return;
+          create.mutate(
+            { label: label.trim(), intent },
+            { onSuccess: onClose },
+          );
+        }}
+      >
+        <h2 className="t-h3 modal-title" id={titleId}>
+          {t("leadSources.newLabel")}
+        </h2>
+        {create.isError && (
+          <Callout tone="danger" live="alert">
+            {problemMessageOf(create.error, t)}
+          </Callout>
+        )}
+        <Field label={t("leadSources.labelField")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              data-testid="lead-source-new-label"
+              placeholder={t("leadSources.newPlaceholder")}
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+            />
+          )}
+        </Field>
+        {/* The hint rides on the field it qualifies rather than sitting under
+            the form as a loose paragraph: what the weight DOES is the thing a
+            reader needs while choosing it. */}
+        <Field
+          label={t("leadSources.intent")}
+          hint={t("leadSources.intentHint")}
+        >
+          {(control) => (
+            <Select
+              {...control}
+              value={intent}
+              onChange={(value) => {
+                if (isOption(value, INTENTS)) setIntent(value);
+              }}
+              options={INTENTS.map((value) => ({
+                value,
+                label: t(intentLabel[value]),
+              }))}
+            />
+          )}
+        </Field>
+        <div className="form-actions">
+          <Button variant="ghost" onClick={onClose}>
+            {t("deals.cancel")}
+          </Button>
+          {/* Two facts, two props: `!ready` is a form with nothing in it yet
+              and `isPending` is a write already on its way, and one `disabled`
+              covering both draws them the same. */}
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!create.isPending && !ready}
+            pending={create.isPending}
+          >
+            {t("leadSources.add")}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 export function LeadSourcesCard() {
   const t = useT();
   const canCreate = useCanWrite("custom_field", "create");
@@ -246,55 +339,68 @@ export function LeadSourcesCard() {
   const canRemove = useCanWrite("custom_field", "delete");
   const query = useLeadSources();
   const { create, update, remove } = useSourceMutations();
-  const [label, setLabel] = useState("");
-  const [intent, setIntent] = useState<LeadSourceIntent>("neutral");
+  const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<LeadSource | null>(null);
-  const denialId = useId();
-  const failure = [create, update, remove].find((m) => m.isError);
+  // `remove` is not here: its refusal belongs to the confirm dialog that asked
+  // for it, and a sentence in both places reads as two failures. What is left
+  // are the writes with nowhere else to speak — a rename, a re-weight, a switch
+  // flip, and the one-click adopt of a discovered value.
+  const failure = [create, update].find((m) => m.isError);
+  // Read off the settled answer rather than through a second QueryGate: the
+  // discovered values are a row of their own, and one query cannot be gated
+  // twice without drawing its wait twice.
+  const administered = rowsOf(query.data?.data);
+  const discovered = rowsOf(query.data?.discovered);
   return (
     <Panel title={t("leadSources.title")}>
       <PanelBody className="form-stack">
-        <p className="t-caption">{t("leadSources.sub")}</p>
-        {!canEdit && (
-          <p className="t-small" id={denialId}>
-            {t("leadSources.readOnly")}
-          </p>
-        )}
-        {failure && (
-          <Callout tone="danger" live="alert">
-            {problemMessageOf(failure.error, t)}
-          </Callout>
-        )}
-      </PanelBody>
-      <QueryGate query={query}>
-        {(list) => (
-          <>
-            <ul className="lead-vocab-list" data-testid="lead-source-list">
-              {rowsOf(list.data).map((source) => (
-                <LeadSourceRow
-                  key={source.id}
-                  source={source}
-                  canEdit={canEdit}
-                  canRemove={canRemove}
-                  onUpdate={(patch) =>
-                    update.mutate({ id: source.id, ...patch })
-                  }
-                  onRemove={() => setRemoving(source)}
-                />
-              ))}
-            </ul>
-            {rowsOf(list.discovered).length > 0 && (
-              <PanelRow>
-                <p className="t-caption">{t("leadSources.discoveredSub")}</p>
+        <p className="t-small settings-panel-sub">{t("leadSources.sub")}</p>
+        <SettingList>
+          {/* The sources are the SUBJECT of this card rather than an answer to
+              a question beside them, so they take the row's full width. */}
+          <SettingRow
+            label={t("leadSources.listLabel")}
+            layout="stack"
+            control={
+              <QueryGate query={query}>
+                {(list) => (
+                  <ul
+                    className="lead-vocab-list"
+                    data-testid="lead-source-list"
+                  >
+                    {rowsOf(list.data).map((source) => (
+                      <LeadSourceRow
+                        key={source.id}
+                        source={source}
+                        canEdit={canEdit}
+                        canRemove={canRemove}
+                        onUpdate={(patch) =>
+                          update.mutate({ id: source.id, ...patch })
+                        }
+                        onRemove={() => setRemoving(source)}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </QueryGate>
+            }
+          />
+          {/* Absent until there is one: a value seen on a lead but missing from
+              the list is a fact about the integrations this installation runs,
+              and a row that said "none" would be reporting on nothing. */}
+          {discovered.length > 0 && (
+            <SettingRow
+              label={t("leadSources.discovered")}
+              description={t("leadSources.discoveredSub")}
+              layout="stack"
+              control={
                 <ul
                   className="lead-vocab-list"
                   data-testid="lead-source-discovered"
                 >
-                  {rowsOf(list.discovered).map((found) => (
+                  {discovered.map((found) => (
                     <li key={found.key} className="lead-vocab-row">
-                      <span>
-                        {sourceKeyLabel(found.key, rowsOf(list.data), t)}
-                      </span>
+                      <span>{sourceKeyLabel(found.key, administered, t)}</span>
                       <span className="t-mono t-caption lead-vocab-key">
                         {found.key}
                       </span>
@@ -312,7 +418,7 @@ export function LeadSourcesCard() {
                                 key: found.key,
                                 label: sourceKeyLabel(
                                   found.key,
-                                  rowsOf(list.data),
+                                  administered,
                                   t,
                                 ),
                                 intent: "neutral",
@@ -326,78 +432,68 @@ export function LeadSourcesCard() {
                     </li>
                   ))}
                 </ul>
-              </PanelRow>
-            )}
-          </>
+              }
+            />
+          )}
+          {/* Two inputs submitted together, so the form lives behind this verb
+              and the rows above stay a list of answers. Absent without the
+              create grant, exactly as the inline form it replaces was. */}
+          {canCreate && (
+            <SettingRow
+              label={t("leadSources.newLabel")}
+              control={
+                <Button variant="ghost" onClick={() => setAdding(true)}>
+                  {t("leadSources.addOpen")}
+                </Button>
+              }
+            />
+          )}
+        </SettingList>
+        {/* Said once for the whole card rather than on each of a dozen refused
+            controls: the boundary is the same for every row in the list. */}
+        {!canEdit && <p className="t-small">{t("leadSources.readOnly")}</p>}
+        {failure && (
+          <Callout tone="danger" live="alert">
+            {problemMessageOf(failure.error, t)}
+          </Callout>
         )}
-      </QueryGate>
-      {canCreate && (
-        <PanelRow>
-          <form
-            className="lead-vocab-add"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (label.trim() === "") return;
-              create.mutate(
-                { label: label.trim(), intent },
-                { onSuccess: () => setLabel("") },
-              );
+        {/* Closing clears the refusal with the form that carried it: the
+            dialog's own Callout and the card's read the same sentence, and
+            leaving it behind would report a failed add over a card the reader
+            has already walked away from. */}
+        {adding && (
+          <AddSourceDialog
+            create={create}
+            onClose={() => {
+              create.reset();
+              setAdding(false);
             }}
-          >
-            <Field label={t("leadSources.newLabel")}>
-              {(control) => (
-                <TextInput
-                  {...control}
-                  data-testid="lead-source-new-label"
-                  placeholder={t("leadSources.newPlaceholder")}
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                />
-              )}
-            </Field>
-            <Field label={t("leadSources.intent")}>
-              {(control) => (
-                <Select
-                  {...control}
-                  value={intent}
-                  onChange={(value) => {
-                    if (isOption(value, INTENTS)) setIntent(value);
-                  }}
-                  options={INTENTS.map((value) => ({
-                    value,
-                    label: t(intentLabel[value]),
-                  }))}
-                />
-              )}
-            </Field>
-            <Button type="submit" variant="primary" disabled={create.isPending}>
-              {t("leadSources.add")}
-            </Button>
-          </form>
-          <p className="t-caption">{t("leadSources.intentHint")}</p>
-        </PanelRow>
-      )}
-      <ConfirmModal
-        open={removing !== null}
-        onClose={() => {
-          remove.reset();
-          setRemoving(null);
-        }}
-        title={t("leadSources.removeTitle")}
-        confirmLabel={t("leadSources.remove")}
-        confirmVariant="danger"
-        pending={remove.isPending}
-        error={remove.isError ? problemMessageOf(remove.error, t) : null}
-        onConfirm={() => {
-          if (removing) {
-            remove.mutate(removing.id, { onSuccess: () => setRemoving(null) });
-          }
-        }}
-      >
-        <p className="t-small">
-          {t("leadSources.removeBody", { label: removing?.label ?? "" })}
-        </p>
-      </ConfirmModal>
+          />
+        )}
+        <ConfirmModal
+          open={removing !== null}
+          onClose={() => {
+            remove.reset();
+            setRemoving(null);
+          }}
+          title={t("leadSources.removeTitle")}
+          confirmLabel={t("leadSources.remove")}
+          confirmVariant="danger"
+          pending={remove.isPending}
+          error={remove.isError ? problemMessageOf(remove.error, t) : null}
+          onConfirm={() => {
+            if (removing) {
+              remove.mutate(removing.id, {
+                onSuccess: () => setRemoving(null),
+              });
+            }
+          }}
+        >
+          <p className="t-small">
+            {t("leadSources.removeBody", { label: removing?.label ?? "" })}
+          </p>
+        </ConfirmModal>
+      </PanelBody>
     </Panel>
   );
 }
@@ -464,134 +560,163 @@ export function LeadDisqualifyReasonsCard() {
   const { create, update, remove } = useReasonMutations();
   const [label, setLabel] = useState("");
   const [removing, setRemoving] = useState<LeadDisqualifyReason | null>(null);
-  const failure = [create, update, remove].find((m) => m.isError);
+  // `remove` speaks in its own confirm dialog, so it is not repeated here —
+  // see LeadSourcesCard, which draws the same distinction for the same reason.
+  const failure = [create, update].find((m) => m.isError);
   return (
     <Panel title={t("leadReasons.title")}>
       <PanelBody className="form-stack">
-        <p className="t-caption">{t("leadReasons.sub")}</p>
+        <p className="t-small settings-panel-sub">{t("leadReasons.sub")}</p>
+        <SettingList>
+          {/* The reasons are the subject of this card, so they take the row's
+              full width — the same shape the sources list above takes, which is
+              what makes a reason row and a source row line up. */}
+          <SettingRow
+            label={t("leadReasons.listLabel")}
+            layout="stack"
+            control={
+              <QueryGate query={query}>
+                {(reasons) => (
+                  <ul
+                    className="lead-vocab-list"
+                    data-testid="lead-reason-list"
+                  >
+                    {rowsOf(reasons).map((reason) => {
+                      const count = reason.lead_count ?? 0;
+                      const builtIn = reason.system === true;
+                      const removable = canRemove && !builtIn && count === 0;
+                      return (
+                        <li
+                          key={reason.id}
+                          className="lead-vocab-row"
+                          data-testid={`lead-reason-${reason.id}`}
+                        >
+                          <RenameField
+                            label={t("leadReasons.labelFor", {
+                              label: reason.label,
+                            })}
+                            value={reason.label}
+                            canEdit={canEdit}
+                            onSave={(next) =>
+                              update.mutate({ id: reason.id, label: next })
+                            }
+                          />
+                          <span className="t-caption lead-vocab-count">
+                            {t("leadReasons.leadCount", { count })}
+                          </span>
+                          <span className="lead-vocab-flags">
+                            {builtIn && (
+                              <Badge>{t("leadSources.builtIn")}</Badge>
+                            )}
+                            <Switch
+                              label={t("leadSources.activeFor", {
+                                label: reason.label,
+                              })}
+                              labelHidden
+                              checked={reason.active}
+                              disabled={!canEdit}
+                              onChange={(next) =>
+                                update.mutate({ id: reason.id, active: next })
+                              }
+                            />
+                            {removable ? (
+                              <Button
+                                small
+                                variant="danger"
+                                onClick={() => setRemoving(reason)}
+                              >
+                                {t("leadSources.remove")}
+                              </Button>
+                            ) : (
+                              canRemove && (
+                                <span
+                                  className="t-caption"
+                                  title={
+                                    builtIn
+                                      ? t("leadSources.builtInKept")
+                                      : t("leadReasons.inUse", { count })
+                                  }
+                                >
+                                  {t("leadSources.deactivateInstead")}
+                                </span>
+                              )
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </QueryGate>
+            }
+          />
+          {/* ONE input and the verb that submits it, so it stays a row: a
+              reason is a sentence and nothing else, and a dialog for a single
+              text box would ask the reader to open a door to type a word. */}
+          {canCreate && (
+            <SettingRow
+              label={t("leadReasons.newLabel")}
+              control={(control) => (
+                <form
+                  className="lead-vocab-add settingrow-measure"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (label.trim() === "") return;
+                    create.mutate(
+                      { label: label.trim() },
+                      { onSuccess: () => setLabel("") },
+                    );
+                  }}
+                >
+                  <TextInput
+                    {...control}
+                    data-testid="lead-reason-new-label"
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                  />
+                  <Button
+                    small
+                    type="submit"
+                    variant="primary"
+                    disabled={create.isPending}
+                  >
+                    {t("leadReasons.add")}
+                  </Button>
+                </form>
+              )}
+            />
+          )}
+        </SettingList>
         {!canEdit && <p className="t-small">{t("leadSources.readOnly")}</p>}
         {failure && (
           <Callout tone="danger" live="alert">
             {problemMessageOf(failure.error, t)}
           </Callout>
         )}
+        <ConfirmModal
+          open={removing !== null}
+          onClose={() => {
+            remove.reset();
+            setRemoving(null);
+          }}
+          title={t("leadReasons.removeTitle")}
+          confirmLabel={t("leadSources.remove")}
+          confirmVariant="danger"
+          pending={remove.isPending}
+          error={remove.isError ? problemMessageOf(remove.error, t) : null}
+          onConfirm={() => {
+            if (removing) {
+              remove.mutate(removing.id, {
+                onSuccess: () => setRemoving(null),
+              });
+            }
+          }}
+        >
+          <p className="t-small">
+            {t("leadReasons.removeBody", { label: removing?.label ?? "" })}
+          </p>
+        </ConfirmModal>
       </PanelBody>
-      <QueryGate query={query}>
-        {(reasons) => (
-          <ul className="lead-vocab-list" data-testid="lead-reason-list">
-            {rowsOf(reasons).map((reason) => {
-              const count = reason.lead_count ?? 0;
-              const builtIn = reason.system === true;
-              const removable = canRemove && !builtIn && count === 0;
-              return (
-                <li
-                  key={reason.id}
-                  className="lead-vocab-row lead-vocab-row-reason"
-                  data-testid={`lead-reason-${reason.id}`}
-                >
-                  <RenameField
-                    label={t("leadReasons.labelFor", { label: reason.label })}
-                    value={reason.label}
-                    canEdit={canEdit}
-                    onSave={(next) =>
-                      update.mutate({ id: reason.id, label: next })
-                    }
-                  />
-                  <span className="t-caption lead-vocab-count">
-                    {t("leadReasons.leadCount", { count })}
-                  </span>
-                  <span className="lead-vocab-flags">
-                    {builtIn && <Badge>{t("leadSources.builtIn")}</Badge>}
-                    <Switch
-                      label={t("leadSources.activeFor", {
-                        label: reason.label,
-                      })}
-                      labelHidden
-                      checked={reason.active}
-                      disabled={!canEdit}
-                      onChange={(next) =>
-                        update.mutate({ id: reason.id, active: next })
-                      }
-                    />
-                    {removable ? (
-                      <Button
-                        small
-                        variant="danger"
-                        onClick={() => setRemoving(reason)}
-                      >
-                        {t("leadSources.remove")}
-                      </Button>
-                    ) : (
-                      canRemove && (
-                        <span
-                          className="t-caption"
-                          title={
-                            builtIn
-                              ? t("leadSources.builtInKept")
-                              : t("leadReasons.inUse", { count })
-                          }
-                        >
-                          {t("leadSources.deactivateInstead")}
-                        </span>
-                      )
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </QueryGate>
-      {canCreate && (
-        <PanelRow>
-          <form
-            className="lead-vocab-add"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (label.trim() === "") return;
-              create.mutate(
-                { label: label.trim() },
-                { onSuccess: () => setLabel("") },
-              );
-            }}
-          >
-            <Field label={t("leadReasons.newLabel")}>
-              {(control) => (
-                <TextInput
-                  {...control}
-                  data-testid="lead-reason-new-label"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                />
-              )}
-            </Field>
-            <Button type="submit" variant="primary" disabled={create.isPending}>
-              {t("leadReasons.add")}
-            </Button>
-          </form>
-        </PanelRow>
-      )}
-      <ConfirmModal
-        open={removing !== null}
-        onClose={() => {
-          remove.reset();
-          setRemoving(null);
-        }}
-        title={t("leadReasons.removeTitle")}
-        confirmLabel={t("leadSources.remove")}
-        confirmVariant="danger"
-        pending={remove.isPending}
-        error={remove.isError ? problemMessageOf(remove.error, t) : null}
-        onConfirm={() => {
-          if (removing) {
-            remove.mutate(removing.id, { onSuccess: () => setRemoving(null) });
-          }
-        }}
-      >
-        <p className="t-small">
-          {t("leadReasons.removeBody", { label: removing?.label ?? "" })}
-        </p>
-      </ConfirmModal>
     </Panel>
   );
 }
@@ -599,6 +724,11 @@ export function LeadDisqualifyReasonsCard() {
 // The first-response target: off by default, and the number is the
 // installation's own. The switch writes when flipped; the target commits on
 // Enter or blur like a rename, only once the value is a whole number in range.
+//
+// Two settings, two rows — this card is the simple posture on the tab, and it
+// holds no list, no form and no dialog. A switch and a bounded number each
+// ANSWER their row's question, so both sit in the right column and the reader
+// audits the pair down one column.
 export function LeadHandlingCard() {
   const t = useT();
   const canEdit = useCanWrite("custom_field", "update");
@@ -606,10 +736,13 @@ export function LeadHandlingCard() {
   const update = useUpdateLeadSettings();
   const [draft, setDraft] = useState<string | null>(null);
   const [targetError, setTargetError] = useState<string | null>(null);
+  // Minted unconditionally: a hook may not depend on whether the value in the
+  // box is currently refused.
+  const targetErrorId = useId();
   return (
     <Panel title={t("leadHandling.title")}>
       <PanelBody className="form-stack">
-        <p className="t-caption">{t("leadHandling.sub")}</p>
+        <p className="t-small settings-panel-sub">{t("leadHandling.sub")}</p>
         {update.isError && (
           <Callout tone="danger" live="alert">
             {problemMessageOf(update.error, t)}
@@ -645,42 +778,82 @@ export function LeadHandlingCard() {
               );
             };
             return (
-              <div className="lead-handling">
-                <Switch
+              <SettingList>
+                {/* The posture comes first: the number below is only a
+                    judgement the switch above it makes readable. */}
+                <SettingRow
                   label={t("leadHandling.firstResponse")}
-                  hint={t("leadHandling.firstResponseHint")}
-                  checked={settings.first_response_enabled}
-                  pending={update.isPending}
-                  reason={canEdit ? undefined : t("leadSources.readOnly")}
-                  testId="lead-first-response-switch"
-                  onChange={(next) =>
-                    update.mutate({ first_response_enabled: next })
+                  description={t("leadHandling.firstResponseHint")}
+                  control={
+                    // The node form with its own hidden label: a Switch owns
+                    // its accessible name by design, and pointing it at the
+                    // row's span as well would name it twice. `reason` refuses
+                    // the flip AND says why, which is what a stateful control
+                    // a permission denies owes its reader.
+                    <Switch
+                      label={t("leadHandling.firstResponse")}
+                      labelHidden
+                      checked={settings.first_response_enabled}
+                      pending={update.isPending}
+                      reason={canEdit ? undefined : t("leadSources.readOnly")}
+                      testId="lead-first-response-switch"
+                      onChange={(next) =>
+                        update.mutate({ first_response_enabled: next })
+                      }
+                    />
                   }
                 />
-                <Field
+                <SettingRow
                   label={t("leadHandling.targetMinutes")}
-                  hint={t("leadHandling.targetHint")}
-                  error={targetError ?? undefined}
-                >
-                  {(control) => (
-                    <TextInput
-                      {...control}
-                      data-testid="lead-first-response-target"
-                      inputMode="numeric"
-                      value={shown}
-                      disabled={!canEdit || !settings.first_response_enabled}
-                      onChange={(e) => setDraft(e.target.value)}
-                      onBlur={commit}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          commit();
+                  description={t("leadHandling.targetHint")}
+                  control={(control) => (
+                    <div className="settingrow-measure lead-handling-target">
+                      <TextInput
+                        {...control}
+                        // The row already describes the field; a value out of
+                        // range ADDS the refusal to that description rather
+                        // than replacing it, so a reader hears the rule and how
+                        // they broke it.
+                        aria-describedby={
+                          [
+                            control["aria-describedby"],
+                            targetError === null ? null : targetErrorId,
+                          ]
+                            .filter(Boolean)
+                            .join(" ") || undefined
                         }
-                      }}
-                    />
+                        aria-invalid={targetError === null ? undefined : true}
+                        data-testid="lead-first-response-target"
+                        inputMode="numeric"
+                        value={shown}
+                        disabled={!canEdit || !settings.first_response_enabled}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onBlur={commit}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commit();
+                          }
+                        }}
+                      />
+                      {targetError !== null && (
+                        // `.field-error` is the catalog's spelling of "why
+                        // this value was refused" — same ink, same size, same
+                        // `role="alert"` as the one `Field` renders, so a
+                        // refusal in a row reads exactly like a refusal in a
+                        // form.
+                        <p
+                          className="field-error lead-handling-error"
+                          id={targetErrorId}
+                          role="alert"
+                        >
+                          {targetError}
+                        </p>
+                      )}
+                    </div>
                   )}
-                </Field>
-              </div>
+                />
+              </SettingList>
             );
           }}
         </QueryGate>

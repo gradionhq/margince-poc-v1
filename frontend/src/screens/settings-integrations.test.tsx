@@ -136,7 +136,7 @@ describe("SettingsScreen connections and integrations tabs", () => {
     // The Account tab's own content, not merely its nav entry: the fallback has
     // to render a page, and the sidebar carries the viewer's email either way.
     expect(
-      await screen.findByRole("heading", { name: "Preferences" }),
+      await screen.findByRole("heading", { name: "Your account" }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", { name: "HubSpot mirror" }),

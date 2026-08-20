@@ -5,26 +5,22 @@
    style objects and thirteen raw pixel values — including the two hard width
    floors that made it the narrowest surface in settings. */
 
-/* Two halves of one surface: what you can build FROM, and what is running.
-   `flex-basis` proposes the split, `min-width: 0` is what lets either half give
-   it up. The floors this replaces (240px and 280px) were wider than the card
-   interior a 390px viewport leaves, so the column had nowhere to go but
-   sideways — and took the settings page with it. */
-.auto-columns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-}
+/* Both halves of the surface are LISTS, and each is the subject of a stacked
+   SettingRow rather than a column beside its sibling. The control half of such
+   a row is a flex ROW, so whatever it holds — the rules, the library, the
+   withheld notice, the placeholder a query in flight draws — would otherwise be
+   as wide as its own content with the rest of the card empty beside it.
+   `min-width: 0` is what then lets a long name wrap instead of pushing the row
+   wider.
 
-.auto-column {
-  flex: 1 1 16rem;
+   Stated once for the region rather than per class: the states a query can be
+   in are not a list this sheet should have to keep in step. The floors this
+   replaces (240px and 280px) were wider than the card interior a 390px viewport
+   leaves, so the column had nowhere to go but sideways — and took the settings
+   page with it. */
+[data-automations-admin] .settingrow-stack > .settingrow-control > * {
+  flex: 1 1 auto;
   min-width: 0;
-}
-
-/* The running instances carry more per row than the library does, so they get
-   the larger share wherever there is room for two columns at all. */
-.auto-column-wide {
-  flex: 2 1 20rem;
 }
 
 .auto-readonly {
@@ -43,6 +39,14 @@
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+/* The verb sits at the entry's right edge, where every answer on this page
+   sits. `margin-right: auto` on the name rather than a spacer element: the
+   space belongs to the naming, and a wrapped head keeps the button beside the
+   name it belongs to instead of stranding it on a line of its own. */
+.auto-catalog-head > strong {
+  margin-right: auto;
 }
 
 /* The line under a name — a description, a recipe, a confirmation. Close enough
@@ -75,20 +79,4 @@
 .auto-error {
   margin-top: var(--space-2);
   color: var(--danger);
-}
-
-.auto-form {
-  margin-top: var(--space-3);
-}
-
-.auto-recipe {
-  margin-top: var(--space-1);
-}
-
-.auto-field {
-  margin-top: var(--space-2);
-}
-
-.auto-form-actions {
-  margin-top: var(--space-3);
 }
