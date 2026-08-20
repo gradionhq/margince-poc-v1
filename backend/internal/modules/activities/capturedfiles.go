@@ -37,6 +37,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// ErrCapturedFileCategoryMissing is the seam bug, not a tenant's mistake: a
+// caller reached this writer without deriving how the message arrived.
+//
+// Exported so the seam's own test can match it rather than matching a substring
+// of a message — a test asserting prose passes or fails on wording. It is NOT in
+// the shared sentinel registry: no client can provoke it and no status code
+// answers it, so it is this module's own contract with its callers.
+var ErrCapturedFileCategoryMissing = errors.New("captured file has no category")
+
 // capturedFileStoreTimeout bounds one message's whole set of puts. Generous
 // against a healthy store carrying the 50 MB a message may hold, short enough
 // that a sick one cannot hold a database transaction indefinitely.
@@ -123,6 +132,10 @@ type CapturedFileSource struct {
 	System     string
 	MessageID  string
 	CapturedBy string
+	// Category is which kind of captured file these are. Derived by capture from
+	// how the message arrived; this writer never chooses one, because it cannot
+	// see the transport and a default here would be a guess recorded as a fact.
+	Category string
 }
 
 // RecordCapturedFiles writes the attachment rows for one newly captured
@@ -141,6 +154,16 @@ func (s *Store) RecordCapturedFiles(
 	}
 	if len(staged) == 0 {
 		return nil
+	}
+	// Named here rather than left to the column's CHECK. An unset category is a
+	// caller that forgot to derive one, and the constraint's own report — a
+	// violation on a value it will not print — sends the reader looking at the
+	// vocabulary instead of at the seam that failed to fill it.
+	if from.Category == "" {
+		return fmt.Errorf(
+			"record a captured file: no category supplied; capture derives it from the "+
+				"record's transport, so a caller reaching this writer must carry it: %w",
+			ErrCapturedFileCategoryMissing)
 	}
 	account, filed, err := accountForCapturedActivity(ctx, tx, activityID)
 	if err != nil {
@@ -172,13 +195,14 @@ func insertCapturedAttachment(
 			external_source_id, external_part_id, declared_type)
 		VALUES ($1, 'activity', $2, $3, $4,
 		        $5, $6, $7, $8, $9,
-		        'email_attachment', $10, $2,
-		        $11, $12, $13)
+		        $10, $11, $2,
+		        $12, $13, $14)
 		ON CONFLICT (external_source_id, external_part_id)
 		  WHERE external_source_id IS NOT NULL DO NOTHING`,
 		file.id, activityID, file.file.Filename, nullIfEmpty(file.file.ContentType),
 		len(file.file.Body), file.key, file.checksum, from.System, from.CapturedBy,
-		account, providerMessageKey(from), file.file.PartID, nullIfEmpty(file.file.DeclaredType))
+		from.Category, account, providerMessageKey(from), file.file.PartID,
+		nullIfEmpty(file.file.DeclaredType))
 	if err != nil {
 		return fmt.Errorf("record a captured file: %w", err)
 	}
@@ -194,7 +218,7 @@ func insertCapturedAttachment(
 	if _, err := storekit.Audit(ctx, tx, "create", "attachment", file.id, nil, map[string]any{
 		"entity_type":   "activity",
 		"entity_id":     activityID.String(),
-		"category":      "email_attachment",
+		"category":      from.Category,
 		"byte_size":     len(file.file.Body),
 		"source_system": from.System,
 	}); err != nil {

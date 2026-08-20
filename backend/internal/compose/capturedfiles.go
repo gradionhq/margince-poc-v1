@@ -79,5 +79,6 @@ func (k capturedFileKeeper) Record(
 		System:     from.System,
 		MessageID:  from.MessageID,
 		CapturedBy: from.CapturedBy,
+		Category:   from.Category,
 	}, owned)
 }

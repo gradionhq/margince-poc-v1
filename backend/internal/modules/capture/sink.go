@@ -243,7 +243,7 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
-	if err := s.recordParts(ctx, tx, id, rec, staged); err != nil {
+	if err := s.recordParts(ctx, tx, id, rec, fields, staged); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	if err := s.logPartDrops(ctx, tx, rec); err != nil {
