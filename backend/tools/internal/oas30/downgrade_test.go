@@ -6,6 +6,8 @@ package oas30
 import (
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TestDowngradeTransforms proves the four faithful 3.1 -> 3.0.3 rewrites the
@@ -116,4 +118,122 @@ components:
 	if _, err := Bytes([]byte(src)); err != nil {
 		t.Fatalf("property names that look like keywords must not fail the downgrade: %v", err)
 	}
+}
+
+// TestNullEnumMemberIsDropped proves the null member of a 3.1 nullable enum
+// does not survive into the 3.0.3 document.
+//
+// It used to. oapi-codegen renders an enum member with %v, so a YAML null
+// became the four-character string "<nil>" and the identifier sanitiser turned
+// `<` into `LessThan` — ActivityMeetingStatusLessThannil = "<nil>", 84 such
+// constants across 42 enums in two generated files. Every generated Valid()
+// then answered true for a value the database CHECK refuses, so the one method
+// that looks like a guard was not one.
+//
+// Nullability is not lost: rewriteTypeUnion emits `nullable: true` for the
+// same schema, which is how 3.0 spells it.
+func TestNullEnumMemberIsDropped(t *testing.T) {
+	src := `
+openapi: 3.1.0
+components:
+  schemas:
+    Activity:
+      type: object
+      properties:
+        meeting_status:
+          type: [string, "null"]
+          enum: [null, booked, held, no_show, canceled]
+`
+	out, err := Bytes([]byte(src))
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	// Parse the result rather than grepping it: yaml.v3 preserves the flow
+	// style `enum: [null, booked]`, so a surviving null contains neither
+	// "- null" nor "null\n" and a text assertion would pass with the filter
+	// removed — which is the one regression this test exists to catch.
+	var doc yaml.Node
+	if err := yaml.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("re-parsing downgraded doc: %v", err)
+	}
+	for _, member := range findEnumMembers(t, &doc) {
+		if member.Tag == "!!null" {
+			t.Errorf("a null enum member survived the downgrade:\n%s", string(out))
+		}
+	}
+	got := string(out)
+	if !strings.Contains(got, "nullable: true") {
+		t.Errorf("nullability was lost with the null member — 3.0 spells it `nullable: true`:\n%s", got)
+	}
+	for _, want := range []string{"booked", "held", "no_show", "canceled"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("real enum member %q was dropped:\n%s", want, got)
+		}
+	}
+}
+
+// TestEnumMembersAreNotDescendedInto keeps the example-corruption guarantee
+// while `enum` is handled in rewriteKeyword rather than left opaque: a member
+// is DATA and must pass through unrewritten.
+//
+// The members here are OBJECTS carrying keys the walker rewrites in a schema
+// position — `openapi`, `type` as a union, `const`. A scalar member could not
+// catch a regression: scalars have no keys to reinterpret, so a version that
+// descended into the enum would still leave them alone.
+func TestEnumMembersAreNotDescendedInto(t *testing.T) {
+	src := `
+openapi: 3.1.0
+components:
+  schemas:
+    Thing:
+      type: object
+      properties:
+        shape:
+          enum:
+            - openapi: 3.1.0
+              type: [string, "null"]
+              const: keep-me
+`
+	out, err := Bytes([]byte(src))
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	got := string(out)
+	// The document's own version IS rewritten; the member's is data.
+	if strings.Count(got, "3.0.3") != 1 {
+		t.Errorf("an enum member's `openapi` was rewritten as the document version:\n%s", got)
+	}
+	if !strings.Contains(got, "3.1.0") {
+		t.Errorf("the member's `openapi: 3.1.0` was rewritten — enum members are data:\n%s", got)
+	}
+	// A member's `type` union and `const` are data too: no nullable/enum
+	// rewrite may reach inside.
+	if strings.Contains(got, "nullable: true") {
+		t.Errorf("an enum member's type union was rewritten:\n%s", got)
+	}
+	if !strings.Contains(got, "const: keep-me") {
+		t.Errorf("an enum member's `const` was rewritten into an enum:\n%s", got)
+	}
+}
+
+// findEnumMembers collects every member of every `enum` sequence in the tree,
+// so a test can assert on the members themselves rather than on rendered text.
+func findEnumMembers(t *testing.T, n *yaml.Node) []*yaml.Node {
+	t.Helper()
+	var found []*yaml.Node
+	var walkNode func(*yaml.Node)
+	walkNode = func(node *yaml.Node) {
+		if node.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(node.Content); i += 2 {
+				if node.Content[i].Value == "enum" && node.Content[i+1].Kind == yaml.SequenceNode {
+					found = append(found, node.Content[i+1].Content...)
+				}
+			}
+		}
+		for _, c := range node.Content {
+			walkNode(c)
+		}
+	}
+	walkNode(n)
+	return found
 }
