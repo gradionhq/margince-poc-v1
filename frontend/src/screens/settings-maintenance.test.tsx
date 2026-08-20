@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { SettingsScreen } from "./settings";
@@ -144,6 +144,7 @@ describe("ResetDataCard (danger zone)", () => {
   });
 
   it("enables the confirm button once the input is non-empty and POSTs the typed confirmation", async () => {
+    const user = userEvent.setup();
     const posted: unknown[] = [];
     vi.stubGlobal(
       "fetch",
@@ -154,7 +155,7 @@ describe("ResetDataCard (danger zone)", () => {
       }),
     );
     render(<SettingsScreen tab="maintenance" />);
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: /reset data/i }),
     );
 
@@ -167,10 +168,10 @@ describe("ResetDataCard (danger zone)", () => {
     expect(confirmButton).toHaveProperty("disabled", true);
 
     const input = within(dialog).getByRole("textbox");
-    await userEvent.type(input, "Acme Inc");
+    await user.type(input, "Acme Inc");
     expect(confirmButton).toHaveProperty("disabled", false);
 
-    await userEvent.click(confirmButton);
+    await user.click(confirmButton);
 
     await waitFor(() => expect(posted).toEqual([{ confirmation: "Acme Inc" }]));
     // The dialog closes and the input clears on success.
@@ -178,6 +179,7 @@ describe("ResetDataCard (danger zone)", () => {
   });
 
   it("surfaces the server's confirmation-mismatch message on a 422", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
       resetDataBackend({
@@ -191,13 +193,13 @@ describe("ResetDataCard (danger zone)", () => {
       }),
     );
     render(<SettingsScreen tab="maintenance" />);
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: /reset data/i }),
     );
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByRole("textbox");
-    await userEvent.type(input, "Wrong Name");
-    await userEvent.click(
+    await user.type(input, "Wrong Name");
+    await user.click(
       within(dialog).getByRole("button", { name: /reset data/i }),
     );
     expect(
@@ -236,22 +238,23 @@ describe("ResetDataCard (danger zone)", () => {
 
   // Opens the confirm dialog, types the confirmation, and submits — the same
   // three steps every summary test needs before it can see a result.
-  async function confirmReset(orgName: string) {
-    await userEvent.click(
+  async function confirmReset(user: UserEvent, orgName: string) {
+    await user.click(
       await screen.findByRole("button", { name: /reset data/i }),
     );
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByRole("textbox");
-    await userEvent.type(input, orgName);
-    await userEvent.click(
+    await user.type(input, orgName);
+    await user.click(
       within(dialog).getByRole("button", { name: /reset data/i }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   }
 
   it("reports what the reset cleared", async () => {
+    const user = userEvent.setup();
     renderSettingsAsAdmin({ resetResponse: fullResetBody });
-    await confirmReset("Acme Inc");
+    await confirmReset(user, "Acme Inc");
 
     expect(
       await screen.findByText(
@@ -263,10 +266,11 @@ describe("ResetDataCard (danger zone)", () => {
   });
 
   it("warns when a job was still running at drain time", async () => {
+    const user = userEvent.setup();
     renderSettingsAsAdmin({
       resetResponse: { ...fullResetBody, drain_timed_out: true },
     });
-    await confirmReset("Acme Inc");
+    await confirmReset(user, "Acme Inc");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /background job was still running/,
@@ -292,6 +296,7 @@ describe("ResetDataCard (danger zone)", () => {
   });
 
   it("clears a prior success summary once a retry fails, rather than showing both", async () => {
+    const user = userEvent.setup();
     // The first POST to /admin/reset-data succeeds; the second (a retry, e.g.
     // after a typo) 422s. A dedicated fetch mock rather than resetDataBackend
     // because that helper's resetStatus is fixed for every call — this test
@@ -336,20 +341,20 @@ describe("ResetDataCard (danger zone)", () => {
     );
     render(<SettingsScreen tab="maintenance" />);
 
-    await confirmReset("Acme Inc");
+    await confirmReset(user, "Acme Inc");
     expect(
       await screen.findByText(/Cleared 84 tables, 12 job rows/),
     ).toBeInTheDocument();
 
     // Retry: the dialog stays open on error, so the summary from the first
     // attempt must not still be sitting behind it.
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: /reset data/i }),
     );
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByRole("textbox");
-    await userEvent.type(input, "Acme Inc");
-    await userEvent.click(
+    await user.type(input, "Acme Inc");
+    await user.click(
       within(dialog).getByRole("button", { name: /reset data/i }),
     );
 

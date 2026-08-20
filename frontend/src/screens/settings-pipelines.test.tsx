@@ -138,6 +138,7 @@ describe("PipelinesCard", () => {
   });
 
   it("removes a stage through DELETE once the confirm is taken", async () => {
+    const user = userEvent.setup();
     const deleted: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -148,13 +149,13 @@ describe("PipelinesCard", () => {
       }),
     );
     render(<PipelinesCard />);
-    await userEvent.click(await screen.findByTestId("remove-stage-s1"));
+    await user.click(await screen.findByTestId("remove-stage-s1"));
     // The dialog names the stage, so the confirm is about a stage the
     // reader recognises rather than "this one".
     expect(screen.getByText(/leaves the pipeline/).textContent).toContain(
       "Qualify",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Remove stage" }));
+    await user.click(screen.getByRole("button", { name: "Remove stage" }));
     await waitFor(() => expect(deleted).toHaveLength(1));
     expect(deleted[0]).toContain("/stages/s1");
   });
@@ -163,6 +164,7 @@ describe("PipelinesCard", () => {
   // dialog stays open showing it: a closed dialog would drop the only
   // sentence telling the admin what to move.
   it("shows the occupied-stage refusal and keeps the stage", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
       settingsStub({
@@ -186,23 +188,24 @@ describe("PipelinesCard", () => {
       }),
     );
     render(<PipelinesCard />);
-    await userEvent.click(await screen.findByTestId("remove-stage-s1"));
-    await userEvent.click(screen.getByRole("button", { name: "Remove stage" }));
+    await user.click(await screen.findByTestId("remove-stage-s1"));
+    await user.click(screen.getByRole("button", { name: "Remove stage" }));
     expect(await screen.findByText(/Acme rollout/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove stage" })).toBeTruthy();
   });
 
   it("create stage posts the pipeline_id + semantic + win_probability", async () => {
+    const user = userEvent.setup();
     const posts: unknown[] = [];
     vi.stubGlobal(
       "fetch",
       settingsStub({ roles: ["admin"], onStagePost: (b) => posts.push(b) }),
     );
     render(<PipelinesCard />);
-    await userEvent.click(await screen.findByTestId("new-stage-pl"));
-    await userEvent.type(screen.getByLabelText(/Name/), "Discovery");
-    await userEvent.type(screen.getByLabelText(/Win probability/), "15");
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(await screen.findByTestId("new-stage-pl"));
+    await user.type(screen.getByLabelText(/Name/), "Discovery");
+    await user.type(screen.getByLabelText(/Win probability/), "15");
+    await user.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() =>
       expect(posts[0]).toMatchObject({
         pipeline_id: "pl",

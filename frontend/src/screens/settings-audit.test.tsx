@@ -4,6 +4,8 @@ import { cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { meFixture } from "../app/mefixture";
+import { steppedClock } from "../testing/steppedclock";
+import { SEARCH_DEBOUNCE_MS } from "./listquery";
 import { AuditLogCard } from "./settings";
 import { auditEntry, jsonResponse, render } from "./settings.testkit";
 
@@ -20,6 +22,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   globalThis.localStorage.clear();
 });
@@ -80,15 +83,22 @@ describe("AuditLogCard", () => {
   });
 
   it("narrows the request to the filters, keeping the page size and dropping the cursor", async () => {
+    const user = steppedClock();
     const backend = auditLogBackend();
     vi.stubGlobal("fetch", backend);
     render(<AuditLogCard />);
     await screen.findByText("update");
     expect(auditLogUrls(backend)[0]).toContain("limit=20");
 
-    await userEvent.type(screen.getByLabelText("Actor"), "agent:sdr");
-    await userEvent.type(screen.getByLabelText("Entity type"), "person");
+    await user.type(screen.getByLabelText("Actor"), "agent:sdr");
+    await user.type(screen.getByLabelText("Entity type"), "person");
 
+    // The card debounces what it asks, so the narrowed request exists only once
+    // the debounce has elapsed — and that is stepped rather than waited out. On
+    // the real clock this assertion races a scheduler it does not control, and
+    // the failure it produces says the query params are wrong when what actually
+    // happened is that the machine was busy.
+    await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
     await waitFor(() => {
       const latest = auditLogUrls(backend).at(-1) ?? "";
       expect(latest).toContain("actor=agent%3Asdr");
@@ -147,13 +157,14 @@ describe("AuditLogCard", () => {
   it("keeps the before/after diff hidden until the row is expanded", async () => {
     vi.stubGlobal("fetch", auditLogBackend());
     render(<AuditLogCard />);
+    const user = userEvent.setup();
     await screen.findByText("update");
     // Hidden by default — the diff values never render before the toggle.
     expect(screen.queryByText("new")).toBeNull();
     expect(screen.queryByText("qualified")).toBeNull();
     expect(screen.queryByText("pp-9")).toBeNull();
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole("button", { name: "Show change detail" }),
     );
 
@@ -166,10 +177,11 @@ describe("AuditLogCard", () => {
     vi.stubGlobal("fetch", auditLogBackend());
     render(<AuditLogCard />);
     await screen.findByText("update");
-    const from = screen.getByLabelText("From") as HTMLInputElement;
-    const to = screen.getByLabelText("To") as HTMLInputElement;
-    expect(from.type).toBe("date");
-    expect(to.type).toBe("date");
+    // Read through the attribute rather than a narrowed element: a query that
+    // has to be asserted into an input tells you nothing about the input, and
+    // the claim here is what the control IS.
+    expect(screen.getByLabelText("From")).toHaveAttribute("type", "date");
+    expect(screen.getByLabelText("To")).toHaveAttribute("type", "date");
   });
 
   it("renders a non-scalar before/after value as its JSON string, not [object Object]", async () => {
@@ -198,10 +210,11 @@ describe("AuditLogCard", () => {
         });
       }),
     );
+    const user = userEvent.setup();
     render(<AuditLogCard />);
     await screen.findByText("update");
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole("button", { name: "Show change detail" }),
     );
 

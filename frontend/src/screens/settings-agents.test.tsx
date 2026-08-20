@@ -127,17 +127,19 @@ describe("AgentToolsCard (IT-1)", () => {
     );
     expect(screen.getAllByText("send_email").length).toBe(1);
 
-    const searchRow = document.querySelector('[data-tool="search_records"]');
-    const sendRow = document.querySelector('[data-tool="send_email"]');
+    const searchRow = document.querySelector<HTMLElement>(
+      '[data-tool="search_records"]',
+    );
+    const sendRow = document.querySelector<HTMLElement>(
+      '[data-tool="send_email"]',
+    );
     expect(searchRow).toBeTruthy();
     expect(sendRow).toBeTruthy();
     // The egress "reaches out" badge shows only on the tool that reaches
     // outside the workspace (send_email), never on the pure-read tool.
+    expect(sendRow && within(sendRow).getByText("reaches out")).toBeTruthy();
     expect(
-      sendRow && within(sendRow as HTMLElement).getByText("reaches out"),
-    ).toBeTruthy();
-    expect(
-      searchRow && within(searchRow as HTMLElement).queryByText("reaches out"),
+      searchRow && within(searchRow).queryByText("reaches out"),
     ).toBeNull();
   });
 
@@ -152,9 +154,9 @@ describe("AgentToolsCard (IT-1)", () => {
     await waitFor(() =>
       expect(screen.getAllByText("search_records").length).toBe(1),
     );
-    const searchRow = document.querySelector(
+    const searchRow = document.querySelector<HTMLElement>(
       '[data-tool="search_records"]',
-    ) as HTMLElement | null;
+    );
     expect(searchRow).toBeTruthy();
     expect(
       searchRow && within(searchRow).getByText("Search records"),
@@ -173,9 +175,9 @@ describe("AgentToolsCard (IT-1)", () => {
     // The confirm-first row too, and not only the 🟢 one: a regression that
     // dropped the title or the description from the row an operator most needs
     // to read — the one that leaves the workspace — would otherwise pass here.
-    const sendRow = document.querySelector(
+    const sendRow = document.querySelector<HTMLElement>(
       '[data-tool="send_email"]',
-    ) as HTMLElement | null;
+    );
     expect(sendRow).toBeTruthy();
     expect(sendRow && within(sendRow).getByText("Send an email")).toBeTruthy();
     expect(
@@ -283,18 +285,20 @@ describe("AgentToolsCard passport scoping", () => {
     const select = screen.getByLabelText("All passports");
     await pickOption(user, select, "Reachable by Scout");
 
-    const freeRow = document.querySelector('[data-tool="list_pipelines"]');
+    const freeRow = document.querySelector<HTMLElement>(
+      '[data-tool="list_pipelines"]',
+    );
     expect(freeRow).toBeTruthy();
     expect(
-      freeRow &&
-        within(freeRow as HTMLElement).queryByText("scope not granted"),
+      freeRow && within(freeRow).queryByText("scope not granted"),
     ).toBeNull();
 
-    const scopedRow = document.querySelector('[data-tool="send_email"]');
+    const scopedRow = document.querySelector<HTMLElement>(
+      '[data-tool="send_email"]',
+    );
     expect(scopedRow).toBeTruthy();
     expect(
-      scopedRow &&
-        within(scopedRow as HTMLElement).getByText("scope not granted"),
+      scopedRow && within(scopedRow).getByText("scope not granted"),
     ).toBeTruthy();
   });
 });
@@ -368,21 +372,23 @@ describe("PassportCard revoke (AS-2)", () => {
 
     const select = screen.getByLabelText("All passports");
     await pickOption(user, select, "Reachable by Scout");
-    const scopedRow = document.querySelector('[data-tool="send_email"]');
+    const scopedRow = document.querySelector<HTMLElement>(
+      '[data-tool="send_email"]',
+    );
     expect(scopedRow).toBeTruthy();
     // Scout grants "read" only, so the send tool reads as out of scope while
     // Scout is the filter.
     expect(
-      scopedRow &&
-        within(scopedRow as HTMLElement).getByText("scope not granted"),
+      scopedRow && within(scopedRow).getByText("scope not granted"),
     ).toBeTruthy();
 
-    const scoutRow = screen.getByText("Scout").closest("[data-passport]");
-    const revokeButton = scoutRow?.querySelector("button");
-    if (!(revokeButton instanceof HTMLButtonElement)) {
-      throw new Error("the live passport row offers no revoke control");
+    const scoutRow = screen
+      .getByText("Scout")
+      .closest<HTMLElement>("[data-passport]");
+    if (scoutRow === null) {
+      throw new Error("the live passport row is not rendered");
     }
-    await user.click(revokeButton);
+    await user.click(within(scoutRow).getByRole("button", { name: "Revoke" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Revoke" }));
 
@@ -398,12 +404,12 @@ describe("PassportCard revoke (AS-2)", () => {
     );
     // ...and the inventory reads unfiltered again, matching what it shows.
     expect(
-      scopedRow &&
-        within(scopedRow as HTMLElement).queryByText("scope not granted"),
+      scopedRow && within(scopedRow).queryByText("scope not granted"),
     ).toBeNull();
   });
 
   it("revokes a non-revoked passport: click Revoke, confirm, DELETE fires with its id and the list refetches", async () => {
+    const user = userEvent.setup();
     const deleted: string[] = [];
     const fetchMock = passportsBackend({ onDelete: (id) => deleted.push(id) });
     vi.stubGlobal("fetch", fetchMock);
@@ -417,18 +423,20 @@ describe("PassportCard revoke (AS-2)", () => {
       retiredRow && Array.from(retiredRow.querySelectorAll("button")).length,
     ).toBe(0);
 
-    const scoutRow = screen.getByText("Scout").closest("[data-passport]");
-    expect(scoutRow).toBeTruthy();
-    const revokeButton = scoutRow?.querySelector("button");
-    expect(revokeButton).toBeTruthy();
-    await userEvent.click(revokeButton as HTMLButtonElement);
+    const scoutRow = screen
+      .getByText("Scout")
+      .closest<HTMLElement>("[data-passport]");
+    if (scoutRow === null) {
+      throw new Error("the live passport row is not rendered");
+    }
+    await user.click(within(scoutRow).getByRole("button", { name: "Revoke" }));
 
     const dialog = await screen.findByRole("dialog");
     const confirmButton = within(dialog).getByRole("button", {
       name: "Revoke",
     });
     const callsBeforeConfirm = fetchMock.mock.calls.length;
-    await userEvent.click(confirmButton);
+    await user.click(confirmButton);
 
     await waitFor(() => expect(deleted).toEqual(["pp-1"]));
     // The list refetches after a successful revoke — more fetch calls landed
