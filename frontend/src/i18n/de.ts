@@ -2145,6 +2145,10 @@ export const de = {
 
   "settings.identity": "Profil",
   "settings.preferences": "Voreinstellungen",
+  "unsaved.title": "Du hast ungespeicherte Änderungen",
+  "unsaved.body":
+    "Wenn du die Seite jetzt verlässt, gehen deine Eingaben verloren. Geh zurück, um sie zuerst zu speichern.",
+  "unsaved.discard": "Änderungen verwerfen",
   "settings.saved": "Gespeichert.",
   "settings.signature": "E-Mail-Signatur",
   "settings.signatureSub":

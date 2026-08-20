@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
+import { useUnsavedGuard } from "../app/unsaved";
 import { Badge, Button, EmptyState, Textarea } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
 import { ToastRegion, useToast } from "../design-system/toast";
@@ -320,6 +321,9 @@ function PersonalityEditor({
     onError: reportFailure(setError, t),
   });
   const dirty = text !== profile.personality_md;
+  // A voice profile is the longest thing anybody types in settings, which makes
+  // it the draft a silent discard costs the most.
+  useUnsavedGuard(dirty);
   return (
     <div className="vdna-composer">
       {/* readOnly rather than disabled: the preferences are a READ this seat

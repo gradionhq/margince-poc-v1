@@ -2139,6 +2139,10 @@ export const en = {
 
   "settings.identity": "Profile",
   "settings.preferences": "Preferences",
+  "unsaved.title": "You have unsaved changes",
+  "unsaved.body":
+    "Leaving this page now discards what you have typed. Go back to save it first.",
+  "unsaved.discard": "Discard changes",
   "settings.saved": "Saved.",
   "settings.signature": "Email signature",
   "settings.signatureSub":

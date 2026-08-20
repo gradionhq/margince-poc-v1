@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
+import { useUnsavedGuard } from "../app/unsaved";
 // Shared with every upload form, which reads the ceiling off this same record.
 // One query, one key: two hooks on one key would let whichever mounted first
 // decide how a failure behaves for the other.
@@ -152,6 +153,8 @@ function InstallationSettingsForm({
     draft.name !== settings.name ||
     draft.timezone !== settings.timezone ||
     draft.base_currency !== settings.base_currency;
+  // The claim the Save button's own condition was already making privately.
+  useUnsavedGuard(dirty);
 
   // Only changed fields are sent: the patch is sparse, and sending an
   // unchanged base currency would ask the server to write a value that may be

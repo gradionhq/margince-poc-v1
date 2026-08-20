@@ -2123,6 +2123,10 @@ export const vi = {
 
   "settings.identity": "Hồ sơ",
   "settings.preferences": "Tùy chọn",
+  "unsaved.title": "Bạn có thay đổi chưa lưu",
+  "unsaved.body":
+    "Rời trang này bây giờ sẽ bỏ những gì bạn đã nhập. Hãy quay lại để lưu trước.",
+  "unsaved.discard": "Bỏ thay đổi",
   "settings.saved": "Đã lưu.",
   "settings.signature": "Chữ ký email",
   "settings.signatureSub":
