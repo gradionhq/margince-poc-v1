@@ -31,6 +31,28 @@ function homeStory(digest: unknown) {
     installFetchStub({
       "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
       "GET /digest": () => jsonResponse(digest),
+      // The open-pipeline headline. Two currencies, because that is the case
+      // worth looking at: they get a line each rather than a sum.
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({
+          report: "deals-by-stage",
+          plan: {},
+          columns: [],
+          rows: [
+            {
+              currency: "EUR",
+              deals: 14,
+              raw_minor: 9_900_000,
+              weighted_minor: 3_100_000,
+            },
+            {
+              currency: "USD",
+              deals: 3,
+              raw_minor: 2_400_000,
+              weighted_minor: 900_000,
+            },
+          ],
+        }),
     });
     return (
       <StoryProviders>

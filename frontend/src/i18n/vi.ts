@@ -1668,7 +1668,11 @@ export const vi = {
   "home.stalled": "Deal đình trệ",
   "home.pipeline": "Pipeline đang mở",
   "home.pipelineWeighted": "{amount} theo trọng số",
-  "home.pipelineCount": "{count} deal đang mở",
+  "home.pipelineCount.one": "{count} deal đang mở",
+  "home.pipelineCount.other": "{count} deal đang mở",
+  "home.pipelinePartial":
+    "{count} deal không nằm trong các số này — quyền của bạn không bao gồm chúng.",
+  "home.pipelineUnavailable": "Không tải được số liệu này.",
   "home.queue": "Việc hôm nay",
   "home.asOf": "tính đến {at}",
   "home.refresh": "Làm mới tóm tắt",

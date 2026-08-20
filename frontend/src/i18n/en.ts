@@ -1685,7 +1685,11 @@ export const en = {
   "home.stalled": "Stalled deals",
   "home.pipeline": "Open pipeline",
   "home.pipelineWeighted": "{amount} weighted",
-  "home.pipelineCount": "{count} open deals",
+  "home.pipelineCount.one": "{count} open deal",
+  "home.pipelineCount.other": "{count} open deals",
+  "home.pipelinePartial":
+    "{count} deals are not in these figures — your access does not cover them.",
+  "home.pipelineUnavailable": "This figure could not be loaded.",
   "home.queue": "Today's queue",
   "home.asOf": "as of {at}",
   "home.refresh": "Refresh brief",
