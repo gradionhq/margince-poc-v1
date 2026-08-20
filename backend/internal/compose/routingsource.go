@@ -29,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -99,7 +100,31 @@ func ResolveRouting(ctx context.Context, pool *pgxpool.Pool, routingPath string,
 	if stored.Unconfigured() {
 		return ai.RoutingConfig{}, nil
 	}
-	return ai.FromStored(stored, keys)
+	return ai.FromStored(stored, sealedKeys(ctx, pool, ws, keys, log))
+}
+
+// sealedKeys upgrades the environment lookup to one that resolves a provider's
+// BYOK key from the vault, sealing any the environment still carries.
+//
+// Built here rather than passed in because this is where the workspace is
+// already resolved, and both roles would otherwise construct the same thing
+// from the same three inputs. A second vault instance costs nothing: it holds a
+// pool and an AEAD derived from the root key, and no state that two of them
+// could disagree about.
+//
+// An installation with no vault configured gets the environment unchanged,
+// which is where every installation was before this existed.
+func sealedKeys(ctx context.Context, pool *pgxpool.Pool, ws ids.UUID, env config.Lookup, log *slog.Logger) config.Lookup {
+	vault, configured, err := keyvault.FromEnv(pool, env)
+	if err != nil || !configured {
+		if err != nil {
+			log.WarnContext(ctx, "the key vault is configured but unusable; provider credentials resolve from the environment this boot", "error", err)
+		}
+		return env
+	}
+	workspace := ids.From[ids.WorkspaceKind](ws)
+	refs := SealProviderKeys(ctx, pool, vault, workspace, env, log)
+	return ai.SealedKeys(ctx, vault, workspace, refs, env)
 }
 
 // routingCtx binds the boot's system principal on the installation's
