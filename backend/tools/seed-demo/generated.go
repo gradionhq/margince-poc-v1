@@ -182,10 +182,7 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 	}
 
 	leadRank := leadAssignRank(plan)
-	// Per-culture counters: each pool is walked from its own zero, so a
-	// dataset with four Korean leads uses the first four Korean names rather
-	// than whatever positions the global order happens to land on.
-	nameRank := map[nameLocale]int{}
+	nameRank := leadNameRank(plan)
 
 	for _, domain := range sortedDomains(plan) {
 		p := plan[domain]
@@ -196,9 +193,7 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 		if !ok {
 			continue
 		}
-		culture := nameLocaleFor(domain)
-		first, last := generatedLeadName(domain, nameRank[culture])
-		nameRank[culture]++
+		first, last := generatedLeadName(domain, nameRank[domain])
 		title := generatedLeadTitle(domain)
 		sourceID := "gen-lead-" + domain
 
@@ -405,6 +400,34 @@ func leadIsAssigned(rank int) bool {
 // Leads already on file are never moved, so that left an installation's split
 // depending on the order its runs happened in. The plan is the same on every
 // run, so a rank taken from it is too.
+// leadNameRank ranks each lead-bearing domain WITHIN its own naming culture,
+// so a dataset with four Korean leads uses the first four Korean names.
+//
+// Ranked over the plan rather than counted as the seeding loop walks, for the
+// same reason leadAssignRank is: the loop skips a domain whose organization
+// the installation does not hold, so a `-limit N` run counted a different
+// number of domains ahead of D than a full run did. A lead already on file is
+// never renamed, so that left the NAME depending on the order the runs
+// happened in -- and freed a name for another domain to take, which is how the
+// duplicates this change exists to remove would have come back.
+//
+// The plan is identical on every run and knows nothing about which
+// organizations exist, so a rank taken from it cannot drift.
+func leadNameRank(plan map[string]profile) map[string]int {
+	rank := make(map[string]int, len(plan))
+	perCulture := map[nameLocale]int{}
+	for _, domain := range sortedDomains(plan) {
+		p := plan[domain]
+		if p.Pinned || p.LeadState == "" {
+			continue
+		}
+		culture := nameLocaleFor(domain)
+		rank[domain] = perCulture[culture]
+		perCulture[culture]++
+	}
+	return rank
+}
+
 func leadAssignRank(plan map[string]profile) map[string]int {
 	rank := make(map[string]int, len(plan))
 	n := 0

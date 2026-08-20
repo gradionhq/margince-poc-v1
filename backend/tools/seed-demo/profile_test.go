@@ -378,3 +378,71 @@ func TestFoldASCIIProducesAMailableLocalPart(t *testing.T) {
 		}
 	}
 }
+
+// TestLeadNameRankIsIndependentOfRunHistory is the convergence contract for
+// names, and it is the defect a review caught in the first version of this
+// change: the per-culture counter was advanced inside the seeding loop, AFTER
+// the guard that skips a domain whose organization the installation does not
+// hold.
+//
+// That made a name depend on the order the runs happened in. A `-limit N` run
+// holds a subset of the organizations, so a domain got a different rank than
+// on a full run — and because a lead already on file is never renamed, the
+// name it was given first stuck while the rank it "should" have had was freed
+// for another domain to take. Duplicate names, which is the whole thing this
+// change removes.
+//
+// Ranking over the plan takes the run out of the equation: the plan is the
+// same every time and knows nothing about which organizations exist.
+func TestLeadNameRankIsIndependentOfRunHistory(t *testing.T) {
+	full := leadNameRank(leadPlan("a.de", "b.de", "c.de", "d.de", "e.de", "f.de"))
+
+	for i := 0; i < 3; i++ {
+		again := leadNameRank(leadPlan("a.de", "b.de", "c.de", "d.de", "e.de", "f.de"))
+		for d, r := range full {
+			if again[d] != r {
+				t.Fatalf("%s ranked %d then %d — the same plan must rank the same", d, r, again[d])
+			}
+		}
+	}
+
+	// Ranks are per culture, each starting at zero, so a Korean lead uses the
+	// first Korean name rather than whatever global position it landed on.
+	// Ranks follow SORTED domain order, so condt.co.kr precedes gamsoft.kr.
+	mixed := leadNameRank(leadPlan("a.de", "gamsoft.kr", "b.de", "aubot.vn", "condt.co.kr"))
+	if mixed["condt.co.kr"] != 0 {
+		t.Errorf("first Korean domain ranked %d, want 0", mixed["condt.co.kr"])
+	}
+	if mixed["gamsoft.kr"] != 1 {
+		t.Errorf("second Korean domain ranked %d, want 1", mixed["gamsoft.kr"])
+	}
+	if mixed["aubot.vn"] != 0 {
+		t.Errorf("first Vietnamese domain ranked %d, want 0", mixed["aubot.vn"])
+	}
+	if mixed["a.de"] != 0 || mixed["b.de"] != 1 {
+		t.Errorf("German ranks are %d and %d, want 0 and 1", mixed["a.de"], mixed["b.de"])
+	}
+}
+
+// TestKoreanCompaniesOffDotKrAreNamedKorean pins the second half of the same
+// review: isaac-eng.com is ISAAC Engineering of Gunpo-si and was getting an
+// English name, because the exception list only held three domains.
+//
+// The counter-examples matter as much as the examples. A company with a Seoul
+// office is not a Korean company, and naming its leads Park would be the same
+// mistake in the other direction.
+func TestKoreanCompaniesOffDotKrAreNamedKorean(t *testing.T) {
+	for _, domain := range []string{
+		"isaac-eng.com", "dacell.com", "hongikinfo.com", "nidsoft.com",
+		"allincarbon.com", "boomco.org", "crescai.com", "enabler-ai.com", "orca.partners",
+	} {
+		if got := nameLocaleFor(domain); got != namesKO {
+			t.Errorf("nameLocaleFor(%q) = %q, want %q — it is a Korean company", domain, got, namesKO)
+		}
+	}
+	for _, domain := range []string{"centricsoftware.com", "algolia.com", "google.com"} {
+		if got := nameLocaleFor(domain); got == namesKO {
+			t.Errorf("nameLocaleFor(%q) = korean — an office in Seoul is not a Korean company", domain)
+		}
+	}
+}

@@ -53,10 +53,29 @@ func nameLocaleFor(domain string) nameLocale {
 }
 
 // koreanNameDomains are the Korean companies whose domain does not end in .kr.
+//
+// Read off the crawled dataset rather than guessed: each of these publishes a
+// Korean registered address or a Korean legal name in
+// datasets/v1/siteresults/<domain>/accepted.json — a Busan or Seoul address,
+// or a name in Hangul. A .com or .org tells you nothing about where a company
+// is, and company-locale.json cannot answer it either: it records the language
+// a company's DOCUMENTS are in, and every Korean company in it is marked "en"
+// because Korean sites publish English.
+//
+// Deliberately NOT here: centricsoftware.com, algolia.com and google.com, all
+// of which name a Seoul office somewhere on the site. An office in Korea does
+// not make a company Korean, and naming their leads Park would be the same
+// class of error as calling 감소프트's lead Annika.
 var koreanNameDomains = map[string]bool{
-	"dacell.com":     true,
-	"hongikinfo.com": true,
-	"nidsoft.com":    true,
+	"allincarbon.com": true, // 올인카본, Anyang
+	"boomco.org":      true, // Boomco Communication, Busan
+	"crescai.com":     true, // CRESC AI INC., Ulsan
+	"dacell.com":      true,
+	"enabler-ai.com":  true, // 이네이블러, Seoul
+	"hongikinfo.com":  true,
+	"isaac-eng.com":   true, // ISAAC Engineering, Gunpo-si
+	"nidsoft.com":     true, // NidSoft, Geumcheon-gu Seoul
+	"orca.partners":   true, // ORCA MES, Busan
 }
 
 // The pools are large enough that 45 generated leads do not collide into the
