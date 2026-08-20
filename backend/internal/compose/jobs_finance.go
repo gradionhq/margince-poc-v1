@@ -79,8 +79,16 @@ func (w *financeSyncWorker) Work(ctx context.Context, job *river.Job[FinanceSync
 	// The connector is the acting principal: every mirrored row carries
 	// connector: provenance, so a reader can tell an imported invoice from
 	// anything a person typed.
+	//
+	// PrincipalConnector and not PrincipalSystem, and the two have to agree:
+	// the audit row stamps actor_type from the TYPE and actor_id from the ID,
+	// so a system type beside a `connector:` id writes a row that contradicts
+	// itself, and audit_log is append-only — the contradiction cannot be
+	// corrected afterwards. No OnBehalfOf: finance has no connect flow and so
+	// no granting human, and storekit.OwnerOrActor already reads a bare
+	// connector as the row nobody owns.
 	wsCtx = principal.WithActor(wsCtx, principal.Principal{
-		Type: principal.PrincipalSystem, ID: "connector:finance",
+		Type: principal.PrincipalConnector, ID: "connector:finance",
 	})
 	wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
 
