@@ -1320,12 +1320,23 @@ jobs:
   #   sonarcloud                 — not a required check (merge speed during heavy
   #                                development). Listing it here would make it
   #                                blocking by the back door.
+  #   vuln, live-boot, uat       — advisory today, and deliberately still
+  #                                advisory here. See below.
   #
-  # vuln, live-boot and uat ARE listed, and that makes them blocking for the
-  # first time: they run today but sit outside the required-contexts list, so a
-  # red one does not stop a merge. A job worth running is worth believing. If
-  # either e2e job proves flaky under the queue, stabilise or delete it — do not
-  # quietly drop it from this list.
+  # This list is EXACTLY the nine contexts the ruleset required before the
+  # aggregate replaced them, and that equality is the point: this change moves
+  # where the verdict is computed, not what the verdict covers. Adding a lane and
+  # collapsing the contexts in one step would mean a red merge queue with two
+  # candidate explanations, during the week we are establishing whether the queue
+  # itself works.
+  #
+  # vuln, live-boot and uat are the tempting additions — they run on every
+  # qualifying change and a red one does not stop a merge, which is not a state
+  # worth keeping. The reason to wait is the batching: a flaky job under a merge
+  # queue does not cost one re-run, it fails a batch of up to five and forces a
+  # re-split, and nothing has ever exercised these three under a gate that blocks.
+  # Promote them once the queue has a measured baseline, as their own change, so a
+  # regression has one explanation.
   ci:
     name: ci
     timeout-minutes: 10
@@ -1343,9 +1354,6 @@ jobs:
       - integration
       - frontend
       - license-gate
-      - live-boot
-      - uat
-      - vuln
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -13,11 +13,13 @@ checks — so a migration that forgets `FORCE RLS`, an erasure that misses a PII
 table, a denied dependency license, a swallowed error, or a UI regression fails
 the merge instead of shipping.
 
-One lane runs but deliberately does **not** block: the SonarCloud scan. It was
-traded off the required set for merge speed during heavy development, and it is
-re-checked daily on `main` by `scheduled.yml` — see below for why a non-blocking
-gate needs that backstop to stay honest. `vuln`, `uat` and `live-boot` used to be
-advisory too; they are now inside the `ci` aggregate and therefore block.
+Two lanes run but deliberately do **not** block: `vuln` and the SonarCloud scan.
+Both were traded off the required set for merge speed during heavy development,
+and both are re-checked daily on `main` by `scheduled.yml` — see below for why a
+non-blocking gate needs that backstop to stay honest. `uat` and `live-boot` are
+likewise advisory. Promoting the three of them is deliberate future work rather
+than an oversight; the reason it is not bundled with the merge queue is in
+[The `ci` aggregate](#the-ci-aggregate-is-the-only-required-context).
 
 ## Triggers
 
@@ -74,11 +76,20 @@ commit in twenty-five was ever gated, and a docs-only merge landing after a
 breaking one matched no scope, skipped every job, and reported green. `main` went
 red twice with the breakage masked exactly that way.
 
-Both premises are now void: the concurrency ceiling moved, and a merge queue
-gates before the merge rather than racing after it. A skipped required check also
-counts as *passing* on GitHub, which is why the nine separately-required contexts
-collapsed into one `ci` job that refuses a skip — see
-[The jobs](#the-jobs).
+Both premises are void, and neither needed a bigger runner budget to void.
+
+The invariant is contradicted outright by the numbers above. And the slot argument
+was an argument against *racing* a lane after the merge — which a queue does not
+do: it gates before the merge, and it **batches**, so five entries share one lane
+rather than each claiming their own. The 20-concurrent ceiling is unchanged; what
+changed is that `release.yml` and `sbom.yml` stopped drawing ~448 runs a week from
+it (both are dispatch-only now), which is where the room for a queue lane came
+from. If queue depth grows anyway, `max_entries_to_merge` is a ruleset knob that
+costs nothing to turn.
+
+A skipped required check also counts as *passing* on GitHub, which is why the nine
+separately-required contexts collapsed into one `ci` job that refuses a skip — see
+[The `ci` aggregate](#the-ci-aggregate-is-the-only-required-context).
 
 ## Run only the checks a change can affect
 
@@ -219,16 +230,28 @@ and the queue lane covers the remainder.
 upstream job reports a **green** required check, which is the same failure wearing
 a different hat.
 
-Three jobs became blocking when they entered this list — `vuln`, `live-boot` and
-`uat`. They ran before but sat outside the required set, so a red one did not stop
-a merge. If one proves flaky under the queue, stabilise or delete it; do not
-quietly drop it from `needs`.
+**`needs` is exactly the nine contexts the ruleset required before the aggregate
+replaced them**, and that equality is the point: this change moved where the
+verdict is computed, not what it covers. Widening the gate in the same step would
+mean a red merge queue with two candidate explanations, during the week the queue
+itself is on trial.
 
-Seven jobs are deliberately **not** in `needs`: `changes` (produces no verdict),
-`fe-quality`/`fe-unit`/`fe-bundle` and `integration-shards`/
-`integration-unit-coverage` (absorbed by their fan-ins, which already assert on
-them), and `sonarcloud` (non-blocking by decision — listing it here would make it
-required by the back door).
+Ten jobs are deliberately **not** in `needs`:
+
+- `changes` — the classifier produces no verdict.
+- `fe-quality`, `fe-unit`, `fe-bundle` — absorbed by the `frontend` fan-in.
+- `integration-shards`, `integration-unit-coverage` — absorbed by the
+  `integration` fan-in, which already asserts on their results.
+- `sonarcloud` — non-blocking by decision; listing it here would make it required
+  by the back door.
+- `vuln`, `live-boot`, `uat` — advisory, and left that way **on purpose**. They
+  are the obvious additions: each runs on every qualifying change and a red one
+  does not stop a merge, which is not a state worth keeping. What argues for
+  waiting is the batching. A flaky job under a merge queue does not cost one
+  re-run; it fails a batch of up to five and forces a re-split, and nothing has
+  ever exercised these three under a gate that blocks. Promote them once the queue
+  has a measured baseline, as their own change, so a regression has exactly one
+  explanation.
 
 ## The shared Go build cache
 
@@ -316,7 +339,7 @@ third-party actions it calls, which would otherwise ride in unread.
 | `integration shard (k/12)` | `make test-integration` with `INTEGRATION_SHARD=k/12`: a deterministic per-test round-robin slice of the whole integration lane. Slices are count-based, not duration-based; the heavy e2e tail lands on whichever shard draws it, and `INTEGRATION_JOBS=16` (the tests wait on Postgres, not cores) lets that shard chew through its slice instead of running minutes over its siblings. Boots the dev compose stack (`make db-up`: digest-pinned Postgres 16 (pgvector) + Redis 7 + MinIO + the app role — one stack definition, no hand-mirrored GH services); each shard builds its own migrated `margince_test` template and clones per package. Uploads its slice manifests + binary coverage pods |
 | `integration unit coverage` | The unit `-cover` pass over every package, binary coverage pods only. Needed because the shards run just the integration-tagged packages, and without it SonarCloud would see the unit-only packages at a false ~0% new-code coverage. No services (the test-lanes gate guarantees untagged tests open no real DB) |
 | `integration` | The fan-in the `ci` aggregate reads — it stands for the whole sharded lane, so the aggregate needs one entry rather than twelve. Asserts every shard + the unit pass succeeded (a failed shard must turn this check red, not skipped), then `scripts/test-integration-reconcile.sh` proves the slices add up: every shard present, identical discovery, union complete + disjoint. Merges all coverage pods into `coverage.out`, uploads `go-coverage` |
-| `vuln` | `make vuln` (govulncheck over all packages). Now **blocking**, via the `ci` aggregate. A vulnerable dependency a PR *introduces* is reported before merge; what it cannot report is a vulnerability disclosed after one, which is why `scheduled.yml` runs it daily on `main` as well |
+| `vuln` | `make vuln` (govulncheck over all packages). **Advisory** — outside the `ci` aggregate, so a red one does not stop a merge. It still runs on every backend change, so a vulnerable dependency a PR *introduces* is reported before merge; what it cannot report is a vulnerability disclosed after one, which is why `scheduled.yml` runs it daily on `main` as well |
 | `license gate` | `make sbom` then `make sbom-check` — the dependency-license policy (`grant`, policy in `.grant.yaml`) over the resolved dependency graph, not the manifests. Lives here rather than in `sbom.yml` because it is a **gate** and that workflow is an artifact producer: `sbom.yml` filters at the workflow level, so on a PR touching no dependency it produces no check run at all, and a required context that never posts blocks the merge forever. Job-level gating makes a path skip report as passing instead. Runs on `merge_group` as well as `pull_request`, and it is the **only** automatic run of this policy — `sbom.yml` is dispatch-only, so the copy of the gate inside it fires just before a signing run. The merge-queue run is what makes that sufficient, and makes it a stronger claim than it was: `main` receives a dependency change only through a queue build this job passed, so the policy is judged against the tree that lands rather than a PR head that may not match it |
 | `fe-quality` | `make fe-quality` — the design-system script gates, the contract type-drift check, Biome, the composed-SPA typecheck (ADR-0069) and the unit screens' own vitest suites. The only frontend job carrying a Go toolchain: the composed lane needs `gen-composition` output, which nothing else produces |
 | `fe-unit` | `make fe-unit FE_COVERAGE=1` — the vitest suite, instrumented so the run that decides the verdict also writes the lcov. Emits `fe-coverage`, after `frontend/scripts/check-lcov-paths.sh` has proved every path in it resolves from the repo root (see below). Not sharded: the v8 provider's branch records cannot be merged across shards without skewing condition coverage — issue #966 has the measurements and the fix |
