@@ -15047,6 +15047,19 @@ export interface components {
              *     field: if this operation listed it, it is offerable.
              */
             custom: boolean;
+            /**
+             * @description The record type this field's ids point at — present for every `id`
+             *     field, absent for every other type. Offer the record rather than a
+             *     box for its uuid.
+             *
+             *     The values are this contract's own record-type words, so no
+             *     translation table is needed to key a picker on them.
+             *
+             *     Never present on a custom field: the catalog's six types include no
+             *     `id`, so only a core field can carry a reference.
+             * @enum {string}
+             */
+            references?: "tag" | "app_user" | "team" | "organization" | "pipeline" | "stage" | "project";
         };
         /** @description A tag. Mirrors the `tag` table. */
         Tag: {

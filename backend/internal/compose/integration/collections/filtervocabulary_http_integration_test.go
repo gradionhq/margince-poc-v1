@@ -133,6 +133,10 @@ func TestTheFilterVocabularyOverHTTPOffersWhatADynamicListAccepts(t *testing.T) 
 			Type      string   `json:"type"`
 			Operators []string `json:"operators"`
 			Custom    bool     `json:"custom"`
+			// A POINTER, so this test can tell an absent key from an empty
+			// string. A plain string would decode both as "" and the
+			// omitted-for-a-non-id-field guarantee would be unassertable.
+			References *string `json:"references,omitempty"`
 		} `json:"fields"`
 	}
 	status := e.Call(t, "GET", "/v1/filters/vocabulary?resource=person", nil, nil, &vocab)
@@ -161,6 +165,21 @@ func TestTheFilterVocabularyOverHTTPOffersWhatADynamicListAccepts(t *testing.T) 
 			if f.Custom {
 				t.Error("owner_id is a core field and is reported custom")
 			}
+			// The wire value, which no unit test can reach: an id field names
+			// the record type its values point at, in the contract's own
+			// record-type word.
+			if f.References == nil {
+				t.Error("owner_id is an id field and the response carries no references key, so a builder can only ask for a uuid")
+			} else if *f.References != "app_user" {
+				t.Errorf("owner_id references %q, want app_user", *f.References)
+			}
+		}
+		// And the other arm, for every non-id field in the same response: the key
+		// is ABSENT rather than blank. "" is not a member of the contract's enum,
+		// so a strict client rejects a response that sends it.
+		if f.Type != "id" && f.References != nil {
+			t.Errorf("%s is typed %s and the response carries references=%q; the key belongs only to an id field",
+				f.Name, f.Type, *f.References)
 		}
 		if len(f.Operators) == 0 {
 			t.Errorf("%s reports no operators, so a builder could offer no clause on it", f.Name)
