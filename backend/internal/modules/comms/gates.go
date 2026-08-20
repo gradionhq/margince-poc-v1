@@ -18,9 +18,11 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // gateSendAuthority refuses a delivery this installation's own knowledge of the
@@ -69,19 +71,73 @@ func (d *Dispatcher) gateSendAuthority(ctx context.Context, del Delivery, grante
 // a different provider, a file added by a later edit. The human should get the
 // message back with a reason, which is what parking does.
 //
+// It checks FOUR things, not one: whether files may go at all, how many may ride
+// in one message, how large each may be, and — for a transport that carries
+// text-with-files as a caption — how long the covering text may be. All four are
+// the provider's own limits, published on the channel directory so the composer
+// warns first, and every one of them parks for the same reason: a message that
+// went out missing a file, or truncated to fit a caption, is not the message a
+// human approved.
+//
 // The reason names the channel and the files, because "this could not be sent"
 // with no subject leaves a person guessing which of the two to fix.
 func (d *Dispatcher) gateAttachmentCarriage(ctx context.Context, del Delivery, seam sendSeam) (Outcome, time.Duration, error) {
-	if len(del.Attachments) == 0 || seam.carriage.Carries {
+	if len(del.Attachments) == 0 {
 		return outcomeUndecided, 0, nil
 	}
+	if reason := carriageRefusal(del, seam.carriage); reason != "" {
+		return d.park(ctx, del.ID, reason)
+	}
+	return outcomeUndecided, 0, nil
+}
+
+// carriageRefusal is why this message may not go out as staged, or "" when it
+// may. ONE function so the four refusals read together and none can be added
+// without a reason a person can act on.
+//
+// A zero bound means "no limit beyond the contract's own", never "zero allowed"
+// — the only field that says nothing may go is Carries. A connector that
+// declares carriage without naming a limit is therefore held to the contract's
+// own caps rather than parked on every send.
+func carriageRefusal(del Delivery, carriage connector.Carriage) string {
+	if !carriage.Carries {
+		return fmt.Sprintf(
+			"the %s channel cannot carry files, and this message has %s attached; it was not sent, "+
+				"because sending the text alone would misrepresent what it contains",
+			del.Provider, strings.Join(attachmentNames(del), ", "))
+	}
+	if carriage.MaxFiles > 0 && len(del.Attachments) > carriage.MaxFiles {
+		return fmt.Sprintf(
+			"the %s channel carries at most %d file(s) in one message and this has %d; it was not sent, "+
+				"because sending some of them would misrepresent what it contains — send them as separate messages",
+			del.Provider, carriage.MaxFiles, len(del.Attachments))
+	}
+	for _, file := range del.Attachments {
+		if carriage.MaxBytesPerFile > 0 && file.ByteSize > carriage.MaxBytesPerFile {
+			return fmt.Sprintf(
+				"%q is larger than the %d MiB the %s channel accepts for one file; it was not sent — "+
+					"share it another way, or send a smaller version",
+				file.Filename, carriage.MaxBytesPerFile>>20, del.Provider)
+		}
+	}
+	if body := utf8.RuneCountInString(del.Body); carriage.MaxBodyWithFiles > 0 && body > carriage.MaxBodyWithFiles {
+		return fmt.Sprintf(
+			"the %s channel carries the text of a message with files as a caption, which holds at most "+
+				"%d characters, and this message has %d; it was not sent, because neither shortening it nor "+
+				"sending it as two messages would be what you wrote — shorten it and send again",
+			del.Provider, carriage.MaxBodyWithFiles, body)
+	}
+	return ""
+}
+
+// attachmentNames is the staged filenames, for a reason a person can act on:
+// "this could not be sent" with no subject leaves them guessing which file.
+func attachmentNames(del Delivery) []string {
 	names := make([]string, 0, len(del.Attachments))
 	for _, file := range del.Attachments {
 		names = append(names, file.Filename)
 	}
-	return d.park(ctx, del.ID, fmt.Sprintf(
-		"the %s channel cannot carry files, and this message has %s attached; it was not sent, because sending the text alone would misrepresent what it contains",
-		del.Provider, strings.Join(names, ", ")))
+	return names
 }
 
 // gateAttachmentIntegrity refuses a delivery carrying a file that may no longer
