@@ -5456,9 +5456,6 @@ export const de = {
   "filters.exportCsv": "Als CSV exportieren",
   "filters.exportJson": "Als JSON exportieren",
 
-  "provider.profile.retrievedAt": "Gekauft am {date}",
-  "provider.profile.source": "Geliefert von {provider}",
-
   // Siehe en.ts: zwei Leser gleichzeitig — wer hinein will, und wer es
   // reparieren muss.
   "release.skewTitle": "Diese Installation wird gerade aktualisiert",

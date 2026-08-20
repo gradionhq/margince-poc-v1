@@ -5414,9 +5414,6 @@ export const vi = {
   "filters.exportCsv": "Xu\u1ea5t CSV",
   "filters.exportJson": "Xu\u1ea5t JSON",
 
-  "provider.profile.retrievedAt": "Mua ngày {date}",
-  "provider.profile.source": "Do {provider} cung cấp",
-
   // Xem en.ts: hai người đọc cùng lúc — người muốn vào, và người phải sửa.
   "release.skewTitle": "Bản cài đặt này đang được cập nhật",
   "release.skewBody":

@@ -5463,9 +5463,6 @@ export const en = {
   "filters.exportCsv": "Export CSV",
   "filters.exportJson": "Export JSON",
 
-  "provider.profile.retrievedAt": "Bought {date}",
-  "provider.profile.source": "Provided by {provider}",
-
   // The release gate (src/screens/releaseskew.tsx). It renders instead of the
   // app when this bundle and the api come from different releases, so the copy
   // has two readers at once: the person who just wants in, and the operator who
