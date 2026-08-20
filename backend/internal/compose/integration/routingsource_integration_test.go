@@ -26,11 +26,16 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/config"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -262,4 +267,47 @@ embeddings: {provider: fake, model: ` + model + `-embed, dimensions: 8}
 		t.Fatalf("ParseRouting: %v", err)
 	}
 	return cfg
+}
+
+// An UNCONFIGURED stored row is not the same as no row, and the difference is
+// the whole reason the seed's answer is now read.
+//
+// `Unconfigured()` is `len(Tiers) == 0`, so a row can exist and still report
+// unconfigured — which sends the boot down the adopt branch, where the seed's
+// ON CONFLICT DO NOTHING then stores nothing because the row is already there.
+// Announcing an adoption at that point names a binding the database does not
+// hold. A concurrent second replica reaches the same state by racing; this
+// fixture reaches it without needing one.
+func TestAnUnconfiguredStoredRowIsNotAdoptedOverAndIsNotAnnouncedAsAdopted(t *testing.T) {
+	e := SetupSearch(t)
+	ctx := context.Background()
+
+	// A stored row that binds nothing, written through the real seed path.
+	if err := database.WithWorkspaceTx(e.adminRoutingCtx(), e.Pool, func(tx pgx.Tx) error {
+		_, err := settings.SeedValue(ctx, tx, ai.Routing, ai.RoutingConfig{})
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the unconfigured row: %v", err)
+	}
+
+	var logged strings.Builder
+	log := slog.New(slog.NewTextHandler(&logged, nil))
+	got, err := compose.ResolveRouting(ctx, e.Pool, writeRouting(t, offlineRouting), config.Static(nil), log)
+	if err != nil {
+		t.Fatalf("ResolveRouting: %v", err)
+	}
+
+	// The stored row wins, so what comes back still binds nothing.
+	if !got.Unconfigured() {
+		t.Error("the file overwrote a stored row; ON CONFLICT DO NOTHING is what stops a restart replacing a binding an admin set")
+	}
+	// And the log does not claim otherwise. Asserting on the announcement, not
+	// only on the value, is the point: a boot that stored nothing while saying
+	// "adopted" sends an operator looking for a binding that is not there.
+	if strings.Contains(logged.String(), "adopted the routing file") {
+		t.Error("the boot announced an adoption it did not perform")
+	}
+	if !strings.Contains(logged.String(), "was not adopted") {
+		t.Error("the boot stored nothing and said nothing about it")
+	}
 }

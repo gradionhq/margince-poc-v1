@@ -350,7 +350,7 @@ func mustChangeFor(t *testing.T, svc *Service, userID ids.UserID) bool {
 func TestAConfiguredBootstrapForcesTheAdminToChoosePassword(t *testing.T) {
 	svc := newSetupService(t)
 	ctx := context.Background()
-	wsID, created, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
+	wsID, created, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
 		return claimInput("configuredforce"), nil
 	}, nil)
 	if err != nil || !created {
@@ -378,7 +378,7 @@ func TestAClaimDoesNotForceTheAdminToChooseAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wsID, err := svc.ClaimInstallation(ctx, token, claimInput("claimedforce"), nil)
+	wsID, _, err := svc.ClaimInstallation(ctx, token, claimInput("claimedforce"), nil)
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}

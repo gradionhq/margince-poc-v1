@@ -62,7 +62,7 @@ func setupCIMD(t *testing.T, slug string) *cimdEnv {
 			AdminEmail:       "admin@" + slug + ".test",
 			AdminName:        "Admin",
 			AdminPassword:    "correct-horse-battery-staple",
-		}, originConfigured, nil)
+		}, originConfigured, nil, &[]string{})
 		return err
 	})
 	if err != nil {

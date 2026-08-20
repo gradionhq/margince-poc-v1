@@ -36,7 +36,7 @@ func TestTheDispatcherResolvesTheSeatBootstrapMinted(t *testing.T) {
 		t.Fatalf("archiving the harness workspace: %v", err)
 	}
 
-	wsID, created, err := identity.NewService(e.Pool).BootstrapInstallation(ctx,
+	wsID, created, _, err := identity.NewService(e.Pool).BootstrapInstallation(ctx,
 		func() (identity.InstallationBootstrap, error) {
 			return identity.InstallationBootstrap{
 				OrganizationName: "seatjoin",

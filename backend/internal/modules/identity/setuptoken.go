@@ -195,7 +195,7 @@ var ErrAlreadyProvisioned = errors.New("identity: installation is already provis
 //
 // The provisioned check runs BEFORE the token is consumed, so a claim aimed at
 // a live installation is refused without spending anything.
-func (s *Service) ClaimInstallation(ctx context.Context, token string, in InstallationBootstrap, seed func(ctx context.Context, tx pgx.Tx) error) (ids.WorkspaceID, error) {
+func (s *Service) ClaimInstallation(ctx context.Context, token string, in InstallationBootstrap, seed func(ctx context.Context, tx pgx.Tx) error) (wsID ids.WorkspaceID, discarded []string, err error) {
 	// Refuse a provisioned installation WITHOUT taking the lock. This route is
 	// unauthenticated and stays mounted for the life of the installation, so
 	// the common case by far is a stranger reaching a live one; making that
@@ -204,10 +204,9 @@ func (s *Service) ClaimInstallation(ctx context.Context, token string, in Instal
 	// authoritative check still happens under the lock below — this one only
 	// declines to pay for a question already answered.
 	if cached := s.installation.Load(); cached != nil {
-		return ids.WorkspaceID{}, ErrAlreadyProvisioned
+		return ids.WorkspaceID{}, nil, ErrAlreadyProvisioned
 	}
-	var wsID ids.WorkspaceID
-	err := database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
+	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
 			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
 		}
@@ -221,14 +220,14 @@ func (s *Service) ClaimInstallation(ctx context.Context, token string, in Instal
 		if err := consumeSetupToken(ctx, tx, token); err != nil {
 			return err
 		}
-		wsID, err = createInstallation(ctx, tx, in, originClaimed, seed)
+		wsID, err = createInstallation(ctx, tx, in, originClaimed, seed, &discarded)
 		return err
 	})
 	if err != nil {
-		return ids.WorkspaceID{}, err
+		return ids.WorkspaceID{}, nil, err
 	}
 	s.installation.Store(&wsID)
-	return wsID, nil
+	return wsID, discarded, nil
 }
 
 // SetupTokenOutstanding reports whether this installation is waiting to be

@@ -57,7 +57,7 @@ func seedConfigWorkspace(t *testing.T, pool *pgxpool.Pool, label string) ids.UUI
 	var ws ids.WorkspaceID
 	if err := database.WithInfraTx(ctx, pool, func(tx pgx.Tx) error {
 		var err error
-		ws, err = createInstallation(ctx, tx, boot, originConfigured, nil)
+		ws, err = createInstallation(ctx, tx, boot, originConfigured, nil, &[]string{})
 		return err
 	}); err != nil {
 		t.Fatalf("bootstrapping the %s installation: %v", label, err)

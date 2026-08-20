@@ -205,7 +205,8 @@ func TestRetainOnlyPostureSuppressesDestructionButNotArchival(t *testing.T) {
 	// The posture is seeded the way bootstrap seeds it from margince.yaml, so
 	// the pass reads exactly what a `default_policy: retain_only` install has.
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return settings.SeedValue(context.Background(), tx, privacy.RetainOnly, true)
+		_, err := settings.SeedValue(context.Background(), tx, privacy.RetainOnly, true)
+		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +432,8 @@ func TestRetainOnlyPostureDoesNotDestroyContentThroughTheEmbedCascade(t *testing
 	withContent := seedEmbedCallWithPayload(t, e, 91, "Marek Janetzke, Q3 renewal terms")
 
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return settings.SeedValue(context.Background(), tx, privacy.RetainOnly, true)
+		_, err := settings.SeedValue(context.Background(), tx, privacy.RetainOnly, true)
+		return err
 	}); err != nil {
 		t.Fatal(err)
 	}

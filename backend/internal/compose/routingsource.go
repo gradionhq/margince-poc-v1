@@ -72,11 +72,20 @@ func ResolveRouting(ctx context.Context, pool *pgxpool.Pool, routingPath string,
 		if err != nil {
 			return ai.RoutingConfig{}, err
 		}
-		if err := seedRouting(ctx, pool, fromFile); err != nil {
+		adopted, err := seedRouting(ctx, pool, fromFile)
+		if err != nil {
 			return ai.RoutingConfig{}, err
 		}
-		log.Info("adopted the routing file as this installation's stored binding; it is authoritative now and the file is no longer read",
-			"file", routingPath, "routing_version", fromFile.RoutingVersion())
+		if !adopted {
+			// A row appeared between the Unconfigured() read above and this
+			// write — another replica booting at the same time. Saying "adopted"
+			// would name a binding that is not the one now stored.
+			log.Warn("the routing file was not adopted: a stored binding appeared while this boot was reading the file, and it wins",
+				"file", routingPath)
+		} else {
+			log.Info("adopted the routing file as this installation's stored binding; it is authoritative now and the file is no longer read",
+				"file", routingPath, "routing_version", fromFile.RoutingVersion())
+		}
 		// Re-read rather than returning what was just written. The seed is
 		// ON CONFLICT DO NOTHING, so a role that lost the race to another one
 		// stored nothing — and returning its own file copy would put two roles
@@ -112,10 +121,17 @@ func readStoredRouting(ctx context.Context, pool *pgxpool.Pool) (ai.RoutingConfi
 // seedRouting plants the file's binding, consumed exactly once: settings.Seed
 // inserts only when no row exists, so a restart never overwrites a binding an
 // admin has since changed.
-func seedRouting(ctx context.Context, pool *pgxpool.Pool, cfg ai.RoutingConfig) error {
-	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		return settings.SeedValue(ctx, tx, ai.Routing, cfg)
+//
+// It answers whether the binding was STORED. "A restart" is the case the rule
+// was written for; a stored row that predates this file is the case it is silent
+// about, and an operator who edits ai-routing.yaml and sees no change deserves
+// to be told which of the two happened.
+func seedRouting(ctx context.Context, pool *pgxpool.Pool, cfg ai.RoutingConfig) (stored bool, err error) {
+	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		stored, err = settings.SeedValue(ctx, tx, ai.Routing, cfg)
+		return err
 	})
+	return stored, err
 }
 
 // singletonWorkspace resolves the one live workspace this installation is

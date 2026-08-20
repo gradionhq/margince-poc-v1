@@ -59,7 +59,7 @@ func bootstrapForAgentSeat(t *testing.T, pool *pgxpool.Pool) (ids.WorkspaceID, s
 			AdminEmail:       "admin@" + slug + ".test",
 			AdminName:        "Admin",
 			AdminPassword:    agentSeatAdminPassword,
-		}, originConfigured, nil)
+		}, originConfigured, nil, &[]string{})
 		return err
 	})
 	if err != nil {
