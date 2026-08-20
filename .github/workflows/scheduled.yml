@@ -50,6 +50,11 @@ on:
     # — and a job that matches NEITHER never runs on a schedule at all.
     - cron: "0 2 * * 1"
   workflow_dispatch:
+    inputs:
+      perf:
+        description: "Also run the PERF-3/PERF-7 budgets (both tiers, ~40-90 min)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -62,6 +67,11 @@ concurrency:
 
 jobs:
   vuln:
+    # The DAILY cadence. Spelled per job because a job with no `if` runs on
+    # every trigger the workflow has, so the weekly perf cron would otherwise
+    # run this a second time on Mondays — a second 45-minute gate, and a
+    # second "still failing" comment on every issue the 01:00 run just filed.
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 1 * * *'
     name: govulncheck (main)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -84,6 +94,11 @@ jobs:
       - run: make vuln
 
   quality-gate:
+    # The DAILY cadence. Spelled per job because a job with no `if` runs on
+    # every trigger the workflow has, so the weekly perf cron would otherwise
+    # run this a second time on Mondays — a second 45-minute gate, and a
+    # second "still failing" comment on every issue the 01:00 run just filed.
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 1 * * *'
     name: sonarcloud quality gate (main)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -145,6 +160,11 @@ jobs:
           esac
 
   backend-lane:
+    # The DAILY cadence. Spelled per job because a job with no `if` runs on
+    # every trigger the workflow has, so the weekly perf cron would otherwise
+    # run this a second time on Mondays — a second 45-minute gate, and a
+    # second "still failing" comment on every issue the 01:00 run just filed.
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 1 * * *'
     name: backend lane (main)
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -184,8 +204,9 @@ jobs:
   # PERF-3/PERF-7 at both tiers, weekly. It is the only job here gated on a
   # cadence rather than running every time the workflow fires: the daily lane
   # must not pay 40+ minutes of contact seeding for a budget nobody merges
-  # against. workflow_dispatch runs it too, so a human chasing a regression is
-  # never told to wait until Monday.
+  # against. A dispatch runs it only when asked (the `perf` input), so somebody
+  # re-checking govulncheck by hand does not also seed a quarter of a million
+  # contacts twice.
   #
   # It records NOTHING. MARGINCE_BENCH_RECORD stays unset, so the suite gates and
   # prints; `make bench-perf` is the only thing that writes into
@@ -193,7 +214,7 @@ jobs:
   # own numbers into the tree is the failure that switch exists to prevent.
   perf-budgets:
     name: perf budgets (PERF-3/PERF-7, both tiers)
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 2 * * 1'
+    if: github.event.schedule == '0 2 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.perf)
     runs-on: ubuntu-latest
     # Two tiers, the second seeding 250k contacts, each with its own 30m go-test
     # budget. 90 leaves room for a slow runner without letting a hung seed sit
@@ -239,6 +260,11 @@ jobs:
   # beside the scan: this one deletes, so "it succeeded" is not evidence it kept
   # the right entry.
   reap-caches:
+    # The DAILY cadence. Spelled per job because a job with no `if` runs on
+    # every trigger the workflow has, so the weekly perf cron would otherwise
+    # run this a second time on Mondays — a second 45-minute gate, and a
+    # second "still failing" comment on every issue the 01:00 run just filed.
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 1 * * *'
     name: reap superseded build caches
     runs-on: ubuntu-latest
     timeout-minutes: 10

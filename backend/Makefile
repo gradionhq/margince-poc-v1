@@ -33,6 +33,10 @@ REDACTED_OWNER_DSN = $(shell printf '%s' '$(OWNER_DSN)' | sed -E 's|//[^@/]*@|//
 # 1..15 (see scripts/test-integration-parallel.sh) — no stream collisions.
 TEST_DB_NAME ?= margince_test
 export MARGINCE_TEST_DSN     ?= postgres://margince_owner:dev@localhost:$(PG_PORT)/$(TEST_DB_NAME)
+# The benchmark targets' own database. NOT the lane's template: the bench suite
+# drops the schema and seeds a quarter of a million rows, and every per-package
+# clone is copied from that template — see bench_db in scripts/lib-testdb.sh.
+BENCH_DB_NAME                ?= margince_bench
 export MARGINCE_TEST_APP_DSN ?= postgres://margince_app:margince_app_dev@localhost:$(PG_PORT)/$(TEST_DB_NAME)
 export MARGINCE_TEST_REDIS    ?= localhost:$(REDIS_PORT)
 export MARGINCE_TEST_REDIS_DB ?= 15
@@ -285,7 +289,10 @@ test-integration-serial: composition ## Escape hatch: the old sequential lane, a
 # as well; it does not any more (see its own file comment), so this target and
 # bench-perf-check below are the two ways it runs.
 bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
-	MARGINCE_BENCH_TIER=mid_market MARGINCE_BENCH_RECORD=1 $(GOWORK_COMPOSED) $(GO) test -tags 'integration bench' -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration
+	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && bench_db $(BENCH_DB_NAME) \
+	  && cd backend && MARGINCE_BENCH_TIER=mid_market MARGINCE_BENCH_RECORD=1 \
+	     MARGINCE_TEST_DSN="$$BENCH_OWNER_DSN" MARGINCE_TEST_APP_DSN="$$BENCH_APP_DSN" \
+	     $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration'
 	@$(MAKE) --no-print-directory perfdoc
 
 # The same budgets, both tiers, recording NOTHING — what the weekly scheduled
@@ -297,8 +304,11 @@ bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6
 # installations look like, mid-market is where the PERF-7 SLO binds. Gating one
 # on the other's corpus is the mistake that made this suite a poor merge gate.
 bench-perf-check: composition ## PERF-3/PERF-7 at both tiers, no record written (needs db-up; the scheduled lane's target)
-	MARGINCE_BENCH_TIER=smb $(GOWORK_COMPOSED) $(GO) test -tags 'integration bench' -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration
-	MARGINCE_BENCH_TIER=mid_market $(GOWORK_COMPOSED) $(GO) test -tags 'integration bench' -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration
+	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && bench_db $(BENCH_DB_NAME) \
+	  && cd backend && for tier in smb mid_market; do \
+	       MARGINCE_BENCH_TIER=$$tier MARGINCE_TEST_DSN="$$BENCH_OWNER_DSN" MARGINCE_TEST_APP_DSN="$$BENCH_APP_DSN" \
+	       $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration || exit 1; \
+	     done'
 
 # The `bench` lane: measurements run BY HAND, never by a merge gate.
 #
