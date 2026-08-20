@@ -47,13 +47,14 @@ func (h reportHandlers) RunReport(w http.ResponseWriter, r *http.Request, report
 	resultURL := derivationURL(outcome.Report, outcome.Filters, nil, outcome.Aggregates, nil)
 	totalRows := len(rows)
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ReportResult{
-		Report:        outcome.Report,
-		Plan:          outcome.Plan,
-		Columns:       outcome.Columns,
-		Rows:          rows,
-		TotalRows:     &totalRows,
-		GeneratedAt:   &outcome.GeneratedAt,
-		DerivationUrl: &resultURL,
+		Report:               outcome.Report,
+		Plan:                 outcome.Plan,
+		Columns:              outcome.Columns,
+		Rows:                 rows,
+		TotalRows:            &totalRows,
+		ExcludedByPermission: outcome.ExcludedByPermission,
+		GeneratedAt:          &outcome.GeneratedAt,
+		DerivationUrl:        &resultURL,
 	})
 }
 
@@ -76,13 +77,14 @@ func (h reportHandlers) ExplainReport(w http.ResponseWriter, r *http.Request, re
 	rows := make([]map[string]interface{}, len(outcome.Rows))
 	copy(rows, outcome.Rows)
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ReportDerivation{
-		Report:      outcome.Report,
-		Definition:  outcome.Definition,
-		Plan:        outcome.Plan,
-		Columns:     outcome.Columns,
-		Rows:        rows,
-		Aggregates:  &outcome.Aggregates,
-		TotalRows:   &outcome.TotalRows,
-		GeneratedAt: &outcome.GeneratedAt,
+		Report:               outcome.Report,
+		Definition:           outcome.Definition,
+		Plan:                 outcome.Plan,
+		Columns:              outcome.Columns,
+		Rows:                 rows,
+		Aggregates:           &outcome.Aggregates,
+		TotalRows:            &outcome.TotalRows,
+		ExcludedByPermission: outcome.ExcludedByPermission,
+		GeneratedAt:          &outcome.GeneratedAt,
 	})
 }

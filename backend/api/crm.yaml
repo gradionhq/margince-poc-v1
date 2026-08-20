@@ -21638,6 +21638,7 @@ components:
           items: { type: object, additionalProperties: true }
           description: Aggregate rows; each carries its own `derivation_url` handle for the exact cell (group keys bound to the row's values).
         total_rows: { type: integer }
+        excluded_by_permission: { type: [integer, 'null'], description: 'Visible rows a field mask withheld from this run — excluded from every aggregate and from the drill-through alike, so the numbers stay reconcilable. Null when no mask applied; 0 means masked but nothing excluded.' }
         generated_at: { type: string, format: date-time }
         derivation_url:
           type: [string, 'null']
@@ -21671,6 +21672,7 @@ components:
           additionalProperties: true
           description: The requested aggregates recomputed over exactly these source rows — equals the explained cell.
         total_rows: { type: integer, description: Source rows matched (rows is capped at the report row limit). }
+        excluded_by_permission: { type: [integer, 'null'], description: 'Visible rows a field mask withheld — the same exclusion the explained report applied, so the drill-through reconciles exactly.' }
         generated_at: { type: string, format: date-time }
 
     # ---- Search ----

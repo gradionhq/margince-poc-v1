@@ -107,3 +107,36 @@ func WritableSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.U
 	}
 	return out, rows.Err()
 }
+
+// MaskExcludedClause renders the predicate for the rows on which the caller
+// may READ one maskable column — the filter an AGGREGATE over that column
+// applies, so a sum never includes a value the row itself would withhold and
+// the drill-through that explains the sum shows exactly the rows inside it.
+// Returns ("", false) when no mask names the (object, field) pair for this
+// caller; "FALSE" when a mask withholds the column on every row. The alias
+// names the row like the caller's FROM clause does.
+func MaskExcludedClause(ctx context.Context, object, field, alias string, arg func(any) int) (string, bool, error) {
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	if Unbounded(p) {
+		return "", false, nil
+	}
+	clause, masked := "", false
+	for _, m := range p.Permissions.FieldMasks {
+		if m.Object != object || m.Field != field {
+			continue
+		}
+		masked = true
+		if m.Condition != principal.MaskOutsideWriteAuthority {
+			// MaskAlways (and any future stricter condition this switch does
+			// not know) withholds the column on every row: fail closed.
+			return "FALSE", true, nil
+		}
+		if clause == "" {
+			clause = writeAuthorityPredicateAs(p, object, alias, arg)
+		}
+	}
+	return clause, masked, nil
+}

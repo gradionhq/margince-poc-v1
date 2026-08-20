@@ -481,3 +481,51 @@ func exportCSV(t *testing.T, e *apptest.AppEnv, body apptest.AnyMap) [][]string 
 	}
 	return records
 }
+
+// A field mask follows a deal into its export: the CSV row of another team's
+// deal carries an EMPTY amount for a rep whose role masks it, while their own
+// row keeps the figure — the same per-row decision the deal list makes,
+// proven here against the statement the export actually runs.
+func TestFilteredExportWithholdsAMaskedAmount(t *testing.T) {
+	e := SetupSearch(t)
+	f := e.seedFilteredDeals(t)
+	for id, amount := range map[ids.UUID]int64{f.matchOwn: 100000, f.matchOther: 250000} {
+		if _, err := e.Owner.Exec(context.Background(), `UPDATE deal SET amount_minor = $2, currency = 'EUR' WHERE id = $1`, id, amount); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	base := e.AsTeamRep(e.Rep1, e.Team1)
+	actor, _ := principal.Actor(base)
+	actor.Permissions.Objects["deal"] = principal.ObjectGrant{Read: true, Update: true}
+	actor.Permissions.FieldMasks = []principal.FieldMask{
+		{Object: "deal", Field: "amount_minor", Condition: principal.MaskOutsideWriteAuthority},
+	}
+	ctx := principal.WithActor(base, actor)
+
+	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
+		ctx, dealEngine(ctx, t, e), commitDeals(), "csv",
+	)
+	if err != nil {
+		t.Fatalf("filtered export: %v", err)
+	}
+	rowIDs := CSVColumn(t, result.Body, "id")
+	amounts := CSVColumn(t, result.Body, "amount_minor")
+	if len(rowIDs) != 2 {
+		t.Fatalf("exported rows = %v, want both matching deals (a deal is readable by every seat)", rowIDs)
+	}
+	for i, id := range rowIDs {
+		switch id {
+		case f.matchOwn.String():
+			if amounts[i] != "100000" {
+				t.Errorf("the rep's own amount = %q, want 100000", amounts[i])
+			}
+		case f.matchOther.String():
+			if amounts[i] != "" {
+				t.Errorf("the other team's amount = %q, want empty — the export printed a masked value", amounts[i])
+			}
+		default:
+			t.Errorf("unexpected row %s", id)
+		}
+	}
+}

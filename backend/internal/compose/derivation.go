@@ -63,14 +63,17 @@ type derivationQuery struct {
 // derivationOutcome is a resolved handle: definition, drill-through
 // rows, and the aggregates recomputed over exactly those rows.
 type derivationOutcome struct {
-	Report      string
-	Definition  string
-	Plan        map[string]any
-	Columns     []string
-	Rows        []map[string]any
-	Aggregates  map[string]any
-	TotalRows   int
-	GeneratedAt time.Time
+	Report     string
+	Definition string
+	Plan       map[string]any
+	Columns    []string
+	Rows       []map[string]any
+	Aggregates map[string]any
+	TotalRows  int
+	// ExcludedByPermission counts the visible rows a field mask withheld —
+	// nil when no mask applied, exactly like the report envelope it explains.
+	ExcludedByPermission *int
+	GeneratedAt          time.Time
 }
 
 // derivationURL mints the handle for one aggregate row (or, with a nil
@@ -314,6 +317,21 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 		where, err := derivationWhere(ctx, spec, plan, arg)
 		if err != nil {
 			return err
+		}
+		// The identical mask exclusion the report applied (reportmask.go):
+		// the explanation must not out-see the number it explains, and the
+		// withheld count rides the envelope the same way.
+		maskClauses, masked, err := maskExclusionClauses(ctx, spec, arg)
+		if err != nil {
+			return err
+		}
+		if masked {
+			n, err := countMaskExcluded(ctx, tx, spec, where, maskClauses, args)
+			if err != nil {
+				return err
+			}
+			out.ExcludedByPermission = &n
+			where = append(where, maskClauses...)
 		}
 		whereSQL := strings.Join(where, " AND ")
 

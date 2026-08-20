@@ -172,20 +172,22 @@ func (e *forecastEnv) Admin() context.Context {
 }
 
 type reportResultWire struct {
-	Report        string           `json:"report"`
-	Columns       []string         `json:"columns"`
-	Rows          []map[string]any `json:"rows"`
-	TotalRows     int              `json:"total_rows"`
-	DerivationURL string           `json:"derivation_url"`
+	Report               string           `json:"report"`
+	Columns              []string         `json:"columns"`
+	Rows                 []map[string]any `json:"rows"`
+	TotalRows            int              `json:"total_rows"`
+	ExcludedByPermission *int             `json:"excluded_by_permission"`
+	DerivationURL        string           `json:"derivation_url"`
 }
 
 type derivationWire struct {
-	Report     string           `json:"report"`
-	Definition string           `json:"definition"`
-	Columns    []string         `json:"columns"`
-	Rows       []map[string]any `json:"rows"`
-	Aggregates map[string]any   `json:"aggregates"`
-	TotalRows  int              `json:"total_rows"`
+	Report               string           `json:"report"`
+	Definition           string           `json:"definition"`
+	Columns              []string         `json:"columns"`
+	Rows                 []map[string]any `json:"rows"`
+	Aggregates           map[string]any   `json:"aggregates"`
+	TotalRows            int              `json:"total_rows"`
+	ExcludedByPermission *int             `json:"excluded_by_permission"`
 }
 
 //craft:ignore naked-any decodeWire is the one JSON unmarshal seam; the wire structs above give it shape

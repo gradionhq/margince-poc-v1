@@ -19724,8 +19724,11 @@ type ReportDerivation struct {
 	Columns    []string                `json:"columns"`
 
 	// Definition Plain-language reading of the exact filter + group + aggregate that produced the number.
-	Definition  string     `json:"definition"`
-	GeneratedAt *time.Time `json:"generated_at,omitempty"`
+	Definition string `json:"definition"`
+
+	// ExcludedByPermission Visible rows a field mask withheld — the same exclusion the explained report applied, so the drill-through reconciles exactly.
+	ExcludedByPermission *int       `json:"excluded_by_permission,omitempty"`
+	GeneratedAt          *time.Time `json:"generated_at,omitempty"`
 
 	// Plan The validated predicate/group/aggregate set that was resolved.
 	Plan   map[string]interface{} `json:"plan"`
@@ -19743,8 +19746,11 @@ type ReportResult struct {
 	Columns []string `json:"columns"`
 
 	// DerivationUrl Handle for "Explain This Number" drill-through to source rows (`GET /reports/{report}/derivation`); the result-level handle explains the whole filtered set, each row's handle the single cell.
-	DerivationUrl *string    `json:"derivation_url,omitempty"`
-	GeneratedAt   *time.Time `json:"generated_at,omitempty"`
+	DerivationUrl *string `json:"derivation_url,omitempty"`
+
+	// ExcludedByPermission Visible rows a field mask withheld from this run — excluded from every aggregate and from the drill-through alike, so the numbers stay reconcilable. Null when no mask applied; 0 means masked but nothing excluded.
+	ExcludedByPermission *int       `json:"excluded_by_permission,omitempty"`
+	GeneratedAt          *time.Time `json:"generated_at,omitempty"`
 
 	// Plan The validated query plan that was executed (shown before/after run).
 	Plan   map[string]interface{} `json:"plan"`

@@ -15746,6 +15746,8 @@ export interface components {
                 [key: string]: unknown;
             }[];
             total_rows?: number;
+            /** @description Visible rows a field mask withheld from this run — excluded from every aggregate and from the drill-through alike, so the numbers stay reconcilable. Null when no mask applied; 0 means masked but nothing excluded. */
+            excluded_by_permission?: number | null;
             /** Format: date-time */
             generated_at?: string;
             /** @description Handle for "Explain This Number" drill-through to source rows (`GET /reports/{report}/derivation`); the result-level handle explains the whole filtered set, each row's handle the single cell. */
@@ -15775,6 +15777,8 @@ export interface components {
             };
             /** @description Source rows matched (rows is capped at the report row limit). */
             total_rows?: number;
+            /** @description Visible rows a field mask withheld — the same exclusion the explained report applied, so the drill-through reconciles exactly. */
+            excluded_by_permission?: number | null;
             /** Format: date-time */
             generated_at?: string;
         };
