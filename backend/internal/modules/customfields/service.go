@@ -9,7 +9,6 @@ package customfields
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -178,11 +177,11 @@ func scanCustomField(row pgx.Row) (crmcontracts.CustomField, error) {
 	out.ColumnName = &colName
 	out.Currency = currency
 	out.Version = &version
-	if len(optionsRaw) > 0 {
-		var options []string
-		if err := json.Unmarshal(optionsRaw, &options); err != nil {
-			return crmcontracts.CustomField{}, fmt.Errorf("customfields: catalog options column is not a JSON string array: %w", err)
-		}
+	options, err := unmarshalOptions(optionsRaw)
+	if err != nil {
+		return crmcontracts.CustomField{}, err
+	}
+	if options != nil {
 		out.Options = &options
 	}
 	return out, nil

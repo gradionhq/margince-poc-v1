@@ -178,12 +178,16 @@ func customerField(
 // asking a reader to type one from a closed set. A mistyped value compiles and
 // matches nothing, which reads as a settled answer rather than as a mistake.
 //
-// These MIRROR the contract, which owns them, and
-// TestEveryCorePicklistOffersExactlyTheContractsValues reads the document and
-// fails when the two part company. Written out here rather than assembled from
-// the generated constants for one reason: the generator emits a `<nil>` member
-// for a nullable enum (OrganizationSizeBandLessThannil is real), and a set built
-// from constants would offer "<nil>" as something a human could pick.
+// These MIRROR the contract, which owns them, and the mirror is gated:
+// TestEveryOfferedPicklistMatchesTheContractsValues (backend/, where the other
+// gates that read api/crm.yaml live) reads the document and fails in both
+// directions when the two part company.
+//
+// Written out here rather than assembled from the generated constants because of
+// how the generator spells a NULLABLE enum: it emits a `<nil>` member, so a set
+// built from OrganizationSizeBand's or DealForecastCategory's constants would
+// offer "<nil>" as something a human could pick. Only those two are nullable
+// today, and one is enough — a set is either derived or it is not.
 //
 // A null in a contract enum is the COLUMN's nullability, never a value worth
 // offering — `exists: false` is how a filter asks for empty — so the sets below

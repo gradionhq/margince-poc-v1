@@ -68,6 +68,8 @@ func (s *Service) queryColumns(ctx context.Context, whereTail string, args ...an
 	var cols []fieldcatalog.Column
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
+			// COALESCE because options is NULL for every non-picklist type, and an
+			// empty jsonb array decodes to the empty set a caller means to read.
 			fmt.Sprintf(
 				`SELECT column_name, type, COALESCE(options, '[]'::jsonb)
 				   FROM custom_field WHERE object = $1 %s`, whereTail),
@@ -77,11 +79,19 @@ func (s *Service) queryColumns(ctx context.Context, whereTail string, args ...an
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var c fieldcatalog.Column
-			// options is NULL for every non-picklist type, coalesced to an empty
-			// array above so the scan target is one shape rather than a pointer
-			// every caller would have to nil-check.
-			if err := rows.Scan(&c.Name, &c.Type, &c.Options); err != nil {
+			var (
+				c          fieldcatalog.Column
+				optionsRaw []byte
+			)
+			if err := rows.Scan(&c.Name, &c.Type, &optionsRaw); err != nil {
+				return err
+			}
+			// Decoded through the module's own spelling rather than by scanning
+			// straight into []string: that hands the shape of a malformed column to
+			// pgx's JSON codec, whose error names a driver type, where this names the
+			// column and what it should have held.
+			c.Options, err = unmarshalOptions(optionsRaw)
+			if err != nil {
 				return err
 			}
 			cols = append(cols, c)

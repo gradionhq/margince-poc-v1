@@ -40,15 +40,26 @@ import (
 // grantCtx binds a human actor holding exactly one object grant, so a test
 // cannot pass on a permission the operation does not require.
 func grantCtx(object string, grant principal.ObjectGrant) context.Context {
+	return readGrantsCtx(map[string]principal.ObjectGrant{object: grant})
+}
+
+func readGrantsCtx(objects map[string]principal.ObjectGrant) context.Context {
 	return principal.WithActor(context.Background(), principal.Principal{
 		Type:        principal.PrincipalHuman,
-		Permissions: principal.Permissions{Objects: map[string]principal.ObjectGrant{object: grant}},
+		Permissions: principal.Permissions{Objects: objects},
 	})
 }
 
-// readerCtx holds `list:read` — the gate FilterVocabulary applies.
+// readerCtx holds BOTH grants FilterVocabulary applies: `list:read` for the
+// operation and `custom_field:read` for its custom half. A seeded role holds
+// both, so this is the ordinary caller — the one-grant cases are their own tests
+// below, and using a one-grant context here would quietly test the withheld
+// answer everywhere.
 func readerCtx() context.Context {
-	return grantCtx("list", principal.ObjectGrant{Read: true})
+	return readGrantsCtx(map[string]principal.ObjectGrant{
+		"list":         {Read: true},
+		"custom_field": {Read: true},
+	})
 }
 
 // everyTypeCatalog seeds one custom column per filterable custom-field type, so
@@ -192,8 +203,9 @@ func TestTheVocabularyTellsACallerWhatAnIDFieldReferences(t *testing.T) {
 }
 
 // The values have to reach the CALLER. Declaring them and reporting them are
-// different things, and the last time this vocabulary gained a field the gates
-// proved only the former.
+// different things: a mapping that dropped the field would keep every
+// declaration-side gate green, because the declarations stay internally
+// consistent when nothing reads the answer.
 func TestTheVocabularyTellsACallerAPicklistsValues(t *testing.T) {
 	fields, ok, err := (&Store{}).FilterVocabulary(readerCtx(), "deal")
 	if err != nil || !ok {
@@ -206,13 +218,10 @@ func TestTheVocabularyTellsACallerAPicklistsValues(t *testing.T) {
 	if got := byName["status"].Options; len(got) != 3 || got[0] != "open" {
 		t.Errorf("status offers %v, want the contract's own three", got)
 	}
-	// A nullable enum's null is the column's nullability, not a value to offer.
-	for _, value := range byName["forecast_category"].Options {
-		if value == "" || value == "<nil>" {
-			t.Errorf("forecast_category offers %q as something a reader could pick", value)
-		}
-	}
-	// And a field with no closed set says so by carrying none.
+	// A field with no closed set says so by carrying none.
+	//
+	// What each set CONTAINS is swept in TestEveryCorePicklistOffersItsValues,
+	// which reaches all seven; this asserts only that the set travels.
 	if got := byName["owner_id"].Options; len(got) != 0 {
 		t.Errorf("owner_id is an id field and offers values %v", got)
 	}
@@ -427,6 +436,48 @@ func TestReadingTheVocabularyNeedsTheListReadGrant(t *testing.T) {
 	}
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("err = %v, want permission denied", err)
+	}
+}
+
+// The custom half needs the catalogue's own grant, because that half IS the
+// catalogue's data — the column names an admin created and the values they
+// authored, which is what `GET /custom-fields` refuses without it.
+//
+// Withheld as whole fields rather than as blanked values, which is what keeps
+// the operation's subset relation true: everything it lists is something the
+// engine accepts. The core half is unaffected, so the reader can still filter.
+func TestTheCustomHalfNeedsTheCustomFieldReadGrant(t *testing.T) {
+	catalog := stubFilterable{cols: map[string][]fieldcatalog.Column{
+		"person": {{Name: "cf_tier", Type: fieldcatalog.TypePicklist, Options: []string{"gold"}}},
+	}}
+	store := (&Store{}).WithFieldCatalog(catalog)
+
+	blind := grantCtx("list", principal.ObjectGrant{Read: true})
+	withheld, ok, err := store.FilterVocabulary(blind, "person")
+	if err != nil || !ok {
+		t.Fatalf("filterVocabulary without custom_field:read: ok=%v err=%v — the core half is still readable", ok, err)
+	}
+	for _, f := range withheld {
+		if f.Name == "cf_tier" {
+			t.Errorf("a principal without custom_field:read was offered %q with values %v", f.Name, f.Options)
+		}
+	}
+	if len(withheld) == 0 {
+		t.Fatal("the core half went with it, so this proved nothing about the custom one")
+	}
+
+	// The same store, one grant richer, answers with the field — so the assertion
+	// above is about the grant and not about a stub that never worked.
+	granted, _, err := store.FilterVocabulary(readerCtx(), "person")
+	if err != nil {
+		t.Fatalf("filterVocabulary with both grants: %v", err)
+	}
+	offered := false
+	for _, f := range granted {
+		offered = offered || f.Name == "cf_tier"
+	}
+	if !offered {
+		t.Error("cf_tier was withheld from a principal holding custom_field:read")
 	}
 }
 

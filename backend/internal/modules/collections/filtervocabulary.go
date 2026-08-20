@@ -38,12 +38,15 @@ package collections
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -75,11 +78,12 @@ type VocabularyField struct {
 //
 // Gated as a read of `list`, the object whose filters this vocabulary describes,
 // with no row-scope clause because it returns no record and no record's contents.
-// The workspace-private part of the answer is which cf_* columns exist, and that
-// is already ambient to every principal reachable here: every seeded role holding
-// `list:read` also holds `custom_field:read` (core migrations 0064, 0183, 0268),
-// and the catalogue read that grant governs returns strictly more — labels,
-// slugs, status, and the retired rows this operation omits.
+//
+// The custom half carries a SECOND gate, `custom_field:read`, because that half
+// is the catalogue's data — see offerableCustomColumns. A seeded role holds both
+// grants, but role grants are editable one object at a time (setRoleObjectGrant),
+// so "the seed pairs them" is a fact about a fresh install rather than an
+// invariant, and this operation may not lean on it.
 func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]VocabularyField, bool, error) {
 	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
 		return nil, false, err
@@ -140,6 +144,23 @@ func (s *Store) offerableCustomColumns(ctx context.Context, resource string) (ma
 	if s.catalog == nil {
 		return map[string]bool{}, nil
 	}
+	// The catalogue's own grant governs the catalogue's own data, here as on the
+	// surface that owns it. What this vocabulary reports for a custom field is a
+	// column name, a type and — since it began carrying them — the VALUES an admin
+	// authored, which is the same content `GET /custom-fields` refuses without
+	// this grant.
+	//
+	// Withheld as a whole field rather than as a blanked options list, which keeps
+	// the documented subset relation true: everything this operation lists is
+	// something the engine accepts. The engine still ACCEPTS a saved filter naming
+	// a custom field, because retirement and authority are different questions —
+	// only the OFFER is withheld.
+	if err := auth.Require(ctx, "custom_field", principal.ActionRead); err != nil {
+		if errors.Is(err, apperrors.ErrPermissionDenied) {
+			return map[string]bool{}, nil
+		}
+		return nil, err
+	}
 	active, err := s.catalog.ActiveColumns(ctx, resource)
 	if err != nil {
 		return nil, fmt.Errorf("read the active custom-field columns for %s: %w", resource, err)
@@ -166,10 +187,10 @@ func wireVocabularyField(f VocabularyField) crmcontracts.FilterVocabularyField {
 		operators = append(operators, crmcontracts.FilterVocabularyFieldOperators(op))
 	}
 	wire := crmcontracts.FilterVocabularyField{
-		Options:   optionsOrNil(f.Options),
 		Name:      f.Name,
 		Type:      crmcontracts.FilterVocabularyFieldType(f.Type),
 		Operators: operators,
+		Options:   optionsOrNil(f.Options),
 		Custom:    f.Custom,
 	}
 	// Omitted rather than sent empty for a field that references nothing, because
@@ -186,9 +207,16 @@ func wireVocabularyField(f VocabularyField) crmcontracts.FilterVocabularyField {
 // optionsOrNil answers nil for a field with no closed set, so the key is absent
 // rather than an empty array. An empty array would say "this picklist admits
 // nothing", which is a different and false statement.
+//
+// A COPY, because a core field's set is a package-level var shared by every
+// request: handing out a pointer into it lets one consumer that sorts or rewrites
+// the slice change what every later caller is told. Its neighbour in this literal
+// already builds a fresh slice per call for the same reason, and being the one
+// member that does not would be the inconsistency somebody eventually trips on.
 func optionsOrNil(options []string) *[]string {
 	if len(options) == 0 {
 		return nil
 	}
-	return &options
+	own := slices.Clone(options)
+	return &own
 }

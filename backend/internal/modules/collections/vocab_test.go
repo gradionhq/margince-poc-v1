@@ -199,6 +199,18 @@ func TestEveryCorePicklistOffersItsValues(t *testing.T) {
 				if len(field.Options) == 0 {
 					t.Errorf("%s.%s is a picklist and offers no values, so a builder can only ask a reader to type one", resource, name)
 				}
+				for _, value := range field.Options {
+					// Two values a reader must never be shown, both of which a set
+					// assembled from the generated constants would carry: the empty
+					// string, and the `<nil>` member oapi-codegen emits for a nullable
+					// enum. A null is the COLUMN's nullability — `exists: false` is how
+					// a filter asks for empty — so neither is a value to pick, and this
+					// is swept over every set because the next nullable enum will not
+					// announce itself.
+					if value == "" || value == "<nil>" {
+						t.Errorf("%s.%s offers %q as something a reader could pick", resource, name, value)
+					}
+				}
 				continue
 			}
 			if len(field.Options) > 0 {
