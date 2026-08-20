@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 8 |
 | Tool catalog | 121.5 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 31889 |
+| Approx. wire tokens | 31892 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -62,7 +62,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.6 KB |
 | [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.3 KB |
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
-| [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
+| [`archive_record`](#archive_record) | Archive a record |  |  | 2.4 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
 | [`book_meeting`](#book_meeting) | Book a meeting |  |  | 3.0 KB |
 | [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.6 KB |
@@ -844,7 +844,8 @@ Retire a record that should no longer be worked — a duplicate, a dead account,
         "organization",
         "deal",
         "project",
-        "relationship"
+        "relationship",
+        "activity"
       ],
       "type": "string"
     }

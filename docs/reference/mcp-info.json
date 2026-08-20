@@ -10,16 +10,16 @@
   "totals": {
     "tools": 43,
     "resources": 8,
-    "tool_catalog_bytes": 124450,
+    "tool_catalog_bytes": 124461,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 31889,
+    "approx_wire_tokens_total": 31892,
     "largest_tool_bytes": 4723,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
       "description_bytes": 32392,
-      "input_schema_bytes": 28804,
+      "input_schema_bytes": 28815,
       "output_schema_bytes": 53807,
-      "description_plus_input_schema_bytes": 61196
+      "description_plus_input_schema_bytes": 61207
     }
   },
   "tools": {
@@ -579,7 +579,8 @@
                 "organization",
                 "deal",
                 "project",
-                "relationship"
+                "relationship",
+                "activity"
               ],
               "type": "string"
             }

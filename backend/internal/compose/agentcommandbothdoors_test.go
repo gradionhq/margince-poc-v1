@@ -164,6 +164,7 @@ var bothDoorsFixtures = map[string]bothDoorsFixture{
 	"archiveDeal":         archiveDoors("deals", "deal"),
 	"archiveProject":      archiveDoors("projects", "project"),
 	"archiveRelationship": archiveDoors("relationships", "relationship"),
+	"archiveActivity":     archiveDoors("activities", "activity"),
 
 	"createPerson":       createDoors("people", "person", `{"full_name":"Ada Lovelace"}`),
 	"createOrganization": createDoors("organizations", "organization", `{"display_name":"Acme"}`),

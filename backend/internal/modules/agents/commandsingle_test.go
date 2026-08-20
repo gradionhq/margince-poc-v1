@@ -535,7 +535,10 @@ func linkFixture(p *tallyingProvider) ids.UUID {
 // half-knows stages one a human CAN release, onto a retry that then dies at
 // the provider with the one-shot authority already spent.
 func TestTheArchiveToolRefusesARecordTypeItsOwnWritePathCannotArchive(t *testing.T) {
-	for _, recordType := range []string{"tag", "list", "saved_view", "nonsense", ""} {
+	// `lead` is the one that looks safe and is not: a real seam entity, so the
+	// old check (the seam's whole vocabulary) admitted it, while Archive has no
+	// branch for it and never had. Exactly the trap `activity` sat in.
+	for _, recordType := range []string{"tag", "list", "saved_view", "lead", "nonsense", ""} {
 		t.Run(recordType, func(t *testing.T) {
 			// A provider that fails EVERY read, so a door that reached the seam
 			// anyway fails here rather than passing on a lenient stub.
@@ -545,6 +548,39 @@ func TestTheArchiveToolRefusesARecordTypeItsOwnWritePathCannotArchive(t *testing
 			if !errors.As(err, &bad) {
 				t.Fatalf("staging an archive of %q answered %v, want a BadArgsError — an approval for it "+
 					"could never be carried out", recordType, err)
+			}
+		})
+	}
+}
+
+// The other half of the same rule: a type the seam DOES archive must reach
+// staging, or the tool refuses work the contract promises.
+//
+// `activity` is the case this was written for. crm.yaml has always declared
+// archiveActivity as archive_record's (x-mcp-tool at DELETE /v1/activities/{id}),
+// but SystemOfRecordProvider.Archive had no branch for it: the tool staged the
+// confirmation, a human approved, and the retry died at the provider with
+// `unsupported_entity_type` — a one-shot authority spent on a call that could
+// never run, and the activity had to be removed over REST instead.
+func TestTheArchiveToolStagesEveryRecordTypeItsWritePathServes(t *testing.T) {
+	// Named here rather than ranged over archivableRecordTypes: a test that
+	// iterates the list it is asserting on cannot notice the list shrinking,
+	// which is the regression it exists to catch.
+	for _, recordType := range []string{
+		"person", "organization", "deal", "project", "relationship", "activity",
+	} {
+		t.Run(recordType, func(t *testing.T) {
+			id := ids.NewV7()
+			info, err := archiveRecord{p: oneRecord(datasource.EntityType(recordType), id, `{}`, 3)}.
+				StageInfo(context.Background(),
+					json.RawMessage(fmt.Sprintf(`{"record_type":%q,"id":%q}`, recordType, id)))
+			if err != nil {
+				t.Fatalf("staging an archive of %q answered %v, want it staged — the contract "+
+					"declares this type archivable over the tool surface", recordType, err)
+			}
+			// The approval names the record the human is deciding about.
+			if info.TargetType != recordType || info.TargetID != id {
+				t.Errorf("staged %s/%s, want %s/%s", info.TargetType, info.TargetID, recordType, id)
 			}
 		})
 	}

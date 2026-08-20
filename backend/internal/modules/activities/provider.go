@@ -67,6 +67,22 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 	return ref(datasource.EntityActivity, v.Id), err
 }
 
+// Archive retires an activity, the same soft archive DELETE /v1/activities/{id}
+// performs — the contract has always declared archiveActivity as archive_record's
+// (agentPolicies), and the seam is what was missing: the tool staged a
+// confirmation, a human approved it, and the call then died at this switch with
+// `unsupported_entity_type`. An approval spent on a verb that could never run.
+func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
+	if r.Type != datasource.EntityActivity {
+		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
+	}
+	v, err := p.store.ArchiveActivity(ctx, ids.From[ids.ActivityKind](r.ID))
+	if err != nil {
+		return datasource.EntityRef{}, err
+	}
+	return ref(datasource.EntityActivity, v.Id), nil
+}
+
 func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datasource.EntityRef, error) {
 	if in.EntityType != datasource.EntityActivity {
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.EntityType)}

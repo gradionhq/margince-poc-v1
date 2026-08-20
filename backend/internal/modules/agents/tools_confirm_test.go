@@ -39,6 +39,18 @@ func TestRecordLabelUsesKindOnlyForAnEdge(t *testing.T) {
 		"nothing to read falls back to the id": {
 			datasource.EntityPerson, edgeID, `{}`, edgeID.String(),
 		},
+		// An activity's kind classifies; its subject identifies. "Archive
+		// activity 0195c3…" names nothing an approver can weigh.
+		"an activity is named by its subject": {
+			datasource.EntityActivity, edgeID,
+			`{"kind":"meeting","subject":"Kickoff Migration Shopsystem"}`,
+			`"Kickoff Migration Shopsystem"`,
+		},
+		// Not by its kind, which would say `Archive activity "meeting"` and
+		// suppress the id that at least told the approver which one.
+		"an activity with no subject keeps the id": {
+			datasource.EntityActivity, edgeID, `{"kind":"meeting"}`, edgeID.String(),
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := recordLabel(datasource.Record{
