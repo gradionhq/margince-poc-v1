@@ -448,3 +448,133 @@ func halfVisiblePairStaysHidden(t *testing.T, arm halfVisibleArm, hide string) {
 		t.Fatalf("half-visible get = %v, want ErrNotFound — a pair the caller cannot fully read must not confirm it exists", err)
 	}
 }
+
+// asWorkspaceReader is a bounded human colleague who can READ the pair and has
+// no authority to CHANGE either side: object grants say update, row scope is
+// own-only, and the records belong to e.rep. It is deliberately NOT
+// asOwnScoped's shape of test — the pair here stays at the default
+// visibility='workspace', because a capture-private pair is refused by the READ
+// gate (404) and would prove nothing about the write gate underneath it.
+func (e *dedupeEnv) asWorkspaceReader() context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + e.otherRep.String(), UserID: e.otherRep,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"rep"},
+			Objects: map[string]principal.ObjectGrant{
+				"person":       {Read: true, Update: true},
+				"organization": {Read: true, Update: true},
+				"lead":         {Read: true, Update: true},
+			},
+			RowScope: principal.RowScopeOwn,
+		},
+	})
+}
+
+// A disposition CHANGES both records the pair names — a dismissal suppresses
+// them as a duplicate for the whole workspace, an undo puts the pair back — so
+// each end carries write authority, exactly as the merge arm does through
+// mergePair. The object grant is not that authority: person and organization
+// are workspace-readable identity, so every seat holding person:update passes
+// the object gate over every colleague's records.
+//
+// The reader this exists for is the one who passes the READ gate and must fail
+// the WRITE gate. That is why the pair is left at the default
+// visibility='workspace': make it capture-private and GetDedupeCandidate
+// answers 404 first, the probe under test never runs, and the test passes
+// against a store that has no write gate at all.
+func TestDedupeDispositionNeedsWriteAuthorityOverBothRecords(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	_, _ = seedPersonPair(ctx, t, e, "Ada Byron", "ada@authority.test", "Adah Byron", "adah@authority.test", "authority.test")
+	c := openCandidates(ctx, t, e, "person")[0]
+
+	colleague := e.asWorkspaceReader()
+	// The precondition the whole test rests on: this seat CAN read the pair.
+	// Assert it, because if the read gate refuses first every assertion below
+	// passes for the wrong reason.
+	if _, err := e.store.GetDedupeCandidate(colleague, c.ID); err != nil {
+		t.Fatalf("the colleague must be able to READ the pair, else the write gate is never reached: %v", err)
+	}
+
+	if _, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "not_a_duplicate", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("dismiss without write authority over the pair = %v, want ErrPermissionDenied", err)
+	}
+	// 403, not 404: GetDedupeCandidate already told this caller the pair is
+	// theirs to read, so there is nothing left for existence-hiding to hide.
+	if _, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "not_a_duplicate", nil); errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatal("dismiss answered ErrNotFound — the refusal must be 403, the caller can already read the pair")
+	}
+
+	// The owner still decides their own queue.
+	dismissed, err := e.store.DisposeDedupeCandidate(ctx, c.ID, "not_a_duplicate", nil)
+	if err != nil {
+		t.Fatalf("the owner's own dismiss: %v", err)
+	}
+	if dismissed.Disposition != "not_a_duplicate" {
+		t.Fatalf("owner dismiss left disposition %s, want not_a_duplicate", dismissed.Disposition)
+	}
+
+	// Undo is the same write, in reverse: it resurrects a decision the pair's
+	// owners made. reopenDedupeCandidate itself stays unprobed on purpose —
+	// disposeMerge calls it as the compensating rollback of a failed merge,
+	// and a grant revoked mid-flight must not strand a candidate at 'merged'
+	// with no merge behind it.
+	if _, err := e.store.UndoDedupeDisposition(colleague, c.ID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("undo without write authority over the pair = %v, want ErrPermissionDenied", err)
+	}
+
+	reopened, err := e.store.UndoDedupeDisposition(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("the owner's own undo: %v", err)
+	}
+	if reopened.Disposition != "open" {
+		t.Fatalf("owner undo left disposition %s, want open", reopened.Disposition)
+	}
+}
+
+// A pair names TWO records and a verdict changes both, so the probe must hold
+// on BOTH ends — the reader it exists for is the caller who may change one side
+// and not the other.
+//
+// Nothing above exercises that. A probe that named the left id twice, or that
+// stopped at the first passing arm, refuses the colleague who owns neither
+// record exactly as correctly as the real one does, and dismisses the pair for
+// a colleague who owns half of it. Run per SIDE for the same reason
+// TestDedupeQueueHidesAPairTheCallerCanOnlyHalfSee does: the pair is stored
+// canonically with the lower id left and ids are time-ordered, so handing over
+// the record created first always probes the left slot and never the right.
+func TestDedupeDispositionRefusesAHalfWritablePair(t *testing.T) {
+	for _, give := range []string{"first-created", "second-created"} {
+		t.Run(give, func(t *testing.T) {
+			e := setupDedupe(t)
+			ctx := e.as()
+			first, second := seedPersonPair(ctx, t, e,
+				"Ola Half", "ola@half.test", "Olah Half", "olah@half.test", "half.test")
+			c := openCandidates(ctx, t, e, "person")[0]
+
+			owned := first
+			if give == "second-created" {
+				owned = second
+			}
+			// Through an UPDATE rather than a second create: the point is a
+			// pair whose sides have different owners, and the manual create
+			// path stamps the acting principal on both.
+			if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+				_, err := tx.Exec(ctx, `UPDATE person SET owner_id = $1 WHERE id = $2`, e.otherRep, owned)
+				return err
+			}); err != nil {
+				t.Fatalf("handing one side to the colleague: %v", err)
+			}
+
+			colleague := e.asWorkspaceReader()
+			if _, err := e.store.GetDedupeCandidate(colleague, c.ID); err != nil {
+				t.Fatalf("the colleague must still READ the pair: %v", err)
+			}
+			if _, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "not_a_duplicate", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+				t.Fatalf("dismiss holding write authority over only %s = %v, want ErrPermissionDenied", give, err)
+			}
+		})
+	}
+}

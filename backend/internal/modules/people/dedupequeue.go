@@ -286,6 +286,31 @@ func readDedupeCandidate(ctx context.Context, tx pgx.Tx, id ids.UUID) (DedupeCan
 	return r, nil
 }
 
+// ensurePairWritable narrows the pair's read gate to the authority a decision
+// needs. A disposition CHANGES both records the candidate names — a dismissal
+// suppresses them as duplicates for the whole workspace, an undo puts the pair
+// back into everyone's queue — so each end carries the write-authority probe
+// rather than the visibility one, exactly as mergePair states it for the merge
+// verb: a colleague handed a `read` share of either record may not spend it on
+// the queue's verdict.
+//
+// The object grant is not that authority and never was. Person, organization
+// and lead are workspace-readable identity, so every seat holding
+// person:update passes requireDedupeWrite over every colleague's records.
+//
+// It refuses with 403, not 404: GetDedupeCandidate has already told this caller
+// the pair is theirs to read, so there is nothing left for existence-hiding to
+// hide (platform/auth/writescope.go states the same rule for every exported
+// spelling). row.EntityType is the table name, and all three are row-scoped.
+func (s *Store) ensurePairWritable(ctx context.Context, entityType string, left, right ids.UUID) error {
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+		if err := auth.EnsureWritable(ctx, tx, entityType, left); err != nil {
+			return err
+		}
+		return auth.EnsureWritable(ctx, tx, entityType, right)
+	})
+}
+
 // DisposeDedupeCandidate decides one pair. merge executes the owner's
 // merge verb with the LOSER folding into the winner; not_a_duplicate
 // suppresses the pair forever. Human-only (the transport enforces the
@@ -300,6 +325,14 @@ func (s *Store) DisposeDedupeCandidate(ctx context.Context, id ids.UUID, disposi
 		return DedupeCandidateRow{}, err
 	}
 	if err := requireDedupeWrite(ctx, row.EntityType); err != nil {
+		return DedupeCandidateRow{}, err
+	}
+	// One site, both arms. The probe sits HERE rather than inside
+	// setDedupeDisposition, which serves the not_a_duplicate arm and
+	// disposeMerge alike; the merge arm then holds it twice — once here and
+	// once through mergePair — which is harmless, and the alternative is a
+	// verb that decides the queue without it.
+	if err := s.ensurePairWritable(ctx, row.EntityType, row.LeftID, row.RightID); err != nil {
 		return DedupeCandidateRow{}, err
 	}
 	if row.Disposition != dispositionOpen {
@@ -417,6 +450,13 @@ func (s *Store) UndoDedupeDisposition(ctx context.Context, id ids.UUID) (DedupeC
 		return DedupeCandidateRow{}, err
 	}
 	if err := requireDedupeWrite(ctx, row.EntityType); err != nil {
+		return DedupeCandidateRow{}, err
+	}
+	// Probed HERE and not inside reopenDedupeCandidate, which has a second
+	// caller that is not a user act: disposeMerge reopens the row as the
+	// compensating rollback of a merge that failed. A grant revoked mid-flight
+	// would then strand a candidate at 'merged' with no merge behind it.
+	if err := s.ensurePairWritable(ctx, row.EntityType, row.LeftID, row.RightID); err != nil {
 		return DedupeCandidateRow{}, err
 	}
 	switch row.Disposition {
