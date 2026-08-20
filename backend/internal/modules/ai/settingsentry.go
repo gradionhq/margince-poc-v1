@@ -41,27 +41,39 @@ const RoutingKey = "ai.routing"
 // binding: an installation that has bound no models runs with its AI lanes
 // absent, exactly as one with no routing file did. A default that named
 // vendors would send an installation's text somewhere nobody chose.
+//
+// It SURVIVES a data reset, for the reason AsInstallationIdentity names: it is
+// a value bootstrap takes from the deployment configuration, like the
+// installation's name and currency. A reset wipes an installation's data, not
+// the decision about which vendor may process it — and wiping it would be
+// quiet, because a dev stack re-seeds the binding from its routing file on the
+// next boot while a production installation, which has no file, would simply
+// come back with its AI lanes gone.
 var Routing = settings.Define[RoutingConfig](
 	RoutingKey,
 	routingSettingsObject,
 	"update",
 	RoutingConfig{},
 	validateStoredRouting,
-)
+).AsInstallationIdentity()
 
 // Definitions is the ai module's contribution to the settings registry.
 func Definitions() []settings.Definition {
 	return []settings.Definition{Routing}
 }
 
-// validateStoredRouting holds a stored binding to the same bar the file
-// always had, so a write through the settings surface cannot land a config the
-// file loader would have refused at boot.
+// validateStoredRouting holds a stored binding to the same bar the file always
+// had, so a write through the settings surface cannot land a config the file
+// loader would have refused at boot.
 //
-// The zero config is the one exception: it is how "no models are bound" is
-// spelled, and refusing it would make the registered default invalid.
+// The ZERO config is the one exception, and only the zero one: it is how "no
+// models are bound" is spelled and it is the registered default, which has to
+// validate. A document that sets a profile and binds no tiers is NOT that — the
+// file loader refuses it ("no tiers bound"), and accepting it here would store
+// something an operator wrote, that reads as configured, and that routes
+// nothing. Silently doing nothing is the failure this surface exists to end.
 func validateStoredRouting(cfg RoutingConfig) error {
-	if cfg.Unconfigured() {
+	if cfg.zero() {
 		return nil
 	}
 	// Bounds first, because validate() reads a defaulted width and cannot tell
@@ -78,5 +90,20 @@ func validateStoredRouting(cfg RoutingConfig) error {
 //
 // Tiers is what decides it: a config carrying a profile and no tiers routes
 // nothing, and treating that as configured would build a Router that refuses
-// every call it is handed.
+// every call it is handed. This is the RUNTIME question — "is there anything to
+// serve" — which is a different question from whether a document may be stored;
+// see zero.
 func (cfg RoutingConfig) Unconfigured() bool { return len(cfg.Tiers) == 0 }
+
+// zero reports whether nothing at all was set, which is the only document the
+// validator exempts from the file loader's bar.
+//
+// Deliberately narrower than Unconfigured. Both mean "serves nothing", but a
+// document that names a profile is one somebody WROTE, and storing it
+// unexamined would accept a half-bound binding that reads as configured and
+// routes nothing.
+func (cfg RoutingConfig) zero() bool {
+	e := cfg.Embeddings
+	return cfg.Profile == "" && len(cfg.Tiers) == 0 &&
+		e.Provider == "" && e.Model == "" && e.BaseURL == "" && len(e.Input) == 0 && e.Dimensions == 0
+}
