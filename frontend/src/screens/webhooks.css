@@ -1,18 +1,13 @@
-/* Outbound webhook subscriptions (Settings → Integrations).
- *
- * The classes this screen names used to be no-ops: `.webhook-row` and
- * `.webhook-deliveries-panel` were written on elements no stylesheet declared,
- * so every rule a reader might have expected from the name did nothing at all.
- * The sheet lives beside the screen that draws it. */
+/* Outbound webhook subscriptions (Settings → Integrations). The sheet lives
+ * beside the screen that draws it, and every class it names is declared here —
+ * a class written on an element no stylesheet declares is a rule a reader
+ * expects from the name and never gets. */
 
-/* One subscription's identity line: the target URL and its state pill. */
-.webhook-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  min-width: 0;
-}
+/* A subscription is now a `SettingRow`: the target URL is its label, the state
+ * and event set its value, the verbs its control, and the last-updated line its
+ * description. So the identity line, the updated line and every interval
+ * between them come from settingrow.css — this sheet keeps only what is this
+ * card's own content and nothing about where a row sits. */
 
 /* A target URL is one unbroken token with nothing to break on, and `.t-mono`
  * sets a family and nothing else. Left alone it is what makes a 390px page
@@ -24,26 +19,36 @@
   overflow-wrap: anywhere;
 }
 
-/* The subscribed event set, and the row's verbs. Both wrap: four buttons of
- * nowrap text do not fit a phone, and the two rows above them already wrapped,
- * so the one that did not was the one that pushed the card sideways. */
-.webhook-events,
+/* The row's current answer: its state, then every event type it takes. The
+ * measure is a ceiling rather than a width — a subscription taking twenty event
+ * types must wrap inside the right column instead of pushing the label out of
+ * it, which is what an uncapped badge run does to the one-x column the whole
+ * row language exists to hold. */
+.webhook-answer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 20rem;
+}
+
+/* The row's verbs. They wrap: three buttons of nowrap text plus an overflow do
+ * not fit a phone, and the row above them already wrapped, so the one that did
+ * not was what pushed the card sideways. */
 .webhook-row-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-2);
   min-width: 0;
 }
 
-.webhook-updated {
-  margin-top: var(--space-2);
-}
-
-/* The deliveries table, opened from the row above it. */
+/* The deliveries table, in the stacked row under the subscription it belongs
+ * to. That row owns the interval above it, so this only has to let the table
+ * shrink. */
 .webhook-deliveries-panel {
-  margin-top: var(--space-3);
   min-width: 0;
 }
 

@@ -6,7 +6,7 @@ import type { RbacObject } from "../app/capability";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { SettingsRail } from "../app/shell";
 import { LocaleProvider } from "../i18n";
-import { SettingsScreen } from "./settings";
+import { SettingsScreen, settingsAddress } from "./settings";
 
 // The render helpers and grant fixtures every `settings*.test.tsx` suite needs,
 // in one place. Settings is ONE route carrying fourteen entries, so its coverage
@@ -57,9 +57,7 @@ export const render = (ui: ReactNode): SettingsRender => {
 // publishes (useSettingsSection). So a claim about which tabs a principal is
 // offered renders the real rail — the production wiring, not a copy of it — and
 // a claim about a tab's content renders the screen.
-const railFor = (tab?: string) => (
-  <SettingsRail route={{ screen: "settings", id: tab }} />
-);
+const railFor = (tab?: string) => <SettingsRail route={settingsAddress(tab)} />;
 
 export const renderNav = (tab?: string): SettingsRender => render(railFor(tab));
 
@@ -69,7 +67,7 @@ export const renderSettings = (tab?: string): SettingsRender =>
   render(
     <>
       {railFor(tab)}
-      <SettingsScreen tab={tab} />
+      <SettingsScreen route={settingsAddress(tab)} />
     </>,
   );
 

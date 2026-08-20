@@ -402,7 +402,12 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     inbox: () => <InboxScreen />,
     reports: () => <ReportsScreen />,
     ai: () => <AskAiScreen />,
-    settings: ({ id }) => <SettingsScreen tab={id} />,
+    // The screen resolves its own address, because which entry an address names
+    // is the settings IA's question: the admin half lives a segment deeper, and
+    // a legacy link to it is answered and rewritten there rather than here.
+    settings: (args) => (
+      <SettingsScreen route={{ screen: "settings", ...args }} />
+    ),
     dedupe: () => <DedupeScreen />,
     // The object rides the URL so a filter surface can be linked to; an
     // unknown segment falls back to contacts inside the screen rather than

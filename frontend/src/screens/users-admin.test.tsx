@@ -299,21 +299,35 @@ describe("UsersAdminCard", () => {
     expect(within(dialog).queryByText(/signed out everywhere/i)).toBeNull();
   });
 
+  // The invite form is a dialog the row's verb opens — three inputs, a team
+  // fieldset and an access preview are not an answer that fits in a row's right
+  // column. So every invite case opens it first, and the row's verb carries the
+  // ellipsis form of the label while the dialog's submit carries the plain one.
+  const openInvite = async () => {
+    await userEvent.click(
+      screen.getByRole("button", { name: /invite a member…/i }),
+    );
+    return screen.findByRole("dialog");
+  };
+
   it("invites a member with the entered email, name, and role", async () => {
     const calls: { method: string; url: string; body?: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
+    const dialog = await openInvite();
     await userEvent.type(
-      screen.getByPlaceholderText("name@company.com"),
+      within(dialog).getByPlaceholderText("name@company.com"),
       "new@acme.test",
     );
     await userEvent.type(
-      screen.getByPlaceholderText("Full name"),
+      within(dialog).getByPlaceholderText("Full name"),
       "New Person",
     );
-    await userEvent.click(screen.getByRole("button", { name: /invite/i }));
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /^invite$/i }),
+    );
 
     await waitFor(() => {
       const post = calls.find(
@@ -753,12 +767,18 @@ describe("UsersAdminCard", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
+    const dialog = await openInvite();
     await userEvent.type(
-      screen.getByPlaceholderText("name@company.com"),
+      within(dialog).getByPlaceholderText("name@company.com"),
       "dupe@acme.test",
     );
-    await userEvent.type(screen.getByPlaceholderText("Full name"), "Dupe");
-    await userEvent.click(screen.getByRole("button", { name: /invite/i }));
+    await userEvent.type(
+      within(dialog).getByPlaceholderText("Full name"),
+      "Dupe",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /^invite$/i }),
+    );
 
     await waitFor(() =>
       expect(screen.getByText(/already exists/i)).toBeTruthy(),

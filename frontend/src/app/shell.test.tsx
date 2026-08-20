@@ -281,7 +281,7 @@ describe("Section switcher (the page title at phone width)", () => {
       within(dialog)
         .getAllByRole("heading", { level: 3 })
         .map((heading) => heading.textContent),
-    ).toEqual(["You", "Organization"]);
+    ).toEqual(["You", "Admin settings"]);
     expect(
       within(dialog)
         .getAllByRole("link")

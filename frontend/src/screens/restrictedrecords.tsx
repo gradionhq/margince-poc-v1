@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
@@ -15,6 +15,7 @@ import {
 import { CardBoundary } from "../design-system/cardboundary";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -176,7 +177,9 @@ export function RestrictedRecordsCard() {
   const [releasing, setReleasing] = useState<OverrideTarget | null>(null);
   const [pinning, setPinning] = useState<OverrideTarget | null>(null);
   const [pinId, setPinId] = useState("");
+  const pinErrorId = useId();
   const pinIdIsWellFormed = RECORD_ID_RE.test(pinId.trim());
+  const pinIdIsMalformed = pinId.trim() !== "" && !pinIdIsWellFormed;
 
   const records = useQuery({
     queryKey: RESTRICTED_RECORDS_KEY,
@@ -290,49 +293,79 @@ export function RestrictedRecordsCard() {
           {t("restricted.sub")}
         </p>
         <CardBoundary>
-          <QueryStates query={records}>
-            {records.data &&
-              (records.data.data.length === 0 ? (
-                <EmptyState>{t("restricted.empty")}</EmptyState>
-              ) : (
-                <DataTable
-                  columns={columns}
-                  rows={records.data.data}
-                  rowKey={(row) => row.activity_id}
-                />
-              ))}
-          </QueryStates>
-          {canDecide && (
-            <form
-              className="restricted-pin"
-              onSubmit={(event) => {
-                event.preventDefault();
-                setPinning({ activityId: pinId.trim() });
-              }}
-            >
-              <Field
+          <SettingList>
+            {/* The table is the SUBJECT of this card rather than an answer to a
+                question beside it, so it takes the full width under its naming
+                — never the right column, and never a dialog. */}
+            <SettingRow
+              label={t("restricted.heldLabel")}
+              layout="stack"
+              control={
+                <QueryStates query={records}>
+                  {records.data &&
+                    (records.data.data.length === 0 ? (
+                      <EmptyState>{t("restricted.empty")}</EmptyState>
+                    ) : (
+                      <DataTable
+                        columns={columns}
+                        rows={records.data.data}
+                        rowKey={(row) => row.activity_id}
+                      />
+                    ))}
+                </QueryStates>
+              }
+            />
+            {/* One input and the verb that submits it, so it stays a row: the
+                second half of the decision — the reason, and the warning it is
+                typed against — is the confirm dialog behind it. Absent without
+                the decide grant, exactly as the row-level Release column is. */}
+            {canDecide && (
+              <SettingRow
                 label={t("restricted.pin.action")}
-                hint={t("restricted.pin.idHint")}
-                error={
-                  pinId.trim() !== "" && !pinIdIsWellFormed
-                    ? t("restricted.pin.idMalformed")
-                    : undefined
-                }
-              >
-                {(control) => (
-                  <TextInput
-                    {...control}
-                    value={pinId}
-                    onChange={(event) => setPinId(event.target.value)}
-                    placeholder={t("restricted.pin.idPlaceholder")}
-                  />
+                description={t("restricted.pin.idHint")}
+                control={(control) => (
+                  <form
+                    className="restricted-pin"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      setPinning({ activityId: pinId.trim() });
+                    }}
+                  >
+                    <TextInput
+                      {...control}
+                      // The row already describes the field; a malformed id adds
+                      // the refusal to that description rather than replacing
+                      // it, so a reader hears the rule and how they broke it.
+                      aria-describedby={
+                        [
+                          control["aria-describedby"],
+                          pinIdIsMalformed ? pinErrorId : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" ") || undefined
+                      }
+                      aria-invalid={pinIdIsMalformed || undefined}
+                      value={pinId}
+                      onChange={(event) => setPinId(event.target.value)}
+                      placeholder={t("restricted.pin.idPlaceholder")}
+                    />
+                    <Button small type="submit" disabled={!pinIdIsWellFormed}>
+                      {t("restricted.pin.action")}
+                    </Button>
+                    {pinIdIsMalformed && (
+                      <p
+                        className="t-caption restricted-pin-error"
+                        id={pinErrorId}
+                        role="alert"
+                      >
+                        {t("restricted.pin.idMalformed")}
+                      </p>
+                    )}
+                  </form>
                 )}
-              </Field>
-              <Button small type="submit" disabled={!pinIdIsWellFormed}>
-                {t("restricted.pin.action")}
-              </Button>
-            </form>
-          )}
+              />
+            )}
+          </SettingList>
           <OverrideModal
             target={releasing}
             kind="release"

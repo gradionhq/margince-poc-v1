@@ -4,7 +4,7 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
-import { SettingsScreen } from "./settings";
+import { SettingsScreen, settingsAddress } from "./settings";
 import { IDLE_JOB_HEALTH, jsonResponse, render } from "./settings.testkit";
 
 // The danger zone on the Maintenance entry. Reset data is the one control on
@@ -90,7 +90,7 @@ describe("ResetDataCard (danger zone)", () => {
       "fetch",
       resetDataBackend({ roles: ["admin"], dataResetAvailable: true }),
     );
-    render(<SettingsScreen tab="maintenance" />);
+    render(<SettingsScreen route={settingsAddress("maintenance")} />);
     expect(await screen.findByText(/reset data/i)).toBeTruthy();
   });
 
@@ -99,7 +99,7 @@ describe("ResetDataCard (danger zone)", () => {
       "fetch",
       resetDataBackend({ roles: ["admin"], dataResetAvailable: false }),
     );
-    render(<SettingsScreen tab="maintenance" />);
+    render(<SettingsScreen route={settingsAddress("maintenance")} />);
     // The job report is the entry's own card, so its heading proves Maintenance
     // rendered — the danger zone below it is what has to stay away.
     await waitFor(() =>
@@ -117,7 +117,7 @@ describe("ResetDataCard (danger zone)", () => {
       // is not theirs to reach in the first place.
       resetDataBackend({ roles: ["rep"], dataResetAvailable: true, allow: {} }),
     );
-    render(<SettingsScreen tab="maintenance" />);
+    render(<SettingsScreen route={settingsAddress("maintenance")} />);
     // With no member grant, the rep falls back to Account — proven here by
     // the identity card rendering instead of anything maintenance-shaped.
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
@@ -134,7 +134,7 @@ describe("ResetDataCard (danger zone)", () => {
       "fetch",
       resetDataBackend({ roles: ["ops"], dataResetAvailable: true }),
     );
-    render(<SettingsScreen tab="maintenance" />);
+    render(<SettingsScreen route={settingsAddress("maintenance")} />);
     await waitFor(() =>
       expect(
         screen.getByRole("heading", { name: "Search index" }),
@@ -154,7 +154,7 @@ describe("ResetDataCard (danger zone)", () => {
         onReset: (body) => posted.push(body),
       }),
     );
-    render(<SettingsScreen tab="maintenance" />);
+    render(<SettingsScreen route={settingsAddress("maintenance")} />);
     await user.click(
       await screen.findByRole("button", { name: /reset data/i }),
     );
@@ -192,7 +192,7 @@ describe("ResetDataCard (danger zone)", () => {
         },
       }),
     );
-    render(<SettingsScreen tab="maintenance" />);
+    render(<SettingsScreen route={settingsAddress("maintenance")} />);
     await user.click(
       await screen.findByRole("button", { name: /reset data/i }),
     );
@@ -233,7 +233,7 @@ describe("ResetDataCard (danger zone)", () => {
         resetBody: opts.resetResponse,
       }),
     );
-    return render(<SettingsScreen tab="maintenance" />);
+    return render(<SettingsScreen route={settingsAddress("maintenance")} />);
   }
 
   // Opens the confirm dialog, types the confirmation, and submits — the same
@@ -339,7 +339,7 @@ describe("ResetDataCard (danger zone)", () => {
         });
       }),
     );
-    render(<SettingsScreen tab="maintenance" />);
+    render(<SettingsScreen route={settingsAddress("maintenance")} />);
 
     await confirmReset(user, "Acme Inc");
     expect(

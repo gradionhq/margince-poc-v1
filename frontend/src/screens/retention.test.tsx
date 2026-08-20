@@ -137,10 +137,14 @@ async function findRow(scope: string): Promise<HTMLElement> {
   return screen.findByTestId(`retention-row-${scope}`);
 }
 
+// The window, the action, the basis and the Enabled switch are committed
+// together, so they live in the dialog the row's Edit verb opens rather than in
+// a panel that unfolds under the row. Every assertion about the editor is
+// therefore scoped to the DIALOG, and the row keeps only what it does tonight.
 async function openEditor(scope: string): Promise<HTMLElement> {
   const row = await findRow(scope);
   await userEvent.click(within(row).getByRole("button", { name: /edit/i }));
-  return row;
+  return screen.findByRole("dialog");
 }
 
 afterEach(() => {
@@ -312,16 +316,21 @@ describe("RetentionCard rows", () => {
     backend({ retainOnly: false });
     render(<RetentionCard />);
 
-    const row = await openEditor("deal/won");
-    const days = within(row).getByLabelText(/window in days/i);
+    // The editor is a dialog the row's verb opens, so "each time it opens" is
+    // now literally that: type something, leave without saving, open it again.
+    // Escape is the way out that keeps the row's Edit button reachable —
+    // reaching for it through the dialog is what this assertion used to do, and
+    // the button was never inside it.
+    const dialog = await openEditor("deal/won");
+    const days = within(dialog).getByLabelText(/window in days/i);
     await userEvent.clear(days);
     await userEvent.type(days, "900");
+    await userEvent.keyboard("{Escape}");
 
-    const edit = within(row).getByRole("button", { name: /^edit$/i });
-    await userEvent.click(edit);
-    await userEvent.click(edit);
-
-    expect(within(row).getByLabelText(/window in days/i)).toHaveValue("2555");
+    const reopened = await openEditor("deal/won");
+    expect(within(reopened).getByLabelText(/window in days/i)).toHaveValue(
+      "2555",
+    );
   });
 
   it("patches the window and action the operator edited", async () => {

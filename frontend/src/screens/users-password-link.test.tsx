@@ -108,6 +108,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The invite form is a dialog the roster's verb opens, so a case about what
+// happens AFTER an invite has to open it first. The row's verb carries the
+// ellipsis form of the label and the dialog's submit the plain one, which is
+// what keeps the two tellable apart.
+async function openInvite() {
+  await userEvent.click(
+    screen.getByRole("button", { name: /invite a member…/i }),
+  );
+  return screen.findByRole("dialog");
+}
+
 describe("admin-issued set-password link", () => {
   it("offers no link action where the installation mails the link", async () => {
     vi.stubGlobal("fetch", backend({ adminPasswordLink: false }));
@@ -157,6 +168,7 @@ describe("admin-issued set-password link", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
+    await openInvite();
     await userEvent.type(
       screen.getByLabelText("New member's email"),
       "newbie@acme.test",
@@ -185,6 +197,7 @@ describe("admin-issued set-password link", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
+    await openInvite();
     await userEvent.type(
       screen.getByLabelText("New member's email"),
       "newbie@acme.test",

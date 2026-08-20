@@ -4,7 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { EmptyState, Skeleton } from "../design-system/atoms";
+import { DataTable, EmptyState, Skeleton } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
@@ -17,8 +17,14 @@ import "./linkedin-reach.css";
 // It is the half that works on a one-person workspace: asking which COLLEAGUE
 // knows an account has no content when there is one member, while asking
 // whether your own network reaches it has content immediately.
+//
+// The card holds ONE report and no decision, so it draws no `SettingList`: a
+// row exists to put an answer at the same x as the answers above and below it,
+// and there is nothing here to line up against. A single row whose label
+// repeated the card's own title would be noise.
 
 type LinkedInReach = components["schemas"]["LinkedInReachResponse"];
+type ReachAccount = LinkedInReach["accounts"][number];
 
 // The largest page the contract's `limit` admits, asked for explicitly. This
 // view has no cursor — the endpoint declares no cursor parameter and the
@@ -84,38 +90,9 @@ export function LinkedInReachCard() {
         )}
         {accounts.length > 0 && (
           <>
-            <table
-              className="li-reach-table"
-              data-testid="linkedin-reach-table"
-            >
-              <thead>
-                <tr>
-                  <th>{t("linkedinReach.account")}</th>
-                  <th>{t("linkedinReach.connections")}</th>
-                  <th>{t("linkedinReach.onFile")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((account) => (
-                  <tr key={account.organization_id}>
-                    <td>
-                      <a href={`#/companies/${account.organization_id}`}>
-                        {account.display_name}
-                      </a>
-                    </td>
-                    <td className="t-mono">{account.connections}</td>
-                    {/* The GAP is the finding: people you know there who are not
-                      contacts. Rendering only the total would hide it. */}
-                    <td className="t-mono">
-                      {t("linkedinReach.onFileOf", {
-                        onFile: account.contacts_on_file,
-                        total: account.connections,
-                      })}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="li-reach" data-testid="linkedin-reach-table">
+              <ReachTable accounts={accounts} />
+            </div>
             {/* What this view cannot show, said out loud. A truncated list read
               as the whole network would understate reach, and the unresolved
               count is the number that shrinks as accounts are created. */}
@@ -130,5 +107,67 @@ export function LinkedInReachCard() {
         )}
       </PanelBody>
     </Panel>
+  );
+}
+
+// DataTable, not a hand-rolled <table>: this sheet used to declare its own
+// header type, its own cell padding and its own row rule, none of which agreed
+// with the tables on the neighbouring cards. It also carried `display: block`
+// on the table itself to make it scroll, which is the one shape where a header
+// row can come apart from the figures it names — DataTable's own
+// `.table-scroll` wrapper scrolls the whole table instead, so that cannot
+// happen.
+//
+// Every cell stays `white-space: nowrap` (`.li-reach-cell`): an account name
+// plus two counts is wider than a phone, so the table takes the sideways scroll
+// and the page does not. Nowrap lives on spans this file owns rather than on
+// `.table td`, because a screen sheet reaching into a primitive's internals is
+// a second author for a rhythm the design system owns.
+function ReachTable({
+  accounts,
+}: Readonly<{ accounts: readonly ReachAccount[] }>) {
+  const t = useT();
+  return (
+    <DataTable
+      columns={[
+        {
+          key: "account",
+          header: t("linkedinReach.account"),
+          render: (account: ReachAccount) => (
+            <a
+              className="li-reach-cell li-reach-link"
+              href={`#/companies/${account.organization_id}`}
+            >
+              {account.display_name}
+            </a>
+          ),
+        },
+        {
+          key: "connections",
+          header: t("linkedinReach.connections"),
+          render: (account: ReachAccount) => (
+            <span className="t-mono li-reach-cell li-reach-figure">
+              {account.connections}
+            </span>
+          ),
+        },
+        {
+          key: "onFile",
+          // The GAP is the finding: people you know there who are not
+          // contacts. Rendering only the total would hide it.
+          header: t("linkedinReach.onFile"),
+          render: (account: ReachAccount) => (
+            <span className="t-mono li-reach-cell li-reach-figure">
+              {t("linkedinReach.onFileOf", {
+                onFile: account.contacts_on_file,
+                total: account.connections,
+              })}
+            </span>
+          ),
+        },
+      ]}
+      rows={[...accounts]}
+      rowKey={(account) => account.organization_id}
+    />
   );
 }

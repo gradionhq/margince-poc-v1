@@ -5,9 +5,11 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, TextInput } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
+import "./users-access.css";
 
 // What a seat will see, said by the server. The invite form asks before the
 // invite goes out; the answer is the evaluated policy — the same grants,
@@ -60,7 +62,7 @@ function AccessSummary({ access }: Readonly<{ access: AccessPreview }>) {
   const t = useT();
   const verbs = (object: string): string => {
     const grant = access.objects?.[object];
-    if (!grant || !grant.read) {
+    if (!grant?.read) {
       return t("users.access.none");
     }
     const parts = [t("users.access.read")];
@@ -149,71 +151,72 @@ export function TeamsCard() {
     <Panel title={t("users.teamsTitle")}>
       <PanelBody className="form-stack">
         <p className="t-caption">{t("users.teamsSub")}</p>
-        <QueryGate query={teams}>
-          {(list) =>
-            list.length === 0 ? (
-              <p className="t-small">{t("users.noTeamsYet")}</p>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {list.map((team) => (
-                  <li
+        {/* One team per row: the name and how many people are in it on the
+            left, the verb that archives it on the right, at the one x every
+            answer in settings sits at. The hand-rolled list this replaces
+            spelled its own gaps, its own padding and its own alignment
+            inline — four numbers that agreed with nothing else on the page. */}
+        <SettingList>
+          <QueryGate query={teams}>
+            {(list) =>
+              list.length === 0 ? (
+                <p className="t-small">{t("users.noTeamsYet")}</p>
+              ) : (
+                list.map((team) => (
+                  <SettingRow
                     key={team.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "var(--space-2)",
-                      padding: "var(--space-2) 0",
-                    }}
-                  >
-                    <span>
-                      {team.name}
-                      <span
-                        className="t-small"
-                        style={{ marginLeft: "var(--space-2)" }}
+                    label={team.name}
+                    value={t("users.teamMembers", {
+                      count: team.member_count ?? 0,
+                    })}
+                    control={
+                      <Button
+                        variant="ghost"
+                        iconOnly
+                        aria-label={t("users.archiveTeam", { name: team.name })}
+                        disabled={archive.isPending}
+                        onClick={() => archive.mutate(team.id)}
                       >
-                        {t("users.teamMembers", {
-                          count: team.member_count ?? 0,
-                        })}
-                      </span>
-                    </span>
-                    <Button
-                      variant="ghost"
-                      aria-label={t("users.archiveTeam", { name: team.name })}
-                      disabled={archive.isPending}
-                      onClick={() => archive.mutate(team.id)}
-                    >
-                      <Trash2 aria-hidden size={16} />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )
-          }
-        </QueryGate>
-        <form
-          style={{ display: "flex", gap: "var(--space-2)" }}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const name = draft.trim();
-            if (name) create.mutate(name);
-          }}
-        >
-          <TextInput
-            value={draft}
-            aria-label={t("users.newTeamLabel")}
-            placeholder={t("users.newTeamPlaceholder")}
-            disabled={create.isPending}
-            onChange={(event) => setDraft(event.target.value)}
+                        <Trash2 aria-hidden />
+                      </Button>
+                    }
+                  />
+                ))
+              )
+            }
+          </QueryGate>
+          {/* One input and the verb that submits it, so it stays a row rather
+              than a dialog: a team IS its name, and there is no second field to
+              commit with it. */}
+          <SettingRow
+            label={t("users.newTeamLabel")}
+            control={(control) => (
+              <form
+                className="teams-create"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const name = draft.trim();
+                  if (name) create.mutate(name);
+                }}
+              >
+                <TextInput
+                  {...control}
+                  value={draft}
+                  placeholder={t("users.newTeamPlaceholder")}
+                  disabled={create.isPending}
+                  onChange={(event) => setDraft(event.target.value)}
+                />
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={create.isPending || draft.trim() === ""}
+                >
+                  {t("users.createTeam")}
+                </Button>
+              </form>
+            )}
           />
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={create.isPending || draft.trim() === ""}
-          >
-            {t("users.createTeam")}
-          </Button>
-        </form>
+        </SettingList>
         {(create.isError || archive.isError) && (
           <span role="alert" className="form-error">
             {problemMessageOf(create.error ?? archive.error, t)}

@@ -119,6 +119,40 @@ it("distinguishes an empty window and exposes a denied problem detail", async ()
   );
 });
 
+it("names every row, and puts the per-day breakdown behind one disclosure", async () => {
+  mount({
+    budget,
+    days: [
+      {
+        date: "2026-07-20",
+        tasks: [
+          {
+            task: "enrich",
+            tier: "cheap_cloud",
+            calls: 2,
+            tokens_in: 100,
+            tokens_out: 20,
+          },
+        ],
+      },
+    ],
+  });
+  // The month is one decision, so the row names it once and each arrow keeps
+  // its own name: a glyph announces as nothing, and "‹" is not a direction.
+  expect(await screen.findByText("Month")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Previous month" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Next month" })).toBeTruthy();
+  expect(screen.getByText("Spend by task")).toBeTruthy();
+  // Diagnostic, so it is a section the reader opens — and a disclosure carries
+  // its own state, which is why there is no second "hide" label to keep in
+  // step with it.
+  const summary = screen.getByText("Show days");
+  const disclosure = summary.closest("details");
+  expect(disclosure).toBeTruthy();
+  expect(disclosure?.textContent).toContain("2026-07-20");
+  expect(screen.queryByText("Hide days")).toBeNull();
+});
+
 it("surfaces an unknown budget band", async () => {
   mount({ budget: { ...budget, band: "future-band" }, days: [] });
   expect(await screen.findByText("unknown budget state")).toBeTruthy();

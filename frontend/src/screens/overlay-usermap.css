@@ -60,18 +60,20 @@
   gap: var(--space-2);
 }
 
-/* The owner picker belongs to the WHOLE row, not to the identity column it
- * used to be nested in — a search field opening under the name while the
- * button that opened it sat in the column beside it read as two unrelated
- * controls. It takes the row's full width, under both columns. */
-.usermap-picker {
-  flex-basis: 100%;
-  min-width: 0;
-  margin-top: var(--space-2);
+/* The owner picker is a dialog now, so its geometry is the modal's. All this
+ * sheet still owes it is the interval under its heading, which every other
+ * dialog in the tree sets inline and this one names. */
+.usermap-pick-title {
+  margin-bottom: var(--space-3);
 }
 
-.usermap-picker-cancel {
-  margin-top: var(--space-2);
+/* The roster fills a stacked SettingRow's control column. That column is a
+ * flex row, so a <ul> in it is `flex: 0 1 auto` and would size to its longest
+ * line rather than to the card — the same failure the frozen style objects this
+ * sheet replaced used to produce, arrived at from the other direction. */
+.usermap-stack {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* The by-owner grouping: one incumbent user, and the workspace users pointing
@@ -84,8 +86,4 @@
 
 .usermap-note {
   margin-top: var(--space-2);
-}
-
-.usermap-view {
-  margin: var(--space-3) 0;
 }

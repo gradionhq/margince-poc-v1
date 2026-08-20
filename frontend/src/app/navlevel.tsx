@@ -18,7 +18,7 @@ import {
   type NavLevelGroup,
   type NavSection,
   type NavTrailLevel,
-  navLevelHref,
+  navEntryHref,
   navLevelRoute,
   railTrail,
 } from "./nav";
@@ -157,7 +157,7 @@ export function useNavLevel(
       // hands its focus on rather than dropping it — to the address it opens,
       // which is the row's own.
       if (entry.children && entry.children.length > 0) {
-        walk.current.claimAt = navLevelHref(shown.path, entry.id);
+        walk.current.claimAt = navEntryHref(shown.path, entry);
       }
     },
     [onNavigate, shown, walk],
@@ -209,7 +209,7 @@ function NavLevelRow({
   return (
     <a
       className={active ? "navitem active" : "navitem"}
-      href={navLevelHref(level.path, entry.id)}
+      href={navEntryHref(level.path, entry)}
       aria-label={label}
       aria-current={active ? (level.ancestor ? "true" : "page") : undefined}
       onMouseEnter={() => state.onTip(key)}

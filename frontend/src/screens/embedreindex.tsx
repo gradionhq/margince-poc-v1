@@ -10,6 +10,7 @@ import { Badge, Button, EmptyState } from "../design-system/atoms";
 import { CardBoundary } from "../design-system/cardboundary";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDuration, formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { bandTone } from "./aiusage";
@@ -27,12 +28,17 @@ import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 // reindex and the always-available force rebuild — are admin/ops-only
 // server-side too (embedding_reindex object's update grant).
 
-// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
-// is the body's first paragraph and owes its own separation from the content
-// under it; it is a token rather than a number so it moves with the scale, and
-// it lives here rather than in a screen sheet because it belongs to the panel
-// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
-const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
+// The status line: a badge with a sentence beside it. `SettingRow`'s control
+// column already gives this the gap and the optical centring, so the only thing
+// left to state is the WRAP — at a narrow width the column stretches to the full
+// card and a badge plus a whole sentence no longer fits on one line, and without
+// this the two run off the right edge instead of folding.
+const STATUS_LINE: CSSProperties = {
+  display: "flex",
+  gap: "var(--space-3)",
+  alignItems: "center",
+  flexWrap: "wrap",
+};
 
 type ReindexStatus = components["schemas"]["EmbedReindexStatus"];
 type ReindexPreview = components["schemas"]["EmbedReindexPreview"];
@@ -100,14 +106,7 @@ function StatusHeader({
       ? t("embedreindex.statusNeeded")
       : t("embedreindex.statusIdle");
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: "var(--space-3)",
-        alignItems: "center",
-        flexWrap: "wrap",
-      }}
-    >
+    <div style={STATUS_LINE}>
       <Badge tone={tone}>{label}</Badge>
       {data.reindex_needed && !isRunning && (
         <span className="t-small">
@@ -138,41 +137,6 @@ function StatusHeader({
           })}
         </span>
       )}
-    </div>
-  );
-}
-
-function ReindexActions({
-  data,
-  isRunning,
-  onReindex,
-  onRebuild,
-  t,
-}: Readonly<{
-  data: ReindexStatus;
-  isRunning: boolean;
-  onReindex: () => void;
-  onRebuild: () => void;
-  t: ReturnType<typeof useT>;
-}>) {
-  return (
-    <div className="actions" style={{ marginTop: "var(--space-3)" }}>
-      {data.reindex_needed && !isRunning && (
-        <Button variant="primary" small onClick={onReindex}>
-          {t("embedreindex.reviewCta")}
-        </Button>
-      )}
-      {/* Always available, independent of reindex_needed AND of isRunning —
-          the v6 B2 rebuild affordance, and F2's stuck-marker recovery path:
-          a drift-cancelled or retry-discarded job leaves the marker stuck
-          at reembedding with no live worker behind it, so disabling Rebuild
-          while isRunning would make that state unrecoverable without curl.
-          Re-confirming with force:true is harmless either way — a genuinely
-          live job answers 409 reindex_running (shown as the modal's error),
-          a dead one re-enqueues (202). */}
-      <Button small onClick={onRebuild}>
-        {t("embedreindex.rebuildCta")}
-      </Button>
     </div>
   );
 }
@@ -373,82 +337,120 @@ export function EmbedReindexCard() {
           const isRunning = data.status === "reembedding";
           return (
             <>
-              <StatusHeader
-                data={data}
-                isRunning={isRunning}
-                locale={locale}
-                t={t}
-              />
-              {/* Gated on the update grant, not on the read that got us this
-                  far: a viewer may be entitled to see the status without being
-                  entitled to start a rebuild. */}
-              {canWrite && (
-                <>
-                  <ReindexActions
-                    data={data}
-                    isRunning={isRunning}
-                    onReindex={() =>
-                      openDialog("reindex", data.configured_identity)
-                    }
-                    onRebuild={() =>
-                      openDialog("rebuild", data.configured_identity)
-                    }
-                    t={t}
-                  />
-                  <ConfirmModal
-                    open={mode !== null}
-                    onClose={closeDialog}
-                    title={dialogTitle(mode ?? "reindex", t)}
-                    confirmLabel={dialogConfirmLabel(mode ?? "reindex", t)}
-                    // Gate on a fully-loaded, non-errored, non-refetching
-                    // estimate — a cached preview that is refetching
-                    // (isFetching) or has errored must not leave Confirm live
-                    // over stale scope/cost.
-                    //
-                    // Dropped once the reindex is out, because by then the
-                    // estimate has stopped being a precondition: the act is
-                    // already gone, and the confirm invalidates this very
-                    // preview — so leaving the gate armed flips the button from
-                    // "working" to "refused" in the middle of its own write.
-                    confirmDisabled={
-                      !confirm.isPending &&
-                      (preview.isPending ||
-                        preview.isFetching ||
-                        preview.isError ||
-                        !preview.data)
-                    }
-                    pending={confirm.isPending}
-                    error={
-                      confirm.error ? problemMessageOf(confirm.error, t) : null
-                    }
-                    onConfirm={() => {
-                      // The grant can be withdrawn while this dialog sits open
-                      // — /me refetches on focus and after any 403 — so the
-                      // write re-reads it rather than trusting the capability
-                      // that opened the dialog.
-                      if (!canWrite) {
-                        return;
-                      }
-                      confirm.mutate(mode === "rebuild");
-                    }}
-                  >
-                    {preview.isPending && (
-                      <p className="t-small">
-                        {t("embedreindex.previewLoading")}
-                      </p>
-                    )}
-                    {preview.isError && (
-                      <p className="t-small" style={{ color: "var(--danger)" }}>
-                        {problemMessageOf(preview.error, t)}
-                      </p>
-                    )}
-                    <EstimateBody
-                      preview={preview.data}
+              <SettingList>
+                <SettingRow
+                  label={t("embedreindex.statusLabel")}
+                  control={
+                    <StatusHeader
+                      data={data}
+                      isRunning={isRunning}
                       locale={locale}
                       t={t}
                     />
-                  </ConfirmModal>
-                </>
+                  }
+                />
+                {/* Gated on the update grant, not on the read that got us this
+                    far: a viewer may be entitled to see the status without
+                    being entitled to start a rebuild. */}
+                {canWrite && (
+                  <>
+                    {data.reindex_needed && !isRunning && (
+                      <SettingRow
+                        label={t("embedreindex.reindexLabel")}
+                        description={t("embedreindex.reindexHelp")}
+                        control={
+                          <Button
+                            variant="primary"
+                            small
+                            onClick={() =>
+                              openDialog("reindex", data.configured_identity)
+                            }
+                          >
+                            {t("embedreindex.reviewCta")}
+                          </Button>
+                        }
+                      />
+                    )}
+                    {/* Always available, independent of reindex_needed AND of
+                        isRunning — the v6 B2 rebuild affordance, and F2's
+                        stuck-marker recovery path: a drift-cancelled or
+                        retry-discarded job leaves the marker stuck at
+                        reembedding with no live worker behind it, so disabling
+                        Rebuild while isRunning would make that state
+                        unrecoverable without curl. Re-confirming with
+                        force:true is harmless either way — a genuinely live job
+                        answers 409 reindex_running (shown as the modal's
+                        error), a dead one re-enqueues (202). */}
+                    <SettingRow
+                      label={t("embedreindex.rebuildLabel")}
+                      description={t("embedreindex.rebuildHelp")}
+                      control={
+                        <Button
+                          small
+                          onClick={() =>
+                            openDialog("rebuild", data.configured_identity)
+                          }
+                        >
+                          {t("embedreindex.rebuildCta")}
+                        </Button>
+                      }
+                    />
+                  </>
+                )}
+              </SettingList>
+              {/* Outside the list: a modal is not one of the card's rows, and a
+                  closed one standing in the list would take a hairline of its
+                  own. */}
+              {canWrite && (
+                <ConfirmModal
+                  open={mode !== null}
+                  onClose={closeDialog}
+                  title={dialogTitle(mode ?? "reindex", t)}
+                  confirmLabel={dialogConfirmLabel(mode ?? "reindex", t)}
+                  // Gate on a fully-loaded, non-errored, non-refetching
+                  // estimate — a cached preview that is refetching
+                  // (isFetching) or has errored must not leave Confirm live
+                  // over stale scope/cost.
+                  //
+                  // Dropped once the reindex is out, because by then the
+                  // estimate has stopped being a precondition: the act is
+                  // already gone, and the confirm invalidates this very
+                  // preview — so leaving the gate armed flips the button from
+                  // "working" to "refused" in the middle of its own write.
+                  confirmDisabled={
+                    !confirm.isPending &&
+                    (preview.isPending ||
+                      preview.isFetching ||
+                      preview.isError ||
+                      !preview.data)
+                  }
+                  pending={confirm.isPending}
+                  error={
+                    confirm.error ? problemMessageOf(confirm.error, t) : null
+                  }
+                  onConfirm={() => {
+                    // The grant can be withdrawn while this dialog sits open
+                    // — /me refetches on focus and after any 403 — so the
+                    // write re-reads it rather than trusting the capability
+                    // that opened the dialog.
+                    if (!canWrite) {
+                      return;
+                    }
+                    confirm.mutate(mode === "rebuild");
+                  }}
+                >
+                  {preview.isPending && (
+                    <p className="t-small">
+                      {t("embedreindex.previewLoading")}
+                    </p>
+                  )}
+                  {preview.isError && (
+                    <p className="t-small" style={{ color: "var(--danger)" }}>
+                      {problemMessageOf(preview.error, t)}
+                    </p>
+                  )}
+                  <EstimateBody preview={preview.data} locale={locale} t={t} />
+                </ConfirmModal>
               )}
             </>
           );
@@ -461,9 +463,7 @@ export function EmbedReindexCard() {
   return (
     <Panel title={t("embedreindex.title")}>
       <PanelBody>
-        <p className="t-sub" style={PANEL_SUB}>
-          {t("embedreindex.sub")}
-        </p>
+        <p className="t-small settings-panel-sub">{t("embedreindex.sub")}</p>
         <CardBoundary>{body}</CardBoundary>
       </PanelBody>
     </Panel>

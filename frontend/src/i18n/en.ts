@@ -480,6 +480,8 @@ export const en = {
     "You do not have permission to change the HubSpot connection.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
+  "overlay.connectionLabel": "Connection",
+  "overlay.notConnectedYet": "Not connected",
   "overlay.regionUs": "United States",
   "overlay.token": "Private-app token",
   "overlay.tokenHint": "Sealed into the vault; never shown again.",
@@ -550,6 +552,7 @@ export const en = {
   "overlay.userMap.unmap": "Unmap",
   "overlay.userMap.cancel": "Cancel",
   "overlay.userMap.pickerLabel": "Search {principal} users",
+  "overlay.userMap.pickTitle": "Map to a {principal} user",
   "overlay.userMap.truncated":
     "The {principal} directory is longer than this list — someone you can't find here may be past the cut-off.",
   "overlay.userMap.directoryFailed":
@@ -1099,6 +1102,9 @@ export const en = {
   "linkedinImport.profileLabel": "Your LinkedIn profile URL",
   "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
   "linkedinImport.saveProfile": "Save profile",
+  "linkedinImport.editProfile": "Edit",
+  "linkedinImport.editProfileTitle": "Your LinkedIn profile",
+  "linkedinImport.profileNotSet": "Not recorded yet",
   "linkedinImport.connectedNote":
     "Connected. Imported connections are attributed to this profile, so the CRM can say which colleague knows someone rather than that \u201cthe company\u201d does.",
   "linkedinImport.notConnectedNote":
@@ -1106,6 +1112,7 @@ export const en = {
   "linkedinImport.whichFile":
     "The file you want is Connections.csv \u2014 the export archive holds a dozen others.",
   "linkedinImport.choose": "Choose Connections.csv",
+  "linkedinImport.importLabel": "Connections export",
   "linkedinImport.noMatchesYet":
     "No matches yet, which is normal in a new organization: your connections are matched against contacts the CRM knows, and those arrive as your mail is read. This runs again every hour, so matches appear as the CRM fills up.",
   "linkedinImport.working": "Reading your export…",
@@ -2312,6 +2319,8 @@ export const en = {
   "import.title": "Import a file",
   "import.sub":
     "Bring a CSV of prospects or companies into the estate. Nothing is written until you have read what it will do.",
+  "import.startLabel": "Import a CSV file",
+  "import.start": "Start an import",
   "import.objectLabel": "What the rows are",
   "import.object.lead": "Prospects",
   "import.object.organization": "Companies",
@@ -2458,6 +2467,7 @@ export const en = {
   "settings.due": "due {date}",
 
   "privacy.addPurpose": "Add purpose",
+  "privacy.purposesRegistry": "Registered purposes",
   "privacy.purposesReadOnly":
     "Read-only view — only an admin or ops can add a purpose.",
   "privacy.purposeKey": "Key",
@@ -2483,6 +2493,7 @@ export const en = {
   "privacy.fulfil": "Fulfil",
   "privacy.reject": "Reject",
   "privacy.newRequest": "New request",
+  "privacy.queue": "Requests",
   "privacy.kind": "Kind",
   "privacy.person": "Person",
   "privacy.subjectRef": "Subject reference",
@@ -2507,6 +2518,7 @@ export const en = {
     "Only an admin or ops can see which records a statutory obligation is holding. It reads through the same authority as the retention ladder.",
   "restricted.empty":
     "No record is being held — every erasure so far could be completed in full.",
+  "restricted.heldLabel": "Records held now",
   "restricted.kind": "Record",
   "restricted.occurred": "Dated",
   "restricted.deals": "Transaction",
@@ -3099,6 +3111,8 @@ export const en = {
   "consumerMail.title": "Consumer mail domains",
   "consumerMail.sub":
     "Mail from a consumer mailbox still creates the person — it just never creates a company. Margince ships a list of these providers; add what it missed, or take back a domain it wrongly claimed.",
+  "consumerMail.addedTitle": "Added here",
+  "consumerMail.addTitle": "Add a domain",
   "consumerMail.domainLabel": "Domain",
   "consumerMail.domainPlaceholder": "provider.example",
   "consumerMail.kindLabel": "What this domain is",
@@ -3122,6 +3136,9 @@ export const en = {
   "blockedDomains.title": "Refused domains",
   "blockedDomains.sub":
     "Which domains this installation refuses a company, and what decided each one — a model verdict, a heuristic, or a person. Letting a domain back in re-opens the company question rather than merely clearing a flag.",
+  "blockedDomains.listTitle": "Decisions on record",
+  "blockedDomains.record": "Record a decision",
+  "blockedDomains.recordOpen": "Record…",
   "blockedDomains.domainLabel": "Domain",
   "blockedDomains.domainPlaceholder": "vendor.example",
   "blockedDomains.admissionLabel": "Decision",
@@ -3838,6 +3855,8 @@ export const en = {
   "password.signsYouOut":
     "Changing it signs you out everywhere, including here. Sign in again with the new password.",
   "password.changing": "Changing your password…",
+  "password.open": "Change password…",
+  "password.cancel": "Cancel",
   "password.submit": "Change password",
   "password.done": "Password changed. Sign in again with the new one.",
   // Deliberately says nothing about WHICH field: this is the fallback for a
@@ -4290,6 +4309,7 @@ export const en = {
   "license.state.licensed": "Licensed",
   "license.state.uncapped": "Licensed, no seat limit",
   "license.state.unlicensed": "No license configured",
+  "license.seats.title": "Seats",
   "license.seats.used": "Seats in use",
   "license.seats.granted": "Seats granted",
   "license.seats.uncapped": "No limit",
@@ -4313,7 +4333,7 @@ export const en = {
   "license.counting":
     "Full seats that are neither deactivated nor suspended, agents included. Read-only seats are unlimited and never counted. This is the count a new member is admitted against.",
   "settings.group.you": "You",
-  "settings.group.org": "Organization",
+  "settings.group.admin": "Admin settings",
   "settings.rates.fxTitle": "Currency rates",
   "settings.rates.fxIntro":
     "Exchange rates that convert foreign-currency amounts to your base currency. New rates take effect today or later; past rates are never changed.",
@@ -4323,6 +4343,7 @@ export const en = {
     "Only an admin or ops can see what each model costs. The prices are operator information, so they are not shown more widely.",
   "settings.rates.readOnly":
     "Read-only view — you do not have permission to change rates.",
+  "settings.rates.fxTableLabel": "Rates in force",
   "settings.rates.fxAdd": "Set rate",
   "settings.rates.fxEmpty": "No currency rates yet.",
   "settings.rates.fxModalTitle": "Set a currency rate",
@@ -4330,6 +4351,7 @@ export const en = {
   "settings.rates.modelTitle": "AI model costs",
   "settings.rates.modelIntro":
     "Per-model prices in USD per 1M tokens, used to estimate AI spend. Transparency only — prices never change how models are routed.",
+  "settings.rates.modelTableLabel": "Prices in force",
   "settings.rates.modelAdd": "Add model rate",
   "settings.rates.modelEmpty": "No model rates yet.",
   "settings.rates.modelModalTitle": "Set a model price",
@@ -4554,6 +4576,7 @@ export const en = {
   "users.agentSeat": "Agent",
   "users.agentSeatRole": "Acts under a passport, not a role",
   "users.roleLabel": "Role for the new member",
+  "users.inviteOpen": "Invite a member…",
   "users.invite": "Invite",
   "users.setRole": "Set role…",
   "users.setRoleFor": "Set role for {name}",
@@ -4696,8 +4719,9 @@ export const en = {
   "aiusage.col.tokensOut": "Tokens out",
   "aiusage.col.cost": "Est. cost",
   "aiusage.costNote": "Costs are estimates at configured rates.",
+  "aiusage.monthLabel": "Month",
+  "aiusage.spendLabel": "Spend by task",
   "aiusage.days.show": "Show days",
-  "aiusage.days.hide": "Hide days",
   "aiusage.empty": "No AI calls in this window.",
   "aiusage.prevMonth": "Previous month",
   "aiusage.nextMonth": "Next month",
@@ -4724,6 +4748,7 @@ export const en = {
   "aicalls.badge.cacheHit": "cache hit",
   "aicalls.badge.degraded": "degraded",
   "aicalls.badge.retries": "retry ×{count}",
+  "aicalls.callsLabel": "Recent calls",
   "aicalls.filter.all": "All tasks",
   "aicalls.loadMore": "Load more",
   "aicalls.empty": "No AI calls recorded yet.",
@@ -4849,6 +4874,8 @@ export const en = {
     "Locked: deals have already converted against this currency, so changing it would re-mean every roll-up built on them.",
   "installationSettings.readOnly":
     "Only an admin or ops can change these settings.",
+  "installationSettings.edit": "Edit",
+  "installationSettings.editField": "Edit {field}",
   "installationSettings.save": "Save",
   "captureSettings.title": "Enrichment",
   "captureSettings.sub":
@@ -4864,6 +4891,7 @@ export const en = {
     "Addresses and domains whose messages never enter the CRM. Your own rules bind only the mailboxes you connected; the organization's rules bind everyone.",
   "captureExclusions.notRetroactive":
     "Takes effect from the next message. Messages already captured stay.",
+  "captureExclusions.current": "Rules in effect",
   "captureExclusions.empty": "No exclusions.",
   "captureExclusions.scope.user": "Only me",
   "captureExclusions.scope.workspace": "Whole organization",
@@ -4879,6 +4907,7 @@ export const en = {
   "ownDomains.title": "Own email domains",
   "ownDomains.sub":
     "The domains that belong to this company. When colleagues write to each other, that message is not stored. Not even for you.",
+  "ownDomains.curatedTitle": "Managed here",
   "ownDomains.irreversible":
     "Adding a domain takes effect from the next message. Removing it later resumes capture from that point on. Mail skipped while it was registered is never offered again by any mailbox. Mail already captured stays.",
   "ownDomains.fromCompany": "From the company profile. Change them there:",
@@ -4928,6 +4957,7 @@ export const en = {
   "webhooks.deliveries.show": "View deliveries",
   "webhooks.deliveries.hide": "Hide deliveries",
   "webhooks.deliveries.empty": "No delivery attempts yet.",
+  "webhooks.deliveries.title": "Delivery attempts",
   "webhooks.deliveries.deadLetterGroup": "Dead-lettered ({count})",
   "webhooks.deliveries.allGroup": "Other attempts",
   "webhooks.deliveries.column.status": "Status",
@@ -4953,6 +4983,13 @@ export const en = {
     "The embedding store's reindex status — admin/ops only, including viewing it.",
   "embedreindex.withheld":
     "Only an admin or ops can see the search index. Rebuilding it spends tokens for the whole installation, so its status is not shown more widely.",
+  "embedreindex.statusLabel": "Index status",
+  "embedreindex.reindexLabel": "Reindex what changed",
+  "embedreindex.reindexHelp":
+    "Re-embeds only the records whose text changed since the last pass.",
+  "embedreindex.rebuildLabel": "Rebuild the whole index",
+  "embedreindex.rebuildHelp":
+    "Re-embeds every record from scratch. Use it when a run is stuck or the embedding model changed.",
   "embedreindex.statusIdle": "Up to date",
   "embedreindex.statusNeeded": "Reindex needed",
   "embedreindex.statusReembedding": "Reindexing…",
@@ -5425,7 +5462,6 @@ export const en = {
   "provider.spend.heldHead": "Held",
   "provider.spend.runsHead": "Lookups",
   "provider.spend.none": "Nothing has been bought yet.",
-  "provider.mode": "When to enrich",
 
   // The person page's section. The three "nothing here" states are three
   // different sentences on purpose: only one of them is something the

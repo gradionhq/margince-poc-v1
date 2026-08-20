@@ -461,6 +461,8 @@ export const de = {
     "Du hast keine Berechtigung, die HubSpot-Verbindung zu ändern.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
+  "overlay.connectionLabel": "Verbindung",
+  "overlay.notConnectedYet": "Nicht verbunden",
   "overlay.regionUs": "USA",
   "overlay.token": "Private-App-Token",
   "overlay.tokenHint": "Wird im Vault versiegelt; wird nie wieder angezeigt.",
@@ -533,6 +535,7 @@ export const de = {
   "overlay.userMap.unmap": "Zuordnung aufheben",
   "overlay.userMap.cancel": "Abbrechen",
   "overlay.userMap.pickerLabel": "{principal}-Nutzer suchen",
+  "overlay.userMap.pickTitle": "Einem {principal}-Nutzer zuordnen",
   "overlay.userMap.truncated":
     "Das {principal}-Verzeichnis ist länger als diese Liste — wen du hier nicht findest, liegt vielleicht hinter der Grenze.",
   "overlay.userMap.directoryFailed":
@@ -1082,6 +1085,9 @@ export const de = {
   "linkedinImport.profileLabel": "Deine LinkedIn-Profil-URL",
   "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
   "linkedinImport.saveProfile": "Profil speichern",
+  "linkedinImport.editProfile": "\u00c4ndern",
+  "linkedinImport.editProfileTitle": "Ihr LinkedIn-Profil",
+  "linkedinImport.profileNotSet": "Noch nicht erfasst",
   "linkedinImport.connectedNote":
     "Verbunden. Importierte Kontakte werden diesem Profil zugeordnet, damit das CRM sagen kann, welche Kollegin jemanden kennt \u2014 und nicht nur, dass \u201edas Unternehmen\u201c ihn kennt.",
   "linkedinImport.notConnectedNote":
@@ -1089,6 +1095,7 @@ export const de = {
   "linkedinImport.whichFile":
     "Gesucht ist die Datei Connections.csv \u2014 das Export-Archiv enth\u00e4lt ein Dutzend weitere.",
   "linkedinImport.choose": "Connections.csv ausw\u00e4hlen",
+  "linkedinImport.importLabel": "Kontakt-Export",
   "linkedinImport.noMatchesYet":
     "Noch keine Treffer, und das ist in einer neuen Organisation normal: Deine Kontakte werden mit den Personen abgeglichen, die das CRM kennt, und die entstehen erst beim Lesen deiner E-Mails. Der Abgleich l\u00e4uft st\u00fcndlich erneut, Treffer erscheinen also nach und nach.",
   "linkedinImport.working": "Export wird gelesen…",
@@ -2308,6 +2315,8 @@ export const de = {
   "import.title": "Datei importieren",
   "import.sub":
     "Eine CSV mit Interessenten oder Firmen einlesen. Es wird nichts geschrieben, bevor Sie gelesen haben, was passieren wird.",
+  "import.startLabel": "CSV-Datei importieren",
+  "import.start": "Import starten",
   "import.objectLabel": "Was die Zeilen sind",
   "import.object.lead": "Interessenten",
   "import.object.organization": "Firmen",
@@ -2455,6 +2464,7 @@ export const de = {
   "privacy.purposesReadOnly":
     "Nur-Lese-Ansicht — nur ein Admin oder Ops kann einen Zweck anlegen.",
   "privacy.addPurpose": "Zweck hinzufügen",
+  "privacy.purposesRegistry": "Erfasste Zwecke",
   "privacy.purposeKey": "Schlüssel",
   "privacy.purposeLabel": "Bezeichnung",
   "privacy.purposeDoi": "Erfordert Double-Opt-in",
@@ -2479,6 +2489,7 @@ export const de = {
   "privacy.fulfil": "Erfüllen",
   "privacy.reject": "Ablehnen",
   "privacy.newRequest": "Neuer Antrag",
+  "privacy.queue": "Anträge",
   "privacy.kind": "Art",
   "privacy.person": "Person",
   "privacy.subjectRef": "Betroffenen-Referenz",
@@ -2503,6 +2514,7 @@ export const de = {
     "Nur ein Admin oder Ops sieht, welche Datensätze eine gesetzliche Pflicht zurückhält. Es gilt dieselbe Berechtigung wie für die Aufbewahrungsregeln.",
   "restricted.empty":
     "Kein Datensatz wird zurückgehalten — jede bisherige Löschung konnte vollständig ausgeführt werden.",
+  "restricted.heldLabel": "Aktuell zurückgehaltene Datensätze",
   "restricted.kind": "Datensatz",
   "restricted.occurred": "Datiert",
   "restricted.deals": "Geschäft",
@@ -3098,6 +3110,8 @@ export const de = {
   "consumerMail.title": "Consumer-Mail-Domains",
   "consumerMail.sub":
     "Mail von einem privaten Postfach legt weiterhin die Person an — nur eben keine Firma. Margince liefert eine Liste dieser Anbieter mit; ergänze, was fehlt, oder nimm eine Domain wieder heraus, die zu Unrecht darauf steht.",
+  "consumerMail.addedTitle": "Hier hinzugefügt",
+  "consumerMail.addTitle": "Domain hinzufügen",
   "consumerMail.domainLabel": "Domain",
   "consumerMail.domainPlaceholder": "anbieter.example",
   "consumerMail.kindLabel": "Was diese Domain ist",
@@ -3123,6 +3137,9 @@ export const de = {
   "blockedDomains.title": "Abgelehnte Domains",
   "blockedDomains.sub":
     "Welchen Domains diese Installation die Firma verweigert und was das jeweils entschieden hat — ein Modellurteil, eine Heuristik oder ein Mensch. Eine Domain wieder zuzulassen stellt die Firmenfrage neu, statt nur eine Markierung zu entfernen.",
+  "blockedDomains.listTitle": "Erfasste Entscheidungen",
+  "blockedDomains.record": "Entscheidung erfassen",
+  "blockedDomains.recordOpen": "Erfassen…",
   "blockedDomains.domainLabel": "Domain",
   "blockedDomains.domainPlaceholder": "anbieter.example",
   "blockedDomains.admissionLabel": "Entscheidung",
@@ -3812,6 +3829,8 @@ export const de = {
   "password.signsYouOut":
     "Die Änderung meldet dich überall ab, auch hier. Melde dich mit dem neuen Passwort erneut an.",
   "password.changing": "Passwort wird geändert…",
+  "password.open": "Passwort ändern…",
+  "password.cancel": "Abbrechen",
   "password.submit": "Passwort ändern",
   "password.done": "Passwort geändert. Melde dich mit dem neuen an.",
   "password.errorGeneric":
@@ -4275,6 +4294,7 @@ export const de = {
   "license.state.licensed": "Lizenziert",
   "license.state.uncapped": "Lizenziert, ohne Sitzplatzgrenze",
   "license.state.unlicensed": "Keine Lizenz konfiguriert",
+  "license.seats.title": "Plätze",
   "license.seats.used": "Belegte Sitzplätze",
   "license.seats.granted": "Gewährte Sitzplätze",
   "license.seats.uncapped": "Keine Grenze",
@@ -4298,7 +4318,7 @@ export const de = {
   "license.counting":
     "Volle Sitzplätze, die weder deaktiviert noch gesperrt sind, Agenten eingeschlossen. Lesende Sitzplätze sind unbegrenzt und werden nie gezählt. Gegen diese Zahl wird ein neues Mitglied zugelassen.",
   "settings.group.you": "Persönlich",
-  "settings.group.org": "Organisation",
+  "settings.group.admin": "Admin-Einstellungen",
   "settings.rates.fxTitle": "Währungskurse",
   "settings.rates.fxIntro":
     "Wechselkurse, die Fremdwährungsbeträge in deine Basiswährung umrechnen. Neue Kurse gelten ab heute oder später; vergangene Kurse werden nie geändert.",
@@ -4308,6 +4328,7 @@ export const de = {
     "Nur ein Admin oder Ops sieht, was die Modelle kosten. Die Preise sind Betriebsinformationen und werden deshalb nicht breiter gezeigt.",
   "settings.rates.readOnly":
     "Nur-Lese-Ansicht — du hast keine Berechtigung, Kurse zu ändern.",
+  "settings.rates.fxTableLabel": "Geltende Kurse",
   "settings.rates.fxAdd": "Kurs setzen",
   "settings.rates.fxEmpty": "Noch keine Währungskurse.",
   "settings.rates.fxModalTitle": "Währungskurs setzen",
@@ -4315,6 +4336,7 @@ export const de = {
   "settings.rates.modelTitle": "KI-Modellkosten",
   "settings.rates.modelIntro":
     "Preise je Modell in USD pro 1 Mio. Token zur Schätzung der KI-Kosten. Nur zur Transparenz — Preise ändern das Modell-Routing nie.",
+  "settings.rates.modelTableLabel": "Geltende Preise",
   "settings.rates.modelAdd": "Modellpreis hinzufügen",
   "settings.rates.modelEmpty": "Noch keine Modellpreise.",
   "settings.rates.modelModalTitle": "Modellpreis setzen",
@@ -4548,6 +4570,7 @@ export const de = {
   "users.agentSeat": "Agent",
   "users.agentSeatRole": "Handelt mit einem Pass, nicht mit einer Rolle",
   "users.roleLabel": "Rolle für das neue Mitglied",
+  "users.inviteOpen": "Mitglied einladen…",
   "users.invite": "Einladen",
   "users.setRole": "Rolle setzen…",
   "users.setRoleFor": "Rolle für {name} setzen",
@@ -4693,8 +4716,9 @@ export const de = {
   "aiusage.col.tokensOut": "Tokens aus",
   "aiusage.col.cost": "Geschätzte Kosten",
   "aiusage.costNote": "Kosten sind Schätzungen zu den konfigurierten Tarifen.",
+  "aiusage.monthLabel": "Monat",
+  "aiusage.spendLabel": "Verbrauch nach Aufgabe",
   "aiusage.days.show": "Tage anzeigen",
-  "aiusage.days.hide": "Tage ausblenden",
   "aiusage.empty": "Keine KI-Aufrufe in diesem Zeitraum.",
   "aiusage.prevMonth": "Vorheriger Monat",
   "aiusage.nextMonth": "Nächster Monat",
@@ -4721,6 +4745,7 @@ export const de = {
   "aicalls.badge.cacheHit": "Cache-Treffer",
   "aicalls.badge.degraded": "reduziert",
   "aicalls.badge.retries": "Wiederholung ×{count}",
+  "aicalls.callsLabel": "Letzte Aufrufe",
   "aicalls.filter.all": "Alle Aufgaben",
   "aicalls.loadMore": "Mehr laden",
   "aicalls.empty": "Noch keine KI-Aufrufe aufgezeichnet.",
@@ -4846,6 +4871,8 @@ export const de = {
     "Gesperrt: Es wurden bereits Deals gegen diese Währung umgerechnet — eine Änderung würde jede darauf aufbauende Auswertung neu bedeuten.",
   "installationSettings.readOnly":
     "Nur ein Admin oder Ops kann diese Einstellungen ändern.",
+  "installationSettings.edit": "Ändern",
+  "installationSettings.editField": "{field} ändern",
   "installationSettings.save": "Speichern",
   "captureSettings.title": "Anreicherung",
   "captureSettings.sub":
@@ -4863,6 +4890,7 @@ export const de = {
     "Adressen und Domains, deren Nachrichten gar nicht erst ins CRM gelangen. Eigene Regeln gelten nur für die Postfächer, die Sie selbst verbunden haben; Regeln der Organisation gelten für alle.",
   "captureExclusions.notRetroactive":
     "Wirkt ab der nächsten Nachricht. Bereits erfasste Nachrichten bleiben.",
+  "captureExclusions.current": "Geltende Regeln",
   "captureExclusions.empty": "Keine Ausschlüsse.",
   "captureExclusions.scope.user": "Nur ich",
   "captureExclusions.scope.workspace": "Ganze Organisation",
@@ -4878,6 +4906,7 @@ export const de = {
   "ownDomains.title": "Eigene E-Mail-Domains",
   "ownDomains.sub":
     "Die Domains, die zu diesem Unternehmen gehören. Schreiben sich Kolleg:innen untereinander, wird diese Nachricht nicht gespeichert. Auch nicht für dich.",
+  "ownDomains.curatedTitle": "Hier verwaltet",
   "ownDomains.irreversible":
     "Eine Domain hier einzutragen wirkt ab der nächsten Nachricht. Wird sie später entfernt, wird ab diesem Zeitpunkt wieder erfasst. Was übersprungen wurde, solange sie eingetragen war, liefert kein Postfach ein zweites Mal. Bereits erfasste E-Mails bleiben.",
   "ownDomains.fromCompany": "Aus dem Unternehmensprofil. Dort zu ändern:",
@@ -4928,6 +4957,7 @@ export const de = {
   "webhooks.deliveries.show": "Zustellungen anzeigen",
   "webhooks.deliveries.hide": "Zustellungen ausblenden",
   "webhooks.deliveries.empty": "Noch keine Zustellversuche.",
+  "webhooks.deliveries.title": "Zustellversuche",
   "webhooks.deliveries.deadLetterGroup": "Dead-Letter ({count})",
   "webhooks.deliveries.allGroup": "Weitere Versuche",
   "webhooks.deliveries.column.status": "Status",
@@ -4954,6 +4984,13 @@ export const de = {
     "Der Neuindizierungsstatus des Embedding-Speichers — nur admin/ops, auch zum Ansehen.",
   "embedreindex.withheld":
     "Nur ein Admin oder Ops sieht den Suchindex. Ihn neu aufzubauen kostet Tokens für die ganze Installation, deshalb wird sein Status nicht breiter gezeigt.",
+  "embedreindex.statusLabel": "Indexstatus",
+  "embedreindex.reindexLabel": "Geändertes neu indexieren",
+  "embedreindex.reindexHelp":
+    "Bettet nur die Datensätze neu ein, deren Text sich seit dem letzten Durchlauf geändert hat.",
+  "embedreindex.rebuildLabel": "Gesamten Index neu aufbauen",
+  "embedreindex.rebuildHelp":
+    "Bettet jeden Datensatz von Neuem ein. Dafür gedacht, wenn ein Lauf feststeckt oder das Embedding-Modell gewechselt hat.",
   "embedreindex.statusIdle": "Aktuell",
   "embedreindex.statusNeeded": "Neuindizierung erforderlich",
   "embedreindex.statusReembedding": "Neuindizierung läuft…",
@@ -5410,7 +5447,6 @@ export const de = {
   "provider.spend.heldHead": "Reserviert",
   "provider.spend.runsHead": "Abfragen",
   "provider.spend.none": "Es wurde noch nichts gekauft.",
-  "provider.mode": "Wann angereichert wird",
 
   // Der Abschnitt auf der Personenseite. Die drei „nichts da"-Zustände sind
   // mit Absicht drei verschiedene Sätze: nur bei einem davon kann der Leser

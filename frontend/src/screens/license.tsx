@@ -5,6 +5,7 @@ import type { components } from "../api/schema";
 import { Card, StatCard } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Meter } from "../design-system/readings";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { StatStrip } from "../design-system/statstrip";
 import { useT } from "../i18n";
 import { QueryGate, throwProblem } from "./common";
@@ -27,7 +28,8 @@ import { LicenseHolderCard } from "./licenseholder";
 //
 // A strip rather than two cards, because the two numbers are ONE comparison —
 // used against granted is the whole question this screen answers, and cards are
-// read one at a time.
+// read one at a time. It sits in one stacked `SettingRow`, for the same reason:
+// a row per figure would split the comparison the strip exists to make.
 //
 // Over the limit is REPORTED, never enforced. The workspace keeps working — P7's
 // warning-then-grace, not a silent mid-month lockout — so the notice says what is
@@ -121,35 +123,57 @@ export function LicenseReading({
           })}
         </Callout>
       )}
-      <StatStrip>
-        <StatCard
-          label={t("license.seats.used")}
-          value={String(entitlement.seats_used)}
-          // The slot itself is the bad news when the count is past the grant, so
-          // `alert` rather than `tone`, which would only colour the figure.
-          alert={entitlement.over_limit}
+      <SettingList>
+        {/* ONE row, stacked. The two figures and the bar under them are the
+            card's SUBJECT rather than an answer that fits in a right-hand
+            column (design-system README, `SettingList` / `SettingRow`): used
+            against granted is the whole question this screen answers, and
+            splitting it into two rows would make it two readings. What counts
+            as a seat rides as the row's description — it is the rule the
+            figures are drawn under, which is exactly what a description is
+            for, and it used to sit at the foot of the card where a reader met
+            it after taking the numbers at face value. */}
+        <SettingRow
+          label={t("license.seats.title")}
+          description={t("license.counting")}
+          layout="stack"
+          control={
+            <div className="form-stack">
+              <StatStrip>
+                <StatCard
+                  label={t("license.seats.used")}
+                  value={String(entitlement.seats_used)}
+                  // The slot itself is the bad news when the count is past the
+                  // grant, so `alert` rather than `tone`, which would only
+                  // colour the figure.
+                  alert={entitlement.over_limit}
+                />
+                <StatCard
+                  label={t("license.seats.granted")}
+                  // Absent, not zero, and it says which absence it is: an
+                  // unlicensed installation and a license that caps nothing
+                  // both have no number here, and only the first is something
+                  // an admin might want to change.
+                  value={capped ? String(granted) : t("license.seats.uncapped")}
+                />
+              </StatStrip>
+              {capped && (
+                <Meter
+                  value={entitlement.seats_used}
+                  max={granted}
+                  // A role="meter" takes no accessible name from the slots
+                  // beside it, so the reading is named here rather than by the
+                  // row's own label.
+                  label={t("license.meter.label", {
+                    used: String(entitlement.seats_used),
+                    granted: String(granted),
+                  })}
+                />
+              )}
+            </div>
+          }
         />
-        <StatCard
-          label={t("license.seats.granted")}
-          // Absent, not zero, and it says which absence it is: an unlicensed
-          // installation and a license that caps nothing both have no number
-          // here, and only the first is something an admin might want to change.
-          value={capped ? String(granted) : t("license.seats.uncapped")}
-        />
-      </StatStrip>
-      {capped && (
-        <Meter
-          value={entitlement.seats_used}
-          max={granted}
-          // A role="meter" takes no accessible name from the slots beside it, so
-          // the reading is named here rather than by the label above it.
-          label={t("license.meter.label", {
-            used: String(entitlement.seats_used),
-            granted: String(granted),
-          })}
-        />
-      )}
-      <p className="muted">{t("license.counting")}</p>
+      </SettingList>
     </Card>
   );
 }

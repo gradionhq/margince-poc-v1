@@ -143,17 +143,16 @@ describe("SettingsScreen connections and integrations tabs", () => {
     ).toBeNull();
   });
 
-  // The overlay is the installation's, so its page is gated — on the read every
-  // seeded role holds, which is what keeps the system-of-record chip in the
-  // topbar honest: that chip is shown to every seat and links here, so a rep who
-  // follows it must land on the entry rather than the Account fallback. Reaching
-  // it costs no confidentiality: both cards' write and management reads are
-  // admin/ops-only on the server, and each keeps them unsent for anyone else — so
-  // a rep sees the connection card's read-only state and the mapping card's
-  // admin-only notice, never the directory.
-  it("shows Integrations to a non-admin rep with both overlay cards in their read-only state", async () => {
+  // The overlay is the installation's, so its page sits in the admin group and
+  // asks for the wiring read on top of the operator seat. An OPS principal is the
+  // case worth proving: they reach the entry, and reaching it costs no
+  // confidentiality — both cards' write and management reads are admin-only on
+  // the server, and each keeps them unsent for anyone else, so ops sees the
+  // connection card's read-only state and the mapping card's admin-only notice,
+  // never the directory.
+  it("shows Integrations to a non-admin ops with both overlay cards in their read-only state", async () => {
     const fetchMock = overlaySettingsBackend({
-      roles: ["rep"],
+      roles: ["ops"],
       allow: WIRING_READS,
       sorMode: "native",
     });

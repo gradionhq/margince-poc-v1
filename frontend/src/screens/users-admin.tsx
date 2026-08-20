@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserPlus } from "lucide-react";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -8,12 +8,14 @@ import {
   Button,
   Checkbox,
   EmptyState,
+  Modal,
   TextInput,
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Select, type SelectOption } from "../design-system/select";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
@@ -191,9 +193,16 @@ function MembersCard({
   );
 }
 
+// Inviting somebody is four decisions committed together — an address, a name,
+// a role and the teams they land in — so the card keeps ONE row carrying the
+// verb and the form lives in the dialog behind it. Before this it was a wrapping
+// line of three unlabelled boxes and a fieldset sitting open on a page most
+// visits are not about.
 function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
   const t = useT();
   const qc = useQueryClient();
+  const formTitleId = useId();
+  const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("rep");
@@ -235,6 +244,10 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
       setRole("rep");
       setTeamIds([]);
       setError(null);
+      // The dialog closes on the write that landed, never before it: a refused
+      // invite has to leave the address and the name where the admin typed
+      // them.
+      setOpen(false);
       qc.invalidateQueries({ queryKey: ["users-admin"] });
       if (canIssueLink) {
         setInvited({ id: newUserId, name: invitedName });
@@ -248,12 +261,35 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
     email.trim().length > 0 && name.trim().length > 0 && !invite.isPending;
 
   return (
-    // The Panel is the surface and the <form> inside it is the form: a Panel is
-    // a <section>, so the element the browser associates the Enter key with has
-    // to be its own rather than the one carrying the heading.
+    // The Panel is the surface and the <form> inside the dialog is the form: a
+    // Panel is a <section>, so the element the browser associates the Enter key
+    // with has to be its own rather than the one carrying the heading.
     <Panel title={t("users.inviteTitle")}>
       <PanelBody>
-        <p className="t-caption">{t("users.inviteSub")}</p>
+        <SettingList>
+          <SettingRow
+            label={t("users.inviteTitle")}
+            description={t("users.inviteSub")}
+            control={
+              <Button small onClick={() => setOpen(true)}>
+                {t("users.inviteOpen")}
+              </Button>
+            }
+          />
+        </SettingList>
+      </PanelBody>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        labelledBy={formTitleId}
+      >
+        <h2
+          id={formTitleId}
+          className="t-h2"
+          style={{ marginBottom: "var(--space-3)" }}
+        >
+          {t("users.inviteTitle")}
+        </h2>
         <form
           className="users-invite"
           onSubmit={(e) => {
@@ -327,7 +363,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
             </Callout>
           )}
         </form>
-      </PanelBody>
+      </Modal>
       {invited && (
         <PasswordLinkModal
           memberName={invited.name}

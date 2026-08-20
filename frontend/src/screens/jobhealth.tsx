@@ -7,11 +7,12 @@ import type { CSSProperties, ReactNode } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useHoldsAdminRole } from "../app/capability";
-import { Badge, EmptyState, SectionHeader } from "../design-system/atoms";
+import { Badge, EmptyState } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { CardBoundary } from "../design-system/cardboundary";
 import { type Fact, FactList } from "../design-system/factlist";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime, formatNumber } from "../format/format";
 import type { Translator } from "../format/now";
 import { type Locale, useLocale, useT } from "../i18n";
@@ -31,13 +32,6 @@ type JobHealth = components["schemas"]["JobHealth"];
 type JobKindHealth = components["schemas"]["JobKindHealth"];
 type JobFailure = components["schemas"]["JobFailure"];
 
-// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
-// is the body's first paragraph and owes its own separation from the content
-// under it; it is a token rather than a number so it moves with the scale, and
-// it lives here rather than in a screen sheet because it belongs to the panel
-// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
-const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
-
 // A row of pills that wraps instead of running the card wide.
 const PILL_ROW: CSSProperties = {
   display: "flex",
@@ -45,9 +39,9 @@ const PILL_ROW: CSSProperties = {
   flexWrap: "wrap",
 };
 
-// The trailing note under a section's own content — the vetted-reason caveat
-// and the generated-at stamp. The headings above them carry their own rhythm
-// (SectionHeader owns it), so this is the only gap left to state.
+// The trailing note under a reading's own content — the vetted-reason caveat
+// and the generated-at stamp. Both follow a list that owns no bottom margin, so
+// this is the only gap left to state.
 const NOTE: CSSProperties = { marginTop: "var(--space-4)" };
 
 // The remedy on its own line under the reason. What happened and what to do
@@ -140,30 +134,40 @@ function kindFacts(kinds: readonly JobKindHealth[], t: Translator): Fact[] {
   }));
 }
 
+// One reading of the queue, as a stacked row: the counts ARE the subject rather
+// than an answer to a question that would fit beside them, so they take the
+// card's full width under their naming (design-system README, SettingRow).
+//
+// `.settingrow-control` is a flex ROW, and a `FactList` is a grid that sizes to
+// its content inside one — hence the `settingrow-measure` wrapper, which is what
+// gives a stacked control the whole width back.
 function KindSection({
-  title,
-  sub,
+  label,
+  description,
   kinds,
   emptyText,
 }: Readonly<{
-  title: string;
-  sub?: string;
+  label: string;
+  description?: string;
   kinds: readonly JobKindHealth[];
   emptyText: string;
 }>) {
   const t = useT();
   return (
-    // level={3}: a section INSIDE the panel's own h2. A bare <h3> carries no
-    // class, and with Tailwind's preflight live that renders at body size and
-    // body weight — a heading nothing on screen reads as one.
-    <section>
-      <SectionHeader level={3} title={title} sub={sub} />
-      {kinds.length === 0 ? (
-        <EmptyState>{emptyText}</EmptyState>
-      ) : (
-        <FactList numeric facts={kindFacts(kinds, t)} />
-      )}
-    </section>
+    <SettingRow
+      label={label}
+      description={description}
+      layout="stack"
+      control={
+        <div className="settingrow-measure">
+          {kinds.length === 0 ? (
+            <EmptyState>{emptyText}</EmptyState>
+          ) : (
+            <FactList numeric facts={kindFacts(kinds, t)} />
+          )}
+        </div>
+      }
+    />
   );
 }
 
@@ -277,23 +281,25 @@ function FailureSection({
 }>) {
   const t = useT();
   return (
-    <section>
-      <SectionHeader
-        level={3}
-        title={t("jobs.failures")}
-        sub={t("jobs.failuresSub")}
-      />
-      {failures.length === 0 ? (
-        <EmptyState>{t("jobs.failuresEmpty")}</EmptyState>
-      ) : (
-        <>
-          <FactList facts={failureFacts(failures, t, locale, zone)} />
-          <p className="t-caption" style={NOTE}>
-            {t("jobs.reasonVetted")}
-          </p>
-        </>
-      )}
-    </section>
+    <SettingRow
+      label={t("jobs.failures")}
+      description={t("jobs.failuresSub")}
+      layout="stack"
+      control={
+        <div className="settingrow-measure">
+          {failures.length === 0 ? (
+            <EmptyState>{t("jobs.failuresEmpty")}</EmptyState>
+          ) : (
+            <>
+              <FactList facts={failureFacts(failures, t, locale, zone)} />
+              <p className="t-caption" style={NOTE}>
+                {t("jobs.reasonVetted")}
+              </p>
+            </>
+          )}
+        </div>
+      }
+    />
   );
 }
 
@@ -327,22 +333,24 @@ function JobHealthBody({ health }: Readonly<{ health: JobHealth }>) {
           <p>{t("jobs.deadBody", { count: formatNumber(dead, locale) })}</p>
         </Callout>
       )}
-      <KindSection
-        title={t("jobs.workspaceKinds")}
-        kinds={health.kinds.filter((kind) => !kind.fleet_wide)}
-        emptyText={t("jobs.workspaceEmpty")}
-      />
-      <KindSection
-        title={t("jobs.dispatcherKinds")}
-        sub={t("jobs.dispatcherSub")}
-        kinds={health.kinds.filter((kind) => kind.fleet_wide)}
-        emptyText={t("jobs.dispatcherEmpty")}
-      />
-      <FailureSection
-        failures={health.recent_failures}
-        locale={locale}
-        zone={zone}
-      />
+      <SettingList>
+        <KindSection
+          label={t("jobs.workspaceKinds")}
+          kinds={health.kinds.filter((kind) => !kind.fleet_wide)}
+          emptyText={t("jobs.workspaceEmpty")}
+        />
+        <KindSection
+          label={t("jobs.dispatcherKinds")}
+          description={t("jobs.dispatcherSub")}
+          kinds={health.kinds.filter((kind) => kind.fleet_wide)}
+          emptyText={t("jobs.dispatcherEmpty")}
+        />
+        <FailureSection
+          failures={health.recent_failures}
+          locale={locale}
+          zone={zone}
+        />
+      </SettingList>
       <p className="t-caption" style={NOTE}>
         {t("jobs.generatedAt", {
           time: formatDateTime(health.generated_at, locale, zone),
@@ -427,9 +435,7 @@ export function JobHealthCard() {
   return (
     <Panel title={t("settings.jobs")}>
       <PanelBody>
-        <p className="t-sub" style={PANEL_SUB}>
-          {t("settings.jobsSub")}
-        </p>
+        <p className="t-small settings-panel-sub">{t("settings.jobsSub")}</p>
         {/* One card's throw stays inside one card. This body derives every
             line from a payload the background system writes, so it has more
             ways to give out than the panels beside it — and without a boundary

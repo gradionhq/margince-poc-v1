@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { AiUsageCard } from "./aiusage";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -70,6 +71,19 @@ export const Empty: Story = { render: story("normal", []) };
 // installation meters nothing", a claim about the data rather than about who
 // may read it.
 export const Withheld: Story = { render: story("normal", [task], {}) };
+
+// The per-day breakdown, opened. It is the card's diagnostic half and lives in
+// a disclosure standing in the row list, so this is the only story where the day
+// lines are on screen — and the one that shows the opened section indented from
+// its own summary rather than from the card.
+export const DaysOpen: Story = {
+  render: story("normal", [task]),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByText("Show days"));
+    await canvas.findByText(/2026-07-20/);
+  },
+};
 
 // Economy mode in dark. The band is carried twice and both times by colour: the
 // Badge tone and the Meter's fill at 85% of budget. Nothing else on the card

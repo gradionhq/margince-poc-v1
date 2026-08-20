@@ -1,0 +1,26 @@
+/* The teams card. Layout only (ds-purity): every control comes from the design
+ * system and the row language comes from settingrow.css — what is left is the
+ * one line the create form occupies inside its row.
+ *
+ * Its own sheet rather than a block in users-admin.css: the screen that draws
+ * these classes is the one that has to import them, or the surface is styled by
+ * accident in the app and not at all in an isolated render. */
+
+/* The new team's name and the verb that creates it on one line, wrapping on a
+ * narrow card rather than pushing the row past its edge. */
+.teams-create {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* `.input` is width:100% by default, which in a flex line is the whole row. A
+ * team name is short, so the field asks for less than the id fields elsewhere
+ * and gives it all back when the row wraps. */
+.teams-create .input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  width: auto;
+}

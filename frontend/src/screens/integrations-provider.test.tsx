@@ -152,8 +152,8 @@ describe("ProviderCard write posture", () => {
   // decides; the two verbs are then inside it.
   const MORE = "More actions";
 
-  async function openDestructiveMenu() {
-    await userEvent.click(screen.getByRole("button", { name: MORE }));
+  async function openDestructiveMenu(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("button", { name: MORE }));
   }
 
   async function renderAs(principal: Me) {
@@ -186,7 +186,8 @@ describe("ProviderCard write posture", () => {
       expect(screen.getByText(READ_ONLY)).toBeTruthy();
       expect(screen.queryByRole("button", { name: CONNECT })).toBeNull();
       expect(screen.queryByRole("button", { name: MORE })).toBeNull();
-      // The key box exists only to feed the submit that is gone.
+      // The key box exists only to feed the submit that is gone, and it is
+      // behind a verb this seat does not have — so there is nothing to open.
       expect(screen.queryByLabelText(KEY_FIELD)).toBeNull();
     },
     RENDER_TEST_MS,
@@ -195,13 +196,27 @@ describe("ProviderCard write posture", () => {
   it(
     "offers every write to the seat that pays the provider",
     async () => {
+      const user = userEvent.setup();
       await renderAs(ME_OPERATOR);
 
       // Without this arm the test above would pass on a card that renders no
       // controls for anybody.
-      expect(screen.getByRole("button", { name: CONNECT })).toBeTruthy();
+      const connect = screen.getByRole("button", { name: CONNECT });
+      expect(connect).toBeTruthy();
+      // The key is two inputs' worth of commitment — the secret and the
+      // acknowledgement that using it spends money — so it lives behind that
+      // verb rather than standing open on the card. The row is an answer; the
+      // form is not.
+      expect(screen.queryByLabelText(KEY_FIELD)).toBeNull();
+      await user.click(connect);
       expect(screen.getByLabelText(KEY_FIELD)).toBeTruthy();
-      await openDestructiveMenu();
+      // And the confirm is refused until the field it needs is filled, so an
+      // empty dialog cannot POST an empty key.
+      const confirms = screen.getAllByRole("button", { name: CONNECT });
+      expect(confirms[confirms.length - 1].hasAttribute("disabled")).toBe(true);
+      await user.keyboard("{Escape}");
+
+      await openDestructiveMenu(user);
       expect(screen.getByRole("button", { name: DISCONNECT })).toBeTruthy();
       expect(screen.getByRole("button", { name: DELETE_DATA })).toBeTruthy();
       // A reader who may write is told nothing about a posture they do not have.

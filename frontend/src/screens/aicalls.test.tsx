@@ -127,12 +127,18 @@ it("renders call badges and expands the attempt and payload detail", async () =>
   expect(screen.getByText("Export as cert scenario")).toBeTruthy();
 });
 
-// The filter stands alone above the table with no visible label beside it, so
-// its name has to come from the control itself — an unnamed combobox tells a
-// screen reader nothing about what it narrows.
-it("names the task filter", async () => {
+// The filter is a settings row now: the row draws the label and the Select is
+// named BY it, so the combobox still says what it narrows while carrying no
+// second name of its own — one visible label naming one control is the whole
+// reason `control` is a function here.
+it("names the task filter from its row, and stacks the trace under its own label", async () => {
   mount();
-  expect(await screen.findByRole("combobox", { name: "Task" })).toBeTruthy();
+  const filter = await screen.findByRole("combobox", { name: "Task" });
+  expect(filter.getAttribute("aria-label")).toBeNull();
+  expect(filter.getAttribute("aria-labelledby")).toBeTruthy();
+  // The trace is the subject of its row, not an answer beside it, so it stacks
+  // under a label of its own rather than sharing the filter's.
+  expect(screen.getByText("Recent calls")).toBeTruthy();
 });
 
 it("distinguishes capture disabled from a call without payload", async () => {

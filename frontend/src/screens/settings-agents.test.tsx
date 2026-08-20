@@ -3,7 +3,7 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
-import { SettingsScreen } from "./settings";
+import { SettingsScreen, settingsAddress } from "./settings";
 import { jsonResponse, render } from "./settings.testkit";
 
 // The Agents entry: the governed tool inventory an MCP client is shown, and the
@@ -120,7 +120,7 @@ function agentToolsBackend() {
 describe("AgentToolsCard (IT-1)", () => {
   it("renders the governed tool inventory with the egress badge on send_email", async () => {
     vi.stubGlobal("fetch", agentToolsBackend());
-    render(<SettingsScreen tab="agents" />);
+    render(<SettingsScreen route={settingsAddress("agents")} />);
 
     await waitFor(() =>
       expect(screen.getAllByText("search_records").length).toBe(1),
@@ -149,7 +149,7 @@ describe("AgentToolsCard (IT-1)", () => {
   // show it rather than leave an operator to guess what their agents are told.
   it("shows each tool's written display name and the text an agent selects it by", async () => {
     vi.stubGlobal("fetch", agentToolsBackend());
-    render(<SettingsScreen tab="agents" />);
+    render(<SettingsScreen route={settingsAddress("agents")} />);
 
     await waitFor(() =>
       expect(screen.getAllByText("search_records").length).toBe(1),
@@ -263,7 +263,7 @@ describe("AgentToolsCard passport scoping", () => {
   it("excludes a revoked passport from the selector", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", agentToolsWithPassportsBackend());
-    render(<SettingsScreen tab="agents" />);
+    render(<SettingsScreen route={settingsAddress("agents")} />);
     await screen.findByText("list_pipelines");
 
     // The options only exist while the popup is open — the control renders no
@@ -279,7 +279,7 @@ describe("AgentToolsCard passport scoping", () => {
   it("keeps a scope-free tool reachable once a passport is selected", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", agentToolsWithPassportsBackend());
-    render(<SettingsScreen tab="agents" />);
+    render(<SettingsScreen route={settingsAddress("agents")} />);
     await screen.findByText("list_pipelines");
 
     const select = screen.getByLabelText("All passports");
@@ -367,7 +367,7 @@ describe("PassportCard revoke (AS-2)", () => {
   it("stops scoping the tool console to a passport revoked while it was selected", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", revocablePassportsBackend());
-    render(<SettingsScreen tab="agents" />);
+    render(<SettingsScreen route={settingsAddress("agents")} />);
     await screen.findByText("send_email");
 
     const select = screen.getByLabelText("All passports");
@@ -413,7 +413,7 @@ describe("PassportCard revoke (AS-2)", () => {
     const deleted: string[] = [];
     const fetchMock = passportsBackend({ onDelete: (id) => deleted.push(id) });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SettingsScreen tab="agents" />);
+    render(<SettingsScreen route={settingsAddress("agents")} />);
     await screen.findByText("Scout");
 
     // The already-revoked row shows no Revoke control at all.

@@ -96,6 +96,31 @@ export const Empty: Story = { render: list([]) };
 // absent card would read as "this installation made no model calls".
 export const Withheld: Story = { render: list([summary], true, {}) };
 
+// A page that has a next one, which is the only state that draws the pager. The
+// trace row stacks its control as a COLUMN — `.settingrow-control` is a flex row
+// — so this is the story that says whether Load more sits under the table or
+// beside it.
+export const ListPaged: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": () => jsonResponse(meFixture({ allow: OPERATOR })),
+      "GET /ai/calls": () =>
+        jsonResponse({
+          data: [summary],
+          page: { has_more: true, next_cursor: "page-2" },
+          payload_capture_enabled: true,
+          tasks: ["capture_classify"],
+        }),
+      "GET /ai/calls/call-1": () => jsonResponse(detail),
+    });
+    return (
+      <StoryProviders>
+        <AiCallsCard />
+      </StoryProviders>
+    );
+  },
+};
+
 export const PayloadOff: Story = {
   render: () => {
     installFetchStub({

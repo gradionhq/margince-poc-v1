@@ -5,7 +5,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { pickOption } from "../design-system/select-testing";
-import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
+import {
+  AuditLogCard,
+  PipelinesCard,
+  SettingsScreen,
+  settingsAddress,
+} from "./settings";
 import {
   installFetchStub,
   jsonResponse,
@@ -152,7 +157,7 @@ function tab(tabId: string, routes: RouteMap) {
     installFetchStub(routes);
     return (
       <StoryProviders>
-        <SettingsScreen tab={tabId} />
+        <SettingsScreen route={settingsAddress(tabId)} />
       </StoryProviders>
     );
   };

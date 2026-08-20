@@ -394,7 +394,7 @@ const SETTINGS_SECTION: NavSection = {
       ],
     },
     {
-      headingKey: "settings.group.org",
+      headingKey: "settings.group.admin",
       items: [
         { id: "general", labelKey: "settings.tab.general", icon: Building2 },
         { id: "people", labelKey: "settings.tab.people", icon: UsersRound },

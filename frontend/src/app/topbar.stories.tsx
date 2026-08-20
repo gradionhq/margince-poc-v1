@@ -369,7 +369,7 @@ const SETTINGS_SECTION: NavSection = {
       ],
     },
     {
-      headingKey: "settings.group.org",
+      headingKey: "settings.group.admin",
       items: [
         { id: "privacy", labelKey: "settings.tab.privacy", icon: ShieldCheck },
         {

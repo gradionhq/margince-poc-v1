@@ -67,6 +67,11 @@ const renderNeedsReindex = () => {
 
 // The ops banner's companion card: reindex_needed is true, an admin sees the
 // "Review & reindex" trigger alongside the always-available "Rebuild index".
+//
+// Three rows of the settings row language, which is what to look at here: the
+// status reads as an ANSWER beside its naming, and the two verbs sit at the same
+// x under it, so the card is auditable down one column rather than as a badge
+// with a button band under it.
 export const NeedsReindex: Story = { render: renderNeedsReindex };
 
 // The same card in dark. The status Badge is the whole state machine in one
@@ -85,6 +90,26 @@ export const UpToDateRebuildAvailable: Story = {
     installFetchStub({
       "GET /me": admin(),
       "GET /embeddings/reindex/status": () => jsonResponse(STATUS_IDLE),
+    });
+    return (
+      <StoryProviders>
+        <EmbedReindexCard />
+      </StoryProviders>
+    );
+  },
+};
+
+// The read grant without the update grant: the status row stands alone, and both
+// action rows are gone with their naming. The state worth LOOKING at is a
+// one-row list — the hairline rides between rows, so a single row must not draw
+// one at all, and the card must still read as a reading rather than as the top
+// of a list that failed to load.
+export const StatusOnlyForReadGrant: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": () =>
+        jsonResponse(meFixture({ allow: { embedding_reindex: ["read"] } })),
+      "GET /embeddings/reindex/status": () => jsonResponse(STATUS_NEEDED),
     });
     return (
       <StoryProviders>

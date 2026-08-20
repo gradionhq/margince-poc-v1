@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { ConnectedAgentsCard } from "./connected-agents";
-import { SettingsScreen } from "./settings";
+import { SettingsScreen, settingsAddress } from "./settings";
 
 // The split GET /passports feeds: a passport the human minted belongs to the
 // passports card, a connection's credential to this one. `connection` decides,
@@ -373,7 +373,7 @@ describe("ConnectedAgentsCard", () => {
 describe("the two passport cards on Your agents", () => {
   it("keeps a connection out of the passports a human may lend", async () => {
     vi.stubGlobal("fetch", backend({}));
-    render(<SettingsScreen tab="agents" />);
+    render(<SettingsScreen route={settingsAddress("agents")} />);
     await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
     // The minted passport is listed as lendable...
     const passports = document.querySelector('[data-passport="pp-minted"]');

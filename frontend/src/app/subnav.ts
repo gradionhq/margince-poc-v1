@@ -21,6 +21,17 @@ export type NavLevelEntry = {
   // The route segment this entry addresses at its own depth: `#/settings/privacy`
   // is the `privacy` entry of the section the `settings` screen publishes.
   id: string;
+  // Route segments between the level's own path and this entry's `id`. Absent
+  // for every entry that sits directly under its level, which is most of them.
+  //
+  // It exists because one level can address two depths: the settings level
+  // lists the personal entries at `#/settings/voice` and the admin ones at
+  // `#/settings/admin/privacy`, under one heading pair in one panel. The
+  // alternative was a second nav LEVEL for the admin group, which would make a
+  // reader drill through a row to reach a list the panel can already show, and
+  // the `id` stays the entry's identity either way — so `activeId` matching is
+  // unaffected by how deep the entry lives.
+  prefix?: readonly string[];
   labelKey: MessageKey;
   icon: LucideIcon;
   // The level this entry opens. Grouping is possible at every depth, so the
@@ -91,6 +102,28 @@ export function navLevelRoute(path: readonly string[], id: string): Route {
 // is a navigation, so both spell the address once, here.
 export function navLevelHref(path: readonly string[], id: string): string {
   return routeHash(navLevelRoute(path, id));
+}
+
+/**
+ * Where one ENTRY of a level lives — its `prefix` included.
+ *
+ * Every row a reader can press goes through this rather than through
+ * `navLevelHref` with a bare id: an entry that sits deeper than its level would
+ * otherwise be linked to the level's own depth, and the link would land on
+ * whatever answers that shorter address.
+ */
+export function navEntryRoute(
+  path: readonly string[],
+  entry: NavLevelEntry,
+): Route {
+  return navLevelRoute([...path, ...(entry.prefix ?? [])], entry.id);
+}
+
+export function navEntryHref(
+  path: readonly string[],
+  entry: NavLevelEntry,
+): string {
+  return routeHash(navEntryRoute(path, entry));
 }
 
 function activeEntry(level: NavTrailLevel): NavLevelEntry | undefined {

@@ -11,6 +11,13 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // reauth-needed one (the reconnect affordance), a sync-error one, the empty
 // state, and a load failure — all off the same GET /connectors shape the
 // unit tests (connectors.test.tsx) already exercise.
+//
+// Every story renders TWO panels now — mail capture and the workspace's
+// Telegram bot — because the component draws both, and both are built from the
+// same SettingRow: identity and health on the left, state and verbs on the
+// right, at one x. What to check in any of these pictures is that the right
+// column really does line up down the whole pair, including across the
+// history-import block that rides under a connected mailbox's row.
 
 type CaptureConnection = components["schemas"]["CaptureConnection"];
 
@@ -277,4 +284,64 @@ export const OAuthError: Story = {
 
 export const OAuthOk: Story = {
   render: outcomeStory("ok", [gmailConnected]),
+};
+
+// The Telegram panel is its own card now, and it has three states of its own
+// that the mail roster's stories never reach: no bot yet (one row offering the
+// connect), live bots (a row each), and a deployment with no credential store
+// to seal a token in (503, a calm feature-off state and not an error).
+function telegramStory(channels: unknown[] | null) {
+  return () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [gmailConnected] }),
+      "GET /channel-connections": () =>
+        channels === null
+          ? jsonResponse({ code: "channel_credentials_not_configured" }, 503)
+          : jsonResponse({ data: channels }),
+    });
+    return (
+      <StoryProviders>
+        <ConnectorsCard />
+      </StoryProviders>
+    );
+  };
+}
+
+const salesBot = {
+  id: "018f3a1b-0000-7000-8000-0000000000d1",
+  provider: "telegram",
+  channelId: "555000111",
+  channelLabel: "acme_sales_bot",
+  status: "connected",
+  version: 1,
+};
+
+export const TelegramNoBotYet: Story = { render: telegramStory([]) };
+
+// Two live bots is the state a send refuses outright in, and this panel is the
+// only surface that can end it — so both have to be here, each with its own
+// Disconnect.
+export const TelegramTwoBots: Story = {
+  render: telegramStory([
+    salesBot,
+    {
+      ...salesBot,
+      id: "018f3a1b-0000-7000-8000-0000000000d2",
+      channelId: "555000222",
+      channelLabel: "acme_support_bot",
+      status: "pending",
+    },
+  ]),
+};
+
+export const TelegramNotConfigured: Story = { render: telegramStory(null) };
+
+// Both panels' rows in dark. The row language puts the answer in the right
+// column against the panel's own ground, and `--textMuted` (the description)
+// against `--textSecondary` (the account label) is the pair most likely to
+// collapse into one grey under the dark accent lift — a mailbox address that
+// reads as help text is the failure to look for.
+export const BothPanelsDark: Story = {
+  globals: { theme: "dark" },
+  render: telegramStory([salesBot]),
 };

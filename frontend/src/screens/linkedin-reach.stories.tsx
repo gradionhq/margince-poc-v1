@@ -71,13 +71,14 @@ export const ReadFailed: Story = {
   ),
 };
 
-// The reach table at 390px. Every cell in it is `white-space: nowrap` — an
-// account name, two figures — and the table is a `display: block` box with
-// `overflow-x: auto`, which is the whole of its narrow-screen answer: a German
-// company name plus two counts is wider than a phone, so the table scrolls and
-// the page does not. What to check is that the scroll really is the table's and
-// not the page's, and that the header row scrolls WITH the figures it names,
-// since a block-display table is the one shape where the two can come apart.
+// The reach table at 390px. Every cell in it still holds its line
+// (`.li-reach-cell`) — an account name, two figures — and the table is now a
+// real `<table>` inside DataTable's `.table-scroll` box, which is the whole of
+// its narrow-screen answer: a German company name plus two counts is wider than
+// a phone, so the table scrolls and the page does not. What to check is that the
+// scroll really is the table's and not the page's. The header row can no longer
+// come apart from the figures it names — that was a `display: block` table's
+// failure mode, and the scroll now belongs to the wrapper rather than the table.
 //
 // Storybook applies the viewport from the MANAGER, by resizing the preview
 // iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at

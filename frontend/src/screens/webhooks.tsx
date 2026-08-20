@@ -21,7 +21,8 @@ import {
   SectionHeader,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
-import { Panel, PanelBody, PanelRow } from "../design-system/panel";
+import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -750,93 +751,118 @@ function SubscriptionRow({
   const [showDeliveries, setShowDeliveries] = useState(false);
   const deliveriesId = useId();
   return (
-    <PanelRow>
-      <div className="webhook-row">
-        <span className="t-mono webhook-target">{subscription.target_url}</span>
-        <Badge tone={subscriptionStateTone(subscription.state)}>
-          {t(`webhooks.state.${subscription.state}`)}
-        </Badge>
-      </div>
-      <div className="webhook-events">
-        {subscription.event_types.map((eventType) => (
-          <Badge key={eventType} tone="accent">
-            {eventType}
-          </Badge>
-        ))}
-      </div>
-      {subscription.updated_at && (
-        <p className="t-caption webhook-updated">
-          {t("webhooks.updated", {
-            date: formatDateTime(
-              subscription.updated_at,
-              locale,
-              "Europe/Berlin",
-            ),
-          })}
-        </p>
-      )}
-      <div className="webhook-row-actions">
-        {/* Not `Disclosure`, deliberately: `<details>` renders its children
-            whether or not it is open, and the panel behind this one fetches a
-            subscription's deliveries on mount — every row on the card would
-            issue that read on page load to draw a section nobody opened. The
-            accessibility half of a disclosure is what was actually missing, so
-            the button carries it: what it controls, and whether it is open. */}
-        <Button
-          small
-          data-testid="view-deliveries"
-          aria-expanded={showDeliveries}
-          aria-controls={deliveriesId}
-          onClick={() => setShowDeliveries((prev) => !prev)}
-        >
-          {showDeliveries
-            ? t("webhooks.deliveries.hide")
-            : t("webhooks.deliveries.show")}
-        </Button>
-        {canEdit && (
-          <EditAction
-            label={t("webhooks.edit")}
-            invalidate="webhook-subscriptions"
-            recordKey="webhook-subscription"
-            record={{ ...subscription }}
-            update={updateWebhookSubscription(subscription)}
-            fields={editSubscriptionFields(t)}
-          />
-        )}
-        {/* The two irreversible verbs behind the overflow, the same treatment
-            the provider card's disconnect/delete pair gets: rotating destroys
-            the secret every receiver is verifying with, archiving stops every
-            delivery. Beside Edit they were four buttons on one line at equal
-            weight, two of them red, and the row did not even wrap. */}
-        {(canEdit || canArchive) && (
-          <OverflowMenu label={t("record.moreActions")}>
+    // Two rows, not one: the subscription is a DECISION — what it targets on
+    // the left, what it is set to on the right — and its attempt log is the
+    // SUBJECT rather than an answer to that question, so it takes the full
+    // width below instead of being squeezed into the right column. They are
+    // siblings in the card's one `SettingList`, which is what rules between
+    // them.
+    <>
+      <SettingRow
+        label={
+          <span className="t-mono webhook-target">
+            {subscription.target_url}
+          </span>
+        }
+        description={
+          subscription.updated_at
+            ? t("webhooks.updated", {
+                date: formatDateTime(
+                  subscription.updated_at,
+                  locale,
+                  "Europe/Berlin",
+                ),
+              })
+            : undefined
+        }
+        // The state and the subscribed event set together ARE the current
+        // answer, and no control on the row shows either: Edit opens a dialog
+        // and the deliveries toggle opens a log.
+        value={
+          <span className="webhook-answer">
+            <Badge tone={subscriptionStateTone(subscription.state)}>
+              {t(`webhooks.state.${subscription.state}`)}
+            </Badge>
+            {subscription.event_types.map((eventType) => (
+              <Badge key={eventType} tone="accent">
+                {eventType}
+              </Badge>
+            ))}
+          </span>
+        }
+        control={
+          <span className="webhook-row-actions">
+            {/* Not `Disclosure`, deliberately: `<details>` renders its children
+                whether or not it is open, and the panel behind this one fetches
+                a subscription's deliveries on mount — every row on the card
+                would issue that read on page load to draw a section nobody
+                opened. The accessibility half of a disclosure is what was
+                actually missing, so the button carries it: what it controls,
+                and whether it is open. */}
+            <Button
+              small
+              data-testid="view-deliveries"
+              aria-expanded={showDeliveries}
+              aria-controls={deliveriesId}
+              onClick={() => setShowDeliveries((prev) => !prev)}
+            >
+              {showDeliveries
+                ? t("webhooks.deliveries.hide")
+                : t("webhooks.deliveries.show")}
+            </Button>
             {canEdit && (
-              <RotateSecretAction
-                subscription={subscription}
-                onRotated={onRotated}
-              />
-            )}
-            {canArchive && (
-              <ArchiveAction
-                label={t("webhooks.archive")}
-                confirmText={t("webhooks.archiveConfirm")}
+              <EditAction
+                label={t("webhooks.edit")}
                 invalidate="webhook-subscriptions"
                 recordKey="webhook-subscription"
-                onArchived={() => {}}
-                archive={() => archiveWebhookSubscription(subscription)}
+                record={{ ...subscription }}
+                update={updateWebhookSubscription(subscription)}
+                fields={editSubscriptionFields(t)}
               />
             )}
-          </OverflowMenu>
-        )}
-      </div>
+            {/* The two irreversible verbs behind the overflow, the same
+                treatment the provider card's disconnect/delete pair gets:
+                rotating destroys the secret every receiver is verifying with,
+                archiving stops every delivery. Beside Edit they were four
+                buttons on one line at equal weight, two of them red, and the
+                row did not even wrap. */}
+            {(canEdit || canArchive) && (
+              <OverflowMenu label={t("record.moreActions")}>
+                {canEdit && (
+                  <RotateSecretAction
+                    subscription={subscription}
+                    onRotated={onRotated}
+                  />
+                )}
+                {canArchive && (
+                  <ArchiveAction
+                    label={t("webhooks.archive")}
+                    confirmText={t("webhooks.archiveConfirm")}
+                    invalidate="webhook-subscriptions"
+                    recordKey="webhook-subscription"
+                    onArchived={() => {}}
+                    archive={() => archiveWebhookSubscription(subscription)}
+                  />
+                )}
+              </OverflowMenu>
+            )}
+          </span>
+        }
+      />
       {showDeliveries && (
-        <DeliveriesPanel
-          subscription={subscription}
-          canReplay={canEdit}
-          id={deliveriesId}
+        <SettingRow
+          label={t("webhooks.deliveries.title")}
+          layout="stack"
+          control={
+            <DeliveriesPanel
+              subscription={subscription}
+              canReplay={canEdit}
+              id={deliveriesId}
+            />
+          }
         />
       )}
-    </PanelRow>
+    </>
   );
 }
 
@@ -923,23 +949,30 @@ export function WebhooksCard() {
         {query.isSuccess && !query.data.deliveryEnabled && (
           <NotConfiguredState />
         )}
+        {/* One body, not two stacked: the roster opens under the sentence that
+            introduces it rather than across a seam that reads as a missing
+            element, and the interval between subscriptions belongs to the
+            `SettingList` — which is the whole reason the rows no longer space
+            themselves. */}
+        <QueryGate
+          query={query}
+          empty={(result) => result.deliveryEnabled && result.data.length === 0}
+        >
+          {(result) => (
+            <SettingList>
+              {result.data.map((subscription) => (
+                <SubscriptionRow
+                  key={subscription.id}
+                  subscription={subscription}
+                  canEdit={canEdit && result.deliveryEnabled}
+                  canArchive={canArchive && result.deliveryEnabled}
+                  onRotated={setRevealedSecret}
+                />
+              ))}
+            </SettingList>
+          )}
+        </QueryGate>
       </PanelBody>
-      <QueryGate
-        query={query}
-        empty={(result) => result.deliveryEnabled && result.data.length === 0}
-      >
-        {(result) =>
-          result.data.map((subscription) => (
-            <SubscriptionRow
-              key={subscription.id}
-              subscription={subscription}
-              canEdit={canEdit && result.deliveryEnabled}
-              canArchive={canArchive && result.deliveryEnabled}
-              onRotated={setRevealedSecret}
-            />
-          ))
-        }
-      </QueryGate>
       {canCreateHere && (
         <CreateRecordModal
           open={creating}

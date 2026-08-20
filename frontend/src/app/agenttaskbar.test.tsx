@@ -307,7 +307,7 @@ describe("AgentTaskbar", () => {
     );
     expect(
       screen.getByRole("link", { name: LABELS.configure }).getAttribute("href"),
-    ).toBe("#/settings/ai");
+    ).toBe("#/settings/admin/ai");
   });
 
   // Development is not a fault — the runtime answers, every answer it gives is
@@ -581,7 +581,7 @@ describe("AgentTaskbar", () => {
     );
     expect(
       screen.getByRole("link", { name: LABELS.fullLog }).getAttribute("href"),
-    ).toBe("#/settings/ai");
+    ).toBe("#/settings/admin/ai");
   });
 
   // A task named `constructor` is a plain string off the wire, but a bare

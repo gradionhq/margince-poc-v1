@@ -10,7 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { SettingsScreen } from "./settings";
+import { SettingsScreen, settingsAddress } from "./settings";
 
 // Minting a passport, in its own file rather than as more of `settings.test.tsx`
 // — that one is already well past the 1000-line ceiling the frontend guide sets,
@@ -47,7 +47,7 @@ const render = (tab: string) => {
   return rtlRender(
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">
-        <SettingsScreen tab={tab} />
+        <SettingsScreen route={settingsAddress(tab)} />
       </LocaleProvider>
     </QueryClientProvider>,
   );

@@ -157,6 +157,34 @@ describe("the connected-inboxes card", () => {
     expect(screen.getByText(/Last synced/)).toBeTruthy();
   });
 
+  // Mail capture and the workspace's messaging bot are two subjects, so they
+  // are two panels. The Telegram half used to be a level-3 heading buried under
+  // the mail roster, which put a workspace-wide bot inside a per-user card.
+  it("draws mail capture and the Telegram bot as two separate panels", async () => {
+    stubApi([gmailConnected]);
+    render(<ConnectorsCard />);
+    const inboxes = await screen.findByRole("heading", {
+      name: "Connected inboxes",
+    });
+    const telegram = screen.getByRole("heading", { name: "Telegram bot" });
+    // Two panel headings means two panels: neither heading may sit inside the
+    // other's section, which is what a nested SectionHeader did.
+    expect(inboxes.closest(".panel")).not.toBe(telegram.closest(".panel"));
+  });
+
+  // The history import belongs to the mailbox it imports for. Mounted as a
+  // sibling of that row rather than inside a Disclosure: <details> renders its
+  // children while closed, and BackfillPanel fires a scope-preview POST from an
+  // effect, so a collapsed one would spend requests nobody asked for.
+  it("attaches the history import to the connected mailbox's own row", async () => {
+    stubApi([gmailConnected]);
+    render(<ConnectorsCard />);
+    const row = await screen.findByTestId("connector-gmail");
+    const backfill = document.querySelector(".connector-backfill");
+    expect(backfill).not.toBeNull();
+    expect(row.nextElementSibling).toBe(backfill);
+  });
+
   it("shows an empty state with a connect CTA when nothing is connected", async () => {
     stubApi([]);
     render(<ConnectorsCard />);
@@ -284,7 +312,7 @@ describe("the connected-inboxes card", () => {
     expect(alert.textContent).toMatch(/connect failed/);
     const row = screen
       .getByRole("button", { name: /Reconnect/ })
-      .closest(".panel-row");
+      .closest(".settingrow");
     expect(row).not.toBeNull();
     expect(row?.contains(alert)).toBe(true);
   });
@@ -558,6 +586,18 @@ describe("add a connection", () => {
     );
   });
 
+  // The two Google picks are one decision's worth of explanation, so the note
+  // is the add row's DESCRIPTION — which is also what wires it into the
+  // control's aria-describedby, where it reaches a screen reader at all.
+  it("describes the two Google picks on the add row itself", async () => {
+    stubApi([]);
+    render(<ConnectorsCard />);
+    const row = await screen.findByTestId("connector-add");
+    expect(
+      within(row).getByText(/Gmail and Google Calendar|separate/i),
+    ).toBeTruthy();
+  });
+
   it("hides the footer when all four providers are connected", async () => {
     stubApi([
       gmailConnected,
@@ -596,7 +636,10 @@ describe("the Telegram connector panel", () => {
     stubApi([], { channels: [salesBot, supportBot] });
     render(<ConnectorsCard />);
 
-    const rows = await screen.findAllByRole("listitem");
+    // One SettingRow per bot: the roster is a list of decisions now, so a bot
+    // is identified by its own row rather than by an <li> the list wrapper
+    // used to supply.
+    const rows = await screen.findAllByTestId("telegram-connection");
     expect(rows.length).toBe(2);
     expect(within(rows[0]).getByText("@acme_sales_bot")).toBeTruthy();
     expect(within(rows[1]).getByText("@acme_support_bot")).toBeTruthy();
@@ -613,7 +656,7 @@ describe("the Telegram connector panel", () => {
     stubApi([], { channels: [salesBot, supportBot] });
     render(<ConnectorsCard />);
 
-    const rows = await screen.findAllByRole("listitem");
+    const rows = await screen.findAllByTestId("telegram-connection");
     await userEvent.click(
       within(rows[1]).getByRole("button", { name: "Replace token" }),
     );

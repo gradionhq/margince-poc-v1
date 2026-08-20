@@ -33,11 +33,17 @@ import {
 import { api, FIRST_PAGE } from "../api/client";
 import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
-import { useCan, useCanWrite, useHoldsAdminRole } from "../app/capability";
+import {
+  useCan,
+  useCanWrite,
+  useHoldsAdminRole,
+  useHoldsOperatorSeat,
+} from "../app/capability";
 import { isEntityKind } from "../app/entity";
 import { unitsForSecretScope } from "../app/extensions";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
+import { navigateReplacing, type Route } from "../app/router";
 import { useUnsavedGuard } from "../app/unsaved";
 import {
   Avatar,
@@ -165,9 +171,19 @@ import "./settings.css";
 // fourteen — a number in prose beside a list is a second source of truth that
 // nothing updates and no test can check. The list below is the count.
 //
-// Two groups: "you" (per-user, every member) and "org" (organization config).
-// Every org entry carries its OWN predicate — the grant the cards on it actually
-// ask for — and the group heading renders when at least one member survives.
+// Two groups: "you" (per-user, every member) and "admin" (installation posture,
+// operator seats only — `useHoldsOperatorSeat`, which is admin or ops). The
+// whole admin group is ABSENT for a rep or a manager: it is the only place the
+// product offers installation configuration, so a seat that configures none of
+// it is offered none of it rather than a page of withheld cards.
+//
+// Every admin entry ALSO carries its own predicate — the grant the cards on it
+// actually ask for — and the group heading renders when at least one member
+// survives. The two gates answer different questions and both are needed: the
+// seat says whether this reader administers the installation at all, the grant
+// says whether this particular page has anything in it for them. An ops
+// principal whose role was edited to drop `license:read` loses that row and
+// keeps the rest, which no role check alone could express.
 // One predicate for the whole group could only ever be a guess about a
 // heterogeneous set: it spans surfaces with clean object grants (data model,
 // organization) and surfaces with no RBAC object at all (people, privacy),
@@ -207,19 +223,19 @@ export const SETTINGS_TABS = [
   { id: "agents", icon: KeyRound, group: "you" },
   { id: "connections", icon: Plug, group: "you" },
   { id: "capture-activity", icon: Activity, group: "you" },
-  { id: "general", icon: Building2, group: "org" },
-  { id: "people", icon: UsersRound, group: "org" },
-  { id: "integrations", icon: Webhook, group: "org" },
-  { id: "capture", icon: Mail, group: "org" },
-  { id: "data-model", icon: Database, group: "org" },
-  { id: "ai", icon: Sparkles, group: "org" },
-  { id: "privacy", icon: ShieldCheck, group: "org" },
-  { id: "license", icon: BadgeCheck, group: "org" },
-  { id: "maintenance", icon: Wrench, group: "org" },
+  { id: "general", icon: Building2, group: "admin" },
+  { id: "people", icon: UsersRound, group: "admin" },
+  { id: "integrations", icon: Webhook, group: "admin" },
+  { id: "capture", icon: Mail, group: "admin" },
+  { id: "data-model", icon: Database, group: "admin" },
+  { id: "ai", icon: Sparkles, group: "admin" },
+  { id: "privacy", icon: ShieldCheck, group: "admin" },
+  { id: "license", icon: BadgeCheck, group: "admin" },
+  { id: "maintenance", icon: Wrench, group: "admin" },
 ] as const satisfies readonly {
   id: string;
   icon: LucideIcon;
-  group: "you" | "org";
+  group: "you" | "admin";
 }[];
 
 // Exported alongside the register: a caller that needs the label for an entry
@@ -430,13 +446,32 @@ function DataModelTab() {
   );
 }
 
-const SETTINGS_GROUPS = ["you", "org"] as const;
+const SETTINGS_GROUPS = ["you", "admin"] as const;
+
+/**
+ * The route segment every Admin settings entry sits under.
+ *
+ * `#/settings/admin/privacy` rather than `#/settings/privacy`, so the address
+ * says which half of settings a reader is in — the same thing the panel heading
+ * says, and the thing a link pasted into a channel could not say before. The
+ * personal entries keep their own bare addresses: they are what a reader who
+ * types `#/settings/voice` means, and moving them too would break every
+ * bookmark to buy symmetry nobody reads.
+ *
+ * A legacy `#/settings/privacy` still resolves — see `settingsRouteTab` — and
+ * is rewritten to the address above, so nothing that exists today lands
+ * nowhere.
+ */
+export const ADMIN_SEGMENT = "admin";
 
 // The route this screen answers, named once: the shell mounts the settings level
 // by matching it, and the section published below declares it.
 export const SETTINGS_SCREEN = "settings";
 
-type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
+type AdminTabId = Extract<
+  (typeof SETTINGS_TABS)[number],
+  { group: "admin" }
+>["id"];
 
 // Which Organization entries this principal can use, one answer per entry, each
 // asking for the grant the cards on it ask for. The nav then describes the seat
@@ -444,16 +479,26 @@ type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
 // an edited role reaches the data model, and nobody is offered a page whose every
 // card would refuse them.
 //
-// OPENING AN ENTRY IS A READ, so every predicate here asks for a READ grant.
+// TWO GATES, and they answer different questions.
 //
-// They asked for write grants before, because each was written to answer "can you
-// USE this", and the cost was measured against the live API: a read-only seat was
-// hidden from eight of eleven entries the server answers 200 on — including three
-// surfaces (products, offer templates, custom fields) that were ungated routes of
-// their own before the merge. A client that hides a page the server serves is not
-// protecting anything; it is disagreeing with the authority. So the rule is one
-// rule for all of them: the entry opens if the principal may READ any part of it,
-// and the write affordances inside say for themselves who may use them.
+// The SEAT decides whether this half of settings exists for the reader at all:
+// installation posture is an operator's work, so `admin` and `ops` reach it and
+// nobody else does. That is a product decision about who configures an
+// installation, not a claim about what the server would answer — and it is worth
+// being precise about the difference, because the server has NOT changed: `GET
+// /users`, the automations read and the consent registry still answer 200 to
+// every authenticated seat. A REST or MCP caller holding a rep's passport reads
+// them exactly as before. What this gate scopes is the product's own navigation.
+//
+// The GRANT then decides whether a page an operator may open has anything in it,
+// and OPENING AN ENTRY IS A READ — so every predicate below asks for a READ
+// grant. They asked for write grants once, because each was written to answer
+// "can you USE this", and the cost was measured against the live API: a
+// read-only seat was hidden from eight of eleven entries the server answers 200
+// on, including three surfaces (products, offer templates, custom fields) that
+// were ungated routes of their own before the merge. Within the section that
+// lesson still holds in full: the entry opens if the principal may READ any part
+// of it, and the write affordances inside say for themselves who may use them.
 //
 // A read grant is not a formality even where every seeded role holds it. The
 // predicate asks the live grant, so a role edited to drop `custom_field:read`
@@ -490,7 +535,7 @@ type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
  */
 export function useSettingsEntryVisibility(
   probeCompanyFlag = true,
-): Readonly<Record<OrgTabId, boolean>> {
+): Readonly<Record<AdminTabId, boolean>> {
   const capabilities = useCompanyContextCapabilities(probeCompanyFlag);
   const pipeline = useCan("pipeline", "read");
   const product = useCan("product", "read");
@@ -509,13 +554,22 @@ export function useSettingsEntryVisibility(
   // consent/store.go's ListPurposes calls auth.Require(ctx, "person", read).
   const person = useCan("person", "read");
   const overlay = useCan("overlay_connection", "read");
+  // Whether this reader administers the installation at all. It gates the WHOLE
+  // group below rather than any one entry: every predicate in the returned map
+  // is ANDed with it, so a rep holding `automation:read` — which every seeded
+  // role holds — does not reach the AI page through a grant the section is not
+  // theirs to open. Read unconditionally, like every hook here.
+  const operator = useHoldsOperatorSeat();
   // The one predicate below that is a ROLE rather than a grant. `GET /admin/reset-data`
   // and the job-health read are gated on the literal admin role server-side and no
   // RBAC object describes them — a `role` object would encode a constant, and an
   // admin who revoked their own grant on it could never restore it (capability.ts).
   // Everything else above is a `read`, because opening a page is reading it.
   const isAdmin = useHoldsAdminRole();
-  return {
+  // Each entry's own read predicate, before the seat gate. Kept as its own
+  // object so the two gates stay legible as two rules: what this page asks for,
+  // and then whether this reader is in the half of settings that holds it.
+  const granted = {
     // The organization, its profile and its currency table are one entry now, so
     // the predicate is the union of what they each asked for. Each is gated on
     // the SAME live grant the card inside asks for rather than on a role name:
@@ -538,12 +592,21 @@ export function useSettingsEntryVisibility(
     // an admin who revoked their own grant on it could never restore it
     // (capability.ts) — so the server gates it on the role directly.
     //
-    // Open to every member, because the server is: `GET /users` answers 200 to
-    // any authenticated principal, and the roster is the answer to "who is on my
-    // team, and what may they do", which is not an admin's private question. The
-    // invite form and every role control below it are the admin's, and withhold
-    // themselves. Membership is the honest predicate here, and every principal
-    // reaching this code has it by construction.
+    // `true` here means "this page asks for no grant of its own" and nothing
+    // more: the seat gate above it is what decides who reaches it, and under
+    // that gate the reader is an operator by the time this is read.
+    //
+    // The roster used to be open to every member, because the server is: `GET
+    // /users` answers 200 to any authenticated principal, and "who is on my team
+    // and what may they do" is not an admin's private question. That read is
+    // what this change costs a rep — a deliberate cost, not an oversight. The
+    // server still serves them; nothing in the product offers it any more. If
+    // the team directory turns out to be a read a rep needs, it belongs on a
+    // People screen of its own rather than back inside admin configuration.
+    //
+    // The invite form and every role control below still withhold themselves on
+    // their own authority, so an operator who is not an admin sees the roster
+    // and none of the controls.
     people: true,
     capture: captureSettings,
     // The installation's own outside wiring — the shared provider credential, the
@@ -599,20 +662,102 @@ export function useSettingsEntryVisibility(
     // between asking the grant and asking who somebody is.
     license: licenseRead,
     maintenance: isAdmin || embeddingReindex,
-  };
+  } satisfies Readonly<Record<AdminTabId, boolean>>;
+  // The seat, applied to the whole group at once. It gates the SECTION rather
+  // than any one entry, so the honest shape is one answer for all of them: a
+  // reader who does not administer the installation is offered none of it,
+  // whatever their grants say.
+  //
+  // Written out rather than mapped over the object, because `Object.entries`
+  // widens the keys to `string` and coming back to `AdminTabId` from there takes
+  // an assertion — and an assertion is exactly what must not stand between a
+  // permission map and the nav that reads it. The return type demands all nine
+  // keys, so an entry added above and forgotten here fails to compile rather
+  // than shipping ungated. Every hook above has already run, so returning here
+  // costs no hook: the count is fixed before the seat is consulted.
+  if (!operator) {
+    return {
+      general: false,
+      people: false,
+      capture: false,
+      integrations: false,
+      "data-model": false,
+      ai: false,
+      privacy: false,
+      license: false,
+      maintenance: false,
+    };
+  }
+  return granted;
+}
+
+/**
+ * Which entry an address names, and whether that address is the current one.
+ *
+ * Two shapes reach here. `#/settings/admin/privacy` is what the product mints
+ * today; `#/settings/privacy` is what every link written before the admin half
+ * had a segment of its own says, and it still resolves — a bookmark, a pasted
+ * link and a docs page must not land nowhere because the IA grew a level of
+ * naming. `legacy` is what tells `SettingsScreen` to rewrite the address it was
+ * given, so the two spellings do not both stay in circulation.
+ *
+ * A personal entry addressed THROUGH the admin segment (`#/settings/admin/voice`)
+ * is not resolved: it is not an address the product ever minted, and answering
+ * it would make two live addresses for one page.
+ */
+export function settingsRouteTab(route: Route): {
+  readonly tab: string | undefined;
+  readonly legacy: boolean;
+} {
+  if (route.id === ADMIN_SEGMENT) {
+    // Only an ADMIN entry answers under the admin segment. A personal id here
+    // resolves to nothing rather than to its page: the page already has an
+    // address, and serving it under a second one puts a spelling in circulation
+    // that nothing mints and nothing rewrites. Unresolved, it falls back like any
+    // other address the register does not answer.
+    const deep = SETTINGS_TABS.find((candidate) => candidate.id === route.id2);
+    return {
+      tab: deep?.group === "admin" ? deep.id : undefined,
+      legacy: false,
+    };
+  }
+  const entry = SETTINGS_TABS.find((candidate) => candidate.id === route.id);
+  return { tab: route.id, legacy: entry?.group === "admin" };
+}
+
+/**
+ * The address one settings entry lives at.
+ *
+ * Every caller that mints a settings link goes through this — the redirect
+ * below, the command palette's two shortcuts, the test kit's rail. The admin
+ * group's extra segment is a property of the ENTRY, so a caller that knew only
+ * the tab id would have to look the group up to build the link, and one of them
+ * would eventually not bother.
+ *
+ * An id no entry answers keeps the shallow shape: it is the address a reader
+ * typed, and `useVisibleSettingsTabs` is what decides what it lands on.
+ */
+export function settingsAddress(tab?: string): Route {
+  const entry = SETTINGS_TABS.find((candidate) => candidate.id === tab);
+  return entry?.group === "admin"
+    ? { screen: SETTINGS_SCREEN, id: ADMIN_SEGMENT, id2: entry.id }
+    : { screen: SETTINGS_SCREEN, id: tab };
 }
 
 // Which tabs this principal may use, and which of them the route selects. The
 // nav in the sidebar and the content on the page both read this, so the two
 // cannot disagree about what is current — including on the fallback below.
 function useVisibleSettingsTabs(tab?: string) {
-  const orgTabVisible = useSettingsEntryVisibility();
+  const adminTabVisible = useSettingsEntryVisibility();
   const tabs = SETTINGS_TABS.filter(
-    (entry) => entry.group !== "org" || orgTabVisible[entry.id],
+    (entry) => entry.group !== "admin" || adminTabVisible[entry.id],
   );
   // Unknown / absent id (or one this principal cannot see) falls back to the
   // first visible tab — a stale deep-link lands on Account, never a blank
-  // screen.
+  // screen. A rep who follows somebody's link to an admin page lands there too,
+  // silently: the section is absent for them, and a page announcing that it
+  // exists but is not theirs would be the one thing an absent section is chosen
+  // to avoid saying.
   return { tabs, active: tabs.find((entry) => entry.id === tab) ?? tabs[0] };
 }
 
@@ -627,8 +772,8 @@ function useVisibleSettingsTabs(tab?: string) {
  * above them already carries: "Settings / Your settings / …" said it twice in a
  * 200px column.
  */
-export function useSettingsSection(tab?: string): NavSection {
-  const { tabs, active } = useVisibleSettingsTabs(tab);
+export function useSettingsSection(route: Route): NavSection {
+  const { tabs, active } = useVisibleSettingsTabs(settingsRouteTab(route).tab);
   // Both message keys are composed from the ids, and both annotations are what
   // make them KEYS: a template literal narrows to the catalog's union only where
   // something expects one, and unannotated it would compile as any old string —
@@ -641,6 +786,10 @@ export function useSettingsSection(tab?: string): NavSection {
         .map(
           (entry): NavLevelEntry => ({
             id: entry.id,
+            // Where the row actually points. The admin group sits a segment
+            // deeper than the personal one, and the panel shows both under one
+            // pair of headings — so the depth is the ENTRY's, not the level's.
+            prefix: entry.group === "admin" ? [ADMIN_SEGMENT] : undefined,
             labelKey: `settings.tab.${entry.id}`,
             icon: entry.icon,
           }),
@@ -655,8 +804,23 @@ export function useSettingsSection(tab?: string): NavSection {
   };
 }
 
-export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
+export function SettingsScreen({ route }: Readonly<{ route: Route }>) {
+  const { tab, legacy } = settingsRouteTab(route);
   const { active } = useVisibleSettingsTabs(tab);
+  // A legacy admin address is answered AND rewritten: the reader gets the page
+  // they asked for, and the URL bar then says where that page lives, so the
+  // link they copy from it is the current one. Replaced rather than pushed, or
+  // Back would land on the address that redirects and trap them there.
+  //
+  // Keyed on the entry the route RESOLVED to rather than on the segment it
+  // carried, so a rewrite never invents an address: a rep following a link to
+  // an admin page falls back to their first visible entry, and this rewrites to
+  // THAT, which is where they actually are.
+  useEffect(() => {
+    if (legacy) {
+      navigateReplacing(settingsAddress(active.id));
+    }
+  }, [legacy, active]);
   // No nav column and no heading of its own: the entries are the sidebar's second
   // level now, and the shell's page head names the entry, so the page is that
   // entry's own content across the whole reading column.

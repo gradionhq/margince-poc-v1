@@ -455,6 +455,8 @@ export const vi = {
   "overlay.adminOnly": "Bạn không có quyền thay đổi kết nối HubSpot.",
   "overlay.region": "Khu vực",
   "overlay.regionEu1": "EU",
+  "overlay.connectionLabel": "Kết nối",
+  "overlay.notConnectedYet": "Chưa kết nối",
   "overlay.regionUs": "Hoa Kỳ",
   "overlay.token": "Token private app",
   "overlay.tokenHint":
@@ -524,6 +526,7 @@ export const vi = {
   "overlay.userMap.unmap": "Bỏ ánh xạ",
   "overlay.userMap.cancel": "Huỷ",
   "overlay.userMap.pickerLabel": "Tìm người dùng {principal}",
+  "overlay.userMap.pickTitle": "Ghép với người dùng {principal}",
   "overlay.userMap.truncated":
     "Danh bạ {principal} dài hơn danh sách này — người bạn không tìm thấy ở đây có thể nằm ngoài phần đã tải.",
   "overlay.userMap.directoryFailed":
@@ -1080,6 +1083,9 @@ export const vi = {
   "linkedinImport.profileLabel": "URL hồ sơ LinkedIn của bạn",
   "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
   "linkedinImport.saveProfile": "Lưu hồ sơ",
+  "linkedinImport.editProfile": "Sửa",
+  "linkedinImport.editProfileTitle": "Trang LinkedIn của bạn",
+  "linkedinImport.profileNotSet": "Chưa ghi nhận",
   "linkedinImport.connectedNote":
     "Đã kết nối. Các kết nối nhập vào được quy về hồ sơ này, nhờ đó CRM nói được đồng nghiệp nào quen người đó, chứ không phải “công ty” quen.",
   "linkedinImport.notConnectedNote":
@@ -1087,6 +1093,7 @@ export const vi = {
   "linkedinImport.whichFile":
     "Tệp bạn cần là Connections.csv — kho lưu trữ xuất ra còn cả chục tệp khác.",
   "linkedinImport.choose": "Chọn tệp Connections.csv",
+  "linkedinImport.importLabel": "Tệp xuất danh bạ",
   "linkedinImport.noMatchesYet":
     "Chưa có kết quả khớp nào, điều này là bình thường với một tổ chức mới: các kết nối của bạn được đối chiếu với những contact mà CRM đã biết, và số đó tăng dần khi thư của bạn được đọc. Việc này chạy lại mỗi giờ, nên kết quả khớp sẽ xuất hiện khi CRM đầy dần lên.",
   "linkedinImport.working": "Đang đọc bản xuất của bạn…",
@@ -2286,6 +2293,8 @@ export const vi = {
   "import.title": "Nhập tệp",
   "import.sub":
     "Đưa tệp CSV khách hàng tiềm năng hoặc công ty vào hệ thống. Không có gì được ghi cho đến khi bạn đã đọc điều sẽ xảy ra.",
+  "import.startLabel": "Nhập tệp CSV",
+  "import.start": "Bắt đầu nhập",
   "import.objectLabel": "Các dòng là gì",
   "import.object.lead": "Khách hàng tiềm năng",
   "import.object.organization": "Công ty",
@@ -2431,6 +2440,7 @@ export const vi = {
   "privacy.purposesReadOnly":
     "Chế độ chỉ đọc — chỉ quản trị viên hoặc ops mới thêm được mục đích.",
   "privacy.addPurpose": "Thêm mục đích",
+  "privacy.purposesRegistry": "Mục đích đã đăng ký",
   "privacy.purposeKey": "Khoá",
   "privacy.purposeLabel": "Nhãn",
   "privacy.purposeDoi": "Cần xác nhận kép",
@@ -2455,6 +2465,7 @@ export const vi = {
   "privacy.fulfil": "Thực hiện",
   "privacy.reject": "Từ chối",
   "privacy.newRequest": "Yêu cầu mới",
+  "privacy.queue": "Yêu cầu",
   "privacy.kind": "Loại",
   "privacy.person": "Người",
   "privacy.subjectRef": "Tham chiếu chủ thể",
@@ -2479,6 +2490,7 @@ export const vi = {
     "Chỉ quản trị viên hoặc vận hành mới thấy bản ghi nào đang bị nghĩa vụ pháp lý giữ lại. Dùng cùng quyền với thang lưu giữ.",
   "restricted.empty":
     "Không có bản ghi nào bị giữ lại — mọi lần xóa cho đến nay đều được hoàn tất đầy đủ.",
+  "restricted.heldLabel": "Bản ghi đang bị giữ",
   "restricted.kind": "Bản ghi",
   "restricted.occurred": "Ngày",
   "restricted.deals": "Giao dịch",
@@ -3071,6 +3083,8 @@ export const vi = {
   "consumerMail.title": "Tên miền thư cá nhân",
   "consumerMail.sub":
     "Thư từ một hộp thư cá nhân vẫn tạo ra người — chỉ là không bao giờ tạo ra công ty. Margince có sẵn danh sách các nhà cung cấp này; hãy thêm những gì còn thiếu, hoặc lấy lại một tên miền bị nhận nhầm.",
+  "consumerMail.addedTitle": "Đã thêm tại đây",
+  "consumerMail.addTitle": "Thêm một tên miền",
   "consumerMail.domainLabel": "Tên miền",
   "consumerMail.domainPlaceholder": "provider.example",
   "consumerMail.kindLabel": "Tên miền này là gì",
@@ -3095,6 +3109,9 @@ export const vi = {
   "blockedDomains.title": "Tên miền bị từ chối",
   "blockedDomains.sub":
     "Những tên miền mà bản cài đặt này không cho thành công ty, và điều gì đã quyết định từng trường hợp — một phán định của mô hình, một quy tắc suy đoán, hay một con người. Cho một tên miền vào lại sẽ mở lại câu hỏi về công ty, chứ không chỉ xoá một dấu hiệu.",
+  "blockedDomains.listTitle": "Các quyết định đã lưu",
+  "blockedDomains.record": "Ghi một quyết định",
+  "blockedDomains.recordOpen": "Ghi…",
   "blockedDomains.domainLabel": "Tên miền",
   "blockedDomains.domainPlaceholder": "nhacungcap.example",
   "blockedDomains.admissionLabel": "Quyết định",
@@ -3791,6 +3808,8 @@ export const vi = {
   "password.signsYouOut":
     "Việc đổi mật khẩu sẽ đăng xuất bạn ở mọi nơi, kể cả ở đây. Hãy đăng nhập lại bằng mật khẩu mới.",
   "password.changing": "Đang đổi mật khẩu…",
+  "password.open": "Đổi mật khẩu…",
+  "password.cancel": "Hủy",
   "password.submit": "Đổi mật khẩu",
   "password.done": "Đã đổi mật khẩu. Hãy đăng nhập lại bằng mật khẩu mới.",
   "password.errorGeneric": "Không đổi được mật khẩu. Hãy thử lại.",
@@ -4243,6 +4262,7 @@ export const vi = {
   "license.state.licensed": "Đã có giấy phép",
   "license.state.uncapped": "Đã có giấy phép, không giới hạn chỗ",
   "license.state.unlicensed": "Chưa cấu hình giấy phép",
+  "license.seats.title": "Số chỗ",
   "license.seats.used": "Chỗ đang dùng",
   "license.seats.granted": "Chỗ được cấp",
   "license.seats.uncapped": "Không giới hạn",
@@ -4266,7 +4286,7 @@ export const vi = {
   "license.counting":
     "Chỗ đầy đủ chưa bị vô hiệu hoá và chưa bị tạm ngưng, bao gồm cả agent. Chỗ chỉ đọc là không giới hạn và không bao giờ được tính. Thành viên mới được xét theo con số này.",
   "settings.group.you": "Cá nhân",
-  "settings.group.org": "Tổ chức",
+  "settings.group.admin": "Cài đặt quản trị",
   "settings.rates.fxTitle": "Tỷ giá",
   "settings.rates.fxIntro":
     "Tỷ giá quy đổi số tiền ngoại tệ về tiền tệ gốc của bạn. Tỷ giá mới có hiệu lực từ hôm nay trở đi; tỷ giá quá khứ không bao giờ bị sửa.",
@@ -4276,6 +4296,7 @@ export const vi = {
     "Chỉ quản trị viên hoặc ops mới thấy được chi phí từng mô hình. Đây là thông tin vận hành, nên không hiển thị rộng hơn.",
   "settings.rates.readOnly":
     "Chế độ chỉ đọc — bạn không có quyền thay đổi tỷ giá.",
+  "settings.rates.fxTableLabel": "Tỷ giá đang áp dụng",
   "settings.rates.fxAdd": "Đặt tỷ giá",
   "settings.rates.fxEmpty": "Chưa có tỷ giá nào.",
   "settings.rates.fxModalTitle": "Đặt một tỷ giá",
@@ -4283,6 +4304,7 @@ export const vi = {
   "settings.rates.modelTitle": "Chi phí mô hình AI",
   "settings.rates.modelIntro":
     "Giá theo từng mô hình, tính bằng USD cho mỗi 1M token, dùng để ước lượng chi tiêu AI. Chỉ để minh bạch — giá không bao giờ làm đổi cách định tuyến mô hình.",
+  "settings.rates.modelTableLabel": "Giá đang áp dụng",
   "settings.rates.modelAdd": "Thêm giá mô hình",
   "settings.rates.modelEmpty": "Chưa có giá mô hình nào.",
   "settings.rates.modelModalTitle": "Đặt giá một mô hình",
@@ -4511,6 +4533,7 @@ export const vi = {
   "users.agentSeat": "Agent",
   "users.agentSeatRole": "Hành động theo passport, không theo vai trò",
   "users.roleLabel": "Vai trò cho thành viên mới",
+  "users.inviteOpen": "Mời thành viên…",
   "users.invite": "Mời",
   "users.setRole": "Đặt vai trò…",
   "users.setRoleFor": "Đặt vai trò cho {name}",
@@ -4655,8 +4678,9 @@ export const vi = {
   "aiusage.col.tokensOut": "Token ra",
   "aiusage.col.cost": "Chi phí ước tính",
   "aiusage.costNote": "Chi phí là ước tính theo mức giá đã cấu hình.",
+  "aiusage.monthLabel": "Tháng",
+  "aiusage.spendLabel": "Chi phí theo nhiệm vụ",
   "aiusage.days.show": "Hiện theo ngày",
-  "aiusage.days.hide": "Ẩn phần theo ngày",
   "aiusage.empty": "Không có lượt gọi AI nào trong khoảng này.",
   "aiusage.prevMonth": "Tháng trước",
   "aiusage.nextMonth": "Tháng sau",
@@ -4683,6 +4707,7 @@ export const vi = {
   "aicalls.badge.cacheHit": "trúng cache",
   "aicalls.badge.degraded": "giảm cấp",
   "aicalls.badge.retries": "thử lại ×{count}",
+  "aicalls.callsLabel": "Các lệnh gọi gần đây",
   "aicalls.filter.all": "Mọi tác vụ",
   "aicalls.loadMore": "Tải thêm",
   "aicalls.empty": "Chưa ghi nhận lượt gọi AI nào.",
@@ -4809,6 +4834,8 @@ export const vi = {
     "Đã khoá: đã có giao dịch được quy đổi theo đơn vị tiền tệ này, nên việc thay đổi sẽ làm sai lệch mọi số liệu tổng hợp dựa trên chúng.",
   "installationSettings.readOnly":
     "Chỉ quản trị viên hoặc ops mới có thể thay đổi các thiết lập này.",
+  "installationSettings.edit": "Sửa",
+  "installationSettings.editField": "Sửa {field}",
   "installationSettings.save": "Lưu",
   "captureSettings.title": "Bổ sung thông tin",
   "captureSettings.sub":
@@ -4826,6 +4853,7 @@ export const vi = {
     "Địa chỉ và tên miền có tin nhắn không bao giờ vào CRM. Quy tắc của riêng bạn chỉ áp dụng cho hộp thư bạn đã kết nối; quy tắc của tổ chức áp dụng cho mọi người.",
   "captureExclusions.notRetroactive":
     "Có hiệu lực từ tin nhắn tiếp theo. Tin nhắn đã thu thập vẫn giữ nguyên.",
+  "captureExclusions.current": "Quy tắc đang áp dụng",
   "captureExclusions.empty": "Không có loại trừ.",
   "captureExclusions.scope.user": "Chỉ tôi",
   "captureExclusions.scope.workspace": "Toàn tổ chức",
@@ -4841,6 +4869,7 @@ export const vi = {
   "ownDomains.title": "Tên miền email của công ty",
   "ownDomains.sub":
     "Những tên miền thuộc về công ty này. Khi đồng nghiệp viết thư cho nhau, thư đó không được lưu. Kể cả với bạn.",
+  "ownDomains.curatedTitle": "Quản lý tại đây",
   "ownDomains.irreversible":
     "Thêm một tên miền sẽ có hiệu lực từ thư kế tiếp. Nếu sau này xóa đi, việc thu thập sẽ tiếp tục từ thời điểm đó. Những thư đã bị bỏ qua trong thời gian tên miền còn được đăng ký thì không thể được gửi lại qua bất kỳ hộp thư nào nữa. Thư đã thu thập thì vẫn còn.",
   "ownDomains.fromCompany": "Từ hồ sơ công ty. Sửa tại đó:",
@@ -4890,6 +4919,7 @@ export const vi = {
   "webhooks.deliveries.show": "Xem lượt gửi",
   "webhooks.deliveries.hide": "Ẩn lượt gửi",
   "webhooks.deliveries.empty": "Chưa có lượt gửi nào.",
+  "webhooks.deliveries.title": "Các lần gửi",
   "webhooks.deliveries.deadLetterGroup": "Đã bỏ vào hàng lỗi ({count})",
   "webhooks.deliveries.allGroup": "Các lượt khác",
   "webhooks.deliveries.column.status": "Trạng thái",
@@ -4915,6 +4945,13 @@ export const vi = {
     "Trạng thái dựng lại chỉ mục của kho embedding — chỉ quản trị và vận hành, kể cả việc xem.",
   "embedreindex.withheld":
     "Chỉ quản trị viên hoặc ops mới thấy được chỉ mục tìm kiếm. Dựng lại nó tiêu tốn token của cả bản cài đặt, nên trạng thái của nó không được hiển thị rộng hơn.",
+  "embedreindex.statusLabel": "Trạng thái chỉ mục",
+  "embedreindex.reindexLabel": "Lập lại chỉ mục phần đã thay đổi",
+  "embedreindex.reindexHelp":
+    "Chỉ nhúng lại những bản ghi có nội dung đã thay đổi kể từ lần chạy trước.",
+  "embedreindex.rebuildLabel": "Xây dựng lại toàn bộ chỉ mục",
+  "embedreindex.rebuildHelp":
+    "Nhúng lại mọi bản ghi từ đầu. Dùng khi một lần chạy bị treo hoặc mô hình nhúng đã thay đổi.",
   "embedreindex.statusIdle": "Đã cập nhật",
   "embedreindex.statusNeeded": "Cần dựng lại chỉ mục",
   "embedreindex.statusReembedding": "Đang dựng lại chỉ mục…",
@@ -5362,7 +5399,6 @@ export const vi = {
   "provider.spend.heldHead": "Đang giữ",
   "provider.spend.runsHead": "Lượt tra cứu",
   "provider.spend.none": "Chưa mua gì cả.",
-  "provider.mode": "Khi nào làm giàu",
 
   // Phần trên trang cá nhân. Ba trạng thái "không có gì" là ba câu khác
   // nhau có chủ đích: chỉ một trong số đó là điều người đọc có thể xử lý.

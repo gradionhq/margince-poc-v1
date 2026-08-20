@@ -15,9 +15,13 @@ import { Button, Modal } from "../design-system/atoms";
 import { Logomark } from "../design-system/logomark";
 import { useT } from "../i18n";
 import { useLicenseEntitlement } from "../screens/license";
-import { SETTINGS_SCREEN, useSettingsSection } from "../screens/settings";
+import {
+  SETTINGS_SCREEN,
+  settingsAddress,
+  useSettingsSection,
+} from "../screens/settings";
 import { AgentDock } from "./agentdock";
-import { useCan } from "./capability";
+import { useCan, useHoldsOperatorSeat } from "./capability";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { SCREEN_ENTITY } from "./entity";
@@ -30,7 +34,7 @@ import {
   type NavLevelEntry,
   type NavLevelGroup,
   type NavSection,
-  navLevelHref,
+  navEntryHref,
   RAIL_LESS_SCREENS,
 } from "./nav";
 import {
@@ -181,7 +185,17 @@ function RailLicense({
   onTip: (key: string | null) => void;
 }>) {
   const t = useT();
-  const mayRead = useCan("license", "read");
+  // The SAME predicate the License entry answers to (screens/settings.tsx):
+  // the read grant, and the operator seat that decides whether Admin settings
+  // exists for this reader at all. Without the seat this row would offer a
+  // manager a link that lands on the Account fallback — a chip that lied, which
+  // is the same defect the command palette gates itself against.
+  const licenseRead = useCan("license", "read");
+  const operator = useHoldsOperatorSeat();
+  // Both hooks run unconditionally and the `&&` sits on their RESULTS: a
+  // short-circuit around the calls would change how many hooks this render
+  // performs depending on the first answer.
+  const mayRead = licenseRead && operator;
   const query = useLicenseEntitlement(mayRead);
   const entitlement = query.data;
   if (!mayRead || !entitlement) {
@@ -214,7 +228,7 @@ function RailLicense({
   return (
     <a
       className={pressing ? "raillicense pressing" : "raillicense"}
-      href={routeHash({ screen: SETTINGS_SCREEN, id: "license" })}
+      href={routeHash(settingsAddress("license"))}
       // The row prints a count; the name says what is being counted, because
       // "12/25" spoken alone is not a sentence about anything.
       aria-label={`${t("shell.license.aria")} — ${label}`}
@@ -463,7 +477,7 @@ export function WorkspaceRail({
  * no other screen pays for the visibility probes the hook makes.
  */
 export function SettingsRail(props: Readonly<RailProps>) {
-  const section = useSettingsSection(props.route.id);
+  const section = useSettingsSection(props.route);
   return <WorkspaceRail {...props} section={section} />;
 }
 
@@ -487,7 +501,7 @@ function SettingsTopBar({
   onToggle: () => void;
   onOpenSearch: () => void;
 }>) {
-  const section = useSettingsSection(route.id);
+  const section = useSettingsSection(route);
   return (
     <TopBar
       route={route}
@@ -501,7 +515,7 @@ function SettingsTopBar({
 }
 
 function SettingsPageTitle({ route }: Readonly<{ route: Route }>) {
-  const section = useSettingsSection(route.id);
+  const section = useSettingsSection(route);
   return <PageTitle route={route} section={section} />;
 }
 
@@ -525,7 +539,7 @@ function SectionPickGroup({
       {group.items.map((entry) => (
         <a
           key={entry.id}
-          href={navLevelHref([section.screen], entry.id)}
+          href={navEntryHref([section.screen], entry)}
           aria-current={entry.id === activeId ? "page" : undefined}
           // The sheet covers the page it just navigated to, so a row that acts
           // takes the sheet with it.

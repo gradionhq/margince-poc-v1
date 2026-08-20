@@ -152,6 +152,12 @@ describe("JobHealthCard", () => {
     // whose counts they are.
     expect(screen.getByText("retention_sweep_dispatch")).toBeInTheDocument();
     expect(screen.getByText(/carry no organization/i)).toBeInTheDocument();
+    // Each of the three readings is a NAMED row. The counts and the failures
+    // are the same shape on screen, so a reading that lost its naming would
+    // leave an operator reading fleet work as this organization's.
+    expect(screen.getByText("This organization")).toBeInTheDocument();
+    expect(screen.getByText("Fleet dispatchers")).toBeInTheDocument();
+    expect(screen.getByText("Recent failures")).toBeInTheDocument();
     // The stall signal, in a unit that survives the sub-hour case: 4500s reads as
     // one hour, never format.ts's "0 hr" flooring — and in the singular, which is
     // the whole reason the four duration keys carry a .one form.
@@ -361,5 +367,10 @@ describe("JobHealthCard", () => {
     expect(
       await screen.findByText(/nothing in the background queue/i),
     ).toBeInTheDocument();
+    // In its own words, INSTEAD of the readings — not three named rows each
+    // saying it has nothing. That the background system is idle is one finding,
+    // and a list of empty rows reports it three times as three.
+    expect(screen.queryByText("This organization")).not.toBeInTheDocument();
+    expect(screen.queryByText("Recent failures")).not.toBeInTheDocument();
   });
 });

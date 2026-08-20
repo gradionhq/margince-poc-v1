@@ -15,11 +15,13 @@ import {
   Button,
   Field,
   type FieldControl,
+  Modal,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { ToastRegion, useToast } from "../design-system/toast";
 import { useT } from "../i18n";
 import {
@@ -33,30 +35,38 @@ import {
 // the IANA zone every reporting period is computed in, and the ISO-4217 base
 // currency every roll-up converts to. Every role reads them — a rep reading
 // amounts benefits from knowing which currency they are in — and only admin/ops
-// may change them, so the fields are disabled rather than hidden for everyone
-// else, and the reason is stated where the save action would otherwise be.
-// Disabling without a reason is the failure mode this avoids: it is
-// indistinguishable from a bug, and a reader cannot act on it either way.
+// may change them, so the three facts are READ on the card for everyone and the
+// verb that changes them is refused with a reason for everyone else. Refusing
+// without a reason is the failure mode this avoids: it is indistinguishable
+// from a bug, and a reader cannot act on it either way.
 //
-// ONE panel with two sections, not two cards. The two subjects — what the
-// organization is called and when its periods start, then the currency every
-// amount is re-expressed in — edit ONE record through one sparse PATCH, so
-// there is one save; and a save that sits after the last card is a control a
-// reader has to scroll past a card boundary to find, having been told nothing
-// about which fields it commits. Inside one panel the action band sits under
-// the fields it writes.
+// THREE ROWS AND ONE FORM. The card is a list of decisions — what the
+// organization is called, when its periods start, which currency every amount
+// is re-expressed in — so each is a row that shows its own answer, which is
+// what lets a reader audit the installation by travelling one column. The
+// EDITING is one act: the server takes ONE sparse PATCH, so the three fields
+// are submitted together with one Save, and that belongs in a dialog rather
+// than on the card (design-system README, `SettingList` / `SettingRow`: a
+// control needing two inputs submitted together goes behind a verb, which
+// keeps every row an answer). Each row's Edit opens that one dialog with its
+// own field focused, so the verb beside a fact leads to the fact.
 //
 // The base currency is a fourth state: it stops being changeable once a deal
 // has frozen a conversion rate against it (ADR-0085 §7). The server reports
-// that as a flag and a reason, so the field renders read-only WITH the reason
-// beside it — an operator learns why before typing a value they cannot save,
-// rather than discovering it from a 422.
+// that as a flag and a reason, so the row and the field both carry the reason
+// — an operator learns why before typing a value they cannot save, rather than
+// discovering it from a 422.
 
 // Both shapes come from the generated contract rather than being restated
 // here: a hand-written copy would drift the first time the contract gains a
 // field, and drift silently, since nothing compares the two.
 type InstallationSettings = components["schemas"]["InstallationSettings"];
 type Patch = components["schemas"]["UpdateInstallationSettingsRequest"];
+
+// Which fact the reader pressed Edit on. The dialog always edits all three —
+// one record, one sparse PATCH, one Save — so this decides nothing about what
+// is written, only where focus lands when the dialog opens.
+type EditedFact = "name" | "timezone" | "base_currency";
 
 function useUpdateInstallationSettings(onSaved: () => void) {
   const t = useT();
@@ -108,6 +118,24 @@ export function InstallationSettingsCard() {
   );
 }
 
+// A frozen currency is frozen for an admin too, so the lock reason replaces the
+// advice about what to type — that advice is about a value nobody can set. The
+// row and the field inside the dialog say the same thing, from one expression,
+// because two copies of this rule would answer differently the day the server
+// stops sending a reason.
+function currencyNote(
+  settings: InstallationSettings,
+  t: ReturnType<typeof useT>,
+): string {
+  if (!settings.base_currency_locked) {
+    return t("installationSettings.baseCurrencyHint");
+  }
+  return (
+    settings.base_currency_locked_reason ??
+    t("installationSettings.baseCurrencyLocked")
+  );
+}
+
 function InstallationSettingsForm({
   settings,
   canManage,
@@ -117,14 +145,16 @@ function InstallationSettingsForm({
 }) {
   const t = useT();
   const toast = useToast();
+  const [editing, setEditing] = useState<EditedFact | null>(null);
   // The save's only visible answer was the button going disabled, because the
   // draft now matched the server. A control losing its affordance reads as the
   // form having given up, not as the write having landed — and on this form the
   // patch is SPARSE, so an operator who changed one field of three had no way to
   // tell which of them the installation now holds.
-  const update = useUpdateInstallationSettings(() =>
-    toast.show(t("settings.saved")),
-  );
+  const update = useUpdateInstallationSettings(() => {
+    toast.show(t("settings.saved"));
+    setEditing(null);
+  });
   const [draft, setDraft] = useState(settings);
   const seeded = useRef(serverSignature(settings));
 
@@ -147,15 +177,12 @@ function InstallationSettingsForm({
     setDraft(settings);
   }, [settings]);
 
-  // The denial, said once and POINTED AT. Disabling a row of fields and leaving
-  // the reason to float below the last of them tells a screen reader nothing:
-  // the explanation is read only if the reader happens to land on that
-  // paragraph, which is not where a refused control leaves them. `Switch`'s
-  // `reason` prop is the pattern (design-system README) — render it AND name it
-  // on the control — and `aria-describedby` is that same wiring for a field.
-  // It is ADDED to the field's own hint rather than replacing it, because "what
-  // to type here" and "why you cannot" are two different things a reader needs
-  // and neither is the other's substitute.
+  // The denial, said once and POINTED AT, from every control it refuses. It
+  // refuses three Edit verbs on the card and — if the grant is withdrawn while
+  // the dialog is open, which /me's focus refetch can do — the three fields
+  // inside it. `Button`'s `reasonId` and a field's `aria-describedby` are the
+  // same wiring: name the sentence once, point every refused control at it.
+  // Printing it beside each of them would state one fact three times.
   const denialId = useId();
   const describe = (control: FieldControl): string | undefined =>
     canManage
@@ -184,6 +211,9 @@ function InstallationSettingsForm({
     draft.timezone !== settings.timezone ||
     draft.base_currency !== settings.base_currency;
   // The claim the Save button's own condition was already making privately.
+  // It outlives the dialog on purpose: dismissing the dialog does not destroy
+  // what was typed (the draft is still here, and reopening Edit shows it), so
+  // an unsaved edit is still an unsaved edit on the way out of the page.
   useUnsavedGuard(dirty);
 
   // Only changed fields are sent: the patch is sparse, and sending an
@@ -199,146 +229,218 @@ function InstallationSettingsForm({
     update.mutate(patch);
   };
 
-  return (
-    // ONE form, ONE panel, ONE submit — the patch already sends only the fields
-    // that changed, which is what keeps a save from touching a frozen currency
-    // nobody edited. The action rides in the panel's own action band, directly
-    // under the last field it commits.
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
+  const editVerb = (fact: EditedFact, field: string) => (
+    <Button
+      variant="ghost"
+      // Named by the fact it changes, not "Edit": three rows offering three
+      // identically-named buttons make a screen reader's user count them.
+      aria-label={t("installationSettings.editField", { field })}
+      reasonId={canManage ? undefined : denialId}
+      onClick={() => setEditing(fact)}
     >
-      <Panel
-        title={t("installationSettings.orgTitle")}
-        actions={
-          <SaveAction
+      {t("installationSettings.edit")}
+    </Button>
+  );
+
+  return (
+    <Panel title={t("installationSettings.orgTitle")}>
+      <PanelBody>
+        <p className="t-small settings-panel-sub">
+          {t("installationSettings.orgSub")}
+        </p>
+        {!canManage && (
+          <p className="t-caption" id={denialId}>
+            {t("installationSettings.readOnly")}
+          </p>
+        )}
+        <SettingList>
+          <SettingRow
+            label={t("installationSettings.name")}
+            description={t("installationSettings.nameHint")}
+            value={settings.name}
+            control={editVerb("name", t("installationSettings.name"))}
+          />
+          <SettingRow
+            label={t("installationSettings.timezone")}
+            description={t("installationSettings.timezoneHint")}
+            value={settings.timezone}
+            control={editVerb("timezone", t("installationSettings.timezone"))}
+          />
+          <SettingRow
+            label={t("installationSettings.baseCurrency")}
+            description={currencyNote(settings, t)}
+            value={settings.base_currency}
+            control={editVerb(
+              "base_currency",
+              t("installationSettings.baseCurrency"),
+            )}
+          />
+        </SettingList>
+        {editing !== null && (
+          <InstallationProfileDialog
+            settings={settings}
+            draft={draft}
+            focus={editing}
             canManage={canManage}
             dirty={dirty}
             pending={update.isPending}
-            denialId={denialId}
-          />
-        }
-      >
-        <PanelBody className="form-stack">
-          <p className="t-caption">{t("installationSettings.orgSub")}</p>
-          <Field
-            label={t("installationSettings.name")}
-            hint={t("installationSettings.nameHint")}
-            error={refused.get("name")}
-          >
-            {(control) => (
-              <TextInput
-                {...control}
-                aria-describedby={describe(control)}
-                value={draft.name}
-                disabled={!canManage}
-                onChange={(event) =>
-                  setDraft({ ...draft, name: event.target.value })
-                }
-              />
-            )}
-          </Field>
-          <Field
-            label={t("installationSettings.timezone")}
-            hint={t("installationSettings.timezoneHint")}
-            error={refused.get("timezone")}
-          >
-            {(control) => (
-              <TextInput
-                {...control}
-                aria-describedby={describe(control)}
-                value={draft.timezone}
-                disabled={!canManage}
-                onChange={(event) =>
-                  setDraft({ ...draft, timezone: event.target.value })
-                }
-              />
-            )}
-          </Field>
-
-          {/* A section INSIDE the panel's own section: the currency rule needs
-              the room to be explained, and level 3 is what keeps that from
-              minting a second heading at the panel's own rank. */}
-          <SectionHeader
-            level={3}
-            title={t("installationSettings.currencyTitle")}
-            sub={t("installationSettings.currencySub")}
-          />
-          <Field
-            label={t("installationSettings.baseCurrency")}
-            // A frozen currency is frozen for an admin too, so the lock reason
-            // replaces the advice about what to type — that advice is about a
-            // value nobody can set. The permission denial rides on top of it
-            // through `describe`, since the two refusals are different and a
-            // reader can be under both.
-            hint={
-              settings.base_currency_locked
-                ? (settings.base_currency_locked_reason ??
-                  t("installationSettings.baseCurrencyLocked"))
-                : t("installationSettings.baseCurrencyHint")
+            refused={refused}
+            blanketError={
+              update.isError && refused.size === 0
+                ? problemMessageOf(update.error, t)
+                : null
             }
-            error={refused.get("base_currency")}
-          >
-            {(control) => (
-              <TextInput
-                {...control}
-                aria-describedby={describe(control)}
-                value={draft.base_currency}
-                disabled={!canManage || settings.base_currency_locked}
-                onChange={(event) =>
-                  setDraft({ ...draft, base_currency: event.target.value })
-                }
-              />
-            )}
-          </Field>
-
-          {/* Only what no field claimed. A refusal shown BOTH on the input and
-              again in a paragraph below states one problem twice, and the
-              paragraph is the copy a reader stops reading. */}
-          {update.isError && refused.size === 0 ? (
-            <Callout tone="danger" live="alert">
-              {problemMessageOf(update.error, t)}
-            </Callout>
-          ) : null}
-          <ToastRegion toast={toast} />
-        </PanelBody>
-      </Panel>
-    </form>
+            describe={describe}
+            onChange={setDraft}
+            onClose={() => setEditing(null)}
+            onSubmit={submit}
+          />
+        )}
+        <ToastRegion toast={toast} />
+      </PanelBody>
+    </Panel>
   );
 }
 
-// The save action, or the reason there is none. A row of fields that are all
-// disabled with nothing saying why is the reader's problem to solve: they
-// cannot tell a permission from a bug, from a value that has not loaded. It is
-// said here because this is where a reader looks for the control that commits
-// the fields above — and the same words are what every disabled field points
-// at, so the explanation is announced with the control as well as read beside
-// it.
-function SaveAction({
+// The one form the three rows lead to: ONE dialog, ONE submit — the patch
+// already sends only the fields that changed, which is what keeps a save from
+// touching a frozen currency nobody edited. A field per row's Edit would
+// promise three independent writes the server does not offer.
+function InstallationProfileDialog({
+  settings,
+  draft,
+  focus,
   canManage,
   dirty,
   pending,
-  denialId,
+  refused,
+  blanketError,
+  describe,
+  onChange,
+  onClose,
+  onSubmit,
 }: Readonly<{
+  settings: InstallationSettings;
+  draft: InstallationSettings;
+  /** Which field the reader pressed Edit on, and so where focus lands. */
+  focus: EditedFact;
   canManage: boolean;
   dirty: boolean;
   pending: boolean;
-  denialId: string;
+  refused: Map<string, string>;
+  blanketError: string | null;
+  describe: (control: FieldControl) => string | undefined;
+  onChange: (next: InstallationSettings) => void;
+  onClose: () => void;
+  onSubmit: () => void;
 }>) {
   const t = useT();
-  if (!canManage) {
-    return (
-      <p className="t-small" id={denialId}>
-        {t("installationSettings.readOnly")}
-      </p>
-    );
-  }
+  const titleId = useId();
+  // Focus lands on the field whose Edit was pressed — programmatic rather than
+  // the `autoFocus` attribute, the same way the sign-in page does it, so the
+  // a11y lint's blanket rule against autofocus stays intact.
+  const asked = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    asked.current?.focus();
+  }, []);
   return (
-    <Button type="submit" variant="primary" disabled={!dirty || pending}>
-      {pending ? t("common.saving") : t("installationSettings.save")}
-    </Button>
+    <Modal open onClose={onClose} labelledBy={titleId}>
+      <h2 id={titleId} className="t-h2 modal-title">
+        {t("installationSettings.orgTitle")}
+      </h2>
+      <form
+        className="form-stack"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <Field
+          label={t("installationSettings.name")}
+          hint={t("installationSettings.nameHint")}
+          error={refused.get("name")}
+        >
+          {(control) => (
+            <TextInput
+              {...control}
+              aria-describedby={describe(control)}
+              ref={focus === "name" ? asked : undefined}
+              value={draft.name}
+              disabled={!canManage}
+              onChange={(event) =>
+                onChange({ ...draft, name: event.target.value })
+              }
+            />
+          )}
+        </Field>
+        <Field
+          label={t("installationSettings.timezone")}
+          hint={t("installationSettings.timezoneHint")}
+          error={refused.get("timezone")}
+        >
+          {(control) => (
+            <TextInput
+              {...control}
+              aria-describedby={describe(control)}
+              ref={focus === "timezone" ? asked : undefined}
+              value={draft.timezone}
+              disabled={!canManage}
+              onChange={(event) =>
+                onChange({ ...draft, timezone: event.target.value })
+              }
+            />
+          )}
+        </Field>
+
+        {/* A section INSIDE the dialog's own heading: the currency rule needs
+            the room to be explained, and level 3 is what keeps that from
+            minting a second heading at the dialog's own rank. */}
+        <SectionHeader
+          level={3}
+          title={t("installationSettings.currencyTitle")}
+          sub={t("installationSettings.currencySub")}
+        />
+        <Field
+          label={t("installationSettings.baseCurrency")}
+          hint={currencyNote(settings, t)}
+          error={refused.get("base_currency")}
+        >
+          {(control) => (
+            <TextInput
+              {...control}
+              aria-describedby={describe(control)}
+              ref={focus === "base_currency" ? asked : undefined}
+              value={draft.base_currency}
+              disabled={!canManage || settings.base_currency_locked}
+              onChange={(event) =>
+                onChange({ ...draft, base_currency: event.target.value })
+              }
+            />
+          )}
+        </Field>
+
+        {/* Only what no field claimed. A refusal shown BOTH on the input and
+            again in a paragraph below states one problem twice, and the
+            paragraph is the copy a reader stops reading. */}
+        {blanketError !== null ? (
+          <Callout tone="danger" live="alert">
+            {blanketError}
+          </Callout>
+        ) : null}
+        <div className="form-actions">
+          <Button variant="ghost" type="button" onClick={onClose}>
+            {t("create.cancel")}
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={!canManage || !dirty || pending}
+          >
+            {pending ? t("common.saving") : t("installationSettings.save")}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

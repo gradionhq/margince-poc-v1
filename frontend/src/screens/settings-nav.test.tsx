@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { translate } from "../i18n";
 import { companyContextCapabilitiesQueryKey } from "./company-context";
-import { SETTINGS_TABS, SettingsScreen, type SettingsTabId } from "./settings";
+import {
+  SETTINGS_TABS,
+  SettingsScreen,
+  type SettingsTabId,
+  settingsAddress,
+} from "./settings";
 import {
   jsonResponse,
   readOn,
@@ -35,14 +40,14 @@ afterEach(() => {
 });
 
 describe("SettingsScreen tab layout", () => {
-  // These layout assertions run as an admin holding the org grants, so every
-  // tab under test is present. Which principal sees which tab is the
-  // Organization-group suite's subject, not this one's.
+  // These layout assertions run as an admin holding the admin-group grants, so
+  // every tab under test is present. Which principal sees which tab is the
+  // Admin-group suite's subject, not this one's.
   beforeEach(() => {
     vi.stubGlobal("fetch", settingsBackend());
   });
 
-  it("groups the nav into personal and organization entries, Account current by default", async () => {
+  it("groups the nav into personal and admin entries, Account current by default", async () => {
     renderNav();
     // ONE navigation landmark in the chrome: the level names itself with a
     // heading rather than opening a second `nav` beside the sidebar's own.
@@ -50,17 +55,17 @@ describe("SettingsScreen tab layout", () => {
     expect(
       within(nav).getByRole("heading", { level: 2, name: "Settings" }),
     ).toBeTruthy();
-    // The organization entries appear once the /me role probe resolves to admin.
+    // The admin entries appear once the /me probe resolves the operator seat.
     await waitFor(() =>
       expect(screen.getByRole("link", { name: "Data model" })).toBeTruthy(),
     );
     // The two groups the level carries, under its own title rather than beside
-    // it — the outline reads Settings → You / Organization.
+    // it — the outline reads Settings → You / Admin settings.
     expect(
       within(nav)
         .getAllByRole("heading", { level: 3 })
         .map((heading) => heading.textContent),
-    ).toEqual(["You", "Organization"]);
+    ).toEqual(["You", "Admin settings"]);
     for (const label of [
       "Account",
       "Writing voice",
@@ -75,20 +80,23 @@ describe("SettingsScreen tab layout", () => {
     }
     const account = screen.getByRole("link", { name: "Account" });
     expect(account.getAttribute("aria-current")).toBe("page");
+    // A personal row addresses the level's own depth; an admin row addresses one
+    // segment deeper, which is where its page now lives.
+    expect(account.getAttribute("href")).toBe("#/settings/account");
     expect(
       screen.getByRole("link", { name: "Data model" }).getAttribute("href"),
-    ).toBe("#/settings/data-model");
+    ).toBe("#/settings/admin/data-model");
   });
 
   it("renders only the active entry's cards — the passport is off the Account tab", async () => {
-    render(<SettingsScreen />);
+    render(<SettingsScreen route={settingsAddress()} />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
     // Scout lives on Agents; the default Account tab must not render it.
     expect(screen.queryByText("Scout")).toBeNull();
   });
 
   it("renders the custom-field editor itself on the Data model tab, never a door to it", async () => {
-    render(<SettingsScreen tab="data-model" />);
+    render(<SettingsScreen route={settingsAddress("data-model")} />);
     // Org entry: visible once /me resolves the custom_field read grant.
     expect(
       await screen.findByRole("heading", { name: "Custom fields" }),
@@ -98,7 +106,7 @@ describe("SettingsScreen tab layout", () => {
   });
 
   it("renders the pipeline, product and offer-template surfaces on the Data model tab, never doors to them", async () => {
-    render(<SettingsScreen tab="data-model" />);
+    render(<SettingsScreen route={settingsAddress("data-model")} />);
     expect(
       await screen.findByRole("heading", { name: "Products" }),
     ).toBeTruthy();
@@ -116,10 +124,11 @@ describe("SettingsScreen tab layout", () => {
   });
 });
 
-// The nav, driven by exactly the two things the Organization group composes:
-// the grant map /me carries and the company-context rollout flag. Every other
-// endpoint answers empty, so a failure here can only be about visibility.
-function orgNavBackend(opts: {
+// The nav, driven by exactly the three things the Admin settings group composes:
+// the seat /me reports, the grant map beside it, and the company-context rollout
+// flag. Every other endpoint answers empty, so a failure here can only be about
+// visibility.
+function adminNavBackend(opts: {
   roles: string[];
   allow?: GrantSpec;
   // The licensing seat, which the entry predicates deliberately leave out: a
@@ -158,11 +167,11 @@ function orgNavBackend(opts: {
 // The same backend with the rollout answer on a valve the test opens. The nav
 // can then be read at two named moments — flag unanswered, flag answered "off"
 // — instead of whichever of the two the event loop happens to serve first.
-function orgNavBackendHoldingCapabilities(opts: {
+function adminNavBackendHoldingCapabilities(opts: {
   roles: string[];
   allow?: GrantSpec;
 }) {
-  const answer = orgNavBackend({ ...opts, companyReadEnabled: false });
+  const answer = adminNavBackend({ ...opts, companyReadEnabled: false });
   let release: (() => void) | undefined;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -178,7 +187,7 @@ function orgNavBackendHoldingCapabilities(opts: {
 }
 
 // The settings entries currently in the nav, in render order — personal group
-// first, then the organization group. Asserting the WHOLE list rather than one
+// first, then the admin group. Asserting the WHOLE list rather than one
 // membership is the point: a predicate wired to the wrong object shows up as
 // an extra or a missing entry, where a single getBy would pass regardless.
 function navTabs(): string[] {
@@ -219,46 +228,49 @@ function navGroupTabs(heading: HTMLElement): string[] {
 // that is not an admin, and a mailbox and a LinkedIn network nobody else can see
 // are not the installation's configuration.
 const labelOf = (id: SettingsTabId) => translate("en", `settings.tab.${id}`);
-const tabsIn = (group: "you" | "org") =>
+const tabsIn = (group: "you" | "admin") =>
   SETTINGS_TABS.filter((entry) => entry.group === group).map((entry) =>
     labelOf(entry.id),
   );
 
 const PERSONAL_TABS = tabsIn("you");
-const ORG_TABS = tabsIn("org");
-const EVERY_TAB = [...PERSONAL_TABS, ...ORG_TABS];
+const ADMIN_TABS = tabsIn("admin");
+const EVERY_TAB = [...PERSONAL_TABS, ...ADMIN_TABS];
 
-// What a seat holding the seeded reads and no admin role reaches: everything
-// except the two entries that ask for a grant only admin and ops hold — the
-// reindex read behind Maintenance, and `license:read` behind License (core
+// What an OPERATOR holding only the reads every seeded role holds reaches:
+// everything except the two entries that ask for a grant only admin and ops hold
+// — the reindex read behind Maintenance, and `license:read` behind License (core
 // migration 0261 grants it to admin and ops, and to nobody else).
 //
 // Named rather than sliced. The old form took the tail off the list and called
 // it "every entry but Maintenance", which was true only while Maintenance was
 // declared last — and the moment License landed beside it, the same slice
-// silently claimed a read seat could reach the licensing page.
+// silently claimed a seat without the grant could reach the licensing page.
 const ADMIN_ONLY_TABS = [labelOf("license"), labelOf("maintenance")];
-const SEAT_READ_TABS = EVERY_TAB.filter(
+const SHARED_READ_TABS = EVERY_TAB.filter(
   (tab) => !ADMIN_ONLY_TABS.includes(tab),
 );
 
-// What mere membership buys: the ONE Organization entry with no grant to ask for.
-// No RBAC object describes identity administration and none can, and `GET /users`
-// answers 200 to any authenticated principal — so the nav admits everybody, as
-// the server does.
+// What the operator SEAT alone buys: the ONE admin entry with no grant to ask
+// for. No RBAC object describes identity administration and none can, and
+// `GET /users` answers 200 to any authenticated principal — so within the group
+// the nav admits every operator, as the server does.
+//
+// The seat is the floor now, not membership: a rep or a manager reaches none of
+// these, whatever they hold. That is the OPERATOR_ prefix's whole content.
 //
 // Privacy is deliberately NOT here. `consent_config` is absent from the shipped
 // vocabulary, but the registry's server gate is not a role either: ListPurposes
 // demands `person:read`, so that is what the entry asks for. Every seeded role
 // holds it; a principal holding nothing does not.
-const MEMBER_TABS = [...PERSONAL_TABS, "People & access"];
-const MEMBER_TABS_WITH_PRIVACY = [...MEMBER_TABS, "Privacy & audit"];
+const OPERATOR_TABS = [...PERSONAL_TABS, "People & access"];
+const OPERATOR_TABS_WITH_PRIVACY = [...OPERATOR_TABS, "Privacy & audit"];
 
-// Membership's two entries plus Maintenance, which is what EITHER half of that
+// The seat's two entries plus Maintenance, which is what EITHER half of that
 // entry's predicate buys on its own — the admin role, or the reindex read an
 // edited role can hold without it. Both halves are asserted against this list.
-const MEMBER_TABS_WITH_MAINTENANCE = [
-  ...MEMBER_TABS_WITH_PRIVACY,
+const OPERATOR_TABS_WITH_MAINTENANCE = [
+  ...OPERATOR_TABS_WITH_PRIVACY,
   "Maintenance",
 ];
 
@@ -319,17 +331,22 @@ const SEEDED_OPS_READS: GrantSpec = {
   license: ["read"],
 };
 
-describe("SettingsScreen Organization group", () => {
-  // The group is composed from its members: an entry appears when the principal
-  // may READ some part of it — opening a page is reading it — or, for the two
-  // surfaces with no RBAC object, on membership alone. The write affordances
-  // inside each entry gate themselves, so no case below needs a write to reach a
-  // page and none of them proves anything by granting one.
+describe("SettingsScreen Admin settings group", () => {
+  // TWO gates, and every case below names both. The SEAT decides whether this
+  // reader administers the installation at all — admin or ops, and nobody else
+  // — and each entry's own READ grant then decides whether that page has
+  // anything in it for them. Opening a page is reading it, so every predicate
+  // asks for a read; the write affordances inside gate themselves, and no case
+  // here reaches a page by granting one.
+  //
+  // A case about ONE grant therefore runs on an operator seat: the claim is
+  // still "this grant is what opens this entry", and the seat is the floor it
+  // stands on rather than part of what is being proved.
 
   it("renders every entry in its declared order, split across the two groups", async () => {
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({ roles: ["admin"], allow: EVERY_TAB_GRANTED }),
+      adminNavBackend({ roles: ["admin"], allow: EVERY_TAB_GRANTED }),
     );
     renderNav();
     await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB));
@@ -341,33 +358,85 @@ describe("SettingsScreen Organization group", () => {
     // fails on the missing heading rather than on a lookup inside it.
     expect(headings.map((heading) => heading.textContent)).toEqual([
       "You",
-      "Organization",
+      "Admin settings",
     ]);
-    const [you, org] = headings;
+    const [you, admin] = headings;
     expect(navGroupTabs(you)).toEqual(PERSONAL_TABS);
-    expect(navGroupTabs(org)).toEqual(ORG_TABS);
+    expect(navGroupTabs(admin)).toEqual(ADMIN_TABS);
   });
 
-  it("gives a principal holding no read at all the two entries that ask for none", async () => {
-    // People & access and Privacy & audit have no grant to ask for: the member
-    // roster answers 200 to any authenticated principal, and `consent_config` is
-    // not in the shipped RBAC vocabulary. So they are the floor of this level
-    // rather than a case — every gated member is gone here, and those two stay.
-    vi.stubGlobal("fetch", orgNavBackend({ roles: ["rep"] }));
+  it("gives an operator holding no read at all the one entry that asks for none", async () => {
+    // People & access has no grant to ask for: the member roster answers 200 to
+    // any authenticated principal and no RBAC object describes identity
+    // administration. So it is the floor of this group for an operator rather
+    // than a case — every gated member is gone here, and that one stays.
+    //
+    // Privacy is NOT on the floor with it: the consent registry's server gate is
+    // `person:read`, and a principal holding nothing does not hold it.
+    vi.stubGlobal("fetch", adminNavBackend({ roles: ["ops"] }));
     renderNav();
     // /me has to have SETTLED before this claim means anything: a nav read
-    // mid-flight is empty for every principal. Waiting on the two entries
-    // themselves is what proves it settled — the sidebar no longer prints the
-    // signed-in address, which is what this used to wait for, because the
-    // account block moved to the top bar.
-    await waitFor(() => expect(navTabs()).toEqual(MEMBER_TABS));
+    // mid-flight is empty for every principal. Waiting on the entries themselves
+    // is what proves it settled — the sidebar no longer prints the signed-in
+    // address, which is what this used to wait for, because the account block
+    // moved to the top bar.
+    await waitFor(() => expect(navTabs()).toEqual(OPERATOR_TABS));
+  });
+
+  // The seat, on its own, from the other side. This principal holds every read
+  // the admin group's entries ask for — the ops matrix entire — and reaches NONE
+  // of them, because the group is not theirs to open. The heading is what makes
+  // it a claim about the group rather than about nine predicates: an empty
+  // "Admin settings" panel would say the installation has settings this reader
+  // may not touch, where the truth is that configuring it is not their job.
+  it.each(["manager", "rep"] as const)(
+    "offers a seeded %s no admin group at all, holding every read it asks for",
+    async (role) => {
+      vi.stubGlobal(
+        "fetch",
+        adminNavBackend({ roles: [role], allow: SEEDED_OPS_READS }),
+      );
+      const { client } = renderNav();
+      // The ANSWER has to be in the cache before an absence claim means
+      // anything. Every other case here waits on an entry appearing, which is
+      // its own proof that /me settled; this one expects no entry to appear, and
+      // a nav read taken mid-flight looks exactly like the result it wants.
+      await waitFor(() =>
+        expect(client.getQueryState(["me"])?.status).toBe("success"),
+      );
+      expect(navTabs()).toEqual(PERSONAL_TABS);
+      const nav = screen.getByRole("navigation", {
+        name: /primary navigation/i,
+      });
+      expect(
+        within(nav)
+          .getAllByRole("heading", { level: 3 })
+          .map((heading) => heading.textContent),
+      ).toEqual(["You"]);
+    },
+  );
+
+  // A write is still not what opens a page, inside the group as it was outside
+  // it: this operator may AUTHOR custom fields and holds no read anywhere, and
+  // the data-model row stays shut. The affordance the write buys is on the page,
+  // and the page is reached by reading it.
+  it("opens no entry for an operator holding writes and no read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      adminNavBackend({
+        roles: ["ops"],
+        allow: { custom_field: ["create", "update"] },
+      }),
+    );
+    renderNav();
+    await waitFor(() => expect(navTabs()).toEqual(OPERATOR_TABS));
   });
 
   it.each(DATA_MODEL_READS)(
     "opens Data model for a lone %s read",
     async (object) => {
       const allow = readOn(object);
-      vi.stubGlobal("fetch", orgNavBackend({ roles: ["rep"], allow }));
+      vi.stubGlobal("fetch", adminNavBackend({ roles: ["ops"], allow }));
       renderNav();
       await waitFor(() =>
         expect(navTabs()).toEqual([
@@ -388,7 +457,7 @@ describe("SettingsScreen Organization group", () => {
       // it — so either read has to open it on its own, or whoever follows that
       // chip lands on the Account fallback.
       const allow = readOn(object);
-      vi.stubGlobal("fetch", orgNavBackend({ roles: ["rep"], allow }));
+      vi.stubGlobal("fetch", adminNavBackend({ roles: ["ops"], allow }));
       renderNav();
       await waitFor(() =>
         expect(navTabs()).toEqual([
@@ -408,7 +477,7 @@ describe("SettingsScreen Organization group", () => {
     // entry the whole-list assertion does not expect.
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({ roles: ["rep"], allow: readOn("capture_settings") }),
+      adminNavBackend({ roles: ["ops"], allow: readOn("capture_settings") }),
     );
     renderNav();
     await waitFor(() =>
@@ -425,18 +494,18 @@ describe("SettingsScreen Organization group", () => {
     // The reindex moved to Maintenance and kept its object: taking the entry away
     // from a principal who could reach the verb before would be a regression
     // dressed as a tidy-up. It is also the term that lets Maintenance open for
-    // someone who is not an admin, which is the half of that predicate a role
-    // check could never express.
+    // an operator who is not an admin — ops here — which is the half of that
+    // predicate a role check could never express.
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({
-        roles: ["rep"],
+      adminNavBackend({
+        roles: ["ops"],
         allow: readOn("embedding_reindex"),
       }),
     );
     renderNav();
     await waitFor(() =>
-      expect(navTabs()).toEqual(MEMBER_TABS_WITH_MAINTENANCE),
+      expect(navTabs()).toEqual(OPERATOR_TABS_WITH_MAINTENANCE),
     );
   });
 
@@ -446,7 +515,7 @@ describe("SettingsScreen Organization group", () => {
     // open it, and the neighbouring entries have to stay shut.
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({ roles: ["rep"], allow: readOn("fx_rate") }),
+      adminNavBackend({ roles: ["ops"], allow: readOn("fx_rate") }),
     );
     renderNav();
     await waitFor(() =>
@@ -465,7 +534,7 @@ describe("SettingsScreen Organization group", () => {
     // union and not as one object with a decorative second term.
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({ roles: ["rep"], allow: readOn("ai_model_rate") }),
+      adminNavBackend({ roles: ["ops"], allow: readOn("ai_model_rate") }),
     );
     renderNav();
     await waitFor(() =>
@@ -478,40 +547,42 @@ describe("SettingsScreen Organization group", () => {
     );
   });
 
-  // THE REGRESSION THIS RULE EXISTS TO PREVENT. Measured against the live API,
-  // the write-shaped predicates hid a read-only seat from eight of the eleven
-  // entries the server answers 200 on — three of which (products, offer
-  // templates, custom fields) were ungated routes of their own before the merge.
-  // A client that hides a page the server serves is not protecting anything; it
-  // is disagreeing with the authority.
+  // THE LICENSING SEAT, which is a THIRD axis and gates none of this: the server
+  // clamps a read seat on the HTTP method, so it still READS every page behind
+  // these entries. An operator on a read seat therefore reaches the level
+  // undiminished, and the withheld things inside are the write controls.
   //
-  // The licensing seat is named here too, and must not narrow the level either: a
-  // read seat READS every page behind these entries, and the server clamps it on
-  // the write.
-  it("reaches every entry a read seat is granted, and neither admin-only one", async () => {
+  // Named as its own case because folding it into the entry predicates is the
+  // regression this rule exists to prevent: measured against the live API, the
+  // write-shaped predicates hid a read seat from eight of the eleven entries the
+  // server answers 200 on — three of which (products, offer templates, custom
+  // fields) were ungated routes of their own before the merge.
+  it("narrows nothing for an operator on a read seat", async () => {
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({
-        roles: ["read_only"],
+      adminNavBackend({
+        roles: ["ops"],
         seat: "read",
-        allow: SEEDED_READS,
+        allow: SEEDED_OPS_READS,
       }),
     );
     renderNav();
-    await waitFor(() => expect(navTabs()).toEqual(SEAT_READ_TABS));
+    await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB));
   });
 
-  it.each(["manager", "rep"] as const)(
-    "reaches the same entries for a seeded %s, whose extra writes buy no page",
-    async (role) => {
-      vi.stubGlobal(
-        "fetch",
-        orgNavBackend({ roles: [role], allow: SEEDED_READS }),
-      );
-      renderNav();
-      await waitFor(() => expect(navTabs()).toEqual(SEAT_READ_TABS));
-    },
-  );
+  // The grant still decides INSIDE the group, which is what keeps the seat from
+  // becoming the only gate: this operator holds exactly the reads every seeded
+  // role holds, so the two entries whose grants belong to admin and ops alone —
+  // the reindex read, `license:read` — are the two it loses, and nothing else
+  // moves.
+  it("withholds License and Maintenance from an operator holding only the shared reads", async () => {
+    vi.stubGlobal(
+      "fetch",
+      adminNavBackend({ roles: ["ops"], allow: SEEDED_READS }),
+    );
+    renderNav();
+    await waitFor(() => expect(navTabs()).toEqual(SHARED_READ_TABS));
+  });
 
   it("reaches every entry for a seeded ops, whose reindex and licence reads open the last two", async () => {
     // The two entries that genuinely narrow, and they narrow to admin/ops rather
@@ -520,10 +591,28 @@ describe("SettingsScreen Organization group", () => {
     // role holding the same read reach them too.
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({ roles: ["ops"], allow: SEEDED_OPS_READS }),
+      adminNavBackend({ roles: ["ops"], allow: SEEDED_OPS_READS }),
     );
     renderNav();
     await waitFor(() => expect(navTabs()).toEqual(EVERY_TAB));
+  });
+
+  // An EDITED role, which is the case the seat gate must not swallow. This admin
+  // is inside the group by seat and holds every grant it asks for except one —
+  // and loses exactly the one entry that asks for it. A group gated on the seat
+  // alone would hand them the licensing page their role no longer reads.
+  it("loses only License for an admin whose role dropped that one read", async () => {
+    const { license: _revoked, ...withoutLicense } = EVERY_TAB_GRANTED;
+    vi.stubGlobal(
+      "fetch",
+      adminNavBackend({ roles: ["admin"], allow: withoutLicense }),
+    );
+    renderNav();
+    await waitFor(() =>
+      expect(navTabs()).toEqual(
+        EVERY_TAB.filter((tab) => tab !== labelOf("license")),
+      ),
+    );
   });
 
   it("adds Maintenance for an admin holding no read at all, and loses Privacy with it", async () => {
@@ -532,20 +621,20 @@ describe("SettingsScreen Organization group", () => {
     // inside asks for that same role.
     //
     // Privacy goes, and that is the point of asking for a grant rather than
-    // assuming membership: the consent registry's server gate is `person:read`, so
+    // reading the seat twice: the consent registry's server gate is `person:read`, so
     // an admin stripped of it would reach a page of four refusals. The entry
     // follows the grant, not the role.
-    vi.stubGlobal("fetch", orgNavBackend({ roles: ["admin"] }));
+    vi.stubGlobal("fetch", adminNavBackend({ roles: ["admin"] }));
     renderNav();
     await waitFor(() =>
-      expect(navTabs()).toEqual([...MEMBER_TABS, "Maintenance"]),
+      expect(navTabs()).toEqual([...OPERATOR_TABS, "Maintenance"]),
     );
   });
 
   it("shows General to an admin holding the organization read once the company rollout flag is on", async () => {
     vi.stubGlobal(
       "fetch",
-      orgNavBackend({
+      adminNavBackend({
         roles: ["admin"],
         allow: readOn("organization"),
         companyReadEnabled: true,
@@ -567,10 +656,11 @@ describe("SettingsScreen Organization group", () => {
     // every role also holds `installation_settings:read` and General opens on
     // that regardless — so this case is about the flag's contribution to the
     // union, not a claim that General is ever unreachable in practice.
-    const { fetchMock, answerCapabilities } = orgNavBackendHoldingCapabilities({
-      roles: ["admin"],
-      allow: readOn("organization"),
-    });
+    const { fetchMock, answerCapabilities } =
+      adminNavBackendHoldingCapabilities({
+        roles: ["admin"],
+        allow: readOn("organization"),
+      });
     vi.stubGlobal("fetch", fetchMock);
     const { client } = renderNav();
 
@@ -578,7 +668,7 @@ describe("SettingsScreen Organization group", () => {
     // are on screen — while the flag is still unanswered, because this test
     // holds the answer.
     await screen.findByRole("link", { name: "Maintenance" });
-    expect(navTabs()).toEqual(MEMBER_TABS_WITH_MAINTENANCE);
+    expect(navTabs()).toEqual(OPERATOR_TABS_WITH_MAINTENANCE);
 
     // Moment two: the answer is in the cache, which is the fact the emptiness
     // claim needs — the request having been SENT proves nothing about what the
@@ -589,6 +679,6 @@ describe("SettingsScreen Organization group", () => {
         client.getQueryState(companyContextCapabilitiesQueryKey)?.status,
       ).toBe("success"),
     );
-    expect(navTabs()).toEqual(MEMBER_TABS_WITH_MAINTENANCE);
+    expect(navTabs()).toEqual(OPERATOR_TABS_WITH_MAINTENANCE);
   });
 });
