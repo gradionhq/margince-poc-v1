@@ -38,7 +38,6 @@ export const en = {
   "history.cleared": "— cleared —",
   "history.passport": "Agent passport",
   "history.empty": "No changes recorded",
-  "history.onBehalfOf": "on behalf of {name}",
   "history.fieldEmpty":
     "Set on create and never changed — the audit log records no edits. An empty history is honest, not a gap.",
   "history.filterEmpty": "No changes match this filter.",

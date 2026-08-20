@@ -113,25 +113,28 @@ function HistoryEntryRow({
   entry: AuditHistoryEntry;
   locale: ReturnType<typeof useLocale>["locale"];
 }>) {
-  const t = useT();
   const viewerId = useViewerId();
   return (
     <li>
       <span className="tl-body">
-        <span className="tl-title">
-          {entry.summary}
-          {entry.on_behalf_of_name && (
-            <span className="history-onbehalf">
-              {" "}
-              {t("history.onBehalfOf", { name: entry.on_behalf_of_name })}
-            </span>
-          )}
-        </span>
+        {/* `summary` already NAMES the granting human as its subject
+            ("Ada Authority, via an agent, updated the record"), so the
+            on-behalf-of suffix that used to complete the old machine-first
+            sentence would now say the same person twice. */}
+        <span className="tl-title">{entry.summary}</span>
         <span className="tl-meta">
           <span>
             {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
           </span>
-          <ProvenanceTag provenance={provenanceOfEntry(entry, viewerId)} />
+          <ProvenanceTag
+            provenance={provenanceOfEntry(entry, viewerId)}
+            // The design system has no record lookups, so the resolved name
+            // has to be handed in. The read path resolves it for exactly this:
+            // without it the chip says a person entered the row without
+            // claiming which one, which is the same "nobody to ask" the
+            // sentence above was fixed to avoid.
+            renderUser={() => entry.actor_name}
+          />
         </span>
       </span>
     </li>

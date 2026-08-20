@@ -40,7 +40,6 @@ export const de = {
   "history.cleared": "— geleert —",
   "history.passport": "Agent-Passport",
   "history.empty": "Keine Änderungen erfasst",
-  "history.onBehalfOf": "im Auftrag von {name}",
   "history.fieldEmpty":
     "Beim Anlegen gesetzt und nie geändert — der Audit-Log verzeichnet keine Bearbeitungen. Ein leerer Verlauf ist ehrlich, keine Lücke.",
   "history.filterEmpty": "Keine Änderungen entsprechen diesem Filter.",

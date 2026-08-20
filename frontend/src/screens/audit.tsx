@@ -2,8 +2,8 @@ import { Bot, CircleUser, Cog, type LucideIcon, Plug } from "lucide-react";
 import type { components } from "../api/schema";
 import { Badge } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
-import type { MessageKey } from "../i18n/en";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import "./audit.css";
 
 // Reusable audit attribution — turns a raw AuditLogEntry into a line a person
@@ -21,6 +21,7 @@ type ActorFields = Pick<
   | "actor_name"
   | "on_behalf_of"
   | "on_behalf_of_name"
+  | "passport_id"
 >;
 
 // A snake_case enum value from the wire (an action / entity_type) is data, not
@@ -92,17 +93,32 @@ function actorAttribution(
   if (entry.on_behalf_of_name) {
     return { name: entry.on_behalf_of_name, qualifierKey };
   }
-  if (entry.actor_type === "agent") {
-    // Every passport is granted by a specific human, so an agent row with no
-    // authority is a gap in what the write carried. It says so — it does NOT
-    // fall back to "System", which is reserved for a change that genuinely has
-    // nobody behind it. Absorbing the gap would hide it on the one surface
-    // that exists to expose it.
-    return { labelKey: "audit.noHumanAuthority", identifier: entry.actor_id };
+  if (entry.passport_id) {
+    // A GRANT was presented and yet no human resolved behind it. That is a
+    // gap: a passport's granting human is recorded when the grant is made, so
+    // the row failed to carry what existed. It says so, and does NOT fall back
+    // to "System" — system is reserved for a change that genuinely has nobody
+    // behind it, and absorbing the gap would hide it on the one surface that
+    // exists to expose it.
+    return {
+      labelKey: "audit.noHumanAuthority",
+      identifier: machineIdentifier(entry),
+    };
   }
-  // A bare connector is not that gap: some have no connect flow and so no
-  // granting human by design. Its id is a readable, workspace-chosen name.
-  return { identifier: entry.actor_id };
+  // No grant was presented, so there is no human to name and no gap to report:
+  // a background pass nobody's context ran, or a connector with no connect
+  // flow. The deciding question is whether a grant was presented — not which
+  // machine word actor_type happens to carry. The id is the readable,
+  // workspace-chosen name of the thing that acted.
+  return { identifier: machineIdentifier(entry) };
+}
+
+// machineIdentifier is the machine's own id, with a typed fallback for the one
+// state the contract permits and no writer should produce: actor_id is declared
+// as a bare `string` with no minimum length, and an empty one would render an
+// icon with no label beside it — a row attributed to nothing at all.
+function machineIdentifier(entry: ActorFields): string {
+  return entry.actor_id === "" ? entry.actor_type : entry.actor_id;
 }
 
 // ActorTag renders WHO acted, naming the PERSON and saying a machine did the

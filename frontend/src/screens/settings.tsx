@@ -2388,7 +2388,9 @@ function AuditLogEntries({
 // collapsed by default so the flat scan stays fast.
 export function AuditLogCard() {
   const t = useT();
-  // The current user's id resolves audit "You" vs "A teammate" in ActorTag.
+  // The current user's id is what lets ActorTag read "You" rather than naming
+  // the viewer back to themselves. It is the BARE user id; the wire spells a
+  // human actor "human:<uuid>", and ActorTag owns that difference.
   const meUserId = useMe().data?.user?.id;
   const isAdmin = useHoldsAdminRole();
   const [filters, setFilters] = useState<AuditLogFilters>(UNFILTERED_AUDIT_LOG);

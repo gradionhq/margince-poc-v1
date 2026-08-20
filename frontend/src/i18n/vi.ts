@@ -48,7 +48,6 @@ export const vi = {
   "history.cleared": "— đã xoá —",
   "history.passport": "Passport agent",
   "history.empty": "Chưa ghi nhận thay đổi nào",
-  "history.onBehalfOf": "thay mặt {name}",
   "history.fieldEmpty":
     "Được đặt khi tạo và chưa từng đổi — nhật ký kiểm toán không ghi nhận chỉnh sửa nào. Lịch sử trống là trung thực, không phải thiếu sót.",
   "history.filterEmpty": "Không có thay đổi nào khớp bộ lọc này.",

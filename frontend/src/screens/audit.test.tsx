@@ -111,12 +111,13 @@ describe("ActorTag", () => {
     expect(screen.getByText("via an agent")).toBeTruthy();
   });
 
-  it("says an agent's human authority is missing rather than falling back to 'System'", () => {
+  it("calls a presented-but-unresolved grant a gap, rather than falling back to 'System'", () => {
     wrap(
       <ActorTag
         entry={entry({
           actor_type: "agent",
-          actor_id: "agent:extension_tick",
+          actor_id: "agent:p1",
+          passport_id: "01a01740-c9c2-736d-a0b6-d3e3dcb13999",
           on_behalf_of: null,
           on_behalf_of_name: null,
         })}
@@ -126,8 +127,42 @@ describe("ActorTag", () => {
     expect(screen.getByText("No human authority recorded")).toBeTruthy();
     // The identifier is what is left to show, so it IS shown — but as the
     // subordinate half, not the label.
-    expect(screen.getByText("agent:extension_tick")).toBeTruthy();
+    expect(screen.getByText("agent:p1")).toBeTruthy();
     expect(screen.queryByText("System")).toBeNull();
+  });
+
+  it("does not call a background agent a gap — no grant was presented", () => {
+    wrap(
+      <ActorTag
+        entry={entry({
+          actor_type: "agent",
+          actor_id: "agent:extension_tick",
+          passport_id: null,
+          on_behalf_of: null,
+          on_behalf_of_name: null,
+        })}
+        meUserId={ME}
+      />,
+    );
+    // compose/extjobsrun.go writes exactly this shape per extension job tick.
+    // There is no human to name and nothing failed, so reporting a missing
+    // authority would report a defect that does not exist.
+    expect(screen.getByText("agent:extension_tick")).toBeTruthy();
+    expect(screen.queryByText("No human authority recorded")).toBeNull();
+    expect(screen.queryByText("System")).toBeNull();
+  });
+
+  it("never renders an actor with no label at all", () => {
+    // actor_id is a bare `string` in the contract with no minimum length. No
+    // writer should produce an empty one, but an icon with nothing beside it
+    // would be a row attributed to nothing, so the kind stands in.
+    wrap(
+      <ActorTag
+        entry={entry({ actor_type: "connector", actor_id: "" })}
+        meUserId={ME}
+      />,
+    );
+    expect(screen.getByText("connector")).toBeTruthy();
   });
 
   it("names the human behind a connector when one authorised it", () => {
