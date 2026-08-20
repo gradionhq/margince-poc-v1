@@ -122,6 +122,77 @@ func TestEnsureCounterpartyAttachesToAnOrganizationThatAlreadyExists(t *testing.
 	}
 }
 
+// The write shape on the capture path: an employment edge capture plants is a
+// domain row, an audit_log row and an event_outbox row in ONE transaction, and
+// a re-ensure that plants nothing writes none of the three.
+//
+// Both halves matter. Without the first, an employer appears on a contact with
+// nothing recording who attached it or on what evidence — and an employer is a
+// fact a human reads off the record and can be wrong about. Without the second,
+// every repeated capture of the same mail would mint history for a write that
+// did not happen, which is the failure ON CONFLICT DO NOTHING exists to avoid.
+func TestCapturedEmploymentCarriesTheWriteShapeAndANoOpCarriesNothing(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	if _, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Write Shape GmbH", Source: "manual",
+		Domains: []OrgDomainInput{{Domain: "writeshape.test", IsPrimary: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, "erin@writeshape.test", "Erin Example", "writeshape.test"))
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+
+	audits, events := ledgerRowsForRelationship(ctx, t, e, res.PersonID.UUID)
+	if audits != 1 {
+		t.Errorf("%d audit_log rows for the planted employment, want 1 — nothing records who attached this employer", audits)
+	}
+	if events != 1 {
+		t.Errorf("%d event_outbox rows for the planted employment, want 1 — no consumer is told the edge appeared", events)
+	}
+
+	// The same mail again: both guards refuse the insert, so neither ledger
+	// moves. Asserting the delta rather than a total is what makes this about
+	// the no-op rather than about the first call.
+	if _, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, "erin@writeshape.test", "Erin Example", "writeshape.test")); err != nil {
+		t.Fatalf("re-ensure: %v", err)
+	}
+	againAudits, againEvents := ledgerRowsForRelationship(ctx, t, e, res.PersonID.UUID)
+	if againAudits != audits || againEvents != events {
+		t.Errorf("a re-ensure that planted no edge still wrote history: audit %d→%d, outbox %d→%d",
+			audits, againAudits, events, againEvents)
+	}
+}
+
+// ledgerRowsForRelationship counts what the two ledgers hold for the employment
+// edges of one person. The join to relationship is what keeps this counting the
+// edge's own rows rather than everything the ensure wrote.
+func ledgerRowsForRelationship(ctx context.Context, t *testing.T, e *dedupeEnv, personID ids.UUID) (audits, events int) {
+	t.Helper()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		// The outbox carries no audit_id column — the link lives inside the
+		// envelope — so the event side matches on the edge id appearing in the
+		// envelope text. Crude, and adequate here because the id is a v7 UUID
+		// minted for this row: nothing else in a fresh fixture carries it.
+		return tx.QueryRow(ctx, `
+			SELECT (SELECT count(*) FROM audit_log a
+			          JOIN relationship r ON r.id = a.entity_id
+			         WHERE a.entity_type = 'relationship' AND r.person_id = $1 AND r.kind = 'employment'),
+			       (SELECT count(*) FROM event_outbox o
+			         WHERE EXISTS (
+			           SELECT 1 FROM relationship r
+			            WHERE r.person_id = $1 AND r.kind = 'employment'
+			              AND o.envelope::text LIKE '%' || r.id || '%'))`,
+			personID).Scan(&audits, &events)
+	}); err != nil {
+		t.Fatalf("counting the edge's ledger rows: %v", err)
+	}
+	return audits, events
+}
+
 func TestEnsureCounterpartyAsksNothingAboutConsumerMail(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()

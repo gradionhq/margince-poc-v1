@@ -147,6 +147,7 @@ var auditOnlyWrites = gatekit.Waive(map[string]string{
 	"internal/compose/briefs:SnapshotRun":                   "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/compose/briefs:markItem":                      "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/compose/briefs:resurfaceExpiredSnoozes":       "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
+	"internal/modules/people:recordDedupeCandidate":         "a dedupe candidate is a QUESTION the system is asking about two records, not something that happened to either \u2014 the closed catalog (events.md \u00a75) defines no dedupe.* type, nothing downstream acts on a proposal, and an outbox row nobody consumes would be a kind invented to satisfy the rule rather than a reader. Audited because who proposed a merge, when, and on what evidence belongs on the record's own history rather than only in operator telemetry",
 	// WriteFiltered no longer belongs here: the bulk export is a non-entity
 	// operational event, so it moved from storekit.Audit to storekit.LogSystem
 	// (system_log, 0074) \u2014 it writes no audit_log row at all now.

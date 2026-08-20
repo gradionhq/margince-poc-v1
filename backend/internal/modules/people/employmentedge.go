@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -69,17 +70,27 @@ func organizationIsLive(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 // employment that already exists. The NOT EXISTS keeps a concurrent race with
 // the first from surfacing as a 500.
 func plantEmploymentEdge(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, personID ids.PersonID, orgID ids.OrganizationID) error {
-	if _, err := tx.Exec(ctx, `
+	var edgeID ids.UUID
+	err := tx.QueryRow(ctx, `
 		INSERT INTO relationship (kind, person_id, organization_id, is_current_primary, source, captured_by)
 		SELECT 'employment', $1, $2, true, $3, $4
 		WHERE NOT EXISTS (
 			SELECT 1 FROM relationship
 			WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL)
-		ON CONFLICT DO NOTHING`,
-		personID, orgID, in.Source, in.CapturedBy); err != nil {
+		ON CONFLICT DO NOTHING
+		RETURNING id`,
+		personID, orgID, in.Source, in.CapturedBy).Scan(&edgeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Either guard skipped it: the person already has a current primary
+		// employer, or this exact edge already exists. Nothing was written, so
+		// nothing is audited and nothing is published — a no-op must not mint
+		// history.
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("people: insert employment edge: %w", err)
 	}
-	return nil
+	return auditCapturedEmployment(ctx, tx, edgeID, personID, orgID)
 }
 
 // adoptDispositionForOrg settles a domain onto the organization that already
@@ -151,3 +162,44 @@ func (s *Store) deferOrgToTriage(ctx context.Context, tx pgx.Tx, in EnsureCounte
 	res.TriagePending, res.TriageDomain = opened, base
 	return nil
 }
+
+// auditCapturedEmployment records an employment CAPTURE planted, and tells the
+// bus about it — the write shape's other two rows, in the same transaction as
+// the edge.
+//
+// The envelope is the anchor's own person.updated, exactly as a human-created
+// relationship uses, because that is what a relationship change publishes here:
+// there is no separate "employment created" kind to collide with. What the
+// delta carries that a human's does not is `origin: "capture"`. A consumer that
+// treats an employer as a fact somebody asserted can then tell an inference
+// from a statement, which is the whole difference between the two paths — and
+// it can do so without every existing consumer of person.updated changing.
+func auditCapturedEmployment(ctx context.Context, tx pgx.Tx, edgeID ids.UUID, personID ids.PersonID, orgID ids.OrganizationID) error {
+	auditID, err := storekit.Audit(ctx, tx, actionCreate, "relationship", edgeID, nil, map[string]any{
+		relationshipKindField: employmentKind, "origin": relationshipOriginCapture,
+	})
+	if err != nil {
+		return fmt.Errorf("people: audit the captured employment edge: %w", err)
+	}
+	delta := map[string]any{
+		eventKeyDelta: map[string]any{"relationship": map[string]any{
+			"id": edgeID, relationshipKindField: employmentKind, "action": actionCreate,
+			"organization_id": orgID, "origin": relationshipOriginCapture,
+		}},
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, personID.UUID,
+		relationshipUpdatedPayload("person", delta)); err != nil {
+		return fmt.Errorf("people: publish the captured employment edge: %w", err)
+	}
+	return nil
+}
+
+// relationshipOriginCapture marks an edge the capture path inferred rather than
+// one a human asserted. Spelled once because the audit row and the event delta
+// must agree — a reader comparing the two would otherwise have to decide which
+// spelling was authoritative.
+const relationshipOriginCapture = "capture"
+
+// employmentKind is the relationship kind this file plants, spelled once so the
+// SQL, the audit row and the event delta cannot drift apart.
+const employmentKind = "employment"
