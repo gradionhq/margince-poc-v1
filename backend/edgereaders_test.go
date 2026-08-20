@@ -136,25 +136,25 @@ var lifecycleEdgeReads = gatekit.Waive(map[string]string{
 // countable — `go test -run TestEveryReaderOfTheRelationshipTable -v` prints
 // the count.
 //
+// Every reason here names its issue. That is a convention rather than a checked
+// rule, deliberately: a parallel map of reasons to police it is exactly what
+// TestEveryPackageLevelReasonMapIsAWaiverOrADeclaredFixture refuses, because a
+// gate holding its own exceptions to its own standard is how the standards
+// diverge. gatekit already refuses a reason that states no cost.
+//
 // Every entry here shares one reason, and it is not schedule. Each of these
 // reads feeds a SCORE or a VERDICT on a response that carries no channel for
 // saying a section was withheld, so gating it today would replace a disclosure
 // with a wrong number — an empty risk list renders "Nothing flagged — this deal
 // passes every coverage check", which is worse than the defect. The contract
 // work comes first.
-var deferredEdgeReadReasons = map[string]string{
+var deferredEdgeReads = gatekit.Waive(map[string]string{
 	"internal/compose/org360/graphreads.go:readRelatedOrganizations": "the partner/referral/co-sell edges on the related-companies card: crm.yaml states these organizations need no grant beyond the organization read the endpoint already demands and can never be withheld wholesale, and groups_omitted's enum has no value that could name them. Gating it is a contract change and a product ruling, not a defect fix — #1846 follow-up, needs-decision",
 	"internal/compose/network/coveragefacts.go:readDeparted":         "departed stakeholders become champion_left and stakeholder_left risks, and DealCoverage carries no withheld channel — an empty risk list renders as a clean coverage verdict, so gating this trades a disclosure for a false all-clear on deal risk. Blocked on the withheld channel — #1846 follow-up",
 	"internal/modules/deals/engagement.go:EngagedStakeholders":       "the engagement set feeds the same DealCoverage payload and the health composite; withholding it silently lowers a score rather than absenting it. Blocked on the same withheld channel — #1846 follow-up",
 	"internal/modules/deals/engagement.go:Stakeholders":              "the seat list on the coverage payload, whose stakeholders field is required with no withheld channel; an empty list reads as an uncovered deal rather than a withheld one. Blocked on the same withheld channel — #1846 follow-up",
 	"internal/modules/deals/health.go:healthActivityEvidence":        "the health composite's engagement factor: a factor computed from edges the caller may not read yields a WRONG score, not a withheld one, and the health payload has no channel to say so. Blocked on the same withheld channel — #1846 follow-up",
-}
-
-var deferredEdgeReads = gatekit.Waive(deferredEdgeReadReasons)
-
-// deferredNamesAnIssue holds the deferred set to a higher bar than gatekit's
-// own: a deferral that names no issue is a hole nobody owns.
-var deferredNamesAnIssue = regexp.MustCompile(`#\d+`)
+})
 
 // wantMinimumGatedSites is the floor below the count of sites that satisfy the
 // gate today (eleven functions across compose and modules, plus the module that
@@ -205,9 +205,9 @@ func TestEveryReaderOfTheRelationshipTableCarriesTheEdgeGateOrAVerdict(t *testin
 			if site.function != "" {
 				subject += ":" + site.function
 			}
-			carriesGate := site.function != "" && gated[pkg][site.function]
+			carriesGate := site.holdsGate || (site.function != "" && gated[pkg][site.function])
 			if site.function == "" {
-				carriesGate = fileHoldsAGatedFunction(parsed, gated[pkg])
+				carriesGate = site.holdsGate || fileHoldsAGatedFunction(parsed, gated[pkg])
 			}
 			verdict := verdictFor(t, subject)
 
@@ -274,20 +274,7 @@ func verdictFor(t *testing.T, subject string) string {
 		return ""
 	}
 	if len(found) == 1 {
-		if found[0] == "deferred" && !deferredNamesAnIssue.MatchString(deferredReason(subject)) {
-			t.Errorf("the deferred verdict for %s names no issue: a disclosing read left ungated "+
-				"needs an owner, or it is a hole rather than a decision", subject)
-		}
 		return found[0]
-	}
-	return ""
-}
-
-func deferredReason(subject string) string {
-	for _, key := range []string{subject, fileOf(subject)} {
-		if reason, declared := deferredEdgeReadReasons[key]; declared {
-			return reason
-		}
 	}
 	return ""
 }
@@ -300,10 +287,22 @@ func fileOf(subject string) string {
 }
 
 // site is one relationship read: the function that holds it, empty for a
-// package-level SQL fragment, and the first line of the SQL for the report.
+// package-level SQL fragment, the first line of the SQL for the report, and
+// whether that function's OWN body takes the admission.
+//
+// holdsGate is answered from the declaration itself rather than by looking the
+// function up by name, and that distinction is the whole reason this field
+// exists. *Store and Handlers in one module routinely spell the same method
+// names — people has both a Store.RemoveProjectStakeholder and a
+// Handlers.RemoveProjectStakeholder — so a by-name index lets one answer for
+// the other, and which one wins is Go map iteration order. rbacgate_test.go
+// says so in its own header, having been bitten by exactly this. The name index
+// below is still used, but only to reach a gate in a SIBLING function, where a
+// collision can merely be optimistic rather than wrong.
 type site struct {
-	function string
-	sql      string
+	function  string
+	sql       string
+	holdsGate bool
 }
 
 func relationshipReadSites(parsed gatekit.ParsedFile) []site {
@@ -323,7 +322,9 @@ func relationshipReadSites(parsed gatekit.ParsedFile) []site {
 		if fn, isFunc := decl.(*ast.FuncDecl); isFunc {
 			name = fn.Name.Name
 		}
-		sites = append(sites, site{function: name, sql: firstSQLLine(reads[0])})
+		sites = append(sites, site{
+			function: name, sql: firstSQLLine(reads[0]), holdsGate: holdsSeedGate(referencesIn(decl)),
+		})
 	}
 	return sites
 }
@@ -343,7 +344,7 @@ func gatedFunctionsByPackage(t *testing.T, files []gatekit.ParsedFile) map[strin
 	// gates are in graphreads.go and contacts.go — so a resolution seeded from
 	// the subject files alone reports gated code as ungated, which costs the
 	// gate its credibility faster than a miss does.
-	bodies := map[string]map[string]references{}
+	bodies := map[string]map[string][]references{}
 	for _, parsed := range files {
 		pkg := path.Dir(parsed.Path)
 		if bodies[pkg] != nil {
@@ -352,24 +353,38 @@ func gatedFunctionsByPackage(t *testing.T, files []gatekit.ParsedFile) map[strin
 		bodies[pkg] = packageFunctionReferences(t, pkg)
 	}
 
+	// A name is gated when ANY declaration spelling it is — a union, never an
+	// overwrite. Optimistic where two receivers share a method name, and
+	// deliberately so: this index only ever answers "is there a gated helper
+	// called X in this package", and the site's own declaration has already
+	// been asked directly, so the optimism cannot excuse an ungated read whose
+	// same-named neighbour happens to be gated.
 	gated := map[string]map[string]bool{}
 	for pkg, funcs := range bodies {
 		gated[pkg] = map[string]bool{}
-		for name, refs := range funcs {
-			if holdsSeedGate(refs) {
-				gated[pkg][name] = true
+		for name, decls := range funcs {
+			for _, refs := range decls {
+				if holdsSeedGate(refs) {
+					gated[pkg][name] = true
+					break
+				}
 			}
 		}
 		for grew := true; grew; {
 			grew = false
-			for name, refs := range funcs {
+			for name, decls := range funcs {
 				if gated[pkg][name] {
 					continue
 				}
-				for callee := range gated[pkg] {
-					if refs.calls[callee] {
-						gated[pkg][name] = true
-						grew = true
+				for _, refs := range decls {
+					for callee := range gated[pkg] {
+						if refs.calls[callee] {
+							gated[pkg][name] = true
+							grew = true
+							break
+						}
+					}
+					if gated[pkg][name] {
 						break
 					}
 				}
@@ -415,7 +430,7 @@ type references struct {
 
 // packageFunctionReferences parses every non-test source in one package
 // directory and returns what each function mentions.
-func packageFunctionReferences(t *testing.T, pkg string) map[string]references {
+func packageFunctionReferences(t *testing.T, pkg string) map[string][]references {
 	t.Helper()
 	// The path is relative to the module root, which is this test's own working
 	// directory: package backendarch lives at the root of the backend module.
@@ -425,25 +440,25 @@ func packageFunctionReferences(t *testing.T, pkg string) map[string]references {
 	if err != nil {
 		t.Fatalf("parsing %s to resolve its edge gates: %v", pkg, err)
 	}
-	refs := map[string]references{}
+	refs := map[string][]references{}
 	for _, astPkg := range parsed {
 		for _, file := range astPkg.Files {
-			for name, fn := range functionBodies(gatekit.ParsedFile{File: file}) {
-				refs[name] = fn
+			for name, decls := range functionBodies(gatekit.ParsedFile{File: file}) {
+				refs[name] = append(refs[name], decls...)
 			}
 		}
 	}
 	return refs
 }
 
-func functionBodies(parsed gatekit.ParsedFile) map[string]references {
-	bodies := map[string]references{}
+func functionBodies(parsed gatekit.ParsedFile) map[string][]references {
+	bodies := map[string][]references{}
 	for _, decl := range parsed.File.Decls {
 		fn, isFunc := decl.(*ast.FuncDecl)
 		if !isFunc {
 			continue
 		}
-		bodies[fn.Name.Name] = referencesIn(fn)
+		bodies[fn.Name.Name] = append(bodies[fn.Name.Name], referencesIn(fn))
 	}
 	return bodies
 }
