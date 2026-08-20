@@ -7,9 +7,9 @@ package backendarch
 // ways, but nothing in the import graph stops a package from writing SQL
 // against a table it does not own. This test closes that gap — it walks the
 // hand-written Go under internal/modules and internal/compose, extracts every
-// INSERT/UPDATE/DELETE target from SQL string literals (plus the storekit
-// Patch.Apply table argument), and asserts each module only writes its own
-// tables. Cross-store writes exist by design (merge relinks, GDPR erasure,
+// INSERT/UPDATE/DELETE target from SQL string literals, adds the writes
+// storekit's versioned patch issues without spelling SQL here, and asserts each
+// module only writes its own tables. Cross-store writes exist by design (merge relinks, GDPR erasure,
 // ingest materialization); each one is ratified below with a self-contained
 // rationale — an entry without a rationale is a finding, not a pass, and a
 // waiver that matches no remaining write is stale and fails too. SELECTs are
@@ -22,9 +22,11 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -548,11 +550,20 @@ type tableWrite struct {
 }
 
 // collectTableWrites walks every non-test module/compose source file and
-// records each SQL write target (string literals plus storekit's
-// Patch.Apply table argument) under its owning directory.
-func collectTableWrites(t *testing.T) map[string][]tableWrite {
+// records each SQL write target under its owning directory: the tables named
+// in SQL string literals, and the tables storekit's versioned patch writes
+// without ever spelling SQL here.
+//
+// It answers a second map beside them — the patch calls whose table it could
+// NOT resolve, keyed by file. A write the gate cannot see is the failure this
+// whole branch exists to prevent, so it is reported rather than skipped;
+// TestEveryVersionedPatchNamesATableTheGateCanSee is what refuses a new one.
+func collectTableWrites(t *testing.T) (map[string][]tableWrite, map[string][]string) {
 	t.Helper()
-	writes := map[string][]tableWrite{} // owning dir → writes
+	applies := patchApplyMethods(t)
+	writes := map[string][]tableWrite{}      // owning dir → writes
+	unresolved := map[string][]string{}      // file → positions of unreadable patch calls
+	consts := map[string]map[string]string{} // package dir → its string constants
 	fset := token.NewFileSet()
 	for _, root := range []string{"internal/modules", "internal/compose", settingsStoreDir, extSecretsStoreDir} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -566,7 +577,12 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 			if err != nil {
 				return err
 			}
-			owner := owningDir(filepath.ToSlash(filepath.Dir(path)))
+			dir := filepath.ToSlash(filepath.Dir(path))
+			if _, seen := consts[dir]; !seen {
+				consts[dir] = stringConstsIn(t, fset, dir)
+			}
+			locks := lockedTablesIn(file, consts[dir])
+			owner := owningDir(dir)
 			record := func(pos token.Pos, tables []string) {
 				for _, table := range tables {
 					writes[owner] = append(writes[owner], tableWrite{pos: fset.Position(pos).String(), table: table})
@@ -584,18 +600,18 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 					}
 					record(node.Pos(), sqlWriteTargets(text))
 				case *ast.CallExpr:
-					// storekit's versioned patch: Patch.Apply(ctx, tx, table,
-					// id, ifVersion) issues the UPDATE — the table rides as
-					// the third argument.
-					sel, ok := node.Fun.(*ast.SelectorExpr)
-					if !ok || sel.Sel.Name != "Apply" || len(node.Args) < 4 {
+					// storekit's versioned patch issues an UPDATE no SQL
+					// literal here can show. Where the table rides is derived
+					// per method, so a fifth one cannot arrive unread.
+					tables, isPatch := patchWriteTargets(node, applies, consts[dir], locks)
+					if !isPatch {
 						return true
 					}
-					if lit, ok := node.Args[2].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-						if table, err := strconv.Unquote(lit.Value); err == nil {
-							record(node.Pos(), []string{strings.ToLower(table)})
-						}
+					if len(tables) == 0 {
+						unresolved[path] = append(unresolved[path], fset.Position(node.Pos()).String())
+						return true
 					}
+					record(node.Pos(), tables)
 				}
 				return true
 			})
@@ -605,13 +621,13 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 			t.Fatal(err)
 		}
 	}
-	return writes
+	return writes, unresolved
 }
 
 func TestEveryPackageOnlyWritesTablesItOwns(t *testing.T) {
 	defer crossStoreWrites.AssertAllMatched(t)
 
-	writes := collectTableWrites(t)
+	writes, _ := collectTableWrites(t)
 
 	for owner, ws := range writes {
 		for _, w := range ws {
@@ -631,5 +647,254 @@ func TestEveryPackageOnlyWritesTablesItOwns(t *testing.T) {
 			t.Errorf("%s: %s writes table %q owned by %s — move the write into the owning module, or ratify it in crossStoreWrites[%q] with a self-contained rationale",
 				w.pos, owner, w.table, declared, key)
 		}
+	}
+}
+
+// tableFromLock marks a patch method that takes a RowLock instead of naming its
+// table: the table rides inside the lock, and has to be resolved from wherever
+// that lock was minted.
+const tableFromLock = -1
+
+// patchApplyMethods answers, for each *Patch method that issues an UPDATE,
+// which call argument names the table — or tableFromLock when none does.
+//
+// DERIVED from storekit's own source rather than listed, because a list is
+// exactly what rotted: this branch spent its life matching a method called
+// `Apply`, which has never existed, while every versioned write in the tree
+// went unread. A census taken from the source moves when the source moves.
+//
+// The predicate is structural. An exported method on *Patch whose first
+// parameter is a context.Context issues the statement — Set, Empty, Before and
+// After take none — and whether it names its table is visible from whether it
+// has a `table string` parameter.
+func patchApplyMethods(t *testing.T) map[string]int {
+	t.Helper()
+	const patchSource = "internal/platform/database/storekit/patch.go"
+	file, err := parser.ParseFile(token.NewFileSet(), patchSource, nil, 0)
+	if err != nil {
+		t.Fatalf("reading storekit's patch source to derive the apply methods: %v", err)
+	}
+	out := map[string]int{}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || !fn.Name.IsExported() || fn.Type.Params == nil {
+			continue
+		}
+		star, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
+		if !ok || exprName(star.X) != "Patch" {
+			continue
+		}
+		params := flatParams(fn.Type.Params)
+		if len(params) == 0 || params[0].typ != "context.Context" {
+			continue
+		}
+		out[fn.Name.Name] = tableFromLock
+		for i, param := range params {
+			if param.name == "table" && param.typ == "string" {
+				out[fn.Name.Name] = i
+				break
+			}
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("derived no *Patch apply methods from " + patchSource +
+			"; the gate would read every versioned write as absent, which is the hole it closes")
+	}
+	return out
+}
+
+// param is one flattened function parameter: `a, b string` is two of these.
+type param struct{ name, typ string }
+
+func flatParams(list *ast.FieldList) []param {
+	var out []param
+	for _, field := range list.List {
+		typ := exprName(field.Type)
+		if len(field.Names) == 0 {
+			out = append(out, param{typ: typ})
+			continue
+		}
+		for _, name := range field.Names {
+			out = append(out, param{name: name.Name, typ: typ})
+		}
+	}
+	return out
+}
+
+// exprName renders the identifier, selector or pointer shapes a parameter type
+// takes here. Anything else answers empty, which no predicate above matches.
+func exprName(e ast.Expr) string {
+	switch node := e.(type) {
+	case *ast.Ident:
+		return node.Name
+	case *ast.SelectorExpr:
+		return exprName(node.X) + "." + node.Sel.Name
+	case *ast.StarExpr:
+		return "*" + exprName(node.X)
+	}
+	return ""
+}
+
+// stringConstsIn collects one package directory's `name = "literal"` string
+// constants, so a table named through a constant is as visible to this gate as
+// one spelled at the call. Several already are (entityLead, projectObject), and
+// a gate that read only literals would skip them silently.
+func stringConstsIn(t *testing.T, fset *token.FileSet, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s for its string constants: %v", dir, err)
+	}
+	for _, entry := range entries {
+		path := filepath.ToSlash(filepath.Join(dir, entry.Name()))
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || isIntegrationTagged(path) {
+			continue
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				value, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, name := range value.Names {
+					if i >= len(value.Values) {
+						continue
+					}
+					if text, ok := quotedString(value.Values[i]); ok {
+						out[name.Name] = text
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+func quotedString(e ast.Expr) (string, bool) {
+	lit, ok := e.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	text, err := strconv.Unquote(lit.Value)
+	return text, err == nil
+}
+
+// tableArg resolves a table argument that is either spelled at the call or
+// named by one of the package's own string constants.
+func tableArg(e ast.Expr, consts map[string]string) (string, bool) {
+	if text, ok := quotedString(e); ok {
+		return strings.ToLower(text), true
+	}
+	if ident, ok := e.(*ast.Ident); ok {
+		if text, ok := consts[ident.Name]; ok {
+			return strings.ToLower(text), true
+		}
+	}
+	return "", false
+}
+
+// lockedTablesIn answers every table this FILE takes a row lock on.
+//
+// File scope and not function scope, deliberately: a lock is routinely minted
+// in the function that reads the row and spent in the one that writes it
+// (deals/offer_lifecycle.go mints at the read and applies 120 lines later).
+// Widening to the file can only ATTRIBUTE MORE tables to the owner, never
+// fewer, so it cannot hide the cross-module write this gate exists to refuse —
+// and a module taking a row lock on a table it does not own is itself worth the
+// same question.
+func lockedTablesIn(file *ast.File, consts map[string]string) []string {
+	var out []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || len(call.Args) < 3 {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || (sel.Sel.Name != "LockRow" && sel.Sel.Name != "LockPair") {
+			return true
+		}
+		if table, ok := tableArg(call.Args[2], consts); ok {
+			out = append(out, table)
+		}
+		return true
+	})
+	return out
+}
+
+// patchWriteTargets answers the tables one call writes through storekit's
+// versioned patch, and whether it is such a call at all. An empty table list
+// with isPatch true is a write the gate could not read — reported, never
+// skipped.
+func patchWriteTargets(
+	call *ast.CallExpr, applies map[string]int, consts map[string]string, locks []string,
+) (tables []string, isPatch bool) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return nil, false
+	}
+	at, ok := applies[sel.Sel.Name]
+	if !ok {
+		return nil, false
+	}
+	if at == tableFromLock {
+		return locks, true
+	}
+	if at >= len(call.Args) {
+		return nil, true
+	}
+	if table, ok := tableArg(call.Args[at], consts); ok {
+		return []string{table}, true
+	}
+	return nil, true
+}
+
+// patchTablesTheGateCannotSee are the ratified versioned-patch calls whose
+// table this gate cannot read statically, keyed by the file they sit in.
+//
+// The entries exist so an UNREADABLE write is a decision somebody made rather
+// than a silence. That distinction is the whole finding behind this gate's
+// repair: the branch that read versioned patches spent its life matching a
+// method name that does not exist, and every such write was invisible while the
+// gate reported itself complete.
+var patchTablesTheGateCannotSee = gatekit.Waive(map[string]string{
+	"internal/modules/people/organization_evidence_write.go": "the one shape both organization evidence sidecars are written in, so its table is a struct field rather than a word at the call. The two constructors that fill it name `organization_fact` and `organization_profile_field` as literals, both owned by people, and both are already visible to this gate through the module's own SQL — so nothing is hidden here that resolving the field would reveal. Resolving it would take dataflow across three files to learn what the SQL beside it already says",
+})
+
+// A versioned patch whose table this gate cannot read is a write it cannot
+// judge, and the gate must say so rather than pass over it.
+//
+// This is the mirror of the repair above it. Making the branch match the real
+// method names closes the hole for every call that NAMES its table; a call that
+// names it through a struct field or a parameter would slip through the same
+// crack in a new shape, and a gate that skipped those quietly would read
+// exactly as green as the broken one did.
+func TestEveryVersionedPatchNamesATableTheGateCanSee(t *testing.T) {
+	defer patchTablesTheGateCannotSee.AssertAllMatched(t)
+
+	writes, unresolved := collectTableWrites(t)
+	// Anti-vacuity: a walk that found no versioned write at all would report
+	// exactly like a tree with none, which is the failure this gate exists to
+	// close. The tree has dozens.
+	if len(writes) == 0 {
+		t.Fatal("collected no table writes at all; this gate would pass vacuously")
+	}
+
+	for _, file := range slices.Sorted(maps.Keys(unresolved)) {
+		if patchTablesTheGateCannotSee.Waived(t, file) {
+			continue
+		}
+		t.Errorf("%s: %v — a versioned patch here names its table through something this gate "+
+			"cannot read, so the ownership check passes over the write entirely. Spell the table at "+
+			"the call, name it with a package constant, or ratify it in patchTablesTheGateCannotSee "+
+			"with a rationale naming the tables it can reach", file, unresolved[file])
 	}
 }
