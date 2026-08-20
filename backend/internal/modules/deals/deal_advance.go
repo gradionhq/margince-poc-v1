@@ -247,18 +247,21 @@ func (s *Store) stageTransitionPatch(ctx context.Context, tx pgx.Tx,
 	if closedAt != nil {
 		p.Set("closed_at", current.ClosedAt, *closedAt)
 	}
-	// Written only when this advance LANDS on lost. A reopen clears it in the
-	// terminal-field sweep below, but a lost deal re-decided as won takes neither
-	// branch and keeps the stale reason — the CHECK is one-directional, so nothing
-	// refuses that state (issue #483).
+	// Written when this advance lands on lost, and cleared on every other
+	// landing. A reason describing a previous close is worse than none: it
+	// answers the report with a fact about a different outcome — so a deal
+	// re-decided from lost to won must not carry the loss explanation with it.
+	// The clear is conditional on there being something to clear: Set records
+	// an assignment unconditionally, so clearing a column that is already NULL
+	// would put lost_reason into the UPDATE and the audit diff of every
+	// ordinary open-to-open advance.
 	if DealStatus(status) == DealLost && in.LostReason != nil {
 		p.Set("lost_reason", current.LostReason, *in.LostReason)
+	} else if DealStatus(status) != DealLost && current.LostReason != nil {
+		p.Set("lost_reason", current.LostReason, nil)
 	}
 	// The won-without-contract reason is written only on a win, and cleared on
-	// every other landing — including a re-decided lost deal, which is the case
-	// the lost_reason CHECK above misses. A reason describing a previous close
-	// is worse than none: it answers the report with a fact about a different
-	// outcome.
+	// every other landing, for the same reason.
 	if DealStatus(status) == DealWon {
 		p.Set("won_without_contract_reason", current.WonWithoutContractReason, in.WonWithoutContractReason)
 		p.Set("won_without_contract_detail", current.WonWithoutContractDetail, in.WonWithoutContractDetail)
@@ -273,13 +276,13 @@ func (s *Store) stageTransitionPatch(ctx context.Context, tx pgx.Tx,
 			return nil, "", err
 		}
 	}
-	// Reopening a won/lost deal must clear every terminal field —
-	// the DB CHECKs are one-directional, so a stale closed_at or
-	// lost_reason on an open deal would silently corrupt forecast
-	// and won-lost reporting.
+	// Reopening a won/lost deal must clear the remaining terminal fields —
+	// the DB CHECKs are one-directional, so a stale closed_at or frozen rate
+	// on an open deal would silently corrupt forecast and won-lost reporting.
+	// lost_reason is not here: it clears on every non-lost landing above,
+	// which covers the reopen too.
 	if DealStatus(status) == DealOpen && DealStatus(current.Status) != DealOpen {
 		p.Set("closed_at", current.ClosedAt, nil)
-		p.Set("lost_reason", current.LostReason, nil)
 		p.Set("fx_rate_to_base", nil, nil)
 		p.Set("fx_rate_date", nil, nil)
 	}
