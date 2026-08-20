@@ -137,6 +137,10 @@ func (f *fakeTelegram) SendMessage(context.Context, string, telegram.OutboundCha
 	panic("fakeTelegram: the channel-connect suite must not send messages")
 }
 
+func (f *fakeTelegram) SendFiles(context.Context, string, telegram.OutboundChannelMessage) (int64, error) {
+	panic("fakeTelegram: the channel-connect suite must not send messages")
+}
+
 // countingVault wraps a real vault and records every ref it mints, so a test
 // can assert "nothing was persisted" about the vault as well as about the row —
 // half the claim would leave a stranded secret invisible — and can find the refs

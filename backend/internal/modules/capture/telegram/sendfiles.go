@@ -82,6 +82,13 @@ const (
 	methodSendMediaGroup = "sendMediaGroup"
 )
 
+// mediaKindDocument is the ONE media kind this connector sends, and one constant
+// covers both places it is spelled because the Bot API means the same thing in
+// both: sendDocument's `document` form field and an album item's `type` name the
+// same kind, which is why a document cannot be uploaded as a photo or grouped
+// with one.
+const mediaKindDocument = "document"
+
 // inputMediaDocument is one item of a sendMediaGroup album. Only the document
 // type is ever built (see this file's opening comment), and only the first item
 // of a group carries the caption — Telegram renders a group's caption from the
@@ -215,7 +222,7 @@ type formField struct{ name, value string }
 func uploadFields(m OutboundChannelMessage, method string) ([]formField, error) {
 	fields := []formField{{"chat_id", strconv.FormatInt(m.ChatID, 10)}}
 	if method == methodSendDocument {
-		fields = append(fields, formField{"document", attachRef(0)})
+		fields = append(fields, formField{mediaKindDocument, attachRef(0)})
 		if m.Text != "" {
 			// An absent caption and an empty one are different on the wire:
 			// Telegram renders a stated empty caption as a blank line under the
@@ -247,7 +254,7 @@ func uploadFields(m OutboundChannelMessage, method string) ([]formField, error) 
 func mediaGroup(m OutboundChannelMessage) (string, error) {
 	items := make([]inputMediaDocument, 0, len(m.Files))
 	for i := range m.Files {
-		item := inputMediaDocument{Type: "document", Media: attachRef(i)}
+		item := inputMediaDocument{Type: mediaKindDocument, Media: attachRef(i)}
 		if i == 0 {
 			item.Caption = m.Text
 		}

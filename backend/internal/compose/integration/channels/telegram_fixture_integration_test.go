@@ -168,6 +168,21 @@ func (f *fakeTelegramAPI) GetUpdates(_ context.Context, _ string, offset int64, 
 
 func (f *fakeTelegramAPI) SendMessage(_ context.Context, _ string, m telegram.OutboundChannelMessage) (int64, error) {
 	f.record("sendMessage")
+	return f.accept(m)
+}
+
+// SendFiles is the upload path. It records under its own call name — which
+// method transmitted is the fact a test about attachment carriage is asking
+// about — and lands in the same transmitted list, because what a caller wants
+// to assert afterwards is the message, not the encoding it took.
+func (f *fakeTelegramAPI) SendFiles(_ context.Context, _ string, m telegram.OutboundChannelMessage) (int64, error) {
+	f.record("sendFiles")
+	return f.accept(m)
+}
+
+// accept is the id-minting half both send methods share, so a message's
+// recorded shape cannot depend on which one carried it.
+func (f *fakeTelegramAPI) accept(m telegram.OutboundChannelMessage) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, m)
