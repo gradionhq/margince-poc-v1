@@ -90,11 +90,20 @@ export function mapLeadBody(values: Record<string, string>): CreateLeadRequest {
     linkedin_url: values.linkedin_url?.trim() || undefined,
     title: values.title?.trim() || undefined,
     company_name: values.company_name?.trim() || undefined,
-    owner_id: values.owner_id?.trim() || undefined,
+    owner_id:
+      values.owner_id === UNASSIGNED_OWNER
+        ? undefined
+        : values.owner_id?.trim() || undefined,
     status: "new",
     source: values.source?.trim() || "manual",
   };
 }
+
+// The owner picker's "nobody yet" choice. A sentinel rather than the empty
+// string because the field is required — the writer chooses the queue, they
+// do not skip the question. The server reads an omitted owner_id as exactly
+// that: an unassigned lead for routing or a claim to pick up.
+export const UNASSIGNED_OWNER = "unassigned";
 
 const leadCreateFields: CreateField[] = [
   { key: "full_name", label: "create.fullName", required: true },
@@ -225,6 +234,7 @@ function LeadsWorkbench({
   const sources = useLeadSources();
   const ownerOptions = [
     { value: viewerId, label: t("lead.assignToMe") },
+    { value: UNASSIGNED_OWNER, label: t("lead.unassigned") },
     ...(roster.data ?? [])
       .filter((entry) => !("is_agent" in entry && entry.is_agent))
       .filter((entry) => entry.id !== viewerId)
