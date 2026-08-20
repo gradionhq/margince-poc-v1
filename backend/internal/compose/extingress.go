@@ -355,7 +355,21 @@ func (r *callRuntime) naturalKey(rec extension.Record) connector.NaturalKey {
 }
 
 func (r *callRuntime) sourceSystem(system string) string {
-	return "ext:" + r.unit + ":" + system
+	return extSourceSystem(r.unit, system)
+}
+
+// extSourceSystem spells the provenance a unit's landed record carries, and it
+// is spelled HERE ONLY.
+//
+// Two callers need the same string for opposite reasons: this file WRITES it
+// onto every record (the natural key and activity.source), and the transport
+// directory PUBLISHES it with a label so a reader of the capture trace sees a
+// name instead of `ext:dispact-connector:dispact`. A second spelling of the
+// grammar would resolve labels for ids no record ever carries while the ones
+// that do arrive stay raw — a mismatch nothing fails on, because a directory
+// miss is a fallback rather than an error.
+func extSourceSystem(unit, system string) string {
+	return "ext:" + unit + ":" + system
 }
 
 // declaredIngress resolves the source the record names against what the

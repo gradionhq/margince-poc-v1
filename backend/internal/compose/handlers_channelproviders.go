@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // channelProvidersHandlers serves the directory. It holds NO state for
@@ -53,8 +54,38 @@ type channelProvidersHandlers struct{}
 func (channelProvidersHandlers) ListChannelProviders(w http.ResponseWriter, r *http.Request) {
 	registered, sending := ComposedChannelProviders()
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ChannelProviderDirectory{
-		Data: publishedChannelProviders(registered, sending),
+		Data:           publishedChannelProviders(registered, sending),
+		CaptureSources: publishedCaptureSources(ComposedExtensions()),
 	})
+}
+
+// publishedCaptureSources shapes the provenance ids a unit's records land under
+// for the wire — the non-transport half of the answer, and the half that fixes
+// a reader seeing `ext:dispact-connector:dispact` where a name belongs.
+//
+// It is served from the composed declaration set rather than from a table, which
+// is the same decision ComposedChannelProviders documents: a unit's ingress
+// sources are a fact about what this binary composed, they are fixed for the
+// life of the process, and no row anywhere records them.
+//
+// Sorted for publishedChannelProviders' reason — a directory that reorders
+// between calls makes a diff of two deployments unreadable.
+//
+// Nil rather than an empty slice when nothing is declared, which is what the
+// field's optionality on the wire means: a vanilla installation composing no
+// ingress unit answers without the key at all, and an empty array would state
+// the same thing in one more shape for a client to handle.
+func publishedCaptureSources(exts []extension.Extension) *[]crmcontracts.CaptureSourceEntry {
+	facts := captureSourceFactsFor(exts)
+	if len(facts) == 0 {
+		return nil
+	}
+	out := make([]crmcontracts.CaptureSourceEntry, 0, len(facts))
+	for _, f := range facts {
+		out = append(out, crmcontracts.CaptureSourceEntry{Source: f.source, Label: f.label})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Source < out[j].Source })
+	return &out
 }
 
 // publishedChannelProviders shapes the composed set for the wire. Split from the
