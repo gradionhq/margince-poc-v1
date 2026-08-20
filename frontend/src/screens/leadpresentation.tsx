@@ -175,6 +175,9 @@ export function LeadBoard({
   const dragging = useRef<string | null>(null);
   const lastDragEnd = useRef(0);
   const move = useMutation({
+    // No single record: one mutation instance serves every card on the board,
+    // and which lead is moving is known only at mutate() time, not here.
+    mutationKey: ["lead-edit"],
     mutationFn: async (moved: {
       id: string;
       version?: number;

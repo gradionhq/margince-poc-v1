@@ -1031,6 +1031,7 @@ function useDraftMutation({
   t: ReturnType<typeof useT>;
 }>) {
   return useMutation({
+    mutationKey: ["email", entityId],
     mutationFn: async (): Promise<DraftResult> => {
       resetUnavailable();
       // A reply answers the message it is anchored to; an account-started
@@ -1224,6 +1225,7 @@ export function ComposeModal({
   });
 
   const send = useMutation({
+    mutationKey: ["email", entityId],
     mutationFn: async () => {
       setSendUnavailable(false);
       // No X-Approval-Token, no Idempotency-Key on either path: the human's

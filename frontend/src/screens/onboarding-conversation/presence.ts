@@ -9,12 +9,14 @@ import type { BuildStage, ConversationState } from "./conversation-machine";
 // run identity, never poll payloads.
 //
 // The grammar is the agent's own lifecycle, and each phase takes the state that
-// names what is actually happening: dormant while the human owes the next move,
-// ingesting (with a progress ring) while pages or corpus material arrive,
-// reasoning while the agent works over what it has, drafting while it composes,
-// applied on a confirmation, error on a failed run. Anything waiting on a person
-// is the agent at REST: the surface's own card is what asks for the answer. Nothing here claims the agent is listening — it reads captured
-// activity and never holds a conversation.
+// names what is actually happening: idle while the human owes the next move,
+// ingest (with a progress ring) while pages or corpus material arrive, working
+// while the agent reasons over what it has or composes from it, warning while
+// it is stopped on something a person must resolve, error on a failed run. A
+// confirmation settles the orb back to idle rather than a state of its own.
+// Anything waiting on a person is the agent at REST: the surface's own card is
+// what asks for the answer. Nothing here claims the agent is listening — it
+// reads captured activity and never holds a conversation.
 
 type ReadSnapshot = Pick<
   components["schemas"]["CompanySiteRead"],
@@ -62,7 +64,7 @@ function companyPresence(
   if (read?.status === "deferred") {
     // Deferred is not broken and not busy: the run has not started, so the Core
     // is at rest rather than reaching for something.
-    return { core: "dormant" };
+    return { core: "idle" };
   }
   if (
     state.phase === "co.reading" &&
@@ -73,39 +75,39 @@ function companyPresence(
     // tells them apart: crawling is pages ARRIVING, extracting is the agent
     // working over what arrived.
     return {
-      core: read.phase === "extracting" ? "reasoning" : "ingesting",
+      core: read.phase === "extracting" ? "working" : "ingest",
       progress: readProgress(read),
     };
   }
   if (state.phase === "co.clarify") {
     // The read found something it cannot resolve alone — a contradiction, a
     // field it may not fill in for you. Held, not progressing.
-    return { core: "flagged" };
+    return { core: "warning" };
   }
   if (state.phase === "co.review") {
     // Proposals sitting in front of a person: the agent has stopped, so the orb
     // rests rather than claiming work nobody asked it to keep doing.
-    return { core: "dormant" };
+    return { core: "idle" };
   }
   if (state.phase === "co.confirmed") {
-    return { core: "applied" };
+    // A finished run settles back to idle: there is no state of its own for
+    // "done".
+    return { core: "idle" };
   }
-  return { core: "dormant" };
+  return { core: "idle" };
 }
 
 /**
  * Which state a voice build is in, by the stage the server last reported.
  *
  * The four stages are not one activity: a snapshot and an extraction are
- * material ARRIVING, an evaluation is the agent working over it, and activation
- * is the agent producing the thing. One `working` for all four was the Core
- * saying "busy" through a process the reader can actually follow.
+ * material ARRIVING, an evaluation and an activation are the agent working
+ * over what arrived and producing the thing from it. `ingest` covers the
+ * first pair, `working` the second, which is as far as the orb's report
+ * needs to go.
  */
 function buildCore(stage: BuildStage | null): MarginceCoreState {
-  if (stage === "evaluate") {
-    return "reasoning";
-  }
-  return stage === "activate" ? "drafting" : "ingesting";
+  return stage === "evaluate" || stage === "activate" ? "working" : "ingest";
 }
 
 function voicePresence(state: ConversationState): OrbPresence {
@@ -122,15 +124,14 @@ function voicePresence(state: ConversationState): OrbPresence {
   if (state.phase === "vo.speaker") {
     // A question card: the build needs a person to say which voice is theirs,
     // and until they do the agent is not working.
-    return { core: "dormant" };
+    return { core: "idle" };
   }
   if (state.phase === "vo.result") {
-    if (state.lastBuildStatus === "succeeded") {
-      return { core: "applied" };
-    }
-    return { core: state.lastBuildStatus === "failed" ? "error" : "dormant" };
+    // A finished run settles back to idle: there is no state of its own for
+    // "done". Only a failed one leaves it.
+    return { core: state.lastBuildStatus === "failed" ? "error" : "idle" };
   }
-  return { core: "dormant" };
+  return { core: "idle" };
 }
 
 export function presenceFor(
@@ -142,7 +143,7 @@ export function presenceFor(
 ): OrbPresence {
   switch (state.act) {
     case "welcome":
-      return { core: "dormant" };
+      return { core: "idle" };
     case "company":
       return companyPresence(
         state,
@@ -152,10 +153,10 @@ export function presenceFor(
     case "voice":
       return voicePresence(state);
     case "results":
-      return { core: "applied" };
+      return { core: "idle" };
     case "connect":
-      return { core: "dormant" };
+      return { core: "idle" };
     case "done":
-      return { core: "applied" };
+      return { core: "idle" };
   }
 }

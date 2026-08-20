@@ -18,8 +18,8 @@ import {
 } from "./palette";
 
 // B-EP09.5 (AC-shell-3..7) and RS-1 (live /search records + see-all)
-// acceptance. B-EP09.6 (AC-shell-8) moved to app/agentdock.test.tsx with the
-// composer it covers: the Ask FAB was absorbed into the agent dock.
+// acceptance. B-EP09.6 (AC-shell-8) covered the record-scoped Ask composer,
+// which the agent surfaces that carried it no longer offer.
 
 afterEach(() => {
   cleanup();

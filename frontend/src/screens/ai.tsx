@@ -22,9 +22,9 @@ export function AskAiScreen() {
       {query && (
         <Card as="div">
           {/* Named for the READER's question rather than for the control that
-              carried it: the palette hands one over and so does the agent dock
-              (app/agentdock.tsx), and a label naming one of them is wrong half
-              the time. */}
+              carried it: the palette hands one over, and a label naming the
+              control rather than the question is wrong the moment a second one
+              can carry it. */}
           <p className="t-label">{t("ai.carriedQuestion")}</p>
           <p className="t-mono" style={{ marginTop: 4 }}>
             {query}

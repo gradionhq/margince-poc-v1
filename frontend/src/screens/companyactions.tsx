@@ -120,6 +120,7 @@ export function NewDealAction({
       screen="deals"
       create={createDeal}
       fields={fields}
+      aboutId={orgId}
     />
   );
 }

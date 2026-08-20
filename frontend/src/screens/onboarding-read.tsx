@@ -98,22 +98,24 @@ function presenceState(
   if (running && props.read?.status !== "deferred") {
     // Pages arriving while the read runs; the extracting phase is the agent
     // working over them rather than taking more on.
-    return props.read?.phase === "extracting" ? "reasoning" : "ingesting";
+    return props.read?.phase === "extracting" ? "working" : "ingest";
   }
   if (props.read?.status === "deferred") {
     // Deferred has not started, so the Core rests rather than looking busy.
-    return "dormant";
+    return "idle";
   }
   if (
     props.read?.status === "ready" ||
     props.read?.status === "partial" ||
     props.read?.status === "confirmed"
   ) {
-    return "applied";
+    // A finished run settles back to idle: there is no state of its own for
+    // "done".
+    return "idle";
   }
   // Nothing running either way: a mode chosen and a mode not chosen are both a
   // surface waiting on a person, which is the same thing for the orb.
-  return "dormant";
+  return "idle";
 }
 
 function coreProgress(read: CompanySiteRead | null): number | undefined {

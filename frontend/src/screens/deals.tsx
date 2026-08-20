@@ -874,6 +874,10 @@ function useAdvanceDeal(toast: Toast) {
   const t = useT();
   const queryClient = useQueryClient();
   return useMutation({
+    // No single record: one instance serves every card on the board, and which
+    // deal is moving is known at mutate() time rather than here, so the agent
+    // rail names the write without naming a record (app/agentrail-copy.ts).
+    mutationKey: ["deal-edit"],
     mutationFn: async (input: AdvanceInput) => {
       const terminal = input.toStage.semantic !== "open";
       const { data, error } = await api.POST("/deals/{id}/advance", {
@@ -1947,6 +1951,7 @@ function ReopenAction({
   const [open, setOpen] = useState(false);
   const [stageId, setStageId] = useState<string | null>(null);
   const reopen = useMutation({
+    mutationKey: ["deal-edit", dealId],
     // Stage and version both ride the variables: a version read out of the
     // closure would be the one from the render before this dialog opened, and a
     // reopen that pins the wrong version either fails for no reason the reader

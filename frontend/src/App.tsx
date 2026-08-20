@@ -12,7 +12,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { AgentTaskbar } from "./app/agenttaskbar";
 import {
   EXTENSION_SCREEN,
   type ExtensionScreenRegistry,
@@ -26,7 +25,6 @@ import {
 import { SPA_RELEASE } from "./app/release";
 import { navigate, parseHash, routeHash, type Screen } from "./app/router";
 import { Shell, type ShellCounts, useRoute } from "./app/shell";
-import { uiPreviewTaskbarEnabled } from "./app/ui-preview";
 import { UnsavedGuard } from "./app/unsaved";
 import {
   Card,
@@ -682,7 +680,6 @@ function AuthedApp({
   }, [authed, company.isSuccess, described, route.screen]);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const taskbarPreview = uiPreviewTaskbarEnabled();
   const commands = useBuiltinCommands();
   usePaletteHotkey(useCallback(() => setPaletteOpen((open) => !open), []));
 
@@ -751,11 +748,6 @@ function AuthedApp({
         onClose={() => setPaletteOpen(false)}
         commands={commands}
       />
-      {/* One agent surface at a time. The dock is the shipped one and the shell
-          mounts it at the foot of the content column; this preview switch swaps
-          it for the bar being judged against it (app/ui-preview.ts), so the two
-          proposals are never on screen together. */}
-      {taskbarPreview && <AgentTaskbar route={route} />}
     </>
   );
 }

@@ -79,55 +79,48 @@ export function uiPreviewResetEnabled(): boolean {
 }
 
 /**
- * `VITE_UI_PREVIEW_TASKBAR=1` — draw the agent TASKBAR: one bar docked at the
- * bottom of the viewport on every screen, instead of only the dock beside the
- * page title.
+ * `VITE_UI_PREVIEW_TASKBAR=1`: put the review-only STATE SWITCHER into the
+ * agent panel at the foot of the workspace rail (`app/agentrail.tsx`).
  *
- * Why it exists: the shipped agent surface is `app/agentdock.tsx`, in the page
- * head. The competing proposal is a bottom bar that splits its awareness — the
- * page you are on to the left of it, the whole workspace to the right — and the
- * only way to judge that is to walk the real screens with it there, because what
- * is being judged is how it sits under a page that scrolls beside a rail that
- * collapses. Storybook shows the bar; it cannot show that.
+ * Why it exists: the agent section reports what it reads, and three of the eight
+ * Core states describe an overnight run no read can reach. The only way to judge
+ * how those look is to walk the real screens wearing them, because what is being
+ * judged is how the section sits in a rail that collapses beside a page that
+ * scrolls. Storybook shows the states; it cannot show that.
  *
- * What it draws is READ, not invented: approvals waiting, which sources are
- * unreachable, the open duplicate queue, whether this deployment has a model
- * bound, the model the last call was served by, and the account's own
+ * What the section itself draws is READ, not invented: approvals waiting, which
+ * sources are unreachable, the open duplicate queue, whether this deployment has
+ * a model bound, the model the last call was served by, and the account's own
  * suggestions. A read that has not answered draws nothing rather than a zero.
  *
- * What makes it a PREVIEW rather than a feature is what it cannot say. Three
- * states — the overnight run taking captured mail in, traversing the graph,
- * drafting — have no read behind them at all: the contract serves no run phase
- * and no stream. Those are reachable only from a switcher inside the panel,
- * under a heading that says review-only, and the bar never enters one on its
- * own. The other thing it does is SUPPRESS the page-head dock and the Ask FAB
- * while it is on, because all three make the same offer and three of them is a
- * design question answered three times.
+ * What this switch adds is the part no read can reach. Three states, the
+ * overnight run taking captured mail in, traversing the graph and drafting, have
+ * nothing behind them: the contract serves no run phase and no stream. With the
+ * switch on, all eight are offered from the panel under a heading that says
+ * review-only, so a reviewer can see each one dressed on the real surface.
  *
  * Read at the call rather than at module load, for the same reason as the
  * switches above.
  */
-export function uiPreviewTaskbarEnabled(): boolean {
+export function uiPreviewAgentStatesEnabled(): boolean {
   return isOn(import.meta.env.VITE_UI_PREVIEW_TASKBAR);
 }
 
-let warnedTaskbar = false;
+let warnedAgentStates = false;
 
 /**
- * The one place the taskbar preview announces itself.
+ * The one place the agent-state switcher announces itself.
  *
- * Loud, once, in the console: a build drawing an agent surface whose numbers are
- * invented has to say so where anyone inspecting it will see it, and this bar is
- * far more convincing than the two switches above — it reports work no
- * installation is doing.
+ * Loud, once, in the console: a build that can be put into a state no
+ * installation is in has to say so where anyone inspecting it will see it.
  */
-export function announceTaskbarPreview(): void {
-  if (warnedTaskbar) {
+export function announceAgentStatesPreview(): void {
+  if (warnedAgentStates) {
     return;
   }
-  warnedTaskbar = true;
+  warnedAgentStates = true;
   console.warn(
-    "[ui-preview] VITE_UI_PREVIEW_TASKBAR is on: the bottom agent taskbar is drawn for design review, and it takes the page-head dock and the Ask FAB down while it is on. Its counts are read from the API; the states describing an agent run in flight have no read behind them and are reachable only from the review-only switcher in its panel.",
+    "[ui-preview] VITE_UI_PREVIEW_TASKBAR is on: the agent panel in the rail carries a review-only state switcher. Its counts are read from the API; the states describing an agent run in flight have no read behind them, and the rail never enters one of those on its own.",
   );
 }
 
