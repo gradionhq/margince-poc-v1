@@ -285,6 +285,8 @@ export const vi = {
   "rollup.computedAt": "Tính lúc {when}",
 
   "nav.partners": "Đối tác",
+  "deal.partnerSourced": "qua",
+  "deal.partnerInfluenced": "có hỗ trợ từ",
   "deal.partnerAttribution": "Đối tác đã làm gì",
   "deal.attributionUnset": "Chưa nêu (tính là mang deal về)",
   "deal.attributionSourced": "Mang deal về cho chúng ta",

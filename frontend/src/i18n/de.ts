@@ -278,6 +278,8 @@ export const de = {
   "rollup.computedAt": "Berechnet am {when}",
 
   "nav.partners": "Partner",
+  "deal.partnerSourced": "über",
+  "deal.partnerInfluenced": "unterstützt von",
   "deal.partnerAttribution": "Was der Partner getan hat",
   "deal.attributionUnset": "Nicht angegeben (gilt als gebracht)",
   "deal.attributionSourced": "Hat den Deal gebracht",

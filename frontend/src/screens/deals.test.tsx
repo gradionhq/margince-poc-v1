@@ -1464,6 +1464,60 @@ describe("DealScreen — edit, archive, FX line (A3)", () => {
     expect(patches[0].ifMatch).toBe("4");
   });
 
+  // The partner was editable in the form and rendered nowhere, so a deal a
+  // partner brought looked identical to one we won alone — while being the
+  // fact a commission is computed from.
+  it("names the partner that brought the deal, and links to it", async () => {
+    const d = deal({
+      id: "x",
+      organization_id: "o1",
+      partner_org_id: "p1",
+      partner_attribution: "sourced",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const url = request.url;
+        // EntityRef resolves each reference by its own id read; a reference it
+        // cannot name is deliberately not a link.
+        if (url.includes("/organizations/p1")) {
+          return jsonResponse({ id: "p1", display_name: "VietnamPartner JSC" });
+        }
+        return stubBackend([d], { single: d })(request);
+      }),
+    );
+
+    render(<DealScreen id="x" />);
+
+    expect(
+      await screen.findByRole("button", { name: "VietnamPartner JSC" }),
+    ).toBeTruthy();
+    expect(screen.getByText("via")).toBeTruthy();
+  });
+
+  // Sourced and influenced are paid differently, so the line has to say which.
+  it("says a partner only helped when the deal was influenced, not sourced", async () => {
+    const d = deal({
+      id: "x",
+      partner_org_id: "p1",
+      partner_attribution: "influenced",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/organizations/p1")) {
+          return jsonResponse({ id: "p1", display_name: "Xentral" });
+        }
+        return stubBackend([d], { single: d })(request);
+      }),
+    );
+
+    render(<DealScreen id="x" />);
+
+    expect(await screen.findByText("helped by")).toBeTruthy();
+    expect(screen.queryByText("via")).toBeNull();
+  });
+
   it("shows the FX base line only when fx_rate_to_base is set", async () => {
     const d = deal({
       id: "x",

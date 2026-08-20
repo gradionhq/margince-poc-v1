@@ -76,6 +76,7 @@ import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { DealBulkBar } from "./dealbulk";
 import { EditAction } from "./edit";
+import { EntityRef } from "./entityref";
 import { RecordHistoryTab } from "./history";
 import { usePendingApprovals } from "./inbox.queries";
 import {
@@ -677,6 +678,25 @@ function dealColumns(
       header: t("people.name"),
       cell: (deal) => deal.name,
       fixed: true,
+    },
+    {
+      // Which partner brought the deal, when one did. Optional: a workspace
+      // that runs no partner programme has an empty column, and hiding it
+      // per-row is worse in a list than an empty cell — a column that comes
+      // and goes cannot be scanned down.
+      //
+      // It carries no `sort`, because the API's sortable vocabulary is a fixed
+      // five-field set that does not include it. That limitation is not this
+      // column's to fix (see the sorting issue), and a header that looked
+      // sortable and refused would be worse than one that never offered.
+      key: "partner",
+      header: t("deal.partnerOrg"),
+      cell: (deal) =>
+        deal.partner_org_id ? (
+          <EntityRef kind="organization" id={deal.partner_org_id} asText />
+        ) : (
+          ""
+        ),
     },
     {
       key: "stage",
@@ -2325,6 +2345,51 @@ type Relationship = components["schemas"]["Relationship"];
 // doesn't push the render-prop closure over the cognitive-complexity budget.
 // Every prop here is a value already resolved by DealScreen — no new
 // fetches, no behavior change from the pre-tab layout.
+/**
+ * The one line of joined facts under a deal's name: what it is worth, whose
+ * deal it is, and — when one brought it — which partner.
+ *
+ * The partner was editable in the form and rendered nowhere, so a deal that a
+ * partner sourced looked identical to one we won alone. That is the fact the
+ * commission is computed from, and a figure a partner is paid on has to be
+ * visible on the record it came from.
+ *
+ * Each reference goes through EntityRef, which resolves the name and links to
+ * the record — and withholds both when the reader may not open it, which is
+ * why the ids are not printed as a fallback.
+ */
+function DealSubtitle({
+  deal,
+  locale,
+}: Readonly<{ deal: Deal; locale: Locale }>) {
+  const t = useT();
+  return (
+    <>
+      {deal.amount_minor != null && deal.currency && (
+        <span>{formatMoney(deal.amount_minor, deal.currency, locale)}</span>
+      )}
+      {deal.organization_id && (
+        <span>
+          <EntityRef kind="organization" id={deal.organization_id} />
+        </span>
+      )}
+      {deal.partner_org_id && (
+        <span>
+          {/* Sourced and influenced are paid differently, so the line says
+              which one rather than a neutral "partner: X" that hides the
+              distinction the commission turns on. */}
+          {t(
+            deal.partner_attribution === "influenced"
+              ? "deal.partnerInfluenced"
+              : "deal.partnerSourced",
+          )}{" "}
+          <EntityRef kind="organization" id={deal.partner_org_id} />
+        </span>
+      )}
+    </>
+  );
+}
+
 function DealOverviewPane({
   deal,
   stages,
@@ -2615,11 +2680,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
           return (
             <RecordView
               name={deal.name}
-              subtitle={
-                deal.amount_minor != null && deal.currency
-                  ? formatMoney(deal.amount_minor, deal.currency, locale)
-                  : undefined
-              }
+              subtitle={<DealSubtitle deal={deal} locale={locale} />}
               zone="Europe/Berlin"
               badges={
                 <DealBadges

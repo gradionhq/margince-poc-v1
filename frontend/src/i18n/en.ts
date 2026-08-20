@@ -287,6 +287,8 @@ export const en = {
   "rollup.computedAt": "Computed at {when}",
 
   "nav.partners": "Partners",
+  "deal.partnerSourced": "via",
+  "deal.partnerInfluenced": "helped by",
   "deal.partnerAttribution": "What the partner did",
   "deal.attributionUnset": "Not said (counts as brought us the deal)",
   "deal.attributionSourced": "Brought us the deal",
