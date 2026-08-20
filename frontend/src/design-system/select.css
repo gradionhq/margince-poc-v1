@@ -138,3 +138,12 @@
     transform: scaleY(1);
   }
 }
+
+/* The highlighted option in an open list. Moving the pointer down a list of ten
+   snapped the fill from row to row; the same travel over --dur-state reads as
+   one highlight following the pointer rather than ten of them blinking. */
+.select-option {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
+}

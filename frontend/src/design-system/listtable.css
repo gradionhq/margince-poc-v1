@@ -1065,3 +1065,49 @@
   outline-offset: -2px;
   border-radius: var(--r-sm);
 }
+
+/*
+ * The state vocabulary for the surface's own chrome — hover, press, and the
+ * transition between them.
+ *
+ * Every one of these already CHANGED on hover and did it in a single frame,
+ * because none of the base rules carried a transition. A dense toolbar where
+ * six controls snap between two fills as the pointer crosses them reads as the
+ * interface flickering rather than as it responding; the same change over
+ * `--dur-state` reads as the control answering.
+ *
+ * `background-color` and not `background`: the shorthand cannot be interpolated
+ * where an image or gradient is involved, and naming the longhand is what makes
+ * a fill that happens to be a gradient somewhere in this family degrade to a
+ * cut rather than to nothing.
+ */
+.lt-vtab,
+.lt-btn,
+.lt-chip,
+.lt-mi,
+.lt-sort,
+.lt-frow-seg,
+.lt-frow-more,
+.lt-linkish,
+.lt-pager button {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    border-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
+}
+
+/* The press. A list is where a reader clicks most often in this product and the
+   surface said nothing when they did — the row they just asked for looked
+   identical to the one under the pointer. The fill goes one step darker than
+   hover, which is the same step the pressed chip already uses for its selected
+   state, so pressing looks like the beginning of being chosen. */
+.lt-vtab:active,
+.lt-btn:active,
+.lt-chip:active,
+.lt-mi:active,
+.lt-frow-seg:active,
+.lt-frow-more:active,
+.lt-pager button:active:not(:disabled) {
+  background-color: var(--bgCard);
+  transition-duration: var(--dur-tap);
+}

@@ -90,3 +90,10 @@
   outline: var(--focus-ring);
   outline-offset: 2px;
 }
+
+/* Same shape as the file chip it sits beside, so the same answer. */
+.chip-link {
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
+}

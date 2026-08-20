@@ -59,3 +59,11 @@
   outline: var(--focus-ring);
   outline-offset: 2px;
 }
+
+/* Border and text both moved on hover in a single frame. */
+.file-chip,
+.file-chip svg {
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
+}

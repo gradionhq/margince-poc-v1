@@ -69,3 +69,26 @@
 .inline-editable-choice:focus-visible .inline-editable-caret {
   opacity: 1;
 }
+
+/*
+ * A write in flight is not a refusal, and until this rule they were painted the
+ * same. The inline editors set `disabled` for the duration of the save, and the
+ * field's disabled state — added at the same time as this — dims to tertiary
+ * text on a card fill. That is the treatment that everywhere else in this
+ * product means "your seat may not do this": the reader's own edit came back
+ * looking rejected.
+ *
+ * So a busy control keeps its full ink and takes the cursor that means wait,
+ * with the turning mark beside it as the actual signal. This is the same
+ * argument switch.css makes for the same reason, and the two now agree.
+ *
+ * After the disabled rules in atoms.css and select.css by cascade order (this
+ * sheet is imported later) and at equal specificity, which is what lets the
+ * busy claim win over the disabled one.
+ */
+.inlinetext-edit [aria-busy="true"],
+.inlinechoice-edit [aria-busy="true"] {
+  color: var(--textPrimary);
+  background: var(--bgElevated);
+  cursor: progress;
+}

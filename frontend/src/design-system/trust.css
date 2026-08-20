@@ -295,3 +295,19 @@ button.evidence-chip:hover {
   border-color: var(--accent);
   box-shadow: var(--focus-glow);
 }
+
+/* An evidence chip is how a reader opens a provenance claim; hovering one moved
+   its boundary and its text in one frame, on a surface where several sit in a
+   row and the pointer crosses all of them on the way to the one they want. */
+.evidence-chip,
+.evidence-chip-toggle {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    border-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
+}
+.evidence-chip:active,
+.evidence-chip-toggle:active {
+  background-color: var(--bgCard);
+  transition-duration: var(--dur-tap);
+}

@@ -798,7 +798,17 @@
   min-block-size: var(--control-h);
   width: 100%;
   outline: none;
-  transition: var(--dur-state);
+  /* Named properties, not `all` — `transition: <time>` alone means
+     `transition-property: all`, which put this field's own height, padding and
+     width on a timer. Most visibly the phone rule below: raising the text to
+     16px animated the FONT SIZE, so tapping a field on an iPhone grew its type
+     over 140ms. What should transition is what a field changes about itself
+     when it is focused, refused or disabled, and that is these four. */
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
 }
 .input:focus {
   border-color: var(--accent);
@@ -862,7 +872,11 @@
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
-  transition: var(--dur-state);
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
 }
 .field-shell:focus-within {
   border-color: var(--accent);
@@ -1017,7 +1031,11 @@
   padding: 9px 11px;
   width: 100%;
   outline: none;
-  transition: var(--dur-state);
+  transition:
+    border-color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out),
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
   resize: vertical;
 }
 .textarea:focus {
@@ -1295,4 +1313,44 @@
    strip's own `> *` background reset regardless of stylesheet order. */
 .stat-card.stat-card-alert {
   background: var(--dangerBg);
+}
+
+/*
+ * The segmented control's own states.
+ *
+ * The selected pill arrived in one frame: the base rule carried no transition,
+ * so `[aria-pressed="true"]` swapped fill, text colour and the card shadow all
+ * at once. A tab strip is the one control where the change IS the feedback —
+ * the reader is being told which of three things they are now looking at — and
+ * a cut gives them no thread from the old selection to the new one.
+ *
+ * Its press is a fill rather than a movement: this control sits inside a fieldset
+ * whose other segments do not move, and one of three pills dropping a pixel
+ * reads as the strip breaking rather than as the segment answering.
+ */
+.segmented button {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out),
+    box-shadow var(--dur-state) var(--ease-out);
+}
+.segmented button:active:not(:disabled) {
+  background-color: var(--bgCard);
+  transition-duration: var(--dur-tap);
+}
+/* The strip's own disabled state, which it did not have: a segment nobody may
+   choose looked exactly like one they could, and the whole control's job is
+   telling the reader what is choosable. */
+.segmented button:disabled {
+  color: var(--textTertiary);
+  cursor: not-allowed;
+}
+
+/* The two chip-shaped links, and the disclosure and table rows beside them. All
+   four changed colour on hover in a single frame. */
+.disclosure-summary,
+.table tbody tr td {
+  transition:
+    background-color var(--dur-state) var(--ease-out),
+    color var(--dur-state) var(--ease-out);
 }

@@ -88,3 +88,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* The colour change on hover happened in one frame. A trail is read left to
+   right, so the crumb under the pointer wants to warm rather than flip. */
+.crumbs-link {
+  transition: color var(--dur-state) var(--ease-out);
+}

@@ -124,3 +124,8 @@
 .token-standalone {
   padding: var(--space-1) var(--space-2);
 }
+
+/* The remove button changed colour in one frame inside a field that fades. */
+.token-remove {
+  transition: color var(--dur-state) var(--ease-out);
+}

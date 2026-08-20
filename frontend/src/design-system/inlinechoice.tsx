@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useT } from "../i18n";
-import { TextInput } from "./atoms";
+import { BusyMark, TextInput } from "./atoms";
 import "./inlinechoice.css";
 import { Select, type SelectOption } from "./select";
 
@@ -185,6 +185,7 @@ export function InlineChoice({
     // biome-ignore lint/a11y/noStaticElementInteractions: keydown here only ever catches an Escape the Select below already declined to claim; the interactive element is that Select's own trigger.
     <span
       ref={container}
+      className="inlinechoice-edit"
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           revert();
@@ -199,7 +200,14 @@ export function InlineChoice({
         id={fieldId}
         value={chosen}
         options={options}
+        // Disabled AND busy, which are not the same claim. `disabled` is what
+        // stops a second choice landing on top of a write that has not answered
+        // yet; `aria-busy` is what says the control is working rather than
+        // refused, and it is what the stylesheet keys the paint off — a write in
+        // flight keeps its full ink and takes the waiting cursor, exactly as
+        // Switch has since it was written.
         disabled={saving}
+        aria-busy={saving || undefined}
         aria-invalid={failure ? true : undefined}
         aria-describedby={failure ? errorId : undefined}
         // The click that started editing already meant "show me the
@@ -219,6 +227,7 @@ export function InlineChoice({
           void commit(next);
         }}
       />
+      {saving && <BusyMark />}
       {failure && (
         <span id={errorId} role="alert" className="form-error">
           {failure}
@@ -388,7 +397,14 @@ export function InlineText({
         id={fieldId}
         value={draft}
         maxLength={maxLength}
-        disabled={saving}
+        // `readOnly`, not `disabled`, and this is the one that had to change.
+        // A disabled field leaves the tab order, so a reader who pressed Enter
+        // and then Tab was thrown to the far side of the form for as long as
+        // the write took. Read-only holds the field, holds the caret, and
+        // refuses the keystroke — which is the whole of what a write in flight
+        // needs. `aria-busy` carries the reason.
+        readOnly={saving}
+        aria-busy={saving || undefined}
         aria-invalid={failure ? true : undefined}
         aria-describedby={failure ? errorId : undefined}
         onChange={(event) => setDraft(event.target.value)}
@@ -412,6 +428,7 @@ export function InlineText({
           void commit();
         }}
       />
+      {saving && <BusyMark />}
       {failure && (
         <span id={errorId} role="alert" className="form-error">
           {failure}
