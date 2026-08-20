@@ -268,20 +268,45 @@ func repointed(t *testing.T, admin, conn *pgx.Conn) *pgx.Conn {
 // becoming a no-op if the newest core migration is ever something else, which
 // would leave the replay below failing for a reason nobody could read off the
 // error.
+// rollBackThePhaseDDrop returns the schema to the era these repairs belong to:
+// the one where role.workspace_id still exists, because ADR-0091 §8 phase D has
+// not dropped it yet.
+//
+// It steps back until the column reappears rather than a fixed number of times.
+// The drop was the newest core migration when this suite was written, so one
+// step reached it — but every later core migration pushes it further back, and
+// hardcoding the distance made an unrelated migration fail this test with a
+// message about an era it had nothing to do with.
 func rollBackThePhaseDDrop(t *testing.T, conn *pgx.Conn) {
 	t.Helper()
 	core, _ := namespaces(t)
-	if _, err := dbmigrate.Down(context.Background(), conn, core, 1); err != nil {
-		t.Fatalf("rolling core back one step to the era these repairs belong to: %v", err)
+	for step := 0; step < maxStepsBackToPhaseD; step++ {
+		if roleCarriesWorkspaceID(t, conn) {
+			return
+		}
+		if _, err := dbmigrate.Down(context.Background(), conn, core, 1); err != nil {
+			t.Fatalf("rolling core back to the era these repairs belong to: %v", err)
+		}
 	}
+	if !roleCarriesWorkspaceID(t, conn) {
+		t.Fatalf("stepping core back %d times never restored role.workspace_id — either the phase D drop is "+
+			"gone from the tree, or core has grown more migrations on top of it than this bound allows",
+			maxStepsBackToPhaseD)
+	}
+}
+
+// How far back the phase D drop may sit before this suite gives up. Generous
+// on purpose: it exists to fail a runaway loop, not to track how many
+// migrations core has grown since.
+const maxStepsBackToPhaseD = 200
+
+func roleCarriesWorkspaceID(t *testing.T, conn *pgx.Conn) bool {
+	t.Helper()
 	var present bool
 	if err := conn.QueryRow(context.Background(), `
 		SELECT EXISTS (SELECT 1 FROM information_schema.columns
 		                WHERE table_name = 'role' AND column_name = 'workspace_id')`).Scan(&present); err != nil {
 		t.Fatalf("checking whether the rollback restored role.workspace_id: %v", err)
 	}
-	if !present {
-		t.Fatal("one core step back did not restore role.workspace_id — the newest core migration is no longer " +
-			"the phase D drop these repairs need rolled back, so this suite is replaying them in the wrong era again")
-	}
+	return present
 }
