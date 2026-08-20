@@ -74,6 +74,12 @@
               ]
             }
           },
+          "sections_omitted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "stakeholders": {
             "type": "array",
             "items": {
@@ -102,6 +108,7 @@
           "deal_id",
           "our_side",
           "risks",
+          "sections_omitted",
           "stakeholders"
         ]
       },
@@ -591,6 +598,9 @@
       "data": {
         "type": "object",
         "properties": {
+          "coverage_withheld": {
+            "type": "boolean"
+          },
           "deals": {
             "type": "array",
             "items": {
@@ -654,6 +664,7 @@
           }
         },
         "required": [
+          "coverage_withheld",
           "deals",
           "deals_scanned",
           "truncated"

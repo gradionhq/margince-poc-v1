@@ -61,10 +61,27 @@ func EdgeReadScope(ctx context.Context, alias string, arg func(any) int) (string
 	// The gate precedes the clause, and the clause is not built when the gate
 	// refuses: a caller that received a clause would have been handed something
 	// to run.
-	if err := Require(ctx, relationshipObject, principal.ActionRead); err != nil {
+	if err := EdgeReadAdmitted(ctx); err != nil {
 		return "", err
 	}
 	return RelationshipEndpointScope(ctx, alias, arg)
+}
+
+// EdgeReadAdmitted answers the OBJECT half alone: may this caller read edges at
+// all. It is for the assembler that has to decide whether a section exists
+// before it decides what is in it.
+//
+// It is deliberately NOT one of the spellings backend/edgereaders_test.go
+// accepts as an edge read's gate. A statement admitted by this and bounded by
+// nothing would be gated on the object and unbounded on the row — the mirror of
+// the defect EdgeReadScope exists to prevent — so a read still has to reach the
+// function that returns both halves. This one answers a question ABOUT the
+// caller, and issues no statement of its own.
+//
+// A caller refused gets apperrors.ErrPermissionDenied unwrapped, so the
+// assembler can name the omission through its contract's withheld channel.
+func EdgeReadAdmitted(ctx context.Context) error {
+	return Require(ctx, relationshipObject, principal.ActionRead)
 }
 
 // relationshipObject is the RBAC object governing the edge. Spelled once here

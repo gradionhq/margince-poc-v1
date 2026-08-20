@@ -4033,6 +4033,8 @@ export const de = {
   "coverage.title": "Abdeckung",
   "coverage.clear":
     "Nichts markiert — dieser Deal besteht alle Abdeckungsprüfungen.",
+  "coverage.withheld":
+    "Abdeckung zurückgehalten — Sie können die Beziehungen dieses Deals nicht lesen, daher wurde keine Prüfung durchgeführt.",
   "coverage.daysSinceTouch": "{days} Tage",
   "coverage.risk.single_threaded_theirs": "Nur ein Kontakt",
   "coverage.risk.single_threaded_ours": "Von einer Person getragen",

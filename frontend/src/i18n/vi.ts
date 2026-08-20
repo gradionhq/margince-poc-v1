@@ -4004,6 +4004,8 @@ export const vi = {
   "coverage.title": "Độ phủ",
   "coverage.clear":
     "Không có gì đáng lưu ý — deal này qua mọi kiểm tra độ phủ.",
+  "coverage.withheld":
+    "Độ phủ bị giữ lại — bạn không đọc được quan hệ của deal này, nên chưa kiểm tra gì.",
   "coverage.daysSinceTouch": "{days} ngày",
   "coverage.risk.single_threaded_theirs": "Chỉ một đầu mối",
   "coverage.risk.single_threaded_ours": "Chỉ một đồng nghiệp phụ trách",

@@ -28,16 +28,16 @@ package backendarch
 //     inherits the obligation with no edit here;
 //   - the OBLIGATION is that the enclosing FUNCTION reaches an edge-gate
 //     spelling, resolved transitively across its package;
-//   - anything else carries a VERDICT in one of the three declarations below,
+//   - anything else carries a VERDICT in one of the four declarations below,
 //     and which declaration a site sits in IS its verdict.
 //
 // Per FUNCTION and not per file, which is where it parts company with
 // restrictedreaders_test.go's otherwise identical shape. That gate judges a
 // whole file because its subject is one obligation every read in the file
 // shares; here one file legitimately holds reads with DIFFERENT verdicts —
-// org360/graphreads.go gates two and defers the third — and a file-level answer
-// would let the gated pair vouch for the deferred one, which is precisely the
-// hole being closed. A package-level SQL fragment has no function to belong to
+// org360/graphreads.go gates two and carries a ruling on the third — and a
+// file-level answer would let the gated pair vouch for the third, which is
+// precisely the hole being closed. A package-level SQL fragment has no function to belong to
 // and is judged at file scope, as it is there.
 
 import (
@@ -176,18 +176,34 @@ var lifecycleEdgeReads = gatekit.Waive(map[string]string{
 // gate holding its own exceptions to its own standard is how the standards
 // diverge. gatekit already refuses a reason that states no cost.
 //
-// Every entry here shares one reason, and it is not schedule. Each of these
-// reads feeds a SCORE or a VERDICT on a response that carries no channel for
-// saying a section was withheld, so gating it today would replace a disclosure
-// with a wrong number — an empty risk list renders "Nothing flagged — this deal
-// passes every coverage check", which is worse than the defect. The contract
-// work comes first.
-var deferredEdgeReads = gatekit.Waive(map[string]string{
-	"internal/compose/org360/graphreads.go:readRelatedOrganizations": "the partner/referral/co-sell edges on the related-companies card: crm.yaml states these organizations need no grant beyond the organization read the endpoint already demands and can never be withheld wholesale, and groups_omitted's enum has no value that could name them. Gating it is a contract change and a product ruling, not a defect fix — #1846 follow-up, needs-decision",
-	"internal/compose/network/coveragefacts.go:readDeparted":         "departed stakeholders become champion_left and stakeholder_left risks, and DealCoverage carries no withheld channel — an empty risk list renders as a clean coverage verdict, so gating this trades a disclosure for a false all-clear on deal risk. Blocked on the withheld channel — #1846 follow-up",
-	"internal/modules/deals/engagement.go:EngagedStakeholders":       "the engagement set feeds the same DealCoverage payload and the health composite; withholding it silently lowers a score rather than absenting it. Blocked on the same withheld channel — #1846 follow-up",
-	"internal/modules/deals/engagement.go:Stakeholders":              "the seat list on the coverage payload, whose stakeholders field is required with no withheld channel; an empty list reads as an uncovered deal rather than a withheld one. Blocked on the same withheld channel — #1846 follow-up",
-	"internal/modules/deals/health.go:healthActivityEvidence":        "the health composite's engagement factor: a factor computed from edges the caller may not read yields a WRONG score, not a withheld one, and the health payload has no channel to say so. Blocked on the same withheld channel — #1846 follow-up",
+// A deferral is a claim that the work is pending, so this set is EMPTY when
+// nothing is pending — which is the state it is in now, and the state the
+// census was built to reach. It stays declared rather than deleted for the
+// reason the census exists at all: the next disclosing read that cannot be
+// gated today needs somewhere honest to go, and a contributor who finds no such
+// place invents one, or worse, quietly gates a read that should not be.
+//
+// The five entries this held were the four coverage reads — closed by the
+// withheld channel on DealCoverage, so the seats, our side and the findings now
+// come back empty AND NAMED instead of gated into a false all-clear — and the
+// related-companies read, which turned out to be a ruling rather than a
+// deferral and moved to ruledEdgeReads.
+var deferredEdgeReads = gatekit.Waive(map[string]string{})
+
+// ruledEdgeReads: a DISCLOSING read the product has ruled needs no edge gate.
+//
+// A fourth verdict rather than a stretched third, because the three existing
+// ones would each be a lie here. Not predicate — removing the edge condition
+// would not merely widen what the caller sees. Not lifecycle — it serves a
+// human read. And not deferred: a deferral says the work is pending, and
+// recording a ruling as one leaves a hole nobody can ever close, since the
+// thing it waits for is never going to happen.
+//
+// A ruling states the sentence it rests on, not who made it. The reason a
+// reader needs is why the edge grant does not bear on this read; a name would
+// date, and the record of who decided lives in git and the issue.
+var ruledEdgeReads = gatekit.Waive(map[string]string{
+	"internal/compose/org360/graphreads.go:readRelatedOrganizations": "the partner/referral/co-sell edges on the related-companies card. RULED to need no edge grant: crm.yaml states these organizations need no grant beyond the organization read the endpoint already demands and can never be withheld wholesale, and groups_omitted's enum has no value that could name them. The edge grant exists because an edge discloses its endpoints AS A PAIR — and both endpoints here are organizations this endpoint already required the grant for, with no person named. The cost is that one disclosing read of the table sits outside the rule permanently, and this entry is where that is visible",
 })
 
 // wantMinimumGatedSites is the floor below the count of sites that satisfy the
@@ -199,7 +215,7 @@ var deferredEdgeReads = gatekit.Waive(map[string]string{
 // which is indistinguishable from a clean tree. The floor sits below the true
 // count rather than on it, so removing one read stays an ordinary change and
 // only a collapse is a finding.
-const wantMinimumGatedSites = 12
+const wantMinimumGatedSites = 16
 
 // edgeReaderScope is every non-test, non-generated file under internal/ that
 // reads the relationship table by name.
@@ -276,12 +292,13 @@ func TestEveryReaderOfTheRelationshipTableCarriesTheEdgeGateOrAVerdict(t *testin
 			"extractor that stopped recognising this tree's SQL would report exactly this, and it "+
 			"reads the same as a clean tree", satisfied, wantMinimumGatedSites)
 	}
-	t.Logf("edge reads: %d gated, %d predicate, %d lifecycle, %d DEFERRED (still disclosing)",
+	t.Logf("edge reads: %d gated, %d predicate, %d lifecycle, %d ruled, %d DEFERRED (still disclosing)",
 		satisfied, len(predicateEdgeReads.Subjects()), len(lifecycleEdgeReads.Subjects()),
-		len(deferredEdgeReads.Subjects()))
+		len(ruledEdgeReads.Subjects()), len(deferredEdgeReads.Subjects()))
 
 	predicateEdgeReads.AssertAllMatched(t)
 	lifecycleEdgeReads.AssertAllMatched(t)
+	ruledEdgeReads.AssertAllMatched(t)
 	deferredEdgeReads.AssertAllMatched(t)
 }
 
@@ -297,6 +314,7 @@ func verdictFor(t *testing.T, subject string) string {
 	}{
 		{"predicate", predicateEdgeReads},
 		{"lifecycle", lifecycleEdgeReads},
+		{"ruled", ruledEdgeReads},
 		{"deferred", deferredEdgeReads},
 	} {
 		// A file-keyed verdict answers for every site in the file; a

@@ -257,12 +257,20 @@ func atRiskLister(pool *pgxpool.Pool) agents.AtRiskLister {
 		err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 			now := clockNow()
 			for _, d := range open {
-				at, flagged, err := dealAtRisk(ctx, tx, d, now)
+				at, verdict, err := dealAtRisk(ctx, tx, d, now)
 				if err != nil {
 					return err
 				}
-				if flagged {
+				switch verdict {
+				case dealFlagged:
 					out.Deals = append(out.Deals, at)
+				case dealCoverageWithheld:
+					// Not appended and not silently dropped: a deal the rules
+					// could not run over is absent from the list, and the flag
+					// is the only thing that stops that absence reading as a
+					// clean deal.
+					out.CoverageWithheld = true
+				case dealNoFinding:
 				}
 			}
 			return nil
@@ -271,9 +279,22 @@ func atRiskLister(pool *pgxpool.Pool) agents.AtRiskLister {
 	}
 }
 
-// dealAtRisk assesses one deal. The bool says whether anything is wrong with
-// it — a healthy deal is not an error and not a zero value the caller has to
-// recognise.
+// dealAssessment is what the sweep learned about one deal.
+//
+// Three outcomes rather than a bool, because two of them are the pair a report
+// must never merge: a deal with nothing wrong and a deal nothing could be
+// checked on are both absent from the findings list, and only one of them is
+// good news.
+type dealAssessment int
+
+const (
+	dealNoFinding dealAssessment = iota
+	dealFlagged
+	dealCoverageWithheld
+)
+
+// dealAtRisk assesses one deal. A healthy deal is not an error and not a zero
+// value the caller has to recognise.
 //
 // The visibility gate is re-taken HERE, not inherited from the ListDeals that
 // produced the candidate. That list ran in an earlier transaction, and a grant
@@ -281,24 +302,30 @@ func atRiskLister(pool *pgxpool.Pool) agents.AtRiskLister {
 // freshly computed risks to somebody who had just lost the right to read it.
 // CoverageFor does not gate on its own — its first read is an unrestricted deal
 // row — so nothing else in this path would have caught it.
-func dealAtRisk(ctx context.Context, tx pgx.Tx, d crmcontracts.Deal, now time.Time) (agents.AtRiskDeal, bool, error) {
+func dealAtRisk(ctx context.Context, tx pgx.Tx, d crmcontracts.Deal, now time.Time) (agents.AtRiskDeal, dealAssessment, error) {
 	if err := requireVisibleDeal(ctx, tx, ids.UUID(d.Id)); err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
 			// The grant went away between the list and this read. Dropping the
 			// deal is the right answer; failing the whole sweep would turn one
 			// revoked grant into a broken tool.
-			return agents.AtRiskDeal{}, false, nil
+			return agents.AtRiskDeal{}, dealNoFinding, nil
 		}
-		return agents.AtRiskDeal{}, false, err
+		return agents.AtRiskDeal{}, dealNoFinding, err
 	}
 	coverage, err := network.CoverageFor(ctx, tx, ids.From[ids.DealKind](ids.UUID(d.Id)), now)
 	if err != nil {
-		return agents.AtRiskDeal{}, false, err
+		return agents.AtRiskDeal{}, dealNoFinding, err
+	}
+	// The withheld case FIRST: a coverage view whose seats were refused also
+	// carries no findings, so testing the risk list first would classify every
+	// unassessable deal as a healthy one.
+	if len(coverage.SectionsOmitted) > 0 {
+		return agents.AtRiskDeal{}, dealCoverageWithheld, nil
 	}
 	if len(coverage.Risks) == 0 {
-		return agents.AtRiskDeal{}, false, nil
+		return agents.AtRiskDeal{}, dealNoFinding, nil
 	}
 	return agents.AtRiskDeal{
 		DealID: ids.UUID(d.Id), Name: d.Name, Risks: toAgentRisks(coverage.Risks),
-	}, true, nil
+	}, dealFlagged, nil
 }
