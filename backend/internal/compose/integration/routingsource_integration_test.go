@@ -31,6 +31,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/config"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // offlineRouting is a complete binding on the fake provider, so these tests
@@ -154,4 +156,110 @@ func TestAStoredBindingIsValidatedOnTheWayOut(t *testing.T) {
 	if _, err := ai.FromStored(ai.RoutingConfig{Profile: ai.ProfileEUHosted}, config.Static(nil)); err == nil {
 		t.Error("a binding with no tiers finalized without error")
 	}
+}
+
+// Replacing the binding through the store, and a running Router picking that up
+// without a restart — the loop increments 5 and 3 exist to close together.
+//
+// A write surface without the re-read would be worse than neither: the UI would
+// confirm a change the process kept ignoring, which is a disagreement nobody
+// can see. So the write and the adoption are proved in one test rather than two.
+func TestAReplacedBindingReachesARunningRouterWithoutARestart(t *testing.T) {
+	e := SetupSearch(t)
+	ctx := e.adminRoutingCtx()
+
+	store := ai.NewRoutingStore(compose.NewSettingsStore(e.Pool), config.Static(nil))
+	first, err := store.Replace(ctx, parsedRouting(t, "first"))
+	if err != nil {
+		t.Fatalf("storing the first binding: %v", err)
+	}
+
+	// A real ModelPath, built the way a boot builds one, so the watcher is
+	// handed exactly what production hands it.
+	path, err := compose.NewModelPath(ctx, first, e.Pool, false, discard())
+	if err != nil {
+		t.Fatalf("NewModelPath: %v", err)
+	}
+	router := path.Router()
+	if router == nil {
+		t.Fatal("the resolved path binds no router; the test can observe nothing")
+	}
+	watcher := compose.NewRoutingWatcher(e.Pool, &path, config.Static(nil), discard())
+
+	// A tick against an unchanged binding must leave the Router alone —
+	// otherwise every cached completion is dropped every interval.
+	watcher.Recheck(ctx)
+	if router.RoutingVersion() != first.RoutingVersion() {
+		t.Fatalf("an unchanged binding moved the Router to %q", router.RoutingVersion())
+	}
+
+	second, err := store.Replace(ctx, parsedRouting(t, "second"))
+	if err != nil {
+		t.Fatalf("replacing the binding: %v", err)
+	}
+	if second.RoutingVersion() == first.RoutingVersion() {
+		t.Fatal("the two bindings share a version; the test cannot tell adoption from inaction")
+	}
+
+	watcher.Recheck(ctx)
+	if router.RoutingVersion() != second.RoutingVersion() {
+		t.Errorf("the Router still serves %q after the binding was replaced with %q",
+			router.RoutingVersion(), second.RoutingVersion())
+	}
+	if m, ok := router.CurrentModelForTier(ai.TierPremium); !ok || m.Model != "second" {
+		t.Errorf("premium = %+v ok=%v; the replacement did not reach the bound models", m, ok)
+	}
+}
+
+// A binding the store refuses never becomes what anything serves. The bar is
+// the one the routing file was always held to, applied on the way in rather
+// than discovered at the first model call.
+func TestTheStoreRefusesABindingTheFileLoaderWouldHaveRefused(t *testing.T) {
+	e := SetupSearch(t)
+	ctx := e.adminRoutingCtx()
+	store := ai.NewRoutingStore(compose.NewSettingsStore(e.Pool), config.Static(nil))
+
+	if _, err := store.Replace(ctx, ai.RoutingConfig{
+		Profile: "nowhere",
+		Tiers:   map[ai.Tier]ai.ProviderConfig{ai.TierPremium: {Provider: "fake", Model: "m"}},
+	}); err == nil {
+		t.Fatal("an unknown profile was stored; a bad binding must be refused on the way in")
+	}
+	stored, err := store.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !stored.Unconfigured() {
+		t.Errorf("the refused binding was stored anyway: %+v", stored.Tiers)
+	}
+}
+
+// adminRoutingCtx is an admin holding the ai_routing grant the seeded role
+// carries — read and update, no create or delete, which is what a setting has.
+func (e *SearchEnv) adminRoutingCtx() context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{"ai_routing": {Read: true, Update: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+}
+
+func parsedRouting(t *testing.T, model string) ai.RoutingConfig {
+	t.Helper()
+	cfg, err := ai.ParseRouting([]byte(`profile: eu_hosted
+tiers:
+  local_small: {provider: fake, model: ` + model + `}
+  cheap_cloud: {provider: fake, model: ` + model + `}
+  premium: {provider: fake, model: ` + model + `}
+  frontier: {provider: fake, model: ` + model + `}
+embeddings: {provider: fake, model: ` + model + `-embed, dimensions: 8}
+`))
+	if err != nil {
+		t.Fatalf("ParseRouting: %v", err)
+	}
+	return cfg
 }

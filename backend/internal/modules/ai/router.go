@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -46,10 +47,11 @@ type routeMeta struct {
 // before the call, and every call lands in the meter. This is the one
 // place routing policy lives — callers never pick a model.
 type Router struct {
-	clients  map[Tier]model.Client
-	embedder model.Client
-	profile  Profile
-	meter    usageStore
+	// bound is the current binding. Load it once per call — see the type's
+	// comment for why a second load mid-call is a correctness bug, not a
+	// performance one.
+	bound atomic.Pointer[binding]
+	meter usageStore
 	// agentSpend is the per-Passport share of the workspace budget
 	// (MCP-SESS-COST). Nil in every role that serves no inbound agent.
 	agentSpend      AgentTokenSpender
@@ -57,7 +59,6 @@ type Router struct {
 	stripper        model.SecretStripper
 	cache           *resultCache
 	calls           callStore
-	routeMeta       map[Tier]routeMeta
 	capturePayloads bool
 	log             *slog.Logger
 	metrics         *callMetrics
@@ -66,21 +67,6 @@ type Router struct {
 	// the cert lane and scripted repeat-call tests need every call to reach
 	// the model, not collapse onto a cached answer.
 	cacheOff bool
-	// configSnapshot/configHash are this Router's ai_call_config dimension
-	// row and its primary key, computed once at construction (NewRouter /
-	// NewLocalRouter). Zero value ("") on a Router assembled without a
-	// RoutingConfig (most unit tests via assembleRouter directly) — flush
-	// then skips EnsureConfig and leaves every attempt's ConfigHash nil.
-	configSnapshot ConfigSnapshot
-	configHash     string
-	// embedDims is the configured embeddings binding's vector width
-	// (RoutingConfig.Embeddings.Dimensions, defaulted/validated once by
-	// ParseRouting). Zero value on a Router assembled without a
-	// RoutingConfig (assembleRouter directly, most unit tests): Embed then
-	// leaves a caller-unset Dimensions at 0, same as before this field
-	// existed, and each adapter's own zero-value behavior (provider
-	// default) still applies.
-	embedDims int
 }
 
 // installConfigSnapshot computes and stores this Router's config-snapshot
@@ -90,18 +76,6 @@ type Router struct {
 // provider_params must name the SAME width Embed defaults an unset request
 // to. Pure — no DB access; EnsureConfig plants the row lazily, once per
 // flush.
-func (r *Router) installConfigSnapshot(routingConfigHash string, embedDims int) {
-	// ParseRouting defaults 0→defaultEmbedDimensions, but a programmatic
-	// RoutingConfig built without it (a hand-assembled test fixture) reaches
-	// construction with Dimensions still 0 — default here too so a bound embed
-	// lane never stamps its identity as "@0" or asks a provider for width 0.
-	if embedDims == 0 {
-		embedDims = defaultEmbedDimensions
-	}
-	r.embedDims = embedDims
-	r.configSnapshot = newConfigSnapshot(routingConfigHash, embedDims)
-	r.configHash = r.configSnapshot.Hash
-}
 
 // RouteInfo tells the caller how its request was actually served — the
 // honest "reduced quality" signal the UI surfaces in economy mode, plus
@@ -124,7 +98,8 @@ func NewRouter(cfg RoutingConfig, meter *Meter, budget BudgetPolicy, calls callS
 	}
 	meta := embedInclusiveMeta(cfg)
 	router := assembleRouter(clients, embedder, cfg.Profile, meter, budget, calls, meta, capturePayloads, log)
-	router.installConfigSnapshot(cfg.sourceHash, cfg.Embeddings.Dimensions)
+	stamped := router.binding().withConfigSnapshot(cfg.sourceHash, cfg.Embeddings.Dimensions)
+	router.bound.Store(&stamped)
 	return router, nil
 }
 
@@ -133,16 +108,12 @@ func assembleRouter(clients map[Tier]model.Client, embedder model.Client, profil
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Router{
-		clients:         clients,
-		embedder:        embedder,
-		profile:         profile,
+	r := &Router{
 		meter:           meter,
 		budget:          budget,
 		stripper:        NewSecretStripper(),
 		cache:           newResultCache(resultCacheTTL),
 		calls:           calls,
-		routeMeta:       meta,
 		capturePayloads: capturePayloads,
 		log:             log,
 		// Every Router shares the one process-wide collector (metrics.go):
@@ -152,6 +123,8 @@ func assembleRouter(clients map[Tier]model.Client, embedder model.Client, profil
 		metrics: sharedCallMetrics,
 		now:     time.Now,
 	}
+	r.bound.Store(&binding{clients: clients, embedder: embedder, profile: profile, routeMeta: meta})
+	return r
 }
 
 // Complete routes one task to a completion. The request names no model:
@@ -171,7 +144,9 @@ func (r *Router) Complete(ctx context.Context, task Task, req model.Request) (mo
 func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, req model.Request) (model.Response, RouteInfo, error) {
 	lc := newLogicalCall()
 	resp, info, err := r.serveAttempt(ctx, lc, task, ladder, req, "")
-	r.flushDetached(ctx, lc)
+	// The same binding the attempt served itself from, so the flushed trace
+	// files the call under the configuration that actually ran it.
+	r.flushDetached(ctx, r.binding(), lc)
 	return resp, info, err
 }
 
@@ -181,6 +156,10 @@ func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, 
 // chain so every rung the caller's request actually walked lands under
 // one LogicalCallID; serveCompletion wraps it for the single-attempt case.
 func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, ladder []Tier, req model.Request, reason string) (resp model.Response, info RouteInfo, err error) {
+	// One load per attempt. Every tier resolution, provider label and config hash
+	// below comes from THIS binding, so the call lands in the meter under the
+	// configuration that actually served it.
+	b := r.binding()
 	rawWS, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		// No workspace ⇒ no RLS-writable trace row; fail before building
@@ -209,7 +188,7 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 	start := r.now()
 	trace := r.newAttemptTrace(ctx, task, key, reason, req)
 	defer func() {
-		r.finalizeAttempt(ctx, lc, &trace, req, resp, err, start)
+		r.finalizeAttempt(ctx, b, lc, &trace, req, resp, err, start)
 	}()
 
 	trace.Degraded = degraded
@@ -229,10 +208,10 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 	// scripted repeat-call tests) never consults it: every call must reach
 	// the model.
 	if cached, tier, hit := r.cache.get(key, wsID); !r.cacheOff && hit && tierOnLadder(ladder, tier) {
-		return r.serveCacheHit(ctx, &trace, task, tier, cached, degraded)
+		return r.serveCacheHit(ctx, b, &trace, task, tier, cached, degraded)
 	}
 
-	out, tier, served, ladderErr := r.attemptLadder(ctx, lc, trace, task, ladder, req, key, wsID, start)
+	out, tier, served, ladderErr := r.attemptLadder(ctx, b, lc, trace, task, ladder, req, key, wsID, start)
 	// Stamp tier and usage even when the ladder returns an error: a
 	// metering failure of a successfully-served call still spent provider
 	// tokens on a real tier, and an all-rungs-failed walk names the last
@@ -246,11 +225,11 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 		return model.Response{}, RouteInfo{}, ladderErr
 	}
 	if served {
-		m := r.routeMeta[tier]
+		m := b.routeMeta[tier]
 		return out, RouteInfo{Tier: tier, Provider: m.provider, ModelID: m.model, Degraded: degraded}, nil
 	}
 	// The honest degraded state (§4.3): no bound model can serve this.
-	return model.Response{}, RouteInfo{}, fmt.Errorf("ai: no bound tier can serve %s in profile %s", task, r.profile)
+	return model.Response{}, RouteInfo{}, fmt.Errorf("ai: no bound tier can serve %s in profile %s", task, b.profile)
 }
 
 // Embed routes the embedding lane. Inputs are stripped before egress —
@@ -258,6 +237,9 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 // enforcement point here. One provider call is exactly one logical call —
 // the embed lane has no retry ladder to bundle.
 func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
+	// One load per call — see binding: a rebind mid-call must not mix an embedder
+	// with another binding's width or provider label.
+	b := r.binding()
 	if _, ok := principal.WorkspaceID(ctx); !ok {
 		return model.Embeddings{}, fmt.Errorf("ai: embeddings outside workspace context")
 	}
@@ -275,11 +257,11 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 		// once by ParseRouting) is the operator's choice — a caller that
 		// names no explicit width gets that configured one, never a
 		// silent per-adapter default the operator never set.
-		req.Dimensions = r.embedDims
+		req.Dimensions = b.embedDims
 	}
 
 	start := r.now()
-	res, err := r.embedder.Embed(ctx, req)
+	res, err := b.embedder.Embed(ctx, req)
 	trace := Call{Task: TaskEmbeddings, Tier: TierEmbedLane, Kind: callKindEmbedding, CacheOff: r.cacheOff, LatencyMS: r.now().Sub(start).Milliseconds()}
 	if err == nil {
 		// Stamp the SAME token estimate the meter records below onto the
@@ -297,7 +279,7 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	if cid, ok := principal.CorrelationID(ctx); ok {
 		trace.CorrelationID = &cid
 	}
-	if m, ok := r.routeMeta[TierEmbedLane]; ok {
+	if m, ok := b.routeMeta[TierEmbedLane]; ok {
 		trace.Provider, trace.ModelID = m.provider, m.model
 	}
 	trace.ErrorSentinel = classifyError(err)
@@ -310,7 +292,7 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	}
 	lc := newLogicalCall()
 	lc.append(trace)
-	r.flushDetached(ctx, lc)
+	r.flushDetached(ctx, b, lc)
 	if err != nil {
 		return model.Embeddings{}, err
 	}
@@ -333,11 +315,14 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 // here is the honest "nothing to identify" case, never a panic on a
 // missing map key.
 func (r *Router) EmbedIdentity() (string, int) {
-	m, ok := r.routeMeta[TierEmbedLane]
+	// One load: the identity and the width it names must come from the same
+	// binding, or the string reports a model at a width it was never asked for.
+	b := r.binding()
+	m, ok := b.routeMeta[TierEmbedLane]
 	if !ok {
 		return "", 0
 	}
-	return fmt.Sprintf("%s/%s@%d", m.provider, m.model, r.embedDims), r.embedDims
+	return fmt.Sprintf("%s/%s@%d", m.provider, m.model, b.embedDims), b.embedDims
 }
 
 // Invalidate drops a workspace's cached results — the hook the §6
@@ -405,13 +390,16 @@ var costlyCloudTiers = []Tier{TierPremium, TierFrontier}
 // under this profile so no cloud client is ever constructed; this remap is
 // the second line, keeping a cloud-named rung off the ladder even so.
 func (r *Router) applyProfile(ladder []Tier) []Tier {
-	if r.profile != ProfileSovereign {
+	// One load: applyProfile decides a ladder, and a ladder half-decided under
+	// two bindings is a route nothing chose.
+	b := r.binding()
+	if b.profile != ProfileSovereign {
 		return ladder
 	}
 	remapped := make([]Tier, 0, len(ladder))
 	for _, tier := range ladder {
 		if !localTiers[tier] {
-			if _, ok := r.clients[TierLocalLarge]; ok {
+			if _, ok := b.clients[TierLocalLarge]; ok {
 				tier = TierLocalLarge
 			} else {
 				tier = TierLocalSmall

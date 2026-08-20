@@ -672,6 +672,27 @@ func (e AiProfileState) Valid() bool {
 	}
 }
 
+// Defines values for AiRoutingProfile.
+const (
+	CloudFrontier AiRoutingProfile = "cloud_frontier"
+	EuHosted      AiRoutingProfile = "eu_hosted"
+	Sovereign     AiRoutingProfile = "sovereign"
+)
+
+// Valid indicates whether the value is a known member of the AiRoutingProfile enum.
+func (e AiRoutingProfile) Valid() bool {
+	switch e {
+	case CloudFrontier:
+		return true
+	case EuHosted:
+		return true
+	case Sovereign:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AiRunSummaryCurrency.
 const (
 	USD AiRunSummaryCurrency = "USD"
@@ -11709,6 +11730,28 @@ type AiCallSummary struct {
 	TokensOut int    `json:"tokens_out"`
 }
 
+// AiEmbeddingsBinding defines model for AiEmbeddingsBinding.
+type AiEmbeddingsBinding struct {
+	// BaseUrl Endpoint override; empty means the provider default.
+	BaseUrl *string `json:"base_url,omitempty"`
+
+	// Dimensions The vector width the provider is asked to emit. Omit (or 0) for the compiled
+	// default; a value outside [1,2000] is refused.
+	Dimensions *int `json:"dimensions,omitempty"`
+
+	// Input What the bound model may be GIVEN, in the accepted-modality vocabulary. On the
+	// OpenAI-wire providers it IS the carriage; everywhere else it NARROWS the carriage
+	// the adapter already has and can never widen it. Omit for the provider's own answer.
+	Input *[]string `json:"input,omitempty"`
+
+	// Model The provider-native model id.
+	Model string `json:"model"`
+
+	// Provider The adapter serving this tier: fake | anthropic | ollama | vllm | openai_compatible
+	// | openai | gemini. The credential is never part of this document.
+	Provider string `json:"provider"`
+}
+
 // AiModelRate One effective-dated model price. The four buckets are USD per 1M tokens as decimal strings (the server stores µUSD integers). Transparency-only — never gates routing.
 type AiModelRate struct {
 	CacheReadPerMtok  string             `json:"cache_read_per_mtok"`
@@ -11753,6 +11796,25 @@ type AiProfileProviders string
 // AiProfileState defines model for AiProfile.State.
 type AiProfileState string
 
+// AiRouting The installation's tier-to-model binding. `tiers` is keyed by tier name; the closed set
+// of names is the one the task contract declares (api/ai-tasks.yaml), and the server
+// refuses an unknown key with a 422 naming it — restating the set here would be a second
+// copy free to drift from the generated one.
+type AiRouting struct {
+	Embeddings AiEmbeddingsBinding `json:"embeddings"`
+
+	// Profile The location ladder (§4). `sovereign` means zero egress by construction: a cloud
+	// provider on any tier is refused, and so is a local provider pointed at another host.
+	Profile AiRoutingProfile `json:"profile"`
+
+	// Tiers Tier name to the model bound on it. Empty means no models are bound.
+	Tiers map[string]AiTierBinding `json:"tiers"`
+}
+
+// AiRoutingProfile The location ladder (§4). `sovereign` means zero egress by construction: a cloud
+// provider on any tier is refused, and so is a local provider pointed at another host.
+type AiRoutingProfile string
+
 // AiRunModelUsage One task, route, and served-model slice within a correlated AI run.
 type AiRunModelUsage struct {
 	CacheWriteTokens int64 `json:"cache_write_tokens"`
@@ -11794,6 +11856,24 @@ type AiRunSummary struct {
 
 // AiRunSummaryCurrency defines model for AiRunSummary.Currency.
 type AiRunSummaryCurrency string
+
+// AiTierBinding defines model for AiTierBinding.
+type AiTierBinding struct {
+	// BaseUrl Endpoint override; empty means the provider default.
+	BaseUrl *string `json:"base_url,omitempty"`
+
+	// Input What the bound model may be GIVEN, in the accepted-modality vocabulary. On the
+	// OpenAI-wire providers it IS the carriage; everywhere else it NARROWS the carriage
+	// the adapter already has and can never widen it. Omit for the provider's own answer.
+	Input *[]string `json:"input,omitempty"`
+
+	// Model The provider-native model id.
+	Model string `json:"model"`
+
+	// Provider The adapter serving this tier: fake | anthropic | ollama | vllm | openai_compatible
+	// | openai | gemini. The credential is never part of this document.
+	Provider string `json:"provider"`
+}
 
 // AiUsage AI usage + budget (AIRT-WIRE-1): the AIRT-PARAM-33 meter aggregated per day × task × tier, plus the budget band. Token-denominated; cost_est_minor is computed on read from the workspace's ai_model_rate price sheet as of each call's day (ADR-0067, price-on-read) — omitted, never a fabricated 0, when a task line's window carries no priced call.
 type AiUsage struct {
@@ -25440,6 +25520,9 @@ type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
 // RecordAIFeedbackJSONRequestBody defines body for RecordAIFeedback for application/json ContentType.
 type RecordAIFeedbackJSONRequestBody = AIFeedbackInput
 
+// ReplaceAiRoutingJSONRequestBody defines body for ReplaceAiRouting for application/json ContentType.
+type ReplaceAiRoutingJSONRequestBody = AiRouting
+
 // ApproveApprovalBundleJSONRequestBody defines body for ApproveApprovalBundle for application/json ContentType.
 type ApproveApprovalBundleJSONRequestBody = ApprovalBundleDecisionRequest
 
@@ -32041,6 +32124,12 @@ type ServerInterface interface {
 	// Authenticated AI configuration posture for transparent human-facing workspaces.
 	// (GET /ai/profile)
 	GetAiProfile(w http.ResponseWriter, r *http.Request)
+	// The tier-to-model binding this installation runs on (admin/ops).
+	// (GET /ai/routing)
+	GetAiRouting(w http.ResponseWriter, r *http.Request)
+	// Replace the tier-to-model binding (admin/ops).
+	// (PUT /ai/routing)
+	ReplaceAiRouting(w http.ResponseWriter, r *http.Request)
 	// AI usage + budget — the spend is never invisible.
 	// (GET /ai/usage)
 	GetAiUsage(w http.ResponseWriter, r *http.Request, params GetAiUsageParams)
@@ -33373,6 +33462,18 @@ func (_ Unimplemented) RecordAIFeedback(w http.ResponseWriter, r *http.Request) 
 // Authenticated AI configuration posture for transparent human-facing workspaces.
 // (GET /ai/profile)
 func (_ Unimplemented) GetAiProfile(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The tier-to-model binding this installation runs on (admin/ops).
+// (GET /ai/routing)
+func (_ Unimplemented) GetAiRouting(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Replace the tier-to-model binding (admin/ops).
+// (PUT /ai/routing)
+func (_ Unimplemented) ReplaceAiRouting(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36865,6 +36966,46 @@ func (siw *ServerInterfaceWrapper) GetAiProfile(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAiProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAiRouting operation middleware
+func (siw *ServerInterfaceWrapper) GetAiRouting(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAiRouting(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceAiRouting operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceAiRouting(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceAiRouting(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -54741,6 +54882,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/profile", wrapper.GetAiProfile)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/ai/routing", wrapper.GetAiRouting)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/ai/routing", wrapper.ReplaceAiRouting)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/usage", wrapper.GetAiUsage)

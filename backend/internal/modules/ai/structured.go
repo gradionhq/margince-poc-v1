@@ -50,7 +50,7 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: unknown task %q", task)
 	}
 	lc := newLogicalCall()
-	defer r.flushDetached(ctx, lc)
+	defer r.flushDetached(ctx, r.binding(), lc)
 
 	resp, info, err := r.serveAttempt(ctx, lc, task, ladder, req, "")
 	if err != nil {
@@ -192,16 +192,16 @@ func feedbackFence(req model.Request) (promptfence.Fence, boundaryState) {
 // ladder could still serve.
 func (r *Router) completeEscalated(ctx context.Context, lc *logicalCall, task Task, req model.Request) (model.Response, RouteInfo, error) {
 	ladder, ok := taskLadders[task]
-	if !ok || len(ladder) < 2 || !r.anyBound(ladder[1:]) {
+	if !ok || len(ladder) < 2 || !r.anyBound(r.binding(), ladder[1:]) {
 		return r.serveAttempt(ctx, lc, task, ladder, req, attemptReasonSchemaInvalid)
 	}
 	return r.serveAttempt(ctx, lc, task, ladder[1:], req, attemptReasonSchemaInvalid)
 }
 
 // anyBound reports whether at least one rung resolves to a bound client.
-func (r *Router) anyBound(ladder []Tier) bool {
+func (r *Router) anyBound(b *binding, ladder []Tier) bool {
 	for _, t := range ladder {
-		if _, ok := r.clients[t]; ok {
+		if _, ok := b.clients[t]; ok {
 			return true
 		}
 	}

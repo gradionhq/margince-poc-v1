@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
@@ -30,6 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 // newPeopleHandlers builds the person/organization/lead transport with the
@@ -105,6 +107,11 @@ func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {
 	// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
 	// read the auto-enrich posture (all roles), toggle it (admin/ops).
 	s.captureSettingsHandlers = captureSettingsHandlers{store: capture.NewSettings(NewSettingsStore(pool))}
+	// The tier→model binding (ai-operational-spec §1.4): read it, replace it
+	// without a restart. Always wired, including on an installation that has
+	// bound nothing — an operator binding models for the first time reaches it
+	// through the same surface as one re-pointing a lane.
+	s.aiRoutingHandlers = aiRoutingHandlers{store: ai.NewRoutingStore(NewSettingsStore(pool), config.FromOS)}
 	s.ownDomainHandlers = ownDomainHandlers{store: capture.NewOwnDomainStore(InstallationDB(pool))}
 	// The installation's own identity and reporting basis (ADR-0090/A135):
 	// name, reporting zone, base currency — the last of which locks once a

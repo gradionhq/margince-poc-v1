@@ -5070,6 +5070,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/routing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The tier-to-model binding this installation runs on (admin/ops).
+         * @description The stored binding (ai-operational-spec §1.4), governed by the `ai_routing` RBAC
+         *     object. Narrow on read as well as write: nothing needs this grant to see which models
+         *     are bound, because `/ai/profile` answers that from the running configuration — this is
+         *     the editable document, and it is the one that decides where an installation's text is
+         *     sent.
+         *
+         *     Human session only. An agent never re-points which vendor processes the installation's
+         *     correspondence, whatever its passport scopes admit.
+         */
+        get: operations["getAiRouting"];
+        /**
+         * Replace the tier-to-model binding (admin/ops).
+         * @description Replaces the WHOLE binding, deliberately: a sparse patch of `tiers` cannot say whether
+         *     an omitted tier is unchanged or unbound, and the two differ by whether a task can be
+         *     served at all. Send the document you want to be true.
+         *
+         *     Takes effect without a restart. Every role converges on the new binding within its
+         *     re-read interval, and each in-flight call finishes on the binding it started with, so
+         *     a call is always metered under the configuration that actually served it. Cached
+         *     completions are dropped, because each was produced by the binding being replaced.
+         *
+         *     Held to the same bar the routing file always was: an unknown tier or profile, a cloud
+         *     provider under the sovereign profile, or an embeddings width outside [1,2000] is a 422
+         *     naming the fault, never a partially applied binding. An empty `tiers` is accepted and
+         *     means unbound — the state an installation is in before anyone chooses models.
+         *
+         *     Audit-only write (no event stream, EVT-NOEVT-3).
+         */
+        put: operations["replaceAiRouting"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/calls": {
         parameters: {
             query?: never;
@@ -9050,6 +9095,49 @@ export interface components {
              *     under a daily spend cap. Default is ON (the testing posture).
              */
             auto_enrich: boolean;
+        };
+        /**
+         * @description The installation's tier-to-model binding. `tiers` is keyed by tier name; the closed set
+         *     of names is the one the task contract declares (api/ai-tasks.yaml), and the server
+         *     refuses an unknown key with a 422 naming it — restating the set here would be a second
+         *     copy free to drift from the generated one.
+         */
+        AiRouting: {
+            /**
+             * @description The location ladder (§4). `sovereign` means zero egress by construction: a cloud
+             *     provider on any tier is refused, and so is a local provider pointed at another host.
+             * @enum {string}
+             */
+            profile: "eu_hosted" | "sovereign" | "cloud_frontier";
+            /** @description Tier name to the model bound on it. Empty means no models are bound. */
+            tiers: {
+                [key: string]: components["schemas"]["AiTierBinding"];
+            };
+            embeddings: components["schemas"]["AiEmbeddingsBinding"];
+        };
+        AiTierBinding: {
+            /**
+             * @description The adapter serving this tier: fake | anthropic | ollama | vllm | openai_compatible
+             *     | openai | gemini. The credential is never part of this document.
+             */
+            provider: string;
+            /** @description The provider-native model id. */
+            model: string;
+            /** @description Endpoint override; empty means the provider default. */
+            base_url?: string;
+            /**
+             * @description What the bound model may be GIVEN, in the accepted-modality vocabulary. On the
+             *     OpenAI-wire providers it IS the carriage; everywhere else it NARROWS the carriage
+             *     the adapter already has and can never widen it. Omit for the provider's own answer.
+             */
+            input?: string[];
+        };
+        AiEmbeddingsBinding: components["schemas"]["AiTierBinding"] & {
+            /**
+             * @description The vector width the provider is asked to emit. Omit (or 0) for the compiled
+             *     default; a value outside [1,2000] is refused.
+             */
+            dimensions?: number;
         };
         /** @description A sparse capture-settings patch (admin/ops). */
         UpdateCaptureSettingsRequest: {
@@ -27375,6 +27463,55 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["PermissionDenied"];
+        };
+    };
+    getAiRouting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored binding. Empty `tiers` means no models are bound. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiRouting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+        };
+    };
+    replaceAiRouting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiRouting"];
+            };
+        };
+        responses: {
+            /** @description The stored binding, as it now reads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiRouting"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listAiCalls: {

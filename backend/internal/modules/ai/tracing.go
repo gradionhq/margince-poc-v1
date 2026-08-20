@@ -88,10 +88,10 @@ func (r *Router) newAttemptTrace(ctx context.Context, task Task, key, reason str
 // error sentinel, resolved route identity, best-effort payload capture —
 // and appends it to lc. Split out of serveAttempt's deferred closure so
 // this branching lands on its own function, not serveAttempt's.
-func (r *Router) finalizeAttempt(ctx context.Context, lc *logicalCall, trace *Call, req model.Request, resp model.Response, callErr error, start time.Time) {
+func (r *Router) finalizeAttempt(ctx context.Context, b *binding, lc *logicalCall, trace *Call, req model.Request, resp model.Response, callErr error, start time.Time) {
 	trace.LatencyMS = r.now().Sub(start).Milliseconds()
 	trace.ErrorSentinel = classifyError(callErr)
-	if m := r.routeMeta[trace.Tier]; trace.Tier != "" {
+	if m := b.routeMeta[trace.Tier]; trace.Tier != "" {
 		trace.Provider, trace.ModelID = m.provider, m.model
 	}
 	trace.ServedModel, trace.ServedIdentitySource = servedIdentity(trace.Provider, trace.ModelID, resp.ServedModel)
@@ -113,14 +113,14 @@ func (r *Router) finalizeAttempt(ctx context.Context, lc *logicalCall, trace *Ca
 // serveCacheHit completes a served-from-cache attempt: meter it as a cache
 // hit and return the cached response. Split out of serveAttempt purely to
 // keep serveAttempt's own branching count down.
-func (r *Router) serveCacheHit(ctx context.Context, trace *Call, task Task, tier Tier, cached model.Response, degraded bool) (model.Response, RouteInfo, error) {
+func (r *Router) serveCacheHit(ctx context.Context, b *binding, trace *Call, task Task, tier Tier, cached model.Response, degraded bool) (model.Response, RouteInfo, error) {
 	trace.Tier, trace.CacheHit = tier, true
 	if meterErr := r.meter.Record(ctx, Usage{Task: task, Tier: tier, Cached: true}); meterErr != nil {
 		// A served (cache-hit) call whose metering failed: label it as a
 		// metering failure, not a provider error — the tier is already set.
 		return model.Response{}, RouteInfo{}, fmt.Errorf("ai: metering cache hit: %w", errors.Join(errMeteringFailed, meterErr))
 	}
-	m := r.routeMeta[tier]
+	m := b.routeMeta[tier]
 	return cached, RouteInfo{Tier: tier, Provider: m.provider, ModelID: m.model, Degraded: degraded, Cached: true}, nil
 }
 
@@ -134,21 +134,21 @@ func (r *Router) serveCacheHit(ctx context.Context, trace *Call, task Task, tier
 // double-counted here. On success the served response is metered (failing
 // loudly — unmetered spend would quietly hollow out the budget guardrail)
 // and cached before it is returned to serveAttempt for tracing.
-func (r *Router) attemptLadder(ctx context.Context, lc *logicalCall, base Call, task Task, ladder []Tier, req model.Request, key string, wsID ids.WorkspaceID, start time.Time) (resp model.Response, tier Tier, served bool, err error) {
+func (r *Router) attemptLadder(ctx context.Context, b *binding, lc *logicalCall, base Call, task Task, ladder []Tier, req model.Request, key string, wsID ids.WorkspaceID, start time.Time) (resp model.Response, tier Tier, served bool, err error) {
 	var boundRungs []Tier
 	for _, t := range ladder {
-		if _, ok := r.clients[t]; ok {
+		if _, ok := b.clients[t]; ok {
 			boundRungs = append(boundRungs, t)
 		}
 	}
 	var lastErr error
 	var lastTier Tier
 	for i, t := range boundRungs {
-		out, callErr := r.clients[t].Complete(ctx, req)
+		out, callErr := b.clients[t].Complete(ctx, req)
 		if callErr != nil {
 			lastErr, lastTier = callErr, t
 			if i < len(boundRungs)-1 {
-				lc.append(r.traceForFailedRung(base, t, callErr, start))
+				lc.append(r.traceForFailedRung(b, base, t, callErr, start))
 			}
 			continue
 		}
@@ -182,10 +182,10 @@ func (r *Router) attemptLadder(ctx context.Context, lc *logicalCall, base Call, 
 // walk moved past — cloning base's request-level fields (task,
 // correlation, fingerprint, cache-off) and filling in this rung's own
 // tier, provider/model, latency-so-far, and provider_error sentinel.
-func (r *Router) traceForFailedRung(base Call, t Tier, callErr error, start time.Time) Call {
+func (r *Router) traceForFailedRung(b *binding, base Call, t Tier, callErr error, start time.Time) Call {
 	c := base
 	c.Tier = t
-	if m, ok := r.routeMeta[t]; ok {
+	if m, ok := b.routeMeta[t]; ok {
 		c.Provider, c.ModelID = m.provider, m.model
 	}
 	c.ErrorSentinel = classifyError(callErr)
@@ -211,10 +211,10 @@ func tierOnLadder(ladder []Tier, t Tier) bool {
 // the workspace GUC values ride context values, which WithoutCancel
 // preserves. The bound keeps a dead trace store from pinning the caller's
 // goroutine.
-func (r *Router) flushDetached(ctx context.Context, lc *logicalCall) {
+func (r *Router) flushDetached(ctx context.Context, b *binding, lc *logicalCall) {
 	traceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), traceWriteTimeout)
 	defer cancel()
-	r.flush(traceCtx, lc)
+	r.flush(traceCtx, b, lc)
 }
 
 // flush writes every buffered attempt of lc in one Record call, emits
@@ -223,7 +223,7 @@ func (r *Router) flushDetached(ctx context.Context, lc *logicalCall) {
 // margince_ai_calls_total, not once per rung it walked. Record failure is
 // logged, never returned: observability can't become a new way for a
 // working model call to fail.
-func (r *Router) flush(ctx context.Context, lc *logicalCall) {
+func (r *Router) flush(ctx context.Context, b *binding, lc *logicalCall) {
 	if lc == nil || len(lc.attempts) == 0 {
 		return
 	}
@@ -246,14 +246,14 @@ func (r *Router) flush(ctx context.Context, lc *logicalCall) {
 	if r.calls == nil {
 		return
 	}
-	if r.configHash != "" {
-		if err := r.calls.EnsureConfig(ctx, r.configSnapshot); err != nil {
+	if b.configHash != "" {
+		if err := r.calls.EnsureConfig(ctx, b.configSnapshot); err != nil {
 			// Best-effort enrichment: a working call must still be traced
 			// even when the config-dimension write fails — just without a
 			// config_hash this once.
 			r.log.WarnContext(ctx, "ai: ensuring config snapshot failed — tracing without config_hash", "err", err)
 		} else {
-			hash := r.configHash
+			hash := b.configHash
 			for i := range lc.attempts {
 				lc.attempts[i].ConfigHash = &hash
 			}
