@@ -337,6 +337,21 @@ function stubBackend(
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
+    if (method === "GET" && url.includes("/users")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "u-me",
+            email: "me@acme.test",
+            display_name: "Me",
+            timezone: "UTC",
+            status: "active",
+            is_agent: false,
+          },
+        ],
+        page: { next_cursor: null },
+      });
+    }
     if (method === "POST" && url.includes("/views")) {
       const body = request
         ? await request.json()
@@ -590,6 +605,64 @@ describe("DealsScreen", () => {
     await user.click(await screen.findByRole("button", { name: "Table" }));
 
     expect(screen.queryByRole("button", { name: "Save view" })).toBeNull();
+  });
+
+  // A bulk verb is a fan-out of each row's own write, so every row must carry
+  // ITS OWN version. One version copied across the selection would conflict on
+  // every row but the one it came from.
+  it("assigning an owner in bulk sends each row's own version", async () => {
+    const patches: { body: unknown; ifMatch: string | null }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend(
+        [
+          deal({ id: "d1", name: "First", version: 3 }),
+          deal({ id: "d2", name: "Second", version: 9 }),
+        ],
+        { onPatch: (body, ifMatch) => patches.push({ body, ifMatch }) },
+      ),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await user.click(await screen.findByRole("button", { name: "Table" }));
+
+    await user.click(
+      await screen.findByRole("checkbox", { name: "Select First" }),
+    );
+    await user.click(screen.getByRole("checkbox", { name: "Select Second" }));
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "New owner" }),
+      "Me",
+    );
+    await user.click(screen.getByRole("button", { name: "Assign" }));
+
+    await waitFor(() => expect(patches.length).toBe(2));
+    expect(patches.map((patch) => patch.ifMatch).sort()).toEqual(["3", "9"]);
+    expect((patches[0].body as { owner_id: string }).owner_id).toBe("u-me");
+  });
+
+  // A closed deal takes no bulk write: archiving it is done or meaningless,
+  // and moving it between open stages would be the silent reopen the record
+  // page's stepper already refuses.
+  it("offers no checkbox on a closed deal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([
+        deal({ id: "d1", name: "Open one" }),
+        deal({ id: "d2", name: "Won one", status: "won", stage_id: "s3" }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await user.click(await screen.findByRole("button", { name: "Table" }));
+
+    expect(
+      await screen.findByRole("checkbox", { name: "Select Open one" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("checkbox", { name: "Select Won one" }),
+    ).toBeNull();
   });
 
   // The board's column total must come from the deals-by-stage

@@ -1549,6 +1549,17 @@ export const de = {
   "deals.unit": "Deals",
   "deals.capped":
     "Zeigt die bisher geladenen Deals. Grenzen Sie die Liste ein, um die übrigen zu erreichen.",
+  "deals.bulkSelected": "{count} ausgewählt",
+  "deals.bulkSelectRow": "{name} auswählen",
+  "deals.bulkOwner": "Neuer Verantwortlicher",
+  "deals.bulkOwnerPick": "Verantwortlichen wählen",
+  "deals.bulkAssign": "Zuweisen",
+  "deals.bulkStage": "In Phase verschieben",
+  "deals.bulkStagePick": "Phase wählen",
+  "deals.bulkMove": "Verschieben",
+  "deals.bulkArchive": "Archivieren",
+  "deals.bulkFailed": "{count} nicht übernommen –",
+  "deals.bulkFailedRow": "konnte nicht gespeichert werden",
 
   "deal.offers": "Angebote",
   "deal.newOffer": "Neues Angebot",
