@@ -8,6 +8,7 @@ import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { ProblemError, problemMessageOf, throwProblem } from "./common";
 import { useRoster } from "./entityref";
+import { useLeadDisqualifyReasons } from "./leadsources";
 
 type Lead = components["schemas"]["Lead"];
 
@@ -23,6 +24,14 @@ export type BulkAction =
  * Bulk verbs over selected leads: assign an owner, disqualify. Both are a
  * client-side fan-out of the record's own write — there is no bulk endpoint,
  * and inventing one would bypass the per-row version guard.
+ *
+ * Disqualify asks why, exactly as the single-lead dialog does: the reason is
+ * an ACTIVE administered reason, it is required before the verb will run, and
+ * it rides on every row's own DELETE. A bulk path that skipped it would leave
+ * `disqualify_reason_id` null on whole batches, which is how the column stops
+ * being worth reporting on. No note here, though the dialog offers one: a note
+ * is prose about ONE lead, and the same sentence stamped on eight rows is
+ * detail nobody wrote about any of them.
  *
  * Every row sends ITS OWN If-Match: PATCH /leads/{id} requires the version
  * (428 without it), and one version copied across the selection would 409
@@ -43,6 +52,8 @@ export function LeadBulkBar({
   const queryClient = useQueryClient();
   const [ownerId, setOwnerId] = useState("");
   const roster = useRoster("user", true);
+  const [reasonId, setReasonId] = useState("");
+  const reasons = useLeadDisqualifyReasons();
   const [outcomes, setOutcomes] = useState<readonly BulkOutcome[]>([]);
 
   const run = useMutation({
@@ -105,12 +116,25 @@ export function LeadBulkBar({
         }
       },
     });
+  // The reason list is administered (Settings › Data model); only its ACTIVE
+  // rows may be applied, and a payload that is not the contract's array is
+  // read as nothing rather than crashing the bar that renders it.
+  const activeReasons = (
+    Array.isArray(reasons.data) ? reasons.data : []
+  ).filter((reason) => reason.active);
+  // The reason is read where the CLICK happens, not inside a `mutationFn` that
+  // react-query re-arms in a passive effect: this closure belongs to the render
+  // whose button the reader pressed, so the reason it sends is the one that was
+  // on screen. The per-row `write` is handed to `run` and called with each
+  // lead — the row identity is the parameter, and the reason is the one thing
+  // the whole batch shares.
   const disqualify = () =>
     run.mutate({
       action: { kind: "disqualify" },
       write: async (lead) => {
         const { error } = await api.DELETE("/leads/{id}", {
           params: { path: { id: lead.id } },
+          body: { reason_id: reasonId },
         });
         if (error) {
           throwProblem(error, t);
@@ -145,9 +169,24 @@ export function LeadBulkBar({
       >
         {t("lead.bulkAssign")}
       </Button>
+      <Select
+        aria-label={t("lead.disqualify.reason")}
+        value={reasonId}
+        placeholder={t("lead.disqualify.pickReason")}
+        disabled={run.isPending}
+        onChange={setReasonId}
+        options={activeReasons.map((reason) => ({
+          value: reason.id,
+          label: reason.label,
+        }))}
+      />
       <Button
         small
         disabled={run.isPending || leads.length === 0}
+        // The same requirement, and the same sentence, as the single-lead
+        // dialog: a batch closed with no reason is exactly what the
+        // administered list exists to prevent.
+        reason={reasonId ? undefined : t("lead.disqualify.reasonRequired")}
         onClick={disqualify}
       >
         {t("lead.bulkDisqualify")}
