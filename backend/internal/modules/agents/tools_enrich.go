@@ -89,7 +89,7 @@ func (t enrichCompany) Spec() mcp.ToolSpec {
 				"description":"Absolute http(s) URL to read instead of the organization's own domain"},
 			"depth":{"type":"string","enum":["page","site"],"default":"page",
 				"description":"page reads one page and returns a staged proposal; site queues a multi-page crawl and returns its read id"},
-			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after approval"}},
 			"additionalProperties":false}`),
 		// The other declared exception. This tool answers one of two different
 		// things depending on the depth it was called with — a page read comes

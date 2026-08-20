@@ -65,7 +65,7 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","project","relationship","activity"]},
 			"id":{"type":"string","format":"uuid"},
-			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after approval"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[ArchiveResult](),
 	}
@@ -156,7 +156,7 @@ func (t promoteLead) Spec() mcp.ToolSpec {
 			"trigger":{"type":"string","enum":["inbound_reply","meeting_booked","meeting_held","human_qualify"],
 				"description":"The genuine engagement justifying promotion; cold outreach with no reply never promotes"},
 			"evidence_note":{"type":"string"},
-			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after approval"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[PromoteLeadResult](),
 	}
@@ -240,7 +240,7 @@ func (t mergeRecords) Spec() mcp.ToolSpec {
 			"record_type":{"type":"string","enum":["person","organization"]},
 			"source_id":{"type":"string","format":"uuid","description":"The record merged away (archived, redirected to the survivor)"},
 			"target_id":{"type":"string","format":"uuid","description":"The surviving record everything relinks to"},
-			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after approval"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[MergeRecordsResult](),
 	}

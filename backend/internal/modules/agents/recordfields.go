@@ -199,7 +199,7 @@ func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordTy
 // the decoder then refuses a value that looks correct. Two failed calls were
 // spent on exactly that before the reason was visible, so the requirement is
 // stated where it is read rather than left implied by a keyword.
-const timestampNote = `,"description":"RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused."`
+const timestampNote = `,"description":"RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused."`
 
 // stageIDNote is appended to every stage-id argument the tool surface takes.
 // Two tools declared it as a bare format:uuid, which named the requirement

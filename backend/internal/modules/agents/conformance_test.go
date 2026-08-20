@@ -193,6 +193,7 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterContextSearchTool(r, nil, inertRetriever{})
 	RegisterResolveTool(r, nil, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
 		RegisterWhoamiTool(r, func(context.Context) (ActingIdentity, error) { return ActingIdentity{}, nil })
+		RegisterColleaguesTool(r, func(context.Context, string) ([]Colleague, error) { return nil, nil })
 		return nil, nil
 	})
 	RegisterListTool(r, nil, probeVocabulary{})

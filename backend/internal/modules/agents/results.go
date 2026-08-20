@@ -489,3 +489,9 @@ type WhoamiResult struct {
 	Locale       string   `json:"locale,omitempty"`
 	Timezone     string   `json:"timezone,omitempty"`
 }
+
+// ListColleaguesResult is the workspace roster. Empty is a real answer — a
+// filter that matches nobody — never an error.
+type ListColleaguesResult struct {
+	Colleagues []Colleague `json:"colleagues"`
+}

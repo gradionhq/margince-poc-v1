@@ -136,6 +136,7 @@ func fieldNotes(shapes map[datasource.EntityType]reflect.Type, patch bool) []str
 	notes = append(notes, dealPipelineNote(shapes)...)
 	notes = append(notes, relationshipNote(shapes))
 	notes = append(notes, activityReachNotes(shapes)...)
+	notes = append(notes, assigneeNote(shapes)...)
 	return append(notes, customFieldNotes(shapes)...)
 }
 
@@ -303,4 +304,20 @@ func typesWithoutCustomFieldCarriage(shapes map[datasource.EntityType]reflect.Ty
 		without = append(without, string(recordType))
 	}
 	return strings.Join(without, " or ")
+}
+
+// assigneeNote says whose id assignee_id takes.
+//
+// The field has always been accepted and inserted, and a task created over
+// this surface still arrived unassigned — because the only ids a caller could
+// obtain were person ids, and a person is a CONTACT. An assistant asked to
+// give someone work searched the contacts, found a customer with a similar
+// name, and offered that. list_colleagues is what answers the other kind, and
+// this is where a caller filling the field finds out which kind it wants.
+func assigneeNote(shapes map[datasource.EntityType]reflect.Type) []string {
+	if !describesField(shapes, "assignee_id") {
+		return nil
+	}
+	return []string{"`assignee_id` and `owner_id` take a COLLEAGUE's id — list_colleagues " +
+		"answers those, whoami answers your own. A person id is a contact and is refused."}
 }

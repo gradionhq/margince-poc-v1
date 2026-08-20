@@ -9358,7 +9358,7 @@ paths:
         may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
         archived users. Row-scoped by workspace RLS. `User.roles` rides the row only for an admin caller,
         who is the only one who can act on it.
-      x-mcp-tool: { verb: search_records, record_type: app_user, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_colleagues, record_type: app_user, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -9836,7 +9836,14 @@ paths:
       description: |
         Teams available as record-share subjects, with a member count. Any authenticated member may read.
         Excludes archived teams. Row-scoped by workspace RLS.
-      x-mcp-tool: { verb: search_records, record_type: team, tier: auto_execute, scope: read }
+      # Declared human-only rather than as a tool it does not have. It said
+      # search_records/team, and search_records has never served `team` — the
+      # parity gate only checks that the named VERB is registered, not that the
+      # verb serves the named record_type, so the mismatch sat unnoticed beside
+      # the identical one on /users. A team is not a record either; if the tool
+      # surface ever needs the roster of teams it wants its own verb, as the
+      # colleague roster did.
+      x-agent-access: human-only
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
