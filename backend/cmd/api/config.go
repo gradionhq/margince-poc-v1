@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -55,6 +56,11 @@ type apiConfig struct {
 	// it, and stderr before the log handler is built is a different stream in a
 	// different format from everything else they are reading.
 	unknownVars []string
+	// envFaults are configuration faults found while REGISTERING the flags,
+	// before parsing can begin — a malformed duration in the environment is
+	// the only one today. Carried so they join the faults found after parsing
+	// rather than pre-empting them.
+	envFaults []string
 }
 
 // apiFlagSet registers this role's flags and their environment bindings, and
@@ -97,9 +103,15 @@ func apiFlagSet() (*flag.FlagSet, *cliflags.Env, *apiConfig, error) {
 	env.String(fs, &cfg.connectorStateKey, "connector-state-key", "MARGINCE_CONNECTOR_STATE_KEY", "", "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail and Graph connect flows")
 	env.String(fs, &cfg.webhookKey, "webhook-key", "MARGINCE_WEBHOOK_KEY", "", "base64 32-byte key sealing outbound-webhook signing secrets; enables the mutating /webhook-subscriptions surface, and (with --inline-relay) the cg:webhooks delivery consumer. Empty = those paths answer 503 and no inline delivery runs. Re-attempting a parked delivery is the worker role's River job, never this one's.")
 	env.String(fs, &cfg.metricsToken, "metrics-token", "MARGINCE_METRICS_TOKEN", "", "shared secret /metrics requires as a Bearer credential; empty (the default) answers 404 for /metrics rather than serving per-workspace job telemetry with no authentication at all")
-	accessTokenTTL, err := envDuration(oauthAccessTokenTTLEnv)
-	if err != nil {
-		return nil, nil, nil, err
+	// A malformed TTL is CARRIED rather than returned, so it can be reported
+	// beside a missing DSN instead of hiding it for a boot. Returning here
+	// would put this fault ahead of every other one by accident of ordering —
+	// the same one-fault-per-boot the collection below exists to end. The flag
+	// still registers, on the compiled default, so parsing proceeds far enough
+	// to find whatever else is wrong.
+	accessTokenTTL, ttlErr := envDuration(oauthAccessTokenTTLEnv)
+	if ttlErr != nil {
+		cfg.envFaults = append(cfg.envFaults, ttlErr.Error())
 	}
 	fs.DurationVar(&cfg.oauthAccessTokenTTL, "oauth-access-token-ttl", accessTokenTTL,
 		"lifetime of the access token (an Agent Seat Passport) the OAuth handshake mints, for the code exchange and every refresh rotation; 0 = the passport default of 720h (30 days), maximum 2160h (90 days)")
@@ -134,14 +146,30 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	// consulted.
 	cfg.unknownVars = registry.Undeclared(config.Environ())
 	cfg.posture = runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar))
+	// Every configuration fault this layer can see is collected and reported
+	// TOGETHER, rather than returned at the first one.
+	//
+	// Returning early made starting the binary by hand a guessing game played
+	// one boot at a time: the missing DSN was the only thing said, and the next
+	// run then answered with the licence refusal, which is a second fact that
+	// was true all along. Two boots to learn two requirements, and an operator
+	// who fixes both at once never sees the second message at all.
+	faults := append([]string{}, cfg.envFaults...)
 	if cfg.dsn == "" {
-		return apiConfig{}, errors.New("api: --dsn or MARGINCE_DSN required")
+		faults = append(faults, "--dsn or MARGINCE_DSN required")
 	}
 	// A TTL the mint would refuse must fail the BOOT, not the first handshake
 	// of a connector nobody is watching.
 	if cfg.oauthAccessTokenTTL < 0 || cfg.oauthAccessTokenTTL > identity.MaxOAuthAccessTokenTTL {
-		return apiConfig{}, fmt.Errorf("api: --oauth-access-token-ttl %s is out of range: 0 (the default) or up to %s",
-			cfg.oauthAccessTokenTTL, identity.MaxOAuthAccessTokenTTL)
+		faults = append(faults, fmt.Sprintf("--oauth-access-token-ttl %s is out of range: 0 (the default) or up to %s",
+			cfg.oauthAccessTokenTTL, identity.MaxOAuthAccessTokenTTL))
+	}
+	if len(faults) == 1 {
+		return apiConfig{}, errors.New("api: " + faults[0])
+	}
+	if len(faults) > 1 {
+		return apiConfig{}, errors.New("api: the configuration is incomplete:\n  - " +
+			strings.Join(faults, "\n  - "))
 	}
 	return *cfg, nil
 }
