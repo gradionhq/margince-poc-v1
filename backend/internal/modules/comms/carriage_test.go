@@ -11,24 +11,33 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-type declaredCarrier struct{ carries bool }
+type declaredCarrier struct{ carriage connector.Carriage }
 
-func (c declaredCarrier) CarriesAttachments() bool { return c.carries }
+func (c declaredCarrier) Carriage() connector.Carriage { return c.carriage }
 
-// A sender written before attachments existed compiles unchanged and must read
-// as CANNOT CARRY, never as unknown. That is the no-default rule, and getting it
-// wrong is exactly how a message goes out stripped.
-func TestASenderThatNeverDeclaredCarriageCarriesNothing(t *testing.T) {
-	if carriesAttachments(struct{}{}) {
-		t.Error("a sender not implementing AttachmentCarrier was read as carrying files")
+// A sender that does not implement AttachmentCarrier carries NOTHING. That is
+// the seam's no-default rule: an adapter written before attachments existed, or
+// one whose provider cannot carry them, must never be mistaken for capable —
+// because the failure would be silent, and the record of what was sent would be
+// permanently wrong.
+func TestCarriageOfTreatsAnUndeclaredSenderAsCarryingNothing(t *testing.T) {
+	if got := carriageOf(struct{}{}); got.Carries {
+		t.Errorf("an undeclared sender reported %+v, want Carries=false", got)
 	}
-	if carriesAttachments(declaredCarrier{carries: false}) {
-		t.Error("a sender declaring it carries nothing was read as carrying files")
+	if got := carriageOf(declaredCarrier{}); got.Carries {
+		t.Errorf("a sender declaring the zero carriage reported %+v, want Carries=false", got)
 	}
-	if !carriesAttachments(declaredCarrier{carries: true}) {
-		t.Error("a sender declaring carriage was read as carrying nothing")
+}
+
+// The limits travel WHOLE. A descriptor that arrived with only its bool intact
+// would gate on nothing: every bound the gate checks would read as "no limit".
+func TestCarriageOfReportsTheDeclaredLimits(t *testing.T) {
+	want := connector.Carriage{Carries: true, MaxBytesPerFile: 25 << 20, MaxFiles: 10, MaxBodyWithFiles: 1024}
+	if got := carriageOf(declaredCarrier{carriage: want}); got != want {
+		t.Errorf("carriageOf reported %+v, want %+v", got, want)
 	}
 }
 

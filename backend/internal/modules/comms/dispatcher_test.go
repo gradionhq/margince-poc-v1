@@ -386,7 +386,7 @@ func TestACarriageMismatchParksAndNamesTheFiles(t *testing.T) {
 	}
 
 	outcome, _, err := d.gateAttachmentCarriage(context.Background(), del,
-		sendSeam{carriesAttachments: false})
+		sendSeam{carriage: connector.Carriage{}})
 	if err != nil {
 		t.Fatalf("gate: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestACarryingChannelIsNotParkedForItsFiles(t *testing.T) {
 		Attachments: []OutboundFile{{AttachmentID: ids.NewV7(), Filename: "contract.pdf"}},
 	}
 	outcome, _, err := d.gateAttachmentCarriage(context.Background(), del,
-		sendSeam{carriesAttachments: true})
+		sendSeam{carriage: connector.Carriage{Carries: true}})
 	if err != nil {
 		t.Fatalf("gate: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestAMessageWithNoFilesIsNeverParkedForCarriage(t *testing.T) {
 	d := NewDispatcher(store, fakeResolver{}, liveSeat(), nil, &stubConsent{}, nil,
 		func() time.Time { return testNow }, time.Hour, 3)
 	outcome, _, err := d.gateAttachmentCarriage(context.Background(),
-		Delivery{ID: ids.NewV7(), Provider: "telegram"}, sendSeam{carriesAttachments: false})
+		Delivery{ID: ids.NewV7(), Provider: "telegram"}, sendSeam{carriage: connector.Carriage{}})
 	if err != nil {
 		t.Fatalf("gate: %v", err)
 	}

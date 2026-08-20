@@ -55,10 +55,15 @@ type EmailSender interface {
 // adapter that gains the ability declares it here; one that never had it needs
 // no change and cannot be mistaken for capable.
 type AttachmentCarrier interface {
-	// CarriesAttachments reports whether this connector's provider transmits
-	// files alongside the message body.
-	CarriesAttachments() bool
+	// Carriage reports what this connector's provider can carry. A connector
+	// that does not implement this interface carries nothing.
+	Carriage() Carriage
 }
+
+// Carriage is the published capability descriptor, aliased for the same reason
+// the file types are: a unit and a core connector must answer this question with
+// the same type, or the bounds a gate checks are two sets that can disagree.
+type Carriage = extension.Carriage
 
 // OutboundFile is one file to transmit — the published extension.OutboundFile,
 // aliased for the reason part.go states.

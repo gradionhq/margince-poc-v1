@@ -37,12 +37,17 @@ type sendSeam struct {
 	// SendsWithoutScope means, so there is nothing to intersect.
 	granted []string
 
-	// carriesAttachments reports whether the resolved connector transmits files.
-	// FALSE for a connector that does not implement connector.AttachmentCarrier,
-	// which is the whole point of the seam having no default: an adapter that
-	// never declared carriage cannot be mistaken for capable, and a staged
-	// message with files parks instead of going out stripped (ADR-0086/A131).
-	carriesAttachments bool
+	// carriage is what the resolved connector says its provider can carry. The
+	// ZERO value for a connector that does not implement
+	// connector.AttachmentCarrier — carries nothing — which is the whole point of
+	// the seam having no default: an adapter that never declared carriage cannot
+	// be mistaken for capable, and a staged message with files parks instead of
+	// going out stripped (ADR-0086/A131).
+	//
+	// A descriptor rather than a bool because the provider's real limits — how
+	// many files, how large, and how long the covering text may be when files
+	// ride with it — are what the carriage gate checks.
+	carriage connector.Carriage
 
 	// transmit hands the delivery to the provider, already bound to the resolved
 	// credential and to the row it was built from. One call for either
@@ -73,7 +78,14 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		if err != nil {
 			return sendSeam{}, err
 		}
-		return sendSeam{carriesAttachments: carriesAttachments(sender), transmit: func(ctx context.Context) (connector.SendReceipt, error) {
+		return sendSeam{carriage: carriageOf(sender), transmit: func(ctx context.Context) (connector.SendReceipt, error) {
+			// The SAME helper the mail branch calls, deliberately: a channel
+			// variant would be a second attachment path, and the one exercised
+			// less is the one that would quietly stop matching the other.
+			files, err := d.attachedFiles(ctx, del)
+			if err != nil {
+				return connector.SendReceipt{}, err
+			}
 			return sender.SendMessage(ctx, auth, connector.ChannelMessage{
 				// The provider plus the account id ARE the recipient key. The
 				// username is deliberately absent: a handle can be released and
@@ -91,6 +103,9 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 				// that was already stable.
 				IdempotencyKey: del.ID.String(),
 				Attempt:        transmissionsBefore(del),
+				// The set the carriage gate already cleared, under the same
+				// all-or-nothing obligation the mail seam carries.
+				Files: files,
 			})
 		}}, nil
 	}
@@ -99,9 +114,9 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		return sendSeam{}, err
 	}
 	return sendSeam{
-		granted:            granted,
-		detectsPriorSend:   true,
-		carriesAttachments: carriesAttachments(sender),
+		granted:          granted,
+		detectsPriorSend: true,
+		carriage:         carriageOf(sender),
 		transmit: func(ctx context.Context) (connector.SendReceipt, error) {
 			// The bytes, read HERE rather than carried in the delivery row: a
 			// message on a retry ladder would otherwise hold every attachment
@@ -192,18 +207,21 @@ func (d *Dispatcher) guardAtMostOnce(ctx context.Context, del Delivery, seam sen
 	return outcomeUndecided, 0, nil
 }
 
-// carriesAttachments asks a resolved sender whether it transmits files.
+// carriageOf asks a resolved sender what it can carry.
 //
-// A sender that does not implement connector.AttachmentCarrier answers NO. That
-// is the seam's no-default rule in one line: an adapter written before
-// attachments existed, or one whose provider cannot carry them, is never
-// mistaken for capable — so a staged message with files parks rather than going
-// out as text that lies about its contents (ADR-0086/A131).
+// A sender that does not implement connector.AttachmentCarrier answers the zero
+// Carriage — carries nothing. That is the seam's no-default rule in one line: an
+// adapter written before attachments existed, or one whose provider cannot carry
+// them, is never mistaken for capable — so a staged message with files parks
+// rather than going out as text that lies about its contents (ADR-0086/A131).
 //
 //craft:ignore naked-any the type assertion seam: a sender is whichever connector the resolver bound
-func carriesAttachments(sender any) bool {
+func carriageOf(sender any) connector.Carriage {
 	carrier, ok := sender.(connector.AttachmentCarrier)
-	return ok && carrier.CarriesAttachments()
+	if !ok {
+		return connector.Carriage{}
+	}
+	return carrier.Carriage()
 }
 
 // outboundFiles renders the staged snapshot into the provider-neutral shape.

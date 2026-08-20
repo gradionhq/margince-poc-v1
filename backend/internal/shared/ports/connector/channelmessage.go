@@ -37,6 +37,15 @@ type ChannelMessage struct {
 	IdempotencyKey string
 	// Attempt is 0 on the first transmission and increments on every retry.
 	Attempt int
+	// Files are the attachments this message carries. A connector handed a
+	// non-empty set has already been asked what it can carry — the dispatcher
+	// parks otherwise — so reaching here with files means transmitting them.
+	//
+	// THE INVARIANT, stated where an implementer reads it: no adapter may
+	// transmit a message whose attachment set differs from the one it was
+	// handed. Not a subset, not converted to links, not silently dropped. If it
+	// cannot send all of them it returns an error and the delivery parks.
+	Files []OutboundFile
 }
 
 // ErrInvalidChannelMessage marks a channel message missing what

@@ -72,7 +72,7 @@ func (d *Dispatcher) gateSendAuthority(ctx context.Context, del Delivery, grante
 // The reason names the channel and the files, because "this could not be sent"
 // with no subject leaves a person guessing which of the two to fix.
 func (d *Dispatcher) gateAttachmentCarriage(ctx context.Context, del Delivery, seam sendSeam) (Outcome, time.Duration, error) {
-	if len(del.Attachments) == 0 || seam.carriesAttachments {
+	if len(del.Attachments) == 0 || seam.carriage.Carries {
 		return outcomeUndecided, 0, nil
 	}
 	names := make([]string, 0, len(del.Attachments))
