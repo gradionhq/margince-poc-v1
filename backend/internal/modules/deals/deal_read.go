@@ -36,18 +36,28 @@ func (s *Store) GetDeal(ctx context.Context, id ids.DealID, archived storekit.Ar
 		if err := auth.EnsureVisible(ctx, tx, "deal", id.UUID); err != nil {
 			return err
 		}
-		out, err = readDeal(ctx, tx, id, archived, active)
-		if err != nil {
-			return err
-		}
-		one := []crmcontracts.Deal{out}
-		if err := maskDeals(ctx, tx, one); err != nil {
-			return err
-		}
-		out = one[0]
-		return nil
+		out, err = readDealForCaller(ctx, tx, id, archived, active)
+		return err
 	})
 	return out, err
+}
+
+// readDealForCaller reads one deal and masks it — the spelling EVERY entry
+// point that hands a deal back uses, a mutation response included. A response
+// is a read: the row a PATCH echoes is the same row a GET withholds from, and
+// the reference withholding cannot ride on write authority the way a role mask
+// does — being allowed to change the DEAL says nothing about being allowed to
+// read the ORGANIZATION it names.
+//
+// readDeal itself stays unmasked on purpose. The update path builds its
+// before-image from it, and an audit diff taken against a withheld null would
+// record a change nobody made.
+func readDealForCaller(ctx context.Context, tx pgx.Tx, id ids.DealID, archived storekit.ArchivedFilter, active []fieldcatalog.Column) (crmcontracts.Deal, error) {
+	d, err := readDeal(ctx, tx, id, archived, active)
+	if err != nil {
+		return crmcontracts.Deal{}, err
+	}
+	return maskDealForCaller(ctx, tx, d)
 }
 
 type ListDealsInput struct {
@@ -104,7 +114,10 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	where := appendDealFilters(pre.where, in, pre.arg)
+	where, err := appendDealFilters(ctx, pre.where, in, pre.arg)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
 
 	return runListPage(ctx, s, pre, "deal", dealColumns, active, where, scanDealPage,
 		func(d crmcontracts.Deal) (time.Time, ids.UUID) { return d.CreatedAt, ids.UUID(d.Id) },
@@ -140,7 +153,7 @@ func scanDealPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.
 // visibility, full-text query, the column equality filters, and the
 // stalled predicate — into WHERE clauses (the cf_ filters and the keyset
 // cursor, which depends on the validated sort, stay in ListDeals).
-func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []string {
+func appendDealFilters(ctx context.Context, where []string, in ListDealsInput, arg func(any) int) ([]string, error) {
 	if !in.IncludeArchived {
 		where = append(where, "archived_at IS NULL")
 	}
@@ -156,14 +169,22 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 	if in.OwnerID != nil {
 		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
 	}
-	if in.OrganizationID != nil {
-		where = append(where, storekit.SQLf("organization_id = $%d", arg(*in.OrganizationID)))
-	}
-	if in.ProjectID != nil {
-		where = append(where, storekit.SQLf("project_id = $%d", arg(*in.ProjectID)))
-	}
-	if in.PartnerOrgID != nil {
-		where = append(where, storekit.SQLf("partner_org_id = $%d", arg(*in.PartnerOrgID)))
+	for _, ref := range []struct {
+		column, table string
+		id            *ids.UUID
+	}{
+		{filterOrganizationID, "organization", uuidOfFilter(in.OrganizationID)},
+		{filterProjectID, "project", uuidOfFilter(in.ProjectID)},
+		{filterPartnerOrgID, "organization", uuidOfFilter(in.PartnerOrgID)},
+	} {
+		if ref.id == nil {
+			continue
+		}
+		clause, err := referenceFilterClause(ctx, ref.column, ref.table, *ref.id, arg)
+		if err != nil {
+			return nil, err
+		}
+		where = append(where, clause)
 	}
 	if in.PartnerSourced != nil {
 		if *in.PartnerSourced {
@@ -182,7 +203,44 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 			where = append(where, "NOT "+StalledSQL(""))
 		}
 	}
-	return where
+	return where, nil
+}
+
+// uuidOfFilter widens one optional typed filter id to the untyped UUID the
+// reference table above walks. It is deliberately the only widening here: the
+// phantom kind is what stops a project id being probed against organization.
+func uuidOfFilter[K ids.EntityKind](id *ids.ID[K]) *ids.UUID {
+	if id == nil {
+		return nil
+	}
+	return &id.UUID
+}
+
+// referenceFilterClause narrows a filter on a column that NAMES another record
+// to the rows whose target the caller may read.
+//
+// Filtering by an id is asking whether it is there. A bare
+// `organization_id = $1` answers that question for an organization the caller
+// cannot open — the same existence oracle the projection now withholds — so
+// the arm carries the target's own visibility predicate. An empty page is the
+// honest answer, and it is indistinguishable from a visible company that has
+// no deals, which is what existence-hiding wants.
+//
+// An empty scope clause means a caller who reads every row of that table;
+// there is nothing to narrow and the EXISTS would only confirm what the
+// composite foreign key already guarantees.
+func referenceFilterClause(ctx context.Context, column, table string, id ids.UUID, arg func(any) int) (string, error) {
+	pos := arg(id)
+	scope, err := auth.ScopeClauseFor(ctx, table, "ref", arg)
+	if err != nil {
+		return "", err
+	}
+	clause := storekit.SQLf("%s = $%d", column, pos)
+	if scope == "" {
+		return clause, nil
+	}
+	return clause + storekit.SQLf(
+		" AND EXISTS (SELECT 1 FROM %s ref WHERE ref.id = $%d AND %s)", table, pos, scope), nil
 }
 
 const dealColumns = `id, name, amount_minor, currency, pipeline_id, stage_id,

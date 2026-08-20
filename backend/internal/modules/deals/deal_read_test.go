@@ -4,13 +4,26 @@
 package deals
 
 import (
+	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// systemFilterCtx is the caller for whom no reference filter needs narrowing:
+// the system principal reads every organization and project, so
+// referenceFilterClause renders the bare equality these cases are about.
+// TestAReferenceFilterIsNarrowedToTargetsTheCallerReads covers the other side.
+func systemFilterCtx() context.Context {
+	return principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalSystem, ID: "system:test",
+	})
+}
 
 // The partner attribution filters on the deals list: partner_org_id is a
 // column equality match, partner_sourced is attribution PRESENCE — true
@@ -30,7 +43,7 @@ func TestAppendDealFiltersPartnerAttribution(t *testing.T) {
 			name:        "partner_org_id is an equality match",
 			in:          ListDealsInput{PartnerOrgID: &partnerOrg},
 			wantClauses: []string{"archived_at IS NULL", "partner_org_id = $1"},
-			wantArgs:    []any{partnerOrg},
+			wantArgs:    []any{partnerOrg.UUID},
 		},
 		{
 			name:        "partner_sourced true selects attributed deals",
@@ -48,14 +61,17 @@ func TestAppendDealFiltersPartnerAttribution(t *testing.T) {
 			name:        "both partner filters compose",
 			in:          ListDealsInput{PartnerOrgID: &partnerOrg, PartnerSourced: &sourced},
 			wantClauses: []string{"archived_at IS NULL", "partner_org_id = $1", "partner_org_id IS NOT NULL"},
-			wantArgs:    []any{partnerOrg},
+			wantArgs:    []any{partnerOrg.UUID},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var args []any
 			arg := func(v any) int { args = append(args, v); return len(args) }
-			got := appendDealFilters(nil, tc.in, arg)
+			got, err := appendDealFilters(systemFilterCtx(), nil, tc.in, arg)
+			if err != nil {
+				t.Fatalf("appendDealFilters: %v", err)
+			}
 			if !slices.Equal(got, tc.wantClauses) {
 				t.Fatalf("clauses = %q, want %q", got, tc.wantClauses)
 			}
@@ -79,7 +95,10 @@ func TestAppendDealFiltersPartnerBeforeCursorKeepsPlaceholderOrder(t *testing.T)
 	cursor := storekit.EncodeCursor(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), ids.NewV7())
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
-	got := appendDealFilters(nil, ListDealsInput{PartnerOrgID: &partnerOrg}, arg)
+	got, err := appendDealFilters(systemFilterCtx(), nil, ListDealsInput{PartnerOrgID: &partnerOrg}, arg)
+	if err != nil {
+		t.Fatalf("appendDealFilters: %v", err)
+	}
 	var defaultSort *storekit.ListSort
 	clause, err := defaultSort.KeysetClause(cursor, arg)
 	if err != nil {
@@ -92,5 +111,46 @@ func TestAppendDealFiltersPartnerBeforeCursorKeepsPlaceholderOrder(t *testing.T)
 	}
 	if len(args) != 3 {
 		t.Fatalf("expected 3 bound args (org + cursor pair), got %d: %v", len(args), args)
+	}
+}
+
+// Filtering by an id is asking whether it is there. A bounded caller's filter
+// on a reference therefore carries the target's own visibility predicate, so
+// `?organization_id=<an org I cannot open>` cannot confirm the binding the
+// projection withholds — it returns the empty page a company with no deals
+// returns.
+func TestAReferenceFilterIsNarrowedToTargetsTheCallerReads(t *testing.T) {
+	org := ids.New[ids.OrganizationKind]()
+	project := ids.New[ids.ProjectKind]()
+	bounded := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:test",
+		UserID: ids.NewV7(),
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"rep"},
+			Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}},
+			RowScope: principal.RowScopeOwn,
+		},
+	})
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	got, err := appendDealFilters(bounded, nil,
+		ListDealsInput{OrganizationID: &org, ProjectID: &project, PartnerOrgID: &org}, arg)
+	if err != nil {
+		t.Fatalf("appendDealFilters: %v", err)
+	}
+	for _, want := range []string{
+		"EXISTS (SELECT 1 FROM organization ref WHERE ref.id = $1",
+		"EXISTS (SELECT 1 FROM project ref WHERE ref.id = $",
+	} {
+		if !slices.ContainsFunc(got, func(c string) bool { return strings.Contains(c, want) }) {
+			t.Errorf("clauses = %q, want one carrying %q — an unnarrowed filter is an existence oracle", got, want)
+		}
+	}
+	// partner_org_id is the third arm and points at the same table; it must be
+	// narrowed too, or the oracle simply moves one column across.
+	if !slices.ContainsFunc(got, func(c string) bool {
+		return strings.HasPrefix(c, filterPartnerOrgID+" = $") && strings.Contains(c, "FROM organization ref")
+	}) {
+		t.Errorf("clauses = %q, want the partner arm narrowed as well", got)
 	}
 }

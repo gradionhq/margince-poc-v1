@@ -70,6 +70,15 @@ func (w withheldFields) applyTo(d *crmcontracts.Deal) {
 	}
 }
 
+// maskDealForCaller applies the read masks to ONE row about to leave the store.
+func maskDealForCaller(ctx context.Context, tx pgx.Tx, d crmcontracts.Deal) (crmcontracts.Deal, error) {
+	one := []crmcontracts.Deal{d}
+	if err := maskDeals(ctx, tx, one); err != nil {
+		return crmcontracts.Deal{}, err
+	}
+	return one[0], nil
+}
+
 // maskDeals withholds, per row, what this reader may not have: the columns
 // their ROLE masks, and the references naming a record they could not open.
 // Both end the same way — the field goes out null and masked_fields names it —

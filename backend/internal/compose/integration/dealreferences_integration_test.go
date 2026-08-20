@@ -18,6 +18,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // dealReferenceFixture is one deal pointing at a hidden organization pair and
@@ -26,11 +27,13 @@ type dealReferenceFixture struct {
 	hiddenRefs ids.DealID
 	hiddenProj ids.DealID
 	openOrg    ids.UUID
+	privateOrg ids.UUID
+	wonStage   ids.StageID
 }
 
 func seedDealReferenceFixture(t *testing.T, e *Env) dealReferenceFixture {
 	t.Helper()
-	pipeline, open, _ := DealFixture(t, e)
+	pipeline, open, won := DealFixture(t, e)
 	admin := e.Admin()
 
 	// Seeded workspace-visible so the admin's link write passes its own
@@ -63,7 +66,10 @@ func seedDealReferenceFixture(t *testing.T, e *Env) dealReferenceFixture {
 	}); err != nil {
 		t.Fatalf("linking the deal to its project: %v", err)
 	}
-	return dealReferenceFixture{hiddenRefs: hiddenRefs, hiddenProj: hiddenProj, openOrg: openOrg}
+	return dealReferenceFixture{
+		hiddenRefs: hiddenRefs, hiddenProj: hiddenProj,
+		openOrg: openOrg, privateOrg: privateOrg, wonStage: won,
+	}
 }
 
 func TestADealDoesNotNameRecordsItsReaderCannotRead(t *testing.T) {
@@ -156,5 +162,93 @@ func assertMaskNames(t *testing.T, d crmcontracts.Deal, want ...string) {
 	}
 	if len(got) != len(want) {
 		t.Errorf("masked_fields = %v, want exactly %v", *d.MaskedFields, want)
+	}
+}
+
+// A mutation RESPONSE is a read. Every entry point that hands a deal back must
+// withhold the same references the GET does, or a no-op PATCH becomes the
+// second door onto the id the GET just refused — and the "it lifts on write
+// authority" argument the amount mask makes is not available here: being
+// allowed to change the DEAL says nothing about being allowed to read the
+// ORGANIZATION it names.
+//
+// A table over the entry points rather than one case each, so a sixth deal
+// mutation is a compile-time addition to this list, not a silent omission.
+func TestEveryDealMutationResponseWithholdsTheSameReferences(t *testing.T) {
+	e := Setup(t)
+	fx := seedDealReferenceFixture(t, e)
+
+	perms := AccountRepPerms
+	perms.Objects = map[string]principal.ObjectGrant{
+		"deal":                  {Create: true, Read: true, Update: true, Delete: true},
+		"organization":          {Read: true},
+		"pipeline":              {Read: true},
+		"installation_settings": {Read: true},
+	}
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, perms)
+
+	renamed := "Meridian renewal, retitled"
+	// A won deal owes a contract or a reason there is none; this suite is about
+	// the response's references, not that rule, so it satisfies it and moves on.
+	wonWithout := "imported"
+	cases := []struct {
+		name string
+		call func() (crmcontracts.Deal, error)
+	}{
+		{"a patch that changes nothing still echoes the row", func() (crmcontracts.Deal, error) {
+			return e.Deals.UpdateDeal(rep, fx.hiddenRefs, deals.UpdateDealInput{})
+		}},
+		{"a patch that changes something", func() (crmcontracts.Deal, error) {
+			return e.Deals.UpdateDeal(rep, fx.hiddenRefs, deals.UpdateDealInput{Name: &renamed})
+		}},
+		{"advancing the deal", func() (crmcontracts.Deal, error) {
+			return e.Deals.AdvanceDeal(rep, fx.hiddenRefs, deals.AdvanceDealInput{ToStageID: fx.wonStage, WonWithoutContractReason: &wonWithout})
+		}},
+		{"archiving the deal", func() (crmcontracts.Deal, error) {
+			return e.Deals.ArchiveDeal(rep, fx.hiddenRefs)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.call()
+			if err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			if got.OrganizationId != nil || got.PartnerOrgId != nil {
+				t.Errorf("%s handed back org %v partner %v, want both withheld",
+					tc.name, got.OrganizationId, got.PartnerOrgId)
+			}
+			assertMaskNames(t, got, "organization_id", "partner_org_id")
+		})
+	}
+}
+
+// Filtering by an id is asking whether it is there, so the list must not
+// confirm through its filter what its projection withholds. The answer is the
+// empty page a company with no deals gives — never a 404, which would itself
+// say the organization is real.
+func TestFilteringByAnUnreadableReferenceAnswersTheEmptyPage(t *testing.T) {
+	e := Setup(t)
+	fx := seedDealReferenceFixture(t, e)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms)
+
+	hiddenOrg := ids.From[ids.OrganizationKind](fx.privateOrg)
+	page, _, err := e.Deals.ListDeals(rep, deals.ListDealsInput{OrganizationID: &hiddenOrg})
+	if err != nil {
+		t.Fatalf("filtering by an organization the caller cannot read: %v", err)
+	}
+	if len(page) != 0 {
+		t.Errorf("the filter returned %d deal(s), want none — an unnarrowed filter confirms the binding the read withholds", len(page))
+	}
+
+	// The same filter for a company the reader CAN open still works, or the
+	// fix would have closed the oracle by breaking the feature.
+	openOrg := ids.From[ids.OrganizationKind](fx.openOrg)
+	visible, _, err := e.Deals.ListDeals(rep, deals.ListDealsInput{OrganizationID: &openOrg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visible) != 1 || ids.UUID(visible[0].Id) != fx.hiddenProj.UUID {
+		t.Errorf("filtering by a readable company returned %d deal(s), want the one deal on it", len(visible))
 	}
 }

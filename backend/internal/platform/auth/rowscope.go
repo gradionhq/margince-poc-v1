@@ -427,9 +427,12 @@ func VisibleSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.UU
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	idsPos := arg(rowIDs)
+	// The clause is rendered into its own variable first: it registers
+	// parameters through arg, and Go does not fix the order in which a call's
+	// operands are evaluated against `args` passed to the same call.
+	clause := VisiblePredicate(p, table, arg)("")
 	rows, err := tx.Query(ctx,
-		fmt.Sprintf(`SELECT id FROM %[1]s WHERE id = ANY($%[2]d) AND %[3]s`,
-			table, idsPos, VisiblePredicate(p, table, arg)("")), args...)
+		fmt.Sprintf(`SELECT id FROM %[1]s WHERE id = ANY($%[2]d) AND %[3]s`, table, idsPos, clause), args...)
 	if err != nil {
 		return nil, err
 	}
