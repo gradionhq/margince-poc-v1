@@ -85,15 +85,26 @@ func providerLabel(provider string) string {
 // `deal_room` reads "Deal Room" rather than "Deal_room".
 //
 // BOTH separators, one function, because the two ids that need naming here use
-// one each: a provider id is snake (`zalo_oa`, channel_provider's own CHECK) and
-// an ingress system key is kebab (`zalo-oa`, IngressSource.System's grammar). A
-// provider id cannot contain `-` at all, so the second break is inert on that
-// path and the label the migration seeds with `initcap(replace(provider,'_',' '))`
-// still matches this one for every registered provider — which is what the
-// fitness test holding those two spellings together asserts.
+// one each: a provider id is snake (`zalo_oa`, channel_provider's own CHECK
+// `^[a-z][a-z0-9_]*$`) and an ingress system key is kebab (`zalo-oa`,
+// IngressSource.System's grammar). A provider id cannot contain `-` at all, so
+// the second break is inert on that path.
+//
+// An EMPTY segment stays a segment, which is the whole reason this is a Split
+// and not a Fields: `initcap(replace(provider,'_',' '))` is the label migration
+// 0247 seeds a fresh installation with, and it renders `deal__room` as
+// "Deal  Room" — two spaces. Collapsing the run here would make a fresh install
+// and a booted one disagree about that provider's name, which is exactly what
+// TestTheSeededLabelMatchesTheOneBootWrites promises cannot happen, and the
+// double underscore is legal under the column's own CHECK.
 func titleCasedID(id string) string {
-	words := strings.FieldsFunc(id, func(r rune) bool { return r == '_' || r == '-' })
+	// `-` folded onto `_` rather than split on both: one separator keeps the
+	// empty-segment behaviour above, and no id in either grammar carries both.
+	words := strings.Split(strings.ReplaceAll(id, "-", "_"), "_")
 	for i, w := range words {
+		if w == "" {
+			continue
+		}
 		r := []rune(w)
 		r[0] = unicode.ToUpper(r[0])
 		words[i] = string(r)
@@ -208,8 +219,9 @@ type captureSourceFacts struct {
 // from channelProviderFacts. A transport is something a message can leave on;
 // this answers "which connector carried the message this row came from" for a
 // record that arrived on no channel at all — a unit's mail, note or call, whose
-// trace carries the natural key's source system (capture.traceConnector) rather
-// than a provider. That id cannot BE a transport: it fails
+// trace carries the natural key's source system (traceConnector, in
+// capture/sinktrace.go) rather than a provider. That id cannot BE a transport:
+// it fails
 // channel_provider.provider's grammar, no reply resolves against it, and
 // registering it would mint a send anchor for a transport nobody supplies.
 //
@@ -222,18 +234,34 @@ type captureSourceFacts struct {
 // channel: a capture-only unit is the case with no transport entry standing
 // beside it, so it is the one that most needs naming.
 //
+// THE LABEL GOES THROUGH providerLabel, not straight to titleCasedID, and the
+// difference is only ever visible on a name the core already spells for itself:
+// a unit declaring ingress from `whatsapp` would otherwise publish "Whatsapp" in
+// the same document where `data` carries the core's "WhatsApp". Two spellings of
+// one transport in one list is the defect this whole seam exists to remove, so
+// the compiled-in spelling wins wherever there is one. A kebab system key simply
+// misses that map and falls through, which is why one call covers both.
+//
+// A system key that MATCHES a core transport is not refused, unlike a unit's
+// channel declaration (unitChannelFacts): the two claims are different. A
+// channel says "I transmit on this", and a unit claiming a core transport there
+// would re-point the core's row at the unit's own credential. An ingress source
+// says "I bring records in from this", and a unit that ingests Telegram exports
+// naming it `telegram` is telling the truth — refusing it would break the honest
+// case to prevent a reviewed first-party unit from lying about what it captures.
+// The shared label is then correct rather than a collision: the record really did
+// travel on that transport, and the reader should not have to know whether it
+// arrived on a channel or through a unit's ingress.
+//
 // The label is derived from the DECLARED system key and never
-// operator-configured, for the reason providerLabel documents — and it lands on
-// the same words a paired channel's label does (`zalo-oa` and `zalo_oa` both
-// read "Zalo Oa"), which is the point: the two ids are one transport seen from
-// two sides, and a reader should not have to know that.
+// operator-configured, for the reason providerLabel documents.
 func captureSourceFactsFor(exts []extension.Extension) []captureSourceFacts {
 	var out []captureSourceFacts
 	for _, unit := range exts {
 		for _, src := range unit.Ingress {
 			out = append(out, captureSourceFacts{
 				source: extSourceSystem(string(unit.Name), src.System),
-				label:  titleCasedID(src.System),
+				label:  providerLabel(src.System),
 			})
 		}
 	}

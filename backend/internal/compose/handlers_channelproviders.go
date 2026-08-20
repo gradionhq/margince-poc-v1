@@ -44,10 +44,24 @@ type channelProvidersHandlers struct{}
 // arrived on", and EVERY member's timeline needs it: gating it on admin would
 // leave every other seat rendering raw provider ids.
 //
-// The authorization argument only holds while the answer stays unprivileged, so
-// `label` is derived or compiled in and never operator-configured (see
-// channelproviderfacts.go). An administrator-typed name here would make this a
-// disclosure decision instead of a display one.
+// The authorization argument has two halves, and both have to hold.
+//
+// The first is label PROVENANCE: every `label` here, on both arrays, is derived
+// or compiled in and never operator-configured (see channelproviderfacts.go). An
+// administrator-typed name would make this a disclosure decision instead of a
+// display one.
+//
+// The second is the SET. `capture_sources` publishes which units this binary
+// composed and which external system each one captures from, to every seat and
+// to any read-scope passport. That is deliberately unprivileged, on the same
+// ground LoadChannelProviderDirectory already records for a unit's provider id: a
+// member whose row arrived through a unit needs to know what to call it, and what
+// is gated is the ACT rather than the NAME. The one thing it widens is that a
+// CAPTURE-ONLY unit — no channel, possibly nothing the caller may read — becomes
+// visible; that is fingerprinting, not access, and the alternative is the raw
+// `ext:` form on a member's own capture-activity window, which they can already
+// reach without a grant. Anything privileged about a unit (its version, routes,
+// jobs, RBAC objects) stays on the admin-only /v1/extensions.
 //
 // Authentication itself is the chassis's, applied to every /v1 route before a
 // handler runs — hence no gate call in the body, unlike ListExtensions.
@@ -60,8 +74,8 @@ func (channelProvidersHandlers) ListChannelProviders(w http.ResponseWriter, r *h
 }
 
 // publishedCaptureSources shapes the provenance ids a unit's records land under
-// for the wire — the non-transport half of the answer, and the half that fixes
-// a reader seeing `ext:dispact-connector:dispact` where a name belongs.
+// for the wire — the half of the directory a reader resolves a NON-transport
+// provenance id against.
 //
 // It is served from the composed declaration set rather than from a table, which
 // is the same decision ComposedChannelProviders documents: a unit's ingress
@@ -71,10 +85,8 @@ func (channelProvidersHandlers) ListChannelProviders(w http.ResponseWriter, r *h
 // Sorted for publishedChannelProviders' reason — a directory that reorders
 // between calls makes a diff of two deployments unreadable.
 //
-// Nil rather than an empty slice when nothing is declared, which is what the
-// field's optionality on the wire means: a vanilla installation composing no
-// ingress unit answers without the key at all, and an empty array would state
-// the same thing in one more shape for a client to handle.
+// Nil rather than an empty slice, which is what the field's optionality on the
+// wire means; the test that pins it says why.
 func publishedCaptureSources(exts []extension.Extension) *[]crmcontracts.CaptureSourceEntry {
 	facts := captureSourceFactsFor(exts)
 	if len(facts) == 0 {
@@ -128,6 +140,15 @@ func publishedChannelProviders(registered []string, sending map[string]connector
 // staging a channel message with files still learns the bounds the way it does
 // today — by having the delivery parked with a reason that names them. Widening
 // the tool surface needs the listing's budget looked at first (issue #1985).
+//
+// IT ALSO DROPS `capture_sources`, on the same budget and with the same shape of
+// consequence: a passport reading REST resolves a unit's `ext:` provenance and
+// the same passport's tool listing does not. Nothing is governed differently by
+// it — both surfaces are the one read-scope operation, and an id nothing resolves
+// falls back to itself — so what an agent loses is a display string, not an
+// answer. It is named here rather than left implicit because an unnamed
+// divergence is how the two surfaces come to disagree about something that
+// matters.
 type channelProviderDirectory struct{}
 
 func (channelProviderDirectory) ChannelProviders(context.Context) ([]agents.ChannelProviderEntry, error) {

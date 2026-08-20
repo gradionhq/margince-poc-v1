@@ -12685,10 +12685,9 @@ type CaptureSettings struct {
 
 // CaptureSourceEntry One capture provenance id that is not a transport, as the directory publishes it.
 type CaptureSourceEntry struct {
-	// Label Human-readable name for it. Derived from the unit's own declaration and never
-	// operator-configured, the rule `ChannelProviderEntry.label` follows and for the same
-	// reason: this directory is readable by every authenticated seat, so anything an
-	// administrator typed would make it a disclosure decision rather than a display one.
+	// Label Human-readable name for it — show this where the id would otherwise appear. Derived
+	// and never operator-configured, on the same terms as `ChannelProviderEntry.label`, so
+	// it is safe to cache alongside the rest of the directory.
 	Label string `json:"label"`
 
 	// Source The provenance id itself, in the spelling `CaptureTraceEntry.connector` carries —
@@ -12783,12 +12782,18 @@ type ChannelConnectionListResponse struct {
 
 // ChannelProviderDirectory Every messaging transport this installation has registered (ADR-0107/A158).
 type ChannelProviderDirectory struct {
-	// CaptureSources The provenance ids a captured record can carry that are NOT transports, and what to
-	// call them. One shape today: `ext:<unit>:<system>`, which an extension unit's ingress
-	// stamps on every record it lands and which `CaptureTraceEntry.connector` therefore
-	// carries for any of that unit's records that arrived on no channel.
+	// CaptureSources The provenance ids the composed EXTENSION UNITS land records under, and what to call
+	// them: `ext:<unit>:<system>`, which a unit's ingress stamps on every record it lands
+	// and which `CaptureTraceEntry.connector` therefore carries for any of that unit's
+	// records that arrived on no channel.
 	//
-	// They are published BESIDE `data` rather than inside it because they are not
+	// It does NOT publish every non-transport connector a trace can name. A core
+	// connector's own source system — `gmail`, `imap`, `graph`, `gcal` — appears in neither
+	// array, because none of them is a registered transport either; a client that cannot
+	// resolve a connector id renders the id, which reads as the name of the thing it names.
+	// Treat a directory miss as ordinary, not as an anomaly to report.
+	//
+	// These are published BESIDE `data` rather than inside it because they are not
 	// `ProviderRef` values and must not be mistaken for one: nothing sends on one, no
 	// `activity.channel_provider` names one, and the id does not satisfy that pattern.
 	// A reader resolving a trace still needs them from this same directory — one resolver,

@@ -10,7 +10,67 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
+
+// A name a human reads, from an id a machine keys on.
+//
+// Both separators are exercised because the two ids that reach this function use
+// one each: a provider id is snake and an ingress system key is kebab, and a
+// label that title-cased only one of them would print `Zalo-oa` beside `Zalo Oa`
+// for what is one transport seen from two sides.
+//
+// The doubled separator is the case with a second author. Migration 0247 seeds a
+// fresh installation's labels with `initcap(replace(provider,'_',' '))`, which
+// renders an empty segment as a space — so collapsing the run here would make a
+// fresh install and a booted one disagree about that provider's name, and the
+// doubled underscore is legal under the column's own CHECK.
+func TestAnIdBecomesWordsWhicheverSeparatorItUses(t *testing.T) {
+	for id, want := range map[string]string{
+		"dispact":      "Dispact",
+		"zalo_oa":      "Zalo Oa",
+		"zalo-oa":      "Zalo Oa",
+		"dispact-mail": "Dispact Mail",
+		"deal_room":    "Deal Room",
+		"deal__room":   "Deal  Room",
+		"a":            "A",
+	} {
+		if got := titleCasedID(id); got != want {
+			t.Errorf("titleCasedID(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
+
+// One transport seen from two sides reads as ONE name. A unit that captures from
+// a system the core also carries publishes the core's own compiled-in spelling,
+// not a title-cased guess at it: "Whatsapp" beside `data`'s "WhatsApp" in one
+// JSON document is the defect this seam exists to remove.
+//
+// It is not refused, which is the difference from a unit's CHANNEL declaration:
+// ingesting Telegram exports and naming the source `telegram` is true, and the
+// shared label is then correct rather than a collision.
+func TestACaptureSourceTakesTheCoreSpellingOfAName(t *testing.T) {
+	facts := captureSourceFactsFor([]extension.Extension{{
+		Name: "probe-unit",
+		Ingress: []extension.IngressSource{
+			{System: "whatsapp", Lands: []extension.RecordKind{extension.KindActivity}},
+			{System: "probe-system", Lands: []extension.RecordKind{extension.KindActivity}},
+		},
+	}})
+
+	labels := map[string]string{}
+	for _, f := range facts {
+		labels[f.source] = f.label
+	}
+	if got := labels["ext:probe-unit:whatsapp"]; got != providerLabel("whatsapp") {
+		t.Errorf("a unit capturing from a core transport published %q, and `data` publishes %q for the same transport", got, providerLabel("whatsapp"))
+	}
+	// A system key the core has no spelling for still gets a name — the map is a
+	// preference, not a gate, or a unit's own system would publish a raw id.
+	if got := labels["ext:probe-unit:probe-system"]; got != "Probe System" {
+		t.Errorf("a unit-only system key published %q, want %q", got, "Probe System")
+	}
+}
 
 // The directory must publish what a transport can carry, because the parking
 // gate assumes the composer already warned. A provider registered with no sender
