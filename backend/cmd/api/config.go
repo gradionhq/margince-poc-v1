@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -134,14 +135,30 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	// consulted.
 	cfg.unknownVars = registry.Undeclared(config.Environ())
 	cfg.posture = runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar))
+	// Every configuration fault this layer can see is collected and reported
+	// TOGETHER, rather than returned at the first one.
+	//
+	// Returning early made starting the binary by hand a guessing game played
+	// one boot at a time: the missing DSN was the only thing said, and the next
+	// run then answered with the licence refusal, which is a second fact that
+	// was true all along. Two boots to learn two requirements, and an operator
+	// who fixes both at once never sees the second message at all.
+	var faults []string
 	if cfg.dsn == "" {
-		return apiConfig{}, errors.New("api: --dsn or MARGINCE_DSN required")
+		faults = append(faults, "--dsn or MARGINCE_DSN required")
 	}
 	// A TTL the mint would refuse must fail the BOOT, not the first handshake
 	// of a connector nobody is watching.
 	if cfg.oauthAccessTokenTTL < 0 || cfg.oauthAccessTokenTTL > identity.MaxOAuthAccessTokenTTL {
-		return apiConfig{}, fmt.Errorf("api: --oauth-access-token-ttl %s is out of range: 0 (the default) or up to %s",
-			cfg.oauthAccessTokenTTL, identity.MaxOAuthAccessTokenTTL)
+		faults = append(faults, fmt.Sprintf("--oauth-access-token-ttl %s is out of range: 0 (the default) or up to %s",
+			cfg.oauthAccessTokenTTL, identity.MaxOAuthAccessTokenTTL))
+	}
+	if len(faults) == 1 {
+		return apiConfig{}, errors.New("api: " + faults[0])
+	}
+	if len(faults) > 1 {
+		return apiConfig{}, errors.New("api: the configuration is incomplete:\n  - " +
+			strings.Join(faults, "\n  - "))
 	}
 	return *cfg, nil
 }

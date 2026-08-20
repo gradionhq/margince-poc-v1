@@ -152,3 +152,35 @@ func TestValidatePublicBaseURLRefusesUserinfoWithoutEchoingIt(t *testing.T) {
 		t.Errorf("refusal %q does not say what is wrong", err)
 	}
 }
+
+// Every configuration fault this layer can see is reported together.
+//
+// Starting the binary by hand used to be a guessing game played one boot at a
+// time: the first return said only what it had reached, and the next run
+// answered with a fault that had been true all along.
+func TestParseReportsEveryConfigurationFaultAtOnce(t *testing.T) {
+	t.Setenv("MARGINCE_DSN", "")
+	_, err := parseAPIFlags([]string{"--oauth-access-token-ttl", "99999h"})
+	if err == nil {
+		t.Fatal("parsing answered no error, want both faults reported")
+	}
+	for _, want := range []string{"--dsn", "--oauth-access-token-ttl"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %s — an operator fixing one fault at a time "+
+				"pays a boot per fault:\n%s", want, err)
+		}
+	}
+}
+
+// One fault still reads as one sentence: a list of one is a worse message than
+// the sentence it replaces.
+func TestOneFaultIsNotRenderedAsAList(t *testing.T) {
+	t.Setenv("MARGINCE_DSN", "")
+	_, err := parseAPIFlags(nil)
+	if err == nil {
+		t.Fatal("parsing answered no error, want the missing DSN")
+	}
+	if strings.Contains(err.Error(), "\n  - ") {
+		t.Errorf("a single fault was rendered as a bullet list:\n%s", err)
+	}
+}
