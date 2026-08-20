@@ -152,3 +152,55 @@ func TestValidatePublicBaseURLRefusesUserinfoWithoutEchoingIt(t *testing.T) {
 		t.Errorf("refusal %q does not say what is wrong", err)
 	}
 }
+
+// Every configuration fault this layer can see is reported together.
+//
+// Starting the binary by hand used to be a guessing game played one boot at a
+// time: the first return said only what it had reached, and the next run
+// answered with a fault that had been true all along.
+func TestParseReportsEveryConfigurationFaultAtOnce(t *testing.T) {
+	t.Setenv("MARGINCE_DSN", "")
+	_, err := parseAPIFlags([]string{"--oauth-access-token-ttl", "99999h"})
+	if err == nil {
+		t.Fatal("parsing answered no error, want both faults reported")
+	}
+	for _, want := range []string{"--dsn", "--oauth-access-token-ttl"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %s — an operator fixing one fault at a time "+
+				"pays a boot per fault:\n%s", want, err)
+		}
+	}
+}
+
+// One fault still reads as one sentence: a list of one is a worse message than
+// the sentence it replaces.
+func TestOneFaultIsNotRenderedAsAList(t *testing.T) {
+	t.Setenv("MARGINCE_DSN", "")
+	_, err := parseAPIFlags(nil)
+	if err == nil {
+		t.Fatal("parsing answered no error, want the missing DSN")
+	}
+	if strings.Contains(err.Error(), "\n  - ") {
+		t.Errorf("a single fault was rendered as a bullet list:\n%s", err)
+	}
+}
+
+// A fault found while REGISTERING the flags joins the ones found after
+// parsing, instead of pre-empting them.
+//
+// A malformed duration in the environment used to return before the flag set
+// even existed, so it hid a missing DSN for a boot — the same one-fault-per-run
+// this collection exists to end, reintroduced by ordering.
+func TestAMalformedEnvDurationIsReportedBesideTheOtherFaults(t *testing.T) {
+	t.Setenv("MARGINCE_DSN", "")
+	t.Setenv(oauthAccessTokenTTLEnv, "not-a-duration")
+	_, err := parseAPIFlags(nil)
+	if err == nil {
+		t.Fatal("parsing answered no error, want both faults")
+	}
+	for _, want := range []string{"--dsn", oauthAccessTokenTTLEnv} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not mention %s:\n%s", want, err)
+		}
+	}
+}

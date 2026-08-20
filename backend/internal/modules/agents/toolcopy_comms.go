@@ -8,18 +8,15 @@ package agents
 // toolcopy.go for what each field answers.
 
 var draftEmailCopy = toolCopy{
-	Purpose: "Compose a reply to a conversation already recorded here, anchored on the thread " +
-		"it answers.",
-	Limits: "It writes the message and stops. Nothing is sent, nobody is notified, and the draft " +
-		"is returned for a person — or a later send — to use. It needs the activity_id of the " +
-		"thread being replied to; it cannot compose from a goal alone. Read what comes back " +
-		"before sending it: where no drafting model is configured this falls back to a short " +
-		"deterministic note built from the thread's subject.",
-	Instead: "Use draft_follow_ups_for to draft across a whole set of slipping deals at once, and " +
-		"send_email only once a drafted message exists to send.",
-	Retain: "Keep the drafted subject and body and the activity_id; send_email takes all three, " +
-		"and re-writing the text between the draft and the send means a person approves one " +
-		"message and a different one goes out.",
+	Purpose: "Compose an email: a reply to a recorded thread (activity_id), or a FIRST message " +
+		"to a record (links).",
+	Limits: "It writes the message and stops: nothing is sent. With no drafting model configured " +
+		"the text is a short deterministic note rather than a composed one.",
+	Instead: "draft_follow_ups_for drafts across a set of slipping deals at once; send_email " +
+		"sends a reply, send_account_email a first message.",
+	Retain: "Keep what comes back — subject, body, and the activity_id or links echoed with it; " +
+		"the send takes them. Re-writing the text in between means a person approves one " +
+		"message and another goes out.",
 }
 
 var draftFollowUpsForCopy = toolCopy{

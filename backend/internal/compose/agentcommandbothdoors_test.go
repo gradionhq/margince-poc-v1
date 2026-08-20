@@ -484,6 +484,10 @@ func (bothDoorsComms) DraftEmail(context.Context, ids.UUID, string) (string, str
 	return "", "", errBothDoorsExecuted
 }
 
+func (bothDoorsComms) DraftAccountEmail(context.Context, []agents.RecordLink, string) (string, string, error) {
+	return "", "", errBothDoorsExecuted
+}
+
 func (bothDoorsComms) SendEmail(context.Context, ids.UUID, agents.SendEmailArgs) (agents.SendEmailResult, error) {
 	return agents.SendEmailResult{}, errBothDoorsExecuted
 }
