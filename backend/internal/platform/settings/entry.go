@@ -79,6 +79,11 @@ type Entry[T any] struct {
 	validate func(T) error
 	freeze   func(context.Context, pgx.Tx) (bool, string, error)
 	identity bool
+	// machineryApplied admits this entry to ApplyTx, the ungated
+	// in-transaction reader for machinery that must apply the posture to its
+	// own write whoever the acting principal is. Off by default: an entry
+	// nobody declared gets the gate.
+	machineryApplied bool
 }
 
 // Define declares a setting. `key` is `<module>.<name>`; the prefix is not
@@ -86,6 +91,16 @@ type Entry[T any] struct {
 // entry. `validate` may be nil when every value of T is admissible.
 func Define[T any](key, object, verb string, def T, validate func(T) error) *Entry[T] {
 	return &Entry[T]{key: key, object: object, verb: verb, def: def, validate: validate}
+}
+
+// MachineryApplied admits this entry to settings.ApplyTx: machinery applying
+// the posture to its own write may read it ungated, because the posture must
+// bind whoever the acting principal happens to be. Declare it only for a
+// value whose disclosure through behaviour is the feature (the capture sink
+// stamping a new row's audience), never to skip a read gate for convenience.
+func (e *Entry[T]) MachineryApplied() *Entry[T] {
+	e.machineryApplied = true
+	return e
 }
 
 // AsInstallationIdentity marks this setting as part of what the installation

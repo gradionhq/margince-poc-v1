@@ -32,7 +32,10 @@ func limitLinkLessAudience(ctx context.Context, tx pgx.Tx, id ids.ActivityID, re
 	// The row was inserted in this transaction, so the only way it is not
 	// exactly one row is a bug in the insert above; saying so is cheaper than
 	// a silent no-op.
-	tag, err := tx.Exec(ctx, `UPDATE activity SET audience = $2 WHERE id = $1 AND audience <> $2`, id, audienceParticipants)
+	// No inequality guard: with mail sharing off the row was BORN
+	// participants-only, and a pin that then matched zero rows would abort
+	// the capture of a message that is already exactly as held as asked.
+	tag, err := tx.Exec(ctx, `UPDATE activity SET audience = $2 WHERE id = $1`, id, audienceParticipants)
 	if err != nil {
 		return fmt.Errorf("capture: limiting a link-less message to its participants: %w", err)
 	}

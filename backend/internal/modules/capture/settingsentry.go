@@ -56,7 +56,7 @@ var MailSharing = settings.Define[bool](
 	"update",
 	true,
 	nil, // every bool is a valid posture; a validator here would be ceremony
-)
+).MachineryApplied() // the sink stamps each new email's audience from it
 
 // Definitions is capture's contribution to the settings registry. Compose
 // concatenates each module's list; a module that declares no settings has no
