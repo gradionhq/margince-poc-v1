@@ -262,6 +262,9 @@ type settingRowTx struct {
 	stored     json.RawMessage
 	absent     bool
 	refuseRead bool
+	// execErr, when set, is what Exec returns — the database refusing the insert
+	// Seed issues, which is a different outcome from the row already existing.
+	execErr error
 }
 
 // settingRow carries one answer back to the caller's Scan.
@@ -323,6 +326,9 @@ func (f *settingRowTx) Prepare(context.Context, string, string) (*pgconn.Stateme
 }
 
 func (f *settingRowTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	if f.execErr != nil {
+		return pgconn.CommandTag{}, f.execErr
+	}
 	panic("settingRowTx: Exec not implemented")
 }
 
@@ -330,3 +336,56 @@ func (f *settingRowTx) Query(context.Context, string, ...any) (pgx.Rows, error) 
 	panic("settingRowTx: Query not implemented")
 }
 func (f *settingRowTx) Conn() *pgx.Conn { panic("settingRowTx: Conn not implemented") }
+
+// Seed's two refusals, neither of which reaches the conflict clause at all. They
+// are the paths where `stored` must be false for a reason other than "a row was
+// already there", and a caller that read a false as "discarded" would report a
+// discard where the write never happened.
+func TestSeedRefusesAValueTheEntryWouldNotAccept(t *testing.T) {
+	tx := &settingRowTx{refuseRead: true}
+
+	entry := Define[string]("installation.seedprobe", "capture_settings", "update", "EUR",
+		func(v string) error {
+			if len(v) != 3 {
+				return fmt.Errorf("a currency is three letters, got %q", v)
+			}
+			return nil
+		})
+
+	stored, err := Seed(context.Background(), tx, entry, json.RawMessage(`"EURO"`))
+	if err == nil {
+		t.Fatal("Seed accepted a value the entry's validator rejects; bootstrap would have written it")
+	}
+	if stored {
+		t.Error("a refused seed reported that it stored something")
+	}
+}
+
+func TestSeedReportsNotStoredWhenTheInsertItselfFails(t *testing.T) {
+	refused := errors.New("connection reset")
+	tx := &settingRowTx{execErr: refused}
+
+	entry := Define[bool]("capture.seedprobe", "capture_settings", "update", true, nil)
+
+	stored, err := Seed(context.Background(), tx, entry, json.RawMessage(`true`))
+	if !errors.Is(err, refused) {
+		t.Fatalf("Seed swallowed the database's refusal: %v", err)
+	}
+	if stored {
+		t.Error("a failed insert reported that it stored the value, which a caller would read as a successful seed")
+	}
+}
+
+func TestSeedValueRefusesAValueItCannotEncode(t *testing.T) {
+	tx := &settingRowTx{refuseRead: true}
+
+	entry := Define[chan int]("capture.unencodable", "capture_settings", "update", nil, nil)
+
+	stored, err := SeedValue(context.Background(), tx, entry, make(chan int))
+	if err == nil {
+		t.Fatal("SeedValue accepted a value json.Marshal cannot represent")
+	}
+	if stored {
+		t.Error("a value that never became JSON was reported as stored")
+	}
+}
