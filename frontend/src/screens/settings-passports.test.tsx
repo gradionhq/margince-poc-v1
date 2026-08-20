@@ -30,6 +30,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   globalThis.localStorage.clear();
+  globalThis.location.hash = "";
 });
 
 function jsonResponse(body: unknown, status = 200) {
@@ -204,20 +205,44 @@ describe("PassportCard — minting", () => {
 
   // An expired session is not a mint that quietly did nothing.
   //
-  // The `me` probe is cached for five minutes, so a 401 on this POST used to
-  // leave the screen believing it was signed in: the button failed in silence
-  // and the human had no way to learn why. That silence is what made the OAuth
-  // consent screen's empty-passport guide inescapable — it sends you here to
-  // mint, the mint 401s without saying so, and going back finds no passport and
-  // renders the same guide again. Resetting the probe lets the AuthGate put the
-  // login screen up, which is the only thing that can make the mint succeed.
-  it("re-probes the session when the mint is refused as unauthorized", async () => {
+  // The `me` probe is cached for five minutes, so a 401 here used to leave the
+  // screen believing it was signed in: the button failed in silence and the
+  // human had no way to learn why. That silence is what made the OAuth consent
+  // screen's empty-passport guide inescapable — it sends you here to mint, the
+  // mint 401s without saying so, and going back finds no passport and renders
+  // the same guide again.
+  //
+  // Held here: the probe is re-run (so AuthGate re-evaluates and puts up the
+  // login screen), every other cached answer is dropped (so the next person to
+  // sign in this tab is not shown this one's passport list), and the refusal is
+  // still reported. The boundary's own rendering is AuthGate's contract and is
+  // covered where AuthGate is.
+  it("re-probes the session and drops other caches when the mint is unauthorized", async () => {
     const user = userEvent.setup();
     const backend = mintBackend({ expired: true });
     vi.stubGlobal("fetch", backend);
-    const dialog = await openDrawer(user);
 
-    const meCallsBeforeMint = backend.mock.calls.filter((call) =>
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <SettingsScreen tab="agents" />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Mint passport" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+
+    // A cache entry from this session, which the next one must not inherit.
+    client.setQueryData(["some-other-screen"], { secret: "previous session" });
+    const meCallsBefore = backend.mock.calls.filter((call) =>
       String(call[0] instanceof Request ? call[0].url : call[0]).endsWith(
         "/v1/me",
       ),
@@ -231,15 +256,18 @@ describe("PassportCard — minting", () => {
     const alert = await within(dialog).findByRole("alert");
     expect(alert).toHaveTextContent(/session has expired/i);
 
-    // And the probe was re-run rather than left on its cached answer.
+    // The probe was re-run rather than left on its cached answer.
     await vi.waitFor(() => {
-      const meCallsAfterMint = backend.mock.calls.filter((call) =>
+      const meCallsAfter = backend.mock.calls.filter((call) =>
         String(call[0] instanceof Request ? call[0].url : call[0]).endsWith(
           "/v1/me",
         ),
       ).length;
-      expect(meCallsAfterMint).toBeGreaterThan(meCallsBeforeMint);
+      expect(meCallsAfter).toBeGreaterThan(meCallsBefore);
     });
+
+    // And nothing of this session is left for the next one to render.
+    expect(client.getQueryData(["some-other-screen"])).toBeUndefined();
   });
 
   // The one that is about losing a credential rather than about layout.
