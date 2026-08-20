@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
@@ -208,6 +209,37 @@ describe("the account's document library", () => {
     // upload order: the newest upload is very often a draft.
     expect(screen.getByText("Draft")).toBeTruthy();
     expect(screen.getByText("Current")).toBeTruthy();
+  });
+
+  it("lets a reader filter the library down to files that arrived on a channel", async () => {
+    const user = userEvent.setup();
+    stub([
+      ...DOCS,
+      {
+        id: "d-4",
+        filename: "deck.png",
+        category: "message_attachment",
+        doc_state: "current",
+        pinned: false,
+        created_at: "2026-08-04T09:00:00Z",
+        entity_type: "organization",
+        entity_id: "o-1",
+        source: "telegram",
+        captured_by: "connector:telegram",
+      },
+    ]);
+    show(<CompanyDocumentsCard orgId="o-1" />);
+
+    // The chip exists at all, which is what makes the new category reachable —
+    // a value the row can hold and no control can filter on is a category a
+    // reader can only find by scrolling.
+    const chip = await screen.findByRole("button", {
+      name: /Message attachment/,
+    });
+    await user.click(chip);
+
+    expect(screen.getByText("deck.png")).toBeTruthy();
+    expect(screen.queryByText("Kuendigung.pdf")).toBeNull();
   });
 
   it("says nothing about pinning, which nothing in this product can do", async () => {

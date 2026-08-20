@@ -218,6 +218,28 @@ describe("the person's files tab", () => {
     expect(screen.getByText("Contract")).toBeTruthy();
   });
 
+  it("names a channel file as a message attachment, not an email one", async () => {
+    stub({
+      data: [
+        attachment({
+          id: "f-1",
+          entity_id: "p-1",
+          filename: "deck.png",
+          category: "message_attachment",
+        }),
+      ],
+      page: { has_more: false },
+    });
+    show(<PersonFilesTab personId="p-1" />);
+
+    await screen.findByRole("link", { name: "deck.png" });
+    expect(screen.getByText("Message attachment")).toBeTruthy();
+    // The negative is the point. A missing label falls back to the raw key or
+    // the neighbouring one, and a photo from a chat reported as mail is the
+    // wrong record this category exists to stop.
+    expect(screen.queryByText("Email attachment")).toBeNull();
+  });
+
   it("says nothing about a category the file was never filed under", async () => {
     stub({
       data: [attachment({ id: "f-1", entity_id: "p-1", filename: "scan.pdf" })],

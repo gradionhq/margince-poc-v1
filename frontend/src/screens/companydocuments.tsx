@@ -43,6 +43,7 @@ const CATEGORY_LABELS: Record<Category, MessageKey> = {
   offer: "docs.category.offer",
   legal: "docs.category.legal",
   email_attachment: "docs.category.email",
+  message_attachment: "docs.category.message",
   other: "docs.category.other",
 };
 
@@ -55,6 +56,7 @@ const FILTER_CATEGORIES: readonly Category[] = [
   "offer",
   "legal",
   "email_attachment",
+  "message_attachment",
   "other",
 ];
 

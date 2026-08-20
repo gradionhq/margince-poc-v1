@@ -1977,6 +1977,7 @@ export const vi = {
   "docs.category.offer": "Báo giá",
   "docs.category.legal": "Pháp lý",
   "docs.category.email": "Tệp đính kèm email",
+  "docs.category.message": "Tệp đính kèm tin nhắn",
   "docs.category.other": "Khác",
   "docs.state.draft": "Bản nháp",
   "docs.state.current": "Hiện hành",

@@ -1993,6 +1993,7 @@ export const en = {
   "docs.category.offer": "Offer",
   "docs.category.legal": "Legal",
   "docs.category.email": "Email attachment",
+  "docs.category.message": "Message attachment",
   "docs.category.other": "Other",
   "docs.state.draft": "Draft",
   "docs.state.current": "Current",

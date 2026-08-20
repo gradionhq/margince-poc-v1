@@ -1998,6 +1998,7 @@ export const de = {
   "docs.category.offer": "Angebot",
   "docs.category.legal": "Recht",
   "docs.category.email": "E-Mail-Anhang",
+  "docs.category.message": "Nachrichtenanhang",
   "docs.category.other": "Sonstiges",
   "docs.state.draft": "Entwurf",
   "docs.state.current": "Aktuell",
