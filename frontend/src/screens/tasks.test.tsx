@@ -70,6 +70,9 @@ function tasksBackend(
   // record's own GET — unanswered, the row falls back to the raw id and an
   // assertion about the name would be asserting the fallback.
   records: Record<string, unknown> = {},
+  // The caller's own scheduled messages, for the one case that asserts on the
+  // link this page offers into them.
+  scheduled: unknown[] = [],
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
@@ -88,6 +91,14 @@ function tasksBackend(
     const record = Object.entries(records).find(([path]) => url.includes(path));
     if (record) {
       return jsonResponse(record[1]);
+    }
+    // The page also carries the scheduled-send queue's front door, and that
+    // endpoint answers with a bare ARRAY rather than a paginated envelope. It is
+    // answered here — with an empty queue, so the link does not appear unless a
+    // test asks for one — because the alternative is every case in this file
+    // silently reading the task envelope as a list of scheduled messages.
+    if (url.includes("/scheduled-sends")) {
+      return jsonResponse(scheduled);
     }
     return jsonResponse({ data: tasks, page: { next_cursor: null } });
   });
@@ -238,5 +249,59 @@ describe("TaskRow — when the task is due, in the reader's own zone", () => {
     expect(cell.textContent).not.toContain(
       formatDateTime(due, "en", "Europe/Berlin"),
     );
+  });
+});
+
+// This page carries the scheduled-send queue's front door, because a message the
+// rep told the product to send later is work of theirs that has not happened
+// yet — and the door only appears when there is something behind it.
+describe("TasksScreen — the scheduled-send queue's front door", () => {
+  const waitingSend = {
+    id: "019f7e65-fbf7-7114-b114-40af4af63ae8",
+    status: "scheduled",
+    scheduled_at: "2026-09-01T07:00:00Z",
+    scheduled_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    subject: "The renewal quote",
+    to: ["ceo@acme.test"],
+    version: 1,
+    created_at: "2026-08-20T09:00:00Z",
+    updated_at: "2026-08-20T09:00:00Z",
+  };
+
+  it("offers the queue, and counts what is in it", async () => {
+    vi.stubGlobal("fetch", tasksBackend([], [], {}, [waitingSend]));
+    render(<TasksScreen />);
+    expect(
+      await screen.findByText("One message is waiting to send."),
+    ).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Scheduled messages" });
+    expect(link.getAttribute("href")).toBe("#/scheduled");
+  });
+
+  it("counts only what is still waiting, not what has gone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      tasksBackend([], [], {}, [
+        waitingSend,
+        { ...waitingSend, id: "b", status: "held" },
+        { ...waitingSend, id: "c", status: "sent" },
+        { ...waitingSend, id: "d", status: "cancelled" },
+      ]),
+    );
+    render(<TasksScreen />);
+    expect(
+      await screen.findByText("2 messages are waiting to send."),
+    ).toBeTruthy();
+  });
+
+  // An always-present row reading "0 messages waiting to send" is a line every
+  // rep learns to skip, and following it would land them on an empty page.
+  it("offers nothing when nothing is waiting", async () => {
+    vi.stubGlobal("fetch", tasksBackend([openTask()], [], {}, []));
+    render(<TasksScreen />);
+    await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
+    expect(
+      screen.queryByRole("link", { name: "Scheduled messages" }),
+    ).toBeNull();
   });
 });

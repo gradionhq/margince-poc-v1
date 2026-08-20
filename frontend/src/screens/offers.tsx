@@ -24,8 +24,7 @@ import { Select } from "../design-system/select";
 import { formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import {
-  isVersionSkew,
-  ProblemError,
+  isVersionSkewOf,
   problemMessageOf,
   QueryGate,
   throwProblem,
@@ -182,9 +181,7 @@ function EditOfferHeaderModal({
     },
   });
 
-  const skew =
-    mutation.error instanceof ProblemError &&
-    isVersionSkew(mutation.error.problem);
+  const skew = isVersionSkewOf(mutation.error);
   const errorMessage = mutation.isError
     ? skew
       ? t("edit.versionSkew")
@@ -535,8 +532,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
 
   const activeError =
     addMutation.error ?? updateMutation.error ?? removeMutation.error;
-  const skew =
-    activeError instanceof ProblemError && isVersionSkew(activeError.problem);
+  const skew = isVersionSkewOf(activeError);
   const errorMessage = activeError
     ? skew
       ? t("edit.versionSkew")
@@ -866,9 +862,7 @@ function SendOfferAction({ offer }: Readonly<{ offer: Offer }>) {
     },
   });
 
-  const skew =
-    mutation.error instanceof ProblemError &&
-    isVersionSkew(mutation.error.problem);
+  const skew = isVersionSkewOf(mutation.error);
   const errorMessage = mutation.isError
     ? skew
       ? t("edit.versionSkew")
@@ -934,9 +928,7 @@ function AcceptOfferAction({ offer }: Readonly<{ offer: Offer }>) {
     },
   });
 
-  const skew =
-    mutation.error instanceof ProblemError &&
-    isVersionSkew(mutation.error.problem);
+  const skew = isVersionSkewOf(mutation.error);
   const errorMessage = mutation.isError
     ? skew
       ? t("edit.versionSkew")
@@ -1001,9 +993,7 @@ function RejectOfferAction({ offer }: Readonly<{ offer: Offer }>) {
     },
   });
 
-  const skew =
-    mutation.error instanceof ProblemError &&
-    isVersionSkew(mutation.error.problem);
+  const skew = isVersionSkewOf(mutation.error);
   const errorMessage = mutation.isError
     ? skew
       ? t("edit.versionSkew")

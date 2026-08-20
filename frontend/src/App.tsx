@@ -48,6 +48,7 @@ import { InboxScreen, usePendingApprovals } from "./screens/inbox";
 import { OnboardingScreen, useCompany } from "./screens/onboarding";
 import { isPersonTab } from "./screens/persontab";
 import { ReleaseSkewScreen, useSkewedApiRelease } from "./screens/releaseskew";
+import { SCHEDULED_SCREEN } from "./screens/scheduledsends";
 import { fetchSetupStatus, SetupClaimScreen } from "./screens/setupclaim";
 
 // Route → screen. The table below is TOTAL over `Screen` (app/router.tsx), so
@@ -185,6 +186,13 @@ const PreferenceCenterScreen = lazy(
 const ReportsScreen = lazy(
   routed(() =>
     import("./screens/reports").then((m) => ({ default: m.ReportsScreen })),
+  ),
+);
+const ScheduledSendsScreen = lazy(
+  routed(() =>
+    import("./screens/scheduledsends").then((m) => ({
+      default: m.ScheduledSendsScreen,
+    })),
   ),
 );
 const SearchScreen = lazy(
@@ -401,6 +409,9 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     // unknown segment falls back to contacts inside the screen rather than
     // rendering a page with no vocabulary to offer.
     filters: ({ id }) => <FiltersScreen id={id} />,
+    // No segments: the queue is one page, and a single scheduled message has
+    // nothing to show that its row does not already carry.
+    [SCHEDULED_SCREEN]: () => <ScheduledSendsScreen />,
     offers: ({ id }) =>
       id ? (
         <OfferScreen id={id} />

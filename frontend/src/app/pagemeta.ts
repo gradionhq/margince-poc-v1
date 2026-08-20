@@ -24,17 +24,26 @@ export const PAGE_SUB_KEYS: Record<string, MessageKey> = {
   inbox: "inbox.sub",
   ai: "ai.sub",
   dedupe: "dedupe.intro",
+  // Whose messages these are is the fact the page most needs to state, and it
+  // is true of the whole page: a scheduled send is readable only by the person
+  // who scheduled it, so nothing here is a queue somebody else can work.
+  scheduled: "sched.sub",
 };
 
-// Off-rail screens (reached from Settings, not the NAV rail) carry their own
-// title key. Every authenticated route resolves to real copy — a raw screen
-// slug is never shown as a page title.
+// Off-rail screens (reached from Settings or from the surface that created the
+// thing, not the NAV rail) carry their own title key. Every authenticated route
+// resolves to real copy — a raw screen slug is never shown as a page title.
 export const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
   settings: "nav.settings",
   offers: "nav.offers",
   partners: "nav.partners",
   share: "nav.share",
   search: "nav.search",
+  // Off the rail deliberately. The rail carries the product's ten destinations
+  // and a queue of one person's own unsent mail is not an eleventh; it is
+  // reached from the composer that put a message in it and from the Tasks page,
+  // which is where the same rep's other waiting work already lives.
+  scheduled: "nav.scheduled",
 };
 
 export function resolveTitle(

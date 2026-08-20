@@ -611,6 +611,16 @@ export function isVersionSkew(problem: unknown): boolean {
   return record.code === "version_skew";
 }
 
+// The same question, read off a query/mutation FAILURE rather than a raw body,
+// on the same terms as problemCodeOf: only a ProblemError carries a server
+// problem, so a dropped connection never reads as a concurrent edit. Two call
+// sites had spelled the instanceof-then-unwrap step by hand, which is one
+// forgotten guard away from telling a reader somebody else changed the record
+// when the request never reached the server at all.
+export function isVersionSkewOf(error: unknown): boolean {
+  return error instanceof ProblemError && isVersionSkew(error.problem);
+}
+
 // A 409 whose code names the "already decided" race — another caller (or
 // the same one, replayed) already approved/rejected this staged item before
 // this request landed. Distinguished from version_skew: the row itself
