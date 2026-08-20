@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/buildinfo"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -220,15 +221,35 @@ func (h Handlers) resolveSorMode(ctx context.Context) crmcontracts.MeResponseSys
 // operational methods — a disabled provider button or a dead
 // "Forgot password?" link is a misleading affordance — and discloses
 // nothing beyond what the login UI needs.
+//
+// The release version is part of what the login UI needs, because the web tier
+// cannot compare without it (compose/releaseversion.go carries why there is
+// anything to compare). An unstamped build reports NOTHING rather than an empty
+// string: absence is what the contract gives a client permission to ignore, and
+// an empty value would be a version the client then has to know is not one.
 func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps := crmcontracts.AuthCapabilities{
 		Password:      true,
 		PasswordReset: h.canSendPasswordLink(),
 	}
+	if buildinfo.Comparable(buildinfo.ReleaseVersion) {
+		// A local copy because the contract field is optional and therefore a
+		// pointer; absence is the answer for an unstamped build.
+		release := buildinfo.ReleaseVersion
+		caps.ReleaseVersion = &release
+	}
 	caps.OidcProviders = make([]struct {
 		Key   string `json:"key"`
 		Label string `json:"label"`
 	}, 0)
+	// NO-STORE, and the release version is what makes it mandatory rather than
+	// tidy. This response is not per-principal, so a shared cache leaks nothing —
+	// but the SPA refuses to render at all when the release it reads here differs
+	// from its own, so one stale copy held by any cache on this origin turns a
+	// healthy installation into the mixed-release screen for every reader served
+	// from it, and reloading cannot clear it. A validator-less 200 GET is exactly
+	// what an intermediary assigns heuristic freshness to.
+	w.Header().Set("Cache-Control", "no-store")
 	httperr.WriteJSON(w, http.StatusOK, caps)
 }
 

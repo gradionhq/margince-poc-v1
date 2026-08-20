@@ -15,11 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
@@ -28,6 +25,11 @@ import (
 // upgrade and removal — which all happen in source (ADR-0069 §5) — leave
 // an attributable trail even though no request performed them.
 const extensionCompositionObserved = "extension.composition_observed"
+
+// extensionLedgerFact names this fact in the advisory-lock key, so an inventory
+// observation serializes against other inventory observations and against nothing
+// else.
+const extensionLedgerFact = "extension-inventory"
 
 // observedExtension is one unit of the recorded set. It gains the
 // manifest digest when the governance slice embeds digests into the
@@ -43,15 +45,15 @@ type observedExtension struct {
 // there is no workspace to record against — the observation is skipped
 // and the first boot after bootstrap records it.
 func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, exts []extension.Extension) error {
-	wsID, err := identity.NewService(pool).InstallationWorkspace(ctx)
-	if errors.Is(err, identity.ErrNotBootstrapped) {
+	ctx, bootstrapped, err := bootLedgerScope(ctx, pool, "system:extension-inventory")
+	if err != nil {
+		return err
+	}
+	if !bootstrapped {
 		if len(exts) > 0 {
 			log.Info("extension inventory not recorded: installation not bootstrapped yet")
 		}
 		return nil
-	}
-	if err != nil {
-		return err
 	}
 
 	current := make([]observedExtension, 0, len(exts))
@@ -62,18 +64,14 @@ func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slo
 		return strings.Compare(a.Name, b.Name)
 	})
 
-	ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
-	ctx = principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:extension-inventory"})
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-
 	changed := false
 	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		// api and worker boot concurrently and both observe: without a
 		// lock the two check-and-insert transactions each read the same
-		// previous inventory and one change lands twice. Same idiom as
-		// identity's admin guard (users.go).
-		if _, err := tx.Exec(ctx,
-			`SELECT pg_advisory_xact_lock(hashtext('margince:extension-inventory:' || current_setting('app.workspace_id', true))::bigint)`); err != nil {
+		// previous inventory and one change lands twice. bootLedgerLock
+		// carries why the statement coalesces the GUC — a NULL argument
+		// takes no lock at all and says nothing.
+		if _, err := tx.Exec(ctx, bootLedgerLock, extensionLedgerFact); err != nil {
 			return err
 		}
 		last, err := lastObservedExtensions(ctx, tx)
@@ -112,8 +110,15 @@ func lastObservedExtensions(ctx context.Context, tx pgx.Tx) ([]observedExtension
 	// within one process, and api + worker mint theirs independently —
 	// same-millisecond rows could sort against observation order on id
 	// alone. id stays as the deterministic tiebreak.
+	// Scoped to this installation's workspace, in the spelling storekit uses.
+	// Row-level security used to supply this predicate; 0217 retired it, and an
+	// archived workspace's rows outlive the resolver that skips it — so a newer
+	// observation of its own would otherwise read as this installation's.
 	err := tx.QueryRow(ctx,
-		`SELECT detail->'extensions' FROM system_log WHERE action = $1 ORDER BY occurred_at DESC, id DESC LIMIT 1`,
+		`SELECT detail->'extensions' FROM system_log
+		  WHERE action = $1
+		    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  ORDER BY occurred_at DESC, id DESC LIMIT 1`,
 		extensionCompositionObserved).Scan(&detail)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package compose
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/buildinfo"
+)
+
+// TestRefuseMixedReleaseOnlyRefusesAKnownDifference pins the whole decision the
+// guard makes. Two things have to be true at once and they pull in opposite
+// directions: a real mixed set must never start, and an installation whose
+// release simply is not known must never be taken down by a guard that mistook
+// absence for disagreement.
+func TestRefuseMixedReleaseOnlyRefusesAKnownDifference(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		mine         string
+		installation string
+		refuse       bool
+	}{
+		{"a matched set starts", "1970.42", "1970.42", false},
+		{"a torn set does not", "1970.41", "1970.42", true},
+		{"a torn set does not, whichever side is newer", "1970.43", "1970.42", true},
+		{"an unstamped role never refuses", buildinfo.Unknown, "1970.42", false},
+		{"nor does a role built by a bare go build", "", "1970.42", false},
+		{"an installation with no recorded release is not a mismatch", "1970.42", "", false},
+		{"nor is one recorded by an unstamped api", "1970.42", buildinfo.Unknown, false},
+		{"two unknowns are not a mismatch either", buildinfo.Unknown, buildinfo.Unknown, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := refuseMixedRelease(tc.mine, tc.installation)
+			if tc.refuse && err == nil {
+				t.Fatalf("release %q against installation %q started; it is a mixed set and must refuse", tc.mine, tc.installation)
+			}
+			if !tc.refuse && err != nil {
+				t.Fatalf("release %q against installation %q refused to start: %v", tc.mine, tc.installation, err)
+			}
+		})
+	}
+}
+
+// TestMixedReleaseRefusalNamesBothReleasesAndTheFix: the refusal is read off a
+// stopped role's log by somebody who has to decide what to change, so it owes
+// them both versions and the action. A message that only said "release mismatch"
+// would leave them reading the source to find out which role is wrong.
+func TestMixedReleaseRefusalNamesBothReleasesAndTheFix(t *testing.T) {
+	err := refuseMixedRelease("1970.41", "1970.42")
+	if err == nil {
+		t.Fatal("a mixed set started")
+	}
+	msg := err.Error()
+	for _, want := range []string{"1970.41", "1970.42", "deploy", "api, web, worker"} {
+		if !strings.Contains(strings.ToLower(msg), strings.ToLower(want)) {
+			t.Errorf("the refusal does not mention %q: %s", want, msg)
+		}
+	}
+}
+
+// TestMixedReleaseRefusalNamesNoDeploymentMechanism: this software runs on any
+// container platform AND on a plain host, so the refusal must not tell an
+// operator to re-pull an image. Somebody who deployed no image cannot act on
+// that, and the words below are the ones that made the message wrong for them.
+func TestMixedReleaseRefusalNamesNoDeploymentMechanism(t *testing.T) {
+	msg := strings.ToLower(refuseMixedRelease("1970.41", "1970.42").Error())
+	for _, forbidden := range []string{"image", "registry", "pull", "container", "tag"} {
+		if strings.Contains(msg, forbidden) {
+			t.Errorf("the refusal names %q, which is one deployment mechanism among several: %s", forbidden, msg)
+		}
+	}
+}

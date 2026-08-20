@@ -23,6 +23,7 @@ import {
   useBuiltinCommands,
   usePaletteHotkey,
 } from "./app/palette";
+import { SPA_RELEASE } from "./app/release";
 import { navigate, parseHash, routeHash, type Screen } from "./app/router";
 import { Shell, type ShellCounts, useRoute } from "./app/shell";
 import { uiPreviewTaskbarEnabled } from "./app/ui-preview";
@@ -46,6 +47,7 @@ import { ForcedPasswordChangeScreen } from "./screens/forcedpassword";
 import { InboxScreen, usePendingApprovals } from "./screens/inbox";
 import { OnboardingScreen, useCompany } from "./screens/onboarding";
 import { isPersonTab } from "./screens/persontab";
+import { ReleaseSkewScreen, useSkewedApiRelease } from "./screens/releaseskew";
 import { fetchSetupStatus, SetupClaimScreen } from "./screens/setupclaim";
 
 // Route → screen. The table below is TOTAL over `Screen` (app/router.tsx), so
@@ -528,6 +530,20 @@ const ONBOARDING_GATE_EXEMPT_SCREENS: ReadonlySet<Screen> = new Set([
 
 export function App() {
   const route = useRoute();
+  // BEFORE every other gate, the public screens included. A bundle and an api
+  // from different releases disagree about the contract between them, so nothing
+  // below here — the session probe, the booking page, the preference centre —
+  // can be trusted to work, and a reader is better served by one honest screen
+  // than by whichever request happens to fail first. It is inert on any build
+  // that carries no release version, which is every local one.
+  const skewedApiRelease = useSkewedApiRelease(SPA_RELEASE);
+  if (skewedApiRelease !== null) {
+    return (
+      <RaillessFrame>
+        <ReleaseSkewScreen app={SPA_RELEASE} server={skewedApiRelease} />
+      </RaillessFrame>
+    );
+  }
   if (PUBLIC_SCREENS.has(route.screen)) {
     return (
       <Shell onOpenSearch={() => undefined}>
