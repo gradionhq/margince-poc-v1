@@ -263,16 +263,26 @@ func repointed(t *testing.T, admin, conn *pgx.Conn) *pgx.Conn {
 	return conn
 }
 
-// rollBackThePhaseDDrop takes core back one migration and proves the step
-// landed where it was aimed: the assertion is what stops this from silently
-// becoming a no-op if the newest core migration is ever something else, which
-// would leave the replay below failing for a reason nobody could read off the
-// error.
+// phaseDDropName is the core migration these repairs need rolled back: ADR-0091
+// §8 phase D's drop of role.workspace_id. Named, not counted — see below.
+const phaseDDropName = "role_drops_the_tenant_column"
+
+// rollBackThePhaseDDrop takes core back to the era these repairs belong to and
+// proves the step landed where it was aimed.
+//
+// How far back that is, is DERIVED from where the phase D drop sits in the
+// namespace, never assumed to be one step. It was one step when this suite was
+// written, and stopped being one the moment a later core migration landed on top
+// — after which the rollback reverted that migration instead and left
+// role.workspace_id dropped, so every repair replayed in exactly the era this
+// helper exists to avoid. A count is a guess about which migration is newest;
+// the name is the thing actually meant, and it fails loudly when it is gone.
 func rollBackThePhaseDDrop(t *testing.T, conn *pgx.Conn) {
 	t.Helper()
 	core, _ := namespaces(t)
-	if _, err := dbmigrate.Down(context.Background(), conn, core, 1); err != nil {
-		t.Fatalf("rolling core back one step to the era these repairs belong to: %v", err)
+	steps := coreStepsBackToPhaseD(t, core)
+	if _, err := dbmigrate.Down(context.Background(), conn, core, steps); err != nil {
+		t.Fatalf("rolling core back %d step(s) to the era these repairs belong to: %v", steps, err)
 	}
 	var present bool
 	if err := conn.QueryRow(context.Background(), `
@@ -281,7 +291,23 @@ func rollBackThePhaseDDrop(t *testing.T, conn *pgx.Conn) {
 		t.Fatalf("checking whether the rollback restored role.workspace_id: %v", err)
 	}
 	if !present {
-		t.Fatal("one core step back did not restore role.workspace_id — the newest core migration is no longer " +
-			"the phase D drop these repairs need rolled back, so this suite is replaying them in the wrong era again")
+		t.Fatalf("rolling core back %d step(s) to %s did not restore role.workspace_id — the repairs "+
+			"below would replay in an era they never belonged to", steps, phaseDDropName)
 	}
+}
+
+// coreStepsBackToPhaseD counts the core migrations from the newest down to and
+// including the phase D drop, which is how many Down must revert to put
+// role.workspace_id back. Down reverts newest first, so the count is the drop's
+// distance from the end.
+func coreStepsBackToPhaseD(t *testing.T, core dbmigrate.Namespace) int {
+	t.Helper()
+	for i := len(core.Migrations) - 1; i >= 0; i-- {
+		if core.Migrations[i].Name == phaseDDropName {
+			return len(core.Migrations) - i
+		}
+	}
+	t.Fatalf("no core migration named %q — these repairs name role.workspace_id and need the era "+
+		"before it was dropped; if the drop was renamed, rename phaseDDropName with it", phaseDDropName)
+	return 0
 }
