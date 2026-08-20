@@ -26,7 +26,12 @@ import {
 import { navigate, type Screen } from "./app/router";
 import { Shell, type ShellCounts, useRoute } from "./app/shell";
 import { uiPreviewTaskbarEnabled } from "./app/ui-preview";
-import { Card, EmptyState, SectionHeader } from "./design-system/atoms";
+import {
+  Card,
+  EmptyState,
+  PendingBody,
+  SectionHeader,
+} from "./design-system/atoms";
 import { useT } from "./i18n";
 import type { MessageKey } from "./i18n/en";
 import {
@@ -212,15 +217,34 @@ function safeDecode(value: string): string {
   }
 }
 
-// What stands in the content column when a screen itself cannot: its code is
-// still arriving, the address names no page, or the address is half written. One
-// container and one primitive for all three — they stand in the same place, so
-// they take the same column every screen does, and only the sentence differs.
+// What stands in the content column when the address names no page, or names one
+// half written. Both are STATEMENTS about the address, and a small card is the
+// right shape for a statement — it is the whole of what there is to say.
 function ScreenNotice({ messageKey }: Readonly<{ messageKey: MessageKey }>) {
   const t = useT();
   return (
     <div className="wrap">
       <EmptyState>{t(messageKey)}</EmptyState>
+    </div>
+  );
+}
+
+// What stands there while a screen's CODE is still arriving, which is a
+// different fact and was drawn the same way. A lazy chunk's fallback used to be
+// the same ~90px card as the two notices above, so the first visit to any screen
+// in this product put a small grey card in the middle of an empty column and
+// then replaced it with a whole page — the pop and the reflow that a reserved
+// placeholder exists to prevent, on the one path where it happens to everybody.
+//
+// Eight lines, the reservation ceiling: nobody knows which screen is coming, so
+// this cannot match its shape, and the honest choice between a card that is far
+// too small and a column that is roughly the right size is the column. It says
+// "a page is arriving" rather than "here is a page with one sentence on it".
+function ScreenPending() {
+  const t = useT();
+  return (
+    <div className="wrap">
+      <PendingBody label={t("common.loading")} lines={8} />
     </div>
   );
 }
@@ -423,7 +447,7 @@ function ScreenView({
   // from here into AppErrorBoundary (app/errorboundary.tsx), which is what turns
   // it into the retry card instead of a blank frame.
   return (
-    <Suspense fallback={<ScreenNotice messageKey="common.loading" />}>
+    <Suspense fallback={<ScreenPending />}>
       {/* Keyed by the whole shown route, which makes an address change a
           REMOUNT rather than a re-render. Two reasons, and the second is the
           load-bearing one. A screen carries state about the record it was
