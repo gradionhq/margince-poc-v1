@@ -344,3 +344,119 @@ func TestChannelDeliveryHonoursRetryAfterOn429(t *testing.T) {
 		t.Fatalf("in-flight marker still set at %v after a 429; the postponed retry would park instead of sending", at)
 	}
 }
+
+// carryingChannelSender is fakeChannelSender that DECLARES carriage, which is
+// what lets a case reach the transmit at all: the carriage gate parks a message
+// with files against a sender that declared none, and no production channel
+// connector declares any yet.
+type carryingChannelSender struct {
+	fakeChannelSender
+}
+
+func (c *carryingChannelSender) Carriage() connector.Carriage {
+	return connector.Carriage{Carries: true, MaxFiles: 10, MaxBytesPerFile: 25 << 20, MaxBodyWithFiles: 1024}
+}
+
+var _ connector.AttachmentCarrier = (*carryingChannelSender)(nil)
+
+// A file staged on a channel reply reaches the provider WHOLE — its snapshot
+// identity and its bytes — over the real store and the real dispatcher.
+//
+// This is the one hop the rest of the arc cannot prove: everything above it can
+// be green while ChannelMessage.Files arrives empty, and the failure is
+// invisible until a customer gets a message referring to a file that is not
+// there. The set travels under the same all-or-nothing obligation the mail seam
+// carries, which is why the count is asserted before anything about the content.
+func TestAChannelReplyHandsItsFilesToTheProvider(t *testing.T) {
+	e := setupStore(t)
+	attachment := ids.NewV7()
+	id := e.stageChannel(t, StageChannelInput{
+		ActivityID: e.telegramActivity(t),
+		Provider:   "telegram",
+		Recipient: connector.ChannelIdentity{
+			Provider: "telegram", ChannelUserID: channelRecipient,
+		},
+		Body:           "the quote you asked for",
+		ConsentPurpose: "transactional",
+		Attachments: []OutboundFile{{
+			AttachmentID: attachment, Filename: "quote.pdf",
+			ContentType: "application/pdf", ByteSize: 4096, Checksum: "sha256:x",
+		}},
+	})
+
+	channel := &carryingChannelSender{}
+	files := &stubAttachments{ok: true}
+	d := NewDispatcher(e.store,
+		fakeResolver{sender: &fakeSender{}, channel: channel, granted: []string{sendScope}},
+		liveSeat(), files, &stubConsent{}, nil,
+		func() time.Time { return e.clockValue }, time.Hour, channelLadder)
+
+	outcome, _, err := d.DispatchWithWait(e.ctx, id)
+	if err != nil || outcome != OutcomeSent {
+		t.Fatalf("dispatch → %v (%v), want OutcomeSent", outcome, err)
+	}
+	if len(channel.sent) != 1 {
+		t.Fatalf("the message seam saw %d message(s), want exactly 1", len(channel.sent))
+	}
+	got := channel.sent[0].Files
+	if len(got) != 1 {
+		t.Fatalf("the provider was handed %d file(s) for a reply staged with 1 — an adapter may never "+
+			"transmit a set that differs from the one it was handed", len(got))
+	}
+	if got[0].AttachmentID != attachment.String() || got[0].Filename != "quote.pdf" {
+		t.Errorf("the file reached the provider as %+v, want the staged snapshot", got[0])
+	}
+	// The bytes travel too: a part with no content is what a recipient sees as
+	// an empty attachment.
+	if len(got[0].Body) == 0 {
+		t.Error("the file reached the provider with no bytes")
+	}
+	// And the read went through the authority, not around it.
+	if len(files.read) != 1 || files.read[0] != attachment {
+		t.Errorf("the transmit read %v from the attachment authority, want the one staged id", files.read)
+	}
+}
+
+// A file the object store cannot produce leaves the message RETRYABLE, never
+// parked as one whose outcome nobody learned.
+//
+// The channel seam cannot detect a prior send, so it commits an in-flight marker
+// and treats any later attempt as "this may already have gone". A byte read that
+// happened after that marker would turn every transient store fault — and every
+// deterministic over-size refusal — into a park telling the rep their message
+// may have arrived and discouraging a resend. Nothing was transmitted here, and
+// the disposition has to say so.
+func TestAChannelReplyWhoseFilesCannotBeReadStaysRetryable(t *testing.T) {
+	e := setupStore(t)
+	id := e.stageChannel(t, StageChannelInput{
+		ActivityID: e.telegramActivity(t),
+		Provider:   "telegram",
+		Recipient: connector.ChannelIdentity{
+			Provider: "telegram", ChannelUserID: channelRecipient,
+		},
+		Body:           "the quote you asked for",
+		ConsentPurpose: "transactional",
+		Attachments:    []OutboundFile{{AttachmentID: ids.NewV7(), Filename: "quote.pdf"}},
+	})
+
+	channel := &carryingChannelSender{}
+	d := NewDispatcher(e.store,
+		fakeResolver{sender: &fakeSender{}, channel: channel, granted: []string{sendScope}},
+		liveSeat(), &stubAttachments{ok: true, readErr: errors.New("the object store would not answer")},
+		&stubConsent{}, nil,
+		func() time.Time { return e.clockValue }, time.Hour, channelLadder)
+
+	outcome, _, err := d.DispatchWithWait(e.ctx, id)
+	if outcome != OutcomeRetry {
+		t.Fatalf("outcome = %q (%v), want retry — nothing reached the provider, so the ladder may try again", outcome, err)
+	}
+	if len(channel.sent) != 0 {
+		t.Fatalf("the provider was handed %d message(s) after the file read failed", len(channel.sent))
+	}
+	// The marker is the falsehood this ordering removes: set here, the next
+	// attempt would park saying the message may have been delivered.
+	if at := e.inFlightAt(t, id); at != nil {
+		t.Errorf("a delivery that never reached the provider carries an in-flight marker (%v), "+
+			"so its next attempt would park as an unknown outcome", at)
+	}
+}

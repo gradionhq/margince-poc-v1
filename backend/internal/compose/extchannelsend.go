@@ -93,6 +93,13 @@ func (s unitChannelSender) SendMessage(ctx context.Context, _ connector.Auth, ms
 	rt := sendRuntimeFor(ctx, string(s.transport.unit), s.transport.version,
 		"channel/"+s.transport.channel.Provider, s.deps)
 	defer rt.release()
+	// extension.OutboundMessage has no file field, so a unit has nowhere to put
+	// one — and a message handed here with files would go out as text that lies
+	// about its contents. It refuses instead (connector.ErrFilesNotCarried); the
+	// published surface growing a file field is what removes this.
+	if len(msg.Files) > 0 {
+		return connector.SendReceipt{}, connector.ErrFilesNotCarried
+	}
 	receipt, err := s.transport.channel.Send(ctx, rt, extension.OutboundMessage{
 		Member: s.member,
 		// The provider plus the account id ARE the recipient key, exactly as the

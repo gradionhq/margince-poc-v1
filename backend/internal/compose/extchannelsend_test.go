@@ -304,3 +304,34 @@ func TestResolveChannelStillReachesTheCoreRegistryForACoreTransport(t *testing.T
 		t.Fatalf("ResolveChannel = %v/%q, want the core binding unchanged", sender, auth)
 	}
 }
+
+// A unit is never handed files it has nowhere to put.
+//
+// extension.OutboundMessage has no file field, so a message with files reaching
+// a unit could only go out as text that lies about its contents. The refusal is
+// at the adapter rather than only at the carriage gate because the gate reads a
+// capability the unit declares — and a unit declaring carriage the published
+// surface cannot yet express is exactly the mistake this catches.
+func TestAUnitIsRefusedAMessageCarryingFilesItCannotPutAnywhere(t *testing.T) {
+	sender := &capturedSend{receipt: extension.Receipt{ProviderMessageID: "provider-42"}}
+	declaresTransport(t, "mine", extension.Channel{
+		Provider: "mine_chat", Send: sender.send, Live: answersLive(true, nil),
+	})
+	resolved, _, err := commsResolver{}.ResolveChannel(context.Background(), ids.New[ids.UserKind](), "mine_chat")
+	if err != nil {
+		t.Fatalf("ResolveChannel: %v", err)
+	}
+
+	_, err = resolved.SendMessage(context.Background(), nil, connector.ChannelMessage{
+		Recipient:      connector.ChannelIdentity{Provider: "mine_chat", ChannelUserID: "acct-7"},
+		Body:           "the reply",
+		IdempotencyKey: "delivery-1",
+		Files:          []connector.OutboundFile{{AttachmentID: "a-1", Filename: "quote.pdf", Body: []byte("bytes")}},
+	})
+	if !errors.Is(err, connector.ErrFilesNotCarried) {
+		t.Fatalf("SendMessage with files → %v, want ErrFilesNotCarried", err)
+	}
+	if sender.got.Body != "" {
+		t.Errorf("the unit was handed %q despite carrying none of the message's files", sender.got.Body)
+	}
+}

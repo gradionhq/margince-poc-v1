@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // credentialWorkspaceBot and credentialPerMember are the two shapes a channel
@@ -46,6 +48,11 @@ type channelProviderFacts struct {
 	label             string
 	credentialModel   string
 	suppliesTransport bool
+	// carriage is what this transport can carry alongside a message. The ZERO
+	// value — carries nothing — for a provider with no composed sender, and for
+	// one whose sender never declared carriage: the directory publishes the
+	// no-default rule rather than an absence a client would have to interpret.
+	carriage connector.Carriage
 }
 
 // coreProviderLabels names the transports this binary compiles in, for the
@@ -88,28 +95,31 @@ func providerLabel(provider string) string {
 // channelProviderFactsFor describes every provider the registry knows, marking
 // the ones that can actually carry a message.
 //
-// registered is every row the registry holds; sending is the subset the binary
-// composed a MessageSender for. The difference is the honest case this endpoint
-// exists to publish: whatsapp is registered so a hand-logged WhatsApp message
-// can name what carried it, and nothing composes it, so it supplies no
-// transport until A103's connector lands.
+// registered is every row the registry holds; sending maps the subset the binary
+// composed a MessageSender for to what that sender can carry. The difference is
+// the honest case this endpoint exists to publish: whatsapp is registered so a
+// hand-logged WhatsApp message can name what carried it, and nothing composes
+// it, so it supplies no transport until A103's connector lands.
+//
+// sending is a MAP rather than a second name list because "does it send" and
+// "what can it carry" are one answer — presence says it sends, the value says
+// what it carries — and two collections would be two places a provider could be
+// in one and missing from the other.
 //
 // credential_model is workspace_bot for every core connector, because a core
 // channel connector binds ONE bot for the installation. A unit's is per_member —
 // see unitChannelFacts.
-func channelProviderFactsFor(registered, sending []string) []channelProviderFacts {
-	sends := make(map[string]bool, len(sending))
-	for _, p := range sending {
-		sends[p] = true
-	}
+func channelProviderFactsFor(registered []string, sending map[string]connector.Carriage) []channelProviderFacts {
 	out := make([]channelProviderFacts, 0, len(registered))
 	for _, p := range registered {
+		carriage, sends := sending[p]
 		out = append(out, channelProviderFacts{
 			provider:          p,
 			transport:         transportCore,
 			label:             providerLabel(p),
 			credentialModel:   credentialWorkspaceBot,
-			suppliesTransport: sends[p],
+			suppliesTransport: sends,
+			carriage:          carriage,
 		})
 	}
 	return out
@@ -165,6 +175,10 @@ func unitChannelFacts(reserved map[string]bool) ([]channelProviderFacts, error) 
 				label:             providerLabel(ch.Provider),
 				credentialModel:   credentialPerMember,
 				suppliesTransport: ch.SuppliesTransport(),
+				// The zero descriptor: extension.Channel has no field for a
+				// unit to declare carriage on yet. sendableCarriage states why
+				// that is the no-default rule holding rather than a gap.
+				carriage: connector.Carriage{},
 			})
 		}
 	}

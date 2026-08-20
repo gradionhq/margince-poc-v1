@@ -13719,6 +13719,32 @@ export interface components {
              *     re-conflate a deployment fact with a tenant one.
              */
             supplies_transport: boolean;
+            /**
+             * @description What this transport can carry alongside a message. Published because the
+             *     composer must warn BEFORE a human presses send: a mismatch discovered at
+             *     transmission parks the delivery, which is correct but late.
+             *
+             *     `carries` false means files cannot go at all on this transport — there is no
+             *     default, so a connector that never declared carriage reports false rather than
+             *     being mistaken for capable. A zero bound means "no limit beyond the contract's
+             *     own", never "zero allowed".
+             */
+            attachments: {
+                carries: boolean;
+                /** @description Most files in one message. Never more than the contract's own `attachment_ids` cap of 10. */
+                max_files: number;
+                /**
+                 * Format: int64
+                 * @description Largest single file, in bytes.
+                 */
+                max_bytes_per_file: number;
+                /**
+                 * @description Longest message text, in characters, when the message ALSO carries files —
+                 *     a transport that sends text-with-files as a caption bounds it far below a
+                 *     text-only message. Zero means no extra bound.
+                 */
+                max_body_with_files: number;
+            };
         };
         CreateActivityRequest: {
             /** @enum {string} */
@@ -14075,6 +14101,10 @@ export interface components {
              *     alone, and a file the scanner has since quarantined — or one the sender has
              *     since lost the right to read — parks it too: a recipient seeing fewer files
              *     than the record claims is a wrong record nobody is told about.
+             *
+             *     Repeated ids are collapsed — attaching one file twice is not something a message
+             *     can mean — and naming more distinct files than `maxItems` is refused with
+             *     422 `too_many_attachments`.
              */
             attachment_ids?: string[];
             to: string[];
@@ -14227,6 +14257,10 @@ export interface components {
              *     alone, and a file the scanner has since quarantined — or one the sender has
              *     since lost the right to read — parks it too: a recipient seeing fewer files
              *     than the record claims is a wrong record nobody is told about.
+             *
+             *     Repeated ids are collapsed — attaching one file twice is not something a message
+             *     can mean — and naming more distinct files than `maxItems` is refused with
+             *     422 `too_many_attachments`.
              */
             attachment_ids?: string[];
             /**
@@ -14313,6 +14347,28 @@ export interface components {
              *     `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
              */
             consent_purpose: string;
+            /**
+             * @description Files already in the record library to send with this message, named by id
+             *     — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+             *     archiving or superseding one later cannot rewrite what the timeline says a
+             *     sent message carried.
+             *
+             *     A message is transmitted with ALL its files or not at all. A connector whose
+             *     provider cannot carry them parks the delivery rather than sending the text
+             *     alone, and a file the scanner has since quarantined — or one the sender has
+             *     since lost the right to read — parks it too: a recipient seeing fewer files
+             *     than the record claims is a wrong record nobody is told about.
+             *
+             *     Repeated ids are collapsed — attaching one file twice is not something a message
+             *     can mean — and naming more distinct files than `maxItems` is refused with
+             *     422 `too_many_attachments`.
+             *
+             *     A messaging channel carries this message's text as a CAPTION, which is bounded
+             *     far below a text-only message; `GET /v1/channel-providers` publishes that bound
+             *     as `attachments.max_body_with_files`. A body over it parks rather than being
+             *     split or shortened.
+             */
+            attachment_ids?: string[];
         };
         /** @description A thin, segregated prospect. Mirrors the `lead` table. NO organization FK. */
         Lead: {

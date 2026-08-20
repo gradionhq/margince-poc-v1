@@ -321,13 +321,6 @@ func sendInputFrom(to []openapi_types.Email, cc, bcc *[]openapi_types.Email, sub
 	if htmlBody != nil {
 		html = *htmlBody
 	}
-	var files []ids.UUID
-	if attachments != nil {
-		files = make([]ids.UUID, 0, len(*attachments))
-		for _, id := range *attachments {
-			files = append(files, ids.UUID(id))
-		}
-	}
 	return SendEmailInput{
 		Recipients:     recipients,
 		Cc:             ccAddresses,
@@ -335,7 +328,7 @@ func sendInputFrom(to []openapi_types.Email, cc, bcc *[]openapi_types.Email, sub
 		Subject:        subject,
 		Body:           body,
 		HTMLBody:       html,
-		AttachmentIDs:  files,
+		AttachmentIDs:  attachmentIDsFrom(attachments),
 		ConsentPurpose: purpose,
 		DraftRef:       ref,
 	}

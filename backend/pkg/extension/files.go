@@ -202,3 +202,29 @@ func truncateFilename(s string, limit int) string {
 	}
 	return s[:cut] + "…"
 }
+
+// Carriage is what a sending connector's provider can carry.
+//
+// A DESCRIPTOR rather than a bool because channels have real per-provider limits
+// and a rep must learn them before pressing send, not from a parked delivery
+// afterwards.
+//
+// A ZERO bound means "no limit beyond what the contract itself imposes", never
+// "zero allowed" — the only field that says nothing may go is Carries.
+//
+// MaxBodyWithFiles exists because of a shape mail does not have: a channel that
+// carries text-with-files as a CAPTION bounds that text far below what it accepts
+// on a text-only message. A message over the bound cannot be split into two
+// provider calls without reintroducing the partial send this seam exists to
+// prevent, and it cannot be truncated at all, so the delivery parks instead.
+// The bound is published on the channel directory so the composer warns BEFORE a
+// human presses send — a park discovered at transmission is correct but late.
+type Carriage struct {
+	Carries         bool
+	MaxBytesPerFile int64
+	MaxFiles        int
+	// MaxBodyWithFiles bounds the body of a message that ALSO carries files,
+	// counted in CHARACTERS because a caption cap is a provider's rune count and
+	// not a byte budget.
+	MaxBodyWithFiles int
+}

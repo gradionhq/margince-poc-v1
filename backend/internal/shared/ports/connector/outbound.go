@@ -55,9 +55,32 @@ type EmailSender interface {
 // adapter that gains the ability declares it here; one that never had it needs
 // no change and cannot be mistaken for capable.
 type AttachmentCarrier interface {
-	// CarriesAttachments reports whether this connector's provider transmits
-	// files alongside the message body.
-	CarriesAttachments() bool
+	// Carriage reports what this connector's provider can carry. A connector
+	// that does not implement this interface carries nothing.
+	Carriage() Carriage
+}
+
+// Carriage is the published capability descriptor, aliased for the same reason
+// the file types are: a unit and a core connector must answer this question with
+// the same type, or the bounds a gate checks are two sets that can disagree.
+type Carriage = extension.Carriage
+
+// CarriageOf asks a resolved sender what it can carry.
+//
+// A sender that does not implement AttachmentCarrier answers the ZERO Carriage
+// — carries nothing. That is the no-default rule in one line, and it lives HERE,
+// beside the interface, because three callers now ask it: the send seam that
+// gates a delivery, the registry that publishes the transport directory, and the
+// tests that pin both. A second spelling of this assertion is a second place a
+// silent "presumably it carries" could creep in.
+//
+//craft:ignore naked-any the type assertion seam: a sender is whichever connector the resolver or the registry bound
+func CarriageOf(sender any) Carriage {
+	carrier, ok := sender.(AttachmentCarrier)
+	if !ok {
+		return Carriage{}
+	}
+	return carrier.Carriage()
 }
 
 // OutboundFile is one file to transmit — the published extension.OutboundFile,

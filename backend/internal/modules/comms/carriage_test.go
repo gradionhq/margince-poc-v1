@@ -3,8 +3,9 @@
 
 package comms
 
-// The two halves the carriage gate rests on: how a sender's capability is read,
-// and what reaches the connector once it has been cleared.
+// What reaches the connector once the carriage gate has cleared it. How a
+// sender's capability is READ is the port's own question, tested beside
+// connector.CarriageOf.
 
 import (
 	"context"
@@ -12,25 +13,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
-
-type declaredCarrier struct{ carries bool }
-
-func (c declaredCarrier) CarriesAttachments() bool { return c.carries }
-
-// A sender written before attachments existed compiles unchanged and must read
-// as CANNOT CARRY, never as unknown. That is the no-default rule, and getting it
-// wrong is exactly how a message goes out stripped.
-func TestASenderThatNeverDeclaredCarriageCarriesNothing(t *testing.T) {
-	if carriesAttachments(struct{}{}) {
-		t.Error("a sender not implementing AttachmentCarrier was read as carrying files")
-	}
-	if carriesAttachments(declaredCarrier{carries: false}) {
-		t.Error("a sender declaring it carries nothing was read as carrying files")
-	}
-	if !carriesAttachments(declaredCarrier{carries: true}) {
-		t.Error("a sender declaring carriage was read as carrying nothing")
-	}
-}
 
 // Every staged file reaches the connector, carrying its own identity. A subset
 // here would be the strip the gate forbids, arriving one layer lower; a bare id

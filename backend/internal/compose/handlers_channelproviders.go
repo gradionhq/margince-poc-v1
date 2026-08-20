@@ -26,6 +26,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // channelProvidersHandlers serves the directory. It holds NO state for
@@ -60,25 +61,42 @@ func (channelProvidersHandlers) ListChannelProviders(w http.ResponseWriter, r *h
 // handler so the shaping is testable without a request, and sorted so the page
 // is stable — a directory that reorders between calls makes a diff of two
 // deployments unreadable.
-func publishedChannelProviders(registered, sending []string) []crmcontracts.ChannelProviderEntry {
+func publishedChannelProviders(registered []string, sending map[string]connector.Carriage) []crmcontracts.ChannelProviderEntry {
 	facts := channelProviderFactsFor(registered, sending)
 	out := make([]crmcontracts.ChannelProviderEntry, 0, len(facts))
 	for _, f := range facts {
-		out = append(out, crmcontracts.ChannelProviderEntry{
+		entry := crmcontracts.ChannelProviderEntry{
 			Provider:          f.provider,
 			Label:             f.label,
 			CredentialModel:   crmcontracts.ChannelProviderEntryCredentialModel(f.credentialModel),
 			SuppliesTransport: f.suppliesTransport,
-		})
+		}
+		// Field by field rather than a shared struct: the contract's entry
+		// declares the object inline, so there is no named type to convert to.
+		entry.Attachments.Carries = f.carriage.Carries
+		entry.Attachments.MaxFiles = f.carriage.MaxFiles
+		entry.Attachments.MaxBytesPerFile = f.carriage.MaxBytesPerFile
+		entry.Attachments.MaxBodyWithFiles = f.carriage.MaxBodyWithFiles
+		out = append(out, entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Provider < out[j].Provider })
 	return out
 }
 
 // channelProviderDirectory adapts the boot snapshot to the agent surface's
-// seam. It reports the SAME entries the HTTP directory serves, by calling the
+// seam. It reports the same entries the HTTP directory serves, by calling the
 // same shaping function — two surfaces answering one question two ways is
 // exactly the drift this arc has spent its budget removing.
+//
+// THE ONE FIELD IT DELIBERATELY DROPS is `attachments`, and the reason is a
+// budget rather than a decision about what an agent should know. The core tool
+// listing rides in every Surface-B prompt and is already within a few hundred
+// tokens of the ceiling TestTheToolListingLeavesTheRunRoomInTheWindow holds it
+// to; the carriage object plus the copy that would explain it takes the listing
+// past that ceiling, which comes out of the run's own observations. So an agent
+// staging a channel message with files still learns the bounds the way it does
+// today — by having the delivery parked with a reason that names them. Widening
+// the tool surface needs the listing's budget looked at first (issue #1985).
 type channelProviderDirectory struct{}
 
 func (channelProviderDirectory) ChannelProviders(context.Context) ([]agents.ChannelProviderEntry, error) {

@@ -141,7 +141,9 @@ type carryingSender struct {
 	fakeSender
 }
 
-func (c *carryingSender) CarriesAttachments() bool { return true }
+func (c *carryingSender) Carriage() connector.Carriage {
+	return connector.Carriage{Carries: true, MaxFiles: 10, MaxBytesPerFile: 25 << 20}
+}
 
 var _ connector.AttachmentCarrier = (*carryingSender)(nil)
 

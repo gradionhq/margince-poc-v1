@@ -113,6 +113,13 @@ func (c *Connector) SendMessage(ctx context.Context, auth connector.Auth, msg co
 	if err := msg.Validate(); err != nil {
 		return connector.SendReceipt{}, err
 	}
+	// Telegram carries files (sendPhoto/sendDocument/sendMediaGroup) and this
+	// connector does not build them yet, so it refuses rather than transmitting
+	// the caption alone — see connector.ErrFilesNotCarried. Remove this in the
+	// change that adds the part-building, not before.
+	if len(msg.Files) > 0 {
+		return connector.SendReceipt{}, connector.ErrFilesNotCarried
+	}
 	chatID, err := chatIDOf(msg.Recipient)
 	if err != nil {
 		return connector.SendReceipt{}, err

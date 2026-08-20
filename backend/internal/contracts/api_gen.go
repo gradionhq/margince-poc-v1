@@ -12781,6 +12781,29 @@ type ChannelProviderDirectory struct {
 
 // ChannelProviderEntry One registered transport, as the directory publishes it.
 type ChannelProviderEntry struct {
+	// Attachments What this transport can carry alongside a message. Published because the
+	// composer must warn BEFORE a human presses send: a mismatch discovered at
+	// transmission parks the delivery, which is correct but late.
+	//
+	// `carries` false means files cannot go at all on this transport — there is no
+	// default, so a connector that never declared carriage reports false rather than
+	// being mistaken for capable. A zero bound means "no limit beyond the contract's
+	// own", never "zero allowed".
+	Attachments struct {
+		Carries bool `json:"carries"`
+
+		// MaxBodyWithFiles Longest message text, in characters, when the message ALSO carries files —
+		// a transport that sends text-with-files as a caption bounds it far below a
+		// text-only message. Zero means no extra bound.
+		MaxBodyWithFiles int `json:"max_body_with_files"`
+
+		// MaxBytesPerFile Largest single file, in bytes.
+		MaxBytesPerFile int64 `json:"max_bytes_per_file"`
+
+		// MaxFiles Most files in one message. Never more than the contract's own `attachment_ids` cap of 10.
+		MaxFiles int `json:"max_files"`
+	} `json:"attachments"`
+
 	// CredentialModel How a connection to this transport is credentialed — one shared bot for the
 	// installation, or a secret each member deposits. Closed on purpose, unlike the
 	// provider vocabulary: this describes the SHAPE of a credential, which is
@@ -20277,6 +20300,10 @@ type SendAccountEmailRequest struct {
 	// alone, and a file the scanner has since quarantined — or one the sender has
 	// since lost the right to read — parks it too: a recipient seeing fewer files
 	// than the record claims is a wrong record nobody is told about.
+	//
+	// Repeated ids are collapsed — attaching one file twice is not something a message
+	// can mean — and naming more distinct files than `maxItems` is refused with
+	// 422 `too_many_attachments`.
 	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
 
 	// Bcc Blind copies. They receive the message and are therefore owed consent
@@ -20359,6 +20386,10 @@ type SendEmailRequest struct {
 	// alone, and a file the scanner has since quarantined — or one the sender has
 	// since lost the right to read — parks it too: a recipient seeing fewer files
 	// than the record claims is a wrong record nobody is told about.
+	//
+	// Repeated ids are collapsed — attaching one file twice is not something a message
+	// can mean — and naming more distinct files than `maxItems` is refused with
+	// 422 `too_many_attachments`.
 	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
 
 	// Bcc Blind copies. They receive the message and are therefore owed consent
@@ -20426,6 +20457,27 @@ type SendEmailRequest struct {
 // and no Cc, and the recipient is resolved from the conversation being answered (see the
 // operation), never named by the caller.
 type SendMessageRequest struct {
+	// AttachmentIds Files already in the record library to send with this message, named by id
+	// — never uploaded here. Each is snapshotted at staging (ADR-0086/A131 §4) so
+	// archiving or superseding one later cannot rewrite what the timeline says a
+	// sent message carried.
+	//
+	// A message is transmitted with ALL its files or not at all. A connector whose
+	// provider cannot carry them parks the delivery rather than sending the text
+	// alone, and a file the scanner has since quarantined — or one the sender has
+	// since lost the right to read — parks it too: a recipient seeing fewer files
+	// than the record claims is a wrong record nobody is told about.
+	//
+	// Repeated ids are collapsed — attaching one file twice is not something a message
+	// can mean — and naming more distinct files than `maxItems` is refused with
+	// 422 `too_many_attachments`.
+	//
+	// A messaging channel carries this message's text as a CAPTION, which is bounded
+	// far below a text-only message; `GET /v1/channel-providers` publishes that bound
+	// as `attachments.max_body_with_files`. A body over it parks rather than being
+	// split or shortened.
+	AttachmentIds *[]openapi_types.UUID `json:"attachment_ids,omitempty"`
+
 	// Body The (possibly edited) final message text that is sent. A messaging provider rejects a
 	// text-less message, so an empty or whitespace-only body is refused at request time
 	// (422 `empty_message_body`) rather than staged for a delivery that could only park.

@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/mail"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -132,15 +134,38 @@ func (r *Registry) Connectors() []connector.Descriptor {
 // (DESIGN-SP4 §4): compose calls this once at boot to reconcile
 // channel_provider against what this binary actually has compiled in.
 func (r *Registry) ChannelProviders() []string {
+	// Derived from ChannelCarriage rather than filtering the connectors again:
+	// two copies of the same MessageSender test are two answers to "which
+	// transports can send", and the one asked less often is the one that would
+	// drift.
+	carriage := r.ChannelCarriage()
+	if len(carriage) == 0 {
+		return nil
+	}
+	out := slices.Collect(maps.Keys(carriage))
+	sort.Strings(out)
+	return out
+}
+
+// ChannelCarriage is what each composed channel sender can carry, keyed by
+// provider — the registry's answer to the question the transport directory
+// publishes and the dispatcher's carriage gate enforces.
+//
+// PRESENCE in the map means the binary composed a sender; the VALUE is what that
+// sender declared, which is the zero Carriage for one that never declared any.
+// The two facts travel together because they are one answer: a caller that had
+// to join a name list against a carriage map could hold a sending provider with
+// no entry, and nothing would say whether that meant "carries nothing" or "not
+// asked".
+func (r *Registry) ChannelCarriage() map[string]connector.Carriage {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	var out []string
+	out := make(map[string]connector.Carriage, len(r.connectors))
 	for name, c := range r.connectors {
 		if _, sends := c.(connector.MessageSender); sends {
-			out = append(out, name)
+			out[name] = connector.CarriageOf(c)
 		}
 	}
-	sort.Strings(out)
 	return out
 }
 

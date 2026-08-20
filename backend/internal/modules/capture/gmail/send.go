@@ -18,6 +18,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // SendScope permits transmission only — it cannot read, modify, or delete,
@@ -36,6 +37,17 @@ const SendScope = "https://www.googleapis.com/auth/gmail.send"
 var ErrSendScopeMissing = fmt.Errorf("gmail: this connection was not granted the send scope: %w", connector.ErrAuthRejected)
 
 var _ connector.EmailSender = (*Connector)(nil)
+
+// maxSendableFiles is the most files this connector will put in one message.
+//
+// It is the contract's own attachment_ids cap, restated here because the
+// carriage gate can only enforce a bound a connector DECLARES: nothing in this
+// stack validates a request against the schema, so an undeclared cap would let a
+// caller name fifty files and have every one of them transmitted. The two are
+// bound by TestGmailCarriesNoMoreFilesThanTheContractAdmits rather than by
+// comment, because a cap that drifted from the contract would refuse a request
+// the contract says is legal.
+const maxSendableFiles = 10
 
 // SendEmail transmits one message as the connected mailbox owner.
 //
@@ -64,17 +76,6 @@ var _ connector.EmailSender = (*Connector)(nil)
 // concurrent attempts on the same delivery would both observe it pending and
 // both call SendEmail here — the one-job-per-delivery assumption, not this
 // lookup, is what keeps that from happening in practice.
-// CarriesAttachments declares that this connector transmits files
-// (connector.AttachmentCarrier).
-//
-// There is no default for this and that is the design: a message with files
-// staged against a connector that does not declare the capability PARKS rather
-// than going out stripped, because a recipient seeing fewer files than the
-// timeline records is a wrong record nobody is told about. Gmail takes a
-// complete RFC822 message, so the files ride in the multipart/mixed envelope
-// buildRFC822 renders — nothing is uploaded separately and nothing is linked.
-func (c *Connector) CarriesAttachments() bool { return true }
-
 func (c *Connector) SendEmail(ctx context.Context, auth connector.Auth, msg connector.EmailMessage) (connector.SendReceipt, error) {
 	// Before anything reaches Google: a message with no usable identity cannot
 	// be found again by the prior-send lookup above, so transmitting it would
@@ -112,6 +113,29 @@ func (c *Connector) SendEmail(ctx context.Context, auth connector.Auth, msg conn
 		ProviderMessageID: id,
 		RFC822MessageID:   c.stampedIdentity(ctx, access, st.Owner, id),
 	}, nil
+}
+
+// Carriage declares what this connector transmits
+// (connector.AttachmentCarrier).
+//
+// There is no default for this and that is the design: a message with files
+// staged against a connector that does not declare the capability PARKS rather
+// than going out stripped, because a recipient seeing fewer files than the
+// timeline records is a wrong record nobody is told about. Gmail takes a
+// complete RFC822 message, so the files ride in the multipart/mixed envelope
+// buildRFC822 renders — nothing is uploaded separately and nothing is linked.
+//
+// The limits are mail's own inbound bounds read in the other direction: a
+// message this system will accept is one it can send.
+func (c *Connector) Carriage() connector.Carriage {
+	return connector.Carriage{
+		Carries:         true,
+		MaxBytesPerFile: extension.MaxInboundFileBytes,
+		MaxFiles:        maxSendableFiles,
+		// Mail carries the body as the body, never as a caption, so there is no
+		// extra bound to declare.
+		MaxBodyWithFiles: 0,
+	}
 }
 
 // stampedIdentity reads back the RFC822 identity the provider actually put on

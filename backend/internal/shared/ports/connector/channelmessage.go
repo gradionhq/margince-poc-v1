@@ -37,7 +37,32 @@ type ChannelMessage struct {
 	IdempotencyKey string
 	// Attempt is 0 on the first transmission and increments on every retry.
 	Attempt int
+	// Files are the attachments this message carries. A connector handed a
+	// non-empty set has already been asked what it can carry — the dispatcher
+	// parks otherwise — so reaching here with files means transmitting them.
+	//
+	// THE INVARIANT, stated where an implementer reads it: no adapter may
+	// transmit a message whose attachment set differs from the one it was
+	// handed. Not a subset, not converted to links, not silently dropped. If it
+	// cannot send all of them it returns an error and the delivery parks.
+	Files []OutboundFile
 }
+
+// ErrFilesNotCarried is what an adapter handed files it cannot transmit
+// returns.
+//
+// It exists because the Files invariant above is stated at the seam and kept by
+// the ADAPTERS, and the two are in different packages: a connector that declared
+// carriage before its Send learned to build a file part would otherwise transmit
+// the covering text alone, which is the exact silent strip this design forbids.
+// The carriage gate stops that case earlier, but it reads a capability the
+// connector itself declares — so the connector is the last place that can refuse
+// its own mistake.
+//
+// An adapter that grows the ability removes its guard in the same change that
+// adds the part-building. A guard left in place refuses every message the new
+// code could have sent; a guard removed early sends messages missing their files.
+var ErrFilesNotCarried = errors.New("connector: this connector cannot transmit files, and a message may not go out without the ones it was staged with")
 
 // ErrInvalidChannelMessage marks a channel message missing what
 // ChannelMessage.Validate requires: a recipient to deliver to, and the

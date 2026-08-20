@@ -37,18 +37,29 @@ type sendSeam struct {
 	// SendsWithoutScope means, so there is nothing to intersect.
 	granted []string
 
-	// carriesAttachments reports whether the resolved connector transmits files.
-	// FALSE for a connector that does not implement connector.AttachmentCarrier,
-	// which is the whole point of the seam having no default: an adapter that
-	// never declared carriage cannot be mistaken for capable, and a staged
-	// message with files parks instead of going out stripped (ADR-0086/A131).
-	carriesAttachments bool
+	// carriage is what the resolved connector says its provider can carry. The
+	// ZERO value for a connector that does not implement
+	// connector.AttachmentCarrier — carries nothing — which is the whole point of
+	// the seam having no default: an adapter that never declared carriage cannot
+	// be mistaken for capable, and a staged message with files parks instead of
+	// going out stripped (ADR-0086/A131).
+	//
+	// A descriptor rather than a bool because the provider's real limits — how
+	// many files, how large, and how long the covering text may be when files
+	// ride with it — are what the carriage gate checks.
+	carriage connector.Carriage
 
 	// transmit hands the delivery to the provider, already bound to the resolved
 	// credential and to the row it was built from. One call for either
 	// transport is what lets the receipt handling, the metering and the failure
 	// classification below stay shape-blind.
-	transmit func(ctx context.Context) (connector.SendReceipt, error)
+	//
+	// The FILES are a parameter rather than something the closure reads for
+	// itself, and that is the at-most-once contract rather than a style choice:
+	// the dispatcher resolves them BEFORE it commits the in-flight marker, so a
+	// blobstore fault or an over-size refusal cannot leave a message that never
+	// reached the provider parked as one whose outcome nobody learned.
+	transmit func(ctx context.Context, files []connector.OutboundFile) (connector.SendReceipt, error)
 
 	// detectsPriorSend reports whether a RETRY of this seam could discover that
 	// an earlier attempt already put the message on the wire.
@@ -73,7 +84,7 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		if err != nil {
 			return sendSeam{}, err
 		}
-		return sendSeam{carriesAttachments: carriesAttachments(sender), transmit: func(ctx context.Context) (connector.SendReceipt, error) {
+		return sendSeam{carriage: connector.CarriageOf(sender), transmit: func(ctx context.Context, files []connector.OutboundFile) (connector.SendReceipt, error) {
 			return sender.SendMessage(ctx, auth, connector.ChannelMessage{
 				// The provider plus the account id ARE the recipient key. The
 				// username is deliberately absent: a handle can be released and
@@ -91,6 +102,9 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 				// that was already stable.
 				IdempotencyKey: del.ID.String(),
 				Attempt:        transmissionsBefore(del),
+				// The set the carriage gate already cleared, under the same
+				// all-or-nothing obligation the mail seam carries.
+				Files: files,
 			})
 		}}, nil
 	}
@@ -99,22 +113,10 @@ func (d *Dispatcher) resolveSeam(ctx context.Context, del Delivery) (sendSeam, e
 		return sendSeam{}, err
 	}
 	return sendSeam{
-		granted:            granted,
-		detectsPriorSend:   true,
-		carriesAttachments: carriesAttachments(sender),
-		transmit: func(ctx context.Context) (connector.SendReceipt, error) {
-			// The bytes, read HERE rather than carried in the delivery row: a
-			// message on a retry ladder would otherwise hold every attachment
-			// it might ever send in the database, duplicated per delivery, for
-			// as long as the maximum age allows.
-			//
-			// It is the last thing before the wire and it fails the whole
-			// transmit rather than sending a subset, which is the obligation
-			// the file set below already carries (ADR-0086/A131).
-			files, err := d.attachedFiles(ctx, del)
-			if err != nil {
-				return connector.SendReceipt{}, err
-			}
+		granted:          granted,
+		detectsPriorSend: true,
+		carriage:         connector.CarriageOf(sender),
+		transmit: func(ctx context.Context, files []connector.OutboundFile) (connector.SendReceipt, error) {
 			// Every staged field travels: a retry must rebuild an identical
 			// message, and a field dropped here is a header silently missing
 			// from real mail.
@@ -190,20 +192,6 @@ func (d *Dispatcher) guardAtMostOnce(ctx context.Context, del Delivery, seam sen
 		return d.retry(ctx, del.ID, fmt.Errorf("comms: marking the transmission in flight: %w", err))
 	}
 	return outcomeUndecided, 0, nil
-}
-
-// carriesAttachments asks a resolved sender whether it transmits files.
-//
-// A sender that does not implement connector.AttachmentCarrier answers NO. That
-// is the seam's no-default rule in one line: an adapter written before
-// attachments existed, or one whose provider cannot carry them, is never
-// mistaken for capable — so a staged message with files parks rather than going
-// out as text that lies about its contents (ADR-0086/A131).
-//
-//craft:ignore naked-any the type assertion seam: a sender is whichever connector the resolver bound
-func carriesAttachments(sender any) bool {
-	carrier, ok := sender.(connector.AttachmentCarrier)
-	return ok && carrier.CarriesAttachments()
 }
 
 // outboundFiles renders the staged snapshot into the provider-neutral shape.
