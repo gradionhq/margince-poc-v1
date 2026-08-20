@@ -51,11 +51,33 @@ export const NotYetPartner: Story = {
   },
 };
 
+// The commission entry this partner's tier produced. Without it the story
+// documents only the empty ledger, which is the state a reader is least likely
+// to be looking at the panel for.
+const commission = {
+  id: "c-1",
+  deal_id: "d-1",
+  partner_org_id: "o-1",
+  status: "accrued",
+  attribution_at_accrual: "sourced",
+  margin_tier_at_accrual: "tier2_20",
+  rate_bps: 2000,
+  basis_amount_minor: 100000,
+  currency: "EUR",
+  amount_minor: 20000,
+  captured_by: "human:x",
+  version: 1,
+  created_at: "2026-08-01T00:00:00Z",
+  updated_at: "2026-08-01T00:00:00Z",
+};
+
 export const ExistingPartner: Story = {
   render: () => {
     installFetchStub({
       "GET /me": meRoute({}),
       "GET /organizations/o-1/partner": () => jsonResponse(partner),
+      "GET /commissions": () =>
+        jsonResponse({ data: [commission], page: { has_more: false } }),
     });
     return (
       <StoryProviders>

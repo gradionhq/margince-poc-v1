@@ -26,6 +26,7 @@ import {
   listFetchLimit,
   useListQuery,
 } from "./listquery";
+import { PartnerCommissions } from "./partnercommissions";
 
 // The Partner tab (company 360, P-6): an org IS a partner iff it has a
 // `partner` row (data-model.md §4.3) — GET /organizations/{id}/partner's 404
@@ -477,11 +478,16 @@ export function PartnerTab({
     <QueryGate query={query}>
       {(partner) =>
         partner ? (
-          <PartnerDetail
-            organizationId={organizationId}
-            partner={partner}
-            onSaved={invalidateAfterSave}
-          />
+          <>
+            <PartnerDetail
+              organizationId={organizationId}
+              partner={partner}
+              onSaved={invalidateAfterSave}
+            />
+            {/* What the tier above has actually produced. A margin tier with no
+                money beside it is a number nobody can check. */}
+            <PartnerCommissions organizationId={organizationId} />
+          </>
         ) : (
           <Card title={t("tab.partner")}>
             <EmptyState>{t("partner.none")}</EmptyState>

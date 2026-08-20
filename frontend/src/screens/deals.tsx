@@ -373,6 +373,54 @@ function toBoardDeal(deal: Deal, orgs?: OrgMarks): BoardDeal {
 
 type UpdateDealRequest = components["schemas"]["UpdateDealRequest"];
 
+// One deal as the edit form's initial values. Extracted from the badge row
+// that renders the form: mapping a record onto form fields is its own job, and
+// keeping it inline made a component that already draws badges, an edit dialog
+// and an archive verb carry a twentieth concern.
+//
+// Every absent value becomes "" rather than a default. A currency the FORM
+// chose is a currency the SAVE writes, so seeding one made an unpriced deal
+// acquire it the moment a reader edited its name — and since amount and
+// currency are paired by CHECK, that turned an innocent rename into a refusal.
+function dealEditRecord(deal: Deal): Record<
+  string,
+  string | number | undefined
+> & {
+  id: string;
+  version?: number;
+} {
+  return {
+    id: deal.id,
+    version: deal.version,
+    name: deal.name,
+    amount: deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
+    currency: deal.currency ?? "",
+    owner_id: deal.owner_id ?? "",
+    organization_id: deal.organization_id ?? "",
+    partner_org_id: deal.partner_org_id ?? "",
+    partner_attribution: deal.partner_attribution ?? "",
+    forecast_category: deal.forecast_category ?? "",
+    expected_close_date: deal.expected_close_date ?? "",
+    wait_until: deal.wait_until ?? "",
+  };
+}
+
+// The attribution the form may send, narrowed the same way the forecast
+// category is: the wire type is a closed vocabulary, and a free string from a
+// form input is not one until something checks it.
+function partnerAttribution(
+  v: string,
+): UpdateDealRequest["partner_attribution"] {
+  switch (v) {
+    case "sourced":
+      return "sourced";
+    case "influenced":
+      return "influenced";
+    default:
+      return null;
+  }
+}
+
 function forecastCategory(v: string): UpdateDealRequest["forecast_category"] {
   switch (v) {
     case "commit":
@@ -405,6 +453,7 @@ export function mapDealUpdate(
     organization_id: str(values.organization_id) || null,
     owner_id: owner || null,
     partner_org_id: str(values.partner_org_id) || null,
+    partner_attribution: partnerAttribution(str(values.partner_attribution)),
     forecast_category: forecastCategory(forecast),
     expected_close_date: str(values.expected_close_date) || null,
     wait_until: str(values.wait_until) || null,
@@ -416,6 +465,21 @@ const FORECAST_OPTIONS: { value: string; label: MessageKey }[] = [
   { value: "best_case", label: "deal.fcBestCase" },
   { value: "pipeline", label: "deal.fcPipeline" },
   { value: "omitted", label: "deal.fcOmitted" },
+];
+
+// What a partner did for the deal. Only "sourced" earns commission — a partner
+// who helped a deal we already had is recorded, not paid.
+//
+// The empty value leads and says what leaving it unset MEANS. The server
+// defaults a named partner to "sourced", so a bare "Unset" here would let a
+// reader believe they had made no claim while the deal quietly became
+// commission-eligible. A field that offers the empty value in its own words
+// suppresses the generic entry (create.tsx), which is why this one is spelled
+// out rather than inherited.
+const ATTRIBUTION_OPTIONS: { value: string; label: MessageKey }[] = [
+  { value: "", label: "deal.attributionUnset" },
+  { value: "sourced", label: "deal.attributionSourced" },
+  { value: "influenced", label: "deal.attributionInfluenced" },
 ];
 
 export function dealEditFields(
@@ -469,6 +533,17 @@ export function dealEditFields(
       label: "deal.partnerOrg",
       type: "select",
       options: orgOptions,
+    },
+    // What that partner DID for the deal. Commission accrues on "sourced"
+    // only, so this is the field that decides whether a win pays them.
+    {
+      key: "partner_attribution",
+      label: "deal.partnerAttribution",
+      type: "select",
+      options: ATTRIBUTION_OPTIONS.map((o) => ({
+        value: o.value,
+        label: t(o.label),
+      })),
     },
     {
       key: "forecast_category",
@@ -1776,27 +1851,7 @@ function DealBadges({
           }),
           ...cf.formFields,
         ]}
-        record={{
-          id: deal.id,
-          version: deal.version,
-          name: deal.name,
-          amount:
-            deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
-          // A currency the FORM chose is a currency the SAVE writes: mapDealUpdate
-          // sends whatever this holds, so seeding it with a default made an
-          // unpriced deal acquire one the moment a reader edited its name. The
-          // amount is already sent as null in that case, and the two columns are
-          // paired by CHECK, so the invented currency did not merely mislabel the
-          // record — it made an innocent rename fail.
-          currency: deal.currency ?? "",
-          owner_id: deal.owner_id ?? "",
-          organization_id: deal.organization_id ?? "",
-          partner_org_id: deal.partner_org_id ?? "",
-          forecast_category: deal.forecast_category ?? "",
-          expected_close_date: deal.expected_close_date ?? "",
-          wait_until: deal.wait_until ?? "",
-          ...cf.recordSlice(deal),
-        }}
+        record={{ ...dealEditRecord(deal), ...cf.recordSlice(deal) }}
         update={async (values) => {
           const { data, error } = await api.PATCH("/deals/{id}", {
             params: {
