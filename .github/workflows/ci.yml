@@ -965,9 +965,27 @@ jobs:
         with:
           name: fe-coverage
           path: frontend/coverage
+      # A merge_group run publishes as `main`, and that is not a fiction: the
+      # queue builds `main + the queued entries`, which is byte-for-byte the tree
+      # main becomes when the batch merges. Measuring it here is the same
+      # measurement the old push-to-main scan took, one step earlier.
+      #
+      # Without this override the scanner reads GITHUB_REF and files the analysis
+      # under `gh-readonly-queue/main/pr-N-<sha>` — a branch that is deleted
+      # minutes later. Nothing would ever update main again, and main's stored
+      # analysis does not disappear when it stops being refreshed: it FREEZES. The
+      # nightly `quality-gate` job in scheduled.yml reads `?branch=main` and would
+      # keep reporting the last real verdict indefinitely, which is a green that
+      # measures nothing — the exact failure this pipeline change exists to end.
+      #
+      # Safe because this job runs only on a green lane, and a green batch merges
+      # (the queue's HEADGREEN strategy merges the green prefix), so a tree
+      # published as main is a tree that became main.
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: ${{ github.event_name == 'merge_group' && '-Dsonar.branch.name=main' || '' }}
       - name: No token yet — scan skipped
         if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN not set; skipping CI scan (Automatic Analysis still active). Add the secret to activate."
