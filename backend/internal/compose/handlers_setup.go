@@ -6,7 +6,9 @@ package compose
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -83,7 +85,7 @@ func setupStatus(svc *identity.Service, limit *ratelimit.Limiter) http.HandlerFu
 }
 
 // setupClaim creates the organization and its first admin from a claim.
-func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Seeds, limit *ratelimit.Limiter) http.HandlerFunc {
+func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Seeds, limit *ratelimit.Limiter, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !limit.Allow(httpserver.ClientIP(r)) {
 			httperr.Write(w, r, apperrors.ErrBudgetExceeded)
@@ -106,7 +108,7 @@ func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Se
 			return
 		}
 
-		wsID, err := svc.ClaimInstallation(r.Context(), in.SetupToken, identity.InstallationBootstrap{
+		wsID, discarded, err := svc.ClaimInstallation(r.Context(), in.SetupToken, identity.InstallationBootstrap{
 			OrganizationName: in.OrganizationName,
 			BaseCurrency:     in.BaseCurrency,
 			Timezone:         in.Timezone,
@@ -130,6 +132,15 @@ func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Se
 		case err != nil:
 			httperr.Write(w, r, err)
 			return
+		}
+		// The claim refuses a provisioned installation, but `setting` is not
+		// tenant-scoped: a claim over a database whose previous workspace was
+		// archived creates a new one beside settings rows that survived, and the
+		// identity the human just typed into the claim form is discarded. They
+		// see the old name in the UI and have no way to tell why (#863).
+		if len(discarded) > 0 {
+			log.Warn("the claim kept the identity already stored and discarded what was submitted; a previous installation's settings survived because they are not scoped to a workspace",
+				"discarded_keys", strings.Join(discarded, ", "), "workspace_id", wsID.String())
 		}
 		httperr.WriteJSON(w, http.StatusCreated, setupClaimResponse{WorkspaceID: wsID.String()})
 	}

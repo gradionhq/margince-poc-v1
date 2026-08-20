@@ -138,7 +138,7 @@ func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 			OrganizationName: slug,
 			AdminEmail:       adminEmail, AdminName: "Admin",
 			AdminPassword: bootstrapPassword,
-		}, originConfigured, nil)
+		}, originConfigured, nil, &[]string{})
 		return err
 	})
 	if err != nil {

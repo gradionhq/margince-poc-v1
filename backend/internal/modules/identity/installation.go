@@ -73,7 +73,12 @@ type InstallationBootstrap struct {
 // organization exists, so the read would fail on exactly the installations
 // that followed the ADR. What is only needed to CREATE is only resolved
 // when creating.
-func (s *Service) BootstrapInstallation(ctx context.Context, create func() (InstallationBootstrap, error), seed func(ctx context.Context, tx pgx.Tx) error) (wsID ids.WorkspaceID, created bool, err error) {
+// discarded names the identity settings the caller supplied that a previous
+// installation's rows already occupied — empty on a first bootstrap, and empty
+// on the bind branch, which supplies nothing. It is returned rather than logged
+// because what a re-bootstrap SHOULD do with them is an open product question
+// (#863); refusing to be silent is the part that needs no ruling.
+func (s *Service) BootstrapInstallation(ctx context.Context, create func() (InstallationBootstrap, error), seed func(ctx context.Context, tx pgx.Tx) error) (wsID ids.WorkspaceID, created bool, discarded []string, err error) {
 	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
 			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
@@ -95,15 +100,15 @@ func (s *Service) BootstrapInstallation(ctx context.Context, create func() (Inst
 		if err != nil {
 			return err
 		}
-		wsID, err = createInstallation(ctx, tx, in, originConfigured, seed)
+		wsID, err = createInstallation(ctx, tx, in, originConfigured, seed, &discarded)
 		created = err == nil
 		return err
 	})
 	if err != nil {
-		return ids.WorkspaceID{}, false, err
+		return ids.WorkspaceID{}, false, nil, err
 	}
 	s.installation.Store(&wsID)
-	return wsID, created, nil
+	return wsID, created, discarded, nil
 }
 
 // InstallationWorkspace resolves the singleton organization for a
@@ -178,7 +183,13 @@ const (
 // createInstallation writes organization + first admin + system roles +
 // module seeds in the caller's transaction — either everything exists
 // afterwards or nothing does (the ADR-0043 bootstrap atomicity, kept).
-func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap, origin provisioningOrigin, seed func(ctx context.Context, tx pgx.Tx) error) (ids.WorkspaceID, error) {
+// discarded is an out-parameter rather than a third return value, and that is a
+// deliberate trade. This function has ten error returns; making the discards a
+// return value would restate every one of them to add a `nil`, which turns ten
+// untouched error paths into lines that read as changed to anything comparing
+// against the previous revision. The values it collects are a second OUTCOME of
+// a successful create, not a second result of the call.
+func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap, origin provisioningOrigin, seed func(ctx context.Context, tx pgx.Tx) error, discarded *[]string) (ids.WorkspaceID, error) {
 	boot := BootstrapInput{
 		WorkspaceName: in.OrganizationName,
 		Slug:          slugify(in.OrganizationName),
@@ -211,9 +222,11 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 	// by a caller: normalize() and the currency default above are the only
 	// place these values are resolved, and a second derivation elsewhere would
 	// drift from them (the columns that used to carry them are gone).
-	if err := seedInstallationIdentity(ctx, tx, boot.WorkspaceName, boot.Timezone, currency); err != nil {
+	dropped, err := seedInstallationIdentity(ctx, tx, boot.WorkspaceName, boot.Timezone, currency)
+	if err != nil {
 		return ids.WorkspaceID{}, err
 	}
+	*discarded = dropped
 
 	var userID ids.UserID
 	if err := tx.QueryRow(ctx,
@@ -324,7 +337,13 @@ func slugify(name string) string {
 // installation's identity (ADR-0090/A135). Seed, not Set: this runs inside
 // bootstrap's own transaction, before any principal exists to gate a settings
 // write, and it is creating the values rather than changing them.
-func seedInstallationIdentity(ctx context.Context, tx pgx.Tx, name, zone, currency string) error {
+//
+// It answers the keys that were NOT stored. `setting` is not tenant-scoped, so a
+// bootstrap over a database that already holds an installation's rows creates a
+// new workspace beside the old settings and every value the operator supplied is
+// discarded — which is #863. What should happen then is undecided; this only
+// makes sure the caller can say it happened.
+func seedInstallationIdentity(ctx context.Context, tx pgx.Tx, name, zone, currency string) (discarded []string, err error) {
 	for _, seed := range []struct {
 		entry *settings.Entry[string]
 		value string
@@ -333,9 +352,13 @@ func seedInstallationIdentity(ctx context.Context, tx pgx.Tx, name, zone, curren
 		{Timezone, zone},
 		{BaseCurrency, currency},
 	} {
-		if err := settings.SeedValue(ctx, tx, seed.entry, seed.value); err != nil {
-			return err
+		stored, err := settings.SeedValue(ctx, tx, seed.entry, seed.value)
+		if err != nil {
+			return nil, err
+		}
+		if !stored {
+			discarded = append(discarded, seed.entry.Key())
 		}
 	}
-	return nil
+	return discarded, nil
 }

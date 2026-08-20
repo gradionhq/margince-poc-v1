@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -71,7 +72,7 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 	}
 
 	svc := identity.NewService(pool)
-	wsID, created, err := svc.BootstrapInstallation(ctx, create, configuredSeed(cfg.Seeds, deals.NewHandlers(InstallationDB(pool), DealsInstallation())))
+	wsID, created, discarded, err := svc.BootstrapInstallation(ctx, create, configuredSeed(cfg.Seeds, deals.NewHandlers(InstallationDB(pool), DealsInstallation())))
 	if errors.Is(err, identity.ErrNotBootstrapped) {
 		// An empty database and no configured bootstrap_admin is not an error:
 		// it is the claim path (ADR-0105). Boot mints the token the first human
@@ -86,6 +87,16 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 		log.Info("installation bootstrapped", "workspace_id", wsID.String(), "organization", cfg.Organization.Name)
 	} else {
 		log.Info("installation bound to existing organization", "workspace_id", wsID.String())
+	}
+	// `setting` is not tenant-scoped, so a bootstrap over a database that still
+	// holds a previous installation's rows creates a new workspace beside them
+	// and keeps the OLD identity. The values in margince.yaml are then read,
+	// validated, and dropped. This is the whole of #863 that needs no product
+	// ruling: what should happen instead is undecided, but the operator should
+	// not have to infer from the UI that their file was ignored.
+	if len(discarded) > 0 {
+		log.Warn("this installation kept the identity already stored and discarded the values margince.yaml supplied; a previous installation's settings survived because they are not scoped to a workspace",
+			"discarded_keys", strings.Join(discarded, ", "), "workspace_id", wsID.String())
 	}
 	return nil
 }
@@ -246,7 +257,13 @@ func seedRetentionPosture(ctx context.Context, tx pgx.Tx, seeds deployconfig.See
 	if !seeds.RetainOnly() {
 		return nil
 	}
-	return settings.SeedValue(ctx, tx, privacy.RetainOnly, true)
+	// The stored answer is deliberately dropped here, and this is the one seed
+	// where that is defensible: the value is the constant true, so a discard can
+	// only have preserved a row that already says what this would have written.
+	// Nothing an operator supplied is lost, which is exactly what separates it
+	// from the identity trio.
+	_, err := settings.SeedValue(ctx, tx, privacy.RetainOnly, true)
+	return err
 }
 
 // seedBookingPage provisions the admin's public booking page (the read carries
