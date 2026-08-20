@@ -388,6 +388,14 @@ func (d *Dispatcher) classifySendFailure(ctx context.Context, del Delivery, err 
 	// capability a connector DECLARES; this is the connector refusing what its
 	// own send path cannot honour, which is the half no gate above it can see.
 	if errors.Is(err, connector.ErrFilesNotCarried) {
+		// The cause is LOGGED rather than dropped. filesNotCarriedReason cannot
+		// carry it — a park reason is read by the person who wrote the message,
+		// and the refusals below the gate name a file, a byte count and a bound
+		// that were built for an operator — but those are the only statement of
+		// WHICH file and WHICH limit ended this delivery. Parking returns nil, so
+		// without this line the job succeeds and the sentence disappears.
+		slog.ErrorContext(ctx, "comms: the channel refused the files this message was staged with; the delivery is parked",
+			"delivery_id", del.ID, "provider", del.Provider, "err", err)
 		return d.park(ctx, del.ID, filesNotCarriedReason)
 	}
 	// Honour the provider's own interval when it named one: it knows when it

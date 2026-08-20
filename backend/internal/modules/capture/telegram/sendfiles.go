@@ -76,20 +76,33 @@ const (
 	maxCaptionRunes         = 1024
 )
 
-// uploadBudget is the whole-request deadline for one upload, and it is sized
-// from the declared bounds rather than picked: a full album is 10 files at
-// 20 MiB, which measured about two minutes on an ordinary uplink. Four minutes
-// is roughly double that, and it stays UNDER the send job's own five-minute
-// timeout — a budget at or above the job's would let the job be killed first,
-// which reports an outcome Telegram never gave for a message that may well have
-// arrived.
+// uploadBudget is the whole-request deadline for one upload. It is sized rather
+// than picked, and the sizing has TWO terms, because the job it runs inside
+// spends time before the upload starts.
+//
+// The upload itself: a message's files are capped at 20 MiB in aggregate by the
+// read seam that loads them, and 20 MiB measured about twelve seconds on an
+// ordinary uplink. The rest of the job: that same 20 MiB comes out of the
+// blobstore first, and the seat, consent and pacing gates each cost a database
+// round trip. Three minutes is an order of magnitude over the measured upload
+// and still leaves two of the send job's five minutes for everything upstream of
+// it — a budget sized against the upload ALONE would let the job be killed
+// mid-send, which reports an outcome Telegram never gave for a message that may
+// well have arrived.
 //
 // It replaces the 30-second bound every other Bot API call rides. That bound is
 // right for a JSON round trip and fatal here: an upload cut off mid-send answers
 // ErrUnreachable, the send path classifies that as an outcome nobody knows, and
 // the delivery parks without a retry — every time, for a message this connector
 // declares it carries.
-const uploadBudget = 4 * time.Minute
+//
+// The cost of holding a worker this long is real and is recorded rather than
+// waved past: the send job runs on the SHARED default queue, so concurrent
+// attachment sends can occupy it for minutes while Telegram polls and capture
+// syncs wait behind them. That is a queue-topology fix, not a budget one
+// (#2063) — shortening this budget instead would just move the failure back to
+// cutting uploads off mid-send.
+const uploadBudget = 3 * time.Minute
 
 // The two provider methods the upload path uses. Named because the method a
 // message took is reported in every error from here, and an operator reading one
@@ -175,7 +188,7 @@ func uploadMethod(m OutboundChannelMessage) (string, error) {
 // has to decide what to do about it — "too large" without the number tells them
 // to guess.
 //
-// Every refusal answers connector.ErrFilesNotCarried, which is the sentinel
+// Every CARRIAGE refusal answers connector.ErrFilesNotCarried, which is the sentinel
 // written for exactly this case and is what makes the delivery PARK instead of
 // climbing the retry ladder: none of these can come out differently on a second
 // attempt, and a ladder spent on a deterministic refusal re-reads every file
@@ -201,10 +214,16 @@ func carriable(m OutboundChannelMessage) error {
 	for i, file := range m.Files {
 		if len(file.Body) == 0 {
 			// Telegram refuses an empty document, and refusing it HERE is the
-			// difference between a park a person can act on and a 400 that reads
-			// as a provider condition: a file with no bytes has none on the next
-			// attempt either, so the generic ladder would spend itself and then
-			// park under a reason naming no cause.
+			// difference between a park and a 400 that reads as a provider
+			// condition: a file with no bytes has none on the next attempt either,
+			// so the ladder would spend itself and then park naming no cause.
+			//
+			// This is the one refusal here that is NOT a declared bound, and that
+			// is a gap rather than a design: Carriage has no field for it, so the
+			// gate above cannot refuse it and the composer cannot warn about it.
+			// The real fix is to refuse an empty attachment at the door (#2062) —
+			// no transport can send one — after which this becomes the
+			// belt-and-braces it should be rather than the only line of defence.
 			return fmt.Errorf("telegram: %q has no content, and a file with no bytes cannot be sent: %w",
 				partName(i, file), connector.ErrFilesNotCarried)
 		}
@@ -338,20 +357,14 @@ func partName(index int, file connector.OutboundFile) string {
 
 // declaredType is the content type a part announces.
 //
-// It goes through mime.FormatMediaType for the reason the filename goes through
-// SafeFilename: this value is written verbatim into a header, and it arrives
-// from whatever the upload declared — nothing on the write path that stored it
-// validated it. FormatMediaType answers the empty string for anything it cannot
-// represent, including a value carrying CR/LF, so a type that would write its
-// own headers becomes the honest fallback instead. That fallback is what the
-// mail sibling uses for the same reason: a recipient offered
-// application/octet-stream downloads the file, where a guessed type renders a
-// PDF as gibberish.
+// It goes through extension.SendableContentType for the reason the filename goes
+// through SafeFilename: this value is written verbatim into a header, and it
+// arrives from whatever the upload declared — nothing on the write path that
+// stored it validated it. That helper is the ONE spelling of the question, which
+// the mail renderer asks too; a second spelling here is a second answer about
+// which content types survive a send.
 func declaredType(file connector.OutboundFile) string {
-	if formatted := mime.FormatMediaType(file.ContentType, nil); formatted != "" {
-		return formatted
-	}
-	return "application/octet-stream"
+	return mime.FormatMediaType(extension.SendableContentType(file.ContentType))
 }
 
 // writeFilePart attaches one file's bytes under the name a media item points at.

@@ -47,10 +47,16 @@ var ErrRecipientUnreachable = errors.New("telegram: the recipient cannot be reac
 // 502; connect wrote nothing, so an operator simply retries.
 var ErrUnreachable = errors.New("telegram: could not reach Telegram")
 
-// ErrRequestRejected marks a request Telegram understood and refused on its
-// own terms — a webhook URL it will not accept, a chat that blocked the bot, a
-// rate limit. The token is fine and Telegram is up, so neither of the other
-// two sentinels would be honest.
+// ErrRequestRejected marks a request that will not be accepted AS STATED —
+// either because Telegram understood it and refused on its own terms (a webhook
+// URL it will not accept, a chat that blocked the bot, a rate limit), or because
+// this side could not state it at all (a reply anchor that is not a provider
+// message id, a request that would not build).
+//
+// The two share this sentinel because they share the remedy: the token is fine
+// and Telegram is up, so neither of the other two sentinels would be honest, and
+// nothing was transmitted either way. What differs is only who noticed, and no
+// caller branches on that.
 var ErrRequestRejected = errors.New("telegram: the request was rejected")
 
 // ErrWebhookActive marks Telegram's 409 on getUpdates: something else already

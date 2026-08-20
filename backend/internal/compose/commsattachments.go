@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // commsAttachments answers the transmit-time question about a delivery's files:
@@ -139,20 +140,43 @@ func (a commsAttachments) ReadForSend(
 			return nil, err
 		}
 		total += int64(len(body))
-		if total > maxSendBytes {
-			// The count is capped in the contract and the size per file at
-			// upload, and neither bounds their PRODUCT — ten files at the
-			// upload limit is a quarter of a gigabyte held at once, and the
-			// base64 encoding below doubles it. Refusing here is what keeps a
-			// worker that serves every send in the installation from dying of
-			// one message.
-			return nil, fmt.Errorf(
-				"comms: this message's files total more than %d MiB, which is more than a send may carry",
-				maxSendBytes>>20)
+		if err := overSendBudget(total); err != nil {
+			return nil, err
 		}
 		out = append(out, body)
 	}
 	return out, nil
+}
+
+// overSendBudget refuses a running total past what one message may carry, and
+// answers nil while it is within it.
+//
+// A function rather than an inline comparison because it is the ONLY statement
+// of the aggregate bound anywhere — no published descriptor carries it (#2047),
+// so nothing above can refuse it, and inline it could not be tested without a
+// pool, a blobstore and twenty megabytes of fixture.
+//
+// The bound exists because the count is capped in the contract and the size per
+// file at upload, and neither bounds their PRODUCT: ten files at the upload
+// limit is a quarter of a gigabyte held at once, and base64 encoding doubles it.
+// Refusing keeps a worker that serves every send in the installation from dying
+// of one message.
+//
+// It answers connector.ErrFilesNotCarried so the delivery PARKS rather than
+// climbing the retry ladder. The refusal is deterministic — the same files total
+// the same bytes on every attempt — and the ladder would re-open every object
+// from the blobstore once per rung before parking under "the retry ladder is
+// exhausted", which names no cause. It is reachable from a message both
+// published bounds admit, because a transport declaring ten files at 20 MiB each
+// promises ten times what this allows, so parking is the least it owes the
+// person who was told the message would go.
+func overSendBudget(total int64) error {
+	if total <= maxSendBytes {
+		return nil
+	}
+	return fmt.Errorf(
+		"comms: this message's files total more than %d MiB, which is more than a send may carry: %w",
+		maxSendBytes>>20, connector.ErrFilesNotCarried)
 }
 
 // maxSendBytes caps what ONE message may carry in total.

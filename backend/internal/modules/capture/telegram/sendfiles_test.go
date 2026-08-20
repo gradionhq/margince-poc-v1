@@ -32,6 +32,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -385,6 +386,10 @@ func TestSendFilesNeverLetsAContentTypeWriteItsOwnHeaders(t *testing.T) {
 			"application/octet-stream",
 		},
 		{"a type that is not a media type at all", "not a media type", "application/octet-stream"},
+		// The case a bare mime.FormatMediaType silently discarded: a parameter is
+		// not a reason to throw the type away, and a mail-captured text part
+		// routinely carries one.
+		{"an honest type with a parameter", "text/plain; charset=utf-8", "text/plain; charset=utf-8"},
 		{"no declared type at all", "", "application/octet-stream"},
 		{"an honest type, carried through", "image/png", "image/png"},
 	} {
@@ -447,9 +452,18 @@ func TestTheUploadIsGivenABudgetAnUploadCanMeet(t *testing.T) {
 	// It must also stay UNDER the send job's own timeout: a budget at or above the
 	// job's would let the job be killed first, reporting an outcome Telegram never
 	// gave for a message that may well have arrived.
-	if sendJobTimeout := 5 * time.Minute; uploadBudget >= sendJobTimeout {
+	//
+	// The job's timeout is READ from the job contract, never restated here. A copy
+	// of the number would leave this — the only gate on the relationship — green
+	// while somebody lowered the real timeout underneath it, which is the exact
+	// shape of a test that supplies its own version of production.
+	spec, declared := jobs.SpecFor("comms_send_email")
+	if !declared {
+		t.Fatal("comms_send_email is not a declared job kind; this gate has nothing to hold the upload budget against")
+	}
+	if uploadBudget >= spec.Timeout.Fixed {
 		t.Fatalf("the upload budget is %s and the send job's timeout is %s; the job would be "+
-			"killed before the upload could answer", uploadBudget, sendJobTimeout)
+			"killed before the upload could answer", uploadBudget, spec.Timeout.Fixed)
 	}
 
 	for _, tc := range []struct {
