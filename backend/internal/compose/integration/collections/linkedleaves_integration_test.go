@@ -73,13 +73,10 @@ func TestATeamFilterSelectsEveryMembersRecords(t *testing.T) {
 // `exists: false` on the team leaf finds the records no team's review covers, and
 // an unowned record is one of them.
 //
-// It does NOT cover the other arm — a record whose owner exists and belongs to no
-// team — and the name says so, because that arm is what distinguishes this leaf
-// from `owner_id exists: false` and a wrong implementation would pass here
-// without it. The harness puts all three of its seats in a team, so the arm needs
-// a teamless seat that does not exist yet; adding one touches shared identity
-// seeding that the seat-ceiling and licence-entitlement suites count rows in.
-// Tracked rather than faked.
+// The OTHER arm — an owner who exists and belongs to no team — is the one that
+// distinguishes this leaf from `owner_id exists: false`, and it is asserted
+// directly below rather than here, so that a change breaking one of the two
+// reasons a record is uncovered names which one.
 func TestAnUnownedRecordIsCoveredByNoTeam(t *testing.T) {
 	f := setupFixture(t)
 	inATeam := f.ownedOrg(t, "Held by Rep1", f.e.Rep1)
@@ -109,6 +106,53 @@ func TestAnUnownedRecordIsCoveredByNoTeam(t *testing.T) {
 	}
 	if got[inATeam] {
 		t.Error("an account whose owner IS in a team is reported as covered by none")
+	}
+}
+
+// The arm that distinguishes this leaf from `owner_id exists: false`: an owner
+// who EXISTS and belongs to no team.
+//
+// A wrong implementation compiling the leaf to `t.owner_id IS NULL` passes every
+// other assertion in this file — both spellings look plausible in a diff, and
+// only a row whose owner is real but teamless tells them apart.
+//
+// No new fixture is needed for it, which is worth stating because the opposite
+// was believed: the harness seeds FOUR app_user rows and gives memberships to
+// three, so AdminUser is already a seat in no team. The precondition is asserted
+// rather than assumed — the day somebody puts that seat in a team, this test says
+// so in one line instead of failing as a filter bug.
+func TestARecordWhoseOwnerIsInNoTeamIsCoveredByNoTeam(t *testing.T) {
+	f := setupFixture(t)
+	if inATeam := f.e.WsCount(t,
+		"SELECT count(*) FROM team_membership WHERE user_id = $1", f.e.AdminUser); inATeam != 0 {
+		t.Fatalf("the admin seat now belongs to %d team(s), so it can no longer stand for a teamless owner — give this test a seat that belongs to none", inATeam)
+	}
+
+	teamlessOwner := f.ownedOrg(t, "Held by a seat in no team", f.e.AdminUser)
+	inATeam := f.ownedOrg(t, "Held by Rep1", f.e.Rep1)
+
+	list, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "no team covers these either", EntityType: "organization", ListType: "dynamic",
+		Definition: map[string]any{
+			"field": "owner_team_id", "op": "exists", "value": false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+
+	got := memberIDs(t, f, list.ID)
+	if !got[teamlessOwner] {
+		t.Error("an account whose owner is real but belongs to no team is not counted as covered by no team — which is what the leaf compiling to `owner_id IS NULL` would produce")
+	}
+	if got[inATeam] {
+		t.Error("an account whose owner IS in a team is reported as covered by none")
+	}
+	// The owner is genuinely there, so this is not the unowned arm wearing a
+	// different name.
+	if owned := f.e.WsCount(t,
+		"SELECT count(*) FROM organization WHERE id = $1 AND owner_id IS NOT NULL", teamlessOwner); owned != 1 {
+		t.Error("the record under test has no owner, so it proves the unowned arm a second time rather than the teamless-owner one")
 	}
 }
 
