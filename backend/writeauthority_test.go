@@ -103,7 +103,7 @@ var readAuthorityOnAWritePath = gatekit.Waive(map[string]string{
 	"internal/modules/people:ensureOrgDomainsUnclaimedExcept": "the edit path's twin of the same probe over the same rival row; the organization being edited took auth.EnsureWritable before this runs",
 	"internal/modules/people:refusedOrgCreate":                "the duplicate-domain 409's disclosure decision: it names the incumbent organization only when the caller could have READ it, and writes nothing to that row. The create it is refusing is gated by organization:create",
 	"internal/modules/people:refusedPersonCreate":             "the person twin of refusedOrgCreate, and the same decision: whether the conflict may carry the incumbent's id, never whether the caller may change that person",
-	"internal/modules/people:GetDedupeCandidate":              "a READ of one dedupe pair, probing BOTH sides because the evidence names both and a pair with an out-of-scope side must read as absent. The merge a human may then ask for goes through mergePair, which takes the write-authority probe on each end",
+	"internal/modules/people:GetDedupeCandidate":              "a READ of one dedupe pair, probing BOTH sides because the evidence names both and a pair with an out-of-scope side must read as absent. EVERY verb that may follow takes its own write-authority probe on each end — dismiss and undo through ensurePairWritable, and the merge through mergePair on top of it. Naming only one of the three is what let a dismissal ride this read for as long as it did",
 
 	// Reads that sit inside a flow which also writes. Each is the read half,
 	// and each names where the write half takes its own authority.

@@ -5173,7 +5173,9 @@ export interface paths {
          *     `mergeOrganization` server-side — one merge in the system, no second verb.
          *     `not_a_duplicate` flips the row and suppresses the pair from every future
          *     sweep (AC-dedupe-7). `409 already_disposed`; `422` when `winner_id` is not
-         *     one of the pair.
+         *     one of the pair. Deciding a pair CHANGES both records, so the caller needs
+         *     write authority over each of them and not merely the object grant — a seat
+         *     that can read the pair but change neither gets `403`.
          */
         post: operations["disposeDedupeCandidate"];
         delete?: never;
@@ -5197,7 +5199,9 @@ export interface paths {
          * Re-open a disposed pair.
          * @description A dismissed pair re-opens (the suppression lifts). A merged pair needs the
          *     merge verb's reversibility (PO-AC-M6) — `409 not_undoable` until the
-         *     survivor-side restore exists or when the survivor mutated since.
+         *     survivor-side restore exists or when the survivor mutated since. Re-opening
+         *     changes both records the pair names, so it needs write authority over each,
+         *     exactly as the disposition does — `403` otherwise.
          */
         post: operations["undoDedupeDisposition"];
         delete?: never;
@@ -27506,6 +27510,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
@@ -27532,6 +27537,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
         };
