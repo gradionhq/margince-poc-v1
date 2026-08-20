@@ -99,13 +99,15 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 const setupTokenFile = "config/margince-setup-token" // #nosec G101 -- a path, not a credential; the token itself is never a literal
 
 // announceSetupToken mints the claim credential when none is outstanding and
-// puts it where the operator will find it: the server log, and a 0600 file
-// whose resolved path the log names.
+// puts it where the operator will find it: a 0600 file, whose resolved path the
+// server log names.
 //
-// Both, not one. The log is where an operator watching a first boot is already
-// looking; the file is what survives a log pipeline that dropped the line, and
-// what a `kubectl exec` can read afterwards. Neither is the database — only the
-// hash is stored there, so a backup cannot be replayed into a claim.
+// Two channels, and only one of them carries the value. The file is what a
+// `kubectl exec` can read afterwards and what survives a log pipeline that
+// dropped the line; the log is where an operator watching a first boot is
+// already looking, so it names the path and falls back to the token itself only
+// when the file could not be written. Neither is the database — only the hash is
+// stored there, so a backup cannot be replayed into a claim.
 //
 // An already-outstanding token is reported, never replaced: a boot that minted
 // a fresh one would silently invalidate the token an operator had already read
@@ -125,12 +127,20 @@ func announceSetupToken(ctx context.Context, svc *identity.Service, log *slog.Lo
 		return fmt.Errorf("compose: minting the setup token for an unprovisioned installation: %w", err)
 	}
 	path, writeErr := writeSetupTokenFile(raw)
-	// The log line carries the token itself, so it survives a failed file
-	// write — that is the whole reason for having two channels rather than
-	// one, and refusing to boot here would strand an installation over a
-	// read-only directory when the operator can already read the token above.
-	log.Warn("installation is unprovisioned: claim it with this one-time setup token",
-		"setup_token", raw, "token_file", path, "write_error", writeErr)
+	// The credential reaches the log only when the file could not hold it. The
+	// two channels are not interchangeable: the 0600 file has one reader and a
+	// lifetime, while the log is read by everyone the log store admits and keeps
+	// the token in a searchable index long after the installation is claimed. A
+	// write failure must not strand an installation over a read-only directory,
+	// so the boot continues either way — it is the token, not the announcement,
+	// that the successful write withholds.
+	if writeErr != nil {
+		log.Warn("installation is unprovisioned and the setup-token file could not be written: claim it with this one-time setup token",
+			"setup_token", raw, "token_file", path, "write_error", writeErr)
+		return nil
+	}
+	log.Warn("installation is unprovisioned: claim it with the one-time setup token in the token file",
+		"token_file", path)
 	return nil
 }
 
