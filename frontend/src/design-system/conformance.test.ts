@@ -629,3 +629,67 @@ describe("motion", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The pending vocabulary. Four spellings of "this is loading" grew here before
+// they were collapsed into `PendingBody`: three inline-styled bars in
+// QueryStates, one silent 32px bar in SurfaceState, five unanimated bone rows
+// in ListTable, and a long tail of hand-rolled bars and bare "Loading…" lines.
+// They disagreed about the shape and the height, and — the part a reader could
+// not see — about whether anything was ANNOUNCED at all: three screens had
+// bolted their own visually-hidden line beside a mute placeholder, which is the
+// tell that the primitive was missing something rather than that they were
+// special.
+//
+// A fifth spelling is one `<div role="status" aria-busy="true">` away, and it
+// looks correct in review. So the gate is that the announcement has exactly one
+// home.
+// ---------------------------------------------------------------------------
+
+describe("pending states", () => {
+  const PENDING_HOME = join("src", "design-system", "atoms.tsx");
+
+  it("announces a pending region from exactly one component", () => {
+    const declared = files
+      .filter((file) => file.endsWith(".tsx"))
+      .filter((file) => !/\.(test|stories)\.tsx$/.test(file))
+      .filter((file) =>
+        /aria-busy=["']true["']/.test(readFileSync(file, "utf8")),
+      )
+      .map((file) => relative(frontendRoot, file));
+
+    // A control's own busy state is a different fact and reads it from a
+    // variable (`aria-busy={busy || undefined}`), so it never matches the
+    // literal above — Button and Switch are not exceptions to carve out here,
+    // they are simply not pending REGIONS.
+    expect(
+      declared,
+      `a pending region must come from PendingBody (${PENDING_HOME}); ` +
+        `these files declare one of their own: ${declared.join(", ")}`,
+    ).toEqual([PENDING_HOME]);
+  });
+
+  it("keeps the placeholder pulse to one selector", () => {
+    // `.lt-bone` was the tell: it painted its own fill and radius and simply
+    // forgot the animation, so a table's five placeholder rows were the one
+    // mark in the product that did not move — indistinguishable from a list
+    // that had answered with five blank rows. It also missed `.skeleton`'s
+    // reduced-motion answer, which the gate above can only check for rules that
+    // exist.
+    //
+    // Whether a given box is "a placeholder" is not a question CSS can answer,
+    // so this asks the answerable half: the pulse belongs to ONE class, and a
+    // second placeholder therefore has to carry that class rather than restate
+    // it. Restating it is what drops half the behaviour.
+    const wearers = cssFiles.flatMap((file) =>
+      plainRules(readFileSync(file, "utf8"))
+        .filter((rule) => /animation[^;]*\bds-pulse\b/.test(rule.body))
+        .map((rule) => `${relative(frontendRoot, file)} ${rule.selector}`),
+    );
+    expect(
+      wearers,
+      "the placeholder pulse has more than one home; a placeholder carries " +
+        "`.skeleton` and adds only its own geometry",
+    ).toEqual(["src/design-system/atoms.css .skeleton"]);
+  });
+});

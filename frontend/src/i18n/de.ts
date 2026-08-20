@@ -176,6 +176,7 @@ export const de = {
   "deal.singleThreaded": "nur ein Kontakt",
   "deal.staged": "vorgemerkt",
   "record.notShown": "Nicht angezeigt",
+  "record.timelineLoading": "Verlauf dieses Datensatzes wird geladen…",
   "record.timeline": "Verlauf",
   "record.edit": "Bearbeiten",
   "record.save": "Speichern",
@@ -354,6 +355,7 @@ export const de = {
   "state.unsupported":
     "In diesem Modus nicht verfügbar — das angebundene System führt es nicht",
   "state.failed": "Dieser Abschnitt wurde nicht geladen.",
+  "state.loading": "Dieser Abschnitt wird geladen…",
   "state.retry": "Erneut versuchen",
   "state.stale": "Zuletzt bekannte Werte — seitdem nicht aktualisiert",
   "state.staleAsOf": "Zuletzt bekannte Werte, Stand {when}",

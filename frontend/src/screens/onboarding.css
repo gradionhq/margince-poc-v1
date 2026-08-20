@@ -322,31 +322,6 @@
   color: var(--textSecondary);
 }
 
-/* read-back skeleton (loading) */
-.rfield.skel {
-  pointer-events: none;
-}
-.skel-bar {
-  height: 11px;
-  border-radius: var(--r-full);
-  background: linear-gradient(
-    90deg,
-    var(--bgCard) 25%,
-    var(--bgHover) 37%,
-    var(--bgCard) 63%
-  );
-  background-size: 400% 100%;
-  animation: obShimmer 1.4s ease infinite;
-}
-@keyframes obShimmer {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: -100% 0;
-  }
-}
-
 /* honest read-failure card */
 .readfail {
   display: flex;
@@ -2309,10 +2284,6 @@
   .ob-spinner,
   .ob-core-live,
   .mw-thinking span,
-  /* The read-back skeleton's sweep: infinite, so it is the one here a reader
-     cannot wait out. The band stays — the SHAPE is what says the field is
-     coming — and only the sweep across it stops. */
-  .skel-bar,
   .ob-core-choices button {
     animation: none;
     transition: none;

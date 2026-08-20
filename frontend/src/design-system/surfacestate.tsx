@@ -3,7 +3,7 @@
 
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
-import { Button, Skeleton } from "./atoms";
+import { Button, PendingBody } from "./atoms";
 import { Eyebrow } from "./eyebrow";
 import "./surfacestate.css";
 
@@ -157,12 +157,20 @@ export function SurfaceState({
   label,
   state,
   emptyLabel,
+  loadingLabel,
+  loadingLines,
   detail,
   children,
 }: Readonly<{
   label?: string;
   state: SectionState;
   emptyLabel: string;
+  // What this section is waiting for, and how tall it will be when it arrives.
+  // `loadingLabel` is the caller's because only the caller knows: the loading
+  // arm used to be a mute bar, and three screens had bolted their own spoken
+  // line beside it rather than being able to hand it one.
+  loadingLabel?: string;
+  loadingLines?: number;
   // What the four §7 states need in order to be honest. Each is read by
   // exactly one state and ignored by the rest; a state whose detail is absent
   // still renders, one sentence shorter.
@@ -180,7 +188,12 @@ export function SurfaceState({
       {state === "unavailable" && (
         <p className="surfacestate-withheld">{t("state.unavailable")}</p>
       )}
-      {state === "loading" && <Skeleton width="100%" height={32} />}
+      {state === "loading" && (
+        <PendingBody
+          label={loadingLabel ?? t("state.loading")}
+          lines={loadingLines}
+        />
+      )}
       {state === "unsupported" && (
         <p className="surfacestate-withheld">
           {detail?.unsupportedReason ?? t("state.unsupported")}

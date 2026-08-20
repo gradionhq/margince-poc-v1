@@ -496,12 +496,18 @@
 }
 
 /* Placeholder rows: the list keeps its shape while the first page arrives, so
- * the header and the controls do not sit above an empty box. */
+ * the header and the controls do not sit above an empty box.
+ *
+ * The fill and the pulse come from `.skeleton` (atoms.css), which the element
+ * also carries — this rule is only the geometry a table cell needs. It used to
+ * restate the background itself and, because it restated it INCOMPLETELY, a
+ * bone was the one placeholder in the product that did not pulse: five still
+ * bars under a header, indistinguishable from a list that had answered with
+ * five blank rows. */
 .lt-bone {
   display: block;
   height: 10px;
   border-radius: var(--r-full);
-  background: var(--bgCard);
 }
 .lt-loading td {
   border-bottom: 1px solid var(--borderSubtle);
@@ -724,13 +730,6 @@
 .lt > .btn,
 .lt > button {
   margin: var(--space-3) var(--space-4);
-}
-
-/* The pending ladder the bound list renders in place of the surface. */
-.list-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
 }
 
 /* ---- pager ---- */

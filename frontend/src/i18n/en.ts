@@ -187,6 +187,7 @@ export const en = {
   "deal.staged": "staged",
   "deal.archived": "archived",
   "record.notShown": "Not shown",
+  "record.timelineLoading": "Loading this record’s history…",
   "record.timeline": "Timeline",
   "record.edit": "Edit",
   "record.save": "Save",
@@ -373,6 +374,7 @@ export const en = {
   "state.unsupported":
     "Not available in this mode — the connected system does not hold it",
   "state.failed": "This section did not load.",
+  "state.loading": "Loading this section…",
   "state.retry": "Try again",
   "state.stale": "Last known values — not refreshed since",
   "state.staleAsOf": "Last known values, as of {when}",

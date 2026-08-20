@@ -61,6 +61,7 @@ import {
   QueryGate,
   QueryStates,
   throwProblem,
+  timelineZoneNotice,
   useMe,
   useSorMode,
   useViewerId,
@@ -2137,7 +2138,10 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                     )
                   : []
               }
-              timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
+              timelineNotice={timelineZoneNotice(
+                { overlay, pending: timelineQuery.isPending },
+                t,
+              )}
             >
               <div style={{ marginBottom: 16 }}>
                 <SegmentedControl

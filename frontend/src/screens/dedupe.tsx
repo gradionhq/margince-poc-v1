@@ -140,18 +140,12 @@ export function DedupeScreen() {
           reached only once the queue has actually answered. */}
       {!queue.isError && (
         <div className="dedupe-queue arrive-stack">
-          {/* SurfaceState's loading state is a shimmer bar, which carries no
-              text at all — the same gap QueryStates covers with a spoken line
-              beside its skeletons. Without it a reader who cannot see the bar
-              hears nothing between mount and the first pair. */}
-          {queue.isPending && (
-            <span className="sr-only" role="status">
-              {t("dedupe.loading")}
-            </span>
-          )}
           <SurfaceState
             state={queueState(queue.isPending, candidates.length)}
             emptyLabel={t("dedupe.empty")}
+            loadingLabel={t("dedupe.loading")}
+            // A pair of candidate cards, which is what one review looks like.
+            loadingLines={6}
           >
             {candidates.map((c) => (
               <CandidateCard

@@ -257,6 +257,41 @@
   }
 }
 
+/*
+ * The pending body: a column of placeholder lines, and the widths are declared
+ * HERE rather than passed in. Three bars at 60/90/75% were an inline style at
+ * one call site and a guess at the others; a pattern in the stylesheet makes
+ * every pending surface in the product ragged the same way, which is what makes
+ * it read as one thing rather than as each card improvising.
+ *
+ * The ragged edge is the point. Equal-width bars read as a table; unequal ones
+ * read as prose that has not arrived, which is what is usually coming.
+ */
+.pending {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.pending-note {
+  margin: 0;
+  color: var(--textMeta);
+}
+.pending-line {
+  height: 14px;
+}
+/* A repeating three-step rhythm, so a two-line reservation and a nine-line one
+   are cut from the same cloth. `n + 1` counts from the first line whatever the
+   note above it does — the note is a `<p>`, not a line. */
+.pending-line:nth-of-type(3n + 1) {
+  width: 60%;
+}
+.pending-line:nth-of-type(3n + 2) {
+  width: 90%;
+}
+.pending-line:nth-of-type(3n) {
+  width: 75%;
+}
+
 .empty {
   text-align: center;
   padding: 36px 20px;

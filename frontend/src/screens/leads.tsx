@@ -28,6 +28,7 @@ import {
   problemMessageOf,
   QueryGate,
   throwProblem,
+  timelineZoneNotice,
   useMe,
   useSorMode,
   useViewerId,
@@ -1523,7 +1524,10 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 ? activityTimeline(timelineQuery.data.data, viewerId)
                 : []
             }
-            timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
+            timelineNotice={timelineZoneNotice(
+              { overlay, pending: timelineQuery.isPending },
+              t,
+            )}
             // The readings ride the band, above the columns: they describe the
             // PROSPECT, and a strip that vanished on the History tab would
             // move the tab bar and re-flow the page under the reader.

@@ -183,6 +183,7 @@ export const vi = {
   "deal.staged": "chờ duyệt",
   "deal.archived": "đã lưu trữ",
   "record.notShown": "Không hiển thị",
+  "record.timelineLoading": "Đang tải lịch sử của bản ghi này…",
   "record.timeline": "Timeline",
   "record.edit": "Sửa",
   "record.save": "Lưu",
@@ -352,6 +353,7 @@ export const vi = {
   "state.unsupported":
     "Không có ở chế độ này — hệ thống đang kết nối không lưu dữ liệu đó",
   "state.failed": "Phần này không tải được.",
+  "state.loading": "Đang tải phần này…",
   "state.retry": "Thử lại",
   "state.stale": "Giá trị biết đến gần nhất — chưa làm mới từ đó",
   "state.staleAsOf": "Giá trị biết đến gần nhất, tính đến {when}",
