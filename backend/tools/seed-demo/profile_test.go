@@ -312,3 +312,69 @@ func TestLeadAssignRankIsIndependentOfRunHistory(t *testing.T) {
 		}
 	}
 }
+
+// TestNameLocaleForFollowsTheCompany pins which naming culture a company's
+// generated lead is drawn from. The bug this replaces put a German name on a
+// Korean and a Vietnamese company, four rows apart on the first page of the
+// lead list.
+func TestNameLocaleForFollowsTheCompany(t *testing.T) {
+	for domain, want := range map[string]nameLocale{
+		"gamsoft.kr":     namesKO,
+		"condt.co.kr":    namesKO,
+		"utp.or.kr":      namesKO,
+		"dacell.com":     namesKO, // Korean company on a .com
+		"hongikinfo.com": namesKO,
+		"aubot.vn":       namesVI,
+		"i-soft.com.vn":  namesVI,
+	} {
+		if got := nameLocaleFor(domain); got != want {
+			t.Errorf("nameLocaleFor(%q) = %q, want %q", domain, got, want)
+		}
+	}
+}
+
+// TestGeneratedLeadNamesAreDistinct is the other half of the same bug: an 8x8
+// German pool hashed by domain produced "Kilian Wenzel" nine times across 45
+// leads. Names are now assigned by rank, so a pool bigger than the lead count
+// cannot repeat.
+func TestGeneratedLeadNamesAreDistinct(t *testing.T) {
+	for _, culture := range []nameLocale{namesDE, namesVI, namesKO, namesEN} {
+		pool := leadNamesByLocale[culture]
+		seen := map[string]bool{}
+		// One more than any single dataset draws from one culture.
+		for rank := 0; rank < 16; rank++ {
+			first, last := generatedLeadName("example."+string(culture), rank)
+			name := first + " " + last
+			if seen[name] {
+				t.Errorf("%s: %q repeats within the first 16 ranks", culture, name)
+			}
+			seen[name] = true
+		}
+		if len(pool.First) < 16 || len(pool.Last) < 16 {
+			t.Errorf("%s pool is too small to keep 16 leads distinct: %d first, %d last",
+				culture, len(pool.First), len(pool.Last))
+		}
+	}
+}
+
+// TestFoldASCIIProducesAMailableLocalPart pins the folding. Without it a
+// Vietnamese lead was handed thao.đỗ@example.com — combining marks and a
+// D-with-stroke in an address, which no mail system produces.
+func TestFoldASCIIProducesAMailableLocalPart(t *testing.T) {
+	for in, want := range map[string]string{
+		"Nguyễn":  "nguyen",
+		"Đỗ":      "do",
+		"Đặng":    "dang",
+		"Thảo":    "thao",
+		"Krüger":  "krueger",  // German expands rather than dropping the mark
+		"Jüttner": "juettner", // matches the dataset's own synth_emails.py
+		"Weiß":    "weiss",
+		"Ji-woo":  "jiwoo",
+		"Grønn":   "gronn",
+		"Kessler": "kessler",
+	} {
+		if got := foldASCII(in); got != want {
+			t.Errorf("foldASCII(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

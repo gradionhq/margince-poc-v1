@@ -19,6 +19,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // profileStageName maps a profile's stage to the workspace pipeline's own
@@ -179,6 +182,10 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 	}
 
 	leadRank := leadAssignRank(plan)
+	// Per-culture counters: each pool is walked from its own zero, so a
+	// dataset with four Korean leads uses the first four Korean names rather
+	// than whatever positions the global order happens to land on.
+	nameRank := map[nameLocale]int{}
 
 	for _, domain := range sortedDomains(plan) {
 		p := plan[domain]
@@ -189,7 +196,9 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 		if !ok {
 			continue
 		}
-		first, last := generatedLeadName(domain)
+		culture := nameLocaleFor(domain)
+		first, last := generatedLeadName(domain, nameRank[culture])
+		nameRank[culture]++
 		title := generatedLeadTitle(domain)
 		sourceID := "gen-lead-" + domain
 
@@ -282,16 +291,27 @@ func leadCreateStatus(want string) string {
 	}
 }
 
-var leadFirstNames = []string{"Jonas", "Mareike", "Tobias", "Svenja", "Kilian", "Annika", "Fabian", "Carla"}
-var leadLastNames = []string{"Wenzel", "Achterberg", "Roth", "Lindqvist", "Sommer", "Baumgart", "Reinhold", "Kessler"}
-var leadTitles = []string{
-	"Head of E-Commerce", "Digital Product Owner", "Leiter IT", "Marketing Manager",
-	"Head of Operations", "Projektleiterin Digitalisierung",
-}
-
-func generatedLeadName(domain string) (string, string) {
-	first := leadFirstNames[hashIndex("leadfirst:"+domain, len(leadFirstNames))]
-	last := leadLastNames[hashIndex("leadlast:"+domain, len(leadLastNames))]
+// generatedLeadName draws a name from the company's own naming culture.
+//
+// Names are assigned by RANK within each culture's pool, not by hashing the
+// domain. Hashing gave the same pair to several companies -- "Tobias Ziegler"
+// landed on four domains and "Kilian Wenzel" on nine before the pools grew --
+// because a hash over 45 domains collides long before it exhausts a 20x20
+// pool. Walking the pool in order makes every name distinct until the pool
+// runs out, and the pools are bigger than the number of leads.
+//
+// The rank comes from the sorted domain list, so it is stable across runs for
+// the same plan, exactly as leadAssignRank is.
+func generatedLeadName(domain string, rank int) (string, string) {
+	pool, ok := leadNamesByLocale[nameLocaleFor(domain)]
+	if !ok {
+		pool = leadNamesByLocale[namesDE]
+	}
+	// Stride the surnames so consecutive leads do not share one: with first
+	// names cycling every len(First) entries, a plain rank would pair rank and
+	// rank+len(First) with the same surname.
+	first := pool.First[rank%len(pool.First)]
+	last := pool.Last[(rank*7+rank/len(pool.First))%len(pool.Last)]
 	return first, last
 }
 
@@ -309,11 +329,58 @@ func generatedLeadName(domain string) (string, string) {
 // jonas.sommer.shopify@example.com, not jonas.sommer.shopify.com@example.com.
 func generatedLeadEmail(first, last, domain string) string {
 	slug := strings.NewReplacer(".", "", "-", "").Replace(domain)
-	return strings.ToLower(first+"."+last+"."+slug) + "@example.com"
+	return foldASCII(first) + "." + foldASCII(last) + "." + strings.ToLower(slug) + "@example.com"
+}
+
+// foldASCII turns a name into the local part a mail system would mint from it:
+// Krüger -> krueger, Nguyễn -> nguyen, Ji-woo -> jiwoo.
+//
+// Necessary because the name pools are no longer German-only. Left unfolded,
+// a Vietnamese lead was handed the address thảo.đỗ@example.com -- an address
+// with combining marks in it, which is not what a mail system produces and not
+// something an address validator has to accept.
+//
+// German umlauts EXPAND rather than dropping their diaeresis, because that is
+// what German mail actually does: juettner@, not juttner@. Everything else
+// decomposes and loses its marks, which covers Vietnamese and the Nordic and
+// Slavic names in the list. This mirrors fold() in the dataset's
+// tools/synth_emails.py, which does the same job for crawled people.
+func foldASCII(name string) string {
+	// D-with-stroke and the Nordic letters are distinct LETTERS, not a base
+	// plus a combining mark, so NFKD leaves them alone and the alnum filter
+	// then drops them: Đỗ became "o" and Yến Đinh became yen.inh. They have to
+	// be mapped by hand.
+	expanded := strings.NewReplacer(
+		"ä", "ae", "ö", "oe", "ü", "ue",
+		"Ä", "Ae", "Ö", "Oe", "Ü", "Ue",
+		"ß", "ss",
+		"đ", "d", "Đ", "D",
+		"ø", "o", "Ø", "O", "å", "aa", "Å", "Aa", "æ", "ae", "Æ", "Ae",
+		"ł", "l", "Ł", "L",
+	).Replace(name)
+
+	decomposed := norm.NFKD.String(expanded)
+	var b strings.Builder
+	b.Grow(len(decomposed))
+	for _, r := range decomposed {
+		if unicode.Is(unicode.Mn, r) {
+			continue // a combining mark: Nguyễn -> Nguyen
+		}
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else if r >= 'A' && r <= 'Z' {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return b.String()
 }
 
 func generatedLeadTitle(domain string) string {
-	return leadTitles[hashIndex("leadtitle:"+domain, len(leadTitles))]
+	titles, ok := leadTitlesByLocale[nameLocaleFor(domain)]
+	if !ok {
+		titles = leadTitlesByLocale[namesDE]
+	}
+	return titles[hashIndex("leadtitle:"+domain, len(titles))]
 }
 
 // leadIsAssigned splits the generated leads in half: the assigned ones get
