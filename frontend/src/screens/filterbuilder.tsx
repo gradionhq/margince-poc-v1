@@ -24,6 +24,11 @@ import type { MessageKey } from "../i18n/en";
 import "./filterbuilder.css";
 import { fieldLabel, groupFields, type VocabularyField } from "./filterdata";
 import {
+  boundedReference,
+  type Reference,
+  useReferenceOptions,
+} from "./filterreference";
+import {
   addToGroup,
   type FilterOp,
   type Group,
@@ -346,6 +351,7 @@ function ClauseRow({
       />
       <ValueControl
         type={chosen?.type ?? "text"}
+        references={chosen?.references}
         op={op}
         value={value}
         onChange={(nextValue) =>
@@ -383,11 +389,14 @@ function ClauseRow({
  */
 function ValueControl({
   type,
+  references,
   op,
   value,
   onChange,
 }: Readonly<{
   type: VocabularyField["type"];
+  /** What an id field's values point at, when the vocabulary named one. */
+  references: Reference | undefined;
   op: FilterOp;
   value: LeafValue;
   onChange: (next: LeafValue) => void;
@@ -415,7 +424,63 @@ function ValueControl({
       />
     );
   }
+  if (boundedReference(references)) {
+    return (
+      <RecordValue
+        reference={references}
+        type={type}
+        value={value}
+        onChange={onChange}
+      />
+    );
+  }
   return <ScalarValue type={type} value={value} onChange={onChange} />;
+}
+
+/**
+ * An id comparison as the RECORD it names, not its uuid.
+ *
+ * Only for a target the options module can enumerate. An organization reference
+ * falls through to the plain box, because a workspace's accounts are as many as
+ * its customers and a dropdown cannot hold them — the async picker that case
+ * needs is its own change, and a half-filled list would be worse than a box.
+ *
+ * A stored id whose record is gone still shows: Select renders its placeholder
+ * for a value matching no option, so the clause reads as needing attention
+ * rather than silently appearing empty.
+ */
+function RecordValue({
+  reference,
+  type,
+  value,
+  onChange,
+}: Readonly<{
+  reference: Reference | undefined;
+  type: VocabularyField["type"];
+  value: LeafValue;
+  onChange: (next: LeafValue) => void;
+}>) {
+  const t = useT();
+  const { options, loading, failed } = useReferenceOptions(reference);
+  // A read that failed falls back to the plain box rather than to an empty
+  // dropdown. An empty list would tell the reader this workspace has no such
+  // records — a confident answer to a question that never got one — and would
+  // leave them unable to write the clause at all.
+  if (failed) {
+    return <ScalarValue type={type} value={value} onChange={onChange} />;
+  }
+  return (
+    <Select
+      options={options}
+      value={typeof value === "string" ? value : ""}
+      onChange={onChange}
+      disabled={loading}
+      placeholder={
+        loading ? t("filters.loadingRecords") : t("filters.pickRecord")
+      }
+      aria-label={t("filters.value")}
+    />
+  );
 }
 
 /** The two-way choice that `exists` and a boolean field both need. */

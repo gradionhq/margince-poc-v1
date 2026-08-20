@@ -5427,6 +5427,8 @@ export const de = {
     "Die erste Seite der Treffer \u2014 genug, um den Filter zu pr\u00fcfen, nicht die gesamte Auswahl.",
   "filters.noMatches": "Keine Datens\u00e4tze entsprechen diesem Filter.",
   "filters.loadView": "Gespeicherten Filter laden",
+  "filters.pickRecord": "Eintrag wählen",
+  "filters.loadingRecords": "Auswahl wird geladen…",
   "filters.saveList": "Als Liste speichern",
   "filters.saveListTitle": "Diesen Filter als dynamische Liste speichern",
   "filters.listName": "Listenname",
