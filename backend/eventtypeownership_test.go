@@ -120,11 +120,11 @@ func collectEmitSites(t *testing.T) map[string][]emitSite {
 	types := payloadEventTypes(t)
 	sites := map[string][]emitSite{} // event type → where it is built
 	fset := token.NewFileSet()
-	// Every hand-written tree that could hold a payload literal, not just the
-	// modules. The rule is that exactly one module decides what a type means, and
-	// a literal added under platform or an extension defeats that as thoroughly
-	// as a second module does — while being invisible to a modules-only walk.
-	for _, root := range []string{"internal", "../extensions"} {
+	// Every hand-written tree that could hold a payload literal, and the list is
+	// the whole list rather than the obvious half: cmd and pkg can import
+	// internal/contracts as legally as internal can, so an emitter added under
+	// cmd/api defeats the rule while being invisible to a modules-only walk.
+	for _, root := range []string{"internal", "cmd", "pkg", "../extensions"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
 				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") ||
@@ -136,13 +136,21 @@ func collectEmitSites(t *testing.T) map[string][]emitSite {
 			if err != nil {
 				return err
 			}
+			// The qualifier the contracts package is reachable under IN THIS FILE.
+			// Matching only a selector's terminal name would count an unrelated
+			// package's PublicEventPersonUpdated as the CRM payload, and a file
+			// that does not import contracts at all can hold no emit.
+			qualifier, imports := contractsQualifier(file)
+			if !imports {
+				return nil
+			}
 			module := owningDir(filepath.ToSlash(filepath.Dir(path)))
 			ast.Inspect(file, func(n ast.Node) bool {
 				// A SelectorExpr covers `pkg.Type{…}` and, via the type of a
 				// slice or map literal, the ELIDED inner `{…}` elements whose own
 				// Type node is nil. Without the second, a module batch-building
 				// payloads from a slice literal is invisible here.
-				name, ok := payloadTypeName(n)
+				name, ok := payloadTypeName(n, qualifier)
 				if !ok {
 					return true
 				}
@@ -180,9 +188,9 @@ func modulesEmitting(sites []emitSite) []string {
 // silently, which is the failure this whole gate exists to refuse, reproduced
 // inside its own exception list.
 //
-// Two structures account for every entry, and in both a second module announces
-// a fact that IS the first module's fact. Neither is a second meaning for one
-// name, which is what the rule protects.
+// Three structures account for every entry, and in all of them the second
+// module announces a fact that IS the first module's fact. None is a second
+// meaning for one name, which is what the rule protects.
 var sharedEventTypes = gatekit.Waive(map[string]string{
 	// Structure 1 — the overlay write-back announces the NATIVE module's event.
 	// overlay/writeaudit.go switches on datasource.EntityRef and emits the
@@ -329,6 +337,11 @@ func positionsFor(sites []emitSite, module string) []string {
 // the name lives on the enclosing slice or map literal, so a module
 // batch-building payloads that way would emit without this gate seeing it.
 //
+// What this still cannot see, named so the comment does not overclaim a second
+// time: a payload built by ASSIGNMENT into a zero value, or through reflection
+// or a generic builder. Those need dataflow, nothing in the tree does them, and
+// a walk that guessed at them would misread the decode targets below.
+//
 // A bare `var p crmcontracts.PublicEventX` declaration is deliberately NOT one
 // of them, and the tree says why: both such declarations here are DECODE
 // targets, immediately json.Unmarshal-ed from an inbound envelope
@@ -337,22 +350,68 @@ func positionsFor(sites []emitSite, module string) []string {
 // and would have had this gate ratify a sharing that does not exist. A
 // declaration cannot be told from a construction without dataflow, and here the
 // false positives are real while the construction case is hypothetical.
-func payloadTypeName(n ast.Node) (string, bool) {
-	lit, ok := n.(*ast.CompositeLit)
-	if !ok {
+func payloadTypeName(n ast.Node, qualifier string) (string, bool) {
+	switch node := n.(type) {
+	case *ast.CompositeLit:
+		switch typ := node.Type.(type) {
+		case *ast.SelectorExpr:
+			return qualifiedName(typ, qualifier)
+		case *ast.ArrayType:
+			return qualifiedName(elementSelector(typ.Elt), qualifier)
+		case *ast.MapType:
+			return qualifiedName(elementSelector(typ.Value), qualifier)
+		}
+	case *ast.CallExpr:
+		// new(crmcontracts.PublicEventX) — a pointer to the zero value, which
+		// satisfies events.Payload exactly as &T{} does.
+		if fn, ok := node.Fun.(*ast.Ident); ok && fn.Name == "new" && len(node.Args) == 1 {
+			if sel, ok := node.Args[0].(*ast.SelectorExpr); ok {
+				return qualifiedName(sel, qualifier)
+			}
+		}
+	}
+	return "", false
+}
+
+// elementSelector unwraps the pointer a slice or map of POINTERS carries, so
+// []*crmcontracts.PublicEventX{{…}} is read the same as the value form. The
+// elided inner element's own Type is nil either way; what differs is a StarExpr
+// in the enclosing type.
+func elementSelector(e ast.Expr) *ast.SelectorExpr {
+	if star, ok := e.(*ast.StarExpr); ok {
+		e = star.X
+	}
+	sel, _ := e.(*ast.SelectorExpr)
+	return sel
+}
+
+// qualifiedName answers the type's name only when the selector is reached
+// through the contracts package.
+func qualifiedName(sel *ast.SelectorExpr, qualifier string) (string, bool) {
+	if sel == nil {
 		return "", false
 	}
-	switch typ := lit.Type.(type) {
-	case *ast.SelectorExpr:
-		return typ.Sel.Name, true
-	case *ast.ArrayType:
-		if sel, ok := typ.Elt.(*ast.SelectorExpr); ok {
-			return sel.Sel.Name, true
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok || pkg.Name != qualifier {
+		return "", false
+	}
+	return sel.Sel.Name, true
+}
+
+// contractsQualifier answers the name internal/contracts is reachable under in
+// one file, and whether the file imports it at all.
+func contractsQualifier(file *ast.File) (string, bool) {
+	const contractsPath = `"github.com/gradionhq/margince/backend/internal/contracts"`
+	for _, imp := range file.Imports {
+		if imp.Path.Value != contractsPath {
+			continue
 		}
-	case *ast.MapType:
-		if sel, ok := typ.Value.(*ast.SelectorExpr); ok {
-			return sel.Sel.Name, true
+		if imp.Name != nil {
+			return imp.Name.Name, true
 		}
+		// Unaliased: the package declares itself crmcontracts, which is also the
+		// alias the other 600-odd imports spell explicitly.
+		return "crmcontracts", true
 	}
 	return "", false
 }
