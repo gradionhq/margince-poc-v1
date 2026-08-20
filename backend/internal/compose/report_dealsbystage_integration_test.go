@@ -182,6 +182,39 @@ func TestDealsByStageFiltersByOrganizationID(t *testing.T) {
 	}
 }
 
+// The question the partner program is actually run on: what has each partner
+// brought us. It was unanswerable while partner_sourced was a filter alone —
+// the report could say "these deals came from some partner" and never say which.
+func TestDealsByStageGroupsRevenueByPartner(t *testing.T) {
+	e := setupForecast(t)
+	northgate := e.seedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Northgate', 'manual', 'human:x')`)
+	kestrel := e.seedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Kestrel', 'manual', 'human:x')`)
+	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, partner_org_id, partner_attribution, amount_minor, currency, source, captured_by)
+		VALUES ($1, 'Northgate one', $2, $3, $4, 'sourced', 30000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], northgate)
+	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, partner_org_id, partner_attribution, amount_minor, currency, source, captured_by)
+		VALUES ($1, 'Northgate two', $2, $3, $4, 'influenced', 20000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], northgate)
+	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, partner_org_id, partner_attribution, amount_minor, currency, source, captured_by)
+		VALUES ($1, 'Kestrel one', $2, $3, $4, 'sourced', 70000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], kestrel)
+
+	result := e.runReport(e.Admin(), t, "deals-by-stage",
+		`{"group_by":["partner_org_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"}],"filters":{"partner_sourced":true}}`)
+
+	byPartner := map[string]int64{}
+	for _, row := range result.Rows {
+		id, ok := row["partner_org_id"].(string)
+		if !ok {
+			continue
+		}
+		byPartner[id] = wireInt(t, row, "amount_minor_sum")
+	}
+	if got := byPartner[northgate.String()]; got != 50000 {
+		t.Errorf("Northgate total = %d, want 50000 (both of their deals)", got)
+	}
+	if got := byPartner[kestrel.String()]; got != 70000 {
+		t.Errorf("Kestrel total = %d, want 70000", got)
+	}
+}
+
 func TestDealsByStageFiltersByPartnerSourced(t *testing.T) {
 	e := setupForecast(t)
 	partner := e.seedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Partner', 'manual', 'human:x')`)

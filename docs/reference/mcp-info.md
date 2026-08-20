@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 43 |
 | Resources | 8 |
-| Tool catalog | 121.6 KB |
+| Tool catalog | 121.5 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 31896 |
+| Approx. wire tokens | 31892 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -30,7 +30,7 @@ budget in `agenttooldescriptions_test.go`.
 |---|---:|---:|---|
 | Output schemas | 52.5 KB | 43% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 31.6 KB | 26% | Yes, every step |
-| Input schemas | 28.2 KB | 23% | Yes, every step |
+| Input schemas | 28.1 KB | 23% | Yes, every step |
 | _Names, annotations, punctuation_ | 9.2 KB | 7% | Partly |
 | **Description + input schema** | **59.8 KB** | **49%** | **the recurring cost** |
 
@@ -6611,7 +6611,7 @@ Answer a question about totals, counts or breakdowns — pipeline by stage, deal
       "type": "array"
     },
     "report": {
-      "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind; filters: direction, kind; aggregate fields: (none); default: count as activities grouped by kind. deals-by-stage — group_by: currency, pipeline_id, stage_id, status, win_probability; filters: currency, organization_id, owner_id, partner_sourced, pipeline_id, stalled, status; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id, currency. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, stage_id; aggregate fields: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category, currency. open-deals-per-company — group_by: currency, organization_id, owner_id; filters: currency, owner_id, pipeline_id; aggregate fields: amount_minor; default: count as open_deals grouped by organization_id. win-loss — group_by: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; filters: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; aggregate fields: amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by status, currency. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
+      "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind; filters: direction, kind; aggregates: (none); default: count as activities grouped by kind. deals-by-stage — group_by: currency, partner_org_id, pipeline_id, stage_id, status, win_probability; filters: currency, organization_id, owner_id, partner_sourced, pipeline_id, stalled, status; aggregates: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id, currency. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, stage_id; aggregates: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category, currency. open-deals-per-company — group_by: currency, organization_id, owner_id; filters: currency, owner_id, pipeline_id; aggregates: amount_minor; default: count as open_deals grouped by organization_id. win-loss — group_by: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; filters: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; aggregates: amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by status, currency. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
       "enum": [
         "activities-by-kind",
         "deals-by-stage",

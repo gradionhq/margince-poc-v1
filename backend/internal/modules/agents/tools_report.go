@@ -120,7 +120,7 @@ func describeReportCatalog(catalog []ReportCatalogEntry) string {
 		b.WriteString(vocabulary(entry.GroupBy))
 		b.WriteString("; filters: ")
 		b.WriteString(vocabulary(entry.Filters))
-		b.WriteString("; aggregate fields: ")
+		b.WriteString("; aggregates: ")
 		b.WriteString(vocabulary(entry.Aggregates))
 		if entry.Defaults != "" {
 			b.WriteString("; default: ")
