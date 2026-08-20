@@ -43,6 +43,9 @@ async function fillValidForm() {
   await userEvent.type(screen.getByLabelText("IMAP host"), "mail.example.org");
   await userEvent.type(screen.getByLabelText("Email"), "lars@example.org");
   await userEvent.type(screen.getByLabelText("App password"), "app-password");
+  // The submit stays disabled until the one-time sharing acknowledgment —
+  // the panel's only checkbox — is ticked.
+  await userEvent.click(screen.getByRole("checkbox"));
 }
 
 afterEach(() => {
@@ -74,6 +77,7 @@ describe("ImapConnectPanel", () => {
     );
     await waitFor(() => expect(calls.length).toBe(1));
     expect(calls[0].body).toMatchObject({
+      share_acknowledged: true,
       imap: {
         host: "mail.example.org",
         port: 993,

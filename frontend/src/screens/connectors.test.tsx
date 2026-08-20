@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -165,9 +167,10 @@ describe("the connected-inboxes card", () => {
   it("opens the inline IMAP form from the empty state instead of bouncing to onboarding", async () => {
     stubApi([]);
     render(<ConnectorsCard />);
-    await userEvent.click(
-      await screen.findByRole("button", { name: "IMAP mailbox" }),
-    );
+    // The provider buttons stay disabled until the one-time sharing
+    // acknowledgment — the block's only checkbox — is ticked.
+    await userEvent.click(await screen.findByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: "IMAP mailbox" }));
     expect(
       screen.getByRole("dialog", { name: "Connect an IMAP mailbox" }),
     ).toBeTruthy();
@@ -253,7 +256,10 @@ describe("the connected-inboxes card", () => {
       return requests;
     });
     const body = await connectRequests[0].clone().json();
-    expect(body).toMatchObject({ return_to: "settings" });
+    expect(body).toMatchObject({
+      return_to: "settings",
+      share_acknowledged: true,
+    });
   });
 
   it("offers the inline IMAP form to reconnect an imap connection instead of an OAuth reconnect", async () => {
@@ -512,6 +518,19 @@ describe("add a connection", () => {
     ).toBeTruthy();
   });
 
+  it("keeps every add-connection button disabled until the sharing acknowledgment is ticked", async () => {
+    stubApi([gmailConnected]);
+    render(<ConnectorsCard />);
+    await screen.findByText("Add a connection");
+    for (const name of ["Google Calendar", "Microsoft", "IMAP mailbox"]) {
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+    }
+    await userEvent.click(screen.getByRole("checkbox"));
+    for (const name of ["Google Calendar", "Microsoft", "IMAP mailbox"]) {
+      expect(screen.getByRole("button", { name })).not.toBeDisabled();
+    }
+  });
+
   it("redirects the browser when an OAuth provider is chosen", async () => {
     const assign = vi.fn();
     vi.stubGlobal("location", { ...globalThis.location, assign });
@@ -520,6 +539,7 @@ describe("add a connection", () => {
     });
     render(<ConnectorsCard />);
     await screen.findByText("Add a connection");
+    await userEvent.click(screen.getByRole("checkbox"));
     await userEvent.click(
       screen.getByRole("button", { name: "Google Calendar" }),
     );
@@ -532,6 +552,7 @@ describe("add a connection", () => {
     stubApi([gmailConnected], { connect: { status: 501 } });
     render(<ConnectorsCard />);
     await screen.findByText("Add a connection");
+    await userEvent.click(screen.getByRole("checkbox"));
     await userEvent.click(screen.getByRole("button", { name: "Microsoft" }));
     expect(
       await screen.findByText("Microsoft isn't configured in this deployment."),
@@ -542,6 +563,7 @@ describe("add a connection", () => {
     stubApi([gmailConnected], { connect: { status: 502 } });
     render(<ConnectorsCard />);
     await screen.findByText("Add a connection");
+    await userEvent.click(screen.getByRole("checkbox"));
     await userEvent.click(screen.getByRole("button", { name: "Microsoft" }));
 
     const alert = await screen.findByRole("alert");

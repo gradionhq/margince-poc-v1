@@ -94,7 +94,9 @@ export function ImapConnectForm({
         body: {
           // The Settings add panel disables this form's opener until the
           // mail-sharing checkbox is ticked, so the assertion is honest here.
-          share_acknowledged: true, imap: request },
+          share_acknowledged: true,
+          imap: request,
+        },
       });
       if (error) {
         throwProblem(error);
