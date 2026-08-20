@@ -209,7 +209,7 @@ describe("an id clause names a record, not a uuid", () => {
     // An account list grows with the business, so it is not a dropdown. The box
     // stays until the async picker exists — a half-filled list would be worse,
     // since a reader could not tell a missing account from an absent one.
-    expect(await screen.findByLabelText("Value")).toBeTruthy();
+    expect(await screen.findByRole("textbox", { name: "Value" })).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Value" })).toBeNull();
   });
 
@@ -227,6 +227,30 @@ describe("an id clause names a record, not a uuid", () => {
     // ignores. The operator arms come first in the control for that reason.
     expect(screen.queryByRole("combobox", { name: "Value" })).toBeNull();
     expect(screen.getByRole("button", { name: "has a value" })).toBeTruthy();
+  });
+});
+
+describe("when a roster cannot be read", () => {
+  it("falls back to a box so the clause can still be written", async () => {
+    resetIDsForTest();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ title: "Unavailable", status: 503 }), {
+            status: 503,
+            headers: { "Content-Type": "application/problem+json" },
+          }),
+      ),
+    );
+    render(
+      <Harness start={newGroup("and", [newLeaf("owner_id", "eq", "")])} />,
+    );
+
+    // Not an empty dropdown: that would claim this workspace has no seats, and
+    // would leave the reader unable to write the clause at all.
+    expect(await screen.findByRole("textbox", { name: "Value" })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Value" })).toBeNull();
   });
 });
 

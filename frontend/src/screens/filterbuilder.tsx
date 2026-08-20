@@ -428,7 +428,8 @@ function ValueControl({
     return (
       <RecordValue
         reference={references}
-        value={typeof value === "string" ? value : ""}
+        type={type}
+        value={value}
         onChange={onChange}
       />
     );
@@ -450,19 +451,28 @@ function ValueControl({
  */
 function RecordValue({
   reference,
+  type,
   value,
   onChange,
 }: Readonly<{
   reference: Reference | undefined;
-  value: string;
+  type: VocabularyField["type"];
+  value: LeafValue;
   onChange: (next: LeafValue) => void;
 }>) {
   const t = useT();
-  const { options, loading } = useReferenceOptions(reference);
+  const { options, loading, failed } = useReferenceOptions(reference);
+  // A read that failed falls back to the plain box rather than to an empty
+  // dropdown. An empty list would tell the reader this workspace has no such
+  // records — a confident answer to a question that never got one — and would
+  // leave them unable to write the clause at all.
+  if (failed) {
+    return <ScalarValue type={type} value={value} onChange={onChange} />;
+  }
   return (
     <Select
       options={options}
-      value={value}
+      value={typeof value === "string" ? value : ""}
       onChange={onChange}
       disabled={loading}
       placeholder={

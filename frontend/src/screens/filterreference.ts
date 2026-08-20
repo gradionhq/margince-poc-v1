@@ -69,7 +69,16 @@ export function useReferenceOptions(reference: Reference | undefined) {
     staleTime: 60_000,
     queryFn: async (): Promise<ReferenceOption[]> => readOptions(reference),
   });
-  return { options: query.data ?? [], loading: query.isPending };
+  return {
+    options: query.data ?? [],
+    loading: query.isPending,
+    // A read that FAILED must not be reported as an empty set. Without this the
+    // caller renders an enabled dropdown with nothing in it, which says "this
+    // workspace has no tags" — a confident answer to a question that was never
+    // answered. The caller falls back to a plain box instead, so a reader can
+    // still write the clause.
+    failed: query.isError,
+  };
 }
 
 // Each arm reads the surface that owns the record type and answers the display
