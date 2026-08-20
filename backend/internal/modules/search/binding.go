@@ -230,9 +230,9 @@ func (s *Store) noteReembedProgress(ctx context.Context, run ids.UUID) error {
 }
 
 // ReleaseReembedding hands the marker back from run and stamps the store
-// populated under what that run targeted. It is refused while the run still has
-// a workspace outstanding, so a caller that failed before it fanned out cannot
-// take the marker away from children that are already working.
+// populated under what that run targeted. It is fenced on the run, so a pass
+// that outlived the run it belonged to cannot take the marker away from the run
+// that replaced it.
 func (s *Store) ReleaseReembedding(ctx context.Context, run ids.UUID) error {
 	// rls-exempt: deployment metadata, no workspace_id
 	return database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
