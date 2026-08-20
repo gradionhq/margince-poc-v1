@@ -4221,6 +4221,39 @@ func (e FilterVocabularyFieldOperators) Valid() bool {
 	}
 }
 
+// Defines values for FilterVocabularyFieldReferences.
+const (
+	FilterVocabularyFieldReferencesAppUser      FilterVocabularyFieldReferences = "app_user"
+	FilterVocabularyFieldReferencesOrganization FilterVocabularyFieldReferences = "organization"
+	FilterVocabularyFieldReferencesPipeline     FilterVocabularyFieldReferences = "pipeline"
+	FilterVocabularyFieldReferencesProject      FilterVocabularyFieldReferences = "project"
+	FilterVocabularyFieldReferencesStage        FilterVocabularyFieldReferences = "stage"
+	FilterVocabularyFieldReferencesTag          FilterVocabularyFieldReferences = "tag"
+	FilterVocabularyFieldReferencesTeam         FilterVocabularyFieldReferences = "team"
+)
+
+// Valid indicates whether the value is a known member of the FilterVocabularyFieldReferences enum.
+func (e FilterVocabularyFieldReferences) Valid() bool {
+	switch e {
+	case FilterVocabularyFieldReferencesAppUser:
+		return true
+	case FilterVocabularyFieldReferencesOrganization:
+		return true
+	case FilterVocabularyFieldReferencesPipeline:
+		return true
+	case FilterVocabularyFieldReferencesProject:
+		return true
+	case FilterVocabularyFieldReferencesStage:
+		return true
+	case FilterVocabularyFieldReferencesTag:
+		return true
+	case FilterVocabularyFieldReferencesTeam:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FilterVocabularyFieldType.
 const (
 	FilterVocabularyFieldTypeBoolean  FilterVocabularyFieldType = "boolean"
@@ -9413,31 +9446,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -14764,6 +14797,17 @@ type FilterVocabularyField struct {
 	// this field, so a builder can disable it rather than discover it.
 	Operators []FilterVocabularyFieldOperators `json:"operators"`
 
+	// References The record type this field's ids point at — present for every `id`
+	// field, absent for every other type. Offer the record rather than a
+	// box for its uuid.
+	//
+	// The values are this contract's own record-type words, so no
+	// translation table is needed to key a picker on them.
+	//
+	// Never present on a custom field: the catalog's six types include no
+	// `id`, so only a core field can carry a reference.
+	References *FilterVocabularyFieldReferences `json:"references,omitempty"`
+
 	// Type The six custom-field types plus `id` for a reference to another
 	// record. The type decides the operators, which is why it is here.
 	Type FilterVocabularyFieldType `json:"type"`
@@ -14771,6 +14815,17 @@ type FilterVocabularyField struct {
 
 // FilterVocabularyFieldOperators defines model for FilterVocabularyField.Operators.
 type FilterVocabularyFieldOperators string
+
+// FilterVocabularyFieldReferences The record type this field's ids point at — present for every `id`
+// field, absent for every other type. Offer the record rather than a
+// box for its uuid.
+//
+// The values are this contract's own record-type words, so no
+// translation table is needed to key a picker on them.
+//
+// Never present on a custom field: the catalog's six types include no
+// `id`, so only a core field can carry a reference.
+type FilterVocabularyFieldReferences string
 
 // FilterVocabularyFieldType The six custom-field types plus `id` for a reference to another
 // record. The type decides the operators, which is why it is here.

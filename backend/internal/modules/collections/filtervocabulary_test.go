@@ -159,6 +159,85 @@ func TestACustomColumnIsReportedCustomAndACollidingOneIsNot(t *testing.T) {
 	}
 }
 
+// The reference has to reach the CALLER, not merely be declared. Without this a
+// mapping that dropped it left every gate green — the declarations stayed
+// internally consistent and no test read the answer.
+func TestTheVocabularyTellsACallerWhatAnIDFieldReferences(t *testing.T) {
+	fields, ok, err := (&Store{}).FilterVocabulary(readerCtx(), "deal")
+	if err != nil || !ok {
+		t.Fatalf("filterVocabulary: ok=%v err=%v", ok, err)
+	}
+	byName := map[string]VocabularyField{}
+	for _, f := range fields {
+		byName[f.Name] = f
+	}
+	for name, want := range map[string]storekit.Reference{
+		"stage_id":        storekit.RefStage,
+		"pipeline_id":     storekit.RefPipeline,
+		"owner_id":        storekit.RefAppUser,
+		"owner_team_id":   storekit.RefTeam,
+		"organization_id": storekit.RefOrganization,
+		"project_id":      storekit.RefProject,
+		"tag":             storekit.RefTag,
+	} {
+		if got := byName[name].References; got != want {
+			t.Errorf("%s references %q, want %q", name, got, want)
+		}
+	}
+	// And a field that references nothing says so, rather than inheriting a
+	// neighbour's target — the failure a shared local in the mapping would cause.
+	if got := byName["status"].References; got != "" {
+		t.Errorf("status is a picklist and references %q, want none", got)
+	}
+}
+
+// The wire shape of that answer: a reference is a present key, and no reference
+// is an ABSENT one. "" is not a member of the contract's enum, so sending it
+// would put a value the contract forbids on the wire.
+func TestTheWireOmitsTheReferenceKeyForAFieldThatHasNone(t *testing.T) {
+	withRef := wireVocabularyField(VocabularyField{
+		Name: "owner_id", Type: string(storekit.FieldID),
+		References: storekit.RefAppUser,
+	})
+	if withRef.References == nil {
+		t.Fatal("an id field carried no reference to the wire")
+	}
+	if got := string(*withRef.References); got != string(storekit.RefAppUser) {
+		t.Errorf("wire reference = %q, want %q", got, storekit.RefAppUser)
+	}
+	none := wireVocabularyField(VocabularyField{
+		Name: "status", Type: string(storekit.FieldPicklist),
+	})
+	if none.References != nil {
+		t.Errorf("a picklist field carried reference %q to the wire", *none.References)
+	}
+	// Two fields in one response must not share a target. Each call allocates its
+	// own, and this is what would fail if the mapping ever took the address of a
+	// shared local.
+	other := wireVocabularyField(VocabularyField{
+		Name: "stage_id", Type: string(storekit.FieldID),
+		References: storekit.RefStage,
+	})
+	if withRef.References == other.References {
+		t.Error("two wire fields point at the same reference value")
+	}
+	if string(*withRef.References) == string(*other.References) {
+		t.Errorf("both wire fields report %q; one aliased the other", *withRef.References)
+	}
+}
+
+// No custom field may ever be id-typed, which is what makes "a reference belongs
+// to a core field" true rather than merely true today. The catalog's six types
+// are the whole set a workspace can define, so an `id` among them would report a
+// reference-less id field and break the contract's absolute wording.
+func TestNoCustomFieldTypeMapsToAnIDColumn(t *testing.T) {
+	for catalogType, engineType := range customFieldTypes {
+		if engineType == storekit.FieldID {
+			t.Errorf("custom-field type %q maps to id, so a workspace could define a field the vocabulary must describe a reference for", catalogType)
+		}
+	}
+}
+
 // Two identical requests answer the same order. The fields come out of a map, so
 // without the sort this passes by luck and a picker reshuffles between renders.
 func TestTheVocabularyIsOrderedTheSameWayTwice(t *testing.T) {
