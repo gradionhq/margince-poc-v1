@@ -69,13 +69,13 @@ var modulesThatWriteNoHistory = gatekit.Waive(map[string]string{
 	"internal/modules/comms":  "comms_outbound is delivery machinery, not the message. The user-visible fact of an outbound email is the ACTIVITY row, which activities owns and audits; StageTx runs inside that same transaction, so the send already has its history. comms does write a ledger row for the one thing activities cannot describe — a reconcile failure — through storekit.LogSystem, which is system_log and deliberately not counted here",
 
 	// Rebuildable projections, and one table that could not carry an audit row.
-	"internal/modules/search": "graph_interaction_edge and embedding are PROJECTIONS folded from rows the owning modules already audited; each holds no fact of its own and is thrown away and rebuilt as the corruption remedy, so an audit trail over them would record a recomputation rather than a change. embed_store_binding is stronger than a judgement call: it is a SINGLETON with no workspace_id column at all, and storekit.Audit derives its workspace from the GUC, so it could not write a valid row for that table if it tried",
+	"internal/modules/search": "graph_interaction_edge and embedding are PROJECTIONS folded from rows the owning modules already audited; each holds no fact of its own and is thrown away and rebuilt as the corruption remedy, so an audit trail over them would record a recomputation rather than a change. embed_store_binding is stronger than a judgement call, though not for the reason it first looks: the audit row takes its workspace from the GUC rather than from the audited table, so a table lacking the column would not by itself stop one. What stops it is that binding.go writes on the BARE POOL, deliberately outside any per-workspace transaction — it is deployment metadata, marked rls-exempt in-source — so the GUC is unset and audit_log`s NOT NULL workspace_id would take a NULL",
 
 	// Extension-tier secrets, audited into the OTHER ledger on purpose.
 	"internal/platform/extsecrets": "extension_secret is written with storekit.LogSystem rather than storekit.Audit, and the package says why in-source: a secret changing hands moves no domain row, so there is no audit_log entry to attach it to. It belongs in system_log, the non-entity operational ledger, which is the same posture the boot's extension inventory takes. This gate deliberately does not count LogSystem, so the module appears here — it is recorded, in the ledger that fits it",
 
 	// NOT a waiver of the obligation — a different defect, filed.
-	"internal/modules/approvals": "approvals DOES write audit_log, and this entry exists because it writes it by HAND: `INSERT INTO audit_log …` at service.go:218, bypassing storekit.Audit entirely, with the same shape hand-rolled for event_outbox at :268. So the module has history and this gate cannot see it. That hand-rolled writer omits before, after and authorization_rule, and its envelope drops CausationID — filed as #1946, including that both waivers ratifying the writer state a reason the code contradicts. When approvals routes through storekit, this entry goes",
+	"internal/modules/approvals": "TRUE OF ONE OF ITS TWO TABLES, and the entry says so rather than rounding up. `approval` has history: approvals writes audit_log by HAND at service.go:214, bypassing storekit.Audit, so this gate cannot see it — filed as #1946 with what that writer omits. `signing_key` has NONE: the INSERT at token_jws.go:172 mints an Ed25519 private key with no audit row, no hand-rolled row and no system_log row, and the hand-rolled writer could not describe it anyway because it hardcodes entity_type to the literal 'approval'. That is a real gap this waiver does not excuse; it is recorded here so the next reader finds it instead of trusting the module-granular verdict. Which brings out this gate's own limit: it is module-granular, so `owns five tables, audits one` passes it, and approvals is the live instance",
 })
 
 // auditWriters are the storekit calls that put a row in audit_log.
@@ -108,14 +108,26 @@ func modulesOwningTables() []string {
 
 // moduleWritesAuditRow reports whether any non-test file under a module calls an
 // audit writer.
-func moduleWritesAuditRow(t *testing.T, module string) bool {
-	t.Helper()
+func moduleWritesAuditRow(module string, subjects map[string]bool) (bool, error) {
 	found := false
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(module, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
-			strings.HasSuffix(path, "_test.go") || isIntegrationTagged(path) {
+		if err != nil {
 			return err
+		}
+		// A subdirectory that is ITSELF a census subject answers for itself.
+		// Six of them sit under internal/compose, and without this the parent
+		// borrows their audit calls: compose could own seven tables, audit none
+		// of them, and still read green because compose/briefs audits.
+		if d.IsDir() {
+			if path != module && subjects[filepath.ToSlash(path)] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") ||
+			strings.HasSuffix(path, "_test.go") || isIntegrationTagged(path) {
+			return nil
 		}
 		file, err := parser.ParseFile(fset, filepath.ToSlash(path), nil, 0)
 		if err != nil {
@@ -133,10 +145,7 @@ func moduleWritesAuditRow(t *testing.T, module string) bool {
 		})
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("walking %s for its audit writers: %v", module, err)
-	}
-	return found
+	return found, err
 }
 
 func TestEveryTableOwningModuleWritesAnAuditRow(t *testing.T) {
@@ -152,8 +161,22 @@ func TestEveryTableOwningModuleWritesAnAuditRow(t *testing.T) {
 	defer modulesThatWriteNoHistory.AssertAllMatched(t)
 	t.Logf("examined %d modules that own at least one table", len(modules))
 
+	subjects := make(map[string]bool, len(modules))
 	for _, module := range modules {
-		if moduleWritesAuditRow(t, module) {
+		subjects[module] = true
+	}
+	for _, module := range modules {
+		audits, err := moduleWritesAuditRow(module, subjects)
+		if err != nil {
+			// Errorf and not Fatalf: FailNow runs the deferred sweep, which then
+			// reports every waiver it has not reached yet as stale and tells the
+			// reader to delete ten correct ones. A module renamed without
+			// updating tableOwners is exactly how this arrives.
+			t.Errorf("walking %s for its audit writers: %v — tableOwners names a module path that "+
+				"does not resolve, so this gate cannot judge it", module, err)
+			continue
+		}
+		if audits {
 			continue
 		}
 		if modulesThatWriteNoHistory.Waived(t, module) {
