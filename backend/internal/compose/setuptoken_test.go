@@ -228,3 +228,61 @@ func TestWriteSetupTokenFileAcceptsAnOrdinaryPreExistingConfigDirectory(t *testi
 		t.Errorf("the pre-existing margince.yaml did not survive: %v", err)
 	}
 }
+
+// The refusals the happy path never reaches. They are short branches, but they
+// are the branches that decide whether a credential is written into something
+// unexpected, so "obviously correct" is not a reason to leave them unexercised.
+func TestWriteSetupTokenFileRefusesADirectoryPathItCannotOwn(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		plant      func(t *testing.T, work string)
+		want       string
+		skipAsRoot bool
+	}{
+		{
+			name: "an ordinary file standing where the directory belongs",
+			plant: func(t *testing.T, work string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(work, filepath.Dir(setupTokenFile)), []byte("not a directory"), 0o600); err != nil {
+					t.Fatalf("plant the file: %v", err)
+				}
+			},
+			want: "exists and is not a directory",
+		},
+		{
+			name: "a working directory the process may not write",
+			plant: func(t *testing.T, work string) {
+				t.Helper()
+				if err := os.Chmod(work, 0o500); err != nil {
+					t.Fatalf("make the working directory read-only: %v", err)
+				}
+				t.Cleanup(func() {
+					if err := os.Chmod(work, 0o700); err != nil {
+						t.Errorf("restoring the working directory's mode: %v", err)
+					}
+				})
+			},
+			want:       "creating the setup-token directory",
+			skipAsRoot: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// root writes into a read-only directory, so that plant proves nothing
+			// when the suite runs as root — as it does in some containers.
+			if tc.skipAsRoot && os.Geteuid() == 0 {
+				t.Skip("running as root, which writes into a read-only directory: what goes unexercised here is the refusal when config/ cannot be created")
+			}
+			work := t.TempDir()
+			t.Chdir(work)
+			tc.plant(t, work)
+
+			_, err := writeSetupTokenFile("the-real-token")
+			if err == nil {
+				t.Fatal("the writer accepted a parent it could not own, so the credential went somewhere this test cannot vouch for")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("the refusal does not say why: got %q, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}
