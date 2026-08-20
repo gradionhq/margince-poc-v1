@@ -6,6 +6,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,6 +33,28 @@ import (
 type DB struct {
 	pool      *pgxpool.Pool
 	workspace func(context.Context) (ids.WorkspaceID, error)
+	// budget bounds every statement this handle's transactions run, and is zero
+	// on a handle nobody bounded — see Bounded.
+	budget time.Duration
+}
+
+// Bounded is this handle with a time ceiling on every statement its
+// transactions run.
+//
+// It binds the budget to the HANDLE rather than to a call site because the
+// paths that need one do not run a single statement: answering an agent's query
+// plan takes a ranking lane and an exact lane, each opening its own
+// transaction, and a ceiling added per call site is a ceiling the next lane
+// silently does without. A store built on a bounded handle cannot grow an
+// unbounded query.
+//
+// ZERO is the one value that cannot be a ceiling: it is the field's zero value
+// on every handle nobody bounded, so it has to mean unbounded. Every other
+// value is armed, which is what keeps a NEGATIVE budget from disappearing —
+// BoundStatement refuses it on the first transaction rather than leaving a
+// handle that quietly runs without the ceiling it was asked for.
+func (d *DB) Bounded(budget time.Duration) *DB {
+	return &DB{pool: d.pool, workspace: d.workspace, budget: budget}
 }
 
 // Bind returns a handle that resolves its workspace through resolve.
@@ -93,6 +116,15 @@ func (d *DB) Tx(ctx context.Context, fn func(pgx.Tx) error) error {
 	if err != nil {
 		return fmt.Errorf("pg: resolving the installation's workspace: %w", err)
 	}
+	if d.budget != 0 {
+		bounded := fn
+		fn = func(tx pgx.Tx) error {
+			if err := BoundStatement(ctx, tx, d.budget); err != nil {
+				return err
+			}
+			return bounded(tx)
+		}
+	}
 	return withBoundTx(ctx, d.pool, ws, fn)
 }
 
@@ -106,5 +138,11 @@ func (d *DB) Tx(ctx context.Context, fn func(pgx.Tx) error) error {
 // enumerate — so a new caller here is a sign the work belongs on the job
 // fan-out, which hands each pass the tenant it runs for.
 func (d *DB) ForWorkspace(ws ids.WorkspaceID) *DB {
-	return BindTo(d.pool, ws)
+	// The budget rides along: a pass that re-binds a bounded handle to another
+	// tenant is running the same statements against the same tables, and a
+	// ceiling that fell off at the re-bind would be one nobody could see was
+	// missing.
+	pinned := BindTo(d.pool, ws)
+	pinned.budget = d.budget
+	return pinned
 }

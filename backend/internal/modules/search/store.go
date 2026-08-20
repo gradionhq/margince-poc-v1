@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -29,6 +30,16 @@ type Store struct {
 // workspace it serves.
 func NewStore(db *database.DB) *Store {
 	return &Store{db: db}
+}
+
+// bounded is this store with a time ceiling on every statement it runs.
+//
+// The ceiling rides the HANDLE, so it reaches the lanes this store opens for
+// itself: answering one query plan takes a ranking transaction and an exact
+// one, and a ceiling armed at a single call site would leave the other lane as
+// unbounded as it was before anybody thought about it.
+func (s *Store) bounded(budget time.Duration) *Store {
+	return &Store{db: s.db.Bounded(budget)}
 }
 
 // forWorkspace is this store re-bound to one tenant of the fleet enumeration.
