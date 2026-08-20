@@ -69,6 +69,7 @@ jobs:
   #   e2e      = backend/ + frontend/ + infra — gates the full-stack live-boot
   changes:
     name: changes
+    timeout-minutes: 20
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
@@ -232,6 +233,7 @@ jobs:
   # predating this gate is not retro-required.
   dco:
     name: dco
+    timeout-minutes: 20
     if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
@@ -255,6 +257,7 @@ jobs:
   # store-path, jurisdiction isolation).
   deterministic-gates:
     name: deterministic-gates
+    timeout-minutes: 30
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -370,6 +373,7 @@ jobs:
   # composition (empty set) via the same make targets.
   extension-reference:
     name: extension-reference
+    timeout-minutes: 30
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -442,6 +446,7 @@ jobs:
   # gates are green — a red build must never be judged on style.
   craftsmanship:
     name: craftsmanship
+    timeout-minutes: 20
     needs: [deterministic-gates, changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -462,6 +467,7 @@ jobs:
   # No unresolved review-loop markers (CRAFT-FIX / CRAFT-DISPUTE) reach main.
   craft-residue:
     name: craft-residue
+    timeout-minutes: 20
     # Runs on every non-draft change (docs included) so a leaked
     # CRAFT-FIX/CRAFT-DISPUTE marker in any file fails the merge.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -488,6 +494,7 @@ jobs:
   # list committed here until it flagged fixtures the repo already declared fake.
   secret-scan:
     name: secret-scan
+    timeout-minutes: 20
     # Every non-draft change, docs included: a credential can be pasted into
     # any file type, so this cannot hang off the diff classifier. Same
     # exception craft-residue takes.
@@ -562,6 +569,7 @@ jobs:
   # directly (below) so a red build never posts a green coverage check.
   integration-shards:
     name: integration shard (${{ matrix.shard }}/${{ strategy.job-total }})
+    timeout-minutes: 30
     needs: [changes]
     # backend_db, not backend: this is the twelve-Postgres lane, and the two
     # paths that differ (the agent rulebooks) cannot change what it proves.
@@ -652,6 +660,7 @@ jobs:
   # beside the shards and the fan-in merges its pods with theirs.
   integration-unit-coverage:
     name: integration unit coverage
+    timeout-minutes: 30
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -703,6 +712,7 @@ jobs:
   # sonarcloud job consumes.
   integration:
     name: integration (RLS + erasure + HTTP e2e)
+    timeout-minutes: 20
     needs: [changes, integration-shards, integration-unit-coverage]
     # `always()`, for the reason spelled out on the `frontend` fan-in below: a
     # skipped required check counts as passing, and `!cancelled()` is false for
@@ -791,6 +801,7 @@ jobs:
 
   vuln:
     name: govulncheck
+    timeout-minutes: 20
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -829,6 +840,7 @@ jobs:
   # judges the resolved dependency graph, not the manifests.
   license-gate:
     name: license gate
+    timeout-minutes: 30
     needs: [changes]
     if: >-
       github.event_name == 'pull_request'
@@ -873,6 +885,7 @@ jobs:
   # no duplicated test run.
   sonarcloud:
     name: sonarcloud (scan reads sonar-project.properties)
+    timeout-minutes: 30
     # Runs LAST, after the jobs whose coverage it consumes. The condition admits
     # success OR skipped (not failure) for each, because the gates are
     # area-scoped: a frontend-only PR legitimately skips deterministic-gates +
@@ -968,6 +981,7 @@ jobs:
   # runs the seed script, so those would rot invisibly without this job.
   live-boot:
     name: live-boot (compose + seed + verify)
+    timeout-minutes: 20
     needs: [changes]
     if: needs.changes.outputs.e2e == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -1075,6 +1089,7 @@ jobs:
   # and it stays the one that reports.
   fe-quality:
     name: fe-quality (ds gates + drift + biome + composed tsc)
+    timeout-minutes: 20
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -1111,6 +1126,7 @@ jobs:
 
   fe-unit:
     name: fe-unit (vitest + coverage)
+    timeout-minutes: 20
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -1145,6 +1161,7 @@ jobs:
 
   fe-bundle:
     name: fe-bundle (vite build + storybook)
+    timeout-minutes: 20
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -1184,6 +1201,7 @@ jobs:
   # in both cases, and the assertion below sees `cancelled` and fails.
   frontend:
     name: frontend (biome + vitest + tsc + build)
+    timeout-minutes: 20
     needs: [changes, fe-quality, fe-unit, fe-bundle]
     if: >-
       always()
@@ -1229,6 +1247,7 @@ jobs:
   # named acceptance criterion fails the merge instead of shipping.
   uat:
     name: uat (AC screens + axe WCAG 2.2 AA + 390px, mocked)
+    timeout-minutes: 20
     # Fail fast: the Playwright UAT lane only starts once the cheaper frontend
     # gate (biome + vitest + tsc + build) is green; both are frontend-gated, so
     # they skip together on non-frontend PRs.

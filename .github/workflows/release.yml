@@ -68,6 +68,7 @@ env:
 jobs:
   draft:
     name: Draft release
+    timeout-minutes: 30
     # Superseded by a newer merge on the same ref: the tip is the commit worth
     # drafting.
     concurrency:
@@ -186,6 +187,7 @@ jobs:
   # includes a job id.
   docker-image:
     name: Build docker container
+    timeout-minutes: 60
     needs: [draft]
     # The long half — and the reason cancellation is here at all. A bake for a
     # commit the tip has already replaced is work nobody reads.
@@ -294,6 +296,7 @@ jobs:
   # branch-creation/force-push case).
   publish:
     name: Publish release
+    timeout-minutes: 30
     needs: [draft, docker-image]
     # `cancel-in-progress: false` here and nowhere else: publishing mutates the
     # dist service, so a publish that has started always finishes. The group
