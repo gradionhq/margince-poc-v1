@@ -30,12 +30,19 @@ import (
 
 // ApprovalTokenClaims is the effect binding (ADR-0036): exactly one
 // approval, exactly one tool + diff, dead at the approval's own TTL.
+//
+// It carries NO workspace. It used to ("ws"), and ADR-0091 §1 retires that
+// claim — but the honest reason to drop it is that VerifyApprovalToken never
+// read it. The claim was minted into every token and checked by nothing, so it
+// bound no effect to any tenant and its removal takes away no control. What
+// actually binds the token is jti: the approval row it names is fetched and its
+// status re-read on redemption, and that row lives in the one installation this
+// binary serves (A107/ADR-0061).
 type ApprovalTokenClaims struct {
-	ApprovalID  ids.ApprovalID  `json:"jti"`
-	WorkspaceID ids.UUID        `json:"ws"`
-	Kind        string          `json:"kind"`
-	DiffHash    string          `json:"diff_hash"`
-	PassportID  *ids.PassportID `json:"passport_id,omitempty"`
+	ApprovalID ids.ApprovalID  `json:"jti"`
+	Kind       string          `json:"kind"`
+	DiffHash   string          `json:"diff_hash"`
+	PassportID *ids.PassportID `json:"passport_id,omitempty"`
 	// TargetType + TargetID are the polymorphic reference to the approved
 	// action's target; the id stays untyped because the pair is the
 	// discriminated reference, not one entity's typed id.
@@ -54,8 +61,11 @@ type jwsHeader struct {
 // Called by the approve handler so the deciding human's response
 // carries the token the agent will redeem.
 func (s *Service) MintApprovalToken(ctx context.Context, approvalID ids.ApprovalID) (string, error) {
-	wsID, ok := principal.WorkspaceID(ctx)
-	if !ok {
+	// The workspace is no longer a CLAIM — see ApprovalTokenClaims — but the
+	// check stays: minting an effect-binding token outside a workspace context
+	// is a wiring fault, and it is better named here than left to surface as
+	// whatever the first unbound read does.
+	if _, ok := principal.WorkspaceID(ctx); !ok {
 		return "", errors.New("crmapprovals: minting outside workspace context")
 	}
 	var token string
@@ -69,7 +79,6 @@ func (s *Service) MintApprovalToken(ctx context.Context, approvalID ids.Approval
 		}
 		claims := ApprovalTokenClaims{
 			ApprovalID:    a.ID,
-			WorkspaceID:   wsID,
 			Kind:          a.Kind,
 			DiffHash:      a.DiffHash,
 			PassportID:    a.PassportID,
