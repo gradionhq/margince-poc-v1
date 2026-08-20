@@ -30,6 +30,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   globalThis.localStorage.clear();
+  globalThis.location.hash = "";
 });
 
 function jsonResponse(body: unknown, status = 200) {
@@ -56,7 +57,7 @@ const render = (tab: string) => {
 // succeeds or hangs, so a refusal and an in-flight attempt are both reachable
 // without a second fixture.
 function mintBackend(
-  opts: { refuse?: boolean; hang?: boolean } = {},
+  opts: { refuse?: boolean; hang?: boolean; expired?: boolean } = {},
 ): ReturnType<typeof vi.fn> {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
@@ -72,6 +73,17 @@ function mintBackend(
       // Never settles, so the pending branch is a real state rather than a
       // window a test has to race.
       if (opts.hang) return new Promise<Response>(() => {});
+      if (opts.expired) {
+        return jsonResponse(
+          {
+            type: "about:blank",
+            title: "Unauthorized",
+            status: 401,
+            detail: "Your session has expired.",
+          },
+          401,
+        );
+      }
       if (opts.refuse) {
         return jsonResponse(
           {
@@ -189,6 +201,73 @@ describe("PassportCard — minting", () => {
     expect(alert).toHaveTextContent(/cannot lend that scope/i);
     // In the form, not in a band elsewhere on the card.
     expect(alert.closest("form")).toBeTruthy();
+  });
+
+  // An expired session is not a mint that quietly did nothing.
+  //
+  // The `me` probe is cached for five minutes, so a 401 here used to leave the
+  // screen believing it was signed in: the button failed in silence and the
+  // human had no way to learn why. That silence is what made the OAuth consent
+  // screen's empty-passport guide inescapable — it sends you here to mint, the
+  // mint 401s without saying so, and going back finds no passport and renders
+  // the same guide again.
+  //
+  // Held here: the probe is re-run (so AuthGate re-evaluates and puts up the
+  // login screen), every other cached answer is dropped (so the next person to
+  // sign in this tab is not shown this one's passport list), and the refusal is
+  // still reported. The boundary's own rendering is AuthGate's contract and is
+  // covered where AuthGate is.
+  it("re-probes the session and drops other caches when the mint is unauthorized", async () => {
+    const user = userEvent.setup();
+    const backend = mintBackend({ expired: true });
+    vi.stubGlobal("fetch", backend);
+
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <SettingsScreen tab="agents" />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Mint passport" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+
+    // A cache entry from this session, which the next one must not inherit.
+    client.setQueryData(["some-other-screen"], { secret: "previous session" });
+    const meCallsBefore = backend.mock.calls.filter((call) =>
+      String(call[0] instanceof Request ? call[0].url : call[0]).endsWith(
+        "/v1/me",
+      ),
+    ).length;
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Mint passport" }),
+    );
+
+    // The refusal is still shown where every other mint failure is shown.
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert).toHaveTextContent(/session has expired/i);
+
+    // The probe was re-run rather than left on its cached answer.
+    await vi.waitFor(() => {
+      const meCallsAfter = backend.mock.calls.filter((call) =>
+        String(call[0] instanceof Request ? call[0].url : call[0]).endsWith(
+          "/v1/me",
+        ),
+      ).length;
+      expect(meCallsAfter).toBeGreaterThan(meCallsBefore);
+    });
+
+    // And nothing of this session is left for the next one to render.
+    expect(client.getQueryData(["some-other-screen"])).toBeUndefined();
   });
 
   // The one that is about losing a credential rather than about layout.

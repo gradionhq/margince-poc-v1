@@ -963,6 +963,7 @@ function scopeLabelKey(scope: (typeof PASSPORT_SCOPES)[number]): MessageKey {
 function PassportCard() {
   const t = useT();
   const { locale } = useLocale();
+  const queryClient = useQueryClient();
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<Set<string>>(new Set(["read", "draft"]));
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -991,7 +992,7 @@ function PassportCard() {
 
   const mint = useMutation({
     mutationFn: async () => {
-      const { data, error } = await api.POST("/passports", {
+      const { data, error, response } = await api.POST("/passports", {
         body: {
           label: label.trim() || null,
           scopes: [...scopes] as (
@@ -1003,8 +1004,38 @@ function PassportCard() {
           )[],
         },
       });
+      // An expired session must not read as a mint that did nothing. The `me`
+      // probe is cached for five minutes, so without this the screen keeps
+      // believing it is signed in and the button simply fails in silence —
+      // which is how the OAuth consent screen's empty-passport guide became an
+      // inescapable loop: it sends the human here to mint, the mint 401s
+      // without saying so, and returning finds no passport and shows the same
+      // guide again.
+      //
+      // Keyed on the STATUS rather than on `error` being truthy: a non-2xx
+      // with no body leaves `error` undefined in this client (compose.tsx
+      // documents the same shape), and that response would otherwise pass as
+      // a success and then render an undefined token.
+      if (response.status === 401) {
+        // useLogout's order, for its reason: drop every other cached answer
+        // BEFORE resetting the probe. AuthGate restores this route after the
+        // next sign-in, and whoever signs in then must not be shown the
+        // previous session's passport list out of cache.
+        queryClient.removeQueries({
+          predicate: (query) => query.queryKey[0] !== "me",
+        });
+        await queryClient.resetQueries({ queryKey: ["me"] });
+      }
       if (error) {
         throwProblem(error);
+      }
+      if (!response.ok) {
+        // A refusal that carried no problem document still has to refuse.
+        throwProblem({
+          type: "about:blank",
+          title: response.statusText || "Request failed",
+          status: response.status,
+        });
       }
       return data;
     },
