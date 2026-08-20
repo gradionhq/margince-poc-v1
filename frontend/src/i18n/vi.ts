@@ -1549,6 +1549,9 @@ export const vi = {
   "deals.bulkStagePick": "Chọn giai đoạn",
   "deals.bulkMove": "Chuyển",
   "deals.bulkArchive": "Lưu trữ",
+  "deals.bulkArchiveConfirmTitle": "Lưu trữ {count} deal?",
+  "deals.bulkArchiveConfirmBody":
+    "Chúng sẽ biến mất khỏi mọi danh sách và báo cáo. Khôi phục phải làm từng deal một.",
   "deals.bulkFailed": "{count} không áp dụng được —",
   "deals.bulkFailedRow": "không lưu được",
 

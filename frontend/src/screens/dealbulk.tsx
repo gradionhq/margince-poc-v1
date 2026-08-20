@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
 import { Button } from "../design-system/atoms";
+import { ConfirmModal } from "../design-system/confirmmodal";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { ProblemError, problemMessageOf, throwProblem } from "./common";
@@ -48,18 +49,51 @@ export function DealBulkBar({
   const [stageId, setStageId] = useState("");
   const roster = useRoster("user", true);
   const [outcomes, setOutcomes] = useState<readonly DealBulkOutcome[]>([]);
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
   const openStages = stages.filter((stage) => stage.semantic === "open");
 
+  // The bar unmounts only when the selection empties, so going from one set of
+  // deals straight to another keeps this instance — and with it an owner or
+  // stage chosen for rows that are no longer selected. A verb armed for one
+  // selection must not fire at another, so the pickers clear when the
+  // membership changes.
+  const selectionKey = deals
+    .map((deal) => deal.id)
+    .sort()
+    .join(",");
+  const [armedFor, setArmedFor] = useState(selectionKey);
+  if (armedFor !== selectionKey) {
+    setArmedFor(selectionKey);
+    setOwnerId("");
+    setStageId("");
+  }
+
+  // Shown only for rows still in the selection. A run that partly failed
+  // narrows the selection to the rows that refused, and those messages are
+  // exactly what the reader needs; a message about a row they have since
+  // deselected is not, and clearing outright would take the first with the
+  // second.
+  const failed = outcomes.filter(
+    (outcome) => outcome.error && deals.some((deal) => deal.id === outcome.id),
+  );
+
   const run = useMutation({
+    // The rows ride the VARIABLES, never the closure. React Query re-arms a
+    // mutation's options in a passive effect, so a verb pressed immediately
+    // after the selection changed would otherwise fan out over the PREVIOUS
+    // render's selection — writing to deals the reader had just deselected,
+    // at versions the list no longer shows.
     mutationFn: async ({
+      rows,
       write,
     }: {
+      rows: readonly Deal[];
       write: (deal: Deal) => Promise<void>;
     }): Promise<DealBulkOutcome[]> =>
       // Sequential, not Promise.all: a bulk verb over a working list is a
       // handful of rows, and a burst of concurrent writes against one
       // reader's own deals buys nothing but contention.
-      deals.reduce<Promise<DealBulkOutcome[]>>(async (acc, deal) => {
+      rows.reduce<Promise<DealBulkOutcome[]>>(async (acc, deal) => {
         const done = await acc;
         const name = deal.name;
         try {
@@ -90,6 +124,7 @@ export function DealBulkBar({
 
   const assign = () =>
     run.mutate({
+      rows: [...deals],
       write: async (deal) => {
         const { error } = await api.PATCH("/deals/{id}", {
           params: {
@@ -106,6 +141,12 @@ export function DealBulkBar({
 
   const moveStage = () =>
     run.mutate({
+      // A deal already in the target stage is left alone. The server treats
+      // every advance as a transition — it writes a stage-history row and
+      // emits deal.stage_changed without asking whether anything moved — so
+      // sending one for a row already there would record a move that never
+      // happened, in the table the velocity reports read.
+      rows: deals.filter((deal) => deal.stage_id !== stageId),
       write: async (deal) => {
         const { error } = await api.POST("/deals/{id}/advance", {
           params: {
@@ -122,6 +163,7 @@ export function DealBulkBar({
 
   const archive = () =>
     run.mutate({
+      rows: [...deals],
       write: async (deal) => {
         const { error } = await api.DELETE("/deals/{id}", {
           params: { path: { id: deal.id } },
@@ -132,7 +174,6 @@ export function DealBulkBar({
       },
     });
 
-  const failed = outcomes.filter((outcome) => outcome.error);
   const busy = run.isPending || deals.length === 0;
   return (
     <>
@@ -174,9 +215,26 @@ export function DealBulkBar({
       <Button small disabled={busy || stageId === ""} onClick={moveStage}>
         {t("deals.bulkMove")}
       </Button>
-      <Button small disabled={busy} onClick={archive}>
+      <Button small disabled={busy} onClick={() => setConfirmingArchive(true)}>
         {t("deals.bulkArchive")}
       </Button>
+      {/* Archiving many deals at once is the most destructive thing this bar
+          does, and every other archive in the product asks first. One click
+          that removes a dozen rows from every list must not be the exception. */}
+      <ConfirmModal
+        open={confirmingArchive}
+        onClose={() => setConfirmingArchive(false)}
+        title={t("deals.bulkArchiveConfirmTitle", { count: deals.length })}
+        confirmLabel={t("deals.bulkArchive")}
+        confirmVariant="danger"
+        pending={run.isPending}
+        onConfirm={() => {
+          setConfirmingArchive(false);
+          archive();
+        }}
+      >
+        <p className="t-caption">{t("deals.bulkArchiveConfirmBody")}</p>
+      </ConfirmModal>
       {failed.length > 0 && (
         <span className="t-caption" style={{ color: "var(--danger)" }}>
           {t("deals.bulkFailed", { count: failed.length })}{" "}

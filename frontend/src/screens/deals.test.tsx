@@ -642,6 +642,71 @@ describe("DealsScreen", () => {
     expect((patches[0].body as { owner_id: string }).owner_id).toBe("u-me");
   });
 
+  // The server treats every advance as a transition — it writes a stage-history
+  // row and emits deal.stage_changed without asking whether anything moved — so
+  // a row already in the target stage must not be sent at all, or the velocity
+  // reports read a move that never happened.
+  it("moving to a stage skips the rows already in it", async () => {
+    const advances: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend(
+        [
+          deal({ id: "d1", name: "Already there", stage_id: "s2" }),
+          deal({ id: "d2", name: "Needs moving", stage_id: "s1" }),
+        ],
+        { onAdvance: (_body, _ifMatch) => advances.push("advance") },
+      ),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await user.click(await screen.findByRole("button", { name: "Table" }));
+
+    await user.click(
+      await screen.findByRole("checkbox", { name: "Select Already there" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select Needs moving" }),
+    );
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Move to stage" }),
+      "Proposal",
+    );
+    await user.click(screen.getByRole("button", { name: "Move" }));
+
+    // One write, for the row that actually moves.
+    await waitFor(() => expect(advances.length).toBe(1));
+  });
+
+  // Archiving many deals at once is the most destructive thing this bar does,
+  // and every other archive in the product asks first.
+  it("bulk archive asks before it removes anything", async () => {
+    let deleted = 0;
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({ id: "d1", name: "First" })], {
+        onDelete: () => {
+          deleted += 1;
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await user.click(await screen.findByRole("button", { name: "Table" }));
+    await user.click(
+      await screen.findByRole("checkbox", { name: "Select First" }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+    expect(deleted).toBe(0);
+
+    // The dialog's own Archive button, not the bar's.
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(deleted).toBe(1));
+  });
+
   // A closed deal takes no bulk write: archiving it is done or meaningless,
   // and moving it between open stages would be the silent reopen the record
   // page's stepper already refuses.
