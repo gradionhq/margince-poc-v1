@@ -15,7 +15,9 @@ git archive HEAD ─▶ syft ─▶ 3 SBOM docs ─▶ normalize ─▶ parity �
 The SBOM lane covers the whole repo (backend + frontend + extensions), so its
 targets live in the **root** `Makefile` rather than being delegated to
 `backend/`. It is **not** part of `make check`: CI runs it as its own workflow,
-`.github/workflows/sbom.yml`, triggered by dependency-set and pipeline changes.
+`.github/workflows/sbom.yml`, on manual dispatch only. The dependency-license
+policy still runs automatically on every PR that touches a dependency — as the
+`license gate` job in `ci.yml`, not here.
 
 Everything here describes the **source tree**, not a container image: the scan
 input is the committed content of `HEAD`.
@@ -232,37 +234,37 @@ nor a writable home. So the invocation adds `-u $(id -u):$(id -g)` and
 
 ## CI — `.github/workflows/sbom.yml`
 
-Regenerates the SBOM when a dependency set or the pipeline itself changes. There
-is no `pull_request` trigger, so the automatic path is **`main`** — a manual
-dispatch still runs the `sbom` job on any ref, and only `sign` is guarded to
-`main`. The runner needs only Docker, which `ubuntu-latest` pre-installs.
+Regenerates, license-gates and signs the SBOMs. **Manual dispatch only** — there
+is no automatic trigger at all. The runner needs only Docker, which
+`ubuntu-latest` pre-installs.
 
 | Trigger | Condition |
 |---|---|
 | `workflow_dispatch` | manual, any ref (but see the `sign` job's own guard) |
-| `push` | branch `main`, filtered to the paths below |
 
-Path filter: `go.work`, `go.work.sum`, `**/go.mod`, `**/go.sum`,
-`**/pnpm-lock.yaml`, `**/package.json`, `Makefile`, `.syft.yaml`, `.grant.yaml`,
-`sbom-schemas/**`, `.github/workflows/sbom.yml`, `.github/actions/**`.
+There is no path filter, because there is no filtered trigger to apply it to.
 
-`**/pnpm-lock.yaml` is globbed deliberately. It was written that way when the
-only lockfile in the tree was `frontend/pnpm-lock.yaml`, which the unglobbed
-`pnpm-lock.yaml` did not match — and a lockfile-only dependency change, the shape
-Renovate raises most often and precisely where new transitive packages and their
-licenses arrive, never triggered this workflow at all. The pnpm workspace root
-has since moved to the repository root, so the lockfile is `/pnpm-lock.yaml` and
-the unglobbed pattern would now match it. The glob stays regardless: `**/`
-matches zero segments, so it covers the root lockfile as well as any future one,
-and a pattern that does not have to move when the workspace does is one fewer
-thing to get wrong.
+**Why the `main` push trigger went away.** It fired on every dependency-set
+change that landed, about 48 runs a week, each drawing on the same org-wide
+ceiling of 20 concurrent runners that the PR gates queue in — where a starved
+lane delays a verdict somebody is waiting on. Nothing consumed the output at that
+cadence: this repository has no releases yet, so every run published bundles for
+a tree no consumer would fetch and signed it into the public Rekor log, where a
+keyless signature is permanent and cannot be retracted. Generating and signing
+an artifact stream nobody reads is the cost without the benefit.
 
-**There is no `pull_request` trigger.** The PR-side license gate is the
-`license gate` job in `ci.yml`, gated at the job level on the `deps` scope. A
-workflow-level `paths:` filter produces no check run when it does not match, and
-a required context that never posts blocks a merge forever — so a gate that must
-be required cannot live behind one. Splitting the two paths also means the policy
-runs exactly once per event rather than twice on `main`. See
+**No license enforcement was lost with it.** The gate that decides whether a
+dependency may land is `license gate` in `ci.yml`, job-gated on the `deps` scope,
+and `main` only ever receives a dependency change through a PR that passed it.
+What stopped happening on `main` is artifact publication and signing — both of
+which describe a release, and are one dispatch away when there is one to
+describe.
+
+The license gate lives in `ci.yml` rather than here for a reason worth keeping
+even now that this workflow has no filter of its own: a workflow-level `paths:`
+filter produces no check run when it does not match, and a required context that
+never posts blocks a merge forever — so a gate that must be required cannot live
+behind one. Job-level gating reports a path skip as passing instead. See
 [infra/ci-pipeline.md](../../infra/ci-pipeline.md).
 
 Workflow-level `permissions: contents: read` is the floor for every job. The

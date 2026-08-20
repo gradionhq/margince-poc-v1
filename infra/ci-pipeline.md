@@ -27,10 +27,12 @@ likewise advisory.
 
 One live run per ref, `main` included (`concurrency` group keyed on
 `github.ref`, `cancel-in-progress: true`): a new push cancels the stale lane, so
-the commit under gate is always the ref's tip. `release.yml` and `sbom.yml` are
-superseded the same way, but scope their groups to the JOB rather than the
-workflow, so cancellation reaches the expensive generation halves and never the
-step that publishes or signs — see [The other workflows](#the-other-workflows).
+the commit under gate is always the ref's tip. `release.yml` and `sbom.yml` no
+longer contend for that budget at all — both are **manual dispatch only**, so
+neither is triggered by a merge. They keep their JOB-scoped groups for the case
+of two deliberate dispatches, where cancellation must reach the expensive
+generation halves and never the step that publishes or signs — see
+[The other workflows](#the-other-workflows).
 `scheduled.yml` groups without cancelling; nothing supersedes a daily run.
 
 Gating every `main` commit — a group keyed by commit — is what this replaced,
@@ -93,13 +95,16 @@ Consequences:
   entry would match every path outside `infra/` and fire the filter on
   everything.
 - A **Dockerfile-only PR** (the root `Dockerfile`, `.dockerignore`,
-  `docker-bake.hcl`) also matches no scope. The role images are built, pushed
-  and digest-pinned into the release by `release.yml` on every push to `main`
-  — that build is the gate now, so an image break surfaces in the release run
-  rather than the merge gate. Stated plainly because it is a real trade: a
-  Dockerfile change merges without any image being built, and the first thing
-  to notice is the release. `ci.yml` no longer carries a job for it, and the
-  `docker images (api + web + worker)` context is no longer required.
+  `docker-bake.hcl`) also matches no scope, and **nothing else builds the role
+  images either**. `ci.yml` dropped its `docker images (api + web + worker)` job
+  on the reasoning that `release.yml` baked the images on every push to `main`,
+  so a break surfaced within a commit. That reasoning expired when `release.yml`
+  became dispatch-only: the images are now built only when somebody cuts a
+  release, so a broken `Dockerfile` can sit on `main` indefinitely and the person
+  who finds it is whoever tries to release next. Stated plainly because it is a
+  real regression in coverage, not a trade that still balances — restoring a
+  build-only, push-nothing image job scoped to those three paths is
+  https://github.com/gradionhq/margince-poc-v1/issues/1965.
 - A **backend-only PR** skips the frontend + UAT lanes; a **frontend-only PR**
   skips the Go build/gate + the integration lane — except for
   `frontend/src/mcp-apps/forbidden.json`, which is authored under `frontend/`
@@ -108,8 +113,10 @@ Consequences:
 - A **CI PR still runs the full backend lane** when it touches `ci.yml`, the
   `Makefile`, or `scripts/**`: those change what a gate *does*, so the gates
   re-run to prove they still pass under the new definition. `release.yml` and
-  `sbom.yml` are outside the scope — neither runs a backend gate, and each
-  proves itself when it runs.
+  `sbom.yml` are outside the scope — neither runs a backend gate. Note that
+  neither proves itself on a schedule either, now that both are dispatch-only: a
+  change that breaks one is discovered by the next person to dispatch it, so a PR
+  touching either is worth dispatching from its own branch before merging.
 - **Draft PRs run nothing** until marked ready (`draft == false` guards every
   job) — the swarm pushes many WIP commits.
 - `craft-residue` and `secret-scan` are the deliberate exceptions: both run on
@@ -214,7 +221,7 @@ third-party actions it calls, which would otherwise ride in unread.
 | `integration unit coverage` | The unit `-cover` pass over every package, binary coverage pods only. Needed because the shards run just the integration-tagged packages, and without it SonarCloud would see the unit-only packages at a false ~0% new-code coverage. No services (the test-lanes gate guarantees untagged tests open no real DB) |
 | `integration` | The fan-in — and the required check, under the same name the single-runner lane carried, so branch protection is unchanged. Asserts every shard + the unit pass succeeded (a failed shard must turn this check red, not skipped), then `scripts/test-integration-reconcile.sh` proves the slices add up: every shard present, identical discovery, union complete + disjoint. Merges all coverage pods into `coverage.out`, uploads `go-coverage` |
 | `vuln` | `make vuln` (govulncheck over all packages). **Advisory** — not a required context. It still runs on every backend PR, so a vulnerable dependency a PR *introduces* is reported before merge; what it cannot report is a vulnerability disclosed after one, which is why `scheduled.yml` runs it daily on `main` as well |
-| `license gate` | `make sbom` then `make sbom-check` — the dependency-license policy (`grant`, policy in `.grant.yaml`) over the resolved dependency graph, not the manifests. Lives here rather than in `sbom.yml` because it is a **gate** and that workflow is an artifact producer: `sbom.yml` filters at the workflow level, so on a PR touching no dependency it produces no check run at all, and a required context that never posts blocks the merge forever. Job-level gating makes a path skip report as passing instead. PR-only — on `main` the same gate runs inside `sbom.yml`, where it is the precondition for signing, so each path runs it exactly once |
+| `license gate` | `make sbom` then `make sbom-check` — the dependency-license policy (`grant`, policy in `.grant.yaml`) over the resolved dependency graph, not the manifests. Lives here rather than in `sbom.yml` because it is a **gate** and that workflow is an artifact producer: `sbom.yml` filters at the workflow level, so on a PR touching no dependency it produces no check run at all, and a required context that never posts blocks the merge forever. Job-level gating makes a path skip report as passing instead. PR-only, and now the **only** automatic run of this policy: `sbom.yml` is dispatch-only, so the copy of the gate inside it fires just before a signing run. That is sufficient because `main` can only receive a dependency change through a PR this job passed |
 | `fe-quality` | `make fe-quality` — the design-system script gates, the contract type-drift check, Biome, the composed-SPA typecheck (ADR-0069) and the unit screens' own vitest suites. The only frontend job carrying a Go toolchain: the composed lane needs `gen-composition` output, which nothing else produces |
 | `fe-unit` | `make fe-unit FE_COVERAGE=1` — the vitest suite, instrumented so the run that decides the verdict also writes the lcov. Emits `fe-coverage`, after `frontend/scripts/check-lcov-paths.sh` has proved every path in it resolves from the repo root (see below). Not sharded: the v8 provider's branch records cannot be merged across shards without skewing condition coverage — issue #966 has the measurements and the fix |
 | `fe-bundle` | `make fe-bundle` — the Vite production build plus the Storybook catalog build (stories must compile & register) |
@@ -305,33 +312,49 @@ Wiring details:
   The reporting job is the sole holder of `issues: write` and runs no build code —
   the same permission isolation `sbom.yml` uses for signing.
 
-- **`sbom.yml`** — **no `pull_request` trigger**, so its automatic path is `main`
-  (a manual dispatch still runs the `sbom` job on any ref; only `sign` is guarded
-  to `main`). Regenerates the source-tree SBOMs whenever a
-  dependency set or the SBOM pipeline itself changes, license-gates them, and signs
-  them from a separate job that is the sole holder of `id-token: write`. Signing is
-  isolated from all PR-controlled code because a keyless signature lands permanently
-  in a public transparency log and cannot be retracted, so a PR preview must never
-  produce one — and the license gate stays on this path because `sign`'s `needs:
-  sbom` is what keeps a policy-failing SBOM from reaching it. The PR-side gate is
-  the `license gate` job in `ci.yml` (above), so each event path runs the policy
-  exactly once. Not itself a required check; the mechanics are in
+- **`sbom.yml`** — **manual dispatch only; no automatic trigger at all** (the
+  `sbom` job runs on any ref, `sign` only on `main`). Regenerates the source-tree
+  SBOMs, license-gates them, and signs them from a separate job that is the sole
+  holder of `id-token: write`. Signing is isolated from all branch-controlled code
+  because a keyless signature lands permanently in a public transparency log and
+  cannot be retracted, so a feature branch must never produce one — and the
+  license gate stays on this path because `sign`'s `needs: sbom` is what keeps a
+  policy-failing SBOM from reaching it.
+  It previously ran on a path-filtered push to `main`, about 48 runs a week. That
+  was dropped for the same reason as `release.yml` below: the runs drew on the
+  20-concurrent ceiling the PR gates queue in, and with no releases yet they
+  published bundles and burned irretractable Rekor signatures for trees no
+  consumer would fetch. **No license enforcement was lost** — the `license gate`
+  job in `ci.yml` (above) is job-gated on the `deps` scope and `main` only
+  receives a dependency change through a PR that passed it. Not itself a required
+  check; the mechanics are in
   [docs/reference/supply-chain.md](../docs/reference/supply-chain.md).
-  Cancellation is scoped to the **`sbom` job**, not the workflow: a newer push
+  Cancellation is scoped to the **`sbom` job**, not the workflow: a newer run
   supersedes a lane still cataloguing an older tree, but `sign` carries no group
   and cannot be interrupted — it writes to Rekor before the bundles upload, and a
   lane cut between the two would leave a permanent signature for a tree whose
   bundles nobody can fetch. Superseding therefore only takes effect *before*
-  signing begins — while `sbom` is pending or running. A push arriving after
-  generation finished does not stop the signature it has already earned.
-- **`release.yml`** — on a push to `main`, cuts a margince-constellation
+  signing begins — while `sbom` is pending or running.
+- **`release.yml`** — **manual dispatch only**, cuts a margince-constellation
   release versioned `1970.<build>` (the year pinned to the epoch while the
   flow is a PoC, so these releases order below any real dated release; the
   build is the workflow run number) in the dist service of the constellation
   deployment at test.margince.com. A constellation release is a server
   deployment, which GitHub does not host, so this is not a GitHub release —
-  with one exception, the desktop bundles, below. The release-management CLI cuts the
-  incremental patch over the push's range and uploads it with `draft-release`
+  with one exception, the desktop bundles, below.
+  It used to run on **every push to `main`**: about 400 runs a week, ~10
+  runner-minutes each on arm64, three jobs apiece drawn from the same
+  20-concurrent org ceiling the PR gates queue in — a full-stack merge already
+  schedules 28 jobs against it. Releasing per commit spent that budget on
+  versions nobody asked for, which the epoch-pinned `1970.*` scheme says out
+  loud: the repository is under heavy development and has no real releases yet.
+  A release is now a decision somebody makes. Two consequences are recorded
+  where they bite rather than here — the role images lose their only build
+  (the Dockerfile-only bullet above,
+  https://github.com/gradionhq/margince-poc-v1/issues/1965) and the patch range
+  degenerates to one commit (below).
+  The release-management CLI cuts the
+  incremental patch and uploads it with `draft-release`
   together with the three source-tree SBOMs regenerated at the release commit
   (`make sbom` — the dist service verifies the SBOMs attest every file the
   patch produces, so the possibly-lagging committed `sboms/` are never
@@ -354,31 +377,30 @@ Wiring details:
   registry publisher via the `MARGINCE_AUTH_PUBLISHER_TOKEN` secret), added to
   the draft as digest-pinned references with `add-artifacts`, and the release
   is published with `publish-release`. The dist uploads authenticate with the
-  dist publisher token (the `MARGINCE_DIST_PUBLISHER_TOKEN` secret). The two
-  degenerate patch cases go opposite ways: a branch creation (all-zeros
-  `before`) or a force-push (a `before` the fetched history no longer reaches)
-  has no ancestor to diff from, so the release drafts **without a patch** and
-  **stays an unpublished draft** (the dist completeness gate requires the
-  patch), while a **manual dispatch** carries no push range at all and falls
-  back to the parent commit (`HEAD~1..HEAD`). Merges that land close together
-  release only the tip: `draft` and `docker-image` each carry a cancelling group
-  so a bake for a superseded commit stops, while `publish` carries a group that
-  **serializes instead of cancelling** — a publish that has started always
-  finishes, and a publish still pending when a newer one arrives gives up its
-  place. That is mutual exclusion, not ordering: nothing on this path rejects a
-  stale version, so a re-run or a dispatch of an older commit can still publish
-  after a newer one
-  ([#1810](https://github.com/gradionhq/margince-poc-v1/issues/1810)). The patch
-  range is what makes that consequential:
-  each push's range starts at the ref's previous tip, so when commit *N*'s lane
-  is cancelled the next release's patch runs *N..N+1* and the files *N* changed
-  appear in no published patch at all. A consumer applying patches in order is
-  therefore one increment short. Deriving the base from the last **published**
-  release instead of the push's `before` is what closes that
-  ([#1798](https://github.com/gradionhq/margince-poc-v1/issues/1798)). Not a
-  gate — it never blocks a merge.
+  dist publisher token (the `MARGINCE_DIST_PUBLISHER_TOKEN` secret).
+  **The patch range is now always `HEAD~1..HEAD`.** A dispatch carries no push
+  range, so the base falls back to the parent commit — meaning a dispatched
+  release's patch describes **one commit**, however many landed since the last
+  release, and a consumer applying patches in order cannot use this stream to
+  move forward at all. That is strictly worse than it was under the push trigger,
+  where the range at least spanned the push; it is recorded rather than blocking
+  because nothing consumes the stream today. Deriving the base from the last
+  **published** release is what fixes it, and is the prerequisite for any
+  automatic trigger ever coming back
+  ([#1798](https://github.com/gradionhq/margince-poc-v1/issues/1798)).
+  Concurrency still matters only for two deliberate dispatches: `draft` and
+  `docker-image` each carry a cancelling group so a superseded bake stops, while
+  `publish` carries a group that **serializes instead of cancelling** — a publish
+  that has started always finishes, and a publish still pending when a newer one
+  arrives gives up its place. That is mutual exclusion, not ordering: nothing on
+  this path rejects a stale version, so a re-run or a dispatch of an older commit
+  can still publish after a newer one
+  ([#1810](https://github.com/gradionhq/margince-poc-v1/issues/1810)) — a
+  sharper edge now that dispatching an arbitrary ref is the only way in.
+  Not a gate — it never blocks a merge.
 
-  **On a manual dispatch only**, three further jobs attach the desktop bundles
+  **When the `desktop` dispatch input is set** (a checkbox on the Run-workflow
+  form, default **off**), three further jobs attach the desktop bundles
   to a **GitHub** release under the same `1970.<build>` version, which is the
   page a person browses to download a build: `desktop-macos` and
   `desktop-windows` are *called*, not copied — the same reusable workflows the
@@ -389,9 +411,13 @@ Wiring details:
   product's latest). It carries the only `contents: write` in the workflow. It
   needs `draft` and the two build jobs but deliberately **not** `publish`: the
   dist completeness gate is about the patch and the SBOMs, so a dist-side
-  failure must not withhold bundles that already built correctly. Ordinary
-  merges to `main` skip all three — each bundle compiles Postgres from source,
-  and a merge answers no new question about it.
+  failure must not withhold bundles that already built correctly.
+  The input exists because the trigger used to carry this distinction — a push
+  got the dist release, a dispatch also got the bundles — and with the push
+  trigger gone, `github.event_name == 'workflow_dispatch'` is true on every run,
+  so it would have made every release compile Postgres from source twice. Default
+  off keeps a dist-only release cheap; all three jobs share the one input so the
+  GitHub release appears exactly when the bundles it would hold do.
 - **`desktop-macos.yml` / `desktop-windows.yml`** — build the self-contained
   desktop folder for their own platform, which is the only platform it can be
   built on: pgvector has no build system but `nmake` against MSVC, the event bus

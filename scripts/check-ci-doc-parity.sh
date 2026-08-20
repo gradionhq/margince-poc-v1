@@ -72,7 +72,13 @@ check() {
 }
 
 check .github/workflows/ci.yml "filters: |" infra/ci-pipeline.md
-check .github/workflows/sbom.yml "    paths:" docs/reference/supply-chain.md
+# sbom.yml is not checked: it is dispatch-only and filters on no paths at all, so
+# there is nothing to hold against its document. Restoring a push trigger there
+# means restoring the line
+#   check .github/workflows/sbom.yml "    paths:" docs/reference/supply-chain.md
+# at the same time. Nothing here enforces that — a filter added back without the
+# line goes unchecked and this gate still reports OK, which is the one way this
+# file can now mislead. Spelled out rather than left implicit for that reason.
 
 if [ "$fail" -eq 0 ]; then
   echo "OK: every filtered path is documented"
