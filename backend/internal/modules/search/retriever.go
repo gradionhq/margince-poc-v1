@@ -71,8 +71,9 @@ func (r *Retriever) AssembleContext(ctx context.Context, anchor datasource.Entit
 		sec := retrieval.Section{Name: section.name}
 		for _, item := range section.items {
 			sec.Items = append(sec.Items, retrieval.Item{
-				Ref:     datasource.EntityRef{Type: datasource.EntityType(item.entityType), ID: item.id},
-				Summary: item.summary,
+				Ref:        datasource.EntityRef{Type: datasource.EntityType(item.entityType), ID: item.id},
+				Summary:    item.summary,
+				OccurredAt: item.occurredAt,
 				Evidence: []retrieval.Evidence{{
 					Source:  item.entityType + ":" + item.id.String(),
 					Snippet: item.summary,

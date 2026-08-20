@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 8 |
 | Tool catalog | 121.7 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 31930 |
+| Approx. wire tokens | 31943 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,7 +28,7 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 52.7 KB | 43% | **No** — a result's shape, never listed to a model |
+| Output schemas | 52.8 KB | 43% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 31.4 KB | 25% | Yes, every step |
 | Input schemas | 28.4 KB | 23% | Yes, every step |
 | _Names, annotations, punctuation_ | 9.2 KB | 7% | Partly |
@@ -81,7 +81,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
 | [`log_activity`](#log_activity) | Log an activity |  |  | 3.3 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.5 KB |
-| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 2.9 KB |
+| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.0 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
 | [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.6 KB |
@@ -1327,7 +1327,7 @@ Hold a slot in the host's calendar and record the meeting against the records it
 
 **Catch me up on a record**
 
-Answer "what has been going on with this?" for one person, account, deal, lead, project or captured meeting: the recent activity and the related records, assembled into one picture with the evidence each part rests on. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Use prep_for_meeting when the goal is a meeting about to happen, read_record when you only need the record's own stored fields, and search_records when you do not yet know which record you mean. Each item carries the record_type and record_id it came from — those are what a follow-up call acts on. (Governance: runs immediately; requires passport scope "read".)
+Answer "what has been going on with this?" for one person, company, deal, lead, project or meeting: the recent activity and related records in one picture, with the evidence each part rests on. Built around ONE record you name; everything it reports carries a source, and what cannot be evidenced is absent rather than inferred. prep_for_meeting when a meeting is about to happen, read_record for the record's own stored fields, search_records when you do not yet know which record you mean. Each item carries the record_type and record_id a follow-up call acts on. occurred_at is when an item happened — prefer it over a date the prose recalls. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -1412,6 +1412,9 @@ Answer "what has been going on with this?" for one person, account, deal, lead, 
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "occurred_at": {
+                      "type": "string"
                     },
                     "record_id": {
                       "format": "uuid",
@@ -4269,6 +4272,9 @@ Get ready for a specific meeting: the same assembled picture as a catch-up, plus
                             "type": "object"
                           },
                           "type": "array"
+                        },
+                        "occurred_at": {
+                          "type": "string"
                         },
                         "record_id": {
                           "format": "uuid",

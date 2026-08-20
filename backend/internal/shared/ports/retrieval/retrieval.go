@@ -9,6 +9,7 @@ package retrieval
 
 import (
 	"context"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -82,7 +83,11 @@ type Section struct {
 }
 
 type Item struct {
-	Ref      datasource.EntityRef
-	Summary  string
-	Evidence []Evidence
+	Ref     datasource.EntityRef
+	Summary string
+	// OccurredAt is when an event item happened, zero when the item is not an
+	// event. It rides the assembled picture so a reader states a date from the
+	// RECORD rather than from whatever a note's prose recalls.
+	OccurredAt time.Time
+	Evidence   []Evidence
 }

@@ -10,16 +10,16 @@
   "totals": {
     "tools": 43,
     "resources": 8,
-    "tool_catalog_bytes": 124614,
+    "tool_catalog_bytes": 124665,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 31930,
+    "approx_wire_tokens_total": 31943,
     "largest_tool_bytes": 4709,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
-      "description_bytes": 32143,
+      "description_bytes": 32130,
       "input_schema_bytes": 29072,
-      "output_schema_bytes": 53964,
-      "description_plus_input_schema_bytes": 61215
+      "output_schema_bytes": 54028,
+      "description_plus_input_schema_bytes": 61202
     }
   },
   "tools": {
@@ -1036,7 +1036,7 @@
           "readOnlyHint": true,
           "title": "Catch me up on a record"
         },
-        "description": "Answer \"what has been going on with this?\" for one person, account, deal, lead, project or captured meeting: the recent activity and the related records, assembled into one picture with the evidence each part rests on. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Use prep_for_meeting when the goal is a meeting about to happen, read_record when you only need the record's own stored fields, and search_records when you do not yet know which record you mean. Each item carries the record_type and record_id it came from — those are what a follow-up call acts on. (Governance: runs immediately; requires passport scope \"read\".)",
+        "description": "Answer \"what has been going on with this?\" for one person, company, deal, lead, project or meeting: the recent activity and related records in one picture, with the evidence each part rests on. Built around ONE record you name; everything it reports carries a source, and what cannot be evidenced is absent rather than inferred. prep_for_meeting when a meeting is about to happen, read_record for the record's own stored fields, search_records when you do not yet know which record you mean. Each item carries the record_type and record_id a follow-up call acts on. occurred_at is when an item happened — prefer it over a date the prose recalls. (Governance: runs immediately; requires passport scope \"read\".)",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -1111,6 +1111,9 @@
                                 "type": "object"
                               },
                               "type": "array"
+                            },
+                            "occurred_at": {
+                              "type": "string"
                             },
                             "record_id": {
                               "format": "uuid",
@@ -3808,6 +3811,9 @@
                                     "type": "object"
                                   },
                                   "type": "array"
+                                },
+                                "occurred_at": {
+                                  "type": "string"
                                 },
                                 "record_id": {
                                   "format": "uuid",
