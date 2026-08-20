@@ -3,9 +3,9 @@
 
 package telegram
 
-// The upload path: how a message's files reach Telegram (ADR-0086/A131, and the
-// numbers below are measured rather than documented — see the Phase 0 findings
-// recorded in the pull request that introduced them).
+// The upload path: how a message's files reach Telegram (ADR-0086/A131). Every
+// number below is measured against a live bot rather than read off the
+// documentation, and the const block says what each measurement was.
 //
 // Apart from api.go because it is a different request ENCODING —
 // multipart/form-data, with a JSON document living inside one of its form fields
@@ -35,11 +35,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -73,6 +75,21 @@ const (
 	maxSendableBytesPerFile = 20 << 20
 	maxCaptionRunes         = 1024
 )
+
+// uploadBudget is the whole-request deadline for one upload, and it is sized
+// from the declared bounds rather than picked: a full album is 10 files at
+// 20 MiB, which measured about two minutes on an ordinary uplink. Four minutes
+// is roughly double that, and it stays UNDER the send job's own five-minute
+// timeout — a budget at or above the job's would let the job be killed first,
+// which reports an outcome Telegram never gave for a message that may well have
+// arrived.
+//
+// It replaces the 30-second bound every other Bot API call rides. That bound is
+// right for a JSON round trip and fatal here: an upload cut off mid-send answers
+// ErrUnreachable, the send path classifies that as an outcome nobody knows, and
+// the delivery parks without a retry — every time, for a message this connector
+// declares it carries.
+const uploadBudget = 4 * time.Minute
 
 // The two provider methods the upload path uses. Named because the method a
 // message took is reported in every error from here, and an operator reading one
@@ -117,11 +134,15 @@ func (a *httpAPI) SendFiles(ctx context.Context, token string, m OutboundChannel
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.endpoint(token, method), form)
 	if err != nil {
-		return 0, fmt.Errorf("telegram: building the %s request: %w", method, err)
+		// The cause is deliberately NOT wrapped. Its one failure mode here is a
+		// *url.Error, whose message carries the whole URL — and the bot token
+		// rides that URL's path, so wrapping would put a live credential into
+		// the delivery's failure note and every log line quoting it.
+		return 0, fmt.Errorf("telegram: the %s request could not be built: %w", method, ErrRequestRejected)
 	}
 	req.Header.Set("Content-Type", contentType)
 	var result json.RawMessage
-	if err := a.verdict(a.client, req, method, &result); err != nil {
+	if err := a.verdict(a.clientWithBudget(uploadBudget), req, method, &result); err != nil {
 		return 0, err
 	}
 	return firstMessageID(result, method)
@@ -153,27 +174,37 @@ func uploadMethod(m OutboundChannelMessage) (string, error) {
 // measured value, because these reach a parked delivery's reason where a human
 // has to decide what to do about it — "too large" without the number tells them
 // to guess.
+//
+// Every refusal answers connector.ErrFilesNotCarried, which is the sentinel
+// written for exactly this case and is what makes the delivery PARK instead of
+// climbing the retry ladder: none of these can come out differently on a second
+// attempt, and a ladder spent on a deterministic refusal re-reads every file
+// from the blobstore per rung and then parks under a reason naming no cause.
 func carriable(m OutboundChannelMessage) error {
 	switch {
 	case len(m.Files) == 0:
-		// Not a text message that lost its files: the caller chose this path, so
-		// an empty set is a programming error, and sending an empty album in its
-		// place would put a bare caption where a document was staged.
+		// The one case that is NOT a carriage refusal: the caller chose this
+		// path, so an empty set is a programming error rather than a message
+		// nobody can carry, and sending an empty album in its place would put a
+		// bare caption where a document was staged.
 		return fmt.Errorf("telegram: the upload path was handed a message carrying no files: %w", ErrRequestRejected)
 	case len(m.Files) > maxSendableFiles:
 		return fmt.Errorf("telegram: %d files is more than the %d one message carries: %w",
-			len(m.Files), maxSendableFiles, ErrRequestRejected)
+			len(m.Files), maxSendableFiles, connector.ErrFilesNotCarried)
 	case utf8.RuneCountInString(m.Text) > maxCaptionRunes:
 		// A message with files carries its text as a caption, which is bounded far
 		// below a text-only message. It cannot be truncated (the rep wrote it) and
 		// it cannot be split off into its own call (the rule above), so it refuses.
 		return fmt.Errorf("telegram: a message carrying files holds its text in a caption, and %d characters is over the %d a caption takes: %w",
-			utf8.RuneCountInString(m.Text), maxCaptionRunes, ErrRequestRejected)
+			utf8.RuneCountInString(m.Text), maxCaptionRunes, connector.ErrFilesNotCarried)
 	}
-	for _, file := range m.Files {
+	for i, file := range m.Files {
 		if int64(len(file.Body)) > maxSendableBytesPerFile {
+			// Named exactly as the wire would have named it — partName is the one
+			// spelling — so a human reading the parked reason and a human reading
+			// the chat are looking at the same file.
 			return fmt.Errorf("telegram: %q is %d bytes, over the %d one file carries: %w",
-				extension.SafeFilename(file.Filename, 0), len(file.Body), maxSendableBytesPerFile, ErrRequestRejected)
+				partName(i, file), len(file.Body), maxSendableBytesPerFile, connector.ErrFilesNotCarried)
 		}
 	}
 	return nil
@@ -276,29 +307,57 @@ func attachRef(index int) string  { return "attach://" + attachName(index) }
 
 // quotedFieldEscape escapes what a quoted multipart header parameter cannot hold
 // literally, matching mime/multipart's own escaping of the same two characters.
+//
+// mime.FormatMediaType is deliberately NOT used for the filename, though it is
+// used for the content type below. It would RFC 2231-encode a non-ASCII name
+// into `filename*=utf-8”…`, and neither browsers nor the Bot API speak that
+// dialect in a form part — the stdlib's own CreateFormFile escapes exactly these
+// two characters and leaves UTF-8 literal, which is the encoding every multipart
+// reader agrees on.
 var quotedFieldEscape = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+
+// partName is the filename one file travels under, and the name every message
+// about that file uses. Sanitized through extension.SafeFilename because it
+// lands in a HEADER here: a name carrying a line break would end the
+// Content-Disposition line early and let the rest of it be read as headers of
+// its own. SafeFilename is the one spelling of that removal in this tree, and it
+// also answers the empty case — a nameless file gets a positional name rather
+// than an unnamed part the Bot API refuses.
+func partName(index int, file connector.OutboundFile) string {
+	return extension.SafeFilename(file.Filename, index+1)
+}
+
+// declaredType is the content type a part announces.
+//
+// It goes through mime.FormatMediaType for the reason the filename goes through
+// SafeFilename: this value is written verbatim into a header, and it arrives
+// from whatever the upload declared — nothing on the write path that stored it
+// validated it. FormatMediaType answers the empty string for anything it cannot
+// represent, including a value carrying CR/LF, so a type that would write its
+// own headers becomes the honest fallback instead. That fallback is what the
+// mail sibling uses for the same reason: a recipient offered
+// application/octet-stream downloads the file, where a guessed type renders a
+// PDF as gibberish.
+func declaredType(file connector.OutboundFile) string {
+	if formatted := mime.FormatMediaType(file.ContentType, nil); formatted != "" {
+		return formatted
+	}
+	return "application/octet-stream"
+}
 
 // writeFilePart attaches one file's bytes under the name a media item points at.
 //
 // The part is built by hand rather than through CreateFormFile because that
 // helper declares every file application/octet-stream, and the content type is
 // what decides whether the recipient's client offers to preview the document or
-// only to download it.
-//
-// The filename goes through extension.SafeFilename first. It is a stored name,
-// not a sender-supplied one, but it lands in a header here: a name carrying a
-// line break would end the Content-Disposition line early and let the rest of it
-// be read as headers of its own. SafeFilename is the one spelling of that
-// removal in this tree, and it also answers the empty case — a nameless file
-// gets a positional name rather than an unnamed part the Bot API refuses.
+// only to download it. Building it by hand is why BOTH header values are
+// sanitized rather than one: they sit in the same block, and a value that can
+// end its line early can write whatever follows.
 func writeFilePart(form *multipart.Writer, index int, file connector.OutboundFile) error {
-	name := quotedFieldEscape.Replace(extension.SafeFilename(file.Filename, index+1))
 	header := make(textproto.MIMEHeader)
-	header.Set("Content-Disposition",
-		`form-data; name="`+attachName(index)+`"; filename="`+name+`"`)
-	if file.ContentType != "" {
-		header.Set("Content-Type", file.ContentType)
-	}
+	header.Set("Content-Disposition", `form-data; name="`+attachName(index)+
+		`"; filename="`+quotedFieldEscape.Replace(partName(index, file))+`"`)
+	header.Set("Content-Type", declaredType(file))
 	part, err := form.CreatePart(header)
 	if err != nil {
 		return err

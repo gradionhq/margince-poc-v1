@@ -48,6 +48,15 @@ func (c *channelSendConnector) Normalize(context.Context, connector.RawRecord) (
 
 func (c *channelSendConnector) HealthCheck(context.Context, connector.Auth) error { return nil }
 
+// fixtureCarriage is what this connector declares it can carry. The numbers are
+// arbitrary and only have to be non-zero and distinguishable from the zero
+// descriptor, which is what a dropped capability reads as.
+var fixtureCarriage = connector.Carriage{
+	Carries: true, MaxBytesPerFile: 7 << 20, MaxFiles: 4, MaxBodyWithFiles: 640,
+}
+
+func (c *channelSendConnector) Carriage() connector.Carriage { return fixtureCarriage }
+
 func (c *channelSendConnector) SendMessage(_ context.Context, _ connector.Auth, m connector.ChannelMessage) (connector.SendReceipt, error) {
 	c.sent = append(c.sent, m)
 	return connector.SendReceipt{ProviderMessageID: "4321"}, nil
@@ -131,6 +140,40 @@ func TestChannelSenderForResolvesTheWorkspacesBotToken(t *testing.T) {
 	}
 	if connections != 0 {
 		t.Fatalf("the fixture holds %d capture_connection rows; this resolve must not be reading one", connections)
+	}
+}
+
+// The resolved sender must declare EXACTLY what the registered connector
+// declares, and this is a resolve through the real path rather than a direct
+// call on the connector — which is the only way to see it.
+//
+// ChannelSenderFor returns a decorator (it re-reads the binding before the
+// credential is spent), and connector.AttachmentCarrier is asserted by TYPE, so
+// a decorator that forgets to forward it still compiles and still sends text.
+// What it answers instead is the ZERO descriptor, and the no-default rule then
+// reads "carries nothing" off a connector that carries plenty: the delivery
+// parks saying the channel cannot carry files, `GET /v1/channel-providers` —
+// which asks the raw connector — says it can, and the composer already told the
+// human the message would go. Nothing in that sequence looks like a missing
+// method, which is why it is a gate and not a comment.
+func TestTheResolvedSenderDeclaresWhatTheConnectorDeclares(t *testing.T) {
+	f := newChannelFixture(t, nil)
+	connectChannel(t, f, "sendbot")
+	registered := &channelSendConnector{}
+	reg := channelSendRegistry(t, f, registered)
+
+	resolved, _, err := reg.ChannelSenderFor(f.ctx, capture.ProviderTelegram)
+	if err != nil {
+		t.Fatalf("ChannelSenderFor: %v", err)
+	}
+	if got := connector.CarriageOf(resolved); got != fixtureCarriage {
+		t.Errorf("the resolved sender declares %+v, want the connector's own %+v", got, fixtureCarriage)
+	}
+	// Stated separately because it is the assertion that would have caught the
+	// real defect: the published directory and the send path must not be able to
+	// disagree about one provider.
+	if published := reg.ChannelCarriage()[capture.ProviderTelegram]; published != connector.CarriageOf(resolved) {
+		t.Errorf("the directory publishes %+v and the send path sees %+v", published, connector.CarriageOf(resolved))
 	}
 }
 

@@ -380,6 +380,16 @@ func (d *Dispatcher) classifySendFailure(ctx context.Context, del Delivery, err 
 	if errors.Is(err, connector.ErrRecipientUnreachable) {
 		return d.park(ctx, del.ID, unreachableRecipientReason)
 	}
+	// The adapter refused the file set itself. This is a DECISION rather than a
+	// provider condition, so it cannot come out differently on a later attempt:
+	// left on the ladder it would re-read every file from the blobstore once per
+	// rung and then park under "the retry ladder is exhausted", which names no
+	// cause at all. The carriage gate catches this case earlier from the
+	// capability a connector DECLARES; this is the connector refusing what its
+	// own send path cannot honour, which is the half no gate above it can see.
+	if errors.Is(err, connector.ErrFilesNotCarried) {
+		return d.park(ctx, del.ID, filesNotCarriedReason)
+	}
 	// Honour the provider's own interval when it named one: it knows when it
 	// will accept the next message, and guessing shorter earns another
 	// throttle. A rate limit with no stated interval leaves nothing to

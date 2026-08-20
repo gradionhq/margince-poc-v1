@@ -118,6 +118,21 @@ func (f fencedChannelSender) SendMessage(ctx context.Context, auth connector.Aut
 	return f.sender.SendMessage(ctx, auth, msg)
 }
 
+// Carriage forwards what the connector behind the fence declares
+// (connector.AttachmentCarrier).
+//
+// A DECORATOR of a sending connector must forward every optional seam the
+// connector implements, and this one is asserted by type, so a wrapper that
+// stays silent does not fail to compile — it answers the ZERO Carriage, and the
+// no-default rule then reads "carries nothing" off a connector that carries
+// plenty. The delivery parks claiming the channel cannot carry files, the
+// channel directory (which asks the RAW connector) says it can, and the
+// composer told the human it would go. Nothing in that sequence looks like a
+// missing method.
+func (f fencedChannelSender) Carriage() connector.Carriage {
+	return connector.CarriageOf(f.sender)
+}
+
 // requireBindingUnchanged reports whether the row this credential was read from
 // is still live and still on the version it was read at. A version bump is a
 // replacement (ReplaceToken repoints the row in place), and a row that no longer

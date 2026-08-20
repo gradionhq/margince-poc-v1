@@ -319,6 +319,11 @@ func TestSendMessageStillTakesTheTextMethodWithNoFiles(t *testing.T) {
 // connector CLAIMS. The connector is the last place that can refuse a claim its
 // own send path cannot honour, which is why the bounds are checked here too
 // rather than trusted from above.
+//
+// The class matters as much as the refusal: ErrFilesNotCarried is what the
+// dispatcher parks on, and none of these refusals can come out differently on a
+// retry — left retryable they would spend the whole ladder re-reading the files
+// and then park under a reason naming no cause.
 func TestSendMessageRefusesWhatItDeclaredItCannotCarry(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -343,8 +348,8 @@ func TestSendMessageRefusesWhatItDeclaredItCannotCarry(t *testing.T) {
 			msg := reply()
 			tc.build(&msg)
 
-			if _, err := New(api).SendMessage(context.Background(), connector.Auth("1:secret"), msg); !errors.Is(err, ErrRequestRejected) {
-				t.Fatalf("SendMessage → %v, want ErrRequestRejected", err)
+			if _, err := New(api).SendMessage(context.Background(), connector.Auth("1:secret"), msg); !errors.Is(err, connector.ErrFilesNotCarried) {
+				t.Fatalf("SendMessage → %v, want ErrFilesNotCarried", err)
 			}
 			if rec.calls() != 0 {
 				t.Errorf("the connector called the provider %d time(s) for a message it cannot carry whole", rec.calls())

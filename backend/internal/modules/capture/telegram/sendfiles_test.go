@@ -27,8 +27,10 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -240,9 +242,12 @@ func TestSendFilesRefusesAnAlbumLargerThanOneMessageCarries(t *testing.T) {
 		files = append(files, staged("offer.pdf", "application/pdf", strings.Repeat("x", i+1)))
 	}
 
+	// The bound refusals answer ErrFilesNotCarried rather than this package's own
+	// rejection sentinel, and that is what makes the delivery PARK: none of them
+	// can come out differently on a second attempt.
 	_, err := api.SendFiles(context.Background(), "1:secret", carrying(files...))
-	if !errors.Is(err, ErrRequestRejected) {
-		t.Fatalf("SendFiles with %d files → %v, want ErrRequestRejected", len(files), err)
+	if !errors.Is(err, connector.ErrFilesNotCarried) {
+		t.Fatalf("SendFiles with %d files → %v, want ErrFilesNotCarried", len(files), err)
 	}
 	if rec.calls() != 0 {
 		t.Errorf("%d requests reached the provider for an album this connector refuses", rec.calls())
@@ -268,8 +273,8 @@ func TestSendFilesRefusesACaptionLongerThanTheProviderTakes(t *testing.T) {
 
 			_, err := api.SendFiles(context.Background(), "1:secret", msg)
 			switch {
-			case tc.refused && !errors.Is(err, ErrRequestRejected):
-				t.Fatalf("a %d-rune caption → %v, want ErrRequestRejected", len([]rune(tc.text)), err)
+			case tc.refused && !errors.Is(err, connector.ErrFilesNotCarried):
+				t.Fatalf("a %d-rune caption → %v, want ErrFilesNotCarried", len([]rune(tc.text)), err)
 			case tc.refused && rec.calls() != 0:
 				t.Errorf("%d requests reached the provider for a caption this connector refuses", rec.calls())
 			case !tc.refused && err != nil:
@@ -286,8 +291,8 @@ func TestSendFilesRefusesAFileLargerThanOneCarries(t *testing.T) {
 	api, rec := serve(t, http.StatusOK, `{"ok":true,"result":{"message_id":9911}}`)
 	oversize := staged("scan.tiff", "image/tiff", strings.Repeat("x", maxSendableBytesPerFile+1))
 
-	if _, err := api.SendFiles(context.Background(), "1:secret", carrying(oversize)); !errors.Is(err, ErrRequestRejected) {
-		t.Fatalf("SendFiles with an oversize file → %v, want ErrRequestRejected", err)
+	if _, err := api.SendFiles(context.Background(), "1:secret", carrying(oversize)); !errors.Is(err, connector.ErrFilesNotCarried) {
+		t.Fatalf("SendFiles with an oversize file → %v, want ErrFilesNotCarried", err)
 	}
 	if rec.calls() != 0 {
 		t.Errorf("%d requests reached the provider for a file this connector refuses", rec.calls())
@@ -330,6 +335,132 @@ func TestSendFilesNeverLetsAFilenameWriteItsOwnHeaders(t *testing.T) {
 	if files[0].contentType != "application/pdf" {
 		t.Errorf("content type = %q, want the declared application/pdf — a filename rewrote the header", files[0].contentType)
 	}
+}
+
+// The content type is the OTHER half of the same hand-built header block, and it
+// arrives from whatever the upload declared — nothing on the write path that
+// stored it validated it. A value that can end its line early can write whatever
+// follows, so it is defended exactly as the filename is, and a value that cannot
+// be represented becomes the honest fallback rather than a header nobody wrote.
+func TestSendFilesNeverLetsAContentTypeWriteItsOwnHeaders(t *testing.T) {
+	for _, tc := range []struct{ name, declared, want string }{
+		{"a type that would inject a second part header",
+			"application/pdf\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n999999\r\nX: ",
+			"application/octet-stream"},
+		{"a type that is not a media type at all", "not a media type", "application/octet-stream"},
+		{"no declared type at all", "", "application/octet-stream"},
+		{"an honest type, carried through", "image/png", "image/png"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, rec := serve(t, http.StatusOK, `{"ok":true,"result":{"message_id":9911}}`)
+
+			if _, err := api.SendFiles(context.Background(), "1:secret",
+				carrying(staged("offer.pdf", tc.declared, "one"))); err != nil {
+				t.Fatalf("SendFiles: %v", err)
+			}
+			fields, files := formOf(t, rec)
+			if len(files) != 1 {
+				t.Fatalf("%d file parts attached, want 1 — a content type that broke the encoding produces more", len(files))
+			}
+			if files[0].contentType != tc.want {
+				t.Errorf("content type = %q, want %q", files[0].contentType, tc.want)
+			}
+			// The injected line above names chat_id; the real one must be the only
+			// one that answered.
+			if fields["chat_id"] != "778899" {
+				t.Errorf("chat_id = %q, want the recipient's own 778899 — a header rewrote the form", fields["chat_id"])
+			}
+		})
+	}
+}
+
+// deadlineProbe reports the whole-request budget a call was actually given.
+//
+// http.Client.Timeout is implemented as a deadline on the request context, so
+// reading that deadline off the outgoing request measures the real budget
+// exactly, with no clock to wait on and nothing to sleep through.
+type deadlineProbe struct {
+	inner http.RoundTripper
+	left  time.Duration
+}
+
+func (p *deadlineProbe) RoundTrip(req *http.Request) (*http.Response, error) {
+	if deadline, ok := req.Context().Deadline(); ok {
+		p.left = time.Until(deadline)
+	}
+	return p.inner.RoundTrip(req)
+}
+
+// An upload must NOT ride the bound written for a JSON round trip, and this is
+// the case that says so from outside.
+//
+// The 30-second short bound caps the WHOLE request, body transmission included.
+// A 20 MiB document — let alone a full album — cannot cross the wire inside it,
+// and being cut off mid-send answers ErrUnreachable, which the send path is
+// obliged to treat as an outcome nobody knows and never retry. The result would
+// be that every message this connector DECLARES it carries parks, permanently,
+// on the first attempt. So the property is not "the upload has some timeout" but
+// "the upload's budget is bigger than the one every other call rides", and the
+// text path must keep the short one.
+func TestTheUploadIsGivenABudgetAnUploadCanMeet(t *testing.T) {
+	if uploadBudget <= httpTimeout {
+		t.Fatalf("the upload budget is %s and the short call bound is %s; an upload cannot be "+
+			"given less room than a JSON round trip", uploadBudget, httpTimeout)
+	}
+	// It must also stay UNDER the send job's own timeout: a budget at or above the
+	// job's would let the job be killed first, reporting an outcome Telegram never
+	// gave for a message that may well have arrived.
+	if sendJobTimeout := 5 * time.Minute; uploadBudget >= sendJobTimeout {
+		t.Fatalf("the upload budget is %s and the send job's timeout is %s; the job would be "+
+			"killed before the upload could answer", uploadBudget, sendJobTimeout)
+	}
+
+	for _, tc := range []struct {
+		name string
+		call func(API) error
+		want time.Duration
+	}{
+		{"the upload", func(a API) error {
+			_, err := a.SendFiles(context.Background(), "1:secret", carrying(staged("offer.pdf", "application/pdf", "one")))
+			return err
+		}, uploadBudget},
+		{"a text message", func(a API) error {
+			_, err := a.SendMessage(context.Background(), "1:secret", OutboundChannelMessage{ChatID: 778899, Text: "hi"})
+			return err
+		}, httpTimeout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, srv := serveWithProbe(t, `{"ok":true,"result":{"message_id":9911}}`)
+			if err := tc.call(api); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			// Compared as "more than most of the budget" rather than to the exact
+			// value: the deadline is set before the request leaves, so a few
+			// microseconds of it are always already spent.
+			if floor := tc.want - tc.want/10; srv.left < floor {
+				t.Errorf("%s was given %s of budget, want about %s", tc.name, srv.left, tc.want)
+			}
+			if ceiling := tc.want; srv.left > ceiling {
+				t.Errorf("%s was given %s of budget, more than the %s it should have", tc.name, srv.left, ceiling)
+			}
+		})
+	}
+}
+
+// serveWithProbe is serve with the outgoing request's budget measured. The
+// stand-in answers one canned body; what is under test is what reached it, not
+// what came back.
+func serveWithProbe(t *testing.T, body string) (API, *deadlineProbe) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Errorf("writing the fixture response: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	probe := &deadlineProbe{inner: srv.Client().Transport}
+	return NewAPI(&http.Client{Timeout: httpTimeout, Transport: probe}, srv.URL), probe
 }
 
 // The upload path shares api.go's ONE status verdict rather than growing a second

@@ -162,6 +162,19 @@ const unreachableRecipientReason = "the messaging provider will not deliver to t
 	"they blocked the sender, or their account no longer exists. " +
 	"Retrying and reconnecting the channel both change nothing — reach them another way"
 
+// filesNotCarriedReason is what a delivery the ADAPTER itself refused to carry
+// records. The carriage gate refuses this case earlier from the capability a
+// connector declares; this reason belongs to the one the gate cannot see — the
+// connector honouring its own bounds when the declaration and the send path
+// disagree.
+//
+// It says what does not help, for the same reason the recipient reason does: the
+// refusal is deterministic, so every retry produces it again, and the ladder
+// would spend its whole length re-reading the files before saying anything.
+const filesNotCarriedReason = "this channel refused to carry the files this message was staged with, " +
+	"and it was not sent: sending the text without them would misrepresent what it contains. " +
+	"Retrying changes nothing — send fewer or smaller files, or share them another way"
+
 // guardAtMostOnce protects the seams whose retries cannot detect a prior send,
 // and returns outcomeUndecided for the ones that can — mail resolves through
 // here untouched.

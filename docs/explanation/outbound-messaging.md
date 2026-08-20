@@ -146,6 +146,12 @@ the higher 50 MB send limit, because a file this installation cannot receive is 
 promise to send, and because a full album at that size uploads well inside the send job's timeout.
 `MaxBodyWithFiles` is exact: 1024 characters accepted, 1025 refused.
 
+**Neither row is the whole ceiling, and the gap is a known defect (#2047).** The descriptor has no
+aggregate field, while the send path caps a message's files at **20 MiB in total** when it reads their
+bodies — one tenth of what either row promises. A message inside both published bounds but over that
+total is refused late, retried, and finally parked under a reason that names no cause. Read the rows
+as per-file limits, not as a budget.
+
 Telegram sends **every file as a document, an image included.** Telegram refuses an album that mixes
 documents and photos outright, so grouping by type would decide per message whether one message
 becomes two provider calls — the partial send this gate exists to prevent. It also preserves the

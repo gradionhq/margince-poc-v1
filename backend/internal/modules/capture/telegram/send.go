@@ -227,6 +227,12 @@ func sendOutcome(err error) error {
 		// leave the caller honouring a backoff of its own invention instead of
 		// the interval Telegram stated.
 		return err
+	case errors.Is(err, connector.ErrFilesNotCarried):
+		// Already in the shared vocabulary and already permanent, so it passes
+		// through untouched: this connector refusing its own file set cannot come
+		// out differently on a later attempt, and every other class here is a
+		// statement about Telegram rather than about the message.
+		return err
 	case errors.Is(err, ErrTokenRejected):
 		// The bot token is refused. No retry repairs it, and the caller parks
 		// naming the credential that has to be replaced.

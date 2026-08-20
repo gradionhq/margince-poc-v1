@@ -166,14 +166,24 @@ func LongPollBudget(timeoutSeconds int) time.Duration {
 	return time.Duration(timeoutSeconds)*time.Second + longPollSlack
 }
 
-// longPollClient widens the request timeout for one long poll, on a COPY of the
-// shared client. http.Client.Timeout is a hard cap on the whole request, so the
-// bound sized for calls Telegram answers immediately would cut a long poll off
-// mid-hold — and a poll that never completes never advances its offset, so the
-// connection would retry forever without making progress. Copying rather than
-// mutating keeps every other Bot API call on the short bound; a client with no
-// timeout of its own already outlasts any budget and is used as it is.
-func (a *httpAPI) longPollClient(budget time.Duration) *http.Client {
+// clientWithBudget widens the request timeout for one call that legitimately
+// outlasts the short bound, on a COPY of the shared client.
+//
+// http.Client.Timeout is a hard cap on the WHOLE request — body transmission
+// included — so the bound sized for calls Telegram answers immediately is wrong
+// for two of them, in opposite directions. A long poll spends its time WAITING
+// for Telegram to answer, and a poll cut off mid-hold never advances its offset,
+// so the connection retries forever without making progress. An upload spends
+// its time SENDING: a 20 MiB document, let alone a full album, cannot cross the
+// wire inside a bound written for a JSON round trip, and being cut off mid-send
+// reports an outcome Telegram never gave — which the send path must then treat
+// as unknown and never retry, parking a message this connector declares it
+// carries.
+//
+// Copying rather than mutating keeps every other Bot API call on the short
+// bound; a client with no timeout of its own already outlasts any budget and is
+// used as it is.
+func (a *httpAPI) clientWithBudget(budget time.Duration) *http.Client {
 	if a.client.Timeout == 0 || a.client.Timeout >= budget {
 		return a.client
 	}
@@ -193,7 +203,7 @@ func (a *httpAPI) GetUpdates(ctx context.Context, token string, offset int64, ti
 	defer cancel()
 
 	var batch []json.RawMessage
-	if err := a.callWith(pollCtx, a.longPollClient(budget), token, "getUpdates", body, &batch); err != nil {
+	if err := a.callWith(pollCtx, a.clientWithBudget(budget), token, "getUpdates", body, &batch); err != nil {
 		return nil, 0, err
 	}
 	return batch, highestUpdateID(batch), nil
@@ -363,12 +373,16 @@ func (a *httpAPI) endpoint(token, method string) string {
 
 // request builds one authorized Bot API request carrying a JSON body, or a bare
 // POST when there is none — every Bot API method accepts POST.
+// A failed build does NOT wrap its cause. The one failure mode is a *url.Error,
+// whose message carries the whole URL — and the bot token rides that URL's path
+// (Telegram's scheme), so wrapping would put a live credential into every error
+// string and log line derived from it.
 func (a *httpAPI) request(ctx context.Context, token, method string, body map[string]any) (*http.Request, error) {
 	endpoint := a.endpoint(token, method)
 	if body == nil {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 		if err != nil {
-			return nil, fmt.Errorf("telegram: building the %s request: %w", method, err)
+			return nil, fmt.Errorf("telegram: the %s request could not be built: %w", method, ErrRequestRejected)
 		}
 		return req, nil
 	}
@@ -378,7 +392,7 @@ func (a *httpAPI) request(ctx context.Context, token, method string, body map[st
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
 	if err != nil {
-		return nil, fmt.Errorf("telegram: building the %s request: %w", method, err)
+		return nil, fmt.Errorf("telegram: the %s request could not be built: %w", method, ErrRequestRejected)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return req, nil

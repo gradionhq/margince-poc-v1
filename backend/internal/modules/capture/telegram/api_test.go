@@ -367,7 +367,7 @@ func TestALongPollOutlastsTheSharedRequestTimeout(t *testing.T) {
 	if budget <= 25*time.Second {
 		t.Fatalf("a 25s poll gets a %s budget — Telegram answers AT the interval, so the answer needs room to travel", budget)
 	}
-	widened := poll.longPollClient(budget)
+	widened := poll.clientWithBudget(budget)
 	if widened.Timeout < budget {
 		t.Fatalf("a %s long poll runs under a %s client timeout — Telegram's answer would be cut off", budget, widened.Timeout)
 	}
