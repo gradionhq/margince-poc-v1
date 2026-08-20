@@ -68,8 +68,8 @@ func EdgeReadScope(ctx context.Context, alias string, arg func(any) int) (string
 }
 
 // relationshipObject is the RBAC object governing the edge. Spelled once here
-// because a misspelling would grant silently rather than fail: Require asks the
-// permission document for an object, and a document holding no entry for
-// "relationshp" denies — which reads as a role misconfiguration, not as a typo
-// in this file.
+// because a misspelled object name would deny silently rather than fail:
+// Require asks the permission document for the object it is handed, and a
+// document holding no entry for that spelling refuses — which reads as a role
+// misconfiguration, not as a typo in this file.
 const relationshipObject = "relationship"

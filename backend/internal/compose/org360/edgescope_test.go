@@ -30,7 +30,7 @@ func TestEdgeScopeRefusesACallerHoldingOnlyTheEndpoints(t *testing.T) {
 	ctx := graphReader(map[string]principal.ObjectGrant{
 		"person": {Read: true}, "organization": {Read: true}, "deal": {Read: true},
 	})
-	clause, err := edgeScope(ctx, "r", func(any) int { return 1 })
+	clause, err := edgeScope(ctx, func(any) int { return 1 })
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("edgeScope(endpoints only) = %v, want ErrPermissionDenied unwrapped", err)
 	}
@@ -44,7 +44,7 @@ func TestEdgeScopeAnswersScopeAllWhenNothingBoundsTheCaller(t *testing.T) {
 		Type: principal.PrincipalSystem, ID: "system:test",
 		Permissions: principal.Permissions{RowScope: principal.RowScopeAll},
 	})
-	clause, err := edgeScope(ctx, "r", func(any) int { return 1 })
+	clause, err := edgeScope(ctx, func(any) int { return 1 })
 	if err != nil {
 		t.Fatalf("edgeScope(system) = %v, want admission", err)
 	}

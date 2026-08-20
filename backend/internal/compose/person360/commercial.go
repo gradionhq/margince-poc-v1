@@ -96,7 +96,7 @@ func (s *Service) leadingDealSeat(ctx context.Context, tx pgx.Tx, personID ids.P
 	// conjunction, which the deal scope alone does not give: a seat is bounded
 	// by BOTH records it names, and scoping on the deal end alone would show a
 	// seat held by a person this caller may not read.
-	edgeBound, err := edgeScope(ctx, "r", arg)
+	edgeBound, err := edgeScope(ctx, arg)
 	if err != nil {
 		return dealSeat{}, false, err
 	}
@@ -150,7 +150,7 @@ func (s *Service) committeeFor(ctx context.Context, tx pgx.Tx, personID ids.Pers
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	dealPos := arg(dealID)
 	personPos := arg(personID)
-	edgeBound, err := edgeScope(ctx, "r", arg)
+	edgeBound, err := edgeScope(ctx, arg)
 	if err != nil {
 		return nil, err
 	}

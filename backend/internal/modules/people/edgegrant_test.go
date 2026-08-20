@@ -91,7 +91,8 @@ func TestTheContactCountNeedsBothThePersonAndTheEdgeGrant(t *testing.T) {
 		want    bool
 	}{
 		"person and edge": {map[string]principal.ObjectGrant{
-			"person": {Read: true}, "relationship": {Read: true}}, true},
+			"person": {Read: true}, "relationship": {Read: true},
+		}, true},
 		"person only": {map[string]principal.ObjectGrant{"person": {Read: true}}, false},
 		"edge only":   {map[string]principal.ObjectGrant{"relationship": {Read: true}}, false},
 		"neither":     {map[string]principal.ObjectGrant{"organization": {Read: true}}, false},

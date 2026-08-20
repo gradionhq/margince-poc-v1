@@ -204,6 +204,12 @@ func requireRead(ctx context.Context, object string) error {
 	return auth.Require(ctx, object, principal.ActionRead)
 }
 
+// edgeAlias is the alias every statement in this package gives the
+// relationship table. Named rather than passed, because it is a property of how
+// these statements are written and not a choice a caller makes — and a caller
+// free to pass a different one could bound the wrong table.
+const edgeAlias = "r"
+
 // edgeScope resolves the relationship edge's read admission and its row bound
 // together, answering the narrows-nothing predicate for an unbounded caller.
 //
@@ -212,8 +218,8 @@ func requireRead(ctx context.Context, object string) error {
 // bounded by both, where a single endpoint's scope clause bounds it by one. A
 // denial still returns the sentinel unchanged, so a section reached without the
 // grant is named rather than failed.
-func edgeScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
-	clause, err := auth.EdgeReadScope(ctx, alias, arg)
+func edgeScope(ctx context.Context, arg func(any) int) (string, error) {
+	clause, err := auth.EdgeReadScope(ctx, edgeAlias, arg)
 	if err != nil {
 		return "", err
 	}

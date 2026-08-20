@@ -44,7 +44,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -495,22 +495,33 @@ type references struct {
 
 // packageFunctionReferences parses every non-test source in one package
 // directory and returns what each function mentions.
+//
+// The directory is read and its files parsed one at a time rather than through
+// parser.ParseDir, which is deprecated for a reason that would bite here: it
+// does not consider build tags when grouping files into packages, and several
+// of the directories this walks hold tagged files.
 func packageFunctionReferences(t *testing.T, pkg string) map[string][]references {
 	t.Helper()
 	// The path is relative to the module root, which is this test's own working
 	// directory: package backendarch lives at the root of the backend module.
-	parsed, err := parser.ParseDir(token.NewFileSet(), filepath.FromSlash(pkg), func(info fs.FileInfo) bool {
-		return !strings.HasSuffix(info.Name(), "_test.go")
-	}, 0)
+	dir := filepath.FromSlash(pkg)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("parsing %s to resolve its edge gates: %v", pkg, err)
+		t.Fatalf("reading %s to resolve its edge gates: %v", pkg, err)
 	}
+	fset := token.NewFileSet()
 	refs := map[string][]references{}
-	for _, astPkg := range parsed {
-		for _, file := range astPkg.Files {
-			for name, decls := range functionBodies(gatekit.ParsedFile{File: file}) {
-				refs[name] = append(refs[name], decls...)
-			}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, parseErr := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if parseErr != nil {
+			t.Fatalf("parsing %s/%s to resolve its edge gates: %v", pkg, name, parseErr)
+		}
+		for fn, decls := range functionBodies(gatekit.ParsedFile{File: file}) {
+			refs[fn] = append(refs[fn], decls...)
 		}
 	}
 	return refs

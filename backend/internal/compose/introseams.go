@@ -185,7 +185,7 @@ func accountContacts(ctx context.Context, tx pgx.Tx, orgID ids.UUID) ([]accountC
 		return nil, err
 	}
 	if edgeBound == "" {
-		edgeBound = "true"
+		edgeBound = jsonTrue
 	}
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {

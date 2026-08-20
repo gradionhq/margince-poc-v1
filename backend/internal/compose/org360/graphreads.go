@@ -46,7 +46,7 @@ func (g *graphAssembly) readEmployment() error {
 	// applied to its rows: the headcount below rides the same statement, so a
 	// row filtered after the read would leave a headcount describing employees
 	// the caller may not learn about.
-	edgeBound, err := edgeScope(g.ctx, "r", arg)
+	edgeBound, err := edgeScope(g.ctx, arg)
 	if err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func (g *graphAssembly) readSeats(dealIDs []ids.UUID) error {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	dealsPos := arg(dealIDs)
-	edgeBound, err := edgeScope(g.ctx, "r", arg)
+	edgeBound, err := edgeScope(g.ctx, arg)
 	if err != nil {
 		return err
 	}

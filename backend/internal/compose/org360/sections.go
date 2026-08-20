@@ -57,6 +57,12 @@ func scopeClause(ctx context.Context, object, alias string, arg func(any) int) (
 	return clause, nil
 }
 
+// edgeAlias is the alias every statement in this package gives the
+// relationship table. Named rather than passed, because it is a property of how
+// these statements are written and not a choice a caller makes — and a caller
+// free to pass a different one could bound the wrong table.
+const edgeAlias = "r"
+
 // edgeScope resolves the relationship edge's READ admission and its row bound
 // together, in the one spelling platform/auth owns, answering scopeAll for an
 // unbounded caller.
@@ -66,8 +72,8 @@ func scopeClause(ctx context.Context, object, alias string, arg func(any) int) (
 // endpoint grants may still be refused the edge. A denial returns
 // apperrors.ErrPermissionDenied unchanged, which is what lets the graph's group
 // loop NAME the omission in groups_omitted rather than fail the whole card.
-func edgeScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
-	clause, err := auth.EdgeReadScope(ctx, alias, arg)
+func edgeScope(ctx context.Context, arg func(any) int) (string, error) {
+	clause, err := auth.EdgeReadScope(ctx, edgeAlias, arg)
 	if err != nil {
 		return "", err
 	}

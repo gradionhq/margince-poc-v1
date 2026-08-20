@@ -47,6 +47,11 @@ type accountContact struct {
 // The coworkers are row-scoped in the query itself rather than probed
 // afterwards: one outside the caller's scope must be ABSENT, and fetching then
 // filtering would leak their existence through the dropped total.
+// narrowsNothing is the predicate an UNBOUNDED caller gets, where the scope
+// helpers answer the empty string. The statements below interpolate these into
+// a WHERE, and an empty string is a syntax error rather than "no bound".
+const narrowsNothing = "true"
+
 func (h Reads) addAccountGroup(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -98,14 +103,14 @@ func readAccountContacts(ctx context.Context, tx pgx.Tx, personID ids.PersonID) 
 		return nil, 0, err
 	}
 	if edgeBound == "" {
-		edgeBound = "true"
+		edgeBound = narrowsNothing
 	}
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
 		return nil, 0, err
 	}
 	if scope == "" {
-		scope = "true"
+		scope = narrowsNothing
 	}
 	limitPos := arg(graphAccountCap)
 

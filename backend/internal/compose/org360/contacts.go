@@ -200,7 +200,7 @@ func contactDealRoles(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, 
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	peoplePos, orgPos := arg(personIDs), arg(orgID)
-	edgeBound, err := edgeScope(ctx, "r", arg)
+	edgeBound, err := edgeScope(ctx, arg)
 	if errors.Is(err, apperrors.ErrPermissionDenied) {
 		return map[ids.PersonID][]crmcontracts.Organization360DealRole{}, nil
 	}
