@@ -317,12 +317,26 @@ var deleteGuardedSweepTargets = gatekit.Waive(map[string]string{
 	// Not guards at all (migration 1787032690).
 	"activity_link activity_link_last_activity": "a clock-maintenance trigger, not a guard: it recomputes the last_activity_at of the records the deleted link reached and refuses no delete; the sweep deletes those records too, so the recompute is discarded with them",
 	"relationship relationship_last_activity":   "a clock-maintenance trigger, not a guard: it recomputes the employer's last_activity_at and refuses no delete",
-	// Also not a guard (migration 1787226902): BEFORE DELETE ON organization,
-	// it sets deal.partner_org_id and deal.partner_attribution to NULL so a
-	// deleted partner leaves no dangling attribution behind. It refuses no
-	// delete. The sweep clears `deal` too, so the rows it just nulled are
-	// deleted immediately after and the clearing is discarded with them.
-	"organization organization_delete_clears_deal_partner": "a clear-the-reference trigger, not a guard: deleting an organization nulls the partner attribution on deals that named it and refuses no delete; the sweep deletes those deals too, so the clearing is discarded with them",
+	// Also not a guard (migration 1787226902): BEFORE DELETE ON organization, it
+	// sets deal.partner_org_id and deal.partner_attribution to NULL so a deleted
+	// partner leaves no dangling attribution. It refuses no delete.
+	//
+	// It is not free, either, and "the deals go too" is not why it is safe.
+	// resetTargetTables orders alphabetically and the sweep retries per pass, so
+	// `deal` sorts before `offer` — whose deal_id is ON DELETE RESTRICT — and any
+	// installation holding one offer defers `deal` to a later pass. `organization`
+	// is then deleted in that same pass with `deal` still fully populated, and the
+	// trigger runs its UPDATE once per organization row. The only index on the
+	// column, idx_deal_partner, is partial on `archived_at IS NULL` while the
+	// trigger's predicate carries no archived_at term, so the planner cannot use
+	// it: each organization costs a sequential scan of `deal`, repeated on every
+	// deferred pass.
+	//
+	// It is safe because the work is discarded — `deal` is swept before the reset
+	// commits either way — not because it never happens. A workspace with tens of
+	// thousands of both pays O(orgs x deals) inside the reset transaction, and
+	// that is the cost this entry exists to put on the record.
+	"organization organization_delete_clears_deal_partner": "a clear-the-reference trigger, not a guard: it nulls the partner attribution on deals that named the deleted organization and refuses no delete. Not free — the sweep can defer `deal` behind `offer`'s ON DELETE RESTRICT, so this runs against a populated `deal` with a predicate idx_deal_partner cannot serve (it is partial on archived_at IS NULL), costing a scan per organization; the rows are swept afterwards regardless, so the work is discarded rather than wrong",
 })
 
 func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {
