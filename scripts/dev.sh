@@ -608,6 +608,7 @@ up)
     MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
+    MARGINCE_BLOBSTORE_REGION=us-east-1 \
     ./bin/api --addr ":${api_port}" --dsn "$dev_app_url" --config "$deploy_cfg" \
     --redis "localhost:${REDIS_PORT}" \
     "${public_base_url_flag[@]}" \
@@ -661,6 +662,7 @@ up)
     MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
     MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
+    MARGINCE_BLOBSTORE_REGION=us-east-1 \
     ./bin/worker --dsn "$dev_app_url" --redis "localhost:${REDIS_PORT}" \
     --config "$deploy_cfg" \
     --retention-interval 720h \

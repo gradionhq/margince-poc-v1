@@ -48,12 +48,16 @@ package backendarch
 //     disappearing; they cannot stop a description going stale.
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -301,4 +305,286 @@ func assertNamesOnlyLiveVars(t *testing.T, path string) {
 		t.Errorf("%d var(s) named in %s that nothing in the product reads — delete them. A `MARGINCE_FOO_*` glob counts as the name `MARGINCE_FOO_`, which nothing reads: spell such vars out instead of globbing them:\n\t%s",
 			len(dead), path, strings.Join(dead, "\n\t"))
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Obligation 5: a declared default and a documented default say the same thing.
+//
+// The four obligations above gate NAMES. Nothing gated VALUES, and the two
+// descriptions of a default drift apart in the direction that matters: the code
+// applies a fallback, the schema does not declare it, and the reference doc
+// documents one anyway. An operator reads the doc, sees a default, and supplies
+// nothing — while what the binary actually does is decided somewhere the doc
+// never described.
+//
+// Both sides are already in the tree, which is what makes this derivable rather
+// than a list: config.Item carries Default, and configuration.md's tables carry
+// a Default column. This asserts they agree, in both directions — a declared
+// default the doc does not show, and a documented default nothing declares.
+
+// configItemDefaults is one config.Item declaration's documented name and the
+// default it declares. An absent Default is the empty string, which is the same
+// thing the doc writes as an em dash.
+type configItemDefault struct {
+	name    string
+	value   string
+	pos     string
+	present bool
+}
+
+// docDefaultRow matches one reference-doc table row: the env name in backticks,
+// then the second cell.
+var docDefaultRow = regexp.MustCompile(`(?m)^\|\s*` + "`" + `(MARGINCE_[A-Z0-9_]+)` + "`" + `\s*\|\s*([^|]*?)\s*\|`)
+
+// docDefaultTable matches a table header whose SECOND column is the default.
+// configuration.md also carries tables whose second column is something else
+// entirely — which role reads the var, or which suite needs it — and reading
+// those cells as defaults would report prose where no default was ever claimed.
+var docDefaultTable = regexp.MustCompile(`(?mi)^\|\s*Env\s*\|\s*Default\s*\|`)
+
+// docDefaultLiteral pulls the value out of a default cell, which is written in
+// backticks when there is one.
+var docDefaultLiteral = regexp.MustCompile("^`([^`]*)`$")
+
+func TestEveryDeclaredDefaultMatchesTheDocumentedOne(t *testing.T) {
+	declared := declaredConfigDefaults(t)
+	documented := documentedDefaults(t)
+	if len(declared) == 0 {
+		t.Fatal("no config.Item declaration found — a sweep that scans nothing passes exactly like a clean one")
+	}
+
+	for _, item := range declared {
+		docValue, inDoc := documented[item.name]
+		if !inDoc {
+			continue // obligation 1 already requires the name to be documented
+		}
+		switch {
+		case item.present && docValue != item.value:
+			t.Errorf("%s: %s declares Default %q, %s documents %q — an operator supplying nothing gets the first and reads the second",
+				item.pos, item.name, item.value, configurationDoc, docValue)
+		case !item.present && docValue != "":
+			t.Errorf("%s: %s declares no Default, %s documents %q — either the code applies that fallback and the schema must declare it, or it does not and the doc is telling operators about a value nothing will supply",
+				item.pos, item.name, configurationDoc, docValue)
+		}
+	}
+}
+
+// declaredConfigDefaults finds every config.Item composite literal in the
+// hand-written trees and reads the env name and default out of it.
+//
+// Name is usually a constant rather than a literal, so package-level MARGINCE_*
+// constants are resolved first. A gate that only understood literals would see
+// almost nothing here and pass for that reason.
+func declaredConfigDefaults(t *testing.T) []configItemDefault {
+	t.Helper()
+	consts := envNameConstants(t)
+	var out []configItemDefault
+	fset := token.NewFileSet()
+	for _, tree := range licensedTrees {
+		walkTextFiles(t, tree.root, func(path, text string) {
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || isGenerated(path, text) {
+				return
+			}
+			file, err := parser.ParseFile(fset, path, text, 0)
+			if err != nil {
+				t.Fatalf("parsing %s: %v", path, err)
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				lit, isLit := n.(*ast.CompositeLit)
+				if !isLit {
+					return true
+				}
+				// The declarations are elements of a []config.Item slice literal,
+				// so their own Type node is NIL — Go elides it. A walk keyed on
+				// each element's type finds nothing at all here, which passes for
+				// exactly the same reason a clean tree does.
+				for _, element := range elidedConfigItems(lit) {
+					if item, ok := readConfigItem(element, consts); ok {
+						item.pos = fset.Position(element.Pos()).String()
+						out = append(out, item)
+					}
+				}
+				return true
+			})
+		})
+	}
+	return out
+}
+
+// elidedConfigItems answers the config.Item literals a composite literal holds:
+// itself when it is written out as config.Item{…}, or its elements when it is
+// the []config.Item slice the declarations actually live in.
+func elidedConfigItems(lit *ast.CompositeLit) []*ast.CompositeLit {
+	if namesConfigItem(lit.Type) {
+		return []*ast.CompositeLit{lit}
+	}
+	array, isArray := lit.Type.(*ast.ArrayType)
+	if !isArray || !namesConfigItem(array.Elt) {
+		return nil
+	}
+	var out []*ast.CompositeLit
+	for _, element := range lit.Elts {
+		if inner, isLit := element.(*ast.CompositeLit); isLit {
+			out = append(out, inner)
+		}
+	}
+	return out
+}
+
+// namesConfigItem reports whether an expression names config.Item, by either
+// spelling — qualified from outside the package, bare from within it.
+func namesConfigItem(expr ast.Expr) bool {
+	switch typed := expr.(type) {
+	case *ast.SelectorExpr:
+		return typed.Sel.Name == "Item"
+	case *ast.Ident:
+		return typed.Name == "Item"
+	}
+	return false
+}
+
+// readConfigItem pulls Name and Default out of one literal. A literal whose Name
+// does not resolve to a MARGINCE_* value is not a declaration this gate governs.
+func readConfigItem(lit *ast.CompositeLit, consts map[string]string) (configItemDefault, bool) {
+	var item configItemDefault
+	for _, element := range lit.Elts {
+		field, isField := element.(*ast.KeyValueExpr)
+		if !isField {
+			continue
+		}
+		key, isIdent := field.Key.(*ast.Ident)
+		if !isIdent {
+			continue
+		}
+		switch key.Name {
+		case "Name":
+			item.name = resolveStringExpr(field.Value, consts)
+		case "Default":
+			item.value = resolveStringExpr(field.Value, consts)
+			item.present = true
+		}
+	}
+	return item, strings.HasPrefix(item.name, "MARGINCE_")
+}
+
+// resolveStringExpr answers a string literal's value, or a constant's, or "".
+func resolveStringExpr(expr ast.Expr, consts map[string]string) string {
+	switch typed := expr.(type) {
+	case *ast.BasicLit:
+		if typed.Kind != token.STRING {
+			return ""
+		}
+		value, err := strconv.Unquote(typed.Value)
+		if err != nil {
+			return ""
+		}
+		return value
+	case *ast.Ident:
+		return consts[typed.Name]
+	case *ast.SelectorExpr:
+		// A name borrowed from another package, e.g. runtimeenv.EnvVar. The
+		// constant sweep is tree-wide, so the terminal identifier resolves.
+		return consts[typed.Sel.Name]
+	}
+	return ""
+}
+
+// envNameConstants maps every package-level identifier bound to a MARGINCE_*
+// string to that string, tree-wide.
+//
+// Keyed on the bare identifier so a qualified reference resolves too. Two
+// constants sharing a name and disagreeing about the value would make that
+// unsound, so the sweep refuses rather than picking one.
+func envNameConstants(t *testing.T) map[string]string {
+	t.Helper()
+	consts := map[string]string{}
+	fset := token.NewFileSet()
+	for _, tree := range licensedTrees {
+		walkTextFiles(t, tree.root, func(path, text string) {
+			if !strings.HasSuffix(path, ".go") || isGenerated(path, text) {
+				return
+			}
+			file, err := parser.ParseFile(fset, path, text, 0)
+			if err != nil {
+				t.Fatalf("parsing %s: %v", path, err)
+			}
+			for _, decl := range file.Decls {
+				gen, isGen := decl.(*ast.GenDecl)
+				if !isGen || gen.Tok != token.CONST {
+					continue
+				}
+				collectEnvConstants(t, gen, consts, fset)
+			}
+		})
+	}
+	return consts
+}
+
+// collectEnvConstants records one const block's MARGINCE_* bindings.
+func collectEnvConstants(t *testing.T, gen *ast.GenDecl, consts map[string]string, fset *token.FileSet) {
+	t.Helper()
+	for _, spec := range gen.Specs {
+		value, isValue := spec.(*ast.ValueSpec)
+		if !isValue {
+			continue
+		}
+		for i, name := range value.Names {
+			if i >= len(value.Values) {
+				continue
+			}
+			resolved := resolveStringExpr(value.Values[i], nil)
+			if !strings.HasPrefix(resolved, "MARGINCE_") {
+				continue
+			}
+			if seen, dup := consts[name.Name]; dup && seen != resolved {
+				t.Fatalf("%s: two constants named %s bind different env vars (%q and %q); this sweep resolves a name to one value and cannot with both",
+					fset.Position(name.Pos()), name.Name, seen, resolved)
+			}
+			consts[name.Name] = resolved
+		}
+	}
+}
+
+// documentedDefaults reads the Default column out of configuration.md's tables.
+// An em dash means the doc is asserting there is no default, which is the same
+// claim as an absent Default field.
+func documentedDefaults(t *testing.T) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(configurationDoc) // #nosec G304 -- fixed path in the trusted source tree
+	if err != nil {
+		t.Fatalf("reading %s: %v", configurationDoc, err)
+	}
+	out := map[string]string{}
+	for _, section := range defaultBearingTables(string(b)) {
+		for _, row := range docDefaultRow.FindAllStringSubmatch(section, -1) {
+			cell := strings.TrimSpace(row[2])
+			if cell == "—" || cell == "-" || cell == "" {
+				out[row[1]] = ""
+				continue
+			}
+			if literal := docDefaultLiteral.FindStringSubmatch(cell); literal != nil {
+				out[row[1]] = literal[1]
+				continue
+			}
+			// Prose in a Default column is not a value this gate can compare, and
+			// silently treating it as "no default" would make the row invisible.
+			t.Errorf("%s: the Default cell for %s reads %q — a default is a literal in backticks or an em dash, so that a gate and an operator read the same thing",
+				configurationDoc, row[1], cell)
+		}
+	}
+	return out
+}
+
+// defaultBearingTables cuts the document into the table bodies whose second
+// column is a default, so rows from the other tables are never read as one.
+func defaultBearingTables(doc string) []string {
+	var out []string
+	for _, loc := range docDefaultTable.FindAllStringIndex(doc, -1) {
+		body := doc[loc[1]:]
+		if end := strings.Index(body, "\n\n"); end >= 0 {
+			body = body[:end]
+		}
+		out = append(out, body)
+	}
+	return out
 }

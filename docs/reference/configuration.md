@@ -444,7 +444,7 @@ and the store tolerates a still-starting backend with a bounded retry.
 | `MARGINCE_BLOBSTORE_ACCESS_KEY` | — | access key |
 | `MARGINCE_BLOBSTORE_SECRET_KEY` | — | secret key |
 | `MARGINCE_BLOBSTORE_BUCKET` | — | bucket name (created on first connect) |
-| `MARGINCE_BLOBSTORE_REGION` | `us-east-1` | region |
+| `MARGINCE_BLOBSTORE_REGION` | — | region the bucket lives in; **required** when the blobstore is configured, and deliberately not defaulted — it decides where a bucket holding attachments is created (for MinIO any value works) |
 | `MARGINCE_BLOBSTORE_USE_SSL` | `false` | `true` for TLS to the store |
 
 ## Secret vault (api, worker) — connector credentials
