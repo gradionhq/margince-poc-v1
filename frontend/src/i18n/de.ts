@@ -1547,8 +1547,6 @@ export const de = {
   "deals.filterPartnerAll": "Alle Quellen",
   "deals.sortNewest": "Neueste",
   "deals.unit": "Deals",
-  "deals.capped":
-    "Zeigt die bisher geladenen Deals. Grenzen Sie die Liste ein, um die übrigen zu erreichen.",
   "deals.bulkSelected": "{count} ausgewählt",
   "deals.bulkSelectRow": "{name} auswählen",
   "deals.bulkOwner": "Neuer Verantwortlicher",
