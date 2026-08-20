@@ -3807,7 +3807,7 @@ export const en = {
     "This Margince installation has no organization yet. Your operator has a one-time setup token from the token file the server wrote at first start.",
   "setup.token": "Setup token",
   "setup.tokenHint":
-    "From the token file the server wrote at first start — its path is in the server log.",
+    "From the token file the server wrote at first start — the server log names its path, and carries the token itself if that file could not be written.",
   "setup.organization": "Organization name",
   "setup.adminName": "Your name",
   "setup.adminEmail": "Your email",

@@ -3765,7 +3765,7 @@ export const vi = {
     "Bản cài đặt Margince này chưa có tổ chức nào. Người vận hành của bạn lấy mã dùng một lần từ tệp chứa mã thiết lập mà máy chủ ghi ở lần khởi động đầu tiên.",
   "setup.token": "Mã thiết lập",
   "setup.tokenHint":
-    "Lấy từ tệp chứa mã thiết lập mà máy chủ ghi ở lần khởi động đầu tiên — đường dẫn của tệp nằm trong nhật ký máy chủ.",
+    "Lấy từ tệp chứa mã thiết lập mà máy chủ ghi ở lần khởi động đầu tiên — nhật ký máy chủ nêu đường dẫn của tệp, và chứa chính mã đó nếu không ghi được tệp.",
   "setup.organization": "Tên tổ chức",
   "setup.adminName": "Tên của bạn",
   "setup.adminEmail": "Email của bạn",

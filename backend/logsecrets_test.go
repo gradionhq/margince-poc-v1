@@ -35,6 +35,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // credentialLogKeys are the structured-log attribute keys whose VALUE is a
@@ -109,6 +111,7 @@ const attrGroup = "Group"
 // attribute key without standing in the failure branch of the channel that
 // should have carried it.
 func TestACredentialIsLoggedOnlyWhenItsOwnChannelFailed(t *testing.T) {
+	defer spreadTailWaivers.AssertAllMatched(t)
 	if len(credentialLogKeys) != wantCredentialLogKeys {
 		t.Fatalf("credentialLogKeys holds %d keys, wantCredentialLogKeys is %d — a key was removed; "+
 			"restore it, or if the removal is deliberate lower the pin in the same commit and say why",
@@ -116,6 +119,16 @@ func TestACredentialIsLoggedOnlyWhenItsOwnChannelFailed(t *testing.T) {
 	}
 
 	for _, site := range unguardedCredentialLogs(t) {
+		if site.key == spreadTailKey {
+			if spreadTailWaivers.Waived(t, site.subject) {
+				continue
+			}
+			t.Errorf("%s: this structured-log call spreads a tail assembled elsewhere, which no syntax-only "+
+				"reading can follow — so this gate cannot tell whether a credential is in it. Pass the "+
+				"key/value pairs literally at the call, or ratify it in spreadTailWaivers with what the "+
+				"slice was read to contain", site.pos)
+			continue
+		}
 		t.Errorf("%s: the log attribute %q carries a credential value on every pass through this line — "+
 			"log the path, id or fingerprint instead, or, if this is the fallback for a channel that "+
 			"failed, put it inside that failure's `if err != nil` and pass the same error to the call "+
@@ -124,10 +137,51 @@ func TestACredentialIsLoggedOnlyWhenItsOwnChannelFailed(t *testing.T) {
 	}
 }
 
+// spreadTailWaivers ratifies the log calls that assemble their attributes before
+// the call, keyed "<file> <message>" so an entry clears THAT call and not every
+// spread the file might later grow.
+//
+// A spread tail is refused by default because no syntax-only reading can follow
+// it, so a gate that ignored the shape would silently stop applying the day
+// somebody wrote log.Info(msg, args...). An entry here is a promise that the
+// slice's contents were read and carry no credential.
+var spreadTailWaivers = gatekit.Waive(map[string]string{
+	// All three files build their tail because an attribute is CONDITIONAL —
+	// present only when a value exists or a bound was crossed — which is the one
+	// thing literal pairs cannot express. Each entry names what the slice was
+	// read to contain.
+	"internal/compose/jobs_signals.go signal scan pass":                                                         "counters only: considered/raised/standing, whether the model lane is on, and five per-thread tallies added when it is. No value from a record, and nothing from a credential store.",
+	"internal/compose/license.go no license configured; this non-production installation is running unlicensed": "the licence posture: state, and issuer and seat count when the licence carries them. A licence issuer and a seat count are published facts about the installation, not secrets; the licence KEY never enters attrs.",
+	"internal/compose/license.go license verified":                                                              "the same posture slice as the unlicensed branch above, on the branch where a licence exists.",
+	"internal/platform/jobs/fault.go jobs: a worker failed":                                                     "faultLogAttrs: job kind, fault class, workspace id, and errorAttr(err) — the error's own message and chain. A credential would have to be inside an error string, which is the general error-hygiene rule rather than this gate's subject.",
+	"internal/platform/jobs/fault.go jobs: a worker returned a failure class this installation did not declare for this kind, so its sentence is not published": "the same faultLogAttrs slice, on the undeclared-class branch.",
+	"internal/platform/jobs/fault.go jobs: a worker failed with an unclassified cause":                                                                          "the same faultLogAttrs slice, with an empty class.",
+	"internal/platform/jobs/fault.go jobs: a worker postponed its own tick rather than failing":                                                                 "faultLogAttrs plus retry_in, and `requested` only when the delay was clamped — the conditional attribute is why it is built before the call. Two durations. No credential.",
+})
+
+// spreadTailKey marks the one finding that is about the call's SHAPE rather than
+// about a key it carries.
+const spreadTailKey = "\x00spread-tail"
+
+// spreadsItsTail reports whether a log call passes its attributes as `args...`
+// rather than as literal pairs.
+func spreadsItsTail(call *ast.CallExpr) bool {
+	selector, isSelector := call.Fun.(*ast.SelectorExpr)
+	if !isSelector {
+		return false
+	}
+	if _, isLog := logMethods[selector.Sel.Name]; !isLog {
+		return false
+	}
+	return call.Ellipsis.IsValid()
+}
+
 // credentialLogSite is one structured-log call carrying a credential key.
 type credentialLogSite struct {
 	pos string
 	key string
+	// subject keys a spread-tail waiver: the file and the call's message.
+	subject string
 }
 
 // unguardedCredentialLogs walks the AST rather than matching lines, because the
@@ -156,6 +210,20 @@ func unguardedCredentialLogs(t *testing.T) []credentialLogSite {
 				return parseErr
 			}
 			walkUnderGuards(file, nil, func(call *ast.CallExpr, failures []string) {
+				if spreadsItsTail(call) {
+					// A tail assembled elsewhere and spread in. Syntax alone
+					// cannot follow the slice to its literals, so rather than
+					// read the call as clean this refuses the SHAPE: pass the
+					// pairs literally and the walk can see them. The alternative
+					// is a gate that silently stops applying the day somebody
+					// writes `log.Info(msg, args...)`.
+					sites = append(sites, credentialLogSite{
+						pos:     fset.Position(call.Pos()).String(),
+						key:     spreadTailKey,
+						subject: path + " " + logMessageOf(call),
+					})
+					return
+				}
 				keys := credentialKeysIn(call)
 				if len(keys) == 0 || reportsOneOf(call, failures) {
 					return
@@ -334,6 +402,21 @@ func namesAnError(name string) bool {
 	return strings.HasPrefix(lower, "err") || strings.HasSuffix(lower, "err") || strings.HasSuffix(lower, "error")
 }
 
+// logMessageOf answers a log call's message literal, which names the call in a
+// way a line number does not — the message survives an edit above it.
+func logMessageOf(call *ast.CallExpr) string {
+	for _, arg := range call.Args {
+		lit, isLit := arg.(*ast.BasicLit)
+		if !isLit || lit.Kind != token.STRING {
+			continue
+		}
+		if value, err := strconv.Unquote(lit.Value); err == nil {
+			return value
+		}
+	}
+	return "(no message literal)"
+}
+
 // credentialKeysIn answers the credential-shaped KEYS the call carries.
 //
 // Keys, not literals: slog resolves a call's tail as alternating key/value pairs
@@ -356,7 +439,19 @@ func credentialKeysIn(call *ast.CallExpr) []string {
 }
 
 // collectCredentialKeys walks one attribute tail, consuming a typed attribute as
-// one slot and anything else as a key/value pair.
+// one slot and a key/value pair as two.
+//
+// The boundary is only knowable while every element is recognisable. An
+// slog.Attr held in a VARIABLE, or returned by a helper — this tree has
+// errorAttr(err) in platform/jobs — occupies one slot while looking like a key,
+// which shifts every following pair by one and hides the real key in value
+// position. The same is true of a tail spread from a []any.
+//
+// So the walk gives up its precision the moment it meets an element it cannot
+// classify, and from there reads every string literal left in the tail. That
+// over-reports rather than under-reports, which is the only direction a gate
+// about credentials may fail in: a false positive is one waiver with a reason,
+// a false negative is a secret in a log nobody is looking for.
 func collectCredentialKeys(tail []ast.Expr, found *[]string) {
 	for i := 0; i < len(tail); {
 		if nested, key, isAttr := attrConstructor(tail[i]); isAttr {
@@ -365,8 +460,26 @@ func collectCredentialKeys(tail []ast.Expr, found *[]string) {
 			i++
 			continue
 		}
+		if _, isLiteral := tail[i].(*ast.BasicLit); !isLiteral {
+			// Unclassifiable: the pairing is lost from here on.
+			collectEveryStringLiteral(tail[i:], found)
+			return
+		}
 		recordCredentialKey(tail[i], found)
 		i += 2
+	}
+}
+
+// collectEveryStringLiteral is the conservative fallback: every credential-shaped
+// literal anywhere in what is left, key position or not.
+func collectEveryStringLiteral(rest []ast.Expr, found *[]string) {
+	for _, expr := range rest {
+		ast.Inspect(expr, func(n ast.Node) bool {
+			if lit, isLit := n.(*ast.BasicLit); isLit {
+				recordCredentialKey(lit, found)
+			}
+			return true
+		})
 	}
 }
 
