@@ -110,7 +110,7 @@ jobs:
             # would rot in the direction that silently under-tests.
             #
             # The split exists because one flag was driving two unrelated
-            # things: run the Go unit gates, and boot twelve Postgres shards.
+            # things: run the Go unit gates, and boot the Postgres shards.
             # A rulebook edit needs the first and cannot affect the second —
             # the same reasoning already applied to `infra/**/!(*.md)` below,
             # applied to the last two entries as well.
@@ -126,7 +126,7 @@ jobs:
               - 'frontend/src/mcp-apps/forbidden.json'
               # The dev compose stack the DB-backed lanes boot — but not the
               # prose beside it. Editing infra/ci-pipeline.md, the file that
-              # DOCUMENTS this classifier, must not boot twelve Postgres
+              # DOCUMENTS this classifier, must not boot the Postgres
               # shards. The extglob is one positive pattern on purpose: the
               # action ORs its patterns, so a `!infra/**/*.md` entry would
               # match every path OUTSIDE infra/ and fire the filter on
@@ -150,7 +150,7 @@ jobs:
               - 'sonar-project.properties'
             # The rulebooks. `backend/agentsdocparity_test.go` reads BOTH and
             # fails when the three shared sections drift, so a unit lane has to
-            # run for either — but no integration test opens them, so twelve
+            # run for either — but no integration test opens them, so the
             # Postgres shards do not.
             #
             # CLAUDE.md was absent from this classifier entirely until now,
@@ -580,7 +580,7 @@ jobs:
     name: integration shard (${{ matrix.shard }}/${{ strategy.job-total }})
     timeout-minutes: 30
     needs: [changes]
-    # backend_db, not backend: this is the twelve-Postgres lane, and the two
+    # backend_db, not backend: this is the many-Postgres lane, and the two
     # paths that differ (the agent rulebooks) cannot change what it proves.
     # It moves in lockstep with the `integration` fan-in below, which asserts
     # on this job's result and would read a skip as a failure if only one moved.
@@ -592,8 +592,20 @@ jobs:
       # A red shard must not cancel its siblings: one CI run should report
       # every failing test, not the first shard to trip.
       fail-fast: false
+      # Six, not twelve. The slice is per-TEST, so a shard's own tests are the
+      # small half of what it costs: measured on a green run, a shard spent ~146s
+      # restoring the build cache and ~275s compiling, against ~40s running the
+      # tests it was assigned. Twelve shards paid those fixed costs twelve times
+      # to divide the one cost that was already small.
+      #
+      # Halving doubles a shard's test slice — about +40s — and removes six
+      # cache-restore-plus-compile pairs, which is roughly half the lane's
+      # runner-minutes for about a minute of wall clock. Raise it again only
+      # against a measurement showing the TEST half has grown enough to matter;
+      # the compile half is addressed by building once rather than by sharding
+      # harder.
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -605,9 +617,10 @@ jobs:
       # The `integration` flavour: a shard compiles ~26 of the 31 tagged packages
       # with `-tags=integration -cover -coverpkg=./...`, and because the slice is
       # per-TEST rather than per-package, EVERY shard compiles nearly the whole
-      # lane. Sharding therefore divides the test execution twelve ways and
-      # multiplies the compile by twelve — which is affordable off a warm cache
-      # and was the dominant cost of this job off a cold one.
+      # lane. Sharding therefore divides the test execution N ways and
+      # multiplies the compile by N — which is why N is six rather than twelve
+      # (see the matrix above): past a point, another shard buys a smaller slice
+      # of the cheap half and pays another copy of the expensive one.
       - name: Restore the Go build cache
         id: go-cache
         uses: ./.github/actions/go-build-cache

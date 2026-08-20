@@ -33,6 +33,10 @@ REDACTED_OWNER_DSN = $(shell printf '%s' '$(OWNER_DSN)' | sed -E 's|//[^@/]*@|//
 # 1..15 (see scripts/test-integration-parallel.sh) — no stream collisions.
 TEST_DB_NAME ?= margince_test
 export MARGINCE_TEST_DSN     ?= postgres://margince_owner:dev@localhost:$(PG_PORT)/$(TEST_DB_NAME)
+# The benchmark targets' own database. NOT the lane's template: the bench suite
+# drops the schema and seeds a quarter of a million rows, and every per-package
+# clone is copied from that template — see bench_db in scripts/lib-testdb.sh.
+BENCH_DB_NAME                ?= margince_bench
 export MARGINCE_TEST_APP_DSN ?= postgres://margince_app:margince_app_dev@localhost:$(PG_PORT)/$(TEST_DB_NAME)
 export MARGINCE_TEST_REDIS    ?= localhost:$(REDIS_PORT)
 export MARGINCE_TEST_REDIS_DB ?= 15
@@ -280,20 +284,57 @@ test-integration-serial: composition ## Escape hatch: the old sequential lane, a
 	fi; \
 	rm -f "$$log"; echo "OK: integration passed with 0 skips"
 
-# The integration lane above runs the same harness on the SMB tier as a
-# standing canary; this target is the tier the PERF-7 SLO binds at.
+# PERF-3/PERF-7 at the tier the SLO binds at, and the only target that WRITES a
+# record. The suite used to ride the standing integration lane at the SMB tier
+# as well; it does not any more (see its own file comment), so this target and
+# bench-perf-check below are the two ways it runs.
 bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6.7 tier (needs db-up; seeds 250k contacts)
-	MARGINCE_BENCH_TIER=mid_market MARGINCE_BENCH_RECORD=1 $(GOWORK_COMPOSED) $(GO) test -tags integration -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration
+	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && bench_db $(BENCH_DB_NAME) \
+	  && cd backend && MARGINCE_BENCH_TIER=mid_market MARGINCE_BENCH_RECORD=1 \
+	     MARGINCE_TEST_DSN="$$BENCH_OWNER_DSN" MARGINCE_TEST_APP_DSN="$$BENCH_APP_DSN" \
+	     $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration'
 	@$(MAKE) --no-print-directory perfdoc
+
+# The SMB budgets, recording NOTHING — what the weekly scheduled workflow runs.
+# Records are a human's to publish: a machine writing its own numbers into the
+# tree is the failure MARGINCE_BENCH_RECORD exists to prevent, and a scheduled
+# job is exactly the machine meant.
+#
+# SMB ONLY, and the omission is the honest half of this target. Mid-market is
+# where the PERF-7 SLO binds, so a drift alarm would ideally watch it — but its
+# seed is 250k persons, 500k activities and 50k relationships, and it exceeded
+# `go test`'s 30m budget when this target was first run against it (measured:
+# SMB 46.6s, mid-market FAIL at 1800.7s, on a fast laptop; a 4-core runner is
+# slower). A scheduled job that cannot finish does not report "slow" — it goes
+# red, and scripts/scheduled-report.sh files an issue saying a budget is
+# breaching, which would be a fabricated finding every week.
+#
+# So the alarm watches the corpus it can finish. SMB is what most installations
+# look like, and drift there is real drift. Mid-market stays with `bench-perf`,
+# by hand, where a person is watching the clock — and a PERF-7 row measured
+# below mid-market renders `inconclusive` in the published page rather than
+# claiming a bound it did not test.
+#
+# MARGINCE_BENCH_RECORD is cleared rather than merely left unset: "writes
+# nothing" must be a property of the target, not of whatever the caller's shell
+# happened to export. A developer with it set from an earlier `bench-perf` would
+# otherwise have this target rewrite the published record from the SMB tier.
+bench-perf-check: composition ## PERF-3/PERF-7 on the SMB tier, no record written (needs db-up; the scheduled lane's target)
+	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && bench_db $(BENCH_DB_NAME) \
+	  && cd backend && MARGINCE_BENCH_TIER=smb MARGINCE_BENCH_RECORD= \
+	     MARGINCE_TEST_DSN="$$BENCH_OWNER_DSN" MARGINCE_TEST_APP_DSN="$$BENCH_APP_DSN" \
+	     $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 20m ./internal/compose/integration'
 
 # The `bench` lane: measurements run BY HAND, never by a merge gate.
 #
-# bench-perf above is the older shape and stays as it is — its suite carries
-# only the `integration` tag, so the standing lane runs it at the SMB tier as a
-# canary and this target re-runs it at mid-market. The two targets below are the
-# opposite posture by request: their suites carry `integration && bench`, so no
-# CI lane runs them at all. `make vet` and both golangci passes still TYPE-CHECK
-# them, which is the only thing standing between a by-hand lane and rot.
+# Every suite reached from here carries `integration && bench`, so no MERGE gate
+# runs any of them. `make vet` and both golangci passes still TYPE-CHECK them,
+# which is the only thing standing between a by-hand lane and rot.
+#
+# bench-perf and bench-perf-check above are the one exception to "by hand": the
+# scheduled workflow runs bench-perf-check weekly, because PERF-3/PERF-7 lost
+# its standing merge-gate canary and drift nobody looks for is drift nobody
+# finds. It still writes no record — publishing a number stays a human's act.
 #
 # Separate targets rather than one, because they measure unrelated promises and
 # cost unrelated amounts of time: a reader chasing a slow save should not have

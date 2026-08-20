@@ -141,7 +141,7 @@ true on every event.
 
 `backend` and `backend_db` are the same set apart from the two agent
 rulebooks. They are split because one flag was driving two unrelated things:
-run the Go unit gates, and boot twelve Postgres databases. `AGENTS.md` and
+run the Go unit gates, and boot the sharded Postgres databases. `AGENTS.md` and
 `CLAUDE.md` are read by `backend/agentsdocparity_test.go`, so an edit to
 either has to run a unit lane — and by no integration test, so it must not
 run the database lanes. The two shards move in lockstep with the
@@ -150,7 +150,7 @@ would report a documentation PR as a broken integration lane.
 
 | Scope | Paths | Gates |
 |---|---|---|
-| `backend_db` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | the twelve integration shards and the `integration` fan-in — every lane that opens a database |
+| `backend_db` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | the integration shards and the `integration` fan-in — every lane that opens a database |
 | `backend` | `backend_db` (by YAML anchor, so the two cannot drift) plus the agent rulebooks `AGENTS.md` and `CLAUDE.md` | Go build/gate, extension reference, craftsmanship, unit coverage, vuln |
 | `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types), plus the composition inputs the lane now typechecks against — `extensions/**`, `fixtures/**`, `composition/**`, `backend/tools/gen-composition/**`, `Makefile` — and the install inputs `pnpm-lock.yaml` and `pnpm-workspace.yaml`, which decide *which* dependency the SPA builds on and which one `openapi-typescript` parses the contract with (`overrides` lives in the workspace file, so it resolves versions the lockfile then merely records) | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**/!(*.md)`, `extensions/**`, `fixtures/**`, `composition/**` | full-stack live-boot |
@@ -161,7 +161,7 @@ Consequences:
 - A **docs-only PR** matches no scope → every code gate skips **on the PR**, and
   runs in full when the PR reaches the queue. That includes the prose under
   `infra/` — this file documents the classifier, it is not an input to any gate,
-  so the two `!(*.md)` extglobs keep an edit to it from booting the twelve-shard
+  so the two `!(*.md)` extglobs keep an edit to it from booting the sharded
   integration fleet on the PR side. Each is written as one positive pattern
   because the action ORs its patterns: a separate `!infra/**/*.md` entry would
   match every path outside `infra/` and fire the filter on everything.
@@ -234,7 +234,7 @@ passes. The real-Postgres integration lane is the opposite — it runs **beside*
 `deterministic-gates`, not behind it: it is the longest lane in the pipeline,
 so serializing the two slowest jobs dominated PR wall-clock, and a broken
 build is still caught by `deterministic-gates` itself. And the lane is
-**sharded**: twelve matrix runners each execute a deterministic per-test slice
+**sharded**: six matrix runners each execute a deterministic per-test slice
 (package-level splitting would floor at the heaviest package,
 `compose/integration`), and the `integration` fan-in reassembles them into the
 single result the `ci` aggregate reads.
@@ -281,6 +281,13 @@ Ten jobs are deliberately **not** in `needs`:
   has a measured baseline, as their own change, so a regression has exactly one
   explanation.
 
+Six rather than twelve because the per-test slice is the cheap half of a shard.
+Measured on a green run, one shard spent ~146s restoring the build cache and
+~275s compiling against ~40s running its assigned tests — so each extra shard
+divides the 40s again and pays another 420s. Halving the matrix costs about a
+minute of wall clock and returns roughly half the lane's runner-minutes. The
+compile half is a build-once problem, not a sharding one.
+
 ## The shared Go build cache
 
 Every Go job restores
@@ -292,8 +299,8 @@ only `go.sum`, so the entry is written once and never refreshed — every later
 run logs *"Cache hit occurred on the primary key … not saving cache"* and
 restores that first snapshot forever. Measured on this repo, that blob is
 **~25 MB** while a warm Go build cache is **~550 MB**: the module cache was
-being restored, the build cache effectively was not. Seventeen Go jobs per
-backend run — the twelve shards, the merge gate, the composed-build lane, the
+being restored, the build cache effectively was not. Eleven Go jobs per
+backend run — the six shards, the merge gate, the composed-build lane, the
 coverage pass, `live-boot`, `govulncheck` — each compiled the module from
 scratch, every run. setup-go still owns the module cache; this action owns the
 build cache beside it.
@@ -304,7 +311,7 @@ package builds themselves and only the dependency builds underneath are common:
 | Flavour | Written by | Read by |
 |---|---|---|
 | `plain` | `cache-warm.yml` job `plain` | `deterministic-gates`, `extension-reference`, `integration unit coverage`, `live-boot`, `vuln` |
-| `integration` | `cache-warm.yml` job `integration` | all twelve shards |
+| `integration` | `cache-warm.yml` job `integration` | all six shards |
 
 ### The writer lives in `cache-warm.yml`, on a schedule
 
@@ -340,7 +347,7 @@ were cancelled, so it was being seeded by accident, rarely.
 
 **Exactly one writer per flavour** still holds, and for the original reason: every
 shard compiles substantially the same set, so a second writer would add nothing
-but a race for the same key, and twelve runners each uploading ~550 MB would evict
+but a race for the same key, and every runner uploading ~550 MB would evict
 the entry they meant to seed. `cache-warm.yml` runs one job per flavour and takes
 `concurrency: cancel-in-progress: false`, because a cancelled run saves nothing
 and the entire point is that a run finishes.
@@ -366,7 +373,7 @@ third-party actions it calls, which would otherwise ride in unread.
 | `secret-scan` | `make secret-scan` — gitleaks over a clean `git archive HEAD` export, policy in `.gitleaks.toml`. Scans the **committed** tree, never the working tree: gitleaks does not honour `.gitignore`, so an in-place scan reads sibling worktrees and local `.env` files and reaches a different verdict per machine. The job has no install step: `scripts/gitleaks-pin.sh` fetches the version- **and** checksum-pinned binary itself, so CI and a laptop resolve the same scanner through the same code — a scan's verdict is a function of its rule set, so a different version would be a different gate. The official gitleaks action is not used: it needs a paid licence key for organization repositories. Findings print redacted — CI logs on a public repo are public. Followed immediately by `make test-secret-scan`, which plants a token in each exempted file and requires the scan to fail anyway: an allowlist that grew too broad reports "no leaks found" exactly like a clean tree. Then `make test-api-entrypoint`, which is the same class of check one layer out: the container entrypoint must write the bootstrap admin credential only onto an unprovisioned installation, retire one an earlier boot left, and refuse to start when it cannot tell which it is — ADR-0061 §2 consumes bootstrap values exactly once, and a credential written to a live installation is as invisible as an over-broad allowlist. It stubs `margince-migrate`/`margince-api` on `PATH`, so it needs no container and no database. Then `make test-dev-dsn`, in this job for the same reason: a dev stack that ignored `MARGINCE_DSN` looked exactly like one that honoured it, and a slugged stack that took its database name from a supplied DSN looks isolated while sharing the base database. Pure shell, no Docker. Ends with `make check-image-pins` (pure bash and grep, no toolchain), which lives here rather than in the classifier-gated backend lane because it reads the whole workflow directory — see the classifier exceptions above. `make check-backend` keeps running it too, so a laptop `make check` reproduces this verdict |
 | `integration shard (k/12)` | `make test-integration` with `INTEGRATION_SHARD=k/12`: a deterministic per-test round-robin slice of the whole integration lane. Slices are count-based, not duration-based; the heavy e2e tail lands on whichever shard draws it, and `INTEGRATION_JOBS=16` (the tests wait on Postgres, not cores) lets that shard chew through its slice instead of running minutes over its siblings. Boots the dev compose stack (`make db-up`: digest-pinned Postgres 16 (pgvector) + Redis 7 + MinIO + the app role — one stack definition, no hand-mirrored GH services); each shard builds its own migrated `margince_test` template and clones per package. Uploads its slice manifests + binary coverage pods |
 | `integration unit coverage` | The unit `-cover` pass over every package, binary coverage pods only. Needed because the shards run just the integration-tagged packages, and without it SonarCloud would see the unit-only packages at a false ~0% new-code coverage. No services (the test-lanes gate guarantees untagged tests open no real DB) |
-| `integration` | The fan-in the `ci` aggregate reads — it stands for the whole sharded lane, so the aggregate needs one entry rather than twelve. Asserts every shard + the unit pass succeeded (a failed shard must turn this check red, not skipped), then `scripts/test-integration-reconcile.sh` proves the slices add up: every shard present, identical discovery, union complete + disjoint. Merges all coverage pods into `coverage.out`, uploads `go-coverage` |
+| `integration` | The fan-in the `ci` aggregate reads — it stands for the whole sharded lane, so the aggregate needs one entry rather than six. Asserts every shard + the unit pass succeeded (a failed shard must turn this check red, not skipped), then `scripts/test-integration-reconcile.sh` proves the slices add up: every shard present, identical discovery, union complete + disjoint. Merges all coverage pods into `coverage.out`, uploads `go-coverage` |
 | `vuln` | `make vuln` (govulncheck over all packages). **Advisory** — outside the `ci` aggregate, so a red one does not stop a merge. It still runs on every backend change, so a vulnerable dependency a PR *introduces* is reported before merge; what it cannot report is a vulnerability disclosed after one, which is why `scheduled.yml` runs it daily on `main` as well |
 | `license gate` | `make sbom` then `make sbom-check` — the dependency-license policy (`grant`, policy in `.grant.yaml`) over the resolved dependency graph, not the manifests. Lives here rather than in `sbom.yml` because it is a **gate** and that workflow is an artifact producer: `sbom.yml` filters at the workflow level, so on a PR touching no dependency it produces no check run at all, and a required context that never posts blocks the merge forever. Job-level gating makes a path skip report as passing instead. Runs on `merge_group` as well as `pull_request`, and it is the **only** automatic run of this policy — `sbom.yml` is dispatch-only, so the copy of the gate inside it fires just before a signing run. The merge-queue run is what makes that sufficient, and makes it a stronger claim than it was: `main` receives a dependency change only through a queue build this job passed, so the policy is judged against the tree that lands rather than a PR head that may not match it |
 | `fe-quality` | `make fe-quality` — the design-system script gates, the contract type-drift check, Biome, the composed-SPA typecheck (ADR-0069) and the unit screens' own vitest suites. The only frontend job carrying a Go toolchain: the composed lane needs `gen-composition` output, which nothing else produces |

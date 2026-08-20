@@ -152,9 +152,14 @@ func AwaitTwoDispatchArrivals(ctx context.Context, t *testing.T, completed <-cha
 // StartTestJobRunner boots a worker-role job runner over cfg and returns it
 // with its completion and failure channels, subscribed BEFORE Start so the
 // RunOnStart round's outcomes are never missed. The runner is stopped in
-// cleanup.
+// cleanup, and cfg.TestOnly is set for it — see below.
 func StartTestJobRunner(t *testing.T, pool *pgxpool.Pool, cfg compose.JobRunnerConfig) (*jobs.Runner, <-chan *river.Event, <-chan *river.Event) {
 	t.Helper()
+	// Set here rather than left to each suite: a runner booted per test pays
+	// River's startup stagger per test, and a caller that forgot the flag would
+	// pay it silently — the suite still passes, only slower, which is the shape
+	// nobody investigates.
+	cfg.TestOnly = true
 	runner, err := compose.NewJobRunner(pool, slog.New(slog.DiscardHandler), cfg)
 	if err != nil {
 		t.Fatalf("NewJobRunner: %v", err)

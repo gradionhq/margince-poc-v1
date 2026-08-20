@@ -97,6 +97,54 @@ So the breakage may predate the most recent commit. Reproduce locally with
     || unreported=1
 fi
 
+# Two findings, not one, because the job result cannot tell them apart: a failed
+# checkout, a cold cache, a refused database or a hung seed all arrive here as
+# `failure`. Filing "a budget is breaching" for those sends somebody bisecting a
+# regression that never happened — which is the failure this whole lane keeps
+# learning about. PERF_OUTCOME is set by the step from the harness's own breach
+# message, so only a MEASURED breach is reported as one.
+if [ "${PERF_RESULT:-}" = "failure" ] && [ "${PERF_OUTCOME:-}" != "breach" ]; then
+  report "the weekly PERF-3/PERF-7 run could not complete" bug \
+"\`make bench-perf-check\` failed on the weekly run of \`main\` WITHOUT reaching a
+budget verdict: $RUN_URL
+
+No budget is known to be breaching, and none is known to hold — the lane did not
+get far enough to say. The step separates the two outcomes precisely so this
+issue does not claim a regression that was never measured.
+
+Likely causes, in the order they occur: the runner could not reach the Postgres
+service, \`bench_db\` could not create \`margince_bench\`, or the SMB seed
+outran \`go test\`'s 20m budget (which would have printed a goroutine dump — if
+the job was killed at 30m instead, the runner was slower than the budget assumes
+and the two timeouts need re-deriving, not raising).
+
+Reproduce with \`make db-up && make bench-perf-check\`. The published budgets
+page is untouched either way: this lane never sets MARGINCE_BENCH_RECORD."\
+    || unreported=1
+fi
+
+if [ "${PERF_OUTCOME:-}" = "breach" ]; then
+  report "a PERF-3/PERF-7 budget is breaching on main" bug \
+"\`make bench-perf-check\` failed on the weekly run of \`main\`: $RUN_URL
+
+This alarm runs the SMB tier only, and that shapes what the finding means: SMB
+is the corpus most installations look like, while the PERF-7 SLO binds at
+mid-market. So a breach here is worse than it sounds — the SMALLER corpus is
+already over a bound the larger one has to meet. Mid-market is not measured by
+any schedule; run \`make bench-perf\` by hand to see it.
+
+No record was written — this lane never sets \`MARGINCE_BENCH_RECORD\`, so the
+published page still shows the last number a human measured. Reproduce with
+\`make db-up && make bench-perf-check\`, and publish a new number with
+\`make bench-perf\` only once the breach is understood.
+
+This budget carried no merge gate: PERF-3/PERF-7 left the integration lane
+because a mid-market SLO gated on an SMB corpus renders \`inconclusive\`, never
+\`within budget\`. So the breach may predate this run by up to a week, and
+bisecting is the honest first move rather than assuming the newest commit."\
+    || unreported=1
+fi
+
 if [ "${CACHE_RESULT:-}" = "failure" ]; then
   report "the Actions build-cache reaper is failing" bug \
 "\`scripts/reap-build-caches.sh\` failed on the scheduled run: $RUN_URL

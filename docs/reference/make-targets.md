@@ -44,7 +44,7 @@ UAT guides call by name (`docs/target-minimum-setup.md §3`). `check-q`,
 | `build` | `go build ./...` |
 | `vet` | `go vet ./...` |
 | `test` | Unit tests; the root fitness tests (license header, write shape, architecture, enum sync, `audit_log` enum coherence, contract `$ref` resolution) run uncached |
-| `test-integration` | Real-Postgres lane (`-tags integration`): RLS gates, governed-agent loop, HTTP end-to-end. Runs on its own `margince_test` namespace, never the dev `margince` DB, so it can run concurrently with `make dev`. **Parallel** — each package runs on its own throwaway clone db (`CREATE DATABASE … TEMPLATE margince_test`) + private MinIO bucket + its own Redis logical db (1..15 by slot; db 0 stays reserved for `make dev`), so packages share nothing; within a package still `-p 1`. Fails loudly without a database — never skips. Tune concurrency with `INTEGRATION_JOBS=N`. CI additionally slices the lane per test across twelve runners: `INTEGRATION_SHARD=k/N` runs the k-th deterministic slice (debug a red CI shard locally with exactly that), `INTEGRATION_SHARD_OUT=dir` collects the manifests + coverage pods `scripts/test-integration-reconcile.sh` verifies and merges |
+| `test-integration` | Real-Postgres lane (`-tags integration`): RLS gates, governed-agent loop, HTTP end-to-end. Runs on its own `margince_test` namespace, never the dev `margince` DB, so it can run concurrently with `make dev`. **Parallel** — each package runs on its own throwaway clone db (`CREATE DATABASE … TEMPLATE margince_test`) + private MinIO bucket + its own Redis logical db (1..15 by slot; db 0 stays reserved for `make dev`), so packages share nothing; within a package still `-p 1`. Fails loudly without a database — never skips. Tune concurrency with `INTEGRATION_JOBS=N`. CI additionally slices the lane per test across six runners: `INTEGRATION_SHARD=k/N` runs the k-th deterministic slice (debug a red CI shard locally with exactly that), `INTEGRATION_SHARD_OUT=dir` collects the manifests + coverage pods `scripts/test-integration-reconcile.sh` verifies and merges |
 | `test-db-up` | (Re)build the migrated `margince_test` template the parallel lane clones from |
 | `test-it` | Run ONE integration package on a throwaway clone (+ own MinIO bucket + Redis db 15): `make test-it DIR=backend/internal/modules/people [RUN=TestName]` |
 | `e2e-siteread` | (backend Makefile) Deep-read quality floor vs the real gradion.com (`-tags e2e_llm`): paid, network, opt-in. Judge a candidate model with `MARGINCE_E2E_MODEL=provider:model` (+ its BYOK key) or `MARGINCE_AI_ROUTING`; every assertion is a floor — a different model must extract the same or better to pass |
@@ -98,7 +98,8 @@ root gates (each is a small script; all merge-blocking):
 | `psql` / `redis-cli` | Open a shell on the dev database (owner role) / dev Redis |
 | `test-v` / `test-cover` | Verbose unit tests / unit tests with a coverage summary |
 | `db-wait` / `infra-logs` / `infra-reset` | Block until Postgres answers / tail the dev-stack logs / wipe volumes and restart the stack |
-| `bench-perf` | The PERF benchmark harness on the mid-market tier (needs `db-up`; seeds 250k contacts) |
+| `bench-perf` | The PERF benchmark harness on the mid-market tier, writing a record (needs `db-up`; seeds 250k contacts) |
+| `bench-perf-check` | The same budgets on the **SMB** tier, writing nothing — what the weekly scheduled workflow runs (needs `db-up`) |
 | `bench-record` | PERF-1/PERF-4: record open and save p50/p95/p99, measured over HTTP against the booted app (needs `db-up`) |
 | `bench-capture` | CAP-PARAM-1: capture-to-timeline latency, 60 s p95, over the auto-create path (needs `db-up`) |
 | `perfdoc` | Re-render `docs/reference/performance-budgets.md` from the committed benchmark records. Every `bench-*` target runs it as its last step, so the page updates on every measurement; run it alone after editing the published-budget table in `backend/tools/gen-perfdoc` |
@@ -106,8 +107,9 @@ root gates (each is a small script; all merge-blocking):
 
 ### The `bench` lane — measurements, run by hand
 
-`bench-record` and `bench-capture` carry `//go:build integration && bench`, so
-**no CI lane runs them**: not `make check`, not the integration lane. They report
+`bench-perf`, `bench-perf-check`, `bench-record` and `bench-capture` all carry
+`//go:build integration && bench`, so **no MERGE gate runs them**: not `make
+check`, not the integration lane. They report
 the numbers behind the budgets `acceptance-standards.md` publishes rather than
 gating a merge on them, which is why each prints p50/p95/p99 beside its budget
 instead of only passing or failing. `bench-mobile` below is the frontend half of
@@ -126,14 +128,26 @@ and their own machines. A budget no record covers renders as `not measured`
 rather than being dropped, which is the whole reason the page lists the
 published set instead of the measured one.
 
-`bench-perf` is the older shape and is **not** in this lane: its suite carries
-only the `integration` tag, so the standing integration lane runs it at the SMB
-tier as a canary and `bench-perf` re-runs it at mid-market, where the PERF-7 SLO
-actually binds. It records too, but only under `MARGINCE_BENCH_RECORD=1`, which
-that target sets and CI does not — a scheduled job must never write a machine's
-numbers into the tree. A PERF-7 row measured below mid-market renders
-`inconclusive`, never `within budget`: the canary's number satisfies a bound it
-was not measured against.
+`bench-perf` is the one thing here a schedule touches, and only through
+`bench-perf-check`. PERF-3/PERF-7 used to ride the standing integration lane at
+the SMB tier as a canary; it stopped, because it was 37.9 s of every merge gate
+— a quarter of its package — for a claim it could not make. A PERF-7 row
+measured below mid-market renders `inconclusive`, never `within budget`: the
+canary's number satisfies a bound it was not measured against. So the merge gate
+paid a mid-market price for an SMB answer.
+
+The weekly scheduled workflow now runs `bench-perf-check` on the SMB tier
+instead, which is where drift nobody looks for gets found. Not mid-market: that
+tier seeds 250k persons and 500k activities and does not finish inside `go
+test`'s 30m budget (measured — SMB 46.6s, mid-market killed at 1800.7s on a fast
+laptop), and a scheduled job that cannot finish does not report "slow", it goes
+red and files an issue claiming a budget breach that was never measured. It
+writes nothing:
+`MARGINCE_BENCH_RECORD=1` is set by `bench-perf` alone, because publishing a
+number stays a human's act — a machine must never write its own numbers into the
+tree. The write-path regression the standing canary once caught by TIMING OUT
+rather than by measuring is held deterministically now, by the `seq_scan` count
+in `lastactivity_integration_test.go`.
 
 ## Root-only (frontend lane)
 

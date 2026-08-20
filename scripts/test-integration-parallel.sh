@@ -250,11 +250,16 @@ while IFS='|' read -r d rel; do
         # lane's build always satisfies the tag.
         '!integration') skip_file=1 ;;
         e2e_llm|livesmoke|voicelive) skip_file=1 ;;
-        # `integration && bench` is the by-hand benchmark lane (make bench-record
-        # / bench-capture). It is a CONJUNCTION rather than a lone tag on
+        # `integration && bench` is the benchmark lane (make bench-record,
+        # bench-capture, bench-perf, bench-perf-check). It keeps those suites out
+        # of every MERGE gate, which is what matters here — one of them,
+        # bench-perf-check, is run weekly by the scheduled workflow, so "the tag
+        # keeps them out of all automation" would be false.
+        #
+        # It is a CONJUNCTION rather than a lone tag on
         # purpose: those files use this lane's own harness — apptest.AppEnv,
         # newCaptureEnv, benchRuns — so they need `integration` to compile at
-        # all, and `bench` is what keeps them out of every scheduled run.
+        # all, and `bench` is what keeps them out of every merge gate.
         #
         # Statically decidable for the same reason the lone tags are: this
         # lane's build sets `integration` and never sets `bench`, so the
