@@ -303,7 +303,11 @@ describe("ShareScreen", () => {
 
     const row = await screen.findByRole("button", { name: /Mor Adler/ });
     // Selectable: the only way to change a level used to be revoke-and-share.
-    expect((row as HTMLButtonElement).disabled).toBe(false);
+    // Refused in either spelling counts: `disabled` is what the row used to
+    // carry, `aria-disabled` is how Button refuses a press without dropping
+    // focus, and a row wearing either one is not pickable.
+    expect(row.hasAttribute("disabled")).toBe(false);
+    expect(row.getAttribute("aria-disabled")).toBeNull();
     // And the row says WHICH level, so the next press is not a blind
     // overwrite — "already has a grant" never said read from write.
     expect(within(row).getByText("Has read")).toBeTruthy();

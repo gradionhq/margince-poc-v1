@@ -20,7 +20,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const CONTRACT = {
+const CONTRACT: components["schemas"]["Contract"] = {
   id: "c-1",
   organization_id: "o-1",
   title: "valantic GmbH — Rahmenvertrag",
@@ -199,12 +199,7 @@ describe("the signed document on the contract form", () => {
   it("offers the filed PDF as a download", async () => {
     stub([PAPER]);
     show(
-      <ContractForm
-        orgId="o-1"
-        contract={CONTRACT as never}
-        open
-        onClose={() => {}}
-      />,
+      <ContractForm orgId="o-1" contract={CONTRACT} open onClose={() => {}} />,
     );
 
     const link = await screen.findByRole("link", {
@@ -235,12 +230,7 @@ describe("the signed document on the contract form", () => {
       },
     ]);
     show(
-      <ContractForm
-        orgId="o-1"
-        contract={CONTRACT as never}
-        open
-        onClose={() => {}}
-      />,
+      <ContractForm orgId="o-1" contract={CONTRACT} open onClose={() => {}} />,
     );
 
     // The page it holds is still shown — a truncation notice is not a reason to
@@ -263,12 +253,7 @@ describe("the signed document on the contract form", () => {
       })),
     );
     show(
-      <ContractForm
-        orgId="o-1"
-        contract={CONTRACT as never}
-        open
-        onClose={() => {}}
-      />,
+      <ContractForm orgId="o-1" contract={CONTRACT} open onClose={() => {}} />,
     );
 
     expect(await screen.findByText("Showing part of the list")).toBeTruthy();
@@ -297,12 +282,7 @@ describe("the signed document on the contract form", () => {
       }),
     );
     show(
-      <ContractForm
-        orgId="o-1"
-        contract={CONTRACT as never}
-        open
-        onClose={() => {}}
-      />,
+      <ContractForm orgId="o-1" contract={CONTRACT} open onClose={() => {}} />,
     );
 
     expect(

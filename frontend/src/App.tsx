@@ -48,7 +48,6 @@ import { InboxScreen, usePendingApprovals } from "./screens/inbox";
 import { OnboardingScreen, useCompany } from "./screens/onboarding";
 import { isPersonTab } from "./screens/persontab";
 import { ReleaseSkewScreen, useSkewedApiRelease } from "./screens/releaseskew";
-import { SCHEDULED_SCREEN } from "./screens/scheduledsends";
 import { fetchSetupStatus, SetupClaimScreen } from "./screens/setupclaim";
 
 // Route → screen. The table below is TOTAL over `Screen` (app/router.tsx), so
@@ -411,7 +410,13 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     filters: ({ id }) => <FiltersScreen id={id} />,
     // No segments: the queue is one page, and a single scheduled message has
     // nothing to show that its row does not already carry.
-    [SCHEDULED_SCREEN]: () => <ScheduledSendsScreen />,
+    //
+    // The literal rather than the screen's own SCHEDULED_SCREEN, which is the
+    // one place that constant is NOT used: importing it here would pull the
+    // module into the startup graph and the lazy() above would load a chunk the
+    // browser already has. The key is still typed against `Screen`, so a rename
+    // fails here too.
+    scheduled: () => <ScheduledSendsScreen />,
     offers: ({ id }) =>
       id ? (
         <OfferScreen id={id} />

@@ -249,7 +249,11 @@ function ContractRow({
 
   return (
     <PanelRow className="rec-row">
-      <span className="rec-main">
+      {/* DIVs, not spans. Both halves of the row hold flow content — the paper
+          list below and the overflow menu at the end are each a block — and
+          flow content inside phrasing content is invalid markup. Both set their
+          own `display: flex`, so nothing moves. */}
+      <div className="rec-main">
         {/* The title opens the same form the add button does. A row a reader
             cannot open is a row they cannot correct, and a mistyped value is
             the most likely thing they came here to fix. */}
@@ -269,8 +273,8 @@ function ContractRow({
         {/* The paper sits under the agreement's own line: a file is about the
             agreement, not about any one of the facts beside it. */}
         <ContractPaper contractId={contract.id} orgId={orgId} />
-      </span>
-      <span className="rec-end">
+      </div>
+      <div className="rec-end">
         {/* The figure and the basis it is stated on, stacked: the amount is
             read first and what it means directly under it, instead of parsing
             "€120,000.00 / year" as one string. */}
@@ -300,7 +304,7 @@ function ContractRow({
             )}
           </OverflowMenu>
         )}
-      </span>
+      </div>
       <ConfirmModal
         open={asking}
         onClose={() => setAsking(false)}

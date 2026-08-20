@@ -15,10 +15,17 @@ type Lead = components["schemas"]["Lead"];
 /** One row's outcome in a fan-out: it went through, or it did not and why. */
 export type BulkOutcome = { id: string; name: string; error?: string };
 
-/** Which verb a bulk run applied, for the caller that has to say what moved. */
+/**
+ * Which verb a bulk run applied, for the caller that has to say what moved.
+ *
+ * Each arm carries everything that verb's write needs, because this is also
+ * the mutation's variable: a `mutationFn` reading an owner or a reason out of
+ * render state would run whatever the previous render closed over, and the
+ * click that carries the variable belongs to the render the reader pressed.
+ */
 export type BulkAction =
   | { kind: "assign"; ownerId: string; ownerName: string }
-  | { kind: "disqualify" };
+  | { kind: "disqualify"; reasonId: string };
 
 /**
  * Bulk verbs over selected leads: assign an owner, disqualify. Both are a
@@ -56,13 +63,35 @@ export function LeadBulkBar({
   const reasons = useLeadDisqualifyReasons();
   const [outcomes, setOutcomes] = useState<readonly BulkOutcome[]>([]);
 
+  // One row's write, chosen by the verb the run carries. The row identity and
+  // its version come from the row in hand; the owner or the reason comes from
+  // the mutation's variable, so neither can be a value that had left the
+  // screen by the time the write went out.
+  const apply = async (lead: Lead, action: BulkAction) => {
+    if (action.kind === "assign") {
+      const { error } = await api.PATCH("/leads/{id}", {
+        params: {
+          path: { id: lead.id },
+          ...ifMatch(requireVersion(lead.version)),
+        },
+        body: { owner_id: action.ownerId },
+      });
+      if (error) {
+        throwProblem(error, t);
+      }
+      return;
+    }
+    const { error } = await api.DELETE("/leads/{id}", {
+      params: { path: { id: lead.id } },
+      body: { reason_id: action.reasonId },
+    });
+    if (error) {
+      throwProblem(error, t);
+    }
+  };
+
   const run = useMutation({
-    mutationFn: async ({
-      write,
-    }: {
-      write: (lead: Lead) => Promise<void>;
-      action: BulkAction;
-    }): Promise<BulkOutcome[]> =>
+    mutationFn: async (action: BulkAction): Promise<BulkOutcome[]> =>
       // Sequential, not Promise.all: a bulk verb over a work queue is a
       // handful of rows, and a burst of concurrent writes against one
       // rep's own leads buys nothing but contention.
@@ -70,7 +99,7 @@ export function LeadBulkBar({
         const done = await acc;
         const name = lead.full_name ?? lead.email ?? lead.id;
         try {
-          await write(lead);
+          await apply(lead, action);
           done.push({ id: lead.id, name });
         } catch (error) {
           done.push({
@@ -84,7 +113,7 @@ export function LeadBulkBar({
         }
         return done;
       }, Promise.resolve([])),
-    onSuccess: async (result, { action }) => {
+    onSuccess: async (result, action) => {
       // Awaited: the rows that refused keep their selection so they can be
       // retried, and a retry that fired before the refetch landed would
       // resend the very version that just conflicted. The run stays pending
@@ -100,47 +129,17 @@ export function LeadBulkBar({
       .filter((entry) => entry.id === ownerId)
       .map((entry) => ("display_name" in entry ? entry.display_name : null))
       .find((name) => typeof name === "string") ?? ownerId;
-  const assign = () =>
-    run.mutate({
-      action: { kind: "assign", ownerId, ownerName },
-      write: async (lead) => {
-        const { error } = await api.PATCH("/leads/{id}", {
-          params: {
-            path: { id: lead.id },
-            ...ifMatch(requireVersion(lead.version)),
-          },
-          body: { owner_id: ownerId },
-        });
-        if (error) {
-          throwProblem(error, t);
-        }
-      },
-    });
+  const assign = () => run.mutate({ kind: "assign", ownerId, ownerName });
   // The reason list is administered (Settings › Data model); only its ACTIVE
   // rows may be applied, and a payload that is not the contract's array is
   // read as nothing rather than crashing the bar that renders it.
   const activeReasons = (
     Array.isArray(reasons.data) ? reasons.data : []
   ).filter((reason) => reason.active);
-  // The reason is read where the CLICK happens, not inside a `mutationFn` that
-  // react-query re-arms in a passive effect: this closure belongs to the render
-  // whose button the reader pressed, so the reason it sends is the one that was
-  // on screen. The per-row `write` is handed to `run` and called with each
-  // lead — the row identity is the parameter, and the reason is the one thing
-  // the whole batch shares.
-  const disqualify = () =>
-    run.mutate({
-      action: { kind: "disqualify" },
-      write: async (lead) => {
-        const { error } = await api.DELETE("/leads/{id}", {
-          params: { path: { id: lead.id } },
-          body: { reason_id: reasonId },
-        });
-        if (error) {
-          throwProblem(error, t);
-        }
-      },
-    });
+  // The reason is read where the CLICK happens and travels as the mutation's
+  // variable, so what reaches every row's DELETE is the reason that was on
+  // screen when the reader pressed the verb.
+  const disqualify = () => run.mutate({ kind: "disqualify", reasonId });
 
   const failed = outcomes.filter((o) => o.error);
   return (

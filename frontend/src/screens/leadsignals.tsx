@@ -134,10 +134,16 @@ export function LeadManualSignals({
         if (error) {
           throwProblem(error, t);
         }
+        // Retired as it lands, not once the whole batch has. A batch can stop
+        // part-way through, and an answer still on the form after the server
+        // took it is one the next save re-sends: that re-stamps
+        // `set_by`/`set_at` on a factor nobody touched the second time and
+        // appends a history row recording no change. What stays on the form
+        // is exactly what is still outstanding.
+        setAnswers((prev) => ({ ...prev, [body.factor]: "" }));
       }
     },
     onSuccess: () => {
-      setAnswers(NO_ANSWERS);
       setNote("");
       setKind(DEFAULT_SIGNAL_KIND);
       setConfidence(CONFIDENCE_UNSTATED);

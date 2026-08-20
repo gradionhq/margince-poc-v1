@@ -4,13 +4,51 @@ import { renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../api/client";
+import type { components } from "../api/schema";
 import { useProviderLabel } from "./channelproviders";
 
 // The directory names a transport for a human. What matters is not that it
 // looks the label up — it is what it does when it CANNOT, because a provider
 // this build has never heard of is exactly what an extension unit creates, and
 // the timeline still has to render.
+
+type Directory = components["schemas"]["ChannelProviderDirectory"];
+type Entry = components["schemas"]["ChannelProviderEntry"];
+
+// The wire, not the client, is the boundary worth standing in for: stubbing
+// `api.GET` would let a fixture claim a body the contract does not describe,
+// which is the one thing this suite reads the generated types to prevent.
+function stubDirectory(body: unknown, status = 200) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ),
+  );
+}
+
+// A transport carries files or it does not, and the directory says which for
+// every entry. None of that bears on a label, so it is stated once here rather
+// than in each case: a fixture that repeated it would invite the next reader to
+// look for meaning in the numbers.
+function transport(provider: string, label: string): Entry {
+  return {
+    provider,
+    label,
+    credential_model: "workspace_bot",
+    supplies_transport: true,
+    attachments: {
+      carries: false,
+      max_files: 0,
+      max_bytes_per_file: 0,
+      max_body_with_files: 0,
+    },
+  };
+}
 
 function wrapper() {
   const client = new QueryClient({
@@ -22,23 +60,16 @@ function wrapper() {
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 describe("useProviderLabel", () => {
   it("names a registered transport with its label", async () => {
-    vi.spyOn(api, "GET").mockResolvedValue({
-      data: {
-        data: [
-          {
-            provider: "telegram",
-            label: "Telegram",
-            credential_model: "workspace_bot",
-            supplies_transport: true,
-          },
-        ],
-      },
-    } as never);
+    const directory: Directory = {
+      data: [transport("telegram", "Telegram")],
+    };
+    stubDirectory(directory);
 
     const { result } = renderHook(() => useProviderLabel(), {
       wrapper: wrapper(),
@@ -48,9 +79,8 @@ describe("useProviderLabel", () => {
   });
 
   it("falls back to the raw id for a transport it has never heard of", async () => {
-    vi.spyOn(api, "GET").mockResolvedValue({
-      data: { data: [] },
-    } as never);
+    const directory: Directory = { data: [] };
+    stubDirectory(directory);
 
     const { result } = renderHook(() => useProviderLabel(), {
       wrapper: wrapper(),
@@ -68,21 +98,13 @@ describe("useProviderLabel", () => {
   // `ext:dispact-connector:dispact`. One transport, two spellings, one of them
   // provenance nobody outside this repository can parse.
   it("names a unit's capture provenance, not just its transports", async () => {
-    vi.spyOn(api, "GET").mockResolvedValue({
-      data: {
-        data: [
-          {
-            provider: "dispact",
-            label: "Dispact",
-            credential_model: "workspace_bot",
-            supplies_transport: true,
-          },
-        ],
-        capture_sources: [
-          { source: "ext:dispact-connector:dispact", label: "Dispact" },
-        ],
-      },
-    } as never);
+    const directory: Directory = {
+      data: [transport("dispact", "Dispact")],
+      capture_sources: [
+        { source: "ext:dispact-connector:dispact", label: "Dispact" },
+      ],
+    };
+    stubDirectory(directory);
 
     const { result } = renderHook(() => useProviderLabel(), {
       wrapper: wrapper(),
@@ -99,18 +121,10 @@ describe("useProviderLabel", () => {
   // An installation composing no ingress unit answers without the key at all,
   // and that must read as "nothing to add", never as a directory to distrust.
   it("resolves transports normally when no unit publishes a capture source", async () => {
-    vi.spyOn(api, "GET").mockResolvedValue({
-      data: {
-        data: [
-          {
-            provider: "telegram",
-            label: "Telegram",
-            credential_model: "workspace_bot",
-            supplies_transport: true,
-          },
-        ],
-      },
-    } as never);
+    const directory: Directory = {
+      data: [transport("telegram", "Telegram")],
+    };
+    stubDirectory(directory);
 
     const { result } = renderHook(() => useProviderLabel(), {
       wrapper: wrapper(),
@@ -124,9 +138,7 @@ describe("useProviderLabel", () => {
     // A failed fetch is the same case as an unknown provider from the row's
     // point of view. The timeline must not go blank because a lookup for a
     // display string failed.
-    vi.spyOn(api, "GET").mockResolvedValue({
-      error: { title: "boom", status: 500 },
-    } as never);
+    stubDirectory({ title: "boom", status: 500 }, 500);
 
     const { result } = renderHook(() => useProviderLabel(), {
       wrapper: wrapper(),

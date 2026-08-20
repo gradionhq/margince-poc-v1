@@ -6,8 +6,35 @@ import { Chip, Meter, Sparkline } from "./readings";
 
 afterEach(cleanup);
 
-function fillWidth(container: HTMLElement) {
-  return container.querySelector<HTMLElement>(".meterbar span")?.style.width;
+// An optional chain collapses "the element is missing" and "the element does
+// not carry that class" into the same `undefined`, so an assertion written
+// through one can pass against a Meter that rendered nothing at all. Resolve
+// the node first and fail on its absence, so what the assertion says is what it
+// checks.
+function meterBar(container: HTMLElement): HTMLElement {
+  const bar = container.querySelector<HTMLElement>(".meterbar");
+  if (!bar) {
+    throw new Error("the Meter rendered no bar");
+  }
+  return bar;
+}
+
+function fillWidth(container: HTMLElement): string {
+  const fill = meterBar(container).querySelector<HTMLElement>("span");
+  if (!fill) {
+    throw new Error("the Meter's bar rendered no fill");
+  }
+  return fill.style.width;
+}
+
+function polylinePoints(label: string): string | null {
+  const line = screen
+    .getByRole("img", { name: label })
+    .querySelector("polyline");
+  if (!line) {
+    throw new Error(`the Sparkline "${label}" rendered no polyline`);
+  }
+  return line.getAttribute("points");
 }
 
 describe("Meter draws a proportion a reader can also hear", () => {
@@ -41,11 +68,9 @@ describe("Meter draws a proportion a reader can also hear", () => {
     const { container } = render(
       <Meter value={2} max={10} label="Payment" tone="danger" />,
     );
-    expect(
-      container
-        .querySelector(".meterbar")
-        ?.classList.contains("meterbar-danger"),
-    ).toBe(true);
+    expect(meterBar(container).classList.contains("meterbar-danger")).toBe(
+      true,
+    );
   });
 
   // No low-is-bad end: the bar stays a solid accent instead of fading toward
@@ -54,9 +79,7 @@ describe("Meter draws a proportion a reader can also hear", () => {
     const { container } = render(
       <Meter value={6} max={8} label="Growth fit" flat />,
     );
-    expect(
-      container.querySelector(".meterbar")?.classList.contains("meterbar-flat"),
-    ).toBe(true);
+    expect(meterBar(container).classList.contains("meterbar-flat")).toBe(true);
   });
 
   // The size is the primitive's to name. Two screen sheets had reached into
@@ -66,43 +89,35 @@ describe("Meter draws a proportion a reader can also hear", () => {
     const { container } = render(
       <Meter value={6} max={8} label="Growth fit" flat dense />,
     );
-    const bar = container.querySelector(".meterbar");
-    expect(bar?.classList.contains("meterbar-dense")).toBe(true);
+    const bar = meterBar(container);
+    expect(bar.classList.contains("meterbar-dense")).toBe(true);
     // dense is a size, so it does not spend one of the fill's choices: the
     // flat accent it was asked for is still there.
-    expect(bar?.classList.contains("meterbar-flat")).toBe(true);
+    expect(bar.classList.contains("meterbar-flat")).toBe(true);
   });
 
   it("draws the default geometry when no size is asked for", () => {
     const { container } = render(
       <Meter value={6} max={8} label="Growth fit" flat />,
     );
-    expect(
-      container
-        .querySelector(".meterbar")
-        ?.classList.contains("meterbar-dense"),
-    ).toBe(false);
+    expect(meterBar(container).classList.contains("meterbar-dense")).toBe(
+      false,
+    );
   });
 });
 
 describe("Sparkline is a glyph, not a chart", () => {
   it("draws one point per reading, scaled into the box", () => {
     render(<Sparkline points={[0, 10]} label="Days paid after due" />);
-    const line = screen
-      .getByRole("img", { name: "Days paid after due" })
-      .querySelector("polyline");
     // Low sits at the bottom inset, high at the top one; x spans the width.
-    expect(line?.getAttribute("points")).toBe("0.0,29.0 120.0,3.0");
+    expect(polylinePoints("Days paid after due")).toBe("0.0,29.0 120.0,3.0");
   });
 
   // A flat series has no range to scale into. It reads as unchanged rather
   // than dividing by zero.
   it("draws a flat series down the middle", () => {
     render(<Sparkline points={[8, 8, 8]} label="Unchanged" />);
-    const line = screen
-      .getByRole("img", { name: "Unchanged" })
-      .querySelector("polyline");
-    expect(line?.getAttribute("points")).toBe("0.0,29.0 60.0,29.0 120.0,29.0");
+    expect(polylinePoints("Unchanged")).toBe("0.0,29.0 60.0,29.0 120.0,29.0");
   });
 
   // One point is a dot, and a dot reads as a flat trend — a claim a single

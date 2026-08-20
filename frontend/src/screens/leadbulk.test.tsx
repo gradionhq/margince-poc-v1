@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { components } from "../api/schema";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import type { BulkAction, BulkOutcome } from "./leadbulk";
@@ -25,12 +26,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const leads = [
+// Typed against the generated schema rather than asserted into it: the enum
+// members and the required fields are then checked here, so a fixture that has
+// drifted from the contract fails at compile time instead of being coerced
+// past it.
+const leads: components["schemas"]["Lead"][] = [
   {
     id: "l-1",
     full_name: "Jonas Petersen",
     email: "jonas@nordwind.example",
-    status: "contacted" as const,
+    status: "contacted",
     score: 72,
     source: "manual",
     captured_by: "human:u1",
@@ -42,7 +47,7 @@ const leads = [
     id: "l-2",
     full_name: "Otto Fischer",
     email: "otto@fischer.example",
-    status: "new" as const,
+    status: "new",
     score: 40,
     source: "webform",
     captured_by: "human:u1",
@@ -199,7 +204,10 @@ describe("LeadBulkBar — disqualify", () => {
       { id: "l-2", body: { reason_id: "r-2" } },
     ]);
     await waitFor(() => expect(done).toHaveLength(1));
-    expect(done[0].action).toEqual({ kind: "disqualify" });
+    // The verb reports the reason it applied, because that reason is the
+    // mutation's own variable rather than a value read back out of the render
+    // the reader has since left.
+    expect(done[0].action).toEqual({ kind: "disqualify", reasonId: "r-2" });
     expect(done[0].outcomes.every((outcome) => !outcome.error)).toBe(true);
   });
 

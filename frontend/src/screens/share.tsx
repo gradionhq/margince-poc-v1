@@ -104,6 +104,22 @@ type ReassertDraft = DraftFields &
  */
 type GrantDraft = (DraftFields & Readonly<{ change: "new" }>) | ReassertDraft;
 
+/**
+ * The identity of a grant subject, for keying one against another.
+ *
+ * A subject is a user OR a team, and the two are separate id spaces — nothing
+ * stops a team from carrying the same uuid as a user. So the type is part of
+ * the identity, not decoration on it: keyed by id alone, one subject would
+ * wear the other's level on their picker row, and a first grant would be
+ * measured against — and reported as a restatement of — a grant nobody holds.
+ */
+function subjectKey(
+  subjectType: RecordGrant["subject_type"],
+  subjectId: string,
+): string {
+  return `${subjectType}:${subjectId}`;
+}
+
 function reassertKind(held: RecordGrant, next: DraftFields): ReassertKind {
   if (held.access !== next.access) {
     return next.access === "write" ? "raise" : "lower";
@@ -267,12 +283,16 @@ function renderSubjectList(
   return (
     <ul className="share-subject-list">
       {candidates.map((candidate) => {
-        const heldGrant = held.get(candidate.id);
+        const key = subjectKey(candidate.kind, candidate.id);
+        const heldGrant = held.get(key);
         return (
-          <li key={candidate.id}>
+          <li key={key}>
             <Button
               className="share-subject-row"
-              aria-pressed={selected?.id === candidate.id}
+              aria-pressed={
+                selected !== null &&
+                subjectKey(selected.kind, selected.id) === key
+              }
               onClick={() => onPick(candidate)}
             >
               <span className="share-subject-name">
@@ -317,7 +337,7 @@ function RosterPicker({
   usersQuery: { isPending: boolean; isError: boolean; refetch: () => unknown };
   teamsQuery: { isPending: boolean; isError: boolean; refetch: () => unknown };
   filteredRoster: RosterSubject[];
-  // The grant each subject already holds on this record, by subject id.
+  // The grant each subject already holds on this record, by `subjectKey`.
   held: ReadonlyMap<string, RecordGrant>;
   subject: RosterSubject | null;
   t: ReturnType<typeof useT>;
@@ -401,11 +421,14 @@ function ShareScreenBody({
   // value, not just the fact that one exists: the picker row states the level,
   // and a re-assert is measured against it.
   const heldBySubject = useMemo(() => {
-    const byId = new Map<string, RecordGrant>();
+    const bySubject = new Map<string, RecordGrant>();
     for (const grantRow of grantsQuery.data ?? []) {
-      byId.set(grantRow.subject_id, grantRow);
+      bySubject.set(
+        subjectKey(grantRow.subject_type, grantRow.subject_id),
+        grantRow,
+      );
     }
-    return byId;
+    return bySubject;
   }, [grantsQuery.data]);
 
   const roster: RosterSubject[] = useMemo(() => {
@@ -569,7 +592,7 @@ function ShareScreenBody({
       expiresAt: expiresAtFor(expiryDays),
       reason: reason.trim() || undefined,
     };
-    const heldGrant = heldBySubject.get(picked.id);
+    const heldGrant = heldBySubject.get(subjectKey(picked.kind, picked.id));
     if (!heldGrant) {
       return { ...fields, change: "new" };
     }
@@ -647,7 +670,9 @@ function ShareScreenBody({
               onPick={(candidate) => {
                 setSubject(candidate);
                 setTerm(candidate.name);
-                const heldGrant = heldBySubject.get(candidate.id);
+                const heldGrant = heldBySubject.get(
+                  subjectKey(candidate.kind, candidate.id),
+                );
                 if (heldGrant) {
                   // The form opens on what this subject holds TODAY, because a
                   // re-assert restates every field: left on the compose
@@ -764,14 +789,15 @@ function ShareScreenBody({
 
           <Button
             variant="primary"
-            disabled={!subject || grant.isPending}
+            disabled={!subject}
+            pending={grant.isPending}
             onClick={() => subject && submit(subject)}
             data-testid="share-grant-submit"
           >
             {/* A subject who already holds a grant is not being granted one:
                 the press restates what they hold, and the word on the button
                 is the reader's last cue to which of the two they are doing. */}
-            {subject && heldBySubject.has(subject.id)
+            {subject && heldBySubject.has(subjectKey(subject.kind, subject.id))
               ? t("share.update")
               : t("share.grant")}
           </Button>
