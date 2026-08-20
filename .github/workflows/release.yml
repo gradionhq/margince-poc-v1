@@ -391,6 +391,9 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     needs: [draft, desktop-macos, desktop-windows]
     runs-on: ubuntu-24.04-arm
+    # Two artifact downloads and one release creation. The long work in this
+    # workflow is the desktop builds this job waits on, not the publish.
+    timeout-minutes: 15
     permissions:
       # The only job in this workflow that writes to this repository, and it
       # writes exactly one thing: the release and its tag. Every other job here
