@@ -77,14 +77,25 @@ won when the deal has a **contract** attached that is:
 - carrying an attached file categorised **contract** or **legal**,
 - in a **current** or **final** document state.
 
-Contracts live on the **company page**, not on the deal. Create the contract there, point it at
-this deal, set the signed date, attach the paper — then Won will go through.
+**Today you cannot satisfy that from the UI, so a deal cannot be marked won here at all.**
+This is a defect, not something you are missing —
+[#2088](https://github.com/gradionhq/margince-poc-v1/issues/2088) — and until it is fixed,
+pressing **Won** leaves the deal open and prints a message naming values that appear nowhere in
+the interface.
 
-Without that, pressing **Confirm** on Won leaves the deal open and shows a message listing
-values that appear nowhere in the interface. That is a known defect, tracked as
-[#2084](https://github.com/gradionhq/margince-poc-v1/issues/2084) — the rule is deliberate, the
-way it is surfaced is not. The API supports recording *why* there is no contract (an import, a
-purchase order, a verbal agreement, a renewal by email); no screen collects that yet.
+Two links in the chain are missing. The contract form (Company → **Documents** →
+**Add a contract**) has no field that names a **deal**, so a contract recorded there belongs to
+the company but not to the opportunity. And a contract is created in **draft** with no control
+anywhere to move it out, which the evidence rule also rejects. Recording the agreement and
+attaching the signed PDF both work; the two links that would make it count do not exist yet.
+
+The API can express all of it — including a short reason why there is no contract at all (an
+import, a purchase order, a verbal agreement, a renewal by email) — so anyone driving Margince
+through the API or an agent can close a won deal today. It is the screens that are missing.
+
+Until then, a deal you have actually won stays open in Margince, and the honest workaround is to
+say so where a human will read it: put the outcome in a note on the deal, so the record does not
+silently claim the deal is still live.
 
 **Closing is one deal at a time, on purpose.** The bulk bar offers open stages only: a lost
 reason is specific to one deal, and one reason standing for a dozen would be a lie in the
@@ -213,13 +224,15 @@ Stated plainly, so you don't hunt for them:
   ([#2034](https://github.com/gradionhq/margince-poc-v1/issues/2034))
 - **The board cannot be dragged on touch devices.** Use the deal page's stage stepper.
 - **There is no text search within the deals list.** Use global search.
-- **Marking a deal won needs a contract with signed paper**, and the escape hatch the API
-  offers has no screen. ([#2084](https://github.com/gradionhq/margince-poc-v1/issues/2084))
+- **A deal cannot be marked won from the UI at all.** The evidence rule needs a contract linked
+  to the deal and out of draft, and no screen does either. See *Close a deal* above.
+  ([#2088](https://github.com/gradionhq/margince-poc-v1/issues/2088))
 
 ## Where deals meet the rest of Margince
 
 - **Companies** — a deal belongs to one company, and that company's page shows its deals,
-  its people, its contracts and its timeline. Contracts are reached from there.
+  its people, its contracts and its timeline. Contracts live under its **Documents** tab —
+  though one recorded there cannot yet be tied to a specific deal (see *Close a deal*).
 - **Leads** — qualifying a lead can open a deal in the same step, seating the contact on it.
   See [set-up-a-partner-program.md](set-up-a-partner-program.md) for the partner side of a
   deal, including what "Brought us the deal" versus "Helped a deal we had" means for
