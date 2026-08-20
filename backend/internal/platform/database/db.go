@@ -54,6 +54,15 @@ type DB struct {
 // BoundStatement refuses it on the first transaction rather than leaving a
 // handle that quietly runs without the ceiling it was asked for.
 func (d *DB) Bounded(budget time.Duration) *DB {
+	// Nil-safe for the reason Pool and Tx are: CONSTRUCTION reaches this. A
+	// store built from an un-injected handle is a real thing in this tree — the
+	// unit tests that assert a gate answering before any query build one — and
+	// bounding it must fail where it is USED, with the sentinel those tests key
+	// on, rather than panicking where it is wired. A handle that runs no
+	// statements has nothing to bound anyway.
+	if d == nil {
+		return nil
+	}
 	return &DB{pool: d.pool, workspace: d.workspace, budget: budget}
 }
 
