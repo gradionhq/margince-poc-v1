@@ -84,7 +84,7 @@ function list(data: unknown[], capture = true, allow: GrantSpec = OPERATOR) {
 }
 
 const meta: Meta<typeof AiCallsCard> = {
-  title: "Settings/Organization/AI/Model calls",
+  title: "Settings/Admin settings/AI/Model calls",
   component: AiCallsCard,
 };
 export default meta;

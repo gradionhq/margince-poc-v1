@@ -20,7 +20,7 @@ import {
 // screenshot three times and proved nothing about any of the three branches.
 // FieldTable is fully prop-driven, so its states are pinned by fixtures.
 const meta: Meta = {
-  title: "Settings/Organization/Data model/Custom fields",
+  title: "Settings/Admin settings/Data model/Custom fields",
   parameters: { layout: "padded" },
 };
 export default meta;

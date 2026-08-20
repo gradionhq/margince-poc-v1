@@ -47,7 +47,7 @@ function admin(overrides: Record<string, unknown> = {}) {
 }
 
 const meta: Meta<typeof EmbedReindexCard> = {
-  title: "Settings/Organization/Maintenance/Embedding reindex",
+  title: "Settings/Admin settings/Maintenance/Embedding reindex",
   component: EmbedReindexCard,
 };
 export default meta;

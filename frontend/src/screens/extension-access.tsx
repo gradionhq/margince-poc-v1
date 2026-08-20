@@ -248,7 +248,7 @@ export function ExtensionAccessCard() {
   const me = useMe();
   // Editing role permissions is admin-only server-side, so the whole card is
   // admin-only here — the same shape UsersAdminCard uses, and for the same
-  // reason: an ops seat in the Organization group would otherwise be handed
+  // reason: an ops seat in the Admin settings group would otherwise be handed
   // controls that only ever 403. The seat ceiling ANDs on top, because a read
   // seat may read this page and may not write anything on it.
   //

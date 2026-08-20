@@ -2556,6 +2556,7 @@ export const en = {
     "Releasing ERASES the record. It does not put it back in use: the erasure request this obligation suspended is still outstanding, so lifting the obligation completes it. This cannot be undone.",
   "restricted.release.confirm": "Release and erase",
   "restricted.pin.action": "Pin a record",
+  "restricted.pin.submit": "Pin",
   "restricted.pin.idHint":
     "For correspondence the automatic rule cannot recognise — supplier and purchasing mail qualifies under §257 HGB and has no deal in this product to hang off. The record id is on its audit entry.",
   "restricted.pin.idMalformed":

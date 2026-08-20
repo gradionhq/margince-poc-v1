@@ -349,8 +349,11 @@ export function RestrictedRecordsCard() {
                       onChange={(event) => setPinId(event.target.value)}
                       placeholder={t("restricted.pin.idPlaceholder")}
                     />
+                    {/* The short verb, because the row's label already says
+                        what the form does: the button carried the same three
+                        words a hand to the left of it. */}
                     <Button small type="submit" disabled={!pinIdIsWellFormed}>
-                      {t("restricted.pin.action")}
+                      {t("restricted.pin.submit")}
                     </Button>
                     {pinIdIsMalformed && (
                       <p

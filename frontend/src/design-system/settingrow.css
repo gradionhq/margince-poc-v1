@@ -78,10 +78,36 @@
   flex: 0 0 auto;
 }
 
-/* A stacked row's control fills the row instead of hugging the right edge. */
+/* A stacked row's control fills the row instead of hugging the right edge — and
+ * so does whatever it holds. The subject of a stacked row is a table, a matrix
+ * or a log, and a flex item's default `flex: 0 1 auto` sizes it to its CONTENT:
+ * an empty state ended up as a 120px grey box against a 1200px card, and a
+ * matrix that could have scrolled inside its own width pushed the page sideways
+ * instead. Two cards had already worked around this in their own sheets by the
+ * time it was noticed, which is the signal that the rule belongs to the row.
+ *
+ * A COLUMN, because a stacked row routinely holds a subject and a sentence about
+ * it (a matrix and the two notices under it, a log and its count line): side by
+ * side they would sit shoulder to shoulder and neither would get the width. */
 .settingrow-stack > .settingrow-control {
+  flex-direction: column;
+  align-items: stretch;
   justify-content: flex-start;
   flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* `min-width: 0` on the children as well, or a wide table refuses to shrink
+ * below its content and the stretch above buys nothing. */
+.settingrow-stack > .settingrow-control > * {
+  min-width: 0;
+}
+
+/* A verb is the exception to the stretch: a button that fills a 1200px card
+ * reads as a banner. Stacked rows hold subjects, not verbs, so this is the
+ * safety rail for the row that holds both. */
+.settingrow-stack > .settingrow-control > .btn {
+  align-self: flex-start;
 }
 
 /* The value the row currently holds, beside the verb that changes it —

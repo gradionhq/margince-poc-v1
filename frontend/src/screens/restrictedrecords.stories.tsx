@@ -47,7 +47,7 @@ function restricted(records: unknown[], decide = false) {
 }
 
 const meta: Meta<typeof RestrictedRecordsCard> = {
-  title: "Settings/Organization/Privacy/RestrictedRecords",
+  title: "Settings/Admin settings/Privacy/RestrictedRecords",
   component: RestrictedRecordsCard,
 };
 export default meta;

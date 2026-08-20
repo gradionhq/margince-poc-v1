@@ -109,7 +109,7 @@ async function openRowActions(canvasElement: HTMLElement) {
 }
 
 const meta: Meta<typeof WebhooksCard> = {
-  title: "Settings/Organization/Integrations/Webhooks",
+  title: "Settings/Admin settings/Integrations/Webhooks",
   component: WebhooksCard,
 };
 export default meta;

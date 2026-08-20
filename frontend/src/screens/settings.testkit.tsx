@@ -71,7 +71,7 @@ export const renderSettings = (tab?: string): SettingsRender =>
     </>,
   );
 
-// The Organization tab group is composed from its MEMBERS, and OPENING AN ENTRY
+// The Admin settings tab group is composed from its MEMBERS, and OPENING AN ENTRY
 // IS A READ: every predicate asks for a read grant on something the entry shows,
 // while the write affordances inside it gate themselves. So a fixture that wants
 // an entry in the nav has to name the READ, and one that also wants the authoring
@@ -80,7 +80,7 @@ export const renderSettings = (tab?: string): SettingsRender =>
 export const PIPELINE_ADMIN: GrantSpec = {
   pipeline: ["read", "create", "update"],
 };
-const ORG_ADMIN: GrantSpec = {
+const ADMIN_GRANTS: GrantSpec = {
   ...PIPELINE_ADMIN,
   custom_field: ["read", "create", "update"],
   // The consent registry's own gate (consent/store.go demands person:read), which
@@ -113,7 +113,7 @@ export function settingsBackend() {
     if (url.endsWith("/v1/me")) {
       const me = meFixture({
         roles: ["admin", "field_marketing"],
-        allow: ORG_ADMIN,
+        allow: ADMIN_GRANTS,
       });
       return jsonResponse({
         ...me,

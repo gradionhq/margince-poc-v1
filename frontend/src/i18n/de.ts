@@ -2553,6 +2553,7 @@ export const de = {
     "Die Freigabe LÖSCHT den Datensatz. Er kehrt nicht in den Betrieb zurück: Das Löschersuchen, das diese Pflicht ausgesetzt hat, ist weiterhin offen — die Freigabe führt es aus. Das lässt sich nicht rückgängig machen.",
   "restricted.release.confirm": "Freigeben und löschen",
   "restricted.pin.action": "Datensatz festsetzen",
+  "restricted.pin.submit": "Anheften",
   "restricted.pin.idHint":
     "Für Korrespondenz, die die automatische Regel nicht erkennt — Lieferanten- und Einkaufspost ist nach §257 HGB aufbewahrungspflichtig und hat in diesem Produkt kein Geschäft, an dem sie hängt. Die Datensatz-ID steht im Audit-Eintrag.",
   "restricted.pin.idMalformed":

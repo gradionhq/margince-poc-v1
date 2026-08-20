@@ -44,7 +44,7 @@ const CONTRIBUTOR = { capture_settings: ["read", "create"] } as const;
 const READER = { capture_settings: ["read"] } as const;
 
 const meta: Meta<typeof ConsumerMailDomainsCard> = {
-  title: "Settings/Organization/Capture/Consumer mailboxes",
+  title: "Settings/Admin settings/Capture/Consumer mailboxes",
   component: ConsumerMailDomainsCard,
 };
 export default meta;

@@ -229,7 +229,27 @@ export function ConsentPurposesCard() {
   });
   // No bottom margin of its own: `.settings-stack` owns the gap between cards.
   return (
-    <Panel title={t("settings.purposes")}>
+    <Panel
+      title={t("settings.purposes")}
+      // The card's one write affordance rides in the header rather than in a
+      // row of its own. A row states a setting and its answer; a create verb is
+      // neither, and a row whose LABEL was the button's own words said "Add
+      // purpose" twice a hand apart. `titleAction` is the slot for exactly this
+      // (panel.tsx), and it keeps the verb above a registry that grows.
+      //
+      // Authoring a purpose is an admin/ops act, and the registry is on a page
+      // every seat opens — so the verb still asks. Rendered unconditionally it
+      // offered a form whose submit the server refuses, which is the one thing
+      // a governance surface must not do: promise an authority it does not
+      // carry. The sentence below is where the read-only posture is stated.
+      titleAction={
+        canAdminister ? (
+          <Button small onClick={() => setAdding(true)}>
+            {t("privacy.addPurpose")}
+          </Button>
+        ) : undefined
+      }
+    >
       <PanelBody>
         <p className="t-sub" style={PANEL_SUB}>
           {t("settings.purposesSub")}
@@ -245,25 +265,6 @@ export function ConsentPurposesCard() {
           </p>
         )}
         <SettingList>
-          {/* Authoring a purpose is an admin/ops act, and the registry is on a
-              page every seat opens — so the verb has to ask. Rendered
-              unconditionally it offered a form whose submit the server refuses,
-              which is the one thing a governance surface must not do: promise
-              an authority it does not carry. The sentence above is where the
-              read-only posture is stated instead. */}
-          {canAdminister && (
-            <SettingRow
-              label={t("privacy.addPurpose")}
-              // No description: the append-only warning belongs beside the key
-              // being chosen, so it is the dialog's first line and is said
-              // exactly once.
-              control={
-                <Button small onClick={() => setAdding(true)}>
-                  {t("privacy.addPurpose")}
-                </Button>
-              }
-            />
-          )}
           {/* The registry is the card's subject rather than an answer beside a
               question, so it takes the full width under its naming. */}
           <SettingRow
@@ -1075,7 +1076,19 @@ export function PrivacyInboxCard() {
   }
 
   return (
-    <Panel title={t("settings.privacy")}>
+    <Panel
+      title={t("settings.privacy")}
+      // The verb rides in the header, above a queue that is as long as the queue
+      // is: as a row it moved every time a request arrived, and its label was
+      // the button's own words repeated. Opening a request is a kind, a subject
+      // and a statutory deadline committed together, so the header keeps the
+      // verb and the dialog keeps the form.
+      titleAction={
+        <Button small onClick={() => setCreating(true)}>
+          {t("privacy.newRequest")}
+        </Button>
+      }
+    >
       <PanelBody>
         <p className="t-sub" style={PANEL_SUB}>
           {t("settings.privacySub")}
@@ -1086,19 +1099,6 @@ export function PrivacyInboxCard() {
             they would have left by. */}
         <CardBoundary>
           <SettingList>
-            {/* Opening a request is a kind, a subject and a statutory deadline
-                committed together, so the row keeps the verb and the dialog
-                keeps the form. First in the list rather than under the queue:
-                the queue is as long as the queue is, and a verb below it moves
-                every time a request arrives. */}
-            <SettingRow
-              label={t("privacy.newRequest")}
-              control={
-                <Button small onClick={() => setCreating(true)}>
-                  {t("privacy.newRequest")}
-                </Button>
-              }
-            />
             {/* The queue IS the subject, so it takes the full width — with its
                 own facet bar, because filtering belongs to the list it filters
                 and not to a row of its own. It stays a queue that expands in

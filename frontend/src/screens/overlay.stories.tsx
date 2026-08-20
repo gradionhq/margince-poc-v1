@@ -97,7 +97,7 @@ function budgetFixture(band: Budget["band"]): Budget {
 }
 
 const meta: Meta<typeof OverlayCard> = {
-  title: "Settings/Organization/Integrations/Overlay",
+  title: "Settings/Admin settings/Integrations/Overlay",
   component: OverlayCard,
 };
 export default meta;

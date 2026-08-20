@@ -6,23 +6,10 @@
    floors that made it the narrowest surface in settings. */
 
 /* Both halves of the surface are LISTS, and each is the subject of a stacked
-   SettingRow rather than a column beside its sibling. The control half of such
-   a row is a flex ROW, so whatever it holds — the rules, the library, the
-   withheld notice, the placeholder a query in flight draws — would otherwise be
-   as wide as its own content with the rest of the card empty beside it.
-   `min-width: 0` is what then lets a long name wrap instead of pushing the row
-   wider.
-
-   Stated once for the region rather than per class: the states a query can be
-   in are not a list this sheet should have to keep in step. The floors this
-   replaces (240px and 280px) were wider than the card interior a 390px viewport
-   leaves, so the column had nowhere to go but sideways — and took the settings
-   page with it. */
-[data-automations-admin] .settingrow-stack > .settingrow-control > * {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
+   SettingRow rather than a column beside its sibling — which is why the two
+   hard width floors this sheet used to carry (240px and 280px, both wider than
+   the card interior a 390px viewport leaves) are gone: a stacked row's control
+   fills the card on its own (design-system/settingrow.css). */
 .auto-readonly {
   margin-bottom: var(--space-2);
 }

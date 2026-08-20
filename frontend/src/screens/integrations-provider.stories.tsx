@@ -105,7 +105,7 @@ function cardStory(allow: GrantSpec, connections: ProviderConnection[]) {
 }
 
 const meta: Meta<typeof ProviderCard> = {
-  title: "Settings/Organization/Integrations/Contact data provider",
+  title: "Settings/Admin settings/Integrations/Contact data provider",
   component: ProviderCard,
 };
 export default meta;

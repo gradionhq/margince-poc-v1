@@ -11,7 +11,7 @@ import {
   StoryProviders,
 } from "./story-utils";
 
-// Settings → Organization → General → Installation. Two surfaces in one card:
+// Settings → Admin settings → General → Installation. Two surfaces in one card:
 // three ROWS that read what the installation is set to, and the one dialog that
 // edits all three together (the server takes one sparse PATCH, so there is one
 // save). The stories worth looking at are therefore split between the two —
@@ -52,7 +52,7 @@ const MANAGER = { installation_settings: ["read", "update"] } as const;
 const READER = { installation_settings: ["read"] } as const;
 
 const meta: Meta<typeof InstallationSettingsCard> = {
-  title: "Settings/Organization/General/Installation",
+  title: "Settings/Admin settings/General/Installation",
   component: InstallationSettingsCard,
 };
 export default meta;

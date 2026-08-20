@@ -62,7 +62,7 @@ const EDITOR = { organization: ["read", "update"] } as const;
 const READER = { organization: ["read"] } as const;
 
 const meta: Meta<typeof CompanyContextCard> = {
-  title: "Settings/Organization/General/Company profile",
+  title: "Settings/Admin settings/General/Company profile",
   component: CompanyContextCard,
 };
 export default meta;

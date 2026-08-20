@@ -57,7 +57,7 @@ function story(users: Record<string, unknown>[], roles: string[]) {
 }
 
 const meta: Meta<typeof UsersAdminCard> = {
-  title: "Settings/Organization/People and access/Members",
+  title: "Settings/Admin settings/People and access/Members",
   component: UsersAdminCard,
 };
 export default meta;

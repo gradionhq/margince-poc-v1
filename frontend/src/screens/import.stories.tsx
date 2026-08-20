@@ -43,7 +43,7 @@ const openWizard: NonNullable<Story["play"]> = async ({ canvasElement }) => {
 const OPERATOR = { import_run: ["create", "read", "update"] } as const;
 
 const meta: Meta<typeof ImportCard> = {
-  title: "Settings/Organization/Maintenance/Import",
+  title: "Settings/Admin settings/Maintenance/Import",
   component: ImportCard,
 };
 export default meta;

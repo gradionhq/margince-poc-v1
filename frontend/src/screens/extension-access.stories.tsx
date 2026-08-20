@@ -74,7 +74,7 @@ function story(
 }
 
 const meta: Meta<typeof ExtensionAccessCard> = {
-  title: "Settings/Organization/People and access/Extensions and access",
+  title: "Settings/Admin settings/People and access/Extensions and access",
   component: ExtensionAccessCard,
 };
 export default meta;

@@ -20,7 +20,7 @@ type Automation = components["schemas"]["Automation"];
 type CatalogEntry = components["schemas"]["AutomationCatalogEntry"];
 
 const meta: Meta = {
-  title: "Settings/Organization/AI/Automations",
+  title: "Settings/Admin settings/AI/Automations",
   parameters: { layout: "padded" },
 };
 export default meta;
