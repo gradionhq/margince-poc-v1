@@ -131,6 +131,28 @@ descriptor is published per transport on `GET /v1/channel-providers` as `attachm
 gate's argument only holds if the composer can warn **before** a human presses send: a mismatch
 discovered at transmission is correct but late.
 
+#### What each core transport declares
+
+| Transport | `MaxFiles` | `MaxBytesPerFile` | `MaxBodyWithFiles` |
+|---|---|---|---|
+| Gmail | 10 | 25 MiB | 0 — mail carries the body as the body |
+| Telegram | 10 | 20 MiB | 1024 characters |
+
+Telegram's three numbers are **measured against a live bot**, not read off the documentation, and two
+of them are deliberately lower than the provider's own ceiling. `MaxFiles` is 10 because
+`sendMediaGroup` proved atomic on validation — a group holding one bad item is rejected whole, so
+there is no partial album to reason about. `MaxBytesPerFile` is the *inbound* download cap rather than
+the higher 50 MB send limit, because a file this installation cannot receive is a strange thing to
+promise to send, and because a full album at that size uploads well inside the send job's timeout.
+`MaxBodyWithFiles` is exact: 1024 characters accepted, 1025 refused.
+
+Telegram sends **every file as a document, an image included.** Telegram refuses an album that mixes
+documents and photos outright, so grouping by type would decide per message whether one message
+becomes two provider calls — the partial send this gate exists to prevent. It also preserves the
+bytes: a `photo` is recompressed, and a re-encoded contract scan is a worse record than the file the
+rep attached. The visible cost, taken deliberately: an image arrives in the chat as a downloadable
+file rather than an inline picture.
+
 ### The seat — this installation's answer about the human
 
 `SeatAuthority.ActiveSeat` re-reads the **staging human's live seat at transmit time**. Deactivating a
