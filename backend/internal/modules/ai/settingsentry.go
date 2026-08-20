@@ -41,13 +41,21 @@ const RoutingKey = "ai.routing"
 // binding: an installation that has bound no models runs with its AI lanes
 // absent, exactly as one with no routing file did. A default that named
 // vendors would send an installation's text somewhere nobody chose.
+//
+// It SURVIVES a data reset, for the reason AsInstallationIdentity names: it is
+// a value bootstrap takes from the deployment configuration, like the
+// installation's name and currency. A reset wipes an installation's data, not
+// the decision about which vendor may process it — and wiping it would be
+// quiet, because a dev stack re-seeds the binding from its routing file on the
+// next boot while a production installation, which has no file, would simply
+// come back with its AI lanes gone.
 var Routing = settings.Define[RoutingConfig](
 	RoutingKey,
 	routingSettingsObject,
 	"update",
 	RoutingConfig{},
 	validateStoredRouting,
-)
+).AsInstallationIdentity()
 
 // Definitions is the ai module's contribution to the settings registry.
 func Definitions() []settings.Definition {
