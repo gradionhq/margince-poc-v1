@@ -421,3 +421,173 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     expect(screen.queryByTestId("digest-connector-health")).toBeNull();
   });
 });
+
+// The open pipeline is what a rep opens Home to see. It is grouped by
+// currency and rendered one line each rather than summed: adding native minor
+// units across currencies produces a number that is not money.
+describe("HomeScreen — the open pipeline", () => {
+  it("shows the server's raw and weighted totals", async () => {
+    stubApi({
+      // The brief and digest are other sections; a 404 is their honest empty
+      // state and keeps this test about the pipeline tile alone.
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({
+          report: "deals-by-stage",
+          plan: {},
+          columns: [],
+          rows: [
+            {
+              currency: "EUR",
+              deals: 12,
+              raw_minor: 9_900_000,
+              weighted_minor: 3_300_000,
+            },
+          ],
+        }),
+    });
+    render(<HomeScreen />);
+
+    expect(await screen.findByText("€99,000.00")).toBeTruthy();
+    expect(screen.getByText("€33,000.00 weighted")).toBeTruthy();
+    expect(screen.getByText("12 open deals")).toBeTruthy();
+  });
+
+  it("gives each currency its own line rather than one meaningless sum", async () => {
+    stubApi({
+      // The brief and digest are other sections; a 404 is their honest empty
+      // state and keeps this test about the pipeline tile alone.
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({
+          report: "deals-by-stage",
+          plan: {},
+          columns: [],
+          rows: [
+            {
+              currency: "EUR",
+              deals: 2,
+              raw_minor: 100_000,
+              weighted_minor: 40_000,
+            },
+            {
+              currency: "USD",
+              deals: 3,
+              raw_minor: 200_000,
+              weighted_minor: 50_000,
+            },
+          ],
+        }),
+    });
+    render(<HomeScreen />);
+
+    expect(await screen.findByText("€1,000.00")).toBeTruthy();
+    expect(screen.getByText("US$2,000.00")).toBeTruthy();
+    // No combined figure anywhere: 300_000 minor units is not a currency.
+    expect(screen.queryByText("€3,000.00")).toBeNull();
+  });
+
+  // The filter is load-bearing: the deals-by-stage report's own base predicate
+  // is unarchived-only, so without status=open this headline would count won
+  // and lost deals and grow every time somebody closed something. Asserting the
+  // rendered numbers cannot catch that — only the request can.
+  it("asks for open deals only, grouped by currency", async () => {
+    const mock = stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({
+          report: "deals-by-stage",
+          plan: {},
+          columns: [],
+          rows: [],
+        }),
+    });
+    render(<HomeScreen />);
+
+    // The client sends a Request object, so the body is read off the call
+    // rather than off the init the route handler is given.
+    const reportCall = async () => {
+      for (const call of mock.mock.calls) {
+        const input = call[0] as RequestInfo | URL;
+        if (input instanceof Request && input.url.includes("deals-by-stage")) {
+          return (await input.clone().json()) as Record<string, unknown>;
+        }
+      }
+      return undefined;
+    };
+    await waitFor(async () => expect(await reportCall()).toBeTruthy());
+    const body = await reportCall();
+    expect(body?.filters).toEqual({ status: "open" });
+    expect(body?.group_by).toEqual(["currency"]);
+    expect(body?.aggregates).toEqual([
+      { fn: "count", as: "deals" },
+      { fn: "sum", field: "amount_minor", as: "raw_minor" },
+      { fn: "sum", field: "weighted_amount_minor", as: "weighted_minor" },
+    ]);
+  });
+
+  // A refusal is not an absence. An empty tile would read as "there is no
+  // pipeline", which is a claim about the data standing in for a claim about
+  // authority.
+  it("keeps its place and says so when the figure cannot be read", async () => {
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({ title: "Forbidden" }, 403),
+    });
+    render(<HomeScreen />);
+
+    expect(
+      await screen.findByText("This figure could not be loaded."),
+    ).toBeTruthy();
+  });
+
+  // A mask kept rows out of the sums, so the figures understate the pipeline.
+  it("says when a mask has kept deals out of the figures", async () => {
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({
+          report: "deals-by-stage",
+          plan: {},
+          columns: [],
+          excluded_by_permission: 4,
+          rows: [
+            {
+              currency: "EUR",
+              deals: 1,
+              raw_minor: 100_000,
+              weighted_minor: 40_000,
+            },
+          ],
+        }),
+    });
+    render(<HomeScreen />);
+
+    expect(
+      await screen.findByText(
+        "4 deals are not in these figures — your access does not cover them.",
+      ),
+    ).toBeTruthy();
+    // And the singular reads as one deal, not "1 open deals".
+    expect(screen.getByText("1 open deal")).toBeTruthy();
+  });
+
+  it("says nothing at all when there is no open pipeline", async () => {
+    stubApi({
+      // The brief and digest are other sections; a 404 is their honest empty
+      // state and keeps this test about the pipeline tile alone.
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "POST /reports/deals-by-stage": () =>
+        jsonResponse({
+          report: "deals-by-stage",
+          plan: {},
+          columns: [],
+          rows: [],
+        }),
+    });
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.queryByText("Open pipeline")).toBeNull());
+  });
+});

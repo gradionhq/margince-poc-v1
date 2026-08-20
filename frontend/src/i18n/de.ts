@@ -1678,6 +1678,13 @@ export const de = {
   "home.sub": "aus echten Signalen sortiert — Vorgemerktes zuerst",
   "home.staged": "Wartet auf dich",
   "home.stalled": "Deals, die stocken",
+  "home.pipeline": "Offene Pipeline",
+  "home.pipelineWeighted": "{amount} gewichtet",
+  "home.pipelineCount.one": "{count} offener Deal",
+  "home.pipelineCount.other": "{count} offene Deals",
+  "home.pipelinePartial":
+    "{count} Deals fehlen in diesen Zahlen – Ihre Berechtigung deckt sie nicht ab.",
+  "home.pipelineUnavailable": "Diese Zahl konnte nicht geladen werden.",
   "home.queue": "Heute dran",
   "home.asOf": "Stand {at}",
   "home.refresh": "Briefing aktualisieren",
