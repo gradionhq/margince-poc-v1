@@ -39,7 +39,7 @@ func TestDealStageChangedEmitsTypedPayload(t *testing.T) {
 		Currency:    &currency,
 	}
 
-	payload := dealStageChangedPayload(current, toStage, string(DealWon), 100)
+	payload := dealStageChangedPayload(current, toStage, string(DealWon), 100, nil)
 
 	if payload.FromStageId == nil {
 		t.Fatal("from_stage_id must carry the pre-move stage")

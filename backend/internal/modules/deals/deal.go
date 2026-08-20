@@ -149,11 +149,89 @@ func applyDealLinkPatches(ctx context.Context, tx pgx.Tx,
 		}
 		p.Set("project_id", current.ProjectId, *in.ProjectID)
 	}
-	if in.PartnerOrganizationID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.PartnerOrganizationID.UUID); err != nil {
+	return applyPartnerAttributionPatch(ctx, tx, current, in, p)
+}
+
+// applyPartnerAttributionPatch writes the partner link and what that partner
+// did for the deal as ONE fact, because the schema stores them as one: the
+// deal_partner_attribution_pairing CHECK rejects either half alone.
+//
+// Three shapes reach here. Naming a partner with no attribution means
+// "sourced" — that is what the link meant for every row written before the
+// column existed, so the default keeps old and new callers saying the same
+// thing. Naming an attribution with no partner is refused rather than
+// defaulted: there is no partner to attribute it to, and inventing one is
+// worse than saying no. Re-attributing a deal that already names a partner
+// leaves the link alone and moves only the claim.
+func applyPartnerAttributionPatch(ctx context.Context, tx pgx.Tx,
+	current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch,
+) error {
+	if in.PartnerAttribution != nil {
+		if err := validPartnerAttribution(*in.PartnerAttribution); err != nil {
 			return err
 		}
-		p.Set("partner_org_id", current.PartnerOrgId, *in.PartnerOrganizationID)
+	}
+	if in.PartnerOrganizationID == nil {
+		if in.PartnerAttribution == nil {
+			return nil
+		}
+		// An attribution alone is only meaningful when the deal already
+		// names the partner it describes.
+		if current.PartnerOrgId == nil {
+			return &PartnerAttributionUnpairedError{}
+		}
+		// Re-attributing is a write ABOUT that partner, so it needs the same
+		// permission naming them would: a caller who can no longer open the
+		// organization — it became capture-private after the link was made —
+		// may not change what the deal claims they did.
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", ids.UUID(*current.PartnerOrgId)); err != nil {
+			return err
+		}
+		p.Set("partner_attribution", current.PartnerAttribution, *in.PartnerAttribution)
+		return nil
+	}
+	if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.PartnerOrganizationID.UUID); err != nil {
+		return err
+	}
+	p.Set("partner_org_id", current.PartnerOrgId, *in.PartnerOrganizationID)
+	p.Set("partner_attribution", current.PartnerAttribution, resolvedAttribution(current, in))
+	return nil
+}
+
+// resolvedAttribution decides what a deal that names a partner claims about
+// them. An explicit attribution wins.
+//
+// Otherwise the claim is "sourced", including when the deal already carried a
+// different one: an attribution describes a PARTNER, so it does not follow the
+// deal to whoever is named next. Carrying "influenced" over from the previous
+// partner would quietly decide that the new one — who may well have brought
+// the deal — earns nothing, on the strength of a claim made about somebody
+// else. Re-attributing without moving the partner is the separate path above.
+func resolvedAttribution(current crmcontracts.Deal, in UpdateDealInput) string {
+	if in.PartnerAttribution != nil {
+		return *in.PartnerAttribution
+	}
+	if samePartner(current, in) && current.PartnerAttribution != nil {
+		// Naming the partner the deal already has is not a change of partner,
+		// so the claim already made about them stands.
+		return string(*current.PartnerAttribution)
+	}
+	return attributionSourced
+}
+
+// samePartner reports whether the update names the partner the deal already
+// carries, rather than pointing it at a different one.
+func samePartner(current crmcontracts.Deal, in UpdateDealInput) bool {
+	return current.PartnerOrgId != nil && in.PartnerOrganizationID != nil &&
+		ids.UUID(*current.PartnerOrgId) == in.PartnerOrganizationID.UUID
+}
+
+// validPartnerAttribution keeps the vocabulary refusal in the store, where it
+// produces a 422 naming the field, rather than letting the row hit the CHECK
+// constraint and surface as an opaque database error.
+func validPartnerAttribution(v string) error {
+	if v != attributionSourced && v != attributionInfluenced {
+		return &PartnerAttributionValueError{Got: v}
 	}
 	return nil
 }
@@ -292,6 +370,44 @@ func (e *AmountCurrencyPairError) FieldFault() (field, code, message string) {
 		field = currencyField
 	}
 	return field, "amount_currency_pair", e.Error()
+}
+
+// The two things a partner can have done for a deal. Sourced means they
+// brought it; influenced means they helped one we already had. Commission
+// accrues on sourced only, which is why the difference is stored and not
+// inferred.
+const (
+	attributionSourced    = "sourced"
+	attributionInfluenced = "influenced"
+)
+
+// partnerAttributionField names the wire field both attribution refusals
+// point at.
+const partnerAttributionField = "partner_attribution"
+
+// PartnerAttributionUnpairedError maps to 422: an attribution describes a
+// partner, so a deal that names none has nothing to attribute.
+type PartnerAttributionUnpairedError struct{}
+
+func (e *PartnerAttributionUnpairedError) Error() string {
+	return "partner_attribution needs a partner_org_id — set the partner in the same request, or clear the attribution"
+}
+
+// FieldFault refuses an attribution on a deal that names no partner.
+func (e *PartnerAttributionUnpairedError) FieldFault() (field, code, message string) {
+	return partnerAttributionField, "partner_attribution_unpaired", e.Error()
+}
+
+// PartnerAttributionValueError maps to 422: the vocabulary is closed.
+type PartnerAttributionValueError struct{ Got string }
+
+func (e *PartnerAttributionValueError) Error() string {
+	return "partner_attribution must be " + attributionSourced + " or " + attributionInfluenced
+}
+
+// FieldFault refuses an attribution outside the two-value vocabulary.
+func (e *PartnerAttributionValueError) FieldFault() (field, code, message string) {
+	return partnerAttributionField, "partner_attribution_invalid", e.Error()
 }
 
 // TerminalStageOnCreateError maps to 422: create on an open stage, then

@@ -158,6 +158,10 @@ func dealUpdateInput(req crmcontracts.UpdateDealRequest, ifVersion *int64) Updat
 		IfVersion:             ifVersion,
 		CustomFields:          req.AdditionalProperties,
 	}
+	if req.PartnerAttribution != nil {
+		attribution := string(*req.PartnerAttribution)
+		in.PartnerAttribution = &attribution
+	}
 	if req.ExpectedCloseDate != nil {
 		in.ExpectedClose = &req.ExpectedCloseDate.Time
 	}

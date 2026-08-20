@@ -383,6 +383,22 @@ func (stubs) ColdStartPreview(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ColdStartPreview")
 }
 
+func (stubs) ListCommissionEntries(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListCommissionEntriesParams) {
+	httperr.NotImplemented(w, r, "ListCommissionEntries")
+}
+
+func (stubs) GetCommissionSummary(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetCommissionSummary")
+}
+
+func (stubs) GetCommissionEntry(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetCommissionEntry")
+}
+
+func (stubs) DecideCommissionEntry(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.DecideCommissionEntryParams) {
+	httperr.NotImplemented(w, r, "DecideCommissionEntry")
+}
+
 func (stubs) GetCompany(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCompany")
 }

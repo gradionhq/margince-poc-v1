@@ -1838,6 +1838,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/commissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The commission ledger — what partners earned on won deals.
+         * @description Accrued automatically when a deal attributed `sourced` is won, at the partner's
+         *     margin tier as it stood that day. A clawback is a reversal row plus a void on the
+         *     original, never an edit — so the ledger reads the same tomorrow as it did when a
+         *     partner was told what they had earned.
+         */
+        get: operations["listCommissionEntries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/commissions/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What is owed, by partner and status — the open-liability figure. */
+        get: operations["getCommissionSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/commissions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** One ledger entry. */
+        get: operations["getCommissionEntry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/commissions/{id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve, pay, or void one entry.
+         * @description Human-only. Approving and paying commit money to a partner, and voiding takes it
+         *     back; none is a decision an assistant makes on someone's behalf.
+         *
+         *     `void` requires a reason and writes a reversal row alongside the void, so the
+         *     ledger records what was undone and why rather than losing the original.
+         */
+        post: operations["decideCommissionEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deals": {
         parameters: {
             query?: never;
@@ -13045,6 +13132,11 @@ export interface components {
              */
             partner_org_id?: string | null;
             /**
+             * @description What the partner named by `partner_org_id` did: `sourced` (brought the deal) or `influenced` (helped one we had). Travels with the partner — naming a partner defaults it to `sourced`. Commission accrues on `sourced` only.
+             * @enum {string|null}
+             */
+            partner_attribution?: "sourced" | "influenced" | null;
+            /**
              * Format: uuid
              * @description The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422. Null when the caller may not read that project, in which case `masked_fields` names it.
              */
@@ -13140,6 +13232,11 @@ export interface components {
             organization_id?: string | null;
             /** Format: uuid */
             partner_org_id?: string | null;
+            /**
+             * @description `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+             * @enum {string|null}
+             */
+            partner_attribution?: "sourced" | "influenced" | null;
             /** Format: uuid */
             project_id?: string | null;
             /** Format: uuid */
@@ -13187,6 +13284,104 @@ export interface components {
         DealListResponse: {
             data: components["schemas"]["Deal"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description accrued → approved → paid, with void as the exit at any point.
+         * @enum {string}
+         */
+        CommissionStatus: "accrued" | "approved" | "paid" | "void";
+        /**
+         * @description What the partner did for the deal the entry was accrued on.
+         * @enum {string}
+         */
+        CommissionAttribution: "sourced" | "influenced";
+        /**
+         * @description What one partner earned on one won deal. Mirrors the `commission_entry` table.
+         *     Every rate-bearing value is frozen at accrual: the tier a human can change next
+         *     quarter, and the deal amount that can be corrected after the close, would
+         *     otherwise make the same entry answer a different question each time it is read.
+         *     Carries no owner — visibility is inherited from the deal.
+         */
+        CommissionEntry: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The won deal this was accrued on.
+             */
+            deal_id: string;
+            /**
+             * Format: uuid
+             * @description The partner who earned it.
+             */
+            partner_org_id: string;
+            status: components["schemas"]["CommissionStatus"];
+            /**
+             * Format: uuid
+             * @description The won-deal transition that produced this entry; null on one a human created. Unique, so a replayed event cannot accrue twice.
+             */
+            readonly trigger_event_id?: string | null;
+            attribution_at_accrual: components["schemas"]["CommissionAttribution"];
+            /** @description The partner's tier as it stood at accrual; the rate below was derived from it. */
+            margin_tier_at_accrual?: string | null;
+            /** @description Basis points, so 15% is 1500 — no fractional-percent rounding enters the row. */
+            rate_bps: number;
+            /**
+             * Format: int64
+             * @description The deal amount the rate applied to.
+             */
+            basis_amount_minor: number;
+            currency: string;
+            /** @description Native→base at won time, carried so a base-currency roll-up reproduces without re-reading a deal whose frozen rate may since have been cleared. */
+            fx_rate_to_base?: string | null;
+            /**
+             * Format: int64
+             * @description What the rate produced.
+             */
+            amount_minor: number;
+            /**
+             * Format: uuid
+             * @description The entry this one undoes. A reversal is born void and is never approved or paid.
+             */
+            reversal_of?: string | null;
+            /** @description Required on a void; what a partner dispute is answered from. */
+            void_reason?: string | null;
+            /** @description Server-stamped from the authenticated principal; never client-supplied. */
+            readonly captured_by: string;
+            version: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CommissionEntryListResponse: {
+            data: components["schemas"]["CommissionEntry"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        CommissionSummaryRow: {
+            /** Format: uuid */
+            partner_org_id: string;
+            status: components["schemas"]["CommissionStatus"];
+            currency: string;
+            entry_count: number;
+            /**
+             * Format: int64
+             * @description Summed per currency, never across: two currencies added together is a number that means nothing.
+             */
+            amount_minor: number;
+        };
+        CommissionSummaryResponse: {
+            data: components["schemas"]["CommissionSummaryRow"][];
+        };
+        DecideCommissionRequest: {
+            /**
+             * @description `approve` moves an accrued entry to approved; `pay` moves an approved one to paid.
+             *     `void` cancels an entry in any live state and writes the reversal beside it.
+             * @enum {string}
+             */
+            decision: "approve" | "pay" | "void";
+            /** @description Required for `void` — an entry cancelled without a stated reason cannot be explained to the partner later. */
+            reason?: string | null;
         };
         /**
          * @description An agreement between the installation and one organization. Mirrors the
@@ -15576,7 +15771,7 @@ export interface components {
          *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
-        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations" | "retention_policy" | "capture_trace" | "license" | "contract" | "ai_routing";
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run" | "installation_settings" | "finance" | "integrations" | "retention_policy" | "capture_trace" | "license" | "contract" | "ai_routing" | "commission";
         /**
          * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
          * @enum {string}
@@ -15735,7 +15930,7 @@ export interface components {
             /** @description Resolved display name for on_behalf_of. */
             on_behalf_of_name?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire" | "resolve" | "restrict" | "pin";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire" | "resolve" | "restrict" | "pin" | "accrue" | "pay";
             entity_type: string;
             /**
              * Format: uuid
@@ -16095,7 +16290,7 @@ export interface components {
              * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
              * @enum {string}
              */
-            record_type?: "activity" | "app_user" | "custom_field" | "data_subject_request" | "deal" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
             /**
              * @description The autonomy tier, identical on REST and MCP (ADR-0055).
              * @enum {string}
@@ -21435,6 +21630,135 @@ export interface operations {
             };
         };
     };
+    listCommissionEntries: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /** @description The entries owed to one partner. */
+                partner_org_id?: string;
+                /** @description The entries accrued on one deal. */
+                deal_id?: string;
+                status?: components["schemas"]["CommissionStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of ledger entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionEntryListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getCommissionSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One row per partner and status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionSummaryResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getCommissionEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionEntry"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    decideCommissionEntry: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideCommissionRequest"];
+            };
+        };
+        responses: {
+            /** @description The entry in its new state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommissionEntry"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     listDeals: {
         parameters: {
             query?: {
@@ -21476,8 +21800,10 @@ export interface operations {
                 project_id?: string;
                 /** @description Filter to deals attributed to a specific partner org (deal.partner_org_id). */
                 partner_org_id?: string;
-                /** @description true ⇒ partner_org_id IS NOT NULL; false ⇒ partner_org_id IS NULL. Drives the partner-sourced pipeline slice. */
+                /** @description true ⇒ a partner is named; false ⇒ none is. The partner pipeline slice. */
                 partner_sourced?: boolean;
+                /** @description Deals a partner brought (`sourced`) or merely helped (`influenced`). */
+                partner_attribution?: "sourced" | "influenced";
             };
             header?: never;
             path?: never;

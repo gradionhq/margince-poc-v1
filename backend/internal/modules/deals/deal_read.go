@@ -61,19 +61,23 @@ func readDealForCaller(ctx context.Context, tx pgx.Tx, id ids.DealID, archived s
 }
 
 type ListDealsInput struct {
-	Cursor          *string
-	Limit           *int
-	Query           *string
-	PipelineID      *ids.PipelineID
-	StageID         *ids.StageID
-	OwnerID         *ids.UserID
-	OrganizationID  *ids.OrganizationID
-	ProjectID       *ids.ProjectID
-	PartnerOrgID    *ids.OrganizationID
-	PartnerSourced  *bool
-	Status          *string
-	Stalled         *bool
-	IncludeArchived bool
+	Cursor         *string
+	Limit          *int
+	Query          *string
+	PipelineID     *ids.PipelineID
+	StageID        *ids.StageID
+	OwnerID        *ids.UserID
+	OrganizationID *ids.OrganizationID
+	ProjectID      *ids.ProjectID
+	PartnerOrgID   *ids.OrganizationID
+	PartnerSourced *bool
+	// PartnerAttribution narrows to what the partner did — "sourced" or
+	// "influenced". Narrower than PartnerSourced, which only asks whether a
+	// partner is named at all.
+	PartnerAttribution *string
+	Status             *string
+	Stalled            *bool
+	IncludeArchived    bool
 	// Sort is the contract's sort spec, validated against the core
 	// vocabulary below plus the workspace's active cf_ columns.
 	Sort *string
@@ -193,6 +197,13 @@ func appendDealFilters(ctx context.Context, where []string, in ListDealsInput, a
 			where = append(where, "NOT "+PartnerSourcedSQL(""))
 		}
 	}
+	if in.PartnerAttribution != nil {
+		clause, err := partnerAttributionFilterClause(ctx, *in.PartnerAttribution, arg)
+		if err != nil {
+			return nil, err
+		}
+		where = append(where, clause)
+	}
 	if in.Status != nil {
 		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
 	}
@@ -243,8 +254,33 @@ func referenceFilterClause(ctx context.Context, column, table string, id ids.UUI
 		" AND EXISTS (SELECT 1 FROM %s ref WHERE ref.id = $%d AND %s)", table, pos, scope), nil
 }
 
+// partnerAttributionFilterClause narrows to what a partner did for the deal,
+// and carries the partner's OWN visibility with it.
+//
+// Without that second half the filter is an existence oracle for the fact the
+// field mask withholds: a caller whose read of a deal masks both partner
+// columns could still ask for `partner_attribution=sourced` and learn from the
+// row's presence that some partner brought it. The mask and the filter have to
+// withhold the same fact, so this arm answers only for deals whose partner the
+// caller could open.
+func partnerAttributionFilterClause(ctx context.Context, attribution string, arg func(any) int) (string, error) {
+	if err := validPartnerAttribution(attribution); err != nil {
+		return "", err
+	}
+	clause := storekit.SQLf("partner_attribution = $%d", arg(attribution))
+	scope, err := auth.ScopeClauseFor(ctx, "organization", "pref", arg)
+	if err != nil {
+		return "", err
+	}
+	if scope == "" {
+		return clause, nil
+	}
+	return clause + storekit.SQLf(
+		" AND EXISTS (SELECT 1 FROM organization pref WHERE pref.id = partner_org_id AND %s)", scope), nil
+}
+
 const dealColumns = `id, name, amount_minor, currency, pipeline_id, stage_id,
-	organization_id, project_id, owner_id, partner_org_id, status, lost_reason,
+	organization_id, project_id, owner_id, partner_org_id, partner_attribution, status, lost_reason,
 	won_without_contract_reason, won_without_contract_detail,
 	expected_close_date, close_date_provisional, closed_at, forecast_category, wait_until, last_activity_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
@@ -280,7 +316,7 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	var wonReason *string
 	dests := []any{
 		&id, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
-		&orgID, &projectID, &ownerID, &partnerID, &status, &d.LostReason,
+		&orgID, &projectID, &ownerID, &partnerID, &d.PartnerAttribution, &status, &d.LostReason,
 		&wonReason, &d.WonWithoutContractDetail,
 		&expectedClose, &closeDateProvisional, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
 		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt,

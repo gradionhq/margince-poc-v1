@@ -32,10 +32,16 @@ import (
 // own records of our own intent, while an issued invoice is a fact about money
 // that moved.
 //
+// A COMMISSION ENTRY freezes at accrual, and it is a statement to a third party
+// about what they earned. Restating it is worse than restating our own records
+// and worse than restating an invoice we issued: the partner was told a figure,
+// and the ledger's whole premise is that what it recorded stays what it
+// recorded.
+//
 // TestTheBaseCurrencyGuardCountsEveryFrozenRate derives this list from the
 // migrations, so a future table carrying the column fails that test rather than
 // quietly widening the hole.
-var frozenRateTables = []string{"deal", "offer", "finance_invoice", "contract"}
+var frozenRateTables = []string{"deal", "offer", "finance_invoice", "contract", "commission_entry"}
 
 // BaseCurrencyFreeze binds the probe to the settings key that HOLDS the base
 // currency. The key is injected rather than spelled here because deals may not

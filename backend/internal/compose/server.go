@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
+	"github.com/gradionhq/margince/backend/internal/modules/commissions"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
@@ -88,13 +89,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// disagree with the file about what "unconfigured" means.
 	limits := deployconfig.Config{}.EffectiveUploads()
 	srv := Server{
-		uploadLimits:       limits,
-		authHandlers:       authH,
-		peopleHandlers:     newPeopleHandlers(pool).WithUploadLimit(limits.LinkedInImport),
-		dealsHandlers:      dealsH,
-		contractsHandlers:  contracts.NewHandlers(InstallationDB(pool)),
-		activitiesHandlers: newActivitiesHandlers(pool).WithUploadLimit(limits.Attachment),
-		searchHandlers:     search.NewHandlers(InstallationDB(pool)),
+		uploadLimits:        limits,
+		authHandlers:        authH,
+		peopleHandlers:      newPeopleHandlers(pool).WithUploadLimit(limits.LinkedInImport),
+		dealsHandlers:       dealsH,
+		contractsHandlers:   contracts.NewHandlers(InstallationDB(pool)),
+		commissionsHandlers: commissions.NewHandlers(InstallationDB(pool)),
+		activitiesHandlers:  newActivitiesHandlers(pool).WithUploadLimit(limits.Attachment),
+		searchHandlers:      search.NewHandlers(InstallationDB(pool)),
 		// Constructed, not merely embedded: the handler carries no nil-pool
 		// branch, so the zero value would panic on the first authenticated
 		// read rather than answer anything at all.

@@ -88,6 +88,9 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		// an identity stream that also mints passports the distinction is the
 		// whole point of the event.
 		"password_link_issued": true,
+		// A won deal earned its partner a commission. Past tense like the rest;
+		// `decided` above already covers the approve/pay/void half.
+		"accrued": true,
 	}
 
 	for _, typ := range Types() {
@@ -161,7 +164,11 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 		// reads pages already crawled, this one SPENDS credits, and a
 		// consumer whose retries buy data must not share a cursor with one
 		// whose retries are free.
-		"cg:person-data":     {"gw:events:crm:person"},
+		"cg:person-data": {"gw:events:crm:person"},
+		// Turning a won deal into what its partner earned. Its own group
+		// because accrual is money: a projection rebuild must not be able to
+		// stall it, and a failure to accrue must not read as a failure to index.
+		"cg:commissions":     {"gw:events:crm:deal"},
 		"cg:overnight-agent": {"gw:events:crm:activity", "gw:events:crm:approval", "gw:events:crm:deal", "gw:events:crm:lead"},
 		"cg:workflows":       all,
 		"cg:capture":         {"gw:events:crm:capture"},
@@ -173,7 +180,7 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 
 	groups := Groups()
 	if len(groups) != len(want) {
-		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, the ADR-0078 consumers (graph-edge projection, LinkedIn matcher), the ADR-0101 provider-enrichment consumer, and the audience-rescope corrector", len(groups), len(want))
+		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, the ADR-0078 consumers (graph-edge projection, LinkedIn matcher), the ADR-0101 provider-enrichment consumer, the audience-rescope corrector, and the commission accrual", len(groups), len(want))
 	}
 	for _, g := range groups {
 		if !reflect.DeepEqual(g.Streams, want[g.Name]) {

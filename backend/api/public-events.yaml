@@ -38,6 +38,8 @@ components:
         - project.updated
         - project.phase_changed
         - project.archived
+        - commission.accrued
+        - commission.decided
         - contract.created
         - contract.updated
         - contract.status_changed
@@ -201,6 +203,62 @@ components:
         name:
           type: string
           description: The deal's name at creation.
+      additionalProperties: false
+
+    PublicEventCommissionAccrued:
+      type: object
+      x-event-type: commission.accrued
+      x-entity-type: commission
+      x-version: 1
+      description: Payload for commission.accrued — a won deal earned its partner a commission.
+      required:
+        - deal_id
+        - partner_org_id
+        - amount_minor
+        - currency
+        - rate_bps
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+          description: The won deal the entry was accrued on.
+        partner_org_id:
+          type: string
+          format: uuid
+          description: The partner who earned it.
+        amount_minor:
+          type: integer
+          format: int64
+          description: What the rate produced, in minor units of `currency`.
+        currency:
+          type: string
+          description: The deal's currency at won time; commission is never summed across currencies.
+        rate_bps:
+          type: integer
+          description: The rate applied, in basis points, frozen from the partner's tier at accrual.
+      additionalProperties: false
+
+    PublicEventCommissionDecided:
+      type: object
+      x-event-type: commission.decided
+      x-entity-type: commission
+      x-version: 1
+      description: Payload for commission.decided — an entry was approved, paid, or voided.
+      required:
+        - decision
+        - from_status
+        - to_status
+      properties:
+        decision:
+          type: string
+          description: approve, pay, or void.
+        from_status:
+          type: string
+        to_status:
+          type: string
+        reason:
+          type: string
+          description: Why the entry was voided; absent for approve and pay.
       additionalProperties: false
 
     PublicEventContractCreated:
@@ -439,6 +497,25 @@ components:
         win_probability:
           type: integer
           description: The target stage's win probability, frozen at the moment of the move.
+        partner_org_id:
+          type: string
+          format: uuid
+          description: >-
+            The partner the deal named at the moment of the move, when it named one.
+            Frozen here for the same reason the amount is: the commission a win earns is
+            priced on what was true that day, and re-reading the deal later would price
+            it on an attribution somebody edited afterwards.
+        partner_attribution:
+          type: string
+          description: >-
+            What that partner did — sourced or influenced — at the moment of the move.
+            Commission accrues on sourced only.
+        fx_rate_to_base:
+          type: string
+          description: >-
+            The native→base rate frozen at close, carried because REOPENING a deal clears
+            it: a consumer reading the deal back after a reopen could not recover the rate
+            the win was priced at.
       additionalProperties: false
 
     PublicEventDealArchived:
