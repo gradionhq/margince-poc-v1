@@ -76,12 +76,12 @@ older with a floor **nobody chose and nobody wrote down** — one that silently
 rises the next time the builder takes an OS update.
 
 Measured on a Mac running 15.7: a C file compiled with no deployment target
-reports `minos 15.0`, while a Go binary from the same tree reports `minos 12.0`,
+reports `minos 15.0`, while a Go binary from the same tree reports `minos 13.0`,
 because Go sets its own. So the bundle's real floor was the newest of its
-parts, and the two halves of one folder disagreed by three major versions.
+parts, and the two halves of one folder disagreed by two major versions.
 
 `desktop/build/macos-target.sh` is the one place that number lives. It exports
-`MACOSX_DEPLOYMENT_TARGET=12.0` — Go's own floor for this toolchain, so the C
+`MACOSX_DEPLOYMENT_TARGET=13.0` — Go's own floor for this toolchain, so the C
 halves and the Go halves agree rather than merely coexist — and `assert_min_os`
 re-reads every shipped binary and **fails the build** if any of them wants
 newer. A pinned variable alone would be a comment: it is one unset environment
