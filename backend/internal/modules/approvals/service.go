@@ -208,16 +208,15 @@ func (s *Service) EffectKinds() []string {
 // audit appends this module's audit rows — same append-only table, this
 // module's own writer (modules do not share store internals).
 func (s *Service) audit(ctx context.Context, tx pgx.Tx, p principal.Principal, action string, entityID ids.UUID, evidence map[string]any) (ids.UUID, error) {
-	wsID, _ := principal.WorkspaceID(ctx)
 	raw, err := json.Marshal(evidence)
 	if err != nil {
 		return ids.Nil, err
 	}
 	id := ids.NewV7()
 	_, err = tx.Exec(ctx,
-		`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, entity_type, entity_id, evidence)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'approval', $8, $9)`,
-		id, wsID, string(p.Type), p.ID, nullUUID(p.PassportID), nullUUID(p.OnBehalfOf),
+		`INSERT INTO audit_log (id, actor_type, actor_id, passport_id, on_behalf_of, action, entity_type, entity_id, evidence)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'approval', $7, $8)`,
+		id, string(p.Type), p.ID, nullUUID(p.PassportID), nullUUID(p.OnBehalfOf),
 		action, entityID, raw)
 	return id, err
 }

@@ -114,12 +114,12 @@ func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string
 
 	id := ids.NewV7()
 	_, err = tx.Exec(ctx,
-		// The tenant comes from the TRANSACTION's binding, not from the caller:
-		// the ledger row must name the workspace its domain row landed in, and
-		// the GUC is the one thing that decides both. Read from ctx they could
-		// disagree, and the disagreement would be invisible.
-		`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, entity_type, entity_id, before, after, evidence, authorization_rule)
-		 VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		// No tenant column. It came from the TRANSACTION's binding until
+		// ADR-0091 §8 phase D reached the ledgers — the last two tables that
+		// carried one — so an audit row now names WHAT happened and WHO did it,
+		// and the installation is the only answer to where.
+		`INSERT INTO audit_log (id, actor_type, actor_id, passport_id, on_behalf_of, action, entity_type, entity_id, before, after, evidence, authorization_rule)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		id, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
 		action, entityType, entityID, beforeJSON, afterJSON, evidenceJSON,
 		auth.AuthzRule(p, entityType, action))
@@ -177,9 +177,9 @@ func LogSystem(ctx context.Context, tx pgx.Tx, action string, detail map[string]
 	}
 	id := ids.NewV7()
 	_, err = tx.Exec(ctx,
-		// The tenant is the transaction's, like every other ledger row here.
-		`INSERT INTO system_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, detail)
-		 VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, $3, $4, $5, $6, $7)`,
+		// No tenant column, for the same reason as the audit row above.
+		`INSERT INTO system_log (id, actor_type, actor_id, passport_id, on_behalf_of, action, detail)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		id, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
 		action, JSONArg(detail))
 	return id, err

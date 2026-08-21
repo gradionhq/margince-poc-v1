@@ -236,8 +236,8 @@ func TestAuditLogIsAppendOnly(t *testing.T) {
 	if err := withGUC(t, app, ws, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
 			// entity_id is NOT NULL since 0075 (audit_log is record-mutations-only).
-			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-			 VALUES ($1, 'human', 'human:test', 'create', 'person', uuidv7()) RETURNING id`, ws).Scan(&id)
+			`INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id)
+			 VALUES ('human', 'human:test', 'create', 'person', uuidv7()) RETURNING id`).Scan(&id)
 	}); err != nil {
 		t.Fatalf("seeding an audit row: %v", err)
 	}

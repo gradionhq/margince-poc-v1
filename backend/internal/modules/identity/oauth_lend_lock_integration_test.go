@@ -162,8 +162,7 @@ func (e *lendEnv) codesAndLendAudits(t *testing.T) (codes, audits int) {
 	if err := e.owner.QueryRow(context.Background(), `
 		SELECT (SELECT count(*) FROM oauth_authorization_code),
 		       (SELECT count(*) FROM audit_log
-		         WHERE workspace_id = $1 AND entity_type = 'oauth_authorization_code')`,
-		e.admin.WorkspaceID).Scan(&codes, &audits); err != nil {
+		         WHERE entity_type = 'oauth_authorization_code')`).Scan(&codes, &audits); err != nil {
 		t.Fatalf("counting what the consent wrote: %v", err)
 	}
 	return codes, audits

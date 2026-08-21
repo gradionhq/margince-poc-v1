@@ -117,7 +117,6 @@ func lastObservedExtensions(ctx context.Context, tx pgx.Tx) ([]observedExtension
 	err := tx.QueryRow(ctx,
 		`SELECT detail->'extensions' FROM system_log
 		  WHERE action = $1
-		    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		  ORDER BY occurred_at DESC, id DESC LIMIT 1`,
 		extensionCompositionObserved).Scan(&detail)
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -45,11 +45,9 @@ func seedRecordAuditRow(t *testing.T, e *Env, action string, personID ids.UUID,
 	ctx := principal.WithWorkspaceID(t.Context(), e.WS)
 	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, on_behalf_of,
+			`INSERT INTO audit_log (id, actor_type, actor_id, on_behalf_of,
 			                        action, entity_type, entity_id, before, after, occurred_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'person', $7, $8, $9, $10)`,
-			rowID, e.WS, actorType, actorID, onBehalfOf, action, personID,
-			storekit.JSONArg(before), storekit.JSONArg(after), occurredAt)
+			 VALUES ($1, $2, $3, $4, $5, 'person', $6, $7, $8, $9)`, rowID, actorType, actorID, onBehalfOf, action, personID, storekit.JSONArg(before), storekit.JSONArg(after), occurredAt)
 		return err
 	})
 	if err != nil {

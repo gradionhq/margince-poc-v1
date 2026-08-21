@@ -400,9 +400,9 @@ func auditLogin(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids
 // its own audit-ledger writer.
 func logAuthEvent(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids.UserID, action, detail string) error {
 	_, err := tx.Exec(ctx,
-		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
-		 VALUES ($1, 'human', $2, $3, jsonb_build_object('detail', $4::text))`,
-		wsID, "human:"+userID.String(), action, detail)
+		`INSERT INTO system_log (actor_type, actor_id, action, detail)
+		 VALUES ('human', $1, $2, jsonb_build_object('detail', $3::text))`,
+		"human:"+userID.String(), action, detail)
 	return err
 }
 

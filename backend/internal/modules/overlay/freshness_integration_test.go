@@ -406,9 +406,7 @@ func TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded(t *testing.T)
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(
 			context.Background(),
-			`SELECT count(*) FROM system_log WHERE workspace_id = $1 AND action = 'mirror.budget_degraded'`,
-			ws,
-		).Scan(&systemLogCount)
+			`SELECT count(*) FROM system_log WHERE action = 'mirror.budget_degraded'`).Scan(&systemLogCount)
 	}); err != nil {
 		t.Fatalf("querying system_log: %v", err)
 	}

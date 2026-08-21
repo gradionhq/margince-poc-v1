@@ -375,9 +375,9 @@ func OperatorResetPassword(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID,
 		return err
 	}
 	_, err = tx.Exec(ctx,
-		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
-		 VALUES ($1, 'system', 'operator-cli', 'password_reset', jsonb_build_object('detail', 'operator password reset; every borrowed credential revoked', 'user_id', $2::text))`,
-		wsID, userID.String())
+		`INSERT INTO system_log (actor_type, actor_id, action, detail)
+		 VALUES ('system', 'operator-cli', 'password_reset', jsonb_build_object('detail', 'operator password reset; every borrowed credential revoked', 'user_id', $1::text))`,
+		userID.String())
 	return err
 }
 

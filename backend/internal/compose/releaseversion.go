@@ -103,7 +103,6 @@ const lastObservedReleaseQuery = `
 	SELECT COALESCE(detail->>'release_version', '')
 	  FROM system_log
 	 WHERE action = $1
-	   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	 ORDER BY occurred_at DESC, id DESC LIMIT 1`
 
 // RecordInstallationRelease records the release this api was built from as the
