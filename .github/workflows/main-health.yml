@@ -1,0 +1,194 @@
+# Is main red RIGHT NOW, and whose commit made it so.
+#
+# main receives ~85 merges a day and a merge can land over a red required check —
+# a repository-role bypass is deliberate here, so that will keep happening and
+# this workflow does nothing to prevent it. What it changes is the DELAY: without
+# it, a breakage on main is discovered when somebody else's unrelated pull request
+# goes red for reasons they did not cause, which is both slow and lands the cost on
+# the wrong person. The nightly lane in scheduled.yml answers the same question
+# once a day; at eight merges an hour that is a working day of exposure.
+#
+# So this runs every two hours and, when it finds main broken, files ONE issue per
+# broken lane naming the commits that landed since the last green run and who
+# authored them. The point is attribution and speed, not prevention.
+#
+# It is NOT a gate. Nothing here blocks a merge, and it never will: the required
+# check is `ci` on the pull request, and this workflow reports on a tree that has
+# already landed.
+#
+# The cadence is the one knob. Every two hours costs ~11 jobs a run against a
+# 20-concurrent org ceiling that the pull-request lanes also queue in, and narrows
+# the suspect range to roughly a dozen commits. Tighten the cron if a dozen is too
+# many to bisect; it is one line.
+name: main-health
+
+on:
+  schedule:
+    # :17 rather than :00 — the top of the hour is when every other cron in every
+    # other repository fires, and this lane competes for the same runner pool.
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time, and never cancelled. A cancelled run answers nothing, and two
+# concurrent runs would both report the same breakage under the same issue title.
+# If a run is still going when the next fires, main is slow rather than broken and
+# the answer is worth waiting for.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  # The no-database half of the merge gate, run against main's tip unconditionally.
+  # Unconditionally is the whole point: the classifier that makes a pull request
+  # cheap is exactly what let a docs-only commit report green over a broken tree.
+  gates:
+    name: backend gate (main)
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The RBAC legacy-cohort gates read an early commit as a fixture and
+          # fail rather than degrade on a shallow checkout.
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Restore the Go build cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
+      # The gate binaries are NOT covered by the Go caches: setup-go caches
+      # ~/go/pkg/mod and ~/.cache/go-build, not the tools installed into ~/go/bin.
+      # cache-warm.yml shipped without these three steps and failed every run on
+      # "golangci-lint not found" before compiling anything, which is the one thing
+      # it existed to do. Same lane, same requirement, so the same three steps.
+      - name: Cache the gate binaries
+        id: gate-binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin
+          key: gate-binaries-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/go.mod', 'backend/Makefile') }}
+      - name: Install the pinned gate binaries
+        if: steps.gate-binaries.outputs.cache-hit != 'true'
+        working-directory: .
+        run: make tools
+      - name: Gate binaries onto PATH
+        run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      - name: Backend merge gate (make check-backend)
+        working-directory: .
+        env:
+          CONTRACT_BREAKING_REQUIRE_BASE: "1"
+          MIGRATION_VERSIONS_REQUIRE_BASE: "1"
+        run: make check-backend
+
+  # The real-Postgres lane, called rather than copied. Every schema fitness gate
+  # that has broken main recently lives here and nowhere else — an unratified
+  # DELETE trigger, a foreign key with no visibility decision — so a health check
+  # without a database would have missed every one of them.
+  integration:
+    uses: ./.github/workflows/_lane-integration.yml
+
+  # main's SonarCloud analysis, published from here.
+  #
+  # Nothing else publishes it. The push-to-main scan is gone (the merge queue was
+  # meant to gate before the merge instead), and the merge_group scan that replaced
+  # it only runs while the queue rule is enabled — which it is not. A stored
+  # analysis does not disappear when it stops being refreshed, it FREEZES, and the
+  # nightly quality-gate job reads ?branch=main and reports that frozen verdict as
+  # though it were current. Publishing here makes main's reading independent of
+  # whether the queue is on.
+  sonar:
+    name: sonarcloud (main)
+    timeout-minutes: 30
+    needs: [integration]
+    # Only on a green lane, and only with the coverage in hand. The scanner's Zero
+    # Coverage Sensor scores every executable line it holds no report for as
+    # UNCOVERED, so a scan without the Go profile publishes the tree at 0% rather
+    # than declining to answer — and measuring nothing is not a measurement of zero.
+    if: needs.integration.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: https://sonarcloud.io
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history so the scanner can attribute blame and compute new code.
+          fetch-depth: 0
+      - name: Download Go coverage
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: go-coverage
+          path: backend
+      - name: SonarCloud scan
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: -Dsonar.branch.name=main
+      - name: No token yet — scan skipped
+        if: ${{ env.SONAR_TOKEN == '' }}
+        run: echo "SONAR_TOKEN not set; main's analysis was not refreshed by this run."
+
+  # Say what broke and who landed it. This is the job the whole workflow exists
+  # for: a red lane nobody is told about is the state we already had.
+  report:
+    name: report
+    timeout-minutes: 10
+    needs: [gates, integration]
+    if: >-
+      !cancelled()
+      && (needs.gates.result == 'failure' || needs.integration.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      # To find this workflow's last GREEN run, which is what bounds the suspect
+      # range. Without it the report can say "main is red" but not "since when".
+      actions: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The whole history, because the range starts at the last green run's
+          # commit — which may be many merges back.
+          fetch-depth: 0
+      # The suspect range: everything that landed since this workflow last passed.
+      # It is an over-approximation on purpose. Naming a dozen commits that might
+      # be responsible is useful; naming none, or guessing one, is not.
+      - name: Commits since the last green health check
+        id: range
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: ./scripts/main-health-range.sh
+      - name: File or update an issue per broken lane
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MAIN_GATES_RESULT: ${{ needs.gates.result }}
+          MAIN_INTEGRATION_RESULT: ${{ needs.integration.result }}
+          MAIN_SUSPECTS: ${{ steps.range.outputs.suspects }}
+        run: ./scripts/scheduled-report.sh
