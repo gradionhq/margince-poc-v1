@@ -6,9 +6,9 @@ import { navigate } from "../app/router";
 import { Badge } from "../design-system/atoms";
 import { PanelBody } from "../design-system/panel";
 import { formatDate, formatMoney } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import { throwProblem } from "./common";
-import { RECORD_ZONE } from "./company360";
 
 // The commercial relationship: what we last put in front of this account,
 // read from the SAME open deals the Deals tab already lists — so it is

@@ -9,9 +9,9 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, Modal, Skeleton } from "../design-system/atoms";
 import { formatDate, formatDateTime } from "../format/format";
+import { RECORD_ZONE, viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
-import { RECORD_ZONE } from "./company360";
 import { EntityRef } from "./entityref";
 
 // Acting on a task from the record it belongs to. The tasks screen owns the
@@ -212,7 +212,14 @@ export function TaskDetailModal({
             {task.due_at ? (
               <span>
                 {t("co.next.due", {
-                  when: formatDate(task.due_at, locale, RECORD_ZONE),
+                  // The one viewer-clock reading on this record surface, and it
+                  // is not a preference: `dueInstant` mints a due date as the
+                  // end of the picked day in the BROWSER's zone, so the stored
+                  // instant already carries the picker's clock. Read in the
+                  // organization's zone it names a different calendar day than
+                  // the one the picker chose, for every reader outside that
+                  // zone — there is no organization reading of it to prefer.
+                  when: formatDate(task.due_at, locale, viewerZone()),
                 })}
               </span>
             ) : (

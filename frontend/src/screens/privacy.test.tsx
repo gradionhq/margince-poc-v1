@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { meFixture } from "../app/mefixture";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -485,15 +486,20 @@ describe("PrivacyInboxCard", () => {
 
   // A patch failure that is NOT the illegal-transition 422 must
   // never wear the "moved on" copy — that would tell the officer a colleague
-  // made a decision that never happened. A 403 (no `details.errors`, code
-  // "permission_denied") gets the server's own honest detail instead.
+  // made a decision that never happened. A 403 (code "permission_denied") gets
+  // the catalog's refusal sentence instead, and never the server's own detail:
+  // every producer of that sentinel wraps it in internals — the RBAC object and
+  // verb here — which name nothing the reader can act on.
   it("tells the truth about a non-transition patch failure instead of claiming it moved on", async () => {
     stubRoutes({
       "PATCH /data-subject-requests/d1": () =>
         jsonResponse(
           {
             title: "Forbidden",
-            detail: "assigning this request is outside your role",
+            // What auth.Require actually sends: the RBAC object and verb
+            // wrapped around the sentinel. Internals, not copy — so the screen
+            // must show the catalog sentence instead of echoing it.
+            detail: "data_subject_request.update: permission denied",
             status: 403,
             code: "permission_denied",
           },
@@ -508,8 +514,9 @@ describe("PrivacyInboxCard", () => {
     await userEvent.type(screen.getByLabelText(/resolution/i), "done");
     await userEvent.click(within(row).getByRole("button", { name: /reject/i }));
     expect(
-      await screen.findByText(/assigning this request is outside your role/i),
+      await screen.findByText(en["common.permissionDenied"]),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/data_subject_request/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/moved on/i)).not.toBeInTheDocument();
   });
 
@@ -630,7 +637,10 @@ describe("PrivacyInboxCard", () => {
         jsonResponse(
           {
             title: "Forbidden",
-            detail: "assigning this request is outside your role",
+            // What auth.Require actually sends: the RBAC object and verb
+            // wrapped around the sentinel. Internals, not copy — so the screen
+            // must show the catalog sentence instead of echoing it.
+            detail: "data_subject_request.update: permission denied",
             status: 403,
             code: "permission_denied",
           },
@@ -645,12 +655,18 @@ describe("PrivacyInboxCard", () => {
     await choose(picker, "Dana DPO");
     const row = await findDsrRow("8f3a-person-uuid");
     expect(
-      await within(row).findByText(
-        /assigning this request is outside your role/i,
-      ),
+      await within(row).findByText(en["common.permissionDenied"]),
     ).toBeInTheDocument();
+    expect(
+      within(row).queryByText(/data_subject_request/i),
+    ).not.toBeInTheDocument();
   });
 
+  // The refusal reaching the reader is the catalog's, whatever the body carried:
+  // a bare sentinel here, a sentinel wrapped in the RBAC object and verb in the
+  // two tests above. Both land on the same sentence, because it is the only one
+  // that says who can widen the access — there is no case where the server's own
+  // detail is the words to keep.
   it("renders a scoped rep's 403 honestly", async () => {
     stubRoutes({
       "GET /data-subject-requests": () =>
@@ -664,7 +680,10 @@ describe("PrivacyInboxCard", () => {
         ),
     });
     render(<PrivacyInboxCard />);
-    expect(await screen.findByText(/permission denied/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(en["common.permissionDenied"]),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^permission denied$/i)).not.toBeInTheDocument();
   });
 });
 

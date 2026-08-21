@@ -1847,7 +1847,10 @@ describe("LeadScreen — owner display + assign to me (P-11)", () => {
       if (url.includes("/users")) {
         // The viewer is an ordinary roster entry now — the picker offers them
         // first rather than a separate button doing it.
-        return jsonResponse({ data: [{ id: "u-9", display_name: "Me" }] });
+        return jsonResponse({
+          data: [{ id: "u-9", display_name: "Me" }],
+          page: { next_cursor: null, has_more: false },
+        });
       }
       return undefined;
     }, "u-9");
@@ -2216,6 +2219,7 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
       if (url.includes("/users")) {
         return jsonResponse({
           data: [{ id: "u-42", display_name: "Dana Fischer" }],
+          page: { next_cursor: null, has_more: false },
         });
       }
       return jsonResponse({ ...lead, owner_id: "u-42" });
@@ -2236,6 +2240,7 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
       if (url.includes("/users")) {
         return jsonResponse({
           data: [{ id: "u-42", display_name: "Dana Fischer" }],
+          page: { next_cursor: null, has_more: false },
         });
       }
       if (method === "PATCH") {

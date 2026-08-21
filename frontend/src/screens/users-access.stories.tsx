@@ -29,7 +29,13 @@ function story(teams: Record<string, unknown>[]) {
   return () => {
     installFetchStub({
       "GET /me": meRoute({}),
-      "GET /teams": () => jsonResponse({ data: teams }),
+      // A page, the way the endpoint answers one: the card reads the shared
+      // roster walk, which follows `page.next_cursor` to the end of the list.
+      "GET /teams": () =>
+        jsonResponse({
+          data: teams,
+          page: { next_cursor: null, has_more: false },
+        }),
     });
     return (
       <StoryProviders>

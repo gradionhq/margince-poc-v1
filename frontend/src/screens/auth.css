@@ -222,9 +222,9 @@
    and the primary submit below the fields — presents the same target on the same
    left edge. Side by side, two providers made a row of half-width boxes that the
    eye reads as a segmented control offering a choice between them rather than as
-   two doors; a third would have divided the row again. The phone layout puts them
-   back on one line, where vertical space is the scarce thing (see the ≤560
-   block). */
+   two doors; a third would have divided the row again. On a phone too: the
+   column is the layout at every width, which is what leaves the short brand word
+   below with no layout to appear in. */
 .auth-sso {
   margin-top: var(--space-4);
   display: flex;
@@ -232,43 +232,20 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
-/* Not the Button atom, deliberately: `btn-ghost` contributes a background, a
-   colour, a border colour, a radius, a weight and a padding, and this control
-   overrides every one of them — reuse that survives nothing is a claim, not
-   reuse. If the DS ever wants this look it wants a new Button VARIANT, which is
-   a design-system change rather than a screen's business. */
+/* The box is `Button`'s `federated` variant now, and everything that used to be
+   here is there: the full width, the border that owes 1.4.11 its 3:1, the input
+   shell's radius, the ground, the weight, the padding, the mark's own size, the
+   hover, the focus ring, and both dim states (`disabled` while the password form
+   writes, `unavailable` for a provider advertised with nothing behind it). This
+   screen kept its own button for as long as it did because reuse that overrides
+   every property of a variant is a claim rather than reuse — the answer was the
+   variant, not the exception.
+
+   What is left is the one thing this SCREEN decides: the button is an item in a
+   vertical stack, where flex-shrink shrinks a HEIGHT. `flex: 1 1 140px` from an
+   older side-by-side layout is what made every provider a 140px tall box. */
 .auth-social {
-  /* `flex: none` and a full width, because the stack's main axis is VERTICAL: a
-     basis here is a HEIGHT, and `flex: 1 1 140px` made every provider a 140px
-     tall box. The phone layout turns the row back on and sets its own basis. */
   flex: none;
-  width: 100%;
-  min-width: 0;
-  /* The same box as the fields under it. This was 46px, chosen to match the
-     field shell this surface used to draw for itself; both read the shared
-     control height now, so the provider buttons and the address field below
-     them are one column of controls rather than two sizes of one. The touch
-     floor still applies — it is on the token, and it rises for a coarse
-     pointer. */
-  min-height: var(--control-h);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  padding: 11px 12px;
-  /* Same rule as the input shell: an unfilled button on a same-coloured pane is
-     defined entirely by its border, so the border owes 1.4.11 its 3:1. */
-  border: 1px solid var(--borderControl);
-  border-radius: var(--r-md);
-  background: var(--bgElevated);
-  cursor: pointer;
-  font-family: var(--f-body);
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--textPrimary);
-  transition:
-    background 0.12s,
-    border-color 0.12s;
 }
 /* The installation's full label, at every width. The markup also carries the
    short brand word (auth.tsx) for a layout that cannot fit the label — no layout
@@ -277,38 +254,6 @@
    operator wrote. */
 .auth-social-brand {
   display: none;
-}
-.auth-social:hover:not(:disabled) {
-  background: var(--accentSurface);
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--borderStrong));
-}
-.auth-social:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: 2px;
-}
-/* In-flight: momentary, and the control is coming back. Pale reads as "wait". */
-.auth-social:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-/* A provider the installation advertises but cannot currently complete
-   (preview-only — `app/ui-preview.ts`; the shipped surface never marks a
-   provider, §3.3). Deeper than the in-flight dim because this is a resting state
-   rather than a pause, with a weaker border so the box stops reading as a live
-   control. Ordered after `:disabled` deliberately: equal specificity, so this
-   one wins by position.
-
-   Uniform OPACITY rather than a swapped background or a grayscaled mark, and
-   both alternatives are worse for a reason worth keeping:
-     - a background swap inverts in dark. `--bgCard` sits LIGHTER than
-       `--bgElevated` there, so the dead button would become the prominent one.
-       Opacity recedes against whatever the theme put behind it.
-     - `filter: grayscale()` on the mark would recolour another company's logo,
-       and WDS-GATE-1's named exception exists precisely so the mark keeps that
-       company's own colours. Fading is not recolouring. */
-.auth-social.is-unavailable {
-  opacity: 0.4;
-  border-color: var(--borderSubtle);
 }
 /* Labels the path BELOW it. The rules are drawn on the element rather than as
    two spans so the text stays the only thing in the accessibility tree. */

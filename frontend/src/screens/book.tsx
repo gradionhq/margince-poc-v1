@@ -9,6 +9,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 
@@ -153,7 +154,7 @@ function SessionBookingScreen() {
           <p className="t-label">{t("book.confirmed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {book.data.occurred_at &&
-              formatDateTime(book.data.occurred_at, locale, "Europe/Berlin")}
+              formatDateTime(book.data.occurred_at, locale, viewerZone())}
           </p>
         </Card>
       ) : (
@@ -170,7 +171,7 @@ function SessionBookingScreen() {
                   disabled={book.isPending}
                   onClick={() => book.mutate(slot)}
                 >
-                  {formatDateTime(slot.start, locale, "Europe/Berlin")}
+                  {formatDateTime(slot.start, locale, viewerZone())}
                 </Button>
               ))}
             </div>
@@ -319,7 +320,7 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
         <Card as="div" role="status">
           <p className="t-label">{t("book.confirmed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
-            {formatDateTime(book.data.start, locale, "Europe/Berlin")}
+            {formatDateTime(book.data.start, locale, viewerZone())}
           </p>
         </Card>
       ) : (
@@ -336,7 +337,7 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
                   disabled={!ready || book.isPending}
                   onClick={() => book.mutate(slot)}
                 >
-                  {formatDateTime(slot.start, locale, "Europe/Berlin")}
+                  {formatDateTime(slot.start, locale, viewerZone())}
                 </Button>
               ))}
             </div>

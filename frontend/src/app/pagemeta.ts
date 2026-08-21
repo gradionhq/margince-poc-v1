@@ -24,6 +24,10 @@ export const PAGE_SUB_KEYS: Record<string, MessageKey> = {
   inbox: "inbox.sub",
   ai: "ai.sub",
   dedupe: "dedupe.intro",
+  // What the whole surface is for, not what the current object tab holds: the
+  // sentence is true of a contact filter and a deal filter alike, which is the
+  // test a page-level subtitle has to pass.
+  filters: "filters.subtitle",
   // Whose messages these are is the fact the page most needs to state, and it
   // is true of the whole page: a scheduled send is readable only by the person
   // who scheduled it, so nothing here is a queue somebody else can work.
@@ -39,9 +43,9 @@ export const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
   partners: "nav.partners",
   share: "nav.share",
   search: "nav.search",
-  // Off the rail deliberately. The rail carries the product's ten destinations
-  // and a queue of one person's own unsent mail is not an eleventh; it is
-  // reached from the composer that put a message in it and from the Tasks page,
+  // Off the rail deliberately. The rail carries the product's eleven
+  // destinations and a queue of one person's own unsent mail is not a twelfth;
+  // it is reached from the composer that put a message in it and from the Tasks page,
   // which is where the same rep's other waiting work already lives.
   scheduled: "nav.scheduled",
 };

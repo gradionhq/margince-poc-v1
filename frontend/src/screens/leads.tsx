@@ -21,6 +21,7 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
 import { formatDateAbbrev } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -37,7 +38,12 @@ import type { CreateField } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { EntityRef, useRoster } from "./entityref";
+import {
+  EntityRef,
+  RosterPartialNote,
+  useRoster,
+  useRosterPartial,
+} from "./entityref";
 import { RecordHistoryTab, useRecordHistory } from "./history";
 import {
   FirstResponseLine,
@@ -307,6 +313,86 @@ function ScoreBreakdown({ id, lead }: Readonly<{ id: string; lead: Lead }>) {
 // Reassignment is a plain owner change (UC-E13-04): the server audits it and
 // keeps whatever routing decision it overrides, so the only thing this
 // control owes the reader is an honest list of who they can hand it to.
+// How one candidate reads in the list. The viewer reads as "Me": a rep scanning
+// this list looks for themselves, not for their own name among colleagues'. A
+// user with no display name still has to be pickable, so the id stands in
+// rather than rendering a blank row.
+function candidateLabel(
+  entry: Readonly<{ id: string; display_name?: string }>,
+  meId: string | undefined,
+  t: ReturnType<typeof useT>,
+): string {
+  if (entry.id === meId) {
+    return t("lead.assignToMe");
+  }
+  return entry.display_name ?? entry.id;
+}
+
+// The assignee list's four readings, as early returns rather than one chained
+// conditional: a roster still arriving, a roster that failed, a workspace with
+// nobody else in it, and the picker itself.
+function AssigneePicker({
+  roster,
+  rosterPartial,
+  candidates,
+  meId,
+  pending,
+  onPick,
+}: Readonly<{
+  roster: ReturnType<typeof useRoster>;
+  rosterPartial: boolean;
+  candidates: readonly Readonly<{ id: string; display_name?: string }>[];
+  meId: string | undefined;
+  pending: boolean;
+  onPick: (ownerId: string) => void;
+}>) {
+  const t = useT();
+  if (roster.isPending) {
+    return <span className="t-caption">{t("share.rosterLoading")}</span>;
+  }
+  if (roster.isError) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-2)",
+          alignItems: "center",
+        }}
+      >
+        <span className="t-caption share-error">
+          {t("share.rosterErrorUsers")}
+        </span>
+        <Button small onClick={() => roster.refetch()}>
+          {t("common.retry")}
+        </Button>
+      </div>
+    );
+  }
+  // "Nobody else" is a claim about the WHOLE workspace, so only a roster read
+  // to its end may make it. Over a walk that stopped early it would report a
+  // lead as unassignable when the colleague to hand it to sits on a page
+  // nothing here read.
+  if (candidates.length === 0 && !rosterPartial) {
+    return <span className="t-caption">{t("lead.assignNobodyElse")}</span>;
+  }
+  return (
+    <>
+      <Select
+        aria-label={t("lead.assignTo")}
+        placeholder={t("lead.assignChoose")}
+        value=""
+        disabled={pending}
+        options={candidates.map((entry) => ({
+          value: entry.id,
+          label: candidateLabel(entry, meId, t),
+        }))}
+        onChange={onPick}
+      />
+      <RosterPartialNote partial={rosterPartial} />
+    </>
+  );
+}
+
 function LeadOwner({
   lead,
   meId,
@@ -324,6 +410,7 @@ function LeadOwner({
   const pickerId = useId();
   const [picking, setPicking] = useState(false);
   const roster = useRoster("user", picking);
+  const rosterPartial = useRosterPartial("user", picking);
   // Everyone but the current owner, with the VIEWER first: assigning to
   // yourself is the common case on a small team, and it is now an option in
   // this one control rather than a button of its own (ADR-0108 §5).
@@ -378,50 +465,19 @@ function LeadOwner({
       </div>
 
       <div id={pickerId}>
-        {picking &&
-          (roster.isPending ? (
-            <span className="t-caption">{t("share.rosterLoading")}</span>
-          ) : roster.isError ? (
-            <div
-              style={{
-                display: "flex",
-                gap: "var(--space-2)",
-                alignItems: "center",
-              }}
-            >
-              <span className="t-caption share-error">
-                {t("share.rosterErrorUsers")}
-              </span>
-              <Button small onClick={() => roster.refetch()}>
-                {t("common.retry")}
-              </Button>
-            </div>
-          ) : candidates.length === 0 ? (
-            <span className="t-caption">{t("lead.assignNobodyElse")}</span>
-          ) : (
-            <Select
-              aria-label={t("lead.assignTo")}
-              placeholder={t("lead.assignChoose")}
-              value=""
-              disabled={pending}
-              options={candidates.map((entry) => ({
-                value: entry.id,
-                // The viewer reads as "Me" — a rep scanning this list looks
-                // for themselves, not for their own name among colleagues'.
-                // A user with no display name still has to be pickable, so
-                // the id stands in rather than rendering a blank row.
-                label:
-                  entry.id === meId
-                    ? t("lead.assignToMe")
-                    : (("display_name" in entry ? entry.display_name : null) ??
-                      entry.id),
-              }))}
-              onChange={(value) => {
-                onAssign(value);
-                setPicking(false);
-              }}
-            />
-          ))}
+        {picking && (
+          <AssigneePicker
+            roster={roster}
+            rosterPartial={rosterPartial}
+            candidates={candidates}
+            meId={meId}
+            pending={pending}
+            onPick={(value) => {
+              onAssign(value);
+              setPicking(false);
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -1148,7 +1204,7 @@ function PromotedLeadPanel({
               // The reader's own zone, the same one the shell stamps this
               // page's timeline rows in — a lead carries no location of its
               // own to prefer over where the reader is.
-              Intl.DateTimeFormat().resolvedOptions().timeZone,
+              viewerZone(),
             )}
           </p>
         )}
@@ -1519,7 +1575,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
             // The shell stamps timeline rows in this zone. The viewer's own is
             // the honest default for a prospect: a lead carries no workspace
             // location of its own to prefer over where the reader is.
-            zone={Intl.DateTimeFormat().resolvedOptions().timeZone}
+            zone={viewerZone()}
             timeline={
               timelineQuery.isSuccess
                 ? activityTimeline(timelineQuery.data.data, viewerId)

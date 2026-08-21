@@ -7,15 +7,11 @@ import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Meter } from "../design-system/readings";
 import { formatDateTime } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
-import {
-  type BriefSentence,
-  RECORD_ZONE,
-  SentenceList,
-  WrittenBy,
-} from "./company360";
+import { type BriefSentence, SentenceList, WrittenBy } from "./company360";
 
 type GrowthFit = components["schemas"]["OrganizationGrowthFit"];
 type Band = GrowthFit["band"];

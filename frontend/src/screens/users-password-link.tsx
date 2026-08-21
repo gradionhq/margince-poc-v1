@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { Button, Modal } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { problemMessage } from "./common";
 import "./users-admin.css";
@@ -159,7 +160,7 @@ export function PasswordLinkModal({
 function Expiry({ iso }: Readonly<{ iso: string }>) {
   const t = useT();
   const { locale } = useLocale();
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   return (
     <p className="t-caption">
       <time dateTime={iso}>

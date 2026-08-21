@@ -13,6 +13,7 @@ import { navigate } from "../app/router";
 import { Button, Card, EmptyState } from "../design-system/atoms";
 import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { formatDate } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { QueryGate, throwProblem, useMe } from "./common";
@@ -186,7 +187,7 @@ function ConsentSelector({
   // label (format.ts zone-by-purpose): the human deciding how long to lend
   // reads the date on their own calendar. A fixed zone shows the wrong
   // calendar day to everyone outside it.
-  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
 
   // I9: the stash exists only to survive the round trip to mint a passport.
   // Reaching this screen with a usable list means that detour, if there was
@@ -244,7 +245,7 @@ function ConsentSelector({
       <p className="t-small">{t("consent.grantedNote")}</p>
       <p className="t-small">
         {t("consent.expires", {
-          date: formatDate(selected.expires_at, locale, viewerZone),
+          date: formatDate(selected.expires_at, locale, zone),
         })}
       </p>
       {data.offline && <p>{t("consent.offline")}</p>}

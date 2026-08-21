@@ -6,11 +6,11 @@ import { Badge, Button } from "../design-system/atoms";
 import { Panel, PanelRow } from "../design-system/panel";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDateAbbrev } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AddDocumentDialog } from "./adddocument";
 import { LoadMoreButton, throwProblem } from "./common";
-import { RECORD_ZONE } from "./company360";
 import "./person360.css";
 
 // The person's own files: unlike the sibling tabs in persontabs.tsx, this one

@@ -13,6 +13,7 @@ import { SettingList, SettingRow } from "../design-system/settingrow";
 import { StatStrip } from "../design-system/statstrip";
 import { SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { CaptureActivityDrawer } from "./capture-activity-drawer";
 import { useProviderLabel } from "./channelproviders";
@@ -371,7 +372,7 @@ function CaptureEntryRow({
   // The reader's own zone: a trace is read to reconcile "I sent that at 9:04"
   // against what the pipeline did, and a UTC timestamp makes them do the
   // arithmetic themselves.
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   return (
     <li className="capture-activity__row" data-outcome={entry.outcome}>
       {/* The whole row opens the ladder. A button rather than a click handler

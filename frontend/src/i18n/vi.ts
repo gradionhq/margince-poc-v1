@@ -33,6 +33,9 @@ export const vi = {
   "trust.typedByPrefix": "nhập bởi",
   "trust.sourceUnknown": "không ghi nhận nguồn",
   "trust.agentTag": "Tự động bởi {agent}",
+  "trust.agentUnnamed": "Tự động bởi một agent",
+  "trust.systemTag": "Tiến trình hệ thống {job}",
+  "trust.systemUnnamed": "Tiến trình hệ thống",
   "trust.connectorTag": "qua {connector}",
   "trust.dismissed": "Đã bỏ qua đề xuất.",
   "trust.stagedProposal": "đề xuất chờ duyệt",
@@ -349,11 +352,17 @@ export const vi = {
   "common.error": "Không tải được màn hình này.",
   "common.errorNoCause":
     "Yêu cầu thất bại. Không có nguyên nhân nào được báo về.",
+  "common.permissionDenied":
+    "Bạn không có quyền cho hành động này. Hãy nhờ quản trị viên, hoặc người đã chia sẻ bản ghi này với bạn, mở rộng quyền truy cập của bạn.",
+  "common.seatReadOnly":
+    "Chỗ ngồi này chỉ đọc nên yêu cầu đã bị từ chối. Hãy nhờ người vận hành nâng cấp chỗ ngồi.",
   "common.retry": "Thử lại",
   "common.empty": "Chưa có gì ở đây.",
   "common.saving": "Đang lưu…",
   "common.loading": "Đang tải…",
   "ref.nameLoadFailed": "Không tải được tên",
+  "ref.notInRoster":
+    "Hiện đang được giao (không còn trong danh sách người dùng)",
 
   "app.errorTitle": "Màn hình này đã ngừng hoạt động.",
   "app.errorBody": "Hãy thử lại. Nếu vẫn tiếp tục lỗi, hãy tải lại trang.",
@@ -568,6 +577,7 @@ export const vi = {
   "views.saveConfirm": "Lưu",
   "views.saveTitle": "Lưu bộ lọc này",
   "views.name": "Tên",
+  "views.rail": "Chế độ xem đã lưu",
   "list.viewMine": "Của tôi",
   "list.viewCustomers": "Khách hàng",
   "list.viewProspects": "Khách tiềm năng",
@@ -755,8 +765,6 @@ export const vi = {
   "co.pulse.strongestLead": "Đường tiếp cận",
   "co.pulse.strengthTail.one": "— contact duy nhất ở đây",
   "co.pulse.strengthTail.other": "— trong {count} contact ở đây",
-  "co.owner.notInRoster":
-    "Người phụ trách hiện tại (không còn trong danh sách người dùng)",
   "co.pulse.unowned": "Chưa giao",
   "co.since.first": "Bạn đang mở tài khoản này lần đầu.",
   "co.partial":
@@ -1554,6 +1562,8 @@ export const vi = {
   "deal.ownerMe": "Giao cho tôi",
   "deal.ownerUnassign": "Bỏ giao",
   "deal.partnerOrg": "qua đối tác",
+  "deal.companyWithheld": "Công ty bị ẩn",
+  "deal.partnerWithheld": "Đối tác bị ẩn",
   "deal.forecastCategory": "Nhóm dự báo",
   "deal.waitUntil": "Chờ đến",
   "deal.fxBase": "Gốc {value} · tỷ giá {rate} tính đến {date}",
@@ -5571,6 +5581,8 @@ export const vi = {
   "filters.matchDeals": "{count} th\u01b0\u01a1ng v\u1ee5 kh\u1edbp",
   "filters.noFilterYet":
     "Th\u00eam \u0111i\u1ec1u ki\u1ec7n \u0111\u1ec3 xem k\u1ebft qu\u1ea3",
+  "filters.countUnavailable":
+    "Kh\u00f4ng l\u1ea5y \u0111\u01b0\u1ee3c s\u1ed1 l\u01b0\u1ee3ng",
   "filters.loadingVocabulary":
     "\u0110ang t\u1ea3i c\u00e1c tr\u01b0\u1eddng c\u00f3 th\u1ec3 l\u1ecdc\u2026",
   "filters.noFields":

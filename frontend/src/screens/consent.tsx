@@ -11,6 +11,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { humanizeToken } from "./audit";
@@ -111,7 +112,7 @@ function ConsentEventActor({ event }: Readonly<{ event: ConsentEvent }>) {
 function ConsentProofLog({ events }: Readonly<{ events: ConsentEvent[] }>) {
   const t = useT();
   const { locale } = useLocale();
-  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   if (events.length === 0) {
     return <EmptyState>{t("consent.proofEmpty")}</EmptyState>;
   }
@@ -134,9 +135,7 @@ function ConsentProofLog({ events }: Readonly<{ events: ConsentEvent[] }>) {
               </span>
               <span className="tl-meta">
                 <ConsentEventActor event={event} />
-                <span>
-                  {formatDateTime(event.occurred_at, locale, viewerZone)}
-                </span>
+                <span>{formatDateTime(event.occurred_at, locale, zone)}</span>
               </span>
             </span>
           </li>
@@ -195,7 +194,7 @@ function ConsentRow({
 }>) {
   const t = useT();
   const { locale } = useLocale();
-  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   const queryClient = useQueryClient();
   const granted = entry.state === "granted";
   const [token, setToken] = useState("");
@@ -301,7 +300,7 @@ function ConsentRow({
         <p className="t-caption">
           {t("consent.doiIssued")} <code>{issueDoi.data.token}</code> ·{" "}
           {t("consent.doiExpires")}:{" "}
-          {formatDateTime(issueDoi.data.expires_at, locale, viewerZone)}
+          {formatDateTime(issueDoi.data.expires_at, locale, zone)}
         </p>
       )}
       {showLog && <ConsentProofLog events={events} />}

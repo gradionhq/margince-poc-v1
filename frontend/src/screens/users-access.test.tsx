@@ -53,9 +53,15 @@ function backend(opts: Readonly<{ preview?: Preview; teams?: Team[] }>) {
         body:
           request.method === "GET" ? undefined : await request.clone().json(),
       });
+      // The teams list answers as the contract answers: a page, with the
+      // cursor of the next one. Without `page` the roster walk has nothing to
+      // read the end of the list from.
       const body = path.endsWith("/users/access-preview")
         ? (opts.preview ?? { row_scope: "own" })
-        : { data: opts.teams ?? [] };
+        : {
+            data: opts.teams ?? [],
+            page: { next_cursor: null, has_more: false },
+          };
       return new Response(JSON.stringify(body), {
         headers: { "Content-Type": "application/json" },
       });

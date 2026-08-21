@@ -747,25 +747,34 @@ export function ListTable<Row>({
       tools={
         <>
           {tools}
-          <TableTools
-            optional={optional}
-            hidden={hidden}
-            onToggleColumn={(key) =>
-              setHidden((prev) => {
-                const next = new Set(prev);
-                if (next.has(key)) {
-                  next.delete(key);
-                } else {
-                  next.add(key);
-                }
-                return next;
-              })
-            }
-            dense={dense}
-            onDense={() => setDense(!dense)}
-            open={columnsOpen}
-            setOpen={setColumnsOpen}
-          />
+          {/* Both of TableTools' dials — which columns show, and how tight the
+              rows are — describe the GRID. A body that owns its own
+              presentation is not drawing one, so offering them there hands the
+              reader two controls that visibly do nothing, which is worse than
+              their absence: it reads as a broken control rather than as a view
+              that has no columns to hide. Withheld on the same condition as the
+              count line and the pager, for the same reason. */}
+          {!bodyOwnsPaging && (
+            <TableTools
+              optional={optional}
+              hidden={hidden}
+              onToggleColumn={(key) =>
+                setHidden((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(key)) {
+                    next.delete(key);
+                  } else {
+                    next.add(key);
+                  }
+                  return next;
+                })
+              }
+              dense={dense}
+              onDense={() => setDense(!dense)}
+              open={columnsOpen}
+              setOpen={setColumnsOpen}
+            />
+          )}
         </>
       }
       footer={

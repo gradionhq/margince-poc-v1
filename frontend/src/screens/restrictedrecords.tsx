@@ -17,6 +17,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDate } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { humanizeToken } from "./audit";
@@ -167,7 +168,7 @@ export function RestrictedRecordsCard() {
   const t = useT();
   const me = useMe();
   const { locale } = useLocale();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = viewerZone();
   const canRead = useCan("retention_policy", "read");
   // Reading what is held and DECIDING about it are separate grants, so the
   // row action appears only for the authority that can carry it out.

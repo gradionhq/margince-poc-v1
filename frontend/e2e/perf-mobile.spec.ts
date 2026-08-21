@@ -77,7 +77,12 @@ test("MOBILE-AC-2: record open holds the 300ms perceived budget on Fast-3G at 39
     // attached, the navigation never happens, and the assertion times out as a
     // phantom perf failure. Under throttling this is likelier, not less likely.
     await page.waitForLoadState("networkidle");
-    const row = page.getByText("Anna Weber");
+    // By ROLE, for the reason ac.spec.ts records: a record's name is asserted
+    // through the element the view actually draws — here a table row — so the
+    // locator still names one thing when another surface repeats the name. The
+    // row stays a substring match, because a row's accessible name is every cell
+    // of it joined and the person's name is a fragment of that by construction.
+    const row = page.getByRole("row", { name: "Anna Weber" });
     await expect(row).toBeVisible();
 
     const start = Date.now();
@@ -85,7 +90,11 @@ test("MOBILE-AC-2: record open holds the 300ms perceived budget on Fast-3G at 39
     // The record's OWN header, not the shell's: the head shows only the trail
     // on a record route and renders from the router before any record read
     // returns, so waiting on it would measure routing rather than the open.
-    await expect(page.locator(".record-head h1")).toHaveText("Anna Weber");
+    // Exact: the whole name is what says the right record opened, and `name`
+    // matches by substring without it.
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Anna Weber", exact: true }),
+    ).toBeVisible();
     samples.push(Date.now() - start);
   }
 

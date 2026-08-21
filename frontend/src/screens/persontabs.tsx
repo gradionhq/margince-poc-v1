@@ -11,9 +11,9 @@ import {
   sectionState,
 } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { useViewerId } from "./common";
-import { RECORD_ZONE } from "./company360";
 import { PersonCommercialCard, readableRole } from "./personcards";
 import {
   CHRONOLOGY_EMPTY_KEYS,

@@ -21,6 +21,7 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import type { QueryLike } from "./common";
@@ -91,7 +92,7 @@ function ConnectionSummary({
       </Badge>
       <span className="t-small">
         {t("overlay.connectedAt", {
-          at: formatDateTime(connection.connectedAt, locale, "Europe/Berlin"),
+          at: formatDateTime(connection.connectedAt, locale, viewerZone()),
         })}
       </span>
       <span className="t-small">

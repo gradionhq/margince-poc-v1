@@ -11,6 +11,7 @@ import {
   PipelineBoard,
 } from "../design-system/composed";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
@@ -72,7 +73,7 @@ export function SlaBadge({ state }: Readonly<{ state: Lead["sla_state"] }>) {
 export function FirstResponseLine({ lead }: Readonly<{ lead: Lead }>) {
   const t = useT();
   const { locale } = useLocale();
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   if (lead.first_response_at) {
     return (
       <span className="t-caption">

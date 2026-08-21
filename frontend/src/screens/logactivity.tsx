@@ -13,11 +13,11 @@ import {
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { calendarDay, dueInstant, middayInstant } from "../format/calendarday";
+import { RECORD_ZONE, viewerZone } from "../format/timezone";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { entityTimelineKeys, taskWriteKeys } from "./activitykeys";
 import { problemMessageOf, throwProblem, useSorMode } from "./common";
-import { RECORD_ZONE } from "./company360";
 
 // Log a note or task from a 360 (person/company/deal/lead): the contract's
 // logActivity POST, linked to the record being viewed, occurred_at stamped
@@ -56,33 +56,37 @@ const EMPTY_DRAFT: ActivityDraft = {
 // any future line citation at a timestamp instead of what was said.
 const ACCEPTED_TRANSCRIPT_EXTENSION = ".txt";
 
-// The writer's own calendar day. The composer's date field starts here — the
-// day that WOULD apply is shown where the writer can change it instead of
-// being assumed at submit behind an empty box.
-function todayDay(): string {
-  return calendarDay(
-    new Date(),
-    Intl.DateTimeFormat().resolvedOptions().timeZone,
-  );
+// "Today", in the zone the picked day will be READ back in. The composer's date
+// field starts here — the day that WOULD apply is shown where the writer can
+// change it instead of being assumed at submit behind an empty box.
+//
+// Which zone that is follows what the day MEANS, the same split the draft's
+// `day` field carries. A note or meeting files under a heading on the record's
+// timeline, grouped in RECORD_ZONE, so the day it can be offered is the record's
+// today; a task's day is a personal due date, minted by `dueInstant` in the
+// browser's zone and rendered there, so its today is the writer's own. Offer a
+// day from the other zone and the composer names a day the entry does not land
+// on: an afternoon in Los Angeles is already tomorrow on a Berlin clock, so a
+// writer offered their own today, accepting it, watched the entry file under the
+// day after.
+function todayDay(kind: ActivityDraft["kind"]): string {
+  return calendarDay(new Date(), kind === "task" ? viewerZone() : RECORD_ZONE);
 }
 
 function freshDraft(kind: ActivityDraft["kind"] = "note"): ActivityDraft {
-  return { ...EMPTY_DRAFT, kind, day: todayDay() };
+  return { ...EMPTY_DRAFT, kind, day: todayDay(kind) };
 }
 
-// The instant a logged activity carries. The picked day left on today — or,
-// for a note, pushed into the future, which nothing can have occurred in —
-// means the actual moment of logging, so entries logged in sequence keep
-// their timeline order. A backdated day becomes that day's noon in
-// RECORD_ZONE, the zone every record page renders its timeline in, so the
-// entry files under the day the writer picked. A task's picked day is its
-// DUE date instead — the task itself occurred now.
+// The instant a logged activity carries. The picked day left on today — or, for
+// a note, pushed into the future, which nothing can have occurred in — means the
+// actual moment of logging, so entries logged in sequence keep their timeline
+// order. A backdated day becomes that day's noon in RECORD_ZONE. Either way the
+// entry files under the day the writer picked, because both branches and the
+// timeline's day headings read the same clock. A task's picked day is its DUE
+// date instead — the task itself occurred now.
 function occurredInstant(input: ActivityDraft): string {
   const now = new Date();
-  const today = calendarDay(
-    now,
-    Intl.DateTimeFormat().resolvedOptions().timeZone,
-  );
+  const today = calendarDay(now, RECORD_ZONE);
   if (input.kind === "task" || input.day === "" || input.day >= today) {
     return now.toISOString();
   }
@@ -229,8 +233,10 @@ export function LogActivityForm({
               value={draft.day}
               // A note or meeting cannot have happened in the future, and the
               // cap makes the picker say so; a due date has no such ceiling.
-              // occurredInstant clamps a typed-in future day the same way.
-              max={draft.kind === "task" ? undefined : todayDay()}
+              // occurredInstant clamps a typed-in future day the same way, and
+              // against the same clock, so the box refuses exactly the days the
+              // submit would have moved.
+              max={draft.kind === "task" ? undefined : todayDay(draft.kind)}
               onChange={(event) => setField({ day: event.target.value })}
               // A native date input opens its calendar only from the tiny
               // icon; a click on the value just places a caret. Opening on

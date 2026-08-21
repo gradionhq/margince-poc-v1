@@ -74,6 +74,7 @@ import {
   toEvidence,
 } from "../design-system/trust";
 import { formatDate, formatDateTime } from "../format/format";
+import { RECORD_ZONE, viewerZone } from "../format/timezone";
 import { LOCALES, type Locale, localeNameKey, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AiRoutingCard } from "./ai-routing";
@@ -1585,7 +1586,7 @@ function PassportRow({
           <span className="settings-run">
             <span>
               {t("settings.created", {
-                date: formatDate(passport.created_at, locale, "Europe/Berlin"),
+                date: formatDate(passport.created_at, locale, RECORD_ZONE),
               })}
             </span>
             {/* A credential's lifetime is a personal deadline, so it reads on
@@ -1595,11 +1596,7 @@ function PassportRow({
             {passport.expires_at && (
               <span>
                 {t("settings.expires", {
-                  date: formatDate(
-                    passport.expires_at,
-                    locale,
-                    Intl.DateTimeFormat().resolvedOptions().timeZone,
-                  ),
+                  date: formatDate(passport.expires_at, locale, viewerZone()),
                 })}
               </span>
             )}
@@ -2673,8 +2670,13 @@ function AuditLogRow({
     // inside the one stacked row that holds the whole trail.
     <div className="audit-row">
       <div className="audit-row-head">
+        {/* The organization's clock, the same one the record change history
+            reads on: an audit entry is a fact in the shared book, and on the
+            viewer's clock an entry at 18:00Z is 21 August to a reader in Berlin
+            and 22 August to one in Ho Chi Minh City — two operators quoting the
+            same line quote different days. */}
         <span className="t-small">
-          {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
+          {formatDateTime(entry.occurred_at, locale, RECORD_ZONE)}
         </span>
         <ActorTag entry={entry} meUserId={meUserId} />
         <Badge tone="accent">{entry.action}</Badge>

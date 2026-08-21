@@ -1,6 +1,7 @@
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
 import { formatDate } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 
@@ -58,7 +59,7 @@ export function LeadStepper({
 }>) {
   const t = useT();
   const { locale } = useLocale();
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   const current = rungOf(lead.status);
   const steps: {
     key: Lead["status"];

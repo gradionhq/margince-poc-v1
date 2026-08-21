@@ -11,7 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ListChip, ListView } from "../design-system/listsurface";
+import type { ListChip } from "../design-system/listsurface";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ProblemError } from "./common";
@@ -22,6 +22,7 @@ import {
   type ListQuery,
   ListTable,
   listFetchLimit,
+  type SavedViewTab,
   useListQuery,
   type ViewSpec,
 } from "./listquery";
@@ -110,6 +111,51 @@ function emptyPage(): ListPage<Row> {
   return { data: [], page: { next_cursor: null, has_more: false } };
 }
 
+/**
+ * One saved-view tab as `useSavedViewTabs` builds it: the WHOLE list state the
+ * view restores. The defaults are the ones a view saved off an untouched list
+ * carries, so a test names only the part it is about.
+ */
+function savedTab(
+  tab: Readonly<{
+    id: string;
+    label: string;
+    q?: string;
+    sort?: string;
+    filters?: Readonly<Record<string, string>>;
+    includeArchived?: boolean;
+    perPage?: number;
+  }>,
+): SavedViewTab {
+  return {
+    id: tab.id,
+    label: tab.label,
+    q: tab.q ?? "",
+    sort: tab.sort ?? "",
+    filters: tab.filters ?? {},
+    includeArchived: tab.includeArchived ?? false,
+    perPage: tab.perPage ?? LIST_PAGE_SIZES[0],
+  };
+}
+
+/**
+ * A view whose stored blob claims no page size. `POST /views` takes `query` as
+ * an open JSON object, so any client can write one, and this is the shape
+ * `listStateOf` hands the rail for it.
+ */
+function tabWithoutPageSize(
+  tab: Readonly<{ id: string; label: string }>,
+): SavedViewTab {
+  return {
+    id: tab.id,
+    label: tab.label,
+    q: "",
+    sort: "",
+    filters: {},
+    includeArchived: false,
+  };
+}
+
 function ListTableHarness({
   fetchPage,
   chips,
@@ -127,7 +173,7 @@ function ListTableHarness({
   chips?: readonly FilterSpec[];
   action?: ReactNode;
   views?: readonly ViewSpec[];
-  dataViews?: readonly ListView[];
+  dataViews?: readonly SavedViewTab[];
   dataChips?: readonly ListChip[];
   scopeKey?: string;
   initialFilters?: Readonly<Record<string, string>>;
@@ -497,7 +543,9 @@ describe("view tabs — two views can ask for the same thing", () => {
           { label: "list.viewAll" },
           { label: "list.viewAZ", sort: "full_name" },
         ]}
-        dataViews={[{ label: "My A-Z", sort: "full_name" }]}
+        dataViews={[
+          savedTab({ id: "v-1", label: "My A-Z", sort: "full_name" }),
+        ]}
       />,
     );
     await waitFor(() => expect(fetchPage).toHaveBeenCalled());
@@ -516,6 +564,243 @@ describe("view tabs — two views can ask for the same thing", () => {
     expect(
       screen.getByRole("button", { name: "A–Z" }).getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+});
+
+describe("saved view tabs restore the whole list state", () => {
+  it("restores the archived toggle and the page size the view was saved with", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        views={[{ label: "list.viewAll" }]}
+        dataViews={[
+          savedTab({
+            id: "v-1",
+            label: "Closed too",
+            includeArchived: true,
+            perPage: 50,
+          }),
+        ]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    await user.click(screen.getByRole("button", { name: "Closed too" }));
+
+    // The toggle and the page size are part of the ListQuery the fetchers read,
+    // so restoring them is a new read: a tab that dropped them showed the
+    // reader a different list than the one they named.
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].includeArchived).toBe(true),
+    );
+    expect(fetchPage.mock.calls.at(-1)?.[0].perPage).toBe(50);
+    // And the tab stays lit: the archived toggle counts as part of what the
+    // view claims, so a highlight that ignored it went dark the instant the
+    // view it had just restored was applied.
+    expect(
+      screen
+        .getByRole("button", { name: "Closed too" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
+  it("keeps the reader's page size for a view that claims none", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        views={[{ label: "list.viewAll" }]}
+        dataViews={[
+          savedTab({ id: "v-1", label: "Hundred", perPage: 100 }),
+          tabWithoutPageSize({ id: "v-2", label: "No claim" }),
+        ]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    await user.click(screen.getByRole("button", { name: "Hundred" }));
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].perPage).toBe(100),
+    );
+
+    await user.click(screen.getByRole("button", { name: "No claim" }));
+
+    // 100 rows, not the default: a view whose stored blob carries no page size
+    // is making no claim about one, and substituting the default there dropped
+    // the reader from a hundred rows to twenty-five with no dial moving.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "No claim" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(fetchPage.mock.calls.at(-1)?.[0].perPage).toBe(100);
+  });
+
+  it("lights a tab that names a search only while that search is typed", async () => {
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        views={[{ label: "list.viewAll" }]}
+        dataViews={[savedTab({ id: "v-1", label: "Acme", q: "acme" })]}
+      />,
+    );
+    const search = await screen.findByPlaceholderText("Search");
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    // Pressing it restores the sort and the filters, and the search box keeps
+    // what the reader typed. So the list is NOT what the tab names, and the tab
+    // must not claim it is.
+    fireEvent.click(screen.getByRole("button", { name: "Acme" }));
+    await waitFor(() => expect(fetchPage.mock.calls.at(-1)?.[0].sort).toBe(""));
+    expect(
+      screen.getByRole("button", { name: "Acme" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(
+      screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(search, { target: { value: "acme" } });
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+        await Promise.resolve();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // And it comes back by itself once the list really is the acme rows.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Acme" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(
+      screen.getByRole("button", { name: "All" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+});
+
+/**
+ * The rail as `/views` hands it over: ordered by name, so a view created or
+ * renamed is inserted AHEAD of the one the reader is looking at.
+ */
+function InsertableRail({
+  fetchPage,
+}: Readonly<{
+  fetchPage: (
+    query: ListQuery,
+    cursor: string | null,
+  ) => Promise<ListPage<Row>>;
+}>) {
+  const zulu = savedTab({ id: "v-zulu", label: "Zulu", sort: "full_name" });
+  const [tabs, setTabs] = useState<readonly SavedViewTab[]>([zulu]);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          setTabs([
+            savedTab({ id: "v-alpha", label: "Alpha", sort: "full_name" }),
+            zulu,
+          ])
+        }
+      >
+        rename
+      </button>
+      <ListTableHarness
+        fetchPage={fetchPage}
+        views={[{ label: "list.viewAll" }]}
+        dataViews={tabs}
+      />
+    </>
+  );
+}
+
+describe("the rail re-orders under the reader", () => {
+  it("keeps the same view selected when another is inserted ahead of it", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    render(<InsertableRail fetchPage={fetchPage} />);
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    await user.click(screen.getByRole("button", { name: "Zulu" }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Zulu" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+
+    // Both views narrow identically, which is what makes the position the only
+    // thing telling them apart: tracked by index, the highlight follows the
+    // slot and lands on whichever view moved into it.
+    await user.click(screen.getByRole("button", { name: "rename" }));
+
+    expect(
+      screen.getByRole("button", { name: "Zulu" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("button", { name: "Alpha" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
+  it("renders both of two views that share a name", async () => {
+    // Two saved views may carry the same name, so a rail keyed on the label
+    // hands React two children with one key — which it warns about because
+    // what it does with them from then on is not defined.
+    const warnings: string[] = [];
+    const console_error = vi
+      .spyOn(console, "error")
+      .mockImplementation((...args: readonly unknown[]) => {
+        warnings.push(args.map(String).join(" "));
+      });
+    try {
+      const fetchPage = vi.fn(
+        async (_query: ListQuery, _cursor: string | null) => emptyPage(),
+      );
+      render(
+        <ListTableHarness
+          fetchPage={fetchPage}
+          views={[{ label: "list.viewAll" }]}
+          dataViews={[
+            savedTab({ id: "v-1", label: "Customers", sort: "full_name" }),
+            savedTab({ id: "v-2", label: "Customers", sort: "-created_at" }),
+          ]}
+        />,
+      );
+      await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+      expect(screen.getAllByRole("button", { name: "Customers" })).toHaveLength(
+        2,
+      );
+      expect(warnings.filter((line) => line.includes("same key"))).toEqual([]);
+    } finally {
+      console_error.mockRestore();
+    }
   });
 });
 

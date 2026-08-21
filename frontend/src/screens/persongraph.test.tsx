@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { en } from "../i18n/en";
 import { PersonGraphPanel } from "./persongraph";
 
 // The panel renders beside a sibling, because the failure this file exists to
@@ -148,23 +149,17 @@ describe("PersonGraphPanel", () => {
     );
   });
 
-  // A refusal the server phrased for a reader is the reader's answer, and it
-  // only survives the read because the failure carries the problem body rather
-  // than a copy of its text on a plain Error — the message of one of those is
-  // indistinguishable from a JavaScript bug's, so nothing may show it.
-  it("says the server's own cause when the read is refused", async () => {
-    stub(
-      {
-        code: "permission_denied",
-        detail: "You do not have the grant for this network.",
-      },
-      403,
-    );
+  // A refusal reaches the reader as words, and it only does so because the
+  // failure carries the problem BODY rather than a copy of its text on a plain
+  // Error — the message of one of those is indistinguishable from a JavaScript
+  // bug's, so nothing may show it, and the panel would say only that something
+  // failed. The words themselves are the catalog's: a 403 carries the
+  // permission sentinel and nothing a reader could have used.
+  it("says a refusal is a refusal when the read is denied", async () => {
+    stub({ code: "permission_denied", detail: "permission denied" }, 403);
     renderPanel();
 
-    expect(
-      await screen.findByText("You do not have the grant for this network."),
-    ).toBeTruthy();
+    expect(await screen.findByText(en["common.permissionDenied"])).toBeTruthy();
   });
 
   // The account arm holds edges between two COLLEAGUES, neither of them the

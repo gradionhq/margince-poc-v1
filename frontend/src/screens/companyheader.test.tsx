@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import { CompanyActionBadges, CompanyIdentityLine } from "./companyheader";
 
 // Who wrote the record, beside when it was written. The tag has always been able
@@ -14,10 +15,11 @@ import { CompanyActionBadges, CompanyIdentityLine } from "./companyheader";
 // reads it. Nobody connected the two, so a record every colleague could see
 // reported its author as "a person".
 //
-// The fallback is the half worth pinning: the roster is one page of 200 (#1247),
-// and a name that cannot be resolved must go back to "typed by a person" rather
-// than forward to the raw uuid. "typed by 3f2b8c…" is not more information than
-// "typed by a person", it is the same non-answer with a reader-hostile spelling.
+// The fallback is the half worth pinning: the roster walk is bounded and the
+// list it walks excludes archived members, so a name that cannot be resolved
+// must go back to "typed by a person" rather than forward to the raw uuid.
+// "typed by 3f2b8c…" is not more information than "typed by a person", it is the
+// same non-answer with a reader-hostile spelling.
 
 type Organization = components["schemas"]["Organization"];
 
@@ -41,8 +43,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// `roster` is what /users answers with. An empty one is the honest shape of the
-// author sitting outside the single page the roster reads, not a broken stub.
+// `roster` is what /users answers with, as one complete page — the walk stops on
+// a null cursor. An empty one is the honest shape of an author the roster does
+// not carry, not a broken stub.
 function stub(roster: ReadonlyArray<{ id: string; display_name: string }>) {
   vi.stubGlobal(
     "fetch",
@@ -218,9 +221,7 @@ describe("who owns this record", () => {
     stub([]);
     renderLine();
 
-    expect(
-      await screen.findByText("Current owner (no longer in the user list)"),
-    ).toBeTruthy();
+    expect(await screen.findByText(en["ref.notInRoster"])).toBeTruthy();
     // An owner the roster cannot name is still not shown as a uuid: waiting
     // will not resolve them, and their id answers no question a reader has.
     expect(document.body.textContent).not.toContain("u-owner");

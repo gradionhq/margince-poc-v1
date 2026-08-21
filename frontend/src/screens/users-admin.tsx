@@ -23,7 +23,7 @@ import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
 import { useHoldsAdminRole } from "../app/capability";
 import { isOption } from "../app/options";
-import { useRoster } from "./entityref";
+import { RosterPartialNote, useRoster, useRosterPartial } from "./entityref";
 import { AccessPreviewPanel } from "./users-access";
 import { PasswordLinkModal, usePasswordLink } from "./users-password-link";
 
@@ -200,6 +200,7 @@ function InviteAction({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
   const [teamIds, setTeamIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const teams = useRoster("team", true);
+  const teamsPartial = useRosterPartial("team", true);
   // Where no email channel exists the invite alone leaves a member who cannot
   // sign in, so the dialog opens straight away and mints the link. The member
   // row keeps its own action, which is what makes a dismissed dialog
@@ -338,9 +339,14 @@ function InviteAction({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
                 []
               ),
             )}
-            {teams.data && teams.data.length === 0 && (
+            {/* "No teams yet" is a claim about the workspace, so only a
+                roster read to its end may make it: a walk that stopped early
+                would have an admin invite people into no team at all on the
+                strength of pages nothing read. */}
+            {teams.data?.length === 0 && !teamsPartial && (
               <p className="t-small">{t("users.noTeamsYet")}</p>
             )}
+            <RosterPartialNote partial={teamsPartial} />
           </fieldset>
           <AccessPreviewPanel role={role} teamIds={teamIds} />
           {/* `.form-actions` rather than a bare button: `.form-stack` stretches

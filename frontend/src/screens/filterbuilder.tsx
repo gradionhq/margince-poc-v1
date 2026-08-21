@@ -15,6 +15,7 @@
 // own join toggle; a child is either a clause row or another group, and the same
 // component handles both depths, so nesting is not a special case to maintain.
 
+import { useId } from "react";
 import { Badge, Button, SegmentedControl } from "../design-system/atoms";
 import { DateInput } from "../design-system/dateinput";
 import { Select, type SelectOption } from "../design-system/select";
@@ -22,6 +23,7 @@ import { TokenInput } from "../design-system/tokeninput";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import "./filterbuilder.css";
+import { RosterPartialNote } from "./entityref";
 import { fieldLabel, groupFields, type VocabularyField } from "./filterdata";
 import {
   boundedReference,
@@ -483,7 +485,8 @@ function RecordValue({
   onChange: (next: LeafValue) => void;
 }>) {
   const t = useT();
-  const { options, loading, failed } = useReferenceOptions(reference);
+  const noteId = useId();
+  const { options, loading, failed, partial } = useReferenceOptions(reference);
   // A read that failed falls back to the plain box rather than to an empty
   // dropdown. An empty list would tell the reader this workspace has no such
   // records — a confident answer to a question that never got one — and would
@@ -491,17 +494,28 @@ function RecordValue({
   if (failed) {
     return <ScalarValue type={type} value={value} onChange={onChange} />;
   }
+  // The caveat stacks UNDER the picker inside the clause's own value column
+  // rather than becoming another item in the clause row: as a row item it would
+  // sit between this control and the button that removes the clause, and it is
+  // where the row wraps on a narrow viewport.
   return (
-    <Select
-      options={options}
-      value={typeof value === "string" ? value : ""}
-      onChange={onChange}
-      disabled={loading}
-      placeholder={
-        loading ? t("filters.loadingRecords") : t("filters.pickRecord")
-      }
-      aria-label={t("filters.value")}
-    />
+    <div className="filter-value">
+      <Select
+        options={options}
+        value={typeof value === "string" ? value : ""}
+        onChange={onChange}
+        disabled={loading}
+        placeholder={
+          loading ? t("filters.loadingRecords") : t("filters.pickRecord")
+        }
+        aria-label={t("filters.value")}
+        aria-describedby={partial ? noteId : undefined}
+      />
+      {/* A clause written against a list that stopped short of the workspace is
+          a clause about the wrong set, and nothing else on this row would say
+          so. */}
+      <RosterPartialNote partial={partial} id={noteId} />
+    </div>
   );
 }
 

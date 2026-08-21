@@ -6,9 +6,11 @@
  * mouse. `visibility: hidden` or `display: none` would take it out of the tab
  * order, which is the usual way this pattern locks out the keyboard.
  *
- * The class prefix is `fdz`, not `dropzone`: a global `.dropzone` ruleset
- * already exists in a screen sheet (onboarding.css), and a primitive that any
- * screen may import cannot depend on which of them loaded last. */
+ * The class prefix is `fdz`, not `dropzone`. `.dropzone` was a global set in
+ * onboarding.css, split across two screen sheets, and a component needed both
+ * loaded to draw at all; the prefix is what keeps this sheet the only one that
+ * has to be. The screen copies are gone, so the name is free again — leave it
+ * that way: an unprefixed `.dropzone` invites the same collision back. */
 
 .fdz {
   position: relative;

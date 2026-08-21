@@ -17,6 +17,7 @@ import { LocaleProvider } from "../i18n";
 import {
   buildColumns,
   buildStageTotals,
+  type CompanyNaming,
   DealScreen,
   DealsScreen,
   mapDealCreate,
@@ -97,6 +98,10 @@ const stages: Stage[] = [
     win_probability: 100,
   },
 ];
+
+// These cases are about column totals, so no card here names a company: an
+// empty mark set resolves none, and none of these deals withholds one.
+const noCompany: CompanyNaming = { marks: new Map(), unreadable: new Set() };
 
 function deal(overrides: Partial<Deal>): Deal {
   return {
@@ -285,6 +290,7 @@ describe("buildColumns", () => {
         }),
       ],
       totals,
+      noCompany,
     );
     expect(columns[0].rawMinor).toBe(24_686);
     expect(columns[0].weightedMinor).toBe(4_938);
@@ -319,12 +325,13 @@ describe("buildColumns", () => {
         }),
       ],
       totals,
+      noCompany,
     );
     expect(columns[1].sumHidden).toBe(true);
   });
 
   it("a stage with no totals row states no figure and no currency", () => {
-    const columns = buildColumns(stages, [], new Map());
+    const columns = buildColumns(stages, [], new Map(), noCompany);
     expect(columns[0].rawMinor).toBeNull();
     expect(columns[0].currency).toBeNull();
     expect(columns[0].sumHidden).toBeFalsy();

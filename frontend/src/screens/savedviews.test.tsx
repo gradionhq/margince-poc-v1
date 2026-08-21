@@ -7,6 +7,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import type { ListQuery } from "./listquery";
 import { listStateOf, SaveViewAction, useSavedViewTabs } from "./savedviews";
@@ -44,12 +45,43 @@ function Tabs() {
   return (
     <ul>
       {tabs.map((tab) => (
-        <li
-          key={tab.id}
-        >{`${tab.label}|${tab.sort}|${JSON.stringify(tab.filters)}`}</li>
+        <li key={tab.id}>
+          {[
+            tab.label,
+            tab.q,
+            tab.sort,
+            JSON.stringify(tab.filters),
+            String(tab.includeArchived),
+            String(tab.perPage),
+          ].join("|")}
+        </li>
       ))}
     </ul>
   );
+}
+
+/**
+ * A /views read that fails ONCE, with /me answered normally throughout.
+ *
+ * Routed by URL rather than counted: the action reads /me to learn whether a
+ * saved-view rail is drawn at all, so a stub that failed "the first request"
+ * would fail whichever of the two happened to go out first.
+ */
+function viewsFailingOnce(me = meFixture({})) {
+  let reads = 0;
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/v1/me")) {
+      return jsonResponse(me);
+    }
+    reads += 1;
+    return reads === 1
+      ? jsonResponse({ title: "Server error" }, 500)
+      : jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+  });
 }
 
 describe("saved views", () => {
@@ -84,9 +116,45 @@ describe("saved views", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          'German customers|display_name|{"lifecycle":"customer"}',
+          'German customers||display_name|{"lifecycle":"customer"}|false|25',
         ),
       ).toBeTruthy(),
+    );
+  });
+
+  it("carries the archived toggle and the page size the view was saved with", async () => {
+    // The rail used to convert a view into a tab carrying only the sort and the
+    // filters, so a view saved with "Show archived" on restored with it off —
+    // and then matched as equal to the default list.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [
+            {
+              id: "v-4",
+              owner_id: "u-1",
+              resource: "organizations",
+              name: "Closed too",
+              version: 1,
+              query: {
+                list: {
+                  q: "",
+                  sort: "",
+                  includeArchived: true,
+                  filters: {},
+                  perPage: 100,
+                },
+              },
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    wrap(<Tabs />);
+    await waitFor(() =>
+      expect(screen.getByText("Closed too|||{}|true|100")).toBeTruthy(),
     );
   });
 
@@ -181,6 +249,116 @@ describe("saved views", () => {
         list: { sort: "display_name", filters: { lifecycle: "customer" } },
       },
     });
+  });
+
+  it("says the saved views failed to load rather than showing an empty rail", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", viewsFailingOnce());
+    wrap(<SaveViewAction resource="organizations" query={narrowed} />);
+
+    // An empty rail claims the reader has saved nothing. A failed read knows
+    // no such thing, and the retry is what makes it a failure rather than an
+    // absence.
+    const failed = await screen.findByText("This section did not load.");
+    expect(failed).toBeTruthy();
+    // And it says WHICH section. The notice lands in the list's tools slot
+    // beside Columns and Compact, where an unnamed "this section" could be any
+    // of the three.
+    expect(
+      screen.getByRole("region", { name: "Saved views" }).contains(failed),
+    ).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("This section did not load.")).toBeNull(),
+    );
+  });
+
+  it("reports no saved-view failure in overlay mode, where no rail is drawn", async () => {
+    vi.stubGlobal(
+      "fetch",
+      viewsFailingOnce({
+        ...meFixture({}),
+        system_of_record: { mode: "overlay" },
+      }),
+    );
+    wrap(<SaveViewAction resource="organizations" query={narrowed} />);
+
+    // The rail is withheld in overlay mode, so there is nothing on screen for
+    // the failure to be about. Waiting on the save button proves the read has
+    // settled rather than that the assertion below ran too early.
+    await screen.findByRole("button", { name: "Save view" });
+    expect(screen.queryByText("This section did not load.")).toBeNull();
+  });
+
+  it("carries the search a view was saved with", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [
+            {
+              id: "v-5",
+              owner_id: "u-1",
+              resource: "organizations",
+              name: "Acme",
+              version: 1,
+              query: {
+                list: {
+                  q: "acme",
+                  sort: "",
+                  includeArchived: false,
+                  filters: {},
+                  perPage: 25,
+                },
+              },
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    wrap(<Tabs />);
+    // The search was stored and read back all along, and then dropped on the
+    // way to the tab — so a tab named after a search claimed a list that was
+    // not searched.
+    await waitFor(() =>
+      expect(screen.getByText("Acme|acme||{}|false|25")).toBeTruthy(),
+    );
+  });
+
+  it("claims no page size for a stored blob that carries none", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [
+            {
+              id: "v-6",
+              owner_id: "u-1",
+              resource: "organizations",
+              name: "No page size",
+              version: 1,
+              // `query` is an open JSON object on the wire, so a view written
+              // through the API or MCP can carry list state with no page size
+              // in it at all.
+              query: { list: { q: "", sort: "display_name", filters: {} } },
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    wrap(<Tabs />);
+    // Absent, not 25: substituting the default made "asked for the default"
+    // and "asked for nothing" the same tab, and the rail acts on the
+    // difference by leaving the reader's own choice alone.
+    await waitFor(() =>
+      expect(
+        screen.getByText("No page size||display_name|{}|false|undefined"),
+      ).toBeTruthy(),
+    );
   });
 
   it("does not offer to save a list nobody has narrowed", () => {

@@ -20,6 +20,7 @@ import {
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
 import { Select, type SelectOption } from "../design-system/select";
+import { viewerZone } from "../format/timezone";
 import { useT } from "../i18n";
 import {
   isConsentNotGranted,
@@ -879,7 +880,7 @@ export function scheduleFields(local: string): {
   if (Number.isNaN(at.getTime())) return {};
   return {
     scheduled_at: at.toISOString(),
-    scheduled_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    scheduled_tz: viewerZone(),
   };
 }
 

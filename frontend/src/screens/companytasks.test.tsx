@@ -33,8 +33,22 @@ import { CompanyScreen } from "./organizations";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // Handed back per case, so one test pretending to be elsewhere never decides
+  // what the next one reads.
+  vi.restoreAllMocks();
   window.location.hash = "";
 });
+
+// The viewer's zone as a screen asks for it. The formatters take their zone as
+// an argument and never consult resolvedOptions, so this redirects only a
+// screen's own lookup — which is what a test of the zone CHOICE needs.
+function pretendViewerZone(timeZone: string): void {
+  const real = Intl.DateTimeFormat().resolvedOptions();
+  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+    ...real,
+    timeZone,
+  });
+}
 
 function render(ui: ReactNode) {
   const client = new QueryClient({
@@ -79,6 +93,23 @@ const org360WithOpenTask = {
   next_steps: { ...emptySection, data: [openTask] },
 };
 
+// A due date that falls on a DIFFERENT calendar day in the two zones this page
+// could read it in. `dueInstant` mints a due date as the end of the picked day
+// in the BROWSER's zone, so this is what a writer in Los Angeles picking 21
+// August actually stores: 23:59:59 there, and already the 22nd in Berlin.
+const STRADDLING_DUE_AT = "2026-08-22T06:59:59Z";
+const WRITERS_ZONE = "America/Los_Angeles";
+const PICKED_DAY = "Due 21/08/2026";
+const DAY_AFTER = "Due 22/08/2026";
+
+const org360WithStraddlingTask = {
+  ...org360,
+  next_steps: {
+    ...emptySection,
+    data: [{ ...openTask, due_at: STRADDLING_DUE_AT }],
+  },
+};
+
 // The section the reader's role cannot read: absent from the payload and named
 // in `sections_omitted`, which is a different fact from an empty one.
 const org360WithheldTasks = {
@@ -116,6 +147,42 @@ describe("CompanyScreen — the Tasks tab", () => {
     await user.click(screen.getByRole("checkbox", { name: "Done" }));
 
     await waitFor(() => expect(patched).toEqual({ is_done: true }));
+  });
+
+  it("dates a task's deadline on the reader's own clock, the same day on the row and in the detail", async () => {
+    // A due date is not a fact about the record the way an occurrence is: the
+    // stored instant is minted as the end of the picked day in the BROWSER's
+    // zone, so it already carries the picker's clock. Read on the
+    // organization's clock it names the day AFTER the one the picker chose for
+    // everybody outside that zone — and the row and the modal disagreed with
+    // each other about which of the two it was.
+    const user = userEvent.setup();
+    pretendViewerZone(WRITERS_ZONE);
+    stubFetch(
+      async (url) => {
+        if (url.endsWith("/activities/a-1")) {
+          return jsonResponse({
+            ...openTaskActivity,
+            due_at: STRADDLING_DUE_AT,
+          });
+        }
+        return companyBackstop(url);
+      },
+      { org360: org360WithStraddlingTask },
+    );
+    render(<CompanyScreen id="o-1" />);
+    await openTasksTab(user);
+
+    expect(await screen.findByText(PICKED_DAY)).toBeTruthy();
+    await user.click(screen.getByText(openTask.subject));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("dialog", { name: openTask.subject }),
+      ).toBeTruthy(),
+    );
+    // Row and detail, both open: one deadline, one day.
+    expect(await screen.findAllByText(PICKED_DAY)).toHaveLength(2);
+    expect(screen.queryByText(DAY_AFTER)).toBeNull();
   });
 
   it("says the section is withheld rather than rendering it as empty", async () => {

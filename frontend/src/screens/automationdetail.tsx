@@ -15,6 +15,7 @@ import {
 } from "../design-system/atoms";
 import { AutonomyDot } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { LoadMoreButton, QueryStates, throwProblem } from "./common";
@@ -100,7 +101,7 @@ function RunRow({ run }: Readonly<{ run: AutomationRun }>) {
   // A run is an audit-style event: read its time in the VIEWER's own timezone
   // (as audit.tsx / aicalls.tsx do), never a fixed one — an operator in any
   // region sees the firing in their local wall-clock.
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   return (
     <Card as="li" inset style={{ marginTop: "var(--space-2)" }}>
       <div

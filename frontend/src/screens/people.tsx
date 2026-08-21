@@ -9,6 +9,7 @@ import { Badge, SegmentedControl } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { ProvenanceTag } from "../design-system/trust";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -472,7 +473,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
           <RecordView
             name={person.full_name}
             subtitle={person.title ?? undefined}
-            zone="Europe/Berlin"
+            zone={RECORD_ZONE}
             badges={
               <>
                 <ProvenanceTag

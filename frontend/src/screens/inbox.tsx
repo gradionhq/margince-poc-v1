@@ -35,6 +35,7 @@ import {
 } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
 import { formatCountdown, type Translator, useNow } from "../format/now";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -177,9 +178,9 @@ function ApprovalDetailModal({
 }: Readonly<{ approvalId: string; open: boolean; onClose: () => void }>) {
   const t = useT();
   const { locale } = useLocale();
-  // The viewer's resolved IANA zone — never a hardcoded one — so the detail
-  // timestamps read correctly for whoever is looking at them.
-  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // An approval is a thing the reader must act on, so its timestamps belong on
+  // the reader's own clock rather than the record's.
+  const zone = viewerZone();
   const headingId = useId();
   const detail = useQuery({
     queryKey: ["approval", approvalId],
@@ -217,12 +218,12 @@ function ApprovalDetailModal({
             }
             meta.push([
               "created_at",
-              formatDateTime(approval.created_at, locale, viewerZone),
+              formatDateTime(approval.created_at, locale, zone),
             ]);
             if (approval.decided_at) {
               meta.push([
                 "decided_at",
-                formatDateTime(approval.decided_at, locale, viewerZone),
+                formatDateTime(approval.decided_at, locale, zone),
               ]);
             }
             return (
