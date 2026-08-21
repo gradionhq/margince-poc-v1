@@ -182,7 +182,7 @@ func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (g
 		// RECIPIENT. Both read the ASSERTED access, so both bind a re-assert
 		// exactly as they bind a first share — the upsert makes the second call
 		// a real write where the unique constraint used to end it.
-		if err := auth.EnsureCanGrant(ctx, tx, in.RecordType, in.RecordID, in.Access); err != nil {
+		if err := auth.EnsureCanGrant(ctx, tx, in.RecordType, in.RecordID); err != nil {
 			return err
 		}
 		if err := refuseWriteGrantToReadSeat(ctx, tx, in); err != nil {
