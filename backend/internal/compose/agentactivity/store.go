@@ -21,6 +21,17 @@ import (
 // so this is a requirement and not a page size.
 const recentBound = 10
 
+// The two free-text columns this read forwards are capped on the way to the
+// wire. Neither is server-authored prose of bounded length: summary is written
+// by a model that may spend a 50k-token output on it, and a record a prompt
+// injection reached can inflate it further — and up to recentBound of them ship
+// to every open tab on every poll. A reader needs the first paragraph, not the
+// transcript, so the panel gets a bounded string and the row keeps everything.
+const (
+	summaryBound       = 2000
+	degradeReasonBound = 500
+)
+
 // Item is one occurrence of scheduled agent work, as facts. The reader's locale
 // decides the words, so nothing here is a sentence.
 type Item struct {
@@ -29,8 +40,11 @@ type Item struct {
 	State      State
 	StartedAt  time.Time
 	FinishedAt *time.Time
-	// DegradeReason is server-authored operator vocabulary, so it belongs in the
-	// panel's runtime detail and never inside a reader-facing line.
+	// DegradeReason is one of the runner's own closed reasons — never a
+	// provider's or a parser's message, because those carry vendor text and can
+	// echo credential material, and this read hands the column to an ordinary
+	// rep. The runner holds that end (runner.degradeFromCause); this end assumes
+	// nothing and still caps the length.
 	DegradeReason *string
 	// Summary is the run's own prose when it wrote any. It is optional by
 	// construction: nothing validates that a finishing run produced one.
@@ -109,18 +123,31 @@ const recentSQL = `
 // Mine is what the scheduled agent is doing for this person now, and what it
 // finished for them today. The three reads are unioned in Go rather than in SQL
 // so each keeps its own state vocabulary and its own mapper.
+//
+// ONE ANSWER, ONE SNAPSHOT: all three statements run inside a single
+// transaction. Across separate transactions a run that is `running` when the
+// first statement executes and `completed` when the third does appears in BOTH
+// lists, and the panel then says "putting your brief together" and "your brief
+// is ready" about one occurrence at once; the mirror interleaving makes an
+// occurrence vanish for a poll. That is the same double-report the queued-vs-
+// claimed split defends against, and a transaction boundary is no more allowed
+// to reopen it than a status boundary is.
 func (s *Store) Mine(ctx context.Context, userID ids.UUID) (running, recent []Item, err error) {
-	inFlight, err := s.read(ctx, runningSQL, RunState, userID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("agentactivity: read runs in flight: %w", err)
-	}
-	queued, err := s.read(ctx, queuedSQL, JobState, userID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("agentactivity: read queued jobs: %w", err)
-	}
-	recent, err = s.read(ctx, recentSQL, RunState, userID, s.startOfToday(), recentBound)
-	if err != nil {
-		return nil, nil, fmt.Errorf("agentactivity: read what settled today: %w", err)
+	var inFlight, queued []Item
+	if err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		var txErr error
+		if inFlight, txErr = read(ctx, tx, runningSQL, RunState, userID); txErr != nil {
+			return fmt.Errorf("read runs in flight: %w", txErr)
+		}
+		if queued, txErr = read(ctx, tx, queuedSQL, JobState, userID); txErr != nil {
+			return fmt.Errorf("read queued jobs: %w", txErr)
+		}
+		if recent, txErr = read(ctx, tx, recentSQL, RunState, userID, s.startOfToday(), recentBound); txErr != nil {
+			return fmt.Errorf("read what settled today: %w", txErr)
+		}
+		return nil
+	}); err != nil {
+		return nil, nil, fmt.Errorf("agentactivity: %w", err)
 	}
 	running = append(inFlight, queued...)
 	newestFirst(running)
@@ -134,25 +161,18 @@ func (s *Store) startOfToday() time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 }
 
-// read runs one of the three statements and maps its rows through the state
-// vocabulary that statement's table speaks. A row whose status the mapper does
-// not know is DROPPED: this surface has no word for it, and inventing one is how
-// a "Done" that never happened reaches a screen.
-func (s *Store) read(ctx context.Context, query string, mapState func(string) (State, bool), args ...any) ([]Item, error) {
-	var items []Item
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, query, args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		items, err = collect(rows, mapState)
-		return err
-	})
+// read runs one of the three statements on the caller's open transaction and
+// maps its rows through the state vocabulary that statement's table speaks. A
+// row whose status the mapper does not know is DROPPED: this surface has no word
+// for it, and inventing one is how a "Done" that never happened reaches a
+// screen.
+func read(ctx context.Context, tx pgx.Tx, query string, mapState func(string) (State, bool), args ...any) ([]Item, error) {
+	rows, err := tx.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	return items, nil
+	defer rows.Close()
+	return collect(rows, mapState)
 }
 
 func collect(rows pgx.Rows, mapState func(string) (State, bool)) ([]Item, error) {
@@ -172,7 +192,8 @@ func collect(rows pgx.Rows, mapState func(string) (State, bool)) ([]Item, error)
 			continue
 		}
 		item.State = state
-		item.Summary = summaryOf(result)
+		item.DegradeReason = capped(item.DegradeReason, degradeReasonBound)
+		item.Summary = capped(summaryOf(result), summaryBound)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -197,6 +218,22 @@ func summaryOf(result []byte) *string {
 		return nil
 	}
 	return final.Summary
+}
+
+// capped bounds a free-text column on its way to the wire, counting RUNES so a
+// cut never lands mid-character and hands a client invalid UTF-8. The ellipsis
+// is inside the bound: a truncated string says so, because a reader who cannot
+// tell would take a sentence that stops mid-word as what the run actually wrote.
+func capped(text *string, bound int) *string {
+	if text == nil {
+		return nil
+	}
+	runes := []rune(*text)
+	if len(runes) <= bound {
+		return text
+	}
+	trimmed := string(runes[:bound-1]) + "\u2026"
+	return &trimmed
 }
 
 // newestFirst orders the merged running feed. Each statement already sorts, but

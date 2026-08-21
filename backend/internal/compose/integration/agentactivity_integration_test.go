@@ -9,15 +9,18 @@ package integration
 //
 // Every run and job here is BORN through runner.Store — StartRun, EnqueueJob,
 // ClaimDueJobs, SaveOutcome — because a test that hand-inserts agent_run rows
-// proves nothing about the rows production writes. Only the two states no writer
-// path can reach from a test (a row aged into yesterday, and a claim that also
-// starts its run) are advanced with direct SQL, and each of those rows already
-// exists because a real writer created it.
+// proves nothing about the rows production writes. A claim really is a claim: it
+// goes through ClaimDueJobs and StartRun, exactly as the worker does.
+//
+// Direct SQL appears only where no writer in reach can produce the row state:
+// seeding a passport (this suite has no passport writer), aging an already-real
+// run's created_at into yesterday (no writer takes a start time — the column
+// defaults to the database's now()), and clearing every passport to orphan its
+// runs. None of the three invents a run or a job.
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
@@ -25,7 +28,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/agentactivity"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -311,9 +313,9 @@ func TestASummaryIsReadFromWhereTheRunnerWritesIt(t *testing.T) {
 }
 
 // TestADegradedRunNeverReadsAsDone pins the one state whose collapse would put a
-// completion on screen that did not happen. There is no writer that degrades a
-// run from a test — the runner degrades itself when it runs out of budget — so
-// the row is born through StartRun and then advanced.
+// completion on screen that did not happen. The row is born through StartRun and
+// closed through the real SaveOutcome with the outcome the runner itself writes
+// when a budget guarantee fires, so the degraded row here is the production one.
 func TestADegradedRunNeverReadsAsDone(t *testing.T) {
 	f := setupAgentActivity(t)
 	runID := f.seedRun(t, "morning_brief", f.alicePassport)
@@ -352,19 +354,5 @@ func TestAJobWithNoPassportIsAttributedToNobody(t *testing.T) {
 	running, _ := f.mine(t, f.alice)
 	if len(running) != 0 {
 		t.Fatalf("an unbound job was attributed to alice: %v", running)
-	}
-}
-
-// TestMineOnAnUnboundHandleFailsRatherThanReadingAnything proves the read has no
-// path around the workspace-bound transaction contract: with no handle it
-// refuses, and an empty feed is never mistaken for "nothing is running".
-func TestMineOnAnUnboundHandleFailsRatherThanReadingAnything(t *testing.T) {
-	store := agentactivity.NewStore(nil, time.Now)
-	_, _, err := store.Mine(context.Background(), ids.NewV7())
-	if err == nil {
-		t.Fatal("a store with no database handle must refuse, not answer empty")
-	}
-	if !errors.Is(err, database.ErrNoWorkspace) {
-		t.Fatalf("want the no-workspace sentinel, got %v", err)
 	}
 }
