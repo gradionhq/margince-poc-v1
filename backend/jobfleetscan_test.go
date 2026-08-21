@@ -85,6 +85,10 @@ var ratifiedFleetScans = map[string]ratifiedFleetScan{
 		1,
 		"boot path: resolves the singleton organization and refuses to serve when a second exists (ADR-0061 §3) — it IS the workspace authority, not a consumer of it",
 	},
+	"internal/compose/archivedpredecessor.go": {
+		1,
+		"boot path, and it counts ARCHIVED workspaces rather than enumerating live ones: an archived organization's rows merged into this installation when ADR-0091 §8 phase D took the tenant column, and that row is the only surviving evidence a merge happened. It reads the count to say so once and does no tenant work at all",
+	},
 	"internal/modules/capture/registry_connections.go": {
 		1,
 		"collectDue, the due-scan BOTH capture dispatchers drive (gmail_sync via DueConnections, gmail_watch_renew via DueWatches): it enumerates to find due connections it then enqueues one job each for, which is the target shape, not the anti-pattern",

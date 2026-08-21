@@ -49,6 +49,9 @@ func recordBootLedger(
 	if err := compose.RecordInstallationRelease(ctx, pool, logger, buildinfo.ReleaseVersion); err != nil {
 		return err
 	}
+	if err := compose.WarnOnArchivedPredecessor(ctx, pool, logger); err != nil {
+		return err
+	}
 	return compose.RecordComposition(ctx, pool, logger, extensions)
 }
 
