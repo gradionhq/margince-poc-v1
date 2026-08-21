@@ -50,7 +50,7 @@ func parseSiteReadFlags(args []string) (siteReadFlags, error) {
 	fs.IntVar(&cfg.maxPages, "max-pages", 0, "crawl page cap; 0 takes the built-in default")
 	fs.IntVar(&cfg.maxBytes, "max-bytes", 0, "crawl aggregate byte cap; 0 takes the built-in default")
 	fs.DurationVar(&cfg.wall, "wall", 0, "crawl wall clock; 0 takes the built-in default")
-	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to ai-routing.yaml")
+	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "the model binding for THIS debug run, read straight from the file. This lane opens no database, so the installation's stored binding is not what it probes — pick exactly one of --ai-routing, --model, --ai-fake")
 	fs.StringVar(&cfg.modelSpec, "model", "", "direct model override, provider:model (e.g. anthropic:claude-sonnet-4-6)")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "offline fake model: crawl dry-run, extraction yields nothing")
 	fs.StringVar(&cfg.jsonPath, "json", "", "write the machine-readable report here ('-' = stdout). Diff two runs with: jq 'del(.crawl.duration_ms, .crawl.pages[].fetch_ms, .model_calls[].latency_ms)'")
