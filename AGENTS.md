@@ -412,7 +412,7 @@ answer one question with different grounding rules.
 
 **2. The tool surface and the web surface share ONE engine.** An MCP tool never
 re-derives what an HTTP handler already computes. The binding is a
-`compose/*seam*.go` file, and the ten that exist each state the rule in their
+`compose/*seam*.go` file, and the seams that exist each state the rule in their
 own words — `briefseam.go`: "one queue rather than two readings of it";
 `importseam.go`: "it delegates rather than reimplementing, and that is the whole
 design". **If no seam exists for the capability you need, write the seam** — do

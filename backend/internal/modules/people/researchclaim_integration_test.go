@@ -209,9 +209,8 @@ func TestEveryClaimInOneAcceptanceLands(t *testing.T) {
 	}
 }
 
-// A claim missing any of its three evidence parts is refused, and nothing is
-// written. The validation runs before authority is asked about, so this also
-// pins that a malformed request never reaches the person row.
+// A claim missing any of its three evidence parts is refused, and the table is
+// left empty — a partial claim is not stored in a weaker form.
 func TestAResearchClaimMissingItsEvidenceIsRefusedAndStoresNothing(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
