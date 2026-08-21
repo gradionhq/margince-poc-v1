@@ -95,10 +95,14 @@ type QueryAnswer struct {
 
 // QueryRef is one admitted record, before it is read.
 type QueryRef struct {
-	Type     string
-	ID       ids.UUID
-	Score    float64
-	Evidence []QueryEvidence
+	Type  string
+	ID    ids.UUID
+	Score float64
+	// DistanceKM is how far this record is from a radius predicate's centre.
+	// Nil when the plan asked about no radius — a pointer rather than a zero,
+	// because zero is a real distance and would answer a question nobody put.
+	DistanceKM *float64
+	Evidence   []QueryEvidence
 }
 
 // RegisterQueryTool joins query_workspace to the surface once a runner exists —
@@ -275,9 +279,10 @@ func (t queryWorkspace) admit(ctx context.Context, ref QueryRef, served *servedR
 // once per row.
 func (t queryWorkspace) serve(ctx context.Context, ref QueryRef, row admittedRow, served *servedRecords) QueryWorkspaceRow {
 	out := QueryWorkspaceRow{
-		Record:   served.stamp(ctx, row.record),
-		Score:    ref.Score,
-		Evidence: make([]QueryEvidence, 0, len(ref.Evidence)),
+		Record:     served.stamp(ctx, row.record),
+		Score:      ref.Score,
+		DistanceKM: ref.DistanceKM,
+		Evidence:   make([]QueryEvidence, 0, len(ref.Evidence)),
 	}
 	for i, hop := range ref.Evidence {
 		// The title stays the executor's: it came out of a statement carrying

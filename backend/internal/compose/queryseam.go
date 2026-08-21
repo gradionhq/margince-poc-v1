@@ -23,6 +23,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 )
 
@@ -48,7 +49,12 @@ func queryVocabulary(pool *pgxpool.Pool) *search.VocabularyResolver {
 // which lane ranked it, not why.
 func queryRunner(pool *pgxpool.Pool, embedder search.Embedder) agents.QueryRunner {
 	validator := search.NewPlanValidator(queryVocabulary(pool))
-	executor := search.NewQueryExecutor(search.NewStore(InstallationDB(pool)), embedder, search.NewColumnCatalog(InstallationDB(pool)))
+	executor := search.NewQueryExecutor(search.NewStore(InstallationDB(pool)), embedder,
+		search.NewColumnCatalog(InstallationDB(pool))).
+		// The place cache a radius predicate resolves its centre against.
+		// Injected here rather than imported, like every other cross-module
+		// edge (ADR-0054): search owns the port, people owns the table.
+		WithPlaces(placeCache{people: people.NewStore(InstallationDB(pool))})
 	return func(ctx context.Context, raw json.RawMessage) (agents.QueryAnswer, error) {
 		plan, err := search.DecodePlan(raw)
 		if err != nil {
@@ -80,10 +86,11 @@ func queryAnswerOf(result search.QueryResult) agents.QueryAnswer {
 	}
 	for _, row := range result.Rows {
 		ref := agents.QueryRef{
-			Type:     row.Type,
-			ID:       row.ID,
-			Score:    row.Score,
-			Evidence: make([]agents.QueryEvidence, 0, len(row.Evidence)),
+			Type:       row.Type,
+			ID:         row.ID,
+			Score:      row.Score,
+			DistanceKM: row.DistanceKM,
+			Evidence:   make([]agents.QueryEvidence, 0, len(row.Evidence)),
 		}
 		for _, evidence := range row.Evidence {
 			ref.Evidence = append(ref.Evidence, agents.QueryEvidence{
@@ -101,4 +108,25 @@ func queryAnswerOf(result search.QueryResult) agents.QueryAnswer {
 		})
 	}
 	return answer
+}
+
+// placeCache adapts the people store's place cache to search's PlaceResolver.
+//
+// LOOKUP ONLY, and the port has no other method by design: query_workspace is
+// declared workspace-local, Scope.Egresses() is derived from that declaration,
+// and a resolver able to reach a geocoder would make the declaration
+// unenforceable by construction rather than by discipline. A place this
+// INSTALLATION has never resolved answers an honest note; the enrich-scoped
+// door is where a caller goes to have one looked up.
+//
+// The cache is installation-wide, not per workspace — see PlaceResolver for
+// why that is safe here and what would have to change if it stopped being.
+type placeCache struct{ people *people.Store }
+
+func (p placeCache) LookupPlace(ctx context.Context, query string) (search.Point, bool, error) {
+	found, ok, err := p.people.LookupPlace(ctx, query)
+	if err != nil || !ok {
+		return search.Point{}, false, err
+	}
+	return search.Point{Lat: found.Lat, Lon: found.Lon}, true, nil
 }

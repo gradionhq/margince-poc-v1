@@ -299,7 +299,15 @@ func checkPredicate(vocab TargetVocabulary, at string, clause Predicate, into *V
 	if refusal, bad := checkOperand(at, field, clause); bad {
 		return refusal, true
 	}
-	if clause.Op == OpWithinRadius {
+	if clause.Op == OpWithinRadius && !locatableTarget(vocab.Target) {
+		// The record type has no place to be — a deal is not somewhere. That is
+		// settled by what the type IS, so it is answered here.
+		//
+		// Whether the CENTER resolves is a different question with a different
+		// answer per call, and it is settled at binding time against the
+		// workspace's place cache (querygeo.go). Validation used to answer both
+		// unconditionally, which is why every radius plan came back unavailable
+		// however much this deployment could actually do.
 		into.Unavailable = append(into.Unavailable, Unavailable{Path: at, Code: CodeDistanceRankingUnavailable})
 	}
 	return apperrors.FieldRefusal{}, false

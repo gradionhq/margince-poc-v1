@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 51 |
 | Resources | 8 |
-| Tool catalog | 136.6 KB |
+| Tool catalog | 136.7 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 35752 |
+| Approx. wire tokens | 35760 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,7 +28,7 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 62.1 KB | 45% | **No** — a result's shape, never listed to a model |
+| Output schemas | 62.2 KB | 45% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 33.8 KB | 24% | Yes, every step |
 | Input schemas | 29.9 KB | 21% | Yes, every step |
 | _Names, annotations, punctuation_ | 10.7 KB | 7% | Partly |
@@ -5983,6 +5983,9 @@ Answer a question that has STRUCTURE — a record type, conditions on its fields
         "rows": {
           "items": {
             "properties": {
+              "distance_km": {
+                "type": "number"
+              },
               "evidence": {
                 "items": {
                   "properties": {
