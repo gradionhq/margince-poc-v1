@@ -5,6 +5,7 @@ package search
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"strings"
 	"testing"
@@ -226,5 +227,45 @@ func TestARadiusBindsEveryValueRatherThanInterpolatingIt(t *testing.T) {
 	}
 	if len(c.args) == 0 {
 		t.Error("the radius bound no parameters at all")
+	}
+}
+
+// A radius inside a TRAVERSAL refuses rather than being dropped.
+//
+// The root radius is rendered by planCompiler.radius and skipped by the
+// ordinary clause loop. That same loop compiles a traversal's predicates, and
+// there nothing binds a radius — so skipping it there would drop the predicate
+// silently and return EVERY related record. A wider answer in the shape of the
+// right one is the worst outcome available, and it is what this refusal
+// prevents until hop binding exists.
+func TestARadiusInsideATraversalRefusesRatherThanBeingDropped(t *testing.T) {
+	c := &planCompiler{}
+	km := 50.0
+	operand, err := json.Marshal(radiusOperand{Center: "Stuttgart", RadiusKM: &km})
+	if err != nil {
+		t.Fatalf("building the operand: %v", err)
+	}
+	clauses := []Predicate{{Field: "address", Op: OpWithinRadius, Value: operand}}
+
+	fragments, refusals := c.predicates("h", unfilteredStorage(),
+		TargetVocabulary{Target: "organization"}, "traverse.where", clauses, false)
+	if len(fragments) != 0 {
+		t.Errorf("a hop radius compiled to %v; nothing binds it there", fragments)
+	}
+	if len(refusals) != 1 {
+		t.Fatalf("a hop radius produced %d refusals; it must refuse exactly once rather than "+
+			"pass silently and widen the answer", len(refusals))
+	}
+	if refusals[0].Code != CodeDistanceRankingUnavailable {
+		t.Errorf("the refusal answers %q, want %q", refusals[0].Code, CodeDistanceRankingUnavailable)
+	}
+
+	// The ROOT is the opposite: skipped here on purpose, because radius()
+	// renders it. Neither a fragment nor a refusal.
+	fragments, refusals = c.predicates("t", unfilteredStorage(),
+		TargetVocabulary{Target: "organization"}, "where", clauses, true)
+	if len(fragments) != 0 || len(refusals) != 0 {
+		t.Errorf("the root radius produced fragments %v and refusals %v; radius() renders it",
+			fragments, refusals)
 	}
 }

@@ -116,7 +116,7 @@ func (c *planCompiler) compileStatement(ctx context.Context, plan ValidatedPlan,
 	if scope != "" {
 		where = append(where, scope)
 	}
-	predicates, refusals := c.predicates("t", binding.columns, plan.Target, "where", plan.Plan.Where)
+	predicates, refusals := c.predicates("t", binding.columns, plan.Target, "where", plan.Plan.Where, true)
 	where = append(where, predicates...)
 
 	// The radius, when the plan carries one this deployment can answer. The
@@ -205,7 +205,7 @@ func (c *planCompiler) lateralHop(ctx context.Context, plan ValidatedPlan, bindi
 	if scope != "" {
 		where = append(where, scope)
 	}
-	predicates, refusals := c.predicates("h", hop.columns, plan.HopVocabulary, "traverse.where", plan.Plan.Traverse.Where)
+	predicates, refusals := c.predicates("h", hop.columns, plan.HopVocabulary, "traverse.where", plan.Plan.Traverse.Where, false)
 	where = append(where, predicates...)
 
 	// ORDER BY keeps the evidence deterministic when several hop rows match;
@@ -234,7 +234,10 @@ func (c *planCompiler) edgeCondition(hop hopBinding) string {
 // predicates renders one where-list, reporting a refusal per clause it cannot
 // bind rather than the first — a caller told about one of three operand faults
 // makes three round trips to learn what one answer could have carried.
-func (c *planCompiler) predicates(alias string, columns *storage, vocab TargetVocabulary, path string, clauses []Predicate) ([]string, []apperrors.FieldRefusal) {
+// root says whether these predicates are the ones on the record being searched
+// for, as opposed to a traversal's. It decides one thing: whether a radius is
+// bound elsewhere (root) or has nowhere to go (a hop).
+func (c *planCompiler) predicates(alias string, columns *storage, vocab TargetVocabulary, path string, clauses []Predicate, root bool) ([]string, []apperrors.FieldRefusal) {
 	var (
 		fragments []string
 		refusals  []apperrors.FieldRefusal
@@ -245,8 +248,21 @@ func (c *planCompiler) predicates(alias string, columns *storage, vocab TargetVo
 			// Rendered by planCompiler.radius instead, from the bound centre
 			// and the deployment's coordinate columns. A place has no single
 			// column to compare, so the ordinary `field op value` path below
-			// cannot express it — it would refuse with unknown_field, which is
-			// exactly what it did before this skip existed.
+			// cannot express it — it would refuse with unknown_field.
+			//
+			// ONLY ON THE ROOT TARGET. The same loop compiles a traversal's
+			// predicates, and there the radius is NOT bound anywhere: skipping
+			// it would drop the predicate silently and return every related
+			// record, answering a wider question in the shape of the right
+			// answer. So a hop radius refuses, loudly, until the binding covers
+			// it — see the note at the top of querygeo.go.
+			if !root {
+				refusals = append(refusals, apperrors.FieldRefusal{
+					Field: at + ".op", Code: CodeDistanceRankingUnavailable,
+					Message: "a radius inside a traversal is not answered yet; " +
+						"ask for it on the record you are searching for instead",
+				})
+			}
 			continue
 		}
 		fragment, refusal := c.clause(alias, columns, vocab, at, clause)
