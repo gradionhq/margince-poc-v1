@@ -237,7 +237,10 @@ var unreachableInThisLane = gatekit.Waive(map[string]string{
 	"apply_tag": "needs a seat holding tag.read, which this lane's seat does not carry — " +
 		"granting it here would widen the authority every other tool in the sweep runs under, " +
 		"and the answer shape it would prove is the one remove_tag already shares",
-	"remove_tag":           "same missing tag.read as apply_tag above",
+	"remove_tag": "same missing tag.read as apply_tag above",
+	"list_tags": "same missing tag.read as apply_tag above — and unlike remove_tag it shares its " +
+		"answer shape with nothing else here, so this waiver leaves that shape unproven rather " +
+		"than proven elsewhere",
 	"book_meeting":         "needs a live calendar provider",
 	"send_email":           "needs an outbound mail provider",
 	"send_account_email":   "needs an outbound mail provider, and a send-capable mailbox for its pre-flight",
