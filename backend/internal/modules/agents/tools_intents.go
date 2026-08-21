@@ -22,12 +22,12 @@ import (
 // RegisterIntentTools wires the intent surface; compose passes the
 // search module's Retriever. No retriever, no tools — a surface that
 // cannot ground does not pretend to.
-func RegisterIntentTools(r *Registry, retriever retrieval.Retriever) {
+func RegisterIntentTools(r *Registry, retriever retrieval.Retriever, brief MeetingBriefReader) {
 	if retriever == nil {
 		return
 	}
 	r.Register(catchMeUpOn{retriever: retriever})
-	r.Register(prepForMeeting{retriever: retriever})
+	r.Register(prepForMeeting{retriever: retriever, brief: brief})
 }
 
 // anchorArgs is the shared input shape: one record to build around.
@@ -127,6 +127,11 @@ func (t catchMeUpOn) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 
 type prepForMeeting struct {
 	retriever retrieval.Retriever
+	// brief is the person page's own assembler. Nil is a wiring the tool
+	// survives rather than refuses: an installation without it answers the
+	// assembled picture, which is what this tool has always returned, instead
+	// of losing a read it can still perform.
+	brief MeetingBriefReader
 }
 
 func (t prepForMeeting) Spec() mcp.ToolSpec {
@@ -164,7 +169,58 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	for _, item := range focus {
 		focusItems = append(focusItems, MeetingFocusItem{RecordID: item.Ref.ID, Summary: item.Summary})
 	}
-	return json.Marshal(PrepForMeetingResult{
+	result := PrepForMeetingResult{
 		Briefing: assembledContext(ctx, assembled), MeetingFocus: focusItems,
-	})
+	}
+	if written, ok := t.writtenBrief(ctx, args); ok {
+		result.Brief = &written
+		result.MeetingFocus = briefCommitments(written, focusItems)
+	}
+	return json.Marshal(result)
+}
+
+// writtenBrief is the eight-section brief, when this anchor has one.
+//
+// Only an ACTIVITY anchor can: the other three name a record, not a room, and
+// there is no brief to assemble for them. A refusal is not one either — the
+// reader assembles under the caller's own scope, so a meeting they may not
+// read answers not-found, and the assembled picture they CAN have still
+// stands rather than the whole call failing on the richer half.
+func (t prepForMeeting) writtenBrief(ctx context.Context, args anchorArgs) (MeetingBriefResult, bool) {
+	if t.brief == nil || args.RecordType != string(datasource.EntityActivity) {
+		return MeetingBriefResult{}, false
+	}
+	written, err := t.brief(ctx, args.RecordID)
+	if err != nil {
+		return MeetingBriefResult{}, false
+	}
+	return written, true
+}
+
+// briefCommitments re-sources the focus list from the brief's own commitments
+// section when there is one.
+//
+// The tool's copy promises the focus list names "what to act on after the
+// meeting", and the prose above it now comes from the brief. Leaving the list
+// keyed on the context walk's open_tasks would let the two halves of one
+// answer disagree about what is outstanding. It falls back to the walk when
+// the brief has no commitments to name, because an empty list would report
+// nothing outstanding rather than nothing written.
+func briefCommitments(written MeetingBriefResult, fallback []MeetingFocusItem) []MeetingFocusItem {
+	for _, section := range written.Sections {
+		if section.Kind != "commitments" || len(section.Sentences) == 0 {
+			continue
+		}
+		out := make([]MeetingFocusItem, 0, len(section.Sentences))
+		for _, sentence := range section.Sentences {
+			for _, cited := range sentence.Evidence {
+				out = append(out, MeetingFocusItem{RecordID: cited.RecordID, Summary: sentence.Text})
+				break
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return fallback
 }

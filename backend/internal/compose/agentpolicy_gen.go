@@ -138,7 +138,6 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/webhook-subscriptions/{id}":                              {Op: "archiveWebhookSubscription", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/activities":                                                 {Op: "listActivities", Access: "tool", Tool: "search_records", RecordType: "activity", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/activities/{id}":                                            {Op: "getActivity", Access: "tool", Tool: "read_record", RecordType: "activity", Tier: "auto_execute", Scope: "read"},
-	"GET /v1/activities/{id}/meeting-brief":                              {Op: "getMeetingBrief", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/activities/{id}/pipeline":                                   {Op: "readActivityPipelineTrace", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/activities/{id}/transcript-proposals/latest":                {Op: "getLatestTranscriptRead", Access: "tool", Tool: "read_record", RecordType: "activity", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/activities/{id}/transcript-proposals/{readId}":              {Op: "getTranscriptRead", Access: "tool", Tool: "read_record", RecordType: "activity", Tier: "auto_execute", Scope: "read"},

@@ -3227,6 +3227,79 @@
       "data": {
         "type": "object",
         "properties": {
+          "brief": {
+            "type": "object",
+            "properties": {
+              "activity_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "generated_at": {
+                "type": "string"
+              },
+              "generated_by": {
+                "type": "string"
+              },
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "sentences": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "record_id": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "record_type": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "record_id",
+                                "record_type"
+                              ]
+                            }
+                          },
+                          "nature": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "evidence",
+                          "text"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "sentences"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "activity_id",
+              "generated_at",
+              "generated_by",
+              "sections"
+            ]
+          },
           "briefing": {
             "type": "object",
             "properties": {

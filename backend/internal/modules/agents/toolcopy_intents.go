@@ -21,7 +21,8 @@ var catchMeUpOnCopy = toolCopy{
 }
 
 var prepForMeetingCopy = toolCopy{
-	Purpose: "Get ready for a specific meeting: the same assembled picture as a catch-up, plus " +
+	Purpose: "Get ready for a specific meeting: given the meeting, the same written brief a " +
+		"person reads; given any other record, the assembled picture a catch-up gives, plus " +
 		"the open items pulled out as the things to raise.",
 	// Deliberately silent about anchoring on the meeting record itself. The
 	// input schema advertises it, and prose that also recommended it cost more

@@ -72,11 +72,17 @@ func NewService(pool *pgxpool.Pool, view Assembler, claimReader ClaimReader, now
 // caller's own composite read, which carries its own row scope. A brief can
 // therefore only describe records this caller could open themselves.
 func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.MeetingBrief, error) {
-	// A brief is a reading aid for a person walking into a room; an agent
-	// reading records through a passport has the records themselves.
-	if err := auth.RequireHuman(ctx); err != nil {
-		return crmcontracts.MeetingBrief{}, err
-	}
+	// NO human gate. It used to read "an agent reading records through a
+	// passport has the records themselves", and that argument is what produced
+	// two answers to one question: agents could not reach this, so a second
+	// prep tool grew beside it with different grounding rules, and the two
+	// disagreed about the same meeting. Having the records is not having the
+	// brief — the eight sections, the first-time flags, the cited claims.
+	//
+	// Nothing is widened by admitting an agent. Every gate below is the
+	// caller's own: the object grants, the activity probe, and the composite
+	// read's row scope. A passport is already capped by the granting human's
+	// live seat, so an agent reads exactly the brief that human would.
 	// The OBJECT grant, before any row is read. Row scope decides WHICH
 	// meetings a caller may see; it does not decide whether they may see
 	// meetings at all, and a reader with no activity grant would otherwise

@@ -2395,6 +2395,13 @@ export interface paths {
          *     Degrades rather than fails: with no model lane configured the model-written sections are
          *     a deterministic composition occupying the same place, and `generated_by` says which
          *     wrote them.
+         *
+         *     **One brief, both surfaces.** The `prep_for_meeting` tool serves THIS assembly for a
+         *     meeting anchor rather than composing its own, so an agent and the person it acts for
+         *     read the same eight sections rather than two answers to one question. The read was
+         *     human-only until that split was found; nothing about it widened when the gate came
+         *     off, because every gate that decides what a brief may say is the caller's own and a
+         *     passport is already capped by the granting human's live seat.
          */
         get: operations["getMeetingBrief"];
         put?: never;

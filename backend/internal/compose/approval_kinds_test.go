@@ -109,7 +109,9 @@ type stubSoR struct {
 func TestEveryConfirmationRequiredToolHasADecisionGrantMapping(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
-	agents.RegisterIntentTools(registry, stubRetriever{})
+	// A nil brief reader is a legal wiring: this walk reads Specs() only, and
+	// the tool answers the assembled picture when no brief seam is bound.
+	agents.RegisterIntentTools(registry, stubRetriever{}, nil)
 	agents.RegisterCommsTools(registry, stubComms{}, stubSoR{})
 
 	for _, spec := range registry.Specs() {

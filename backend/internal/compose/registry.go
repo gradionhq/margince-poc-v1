@@ -192,7 +192,7 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 			inner: search.NewRetriever(search.NewStore(InstallationDB(pool)), embedder),
 		},
 	}
-	agents.RegisterIntentTools(registry, retriever)
+	agents.RegisterIntentTools(registry, retriever, meetingBriefReader(pool))
 	// The transport directory, read from this package's boot snapshot — the
 	// composed set is the composition root's fact, so the module takes it as a
 	// seam rather than enumerating connectors it may not reach.
