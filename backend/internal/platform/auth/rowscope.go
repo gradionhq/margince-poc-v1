@@ -136,8 +136,18 @@ func UnboundedFor(p principal.Principal, tables ...string) bool {
 }
 
 // ownerScopedTables is the closed set of table names the row-scope
-// primitives interpolate into SQL — exactly the tables carrying an
-// owner_id column. Several callers pass a table name derived from
+// primitives interpolate into SQL. It is NOT every table carrying an
+// owner_id column, and the difference is a decision rather than an
+// oversight: fifteen tables carry one and nine are here, because on the
+// other six that column names the MEASURED or ATTRIBUTED subject rather
+// than an access owner. quota states the ruling in its own doc.go — its
+// owner_id/team_id name who the quota is ABOUT, so it stays out of this
+// set and anyone holding quota.read sees every target, which is the
+// leaderboard read working as specified. Deriving this set from the
+// column would add quota back and silently narrow that read, shipping an
+// availability regression as a security fix.
+//
+// Several callers pass a table name derived from
 // client input (link entity types, grant record types, search anchors);
 // they allowlist at their own seam, but the primitive rejects unknown
 // names itself so a new caller that forwards an unvalidated string is
