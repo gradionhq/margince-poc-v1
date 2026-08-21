@@ -6,8 +6,8 @@
 //
 // Tables owned: NONE. It reads agent_run and runner_job, which the agents module
 // owns, and it writes nothing at all — so it has no audit or outbox ride-along.
-// It lives in compose because phase 2 unions the per-record run tables owned by
-// several other modules, and a module never imports a sibling (ADR-0054).
+// It lives in compose because that is where a read spanning another module's
+// tables belongs: a module never imports a sibling (ADR-0054).
 //
 // It serves FACTS, never sentences. The reader's locale decides the words, so a
 // server-rendered string would freeze one language into the wire.

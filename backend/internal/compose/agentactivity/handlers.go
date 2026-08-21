@@ -53,7 +53,7 @@ func NewHandlers(store Reader, now func() time.Time) Handlers {
 func (h Handlers) GetMyAgentActivity(w http.ResponseWriter, r *http.Request) {
 	p, ok := principal.Actor(r.Context())
 	if !ok || p.UserID.IsZero() {
-		httperr.Unauthorized(w, r, "the agent's work is read by the signed-in human it ran for")
+		httperr.Unauthorized(w, r, "reading your agent activity needs an authenticated caller")
 		return
 	}
 	running, recent, err := h.store.Mine(r.Context(), p.UserID)
