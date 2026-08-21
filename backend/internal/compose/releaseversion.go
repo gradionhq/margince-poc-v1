@@ -101,7 +101,7 @@ const releaseLedgerFact = "release-version"
 const lastObservedReleaseQuery = `
 	SELECT COALESCE(detail->>'release_version', '')
 	  FROM system_log
-	 WHERE action = $1
+	 WHERE action = $1 AND detail->>'installation' = $2
 	 ORDER BY occurred_at DESC, id DESC LIMIT 1`
 
 // RecordInstallationRelease records the release this api was built from as the
@@ -153,6 +153,7 @@ func RecordInstallationRelease(ctx context.Context, pool *pgxpool.Pool, log *slo
 		}
 		if _, err := storekit.LogSystem(ctx, tx, installationReleaseObserved, map[string]any{
 			"release_version": version,
+			"installation":    installationMarker(ctx),
 		}); err != nil {
 			return err
 		}
@@ -244,12 +245,18 @@ func refuseMixedRelease(mine, installation string) error {
 		mine, installation)
 }
 
-// lastObservedRelease reads the release the api recorded most recently; no
-// record yet reads as the empty string, which every caller treats as "nothing to
-// compare" rather than as a value.
+// lastObservedRelease reads the release THIS installation's api recorded most
+// recently; no such record reads as the empty string, which every caller treats
+// as "nothing to compare" rather than as a value.
+//
+// Scoped to the installation marker rather than to the newest row of all: an
+// installation that merged an archived predecessor still holds that
+// predecessor's release rows, and the ledgers are exempt from the residue gate
+// because their immutability trigger makes clearing them impossible.
 func lastObservedRelease(ctx context.Context, tx pgx.Tx) (string, error) {
 	var version string
-	err := tx.QueryRow(ctx, lastObservedReleaseQuery, installationReleaseObserved).Scan(&version)
+	err := tx.QueryRow(ctx, lastObservedReleaseQuery,
+		installationReleaseObserved, installationMarker(ctx)).Scan(&version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}

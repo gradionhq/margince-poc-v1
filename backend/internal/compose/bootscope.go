@@ -71,3 +71,26 @@ func bootLedgerScope(ctx context.Context, pool *pgxpool.Pool, actor string) (con
 const bootLedgerLock = `
 	SELECT pg_advisory_xact_lock(
 		hashtext($1 || coalesce(current_setting('app.workspace_id', true), ''))::bigint)`
+
+// installationMarker identifies THIS installation inside a boot observation's
+// detail payload.
+//
+// The ledgers lost their tenant column in ADR-0091 §8 phase D, and the boot
+// facts are read back with "the newest row wins". That is right for an
+// installation reading its own history and wrong for one carrying an archived
+// predecessor's: the residue gate exempts the ledgers by name, because their
+// immutability trigger makes clearing them impossible, so those rows are still
+// there and the read can no longer tell them apart.
+//
+// So the observation says which installation made it. A row without the marker
+// is not assumed to be ours — it predates this and may be a predecessor's — and
+// the reader treats "no marked row" the same way it treats "nothing recorded":
+// the comparison is disabled, which is the posture buildinfo already takes for
+// an unstamped binary.
+func installationMarker(ctx context.Context) string {
+	wsID, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return ""
+	}
+	return wsID.String()
+}
