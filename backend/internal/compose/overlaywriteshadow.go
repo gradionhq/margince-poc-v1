@@ -190,13 +190,24 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		native()
 		return
 	}
+	// The caller's precondition travels with the write, exactly as it does on
+	// the native side. Reading the header and not forwarding it is the worse
+	// of the two answers available here: an overlay mirror carries no version
+	// column, so this installation cannot honour the condition — and a request
+	// that asks for one and is archived anyway has been told something false.
+	// Forwarding it lets the overlay provider refuse in its own words instead.
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
 	ref := datasource.EntityRef{Type: et, ID: ids.UUID(id)}
 	rec, err := s.sorDispatch.Read(r.Context(), ref)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	if _, err := s.sorDispatch.archiveInMode(r.Context(), bool(ov), datasource.ArchiveInput{Ref: ref}); err != nil {
+	if _, err := s.sorDispatch.archiveInMode(r.Context(), bool(ov),
+		datasource.ArchiveInput{Ref: ref, IfVersion: ifVersion}); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
