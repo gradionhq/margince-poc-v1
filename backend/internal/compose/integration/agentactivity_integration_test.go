@@ -80,13 +80,18 @@ func setupAgentActivity(t *testing.T) *activityFixture {
 // seedPassportFor is Env.SeedPassport widened to any human: the shared harness
 // binds Rep1, and this suite needs a second person's authority to prove the read
 // does not hand one person the other's work.
+//
+// expires_at is a PARAMETER derived from this fixture's frozen clock, never
+// database-clock arithmetic. The two are the same distance apart only on the day
+// such a fixture is written; after that the gap grows by a day a day, and the
+// suite fails on a date nobody can connect to a change.
 func (f *activityFixture) seedPassportFor(t *testing.T, user ids.UUID, label string) ids.PassportID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := f.owner.Exec(context.Background(), `
 		INSERT INTO passport (id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
-		VALUES ($1, $2, $2, $3, ARRAY['read','write'], $4, now() + interval '1 day')`,
-		id, user, label, "hash-"+id.String()); err != nil {
+		VALUES ($1, $2, $2, $3, ARRAY['read','write'], $4, $5)`,
+		id, user, label, "hash-"+id.String(), f.now.Add(24*time.Hour)); err != nil {
 		t.Fatalf("seeding passport %s: %v", label, err)
 	}
 	return ids.From[ids.PassportKind](id)
