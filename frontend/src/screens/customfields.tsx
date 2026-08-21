@@ -421,19 +421,17 @@ export function FieldTable({
           <span className="cf-cell-staged">{t("cf.writing")}</span>
         ) : (
           <div className="cf-rowactions">
-            <Button
-              small
-              aria-label={t("cf.edit")}
-              onClick={() => onRename(field)}
-            >
+            {/* Two ghost verbs. Archiving a field hides it from new records and
+                keeps every value already captured — the toast says so, and the
+                act is reversible — so `danger` overstated it: three solid red
+                buttons per table were the loudest thing on the tab, which is
+                the shout a reader learns to ignore. An `aria-label` repeating
+                the button's own words is not a name either; the text is the
+                name. */}
+            <Button small onClick={() => onRename(field)}>
               {t("cf.edit")}
             </Button>
-            <Button
-              small
-              variant="danger"
-              aria-label={t("cf.archive")}
-              onClick={() => onArchive(field)}
-            >
+            <Button small onClick={() => onArchive(field)}>
               {t("cf.archive")}
             </Button>
           </div>
@@ -744,9 +742,31 @@ export function CustomFieldsAdmin() {
   const objectName = t(`cf.obj.${object}`);
 
   return (
-    <Panel className="cf-screen" title={t("cf.title")}>
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("cf.subtitle")}</p>
+    <Panel
+      className="cf-screen"
+      title={t("cf.title")}
+      // The create verb is the card's, so it stands in the header band. As a
+      // trailing row its label ("Add a field to Deal") said the same thing as
+      // the button beside it ("Add a field…"), which is one act named twice on
+      // one line; the object it applies to is chosen in the row below and named
+      // again by the dialog. Absent without the create grant, as the row was: a
+      // surface that is only an action makes no claim about the data by not
+      // being there.
+      titleAction={
+        canCreate && (
+          <Button small onClick={() => setAdding(true)}>
+            {t("cf.builder.open")}
+          </Button>
+        )
+      }
+    >
+      {/* No `form-stack` on the body: the description already pays for its own
+          interval to the rows (`.settings-panel-sub`), and a stack's gap on top
+          of that margin — margins do not collapse in a flex container — put 28px
+          under a line every other settings card sets 16px below. The posture
+          line below the rows takes its interval from `.cf-posture`. */}
+      <PanelBody>
+        <p className="settings-panel-sub">{t("cf.subtitle")}</p>
         <SettingList>
           {/* Which object the rows below belong to. One closed set of four, all
               visible at once, so it answers its own row from the right column —
@@ -790,22 +810,6 @@ export function CustomFieldsAdmin() {
               </div>
             }
           />
-          {/* A label, a type, and the shape that type needs — several inputs
-              confirmed together against a DDL preview — so the form lives
-              behind this verb and the rows above stay a list of fields. Absent
-              without the create grant, as the disclosure it replaces was: a
-              surface that is only an action makes no claim about the data by
-              not being there. */}
-          {canCreate && (
-            <SettingRow
-              label={t("cf.builder.addTo", { object: objectName })}
-              control={
-                <Button variant="ghost" onClick={() => setAdding(true)}>
-                  {t("cf.builder.open")}
-                </Button>
-              }
-            />
-          )}
           {/* Withheld, not absent: the trail keeps its place for every reader,
               because a section that simply were not there would read as "nobody
               has changed a field" — a claim about the data in place of one about
@@ -858,11 +862,7 @@ export function CustomFieldsAdmin() {
           onClose={() => setAdding(false)}
           labelledBy={addId}
         >
-          <h2
-            id={addId}
-            className="t-h2"
-            style={{ marginBottom: "var(--space-3)" }}
-          >
+          <h2 id={addId} className="t-h2 modal-title">
             {t("cf.builder.addTo", { object: objectName })}
           </h2>
           <FieldBuilder
@@ -885,13 +885,10 @@ export function CustomFieldsAdmin() {
             it is the flex row that carries a card section's title, subtitle and
             actions, and a dialog title is none of those — inside the modal it
             only contributed a page-flow top margin that pushed the title off
-            the modal's own padding. --space-3 is the 12px ConfirmModal sets by
-            hand. */}
-        <h2
-          id={renameId}
-          className="t-h2"
-          style={{ marginBottom: "var(--space-3)" }}
-        >
+            the modal's own padding. `.modal-title` is the catalog's own name for
+            the interval under a dialog title, so the twelve pixels are declared
+            once for every dialog rather than typed in here. */}
+        <h2 id={renameId} className="t-h2 modal-title">
           {t("cf.edit")}
         </h2>
         <Field label={t("cf.renamePrompt")}>

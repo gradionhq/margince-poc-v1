@@ -118,9 +118,7 @@ export function VoiceDnaCard() {
           // builds, sample drafts) stayed unreachable.
           <Panel title={t("settings.voice.title")}>
             <PanelBody>
-              <p className="t-small settings-panel-sub">
-                {t("settings.voice.intro")}
-              </p>
+              <p className="settings-panel-sub">{t("settings.voice.intro")}</p>
               <EmptyState>
                 <b>{t("settings.voice.emptyTitle")}</b>
                 <p className="t-small">{t("settings.voice.emptyBody")}</p>
@@ -195,9 +193,7 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
     <>
       <Panel title={t("settings.voice.title")}>
         <PanelBody>
-          <p className="t-small settings-panel-sub">
-            {t("settings.voice.intro")}
-          </p>
+          <p className="settings-panel-sub">{t("settings.voice.intro")}</p>
           {/* Said ONCE, for the whole surface, rather than beside each of the
               controls a denial disables. The affordances below may then be
               absent without the page making a claim about the data — which is

@@ -43,6 +43,25 @@ const entry: CatalogEntry = {
   },
 };
 
+// A second entry, and it earns its place: the library's whole shape is the
+// interval and the hairline BETWEEN two entries, which a one-entry fixture
+// cannot picture. It also carries the other autonomy tier and no description at
+// all, so the row has to read with the recipe as its only second line.
+const autoEntry: CatalogEntry = {
+  key: "task_on_stage_entry",
+  name: "Task on stage entry",
+  trigger: "deal.stage_changed",
+  action: "create_task",
+  tier: "auto_execute",
+  params_schema: {
+    type: "object",
+    properties: {
+      due_in_days: { type: "integer", minimum: 1, maximum: 30, default: 7 },
+    },
+    required: ["due_in_days"],
+  },
+};
+
 const automation: Automation = {
   id: "au-1",
   key: "stalled_deal_nudge",
@@ -203,16 +222,33 @@ export const EditingInADialogDark: Story = {
 // The whole card, which is what the row language changed: two decisions, each
 // of which IS a list rather than an answer that would fit beside its naming, so
 // both take the full width below it. What is running comes first; the closed
-// library that feeds it comes second, with the verb that authors from an entry
-// at the entry's right edge.
+// library that feeds it comes second, and every library entry is now a ROW of
+// the same language — name and recipe in the naming column, `Use template` at
+// the x every answer on this page sits at, a hairline between entries.
 const CARD_ROUTES = {
   "GET /me": meRoute({ automation: ["create", "read", "update", "delete"] }),
-  "GET /automations/catalog": () => jsonResponse({ data: [entry] }),
+  "GET /automations/catalog": () => jsonResponse({ data: [entry, autoEntry] }),
   "GET /automations": () =>
     jsonResponse({ data: [automation], page: { next_cursor: null } }),
 };
 
 export const AdminCard: Story = {
+  render: () => {
+    installFetchStub(CARD_ROUTES);
+    return (
+      <StoryProviders>
+        <AutomationsAdmin />
+      </StoryProviders>
+    );
+  },
+};
+
+// The card in dark. The library's hairlines are `--borderSubtle` between rows
+// and the recipe line is mono `--textMeta` under a description — the two pairs
+// most likely to disappear into the card when the ground goes dark, and both are
+// what the entries' new rhythm is made of.
+export const AdminCardDark: Story = {
+  globals: { theme: "dark" },
   render: () => {
     installFetchStub(CARD_ROUTES);
     return (

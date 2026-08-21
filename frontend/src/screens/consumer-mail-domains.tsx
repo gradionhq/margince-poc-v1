@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import { useCanUpsert, useCanWrite } from "../app/capability";
@@ -7,6 +7,7 @@ import { isOption } from "../app/options";
 import {
   Button,
   Disclosure,
+  EmptyState,
   Field,
   Modal,
   TextInput,
@@ -222,9 +223,29 @@ export function ConsumerMailDomainsCard() {
       : t("consumerMail.addOnly");
 
   return (
-    <Panel title={t("consumerMail.title")}>
+    <Panel
+      title={t("consumerMail.title")}
+      // Two inputs submitted together — the domain and what it IS — so the form
+      // lives behind this verb, and the verb rides in the header rather than in
+      // a row of its own: a row states a setting and its answer, and a row whose
+      // label repeats its own button says the same thing twice a hand apart.
+      // Refused, never hidden — `reasonId` names the sentence under the rows,
+      // which is the one that knows WHICH of the two grants is missing.
+      titleAction={
+        <Button
+          small
+          reasonId={canAdd ? undefined : denialId}
+          onClick={() => setAdding(true)}
+        >
+          {t("consumerMail.addOpen")}
+        </Button>
+      }
+    >
+      {/* `form-stack` stays: the denial sentence and the failure Callout under
+          the rows are non-row children, and the list owns only the intervals
+          BETWEEN its rows. */}
       <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("consumerMail.sub")}</p>
+        <p className="settings-panel-sub">{t("consumerMail.sub")}</p>
         <SettingList>
           {/* The entries are the subject of this card rather than an answer to
               a question beside them, so they take the row's full width. */}
@@ -235,57 +256,44 @@ export function ConsumerMailDomainsCard() {
               <QueryGate query={query}>
                 {(entries) =>
                   entries.length === 0 ? (
-                    <p className="t-small">{t("consumerMail.none")}</p>
+                    // `empty`, and only `empty`: nothing has been added, so the
+                    // shipped list decides every domain. The row caps and
+                    // left-aligns it already (settingrow.css).
+                    <EmptyState>
+                      <p className="t-small">{t("consumerMail.none")}</p>
+                    </EmptyState>
                   ) : (
-                    <ul
-                      className="consumer-mail-list settingrow-measure"
-                      data-testid="consumer-mail-domain-list"
-                    >
+                    // One entry per row, in the row language the rest of this
+                    // tab speaks: the domain names itself on the left, what it
+                    // IS stands as the row's answer, and the verb that takes it
+                    // back sits at one x down the list. It was a hand-rolled
+                    // `<ul>` of four-item flex rows — and the mail glyph on
+                    // every one of them distinguished nothing, since every row
+                    // on this card is a mail domain.
+                    <SettingList testId="consumer-mail-domain-list">
                       {entries.map((entry) => (
-                        <li
+                        <SettingRow
                           key={entry.id}
-                          className="consumer-mail-row"
-                          data-kind={entry.kind}
-                        >
-                          <Mail aria-hidden size={16} />
-                          <span className="consumer-mail-row-domain">
-                            {entry.domain}
-                          </span>
-                          <span className="t-small">
-                            {entry.kind === "never"
-                              ? t("consumerMail.kind.never")
-                              : t("consumerMail.kind.extra")}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            small
-                            aria-label={t("consumerMail.remove")}
-                            disabled={remove.isPending}
-                            reasonId={canManage ? undefined : denialId}
-                            onClick={() => remove.mutate(entry.id)}
-                          >
-                            <Trash2 aria-hidden size={16} />
-                          </Button>
-                        </li>
+                          label={entry.domain}
+                          value={t(kindLabel[entry.kind])}
+                          control={
+                            <Button
+                              variant="ghost"
+                              small
+                              aria-label={t("consumerMail.remove")}
+                              disabled={remove.isPending}
+                              reasonId={canManage ? undefined : denialId}
+                              onClick={() => remove.mutate(entry.id)}
+                            >
+                              <Trash2 aria-hidden size={16} />
+                            </Button>
+                          }
+                        />
                       ))}
-                    </ul>
+                    </SettingList>
                   )
                 }
               </QueryGate>
-            }
-          />
-          {/* Two inputs submitted together — the domain and what it IS — so the
-              form lives behind this verb and the row stays an answer. */}
-          <SettingRow
-            label={t("consumerMail.addTitle")}
-            control={
-              <Button
-                variant="ghost"
-                reasonId={canAdd ? undefined : denialId}
-                onClick={() => setAdding(true)}
-              >
-                {t("consumerMail.add")}
-              </Button>
             }
           />
           {/* The shipped list is the SECOND question this card answers — what

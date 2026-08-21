@@ -10,35 +10,35 @@
    hard width floors this sheet used to carry (240px and 280px, both wider than
    the card interior a 390px viewport leaves) are gone: a stacked row's control
    fills the card on its own (design-system/settingrow.css). */
+
+/* The read-only posture, and the outcome of a create, standing above and below
+   the rows they are about. Each is the card's own band rather than one more row,
+   so it pays for its own interval — the same interval `.settings-panel-sub`
+   pays, because `SettingList` owns the gaps BETWEEN rows and nothing above or
+   below itself. */
 .auto-readonly {
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
-.auto-catalog {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+.auto-outcome {
+  margin-top: var(--space-4);
 }
 
-.auto-catalog-head {
-  display: flex;
+/* A catalog entry's name with its autonomy dot: the dot qualifies the name, so
+   the two are one item on the label's line rather than two things the row's
+   naming column has to align. */
+.auto-catalog-name {
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-/* The verb sits at the entry's right edge, where every answer on this page
-   sits. `margin-right: auto` on the name rather than a spacer element: the
-   space belongs to the naming, and a wrapped head keeps the button beside the
-   name it belongs to instead of stranding it on a line of its own. */
-.auto-catalog-head > strong {
-  margin-right: auto;
-}
-
-/* The line under a name — a description, a recipe, a confirmation. Close enough
-   to read as belonging to the line above it rather than as its own paragraph. */
-.auto-note {
+/* The trigger and the action in the wire's own words, on their own line under
+   the entry's description — an identifier pair, not prose, so it does not run
+   into the sentence above it. The row's naming column owns the interval to the
+   label; this pays only for the step between the two lines it separates. */
+.auto-catalog-recipe {
+  display: block;
   margin-top: var(--space-1);
 }
 

@@ -1078,8 +1078,6 @@ export const vi = {
   "linkedinImport.title": "Kết nối LinkedIn",
   "linkedinImport.sub":
     "Nhập bản xuất của chính bạn để biết đội của bạn đã quen những ai",
-  "linkedinImport.explainer":
-    "LinkedIn cho bạn tệp Connections.csv trong Settings → Data privacy → Get a copy of your data. Tải tệp đó lên đây sẽ cho thấy ai trong đội của bạn đã quen người nào ở một tài khoản. Các kết nối KHÔNG trở thành contact: chúng không bao giờ xuất hiện trong tìm kiếm, danh sách hay trang contact, và không ai viết thư hay gửi email cho họ được.",
   "linkedinImport.profileLabel": "URL hồ sơ LinkedIn của bạn",
   "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
   "linkedinImport.saveProfile": "Lưu hồ sơ",
@@ -1089,9 +1087,9 @@ export const vi = {
   "linkedinImport.connectedNote":
     "Đã kết nối. Các kết nối nhập vào được quy về hồ sơ này, nhờ đó CRM nói được đồng nghiệp nào quen người đó, chứ không phải “công ty” quen.",
   "linkedinImport.notConnectedNote":
-    "Chưa kết nối. Thêm URL hồ sơ của bạn sẽ quy mọi kết nối bạn nhập vào về đúng tên bạn.",
+    "Ghi lại URL hồ sơ của bạn sẽ quy mọi kết nối bạn nhập vào về đúng tên bạn.",
   "linkedinImport.whichFile":
-    "Tệp bạn cần là Connections.csv — kho lưu trữ xuất ra còn cả chục tệp khác.",
+    "LinkedIn cho bạn tệp Connections.csv trong Settings → Data privacy → Get a copy of your data; kho lưu trữ còn cả chục tệp khác, và đây là tệp cần dùng. Những gì bạn tải lên không bao giờ trở thành contact: các kết nối nằm ngoài tìm kiếm, danh sách và trang contact, và không ai viết thư hay gửi email cho họ được.",
   "linkedinImport.choose": "Chọn tệp Connections.csv",
   "linkedinImport.importLabel": "Tệp xuất danh bạ",
   "linkedinImport.noMatchesYet":
@@ -2231,7 +2229,7 @@ export const vi = {
   "rbac.masked": "Giá trị đã che",
   "settings.passports": "Passport cho Agent",
   "settings.passportsSub":
-    "Agent hành động với danh nghĩa của bạn, không bao giờ vượt quá bạn — mỗi lần gọi đều kiểm tra lại phân quyền của bạn",
+    "Agent hành động với danh nghĩa của bạn, không bao giờ vượt quá bạn: mỗi lần gọi đều kiểm tra lại phân quyền của bạn.",
   "passport.scope.read": "Đọc bản ghi",
   "passport.scope.draft": "Soạn nháp tin nhắn",
   "passport.scope.write": "Thay đổi bản ghi",
@@ -2247,7 +2245,6 @@ export const vi = {
   "settings.mintCancel": "Huỷ",
   "settings.mintDone": "Xong",
   "settings.mintOpen": "Tạo…",
-  "settings.mintLabel": "Tạo passport mới",
   "settings.passportScopes": "Tác nhân này được phép làm gì",
   "settings.passportScopesHint":
     "Chọn ít nhất một mục. Tác nhân không bao giờ được làm nhiều hơn bạn.",
@@ -2596,7 +2593,6 @@ export const vi = {
   "settings.pipelinesSub":
     "Các giai đoạn một deal đi qua — mỗi pipeline một thang.",
   "pipeline.new": "Pipeline mới",
-  "pipeline.addLabel": "Thêm một pipeline",
   "pipeline.edit": "Sửa pipeline",
   "pipeline.name": "Tên",
   "pipeline.default": "Mặc định",
@@ -2610,7 +2606,7 @@ export const vi = {
   "stage.semOpen": "Đang mở",
   "stage.semWon": "Thắng",
   "stage.semLost": "Thua",
-  "stage.remove": "Gỡ bỏ",
+  "stage.remove": "Gỡ bỏ…",
   "stage.removeConfirm": "Gỡ giai đoạn",
   "stage.removeTitle": "Gỡ giai đoạn này?",
   "stage.removeBody":
@@ -3045,11 +3041,22 @@ export const vi = {
     "Bản triển khai này chưa hoàn tất được kết nối đó — API của nhà cung cấp chưa được bật cho bản này. Cần quản trị viên bật lên; nhật ký máy chủ nêu rõ API nào.",
   "connectors.dismissOutcome": "Bỏ qua",
 
-  // The always-present "Add a connection" affordance (Task 1): the empty
-  // state and the roster footer share the same not-yet-connected provider
-  // buttons, so the copy that names them lives once here.
+  // The "Add a connection" affordance (Task 1): one verb in the card's header
+  // opens a dialog listing the providers still addable, each with the sentence
+  // it needs.
   "connectors.addConnection": "Thêm một kết nối",
-  "connectors.googleSeparateNote": "Gmail và Google Calendar kết nối riêng.",
+  "connectors.addOpen": "Kết nối một tài khoản…",
+  "connectors.connect": "Kết nối",
+  "connectors.connectProvider": "Kết nối {provider}",
+  "connectors.rosterLabel": "Hộp thư đang thu thập",
+  "connectors.addGmailBrings":
+    "Thư bạn gửi và nhận, từ Google — và là kết nối duy nhất mà Margince có thể gửi thư qua.",
+  "connectors.addGcalBrings":
+    "Google Calendar của bạn. Nó được kết nối riêng, không đi kèm Gmail.",
+  "connectors.addGraphBrings":
+    "Thư và lịch của một tài khoản công việc Microsoft, qua Graph API. Chỉ thu thập.",
+  "connectors.addImapBrings":
+    "Bất kỳ máy chủ thư nào khác, bằng mật khẩu ứng dụng. Chỉ thu thập.",
   "connectors.providerNotConfigured":
     "{provider} chưa được cấu hình trên bản triển khai này.",
 
@@ -3081,6 +3088,8 @@ export const vi = {
   "connectors.telegramNotConfigured":
     "Các kênh nhắn tin chưa được cấu hình trên bản triển khai này.",
   "connectors.telegramConnectCta": "Kết nối một bot Telegram",
+  "connectors.telegramRosterLabel": "Bot đang chuyển tin nhắn",
+  "connectors.telegramEmpty": "Chưa có bot nào được kết nối.",
   "connectors.telegramEditToken": "Thay token",
   "connectors.telegramDisconnectTitle": "Ngắt kết nối bot này?",
   "connectors.telegramDisconnectBody":
@@ -3108,6 +3117,7 @@ export const vi = {
   "consumerMail.kind.extra": "Thư cá nhân — không bao giờ là công ty",
   "consumerMail.kind.never": "Một công ty thật — bỏ qua danh sách có sẵn",
   "consumerMail.add": "Thêm",
+  "consumerMail.addOpen": "Thêm…",
   "consumerMail.remove": "Gỡ",
   "consumerMail.none":
     "Chưa thêm gì. Danh sách có sẵn quyết định mọi tên miền.",
@@ -4075,11 +4085,11 @@ export const vi = {
   "cf.addedByYou": "Bạn",
   "cf.addedByAdmin": "Quản trị viên",
   "cf.empty.deal":
-    "Chưa có trường tuỳ chỉnh nào trên Deal. Hãy thêm một trường bên dưới nếu bạn theo dõi thứ mà bản gốc chưa có.",
+    "Chưa có trường tuỳ chỉnh nào trên Deal. Hãy thêm một trường nếu bạn theo dõi thứ mà bản gốc chưa có.",
   "cf.empty.organization":
-    "Chưa có trường tuỳ chỉnh nào trên Công ty. Hãy thêm một trường bên dưới nếu bạn theo dõi thứ mà bản gốc chưa có.",
+    "Chưa có trường tuỳ chỉnh nào trên Công ty. Hãy thêm một trường nếu bạn theo dõi thứ mà bản gốc chưa có.",
   "cf.empty.person":
-    "Chưa có trường tuỳ chỉnh nào trên Contact. Các trường lõi đã bao quát bản ghi contact; hãy thêm một trường bên dưới nếu bạn theo dõi thêm.",
+    "Chưa có trường tuỳ chỉnh nào trên Contact. Các trường lõi đã bao quát bản ghi contact; hãy thêm một trường nếu bạn theo dõi thêm.",
   "cf.empty.lead":
     "Chưa có trường tuỳ chỉnh nào trên Lead. Trường bạn thêm ở đây cũng xuất hiện khi một lead được chuyển thành contact.",
   "cf.type.text": "Văn bản",
@@ -4515,9 +4525,10 @@ export const vi = {
   "users.teamsTitle": "Nhóm",
   "users.teamsSub":
     "Ai được sửa bản ghi của ai: thành viên một nhóm sửa được bản ghi của mọi thành viên trong nhóm. Khách hàng, liên hệ, lead và deal thì ai cũng đọc được.",
-  "users.teamMembers": "{count} thành viên",
   "users.archiveTeam": "Lưu trữ nhóm {name}",
   "users.newTeamLabel": "Nhóm mới",
+  "users.newTeamOpen": "Nhóm mới…",
+  "users.teamNameLabel": "Tên nhóm",
   "users.newTeamPlaceholder": "vd. DACH Sales",
   "users.createTeam": "Tạo nhóm",
   "users.access.title": "Thành viên này thấy gì",
@@ -4563,6 +4574,7 @@ export const vi = {
   "users.invite": "Mời",
   "users.setRole": "Đặt vai trò…",
   "users.setRoleFor": "Đặt vai trò cho {name}",
+  "users.rowActions": "Hành động cho {name}",
   "users.rolesHeld": "Đang giữ {roles}. Chọn một vai trò sẽ thay thế tất cả",
   "users.deactivate": "Vô hiệu hoá",
   "users.reactivate": "Kích hoạt lại",
@@ -4593,7 +4605,6 @@ export const vi = {
     "Không kết nối được tới máy chủ. Hãy kiểm tra kết nối rồi thử lại.",
   "users.link.retry": "Thử lại",
   "users.link.done": "Xong",
-  "settings.companyKicker": "Tri thức công ty",
   "settings.companyReadOnly":
     "Chế độ chỉ đọc — sửa hồ sơ công ty cần quyền ghi trên tổ chức.",
   "settings.companyTitle": "Những gì Margince biết về công ty bạn",
@@ -4603,13 +4614,20 @@ export const vi = {
     "Chỉ tri thức đã xác nhận — văn bản website không bao giờ trở thành chỉ dẫn.",
   "settings.companyConfirmed": "nhận định đã xác nhận",
   "settings.companyWebsite": "Website công khai của công ty",
+  "settings.companyWebsiteHint":
+    "Website công khai mà mỗi lần đọc website đều bắt đầu từ đó.",
+  "settings.companySourceTitle": "Nơi chúng tôi đọc được",
+  "settings.companyRefreshRow": "Đọc lại website",
+  "settings.companyRefreshHint":
+    "Chúng tôi tải các trang công khai của bạn và đề xuất thay đổi. Không có gì vào hồ sơ trước khi bạn xem lại và áp dụng.",
+  "settings.companyEdit": "Sửa",
+  "settings.companyEditField": "Sửa {field}",
   "settings.companyWebsiteRequired":
     "Hãy thêm website công ty trước khi làm mới.",
   "settings.companyRefresh": "Làm mới từ website",
   "settings.companyEssentials": "Ba điều cốt lõi",
   "settings.companyPositioning": "Định vị, người mua và cách bán hàng",
   "settings.companyIdentity": "Danh tính và thông tin pháp lý",
-  "settings.companyViewSource": "Xem nguồn",
   "settings.companySave": "Lưu bối cảnh công ty",
   "settings.companySaved": "Đã lưu",
   "settings.companyRefreshUnreadable":
@@ -4682,6 +4700,7 @@ export const vi = {
     "Bề mặt có kiểm soát mà một passport gọi được — đúng danh sách mà một client MCP thấy.",
   "tools.egress": "có gọi ra ngoài",
   "tools.scopeAll": "Mọi passport",
+  "tools.inventory": "Tất cả {count} công cụ",
   "tools.scopeLabel": "Giới hạn theo passport",
   "tools.scopedTo": "{label} gọi được",
   "tools.unreachable": "chưa được cấp phạm vi",
@@ -4892,6 +4911,7 @@ export const vi = {
   "captureExclusions.placeholder.address": "ten@vidu.com",
   "captureExclusions.placeholder.domain": "vidu.com",
   "captureExclusions.add": "Loại trừ",
+  "captureExclusions.addOpen": "Loại trừ…",
   "captureExclusions.remove": "Thu thập {value} trở lại",
   "ownDomains.title": "Tên miền email của công ty",
   "ownDomains.sub":
@@ -4906,6 +4926,7 @@ export const vi = {
   "ownDomains.confirmed": "đã xác nhận",
   "ownDomains.candidate": "thấy trên một hộp thư đã kết nối, chưa xác nhận",
   "ownDomains.add": "Thêm",
+  "ownDomains.addOpen": "Thêm…",
   "ownDomains.addLabel": "Thêm tên miền của công ty",
   "ownDomains.placeholder": "vidu.com",
   "ownDomains.remove": "Xóa {domain}",

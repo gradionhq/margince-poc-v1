@@ -20,6 +20,7 @@ import {
   OverflowMenu,
   SectionHeader,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
 import { SettingList, SettingRow } from "../design-system/settingrow";
@@ -358,28 +359,23 @@ function SecretRevealModal({
 
   return (
     <Modal open onClose={onClose} labelledBy={headingId}>
-      <h2
-        id={headingId}
-        className="t-h2"
-        style={{ marginBottom: "var(--space-3)" }}
-      >
+      <h2 id={headingId} className="t-h2 modal-title">
         {t("webhooks.secret.title")}
       </h2>
-      <p className="t-caption" style={{ marginBottom: "var(--space-2)" }}>
-        {t("webhooks.secret.warning")}
-      </p>
-      <pre className="code-block t-mono" data-testid="webhook-signing-secret">
-        {secret}
-      </pre>
-      {copyFailed && (
-        <p
-          role="alert"
-          className="t-caption"
-          style={{ color: "var(--danger)" }}
-        >
-          {t("webhooks.secret.copyFailed")}
-        </p>
-      )}
+      {/* One stack owns every interval in this dialog, so the warning, the
+          secret and whatever the copy attempt has to say do not each set a
+          margin of their own. */}
+      <div className="form-stack">
+        <p className="t-caption">{t("webhooks.secret.warning")}</p>
+        <pre className="code-block t-mono" data-testid="webhook-signing-secret">
+          {secret}
+        </pre>
+        {copyFailed && (
+          <Callout tone="danger" live="alert">
+            {t("webhooks.secret.copyFailed")}
+          </Callout>
+        )}
+      </div>
       {/* Dismissing is what DESTROYS the only copy of the secret: it lives in
           this component's state and is never re-derivable from any read. So
           Copy is the primary act here and Done is the quiet one — the reverse

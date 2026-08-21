@@ -15,6 +15,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import { OwnDomainsCard } from "./own-domains";
 
 // Settings → Capture: the domains this installation treats as its own. Two
@@ -124,9 +125,12 @@ describe("OwnDomainsCard", () => {
     expect(
       within(managed).getByRole("button", { name: /remove brandt\.de/i }),
     ).toBeTruthy();
-    // The add form is behind a verb, so the field is not on the card until it
-    // is asked for — the row stays an answer.
-    expect(screen.getByRole("button", { name: /^add$/i })).toBeTruthy();
+    // The add form is behind ONE verb, in the card's header rather than in a
+    // row that repeats its own label — and the field is not on the card until
+    // the verb is pressed, so every row stays an answer.
+    expect(
+      screen.getByRole("button", { name: en["ownDomains.addOpen"] }),
+    ).toBeTruthy();
     expect(screen.queryByLabelText(/add an own domain/i)).toBeNull();
   });
 
@@ -150,7 +154,9 @@ describe("OwnDomainsCard", () => {
     render(<OwnDomainsCard />);
 
     await screen.findByTestId("own-domains-empty");
-    await user.click(screen.getByRole("button", { name: /^add$/i }));
+    await user.click(
+      screen.getByRole("button", { name: en["ownDomains.addOpen"] }),
+    );
     const dialog = screen.getByRole("dialog");
     await user.type(
       within(dialog).getByLabelText(/add an own domain/i),
@@ -178,7 +184,7 @@ describe("OwnDomainsCard", () => {
     const remove = await screen.findByRole("button", {
       name: /remove brandt\.de/i,
     });
-    const add = screen.getByRole("button", { name: /^add$/i });
+    const add = screen.getByRole("button", { name: en["ownDomains.addOpen"] });
     expect(remove.hasAttribute("disabled")).toBe(true);
     expect(add.hasAttribute("disabled")).toBe(true);
     // One sentence, and both refused verbs point at it — a reason a screen

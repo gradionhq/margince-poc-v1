@@ -1328,12 +1328,35 @@ function PassportCard() {
     // surface for one.
     <Panel
       title={t("settings.passports")}
-      footer={t("settings.passportsLendHint")}
+      // The card's one create verb, in the header band beside the title rather
+      // than as a trailing row: a row whose label reads "Mint a new passport"
+      // beside a button reading "Mint…" says the same thing twice, and it made
+      // a third interval out of what is not a decision the list holds. The verb
+      // takes the ellipsis form and the drawer's submit keeps the plain one —
+      // two buttons reading "Mint passport" are one name for two acts, for a
+      // reader and for a name-based query alike.
+      //
+      // Ghost, which is Button's default: the primary it used to carry was the
+      // only one on the page, and a page with one loud button reads as if the
+      // other three cards had nothing to offer.
+      titleAction={
+        <Button small onClick={() => setMinting(true)}>
+          {t("settings.mintOpen")}
+        </Button>
+      }
     >
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">
-          {t("settings.passportsSub")}
-        </p>
+      <PanelBody>
+        {/* The card's prose, and BOTH sentences of it, above the rows: what a
+            passport is, and what lending one does. The lending line used to be
+            a `panel-foot` band under the list, which gave one card three
+            different intervals — a body, a row list, and a ruled band — where
+            its neighbours have two. Every card on this page now reads the same
+            way: title, prose, rows. No `form-stack` either: the paragraph's own
+            margin is the interval to the list, and the flex gap on top of it
+            made this card's prose sit 28px off its rows against the 16px the
+            connected-agents card next to it keeps. */}
+        <p className="settings-panel-sub">{t("settings.passportsSub")}</p>
+        <p className="settings-panel-sub">{t("settings.passportsLendHint")}</p>
         <SettingList>
           {/* Only what this human MINTED, each credential its own row: the name
               on the left, what it currently IS on the right — masked token,
@@ -1368,19 +1391,6 @@ function PassportCard() {
                 ))
             }
           </QueryGate>
-          {/* A name and five scope ticks committed together is the modal case,
-              so the row keeps the verb and the drawer keeps the form. The verb
-              takes the ellipsis form and the drawer's submit keeps the plain
-              one: two buttons reading "Mint passport" are one name for two
-              different acts, for a reader and for a query alike. */}
-          <SettingRow
-            label={t("settings.mintLabel")}
-            control={
-              <Button variant="primary" onClick={() => setMinting(true)}>
-                {t("settings.mintOpen")}
-              </Button>
-            }
-          />
         </SettingList>
       </PanelBody>
       <Modal
@@ -1561,7 +1571,7 @@ function PassportRow({
         // to, and six facts crowded into the right column left the name with
         // three characters of width.
         description={
-          <span className="passport-facts">
+          <span className="settings-run">
             <span>
               {t("settings.created", {
                 date: formatDate(passport.created_at, locale, "Europe/Berlin"),
@@ -1585,7 +1595,7 @@ function PassportRow({
           </span>
         }
         value={
-          <span className="passport-facts">
+          <span className="settings-run">
             {/* The credential exists but is withheld by design (shown once at
                 mint) — masked reads as "withheld", not absent. */}
             <span className="t-label">{t("settings.token")}</span>
@@ -1665,8 +1675,11 @@ function AgentToolsCard() {
 
   return (
     <Panel title={t("tools.title")}>
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("tools.sub")}</p>
+      {/* No `form-stack`: the description's own margin is the interval to the
+          rows, and the flex gap on top of it gave this card 28px where the
+          card above it has 16. */}
+      <PanelBody>
+        <p className="settings-panel-sub">{t("tools.sub")}</p>
         <SettingList>
           {/* The dial FIRST, then the inventory it narrows — the posture before
               the judgements that read it. Absent, not disabled, while this human
@@ -1693,23 +1706,39 @@ function AgentToolsCard() {
               }
             />
           )}
-          {/* One row per governed tool, handed to the enclosing list as its own
-              children so the hairline between two tools comes from the card
+          {/* The inventory is a REFERENCE, and it is 68 tools long: each row
+              carries the tool's name, what it is for, and the text an agent
+              selects it by, which is the promise this console makes — and read
+              open it measured 14,000px, so the card was a page-long wall in
+              front of the two rows above it that a reader actually sets. So it
+              is the card's secondary half and it is closed: the rule this page
+              follows for anything advanced or diagnostic.
+
+              One row per governed tool, handed to the list inside as its own
+              children so the hairline between two tools comes from the list
               that holds both. */}
           <QueryGate query={tools} empty={(data) => data.data.length === 0}>
-            {(data) =>
-              data.data.map((tool) => (
-                <ToolRow
-                  key={tool.name}
-                  tool={tool}
-                  reachable={
-                    !scopeId ||
-                    tool.required_scope == null ||
-                    grantedScopes.has(tool.required_scope)
-                  }
-                />
-              ))
-            }
+            {(data) => (
+              <Disclosure
+                summary={t("tools.inventory", {
+                  count: String(data.data.length),
+                })}
+              >
+                <SettingList>
+                  {data.data.map((tool) => (
+                    <ToolRow
+                      key={tool.name}
+                      tool={tool}
+                      reachable={
+                        !scopeId ||
+                        tool.required_scope == null ||
+                        grantedScopes.has(tool.required_scope)
+                      }
+                    />
+                  ))}
+                </SettingList>
+              </Disclosure>
+            )}
           </QueryGate>
         </SettingList>
       </PanelBody>
@@ -1719,14 +1748,27 @@ function AgentToolsCard() {
 
 type AgentTool = components["schemas"]["AgentTool"];
 
-// One governed tool as one row: the name an agent selects on and the text it
-// selects by on the left, the governance it runs under on the right. Struck, not
-// dimmed: dimming the row to 0.4 took the whole row under the AA contrast floor
-// (B-EP09.21) — including the caption that is supposed to be the text equivalent
-// of the dimming, so the one part a reader needs most became the hardest to
-// read. The strikethrough wraps the NAME and its display title and nothing else:
-// the badges state the tool's governance, which is true either way, and the
-// caption is the explanation.
+// One governed tool as one row, in the same two columns as every other row on
+// this page: the tool's NAME is the label, what it is for and what an agent
+// selects it by read under it, and the governance it runs under answers on the
+// right.
+//
+// The name and its written title used to share the label's line, so each row
+// read as a pair of unrelated strings — "account_coverage  Relationship coverage
+// on a deal" — beside cards whose rows are a label with a description beneath.
+// The title is a statement ABOUT the tool, so it goes where this page puts those.
+//
+// Struck, not dimmed: dimming the row to 0.4 took the whole row under the AA
+// contrast floor (B-EP09.21) — including the words that are supposed to be the
+// text equivalent of the dimming, so the one part a reader needs most became the
+// hardest to read. The strikethrough wraps the NAME and its display title and
+// nothing else: the badges state the tool's governance, which is true either
+// way, and the unreachable line is the explanation.
+//
+// That line is prose and therefore NOT a control: it used to sit in the right
+// column beside the badges, which is what left the answers on this card at three
+// different widths. It says something about the tool, so it reads with the rest
+// of what this row says about it.
 //
 // Wrapped rather than bare because `data-tool` is how the console's own coverage
 // reads one tool's row out of the inventory.
@@ -1740,32 +1782,28 @@ function ToolRow({
     <div data-tool={tool.name}>
       <SettingRow
         label={
-          <span className="tool-row-head">
-            <span
-              className={["t-mono", "tool-name", struck]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              {tool.name}
-            </span>
-            {tool.title && (
-              <span className={["t-caption", struck].filter(Boolean).join(" ")}>
-                {tool.title}
-              </span>
-            )}
+          <span
+            className={["t-mono", "tool-name", struck]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            {tool.name}
           </span>
         }
-        // The text an agent actually selects on. This console promises the
-        // surface an MCP client sees, and the name alone was never that.
-        description={tool.description}
+        description={
+          <span className="tool-row-text">
+            {tool.title && <span className={struck}>{tool.title}</span>}
+            {/* The text an agent actually selects on. This console promises the
+                surface an MCP client sees, and the name alone was never that. */}
+            <span>{tool.description}</span>
+            {!reachable && <span>{t("tools.unreachable")}</span>}
+          </span>
+        }
         control={
-          <span className="tool-row-head">
+          <span className="settings-run">
             <AutonomyDot tier={dotTier(tool.tier)} />
             {tool.required_scope && <Badge>{tool.required_scope}</Badge>}
             {tool.egress && <Badge tone="warn">{t("tools.egress")}</Badge>}
-            {!reachable && (
-              <span className="t-caption">{t("tools.unreachable")}</span>
-            )}
           </span>
         }
       />
@@ -1845,9 +1883,7 @@ function ResetDataCard() {
       className="settings-danger"
     >
       <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">
-          {t("settings.dangerZoneSub")}
-        </p>
+        <p className="settings-panel-sub">{t("settings.dangerZoneSub")}</p>
         <SettingList>
           {/* One row, because there is one act: what it does on the left, the
               verb that does it on the right. The verb takes the ellipsis form
@@ -2131,9 +2167,12 @@ function StageRemove({
   }
   return (
     <>
+      {/* Ghost, not danger. The dialog behind it is where the danger lives —
+          its confirm is the red one — and a trigger that shouts as loudly as
+          the act it only ASKS about put six solid red buttons in one pipeline,
+          which is the shout a reader stops reading. */}
       <Button
         small
-        variant="danger"
         data-testid={`remove-stage-${stage.id}`}
         onClick={() => setOpen(true)}
       >
@@ -2184,13 +2223,7 @@ function StageRow({
       {/* Each control carries its own verb — editing a stage is
           pipeline:update, removing one is pipeline:delete — so a role
           holding one without the other still sees the one it may use. */}
-      <span
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          alignItems: "center",
-        }}
-      >
+      <span className="stage-verbs">
         {canEdit && (
           <EditAction
             label={t("stage.edit")}
@@ -2336,16 +2369,44 @@ export function PipelinesCard() {
     },
   });
   return (
-    <Panel title={t("settings.pipelines")}>
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">
-          {t("settings.pipelinesSub")}
-        </p>
+    <Panel
+      title={t("settings.pipelines")}
+      // Adding a pipeline is four inputs committed together, so the header
+      // keeps the verb and the dialog keeps the form. It sits in the header
+      // band rather than as a trailing row: a row's label would repeat the
+      // button beside it, and a card-level create verb is the header's job
+      // everywhere else on these pages. Absent without the create grant,
+      // exactly as each Edit verb is — the read-only posture is stated once
+      // below.
+      titleAction={
+        canCreate && (
+          <CreateAction
+            label={t("pipeline.new")}
+            invalidate="pipelines"
+            screen="settings"
+            create={async (values) => {
+              const { data, error } = await api.POST("/pipelines", {
+                body: { ...mapPipelineBody(values), stages: [] },
+              });
+              if (error) {
+                throwProblem(error);
+              }
+              return data;
+            }}
+            fields={pipelineFields(t)}
+          />
+        )
+      }
+    >
+      <PanelBody>
+        <p className="settings-panel-sub">{t("settings.pipelinesSub")}</p>
         {/* Said once, at the top, rather than annotating each absent control —
             the rule in design-system/README.md. A reader holding one of the two
             verbs can see for themselves which controls they got. */}
         {!canCreate && !canEdit && (
-          <p className="t-caption">{t("settings.pipelinesReadOnly")}</p>
+          <p className="settings-panel-sub">
+            {t("settings.pipelinesReadOnly")}
+          </p>
         )}
         <SettingList>
           <QueryGate
@@ -2363,34 +2424,6 @@ export function PipelinesCard() {
               ))
             }
           </QueryGate>
-          {/* Adding a pipeline is four inputs committed together, so the row
-              keeps the verb and the dialog keeps the form — and the row sits
-              AFTER the ladders rather than in the header band, so the act that
-              adds to a list stands at the end of it. Absent without the create
-              grant, exactly as each Edit verb is: the read-only posture above
-              is stated once. */}
-          {canCreate && (
-            <SettingRow
-              label={t("pipeline.addLabel")}
-              control={
-                <CreateAction
-                  label={t("pipeline.new")}
-                  invalidate="pipelines"
-                  screen="settings"
-                  create={async (values) => {
-                    const { data, error } = await api.POST("/pipelines", {
-                      body: { ...mapPipelineBody(values), stages: [] },
-                    });
-                    if (error) {
-                      throwProblem(error);
-                    }
-                    return data;
-                  }}
-                  fields={pipelineFields(t)}
-                />
-              }
-            />
-          )}
         </SettingList>
       </PanelBody>
     </Panel>
@@ -2405,10 +2438,11 @@ function AutonomyCard() {
   const t = useT();
   return (
     <Panel title={t("settings.autonomy")}>
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">
-          {t("settings.autonomySub")}
-        </p>
+      {/* No `form-stack`: the description's own margin is the interval to the
+          rows. See PassportCard — the flex gap on top of that margin is what
+          gave the cards on this page two different intervals. */}
+      <PanelBody>
+        <p className="settings-panel-sub">{t("settings.autonomySub")}</p>
         {/* Three rows in the page's own language, even though none of them is
             settable: what the tier COVERS reads left as prose, and the tier it
             runs at — the dot, and on the locked row the badge saying the answer
@@ -2425,11 +2459,16 @@ function AutonomyCard() {
           />
           <SettingRow
             label={t("settings.tierAdvance")}
+            // The dot and the badge are ONE answer — the tier, and the fact that
+            // it cannot move — so they travel as a run at the page's own 8px chip
+            // gap. Handed to the control column loose, they took its 12px flex
+            // gap instead, which put the one row on this page carrying two chips
+            // at a different interval from every tool row above it.
             control={
-              <>
+              <span className="settings-run">
                 <AutonomyDot tier="confirm" />
                 <Badge tone="warn">{t("settings.locked")}</Badge>
-              </>
+              </span>
             }
           />
         </SettingList>
@@ -2642,11 +2681,7 @@ function AuditLogRow({
           aria-label={t("settings.auditExpand")}
           onClick={() => setExpanded((value) => !value)}
         >
-          <ChevronDown
-            aria-hidden
-            size={14}
-            style={{ transform: expanded ? "rotate(180deg)" : undefined }}
-          />
+          <ChevronDown aria-hidden size={14} className="expander-chevron" />
         </Button>
       </div>
       {expanded && (
@@ -2786,8 +2821,11 @@ export function AuditLogCard() {
   const asked = useSettledAuditLogFilters(filters);
   return (
     <Panel title={t("settings.auditEntries")}>
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("settings.auditSub")}</p>
+      {/* No `form-stack`: the description's own margin is the interval to the
+          rows, and the flex gap on top of it is the second spelling that made
+          the settings cards disagree about that interval. */}
+      <PanelBody>
+        <p className="settings-panel-sub">{t("settings.auditSub")}</p>
         <SettingList>
           {/* The dials are the card's SECONDARY half — a reader arrives to read
               what happened, and narrows it second — so they sit in a

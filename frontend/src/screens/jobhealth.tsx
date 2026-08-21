@@ -3,7 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useHoldsAdminRole } from "../app/capability";
@@ -18,6 +18,7 @@ import type { Translator } from "../format/now";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { QueryGate, throwProblem, useMe } from "./common";
+import "./jobhealth.css";
 
 // GET /admin/job-health — the operator's only window onto the background
 // system, for Settings → Maintenance. Until this card existed a stalled queue
@@ -31,24 +32,6 @@ import { QueryGate, throwProblem, useMe } from "./common";
 type JobHealth = components["schemas"]["JobHealth"];
 type JobKindHealth = components["schemas"]["JobKindHealth"];
 type JobFailure = components["schemas"]["JobFailure"];
-
-// A row of pills that wraps instead of running the card wide.
-const PILL_ROW: CSSProperties = {
-  display: "flex",
-  gap: "var(--space-2)",
-  flexWrap: "wrap",
-};
-
-// The trailing note under a reading's own content — the vetted-reason caveat
-// and the generated-at stamp. Both follow a list that owns no bottom margin, so
-// this is the only gap left to state.
-const NOTE: CSSProperties = { marginTop: "var(--space-4)" };
-
-// The remedy on its own line under the reason. What happened and what to do
-// are two readings, and a second sentence run on after the first is read as
-// more of the first — which is how the one line an operator at 2am is here for
-// disappears into the one they have already understood.
-const REMEDY: CSSProperties = { display: "block", marginTop: "var(--space-1)" };
 
 // The closed failure-state enum with the tone each state earns. `cancelled`
 // earns none: it was stopped deliberately, so it records a decision somebody
@@ -94,7 +77,7 @@ function KindCounts({ kind }: Readonly<{ kind: JobKindHealth }>) {
   const { locale } = useLocale();
   const shown = (value: number) => formatNumber(value, locale);
   return (
-    <span style={PILL_ROW}>
+    <span className="jobhealth-counts">
       <Badge>{t("jobs.count.waiting", { count: shown(kind.waiting) })}</Badge>
       <Badge>{t("jobs.count.running", { count: shown(kind.running) })}</Badge>
       <Badge tone={kind.retrying > 0 ? "warn" : undefined}>
@@ -259,7 +242,7 @@ function failureFacts(
               the two together, but a screen that inferred one from the other
               would draw an empty action line the day that coupling changes. */}
           {failure.remedy !== null && failure.remedy !== undefined && (
-            <span className="t-small" style={REMEDY}>
+            <span className="t-small jobhealth-remedy">
               {t("jobs.remedy", { remedy: failure.remedy })}
             </span>
           )}
@@ -286,29 +269,32 @@ function FailureSection({
       description={t("jobs.failuresSub")}
       layout="stack"
       control={
-        <div className="settingrow-measure">
-          {failures.length === 0 ? (
-            <EmptyState>{t("jobs.failuresEmpty")}</EmptyState>
-          ) : (
-            <>
+        failures.length === 0 ? (
+          <EmptyState>{t("jobs.failuresEmpty")}</EmptyState>
+        ) : (
+          // The list and the caveat under it are two children of the ROW's
+          // control column, not two children of one wrapper: a stacked row's
+          // control is already a flex column with the interval on it
+          // (settingrow.css), so a wrapper here would have to state a margin
+          // the row has spelled once for every card.
+          <>
+            <div className="settingrow-measure">
               <FactList facts={failureFacts(failures, t, locale, zone)} />
-              <p className="t-caption" style={NOTE}>
-                {t("jobs.reasonVetted")}
-              </p>
-            </>
-          )}
-        </div>
+            </div>
+            <p className="t-caption">{t("jobs.reasonVetted")}</p>
+          </>
+        )
       }
     />
   );
 }
 
-function JobHealthBody({ health }: Readonly<{ health: JobHealth }>) {
+function JobHealthBody({
+  health,
+  zone,
+}: Readonly<{ health: JobHealth; zone: string }>) {
   const t = useT();
   const { locale } = useLocale();
-  // The reader's own resolved zone: a stalled-queue timestamp is only useful
-  // against the clock on their wall, and no other zone here is ours to assume.
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   if (health.kinds.length === 0 && health.recent_failures.length === 0) {
     // Its own words rather than the generic "nothing here": that the background
@@ -351,17 +337,18 @@ function JobHealthBody({ health }: Readonly<{ health: JobHealth }>) {
           zone={zone}
         />
       </SettingList>
-      <p className="t-caption" style={NOTE}>
-        {t("jobs.generatedAt", {
-          time: formatDateTime(health.generated_at, locale, zone),
-        })}
-      </p>
     </>
   );
 }
 
 export function JobHealthCard() {
   const t = useT();
+  const { locale } = useLocale();
+  // The reader's own resolved zone: a stalled-queue timestamp is only useful
+  // against the clock on their wall, and no other zone here is ours to assume.
+  // Resolved once for the card and handed down, so the stamp in the footer and
+  // the failure timestamps in the body cannot read two different clocks.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   // The probe itself, not only its answer: useHoldsAdminRole reads false while
   // /me is in flight, so branching on `!isAdmin` alone told every administrator
   // that job health was admin-only, on every load of the Maintenance tab,
@@ -425,17 +412,38 @@ export function JobHealthCard() {
     // one thing this card exists to report, so the body owns that rung.
     body = (
       <QueryGate query={query}>
-        {(health) => <JobHealthBody health={health} />}
+        {(health) => <JobHealthBody health={health} zone={zone} />}
       </QueryGate>
     );
   }
 
+  // When the report was read belongs to the whole card rather than to any one
+  // reading in it, which is what `Panel`'s footer band is: the card's own
+  // trailing fact, ruled off edge to edge like the header. Read off the query
+  // rather than passed up out of the body, so the stamp is absent for exactly
+  // the states that have no report — withheld, pending, failed — and present
+  // for every state that does, the idle one included: an operator trusting
+  // "nothing is queued" needs to know how old that answer is.
+  // Behind `isAdmin` as well as behind the data, because a cache outlives a
+  // grant: a role edited mid-session leaves the last report sitting in the
+  // query cache, and a stamp under a withheld body would date a reading the
+  // card is no longer showing.
+  const report = isAdmin ? query.data : undefined;
+
   // No bottom margin: `.settings-stack` owns the gap between cards, and a card
   // that adds its own gets two.
   return (
-    <Panel title={t("settings.jobs")}>
+    <Panel
+      title={t("settings.jobs")}
+      footer={
+        report &&
+        t("jobs.generatedAt", {
+          time: formatDateTime(report.generated_at, locale, zone),
+        })
+      }
+    >
       <PanelBody>
-        <p className="t-small settings-panel-sub">{t("settings.jobsSub")}</p>
+        <p className="settings-panel-sub">{t("settings.jobsSub")}</p>
         {/* One card's throw stays inside one card. This body derives every
             line from a payload the background system writes, so it has more
             ways to give out than the panels beside it — and without a boundary

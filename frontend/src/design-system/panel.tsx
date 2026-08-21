@@ -133,9 +133,12 @@ export function PanelBody({
   );
 }
 
-// PanelRow is the full-bleed hairline row every list inside a panel wants: a
-// top border against the row above (none on the first) and content that runs
-// edge to edge rather than sitting in the body's padding.
+// PanelRow is the hairline row every list inside a panel wants: content that
+// runs edge to edge rather than sitting in the body's padding, with a rule
+// against the row above it (none on the first). The rule itself is inset to the
+// panel's padding, like every rule BETWEEN two pieces of a card's content — see
+// the seam rule in panel.css. The header's and the footer's rules are the card's
+// own chrome and stay edge to edge.
 //
 // A row is INERT unless the caller says otherwise, which is the reverse of what
 // this component shipped with. The hover fill was unconditional, so a panel

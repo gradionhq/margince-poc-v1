@@ -399,7 +399,7 @@ export function OverlayCard() {
       }
     >
       <PanelBody>
-        <p className="t-caption">{t("overlay.sub")}</p>
+        <p className="settings-panel-sub">{t("overlay.sub")}</p>
         <ConnectionNotice query={connection} />
         {connection.isSuccess && (
           <SettingList>

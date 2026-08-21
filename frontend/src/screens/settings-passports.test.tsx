@@ -115,9 +115,11 @@ function mintBackend(
 // One instance per test, never per interaction: a second instance silently
 // forgets which keys and buttons the first left held.
 //
-// The ROW's verb takes the ellipsis form ("Mint…") and the drawer's submit keeps
-// the plain one ("Mint passport"), so the two are never one name for two acts —
-// which is what lets every assertion below name the button it means.
+// The CARD's verb — in its header band, beside the title, since minting is what
+// the card is for rather than one of the credentials it lists — takes the
+// ellipsis form ("Mint…") while the drawer's submit keeps the plain one ("Mint
+// passport"), so the two are never one name for two acts. That is what lets
+// every assertion below name the button it means.
 async function openDrawer(user: ReturnType<typeof userEvent.setup>) {
   render("agents");
   await user.click(await screen.findByRole("button", { name: "Mint…" }));

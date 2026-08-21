@@ -41,6 +41,18 @@
   width: auto;
 }
 
+/* The intent picker, held to a measure inside the row's line. `Select`'s face is
+   an `.input`, which is `width: 100%` — and a 100% flex item takes the WHOLE
+   line, so at the settings page's 720px measure every source came out as three
+   stacked full-width boxes and the list read as a wall of grey rather than one
+   line per record. Same rule the add form's box already needed below, and the
+   same one the pinned-record field needs in retention.css. */
+.lead-vocab-row > .select-control {
+  flex: 0 1 10rem;
+  min-width: 0;
+  width: auto;
+}
+
 .lead-vocab-key {
   flex: 0 0 auto;
 }
@@ -55,6 +67,19 @@
   align-items: center;
   gap: var(--space-2);
   margin-left: auto;
+}
+
+/* The card's own band under the rows: the read-only posture, and a write the
+   server refused. It is not one more row — the posture is true of every row in
+   the list and a refusal belongs to the card — so it pays for its own interval,
+   the same one `.settings-panel-sub` pays above the list, because `SettingList`
+   owns the gaps BETWEEN rows and nothing above or below itself. */
+.lead-vocab-notices {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 /* The add row reads as one line: the box, then the verb that submits it. One

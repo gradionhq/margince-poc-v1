@@ -797,7 +797,7 @@ export function AutomationsAdmin() {
     // rather than "the whole settings page".
     <Panel title={t("nav.automations")}>
       <PanelBody>
-        <p className="t-sub settings-panel-sub">{t("auto.sub")}</p>
+        <p className="settings-panel-sub">{t("auto.sub")}</p>
         {/* Bound to the grant the CONTROL asks for. It read "no create AND no
             edit AND no delete" while the row swaps its Switch for a Badge on
             `update` alone — so a seat holding create but not update lost the
@@ -828,7 +828,7 @@ export function AutomationsAdmin() {
         {/* The outcome lands on the CARD, because by the time it is true the
             dialog that produced it is gone. */}
         {create.isSuccess && (
-          <p className="t-caption auto-note" role="status">
+          <p className="t-caption auto-outcome" role="status">
             {t("auto.createdPaused")}
           </p>
         )}
@@ -953,7 +953,12 @@ function StarterLibraryRow({
       control={
         <QueryGate query={catalog} empty={(page) => page.data.length === 0}>
           {(page) => (
-            <ul className="auto-catalog">
+            // A nested SettingList, so the interval between two entries and the
+            // hairline that separates them are the row language's own. As a bare
+            // `<ul>` each entry ran three text lines together with no rule
+            // anywhere and no interval between the lines — a wall of names,
+            // sentences and identifiers with a verb floating at the right.
+            <SettingList testId="auto-catalog">
               {page.data.map((entry) => (
                 <CatalogEntryItem
                   key={entry.key}
@@ -962,7 +967,7 @@ function StarterLibraryRow({
                   onUse={() => onUse(entry)}
                 />
               ))}
-            </ul>
+            </SettingList>
           )}
         </QueryGate>
       }
@@ -970,10 +975,14 @@ function StarterLibraryRow({
   );
 }
 
-// One entry of the closed catalog: what it is, what it does, and — for a seat
-// holding create — the verb that turns it into a configured automation. The
-// verb sits at the entry's right edge, on the naming's line, the same place
-// every answer on this page sits.
+// One entry of the closed catalog as ONE row: what it is on the left — the name,
+// what it does, and the trigger/action pair in the wire's own words — and, for a
+// seat holding create, the verb that turns it into a configured automation at
+// the x every answer on this page sits at.
+//
+// The recipe joins the DESCRIPTION rather than standing as a third line of its
+// own: it is what the entry does, said in identifiers instead of prose, so the
+// two together are the naming and the row has one naming column and one answer.
 function CatalogEntryItem({
   entry,
   canCreate,
@@ -985,26 +994,32 @@ function CatalogEntryItem({
 }>) {
   const t = useT();
   return (
-    <li>
-      <div className="auto-catalog-head">
-        {entry.tier && (
-          <AutonomyDot
-            tier={entry.tier === "auto_execute" ? "auto" : "confirm"}
-          />
-        )}
-        <strong>{entry.name}</strong>
-        {canCreate && (
-          <Button small onClick={onUse}>
+    <SettingRow
+      label={
+        <span className="auto-catalog-name">
+          {entry.tier && (
+            <AutonomyDot
+              tier={entry.tier === "auto_execute" ? "auto" : "confirm"}
+            />
+          )}
+          {entry.name}
+        </span>
+      }
+      description={
+        <>
+          {entry.description}
+          <span className="t-mono auto-catalog-recipe">
+            {entry.trigger} {"->"} {entry.action}
+          </span>
+        </>
+      }
+      control={
+        canCreate ? (
+          <Button variant="ghost" onClick={onUse}>
             {t("auto.use")}
           </Button>
-        )}
-      </div>
-      {entry.description && (
-        <p className="t-caption auto-note">{entry.description}</p>
-      )}
-      <p className="t-mono t-small auto-note">
-        {entry.trigger} {"->"} {entry.action}
-      </p>
-    </li>
+        ) : null
+      }
+    />
   );
 }

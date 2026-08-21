@@ -6,6 +6,7 @@ import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
 import {
   Button,
+  EmptyState,
   Modal,
   SegmentedControl,
   TextInput,
@@ -113,21 +114,40 @@ export function CaptureExclusionsCard() {
     !canManageWorkspace && rules.some((rule) => bindsEveryone(rule));
 
   return (
-    <Panel title={t("captureExclusions.title")}>
+    <Panel
+      title={t("captureExclusions.title")}
+      // Three inputs submitted together — who it binds, what kind of rule it
+      // is, and the value — so the form lives behind this verb. It rides in the
+      // header rather than in a row of its own: a row states a setting and its
+      // answer, and a row whose label repeated the button's words said the same
+      // thing twice a hand apart. No refusal on it, because anybody may keep
+      // their OWN correspondent out — the dialog refuses the scope that binds
+      // everyone, where that choice is made.
+      titleAction={
+        <Button small onClick={() => setExcluding(true)}>
+          {t("captureExclusions.addOpen")}
+        </Button>
+      }
+    >
+      {/* `form-stack` stays: the denial sentence and the failure Callout under
+          the list are non-row children, and the list owns only the intervals
+          BETWEEN its rows. */}
       <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">
-          {t("captureExclusions.sub")}
-        </p>
+        <p className="settings-panel-sub">{t("captureExclusions.sub")}</p>
         <SettingList>
           {/* The rules are the subject of this card, not an answer beside a
-              question, so they take the row's full width. */}
+              question, so they take the row's full width. The irreversibility
+              note sits here rather than beside the header verb, because it
+              describes what BOTH acts on this card do — adding a rule and
+              taking one back. */}
           <SettingRow
             label={t("captureExclusions.current")}
+            description={t("captureExclusions.notRetroactive")}
             layout="stack"
             control={
               <QueryGate query={query}>
                 {(list) => (
-                  <ExclusionList
+                  <ExclusionRows
                     list={list.data}
                     canManageWorkspace={canManageWorkspace}
                     denialId={denialId}
@@ -136,17 +156,6 @@ export function CaptureExclusionsCard() {
                   />
                 )}
               </QueryGate>
-            }
-          />
-          {/* Three inputs submitted together — who it binds, what kind of rule
-              it is, and the value — so the form lives behind this verb. */}
-          <SettingRow
-            label={t("captureExclusions.addLabel")}
-            description={t("captureExclusions.notRetroactive")}
-            control={
-              <Button variant="ghost" onClick={() => setExcluding(true)}>
-                {t("captureExclusions.add")}
-              </Button>
             }
           />
         </SettingList>
@@ -171,7 +180,19 @@ export function CaptureExclusionsCard() {
   );
 }
 
-function ExclusionList({
+/**
+ * One rule per row: the address or domain it names on the left, who it binds
+ * and what kind of rule it is as the row's answer, and the verb that takes it
+ * back at the right.
+ *
+ * It was a hand-rolled `<ul>` with an inline-styled `<li>` and an inline
+ * `marginLeft` on the meta beside each entry — the same list own-domains.tsx
+ * had copied, which is the signal the shape belongs to the row language rather
+ * than to either screen. `SettingList` draws the hairline between entries and
+ * `SettingRow` puts every verb at one x, so a reader auditing the rules travels
+ * one column instead of reading a wall.
+ */
+function ExclusionRows({
   list,
   canManageWorkspace,
   denialId,
@@ -188,49 +209,42 @@ function ExclusionList({
   const t = useT();
   const words = useRuleWords();
   if (list.length === 0) {
+    // `empty`, and only `empty`: nothing is excluded, which is a fact about the
+    // installation rather than a read that failed. The row caps and
+    // left-aligns it already (settingrow.css), so there is nothing to undo here.
     return (
-      <p className="t-small" data-testid="capture-exclusions-empty">
-        {t("captureExclusions.empty")}
-      </p>
+      <EmptyState>
+        <p className="t-small" data-testid="capture-exclusions-empty">
+          {t("captureExclusions.empty")}
+        </p>
+      </EmptyState>
     );
   }
   return (
-    <ul
-      className="settingrow-measure"
-      data-testid="capture-exclusions-list"
-      style={{ listStyle: "none", margin: 0, padding: 0 }}
-    >
+    <SettingList testId="capture-exclusions-list">
       {list.map((rule) => (
-        <li
+        <SettingRow
           key={rule.id}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "var(--space-2)",
-            padding: "var(--space-2) 0",
-          }}
-        >
-          <span>
-            {rule.value}
-            <span className="t-small" style={{ marginLeft: "var(--space-2)" }}>
-              {words.scope[rule.scope]} · {words.kind[rule.kind]}
-            </span>
-          </span>
-          <Button
-            variant="ghost"
-            aria-label={t("captureExclusions.remove", { value: rule.value })}
-            disabled={pending}
-            reasonId={
-              bindsEveryone(rule) && !canManageWorkspace ? denialId : undefined
-            }
-            onClick={() => onRemove(rule.id)}
-          >
-            <Trash2 aria-hidden size={16} />
-          </Button>
-        </li>
+          label={rule.value}
+          value={`${words.scope[rule.scope]} · ${words.kind[rule.kind]}`}
+          control={
+            <Button
+              variant="ghost"
+              aria-label={t("captureExclusions.remove", { value: rule.value })}
+              disabled={pending}
+              reasonId={
+                bindsEveryone(rule) && !canManageWorkspace
+                  ? denialId
+                  : undefined
+              }
+              onClick={() => onRemove(rule.id)}
+            >
+              <Trash2 aria-hidden size={16} />
+            </Button>
+          }
+        />
       ))}
-    </ul>
+    </SettingList>
   );
 }
 

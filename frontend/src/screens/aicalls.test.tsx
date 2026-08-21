@@ -119,9 +119,17 @@ it("renders call badges and expands the attempt and payload detail", async () =>
   // filter's option list as well as in the row, and the row is what expands.
   // The disclosure is a real button now, not the row: a `<tr onClick>`
   // could only ever be reached by pointer.
-  await userEvent.click(
-    screen.getByRole("button", { name: /show the attempt trail/i }),
-  );
+  const toggle = screen.getByRole("button", {
+    name: /show the attempt trail/i,
+  });
+  // The chevron is turned by this attribute (aicalls.css), so what the reader
+  // sees and what a screen reader hears are one fact rather than two that can
+  // disagree. It is also why this stays a button and not a `Disclosure`: what
+  // opens is the NEXT table row, which no element can contain from inside a
+  // cell of the row above it.
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  await userEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
   expect(await screen.findByText(/retry_on_5xx/)).toBeTruthy();
   expect(screen.getByText("Request payload")).toBeTruthy();
   expect(screen.getByText("Export as cert scenario")).toBeTruthy();

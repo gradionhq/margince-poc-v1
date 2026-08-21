@@ -24,6 +24,14 @@ import "../src/design-system/composed.css";
 // the figure it was explaining. Loading it here closes that for the catalog
 // rather than one story at a time.
 import "../src/design-system/atoms.css";
+// settings.css for the third time in this list and the same reason: the
+// settings row language reaches `.settings-panel-sub` and
+// `.settings-panel-commit` BY CLASS from twenty-odd card files, none of which
+// imports the sheet — `settings.tsx` does, and a story that renders one card on
+// its own never reaches it. Unloaded, a card's description had no interval below
+// it and its commit band none above, so every settings-card story understated
+// exactly the spacing those stories exist to check.
+import "../src/screens/settings.css";
 
 // Theme decorator — sets data-theme on <html>, the same mechanism the shell
 // uses (src/app/shell.tsx), so a story previews in light and dark.

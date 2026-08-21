@@ -181,9 +181,7 @@ export function FxRatesCard() {
       }
     >
       <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">
-          {t("settings.rates.fxIntro")}
-        </p>
+        <p className="settings-panel-sub">{t("settings.rates.fxIntro")}</p>
         {/* A sheet whose write affordances are all withheld says so ONCE, here,
             rather than annotating each absent control. The rule (design-system
             README): a permission-withheld SURFACE states it, while individual
@@ -285,13 +283,9 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
     <Modal open onClose={onClose} labelledBy={labelId}>
       {/* A dialog is portalled to the body, so it is its own region and its
           title starts the outline at level 2 — the spelling ConfirmModal uses
-          for every other dialog in the tree. --space-3 is the 12px that
-          spelling sets by hand. */}
-      <h2
-        id={labelId}
-        className="t-h2"
-        style={{ marginBottom: "var(--space-3)" }}
-      >
+          for every other dialog in the tree. `.modal-title` is the catalog's
+          own name for the interval under it. */}
+      <h2 id={labelId} className="t-h2 modal-title">
         {t("settings.rates.fxModalTitle")}
       </h2>
       {/* `Field` owns each box's id and hands it to the input, so the label a
@@ -417,9 +411,7 @@ export function ModelCostsCard() {
       }
     >
       <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">
-          {t("settings.rates.modelIntro")}
-        </p>
+        <p className="settings-panel-sub">{t("settings.rates.modelIntro")}</p>
         {/* A sheet whose write affordances are all withheld says so ONCE, here,
             rather than annotating each absent control. The rule (design-system
             README): a permission-withheld SURFACE states it, while individual
@@ -566,11 +558,7 @@ function ModelCostModal({ onClose }: Readonly<{ onClose: () => void }>) {
 
   return (
     <Modal open onClose={onClose} labelledBy={labelId}>
-      <h2
-        id={labelId}
-        className="t-h2"
-        style={{ marginBottom: "var(--space-3)" }}
-      >
+      <h2 id={labelId} className="t-h2 modal-title">
         {t("settings.rates.modelModalTitle")}
       </h2>
       <div className="form-stack">

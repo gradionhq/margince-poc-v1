@@ -59,8 +59,13 @@ export function CaptureSettingsCard() {
   // description leads the body instead of riding in the header.
   return (
     <Panel title={t("captureSettings.title")}>
+      {/* `form-stack` still earns its place: the failure Callout below the list
+          is a non-row child, and without the body's gap it would butt against
+          the last row's hairline. `.settings-panel-sub`'s own interval is
+          already corrected for a `.form-stack` body, so the description lands
+          on the same 16px it does in a plain one. */}
       <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("captureSettings.sub")}</p>
+        <p className="settings-panel-sub">{t("captureSettings.sub")}</p>
         <QueryGate query={query}>
           {(settings) => (
             <SettingList>

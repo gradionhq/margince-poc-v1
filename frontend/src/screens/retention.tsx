@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type CSSProperties, type ReactNode, useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import { useCan, useCanWrite } from "../app/capability";
 import {
@@ -42,13 +42,6 @@ import {
 } from "./retention.logic";
 import { RetentionPolicyForm } from "./retentionpolicyform";
 import "./retention.css";
-
-// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
-// is the body's first paragraph and owes its own separation from the content
-// under it; it is a token rather than a number so it moves with the scale, and
-// it lives here rather than in a screen sheet because it belongs to the panel
-// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
-const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
 // Settings → Privacy → Retention (GCS-WIRE-1..5): the storage-limitation
 // ladder an admin now owns, and the retain-only posture that overrides its
@@ -190,11 +183,7 @@ function PolicyRow({
       <Modal open={editing} onClose={toggleEditor} labelledBy={editorTitleId}>
         {/* The scope names WHICH policy is open, because the dialog covers the
             row that would otherwise have said. */}
-        <h2
-          id={editorTitleId}
-          className="t-h2"
-          style={{ marginBottom: "var(--space-3)" }}
-        >
+        <h2 id={editorTitleId} className="t-h2 modal-title">
           {t(scopeLabelKey(policy.scope))}
         </h2>
         <div className="form-stack">
@@ -405,13 +394,12 @@ function PostureToggle({
   return (
     <div className="retention-posture">
       <Switch
-        // The row draws this name; the switch keeps it as its own hidden label
-        // because it owns what it announces — and it keeps the `hint` too,
-        // rather than handing the sentence to the row, because a reader who
-        // hears only the control still has to be told what the posture does.
+        // The row draws the naming — the name and what the posture does — so
+        // the switch carries the same words hidden and no `hint` of its own: it
+        // owns its accessible name by design, and a hint here would draw the
+        // row's own description a second time in the answer column.
         label={t("retention.retainOnly")}
         labelHidden
-        hint={t("retention.retainOnlyHelp")}
         // Two reasons this control can be unavailable, and only one of them is
         // worth words: a reader who may never change the posture needs to know
         // why, where a write already in flight explains itself by finishing.
@@ -489,9 +477,7 @@ export function RetentionCard() {
     return (
       <Panel title={t("retention.title")}>
         <PanelBody>
-          <p className="t-sub" style={PANEL_SUB}>
-            {t("retention.sub")}
-          </p>
+          <p className="settings-panel-sub">{t("retention.sub")}</p>
           <QueryGate query={me}>
             {() => (
               <EmptyState>
@@ -506,26 +492,48 @@ export function RetentionCard() {
 
   // No bottom margin of its own: `.settings-stack` owns the gap between cards.
   return (
-    <Panel title={t("retention.title")}>
+    <Panel
+      title={t("retention.title")}
+      // The card's one create verb rides in the header rather than in a row of
+      // its own. A row states a setting and its answer; authoring a policy is
+      // neither, and the row it used to sit in had the button's own words for a
+      // LABEL — "Add policy" twice, a hand apart. `titleAction` is the slot for
+      // exactly this (panel.tsx), and it keeps the verb above a ladder that
+      // grows instead of below the last rung.
+      //
+      // Absent without the create grant, exactly as each row's Edit verb is:
+      // the posture switch already states this reader's read-only standing
+      // once, and withholding it a second time per row is noise.
+      titleAction={
+        canCreate ? (
+          <Button small onClick={() => setAdding(true)}>
+            {t("retention.addPolicy")}
+          </Button>
+        ) : undefined
+      }
+    >
       <PanelBody>
-        <p className="t-sub" style={PANEL_SUB}>
-          {t("retention.sub")}
-        </p>
+        <p className="settings-panel-sub">{t("retention.sub")}</p>
         <CardBoundary>
-          {/* The posture FIRST, then the rules that read it, then the verb that
-              adds another — a reader auditing the ladder needs the override
-              before the rows it overrides, or every row is read twice. */}
+          {/* The posture FIRST, then the rules that read it — a reader auditing
+              the ladder needs the override before the rows it overrides, or
+              every row is read twice. */}
           <SettingList>
-            {/* Stacked, not beside its label: the switch carries two sentences
-                of its own — what the posture does, and (without the grant) why
-                it is not this reader's to flip — and sentences squeezed into
-                the right column stop being sentences. */}
+            {/* One switch, so it answers its row from the right column like
+                every other single control on this page. The sentence that says
+                what the posture DOES is the row's description, in the naming
+                column where a sentence has the width to be one — it was under
+                the switch before, which made the only control on the card the
+                only one not at the answer column's x. */}
             <SettingRow
               label={t("retention.retainOnly")}
-              layout="stack"
+              description={t("retention.retainOnlyHelp")}
               control={
                 settings.isPending ? (
-                  <Skeleton width="70%" />
+                  // Switch-shaped, because that is what is arriving: a
+                  // percentage bar in the answer column has no width to be a
+                  // percentage of.
+                  <Skeleton width={40} height={22} />
                 ) : settings.isError ? (
                   <p className="t-caption retention-error" role="alert">
                     {problemMessageOf(settings.error, t)}
@@ -545,34 +553,17 @@ export function RetentionCard() {
               canDelete={canDelete}
               onDelete={setDeleting}
             />
-
-            {/* Authoring a policy is four inputs committed together, so the row
-                keeps the verb and the dialog keeps the form. Absent without the
-                create grant, exactly as the Edit verb is: the posture switch
-                above already states this reader's read-only standing once, and
-                withholding it a second time per row is noise. */}
-            {canCreate && (
-              <SettingRow
-                label={t("retention.addPolicy")}
-                control={
-                  <Button small onClick={() => setAdding(true)}>
-                    {t("retention.addPolicy")}
-                  </Button>
-                }
-              />
-            )}
           </SettingList>
 
+          {/* Authoring a policy is four inputs committed together, so the
+              header's verb opens a dialog and the ladder above stays a list of
+              answers. */}
           <Modal
             open={adding}
             onClose={() => setAdding(false)}
             labelledBy={addTitleId}
           >
-            <h2
-              id={addTitleId}
-              className="t-h2"
-              style={{ marginBottom: "var(--space-3)" }}
-            >
+            <h2 id={addTitleId} className="t-h2 modal-title">
               {t("retention.addPolicy")}
             </h2>
             <RetentionPolicyForm onDone={() => setAdding(false)} />

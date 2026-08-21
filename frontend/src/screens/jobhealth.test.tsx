@@ -372,5 +372,28 @@ describe("JobHealthCard", () => {
     // and a list of empty rows reports it three times as three.
     expect(screen.queryByText("This organization")).not.toBeInTheDocument();
     expect(screen.queryByText("Recent failures")).not.toBeInTheDocument();
+    // The stamp stands even here. An operator acting on "nothing is queued" is
+    // trusting a reading, and a reading with no time on it cannot be trusted.
+    expect(screen.getByText(/read at/i)).toBeInTheDocument();
+  });
+
+  it("dates the report in the card's own footer, and only when there is one", async () => {
+    stubRoutes({
+      "GET /me": () => jsonResponse(meFixture({ roles: ["ops"] })),
+    });
+    render(<JobHealthCard />);
+    await screen.findByText(/only an admin can see background-job health/i);
+    // No report, no stamp: a time under a withheld body would date a reading
+    // this card is not showing.
+    expect(screen.queryByText(/read at/i)).not.toBeInTheDocument();
+    cleanup();
+
+    stubRoutes();
+    render(<JobHealthCard />);
+    // When the report was read belongs to the whole card rather than to any one
+    // reading in it, so it stands in the panel's own footer band rather than as
+    // one more line after the last row.
+    const stamp = await screen.findByText(/read at/i);
+    expect(stamp.closest("footer")).not.toBeNull();
   });
 });

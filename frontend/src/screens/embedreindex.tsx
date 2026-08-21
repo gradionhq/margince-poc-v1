@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
 import { Badge, Button, EmptyState } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { CardBoundary } from "../design-system/cardboundary";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
@@ -15,6 +16,7 @@ import { formatDuration, formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { bandTone } from "./aiusage";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
+import "./embedreindex.css";
 
 // The v6 B2 embedding-reindex surface (ADR-0068 design §5.6-swap). The
 // status read is admin/ops-only server-side now (migration 0115:
@@ -27,18 +29,6 @@ import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 // (the withheld branch below). The two WRITE actions — confirming a
 // reindex and the always-available force rebuild — are admin/ops-only
 // server-side too (embedding_reindex object's update grant).
-
-// The status line: a badge with a sentence beside it. `SettingRow`'s control
-// column already gives this the gap and the optical centring, so the only thing
-// left to state is the WRAP — at a narrow width the column stretches to the full
-// card and a badge plus a whole sentence no longer fits on one line, and without
-// this the two run off the right edge instead of folding.
-const STATUS_LINE: CSSProperties = {
-  display: "flex",
-  gap: "var(--space-3)",
-  alignItems: "center",
-  flexWrap: "wrap",
-};
 
 type ReindexStatus = components["schemas"]["EmbedReindexStatus"];
 type ReindexPreview = components["schemas"]["EmbedReindexPreview"];
@@ -106,7 +96,7 @@ function StatusHeader({
       ? t("embedreindex.statusNeeded")
       : t("embedreindex.statusIdle");
   return (
-    <div style={STATUS_LINE}>
+    <div className="embedreindex-status">
       <Badge tone={tone}>{label}</Badge>
       {data.reindex_needed && !isRunning && (
         <span className="t-small">
@@ -154,7 +144,7 @@ function EstimateBody({
     return null;
   }
   return (
-    <div>
+    <div className="embedreindex-estimate">
       <p>
         {t("embedreindex.estimateEntities")}{" "}
         <strong>{formatNumber(preview.entities_pending, locale)}</strong>
@@ -178,9 +168,7 @@ function EstimateBody({
       <p className="t-small">{t("embedreindex.estimateQualityHeuristic")}</p>
       {preview.utilization_impact && (
         <>
-          <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
-            {t("embedreindex.utilizationTitle")}
-          </p>
+          <p className="t-small">{t("embedreindex.utilizationTitle")}</p>
           <p>
             <Badge tone={bandTone(preview.utilization_impact)}>
               {impactLabel(preview.utilization_impact, t)}
@@ -444,10 +432,16 @@ export function EmbedReindexCard() {
                       {t("embedreindex.previewLoading")}
                     </p>
                   )}
+                  {/* A failed estimate is what this dialog says about ITSELF,
+                      and it is the reason Confirm is refused — so it is a
+                      `Callout`, not a tinted paragraph: red text alone carries
+                      the meaning in colour only. `alert` because it appears in
+                      answer to the reader opening this dialog and it names the
+                      thing standing between them and the act. */}
                   {preview.isError && (
-                    <p className="t-small" style={{ color: "var(--danger)" }}>
-                      {problemMessageOf(preview.error, t)}
-                    </p>
+                    <Callout tone="danger" live="alert">
+                      <p>{problemMessageOf(preview.error, t)}</p>
+                    </Callout>
                   )}
                   <EstimateBody preview={preview.data} locale={locale} t={t} />
                 </ConfirmModal>
@@ -463,7 +457,7 @@ export function EmbedReindexCard() {
   return (
     <Panel title={t("embedreindex.title")}>
       <PanelBody>
-        <p className="t-small settings-panel-sub">{t("embedreindex.sub")}</p>
+        <p className="settings-panel-sub">{t("embedreindex.sub")}</p>
         <CardBoundary>{body}</CardBoundary>
       </PanelBody>
     </Panel>

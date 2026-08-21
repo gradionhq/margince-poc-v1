@@ -3,10 +3,19 @@
  * (ds-purity) — every control, and the row language itself, comes from the
  * design system. */
 
+/* The posture switch and, when a flip is refused, the sentence saying so. Both
+ * sit in the row's ANSWER column now, so they stack against its right edge
+ * rather than starting a second column of their own — a refusal that began at
+ * the switch's left would hang off the one x every answer on this page shares. */
 .retention-posture {
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: var(--space-1);
+}
+
+.retention-posture > .retention-error {
+  text-align: right;
 }
 
 /* The words and the wire identifier stack, so a wide row stays one line per

@@ -7,7 +7,7 @@ import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
-import { Button, Modal, TextInput } from "../design-system/atoms";
+import { Button, EmptyState, Modal, TextInput } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
 import { SettingList, SettingRow } from "../design-system/settingrow";
@@ -106,9 +106,24 @@ export function OwnDomainsCard() {
   // owns the gap between its surfaces in one place, so a card cannot space
   // itself differently from the one beside it.
   return (
-    <Panel title={t("ownDomains.title")}>
+    <Panel
+      title={t("ownDomains.title")}
+      // A create form behind one verb, so the rows below stay answers — and the
+      // verb rides in the header rather than in a row of its own, because a row
+      // states a setting and its answer while a row whose label repeats its own
+      // button says the same thing twice a hand apart. Refused, never hidden:
+      // `reasonId` names the one sentence under the rows.
+      titleAction={
+        <Button small reasonId={refusal} onClick={() => setAdding(true)}>
+          {t("ownDomains.addOpen")}
+        </Button>
+      }
+    >
+      {/* `form-stack` stays: the denial sentence and the failure Callout under
+          the rows are non-row children, and the list owns only the intervals
+          BETWEEN its rows. */}
       <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("ownDomains.sub")}</p>
+        <p className="settings-panel-sub">{t("ownDomains.sub")}</p>
         <SettingList>
           {anchors.length > 0 && (
             <SettingRow
@@ -128,16 +143,18 @@ export function OwnDomainsCard() {
                 </>
               }
               layout="stack"
+              // One row per domain, in the same row language as the curated
+              // half below — it was a bulleted `<ul>` with an inline margin and
+              // an inline left padding, a third layout on a card that already
+              // had two. `control={null}` because there is nothing to press: a
+              // domain the company profile claims is changed there, and the
+              // link in the description is what takes the reader.
               control={
-                <ul
-                  className="t-small settingrow-measure"
-                  data-testid="own-domains-from-company"
-                  style={{ margin: 0, paddingLeft: "var(--space-4)" }}
-                >
+                <SettingList testId="own-domains-from-company">
                   {anchors.map((domain) => (
-                    <li key={domain}>{domain}</li>
+                    <SettingRow key={domain} label={domain} control={null} />
                   ))}
-                </ul>
+                </SettingList>
               }
             />
           )}
@@ -162,20 +179,6 @@ export function OwnDomainsCard() {
               </QueryGate>
             }
           />
-          {/* A create form behind a verb, so the rows above stay answers. One
-              field today, and the same shape as every other add on this tab. */}
-          <SettingRow
-            label={t("ownDomains.addLabel")}
-            control={
-              <Button
-                variant="ghost"
-                reasonId={refusal}
-                onClick={() => setAdding(true)}
-              >
-                {t("ownDomains.add")}
-              </Button>
-            }
-          />
         </SettingList>
         {!canManage && (
           <p className="t-small" id={denialId}>
@@ -193,8 +196,15 @@ export function OwnDomainsCard() {
   );
 }
 
-// The curated half: the domains this card owns, with the verb that takes one
-// back beside each of them.
+/**
+ * The curated half: one row per domain, whether it is confirmed as the row's
+ * answer, and the verb that takes it back at the right.
+ *
+ * It was a hand-rolled `<ul>` with an inline-styled `<li>` and an inline
+ * `marginLeft` on the state beside each domain — the same list
+ * capture-exclusions.tsx had copied, which is the signal the shape belongs to
+ * the row language rather than to either screen.
+ */
 function CuratedDomains({
   list,
   refusal,
@@ -209,71 +219,42 @@ function CuratedDomains({
 }>) {
   const t = useT();
   if (list.length === 0) {
+    // `empty`, and only `empty`: no further domain is registered, which is a
+    // fact about the installation rather than a read that failed. The row caps
+    // and left-aligns it already (settingrow.css).
     return (
-      <p className="t-small" data-testid="own-domains-empty">
-        {t("ownDomains.empty")}
-      </p>
+      <EmptyState>
+        <p className="t-small" data-testid="own-domains-empty">
+          {t("ownDomains.empty")}
+        </p>
+      </EmptyState>
     );
   }
   return (
-    <ul
-      className="settingrow-measure"
-      data-testid="own-domains-list"
-      style={{ listStyle: "none", margin: 0, padding: 0 }}
-    >
+    <SettingList testId="own-domains-list">
       {list.map((domain) => (
-        <DomainRow
+        <SettingRow
           key={domain.domain}
-          domain={domain}
-          refusal={refusal}
-          pending={pending}
-          onRemove={() => onRemove(domain.domain)}
+          label={domain.domain}
+          value={
+            domain.verified
+              ? t("ownDomains.confirmed")
+              : t("ownDomains.candidate")
+          }
+          control={
+            <Button
+              variant="ghost"
+              aria-label={t("ownDomains.remove", { domain: domain.domain })}
+              disabled={pending}
+              reasonId={refusal}
+              onClick={() => onRemove(domain.domain)}
+            >
+              <Trash2 aria-hidden size={16} />
+            </Button>
+          }
         />
       ))}
-    </ul>
-  );
-}
-
-function DomainRow({
-  domain,
-  refusal,
-  pending,
-  onRemove,
-}: Readonly<{
-  domain: WorkspaceEmailDomain;
-  refusal: string | undefined;
-  pending: boolean;
-  onRemove: () => void;
-}>) {
-  const t = useT();
-  return (
-    <li
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "var(--space-2)",
-        padding: "var(--space-2) 0",
-      }}
-    >
-      <span>
-        {domain.domain}
-        <span className="t-small" style={{ marginLeft: "var(--space-2)" }}>
-          {domain.verified
-            ? t("ownDomains.confirmed")
-            : t("ownDomains.candidate")}
-        </span>
-      </span>
-      <Button
-        variant="ghost"
-        aria-label={t("ownDomains.remove", { domain: domain.domain })}
-        disabled={pending}
-        reasonId={refusal}
-        onClick={onRemove}
-      >
-        <Trash2 aria-hidden size={16} />
-      </Button>
-    </li>
+    </SettingList>
   );
 }
 

@@ -163,9 +163,10 @@ function LinkedInProfileRow() {
         // "we have not recorded one", which is a different claim from "the
         // member has no profile".
         value={stored === "" ? t("linkedinImport.profileNotSet") : stored}
-        // Whether the account is CONNECTED is a fact about the stored profile,
-        // not help text about the field, and it belongs beside the value it
-        // qualifies rather than under a box in a dialog nobody has opened.
+        // What the setting DOES, which is what a description is for. The
+        // not-connected arm used to open "Not connected yet." — the same fact
+        // the `value` beside it already states as "Not recorded yet", said
+        // twice on one row in two different words.
         description={
           account.data?.connected
             ? t("linkedinImport.connectedNote")
@@ -245,17 +246,22 @@ export function LinkedInImportCard() {
     // No per-card bottom margin: the tab owns the rhythm between its cards.
     <Panel title={t("linkedinImport.title")}>
       <PanelBody>
-        <p className="t-caption">{t("linkedinImport.sub")}</p>
-        <p className="co-muted li-import-explainer">
-          {t("linkedinImport.explainer")}
-        </p>
+        {/* ONE description, in the spacing contract's spelling. A second
+            full-width paragraph under it — where to get the file, and what
+            happens to it — was a wall of prose before the card's first row, and
+            both halves of it belong to the import row rather than to the card:
+            they say what that one setting does. */}
+        <p className="settings-panel-sub">{t("linkedinImport.sub")}</p>
         <SettingList>
           <LinkedInProfileRow />
           {/* The file is NAMED on the left, which is the row language doing the
               job an icon used to: LinkedIn's export archive holds a dozen CSVs
               and picking the wrong one fails with a parse error that explains
               nothing, so the name of the file sits in the description the picker
-              is announced with rather than beside a glyph above it. */}
+              is announced with rather than beside a glyph above it. The
+              description also carries what happens to the file — a member
+              uploading their own address book into a company system is owed that
+              before they press, and beside the picker is where they read it. */}
           <SettingRow
             label={t("linkedinImport.importLabel")}
             description={t("linkedinImport.whichFile")}

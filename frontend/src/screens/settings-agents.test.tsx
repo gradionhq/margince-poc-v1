@@ -301,6 +301,42 @@ describe("AgentToolsCard passport scoping", () => {
       scopedRow && within(scopedRow).getByText("scope not granted"),
     ).toBeTruthy();
   });
+
+  // A sentence is never a control. The row's right column answers the question
+  // the row asks — here the tier dot and the governance badges — and prose that
+  // explains the row belongs with the naming on the left. This explanation used
+  // to sit among the badges, which left the three tool rows answering at three
+  // different widths while the words that matter most to a reader were the ones
+  // pushed to the far edge.
+  it("explains an unreachable tool beside its name, not in the answer column", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", agentToolsWithPassportsBackend());
+    render(<SettingsScreen route={settingsAddress("agents")} />);
+    await screen.findByText("list_pipelines");
+
+    await pickOption(
+      user,
+      screen.getByLabelText("All passports"),
+      "Reachable by Scout",
+    );
+
+    const scopedRow = document.querySelector<HTMLElement>(
+      '[data-tool="send_email"]',
+    );
+    const naming = scopedRow?.querySelector<HTMLElement>(".settingrow-naming");
+    const answer = scopedRow?.querySelector<HTMLElement>(".settingrow-control");
+    expect(naming).toBeTruthy();
+    expect(answer).toBeTruthy();
+    expect(
+      naming && within(naming).getByText("scope not granted"),
+    ).toBeTruthy();
+    expect(
+      answer && within(answer).queryByText("scope not granted"),
+    ).toBeNull();
+    // And the answer column still carries the governance it is there for.
+    expect(answer && within(answer).getByText("send")).toBeTruthy();
+    expect(answer && within(answer).getByText("reaches out")).toBeTruthy();
+  });
 });
 
 // The tool console and the passport list share the ["passports"] read, so a

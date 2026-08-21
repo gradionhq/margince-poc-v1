@@ -113,11 +113,10 @@ export function PasswordLinkModal({
   const headingId = useId();
   return (
     <Modal open onClose={onClose} labelledBy={headingId} size="wide">
-      <h2
-        id={headingId}
-        className="t-h2"
-        style={{ marginBottom: "var(--space-3)" }}
-      >
+      {/* `modal-title` is the dialog heading's own interval, spelled once in
+          atoms.css. It was an inline style here, which is a second author for a
+          rhythm the design system already owns. */}
+      <h2 id={headingId} className="t-h3 modal-title">
         {t("users.link.title", { name: memberName })}
       </h2>
       {pending && <p className="t-small">{t("users.link.pending")}</p>}

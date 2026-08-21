@@ -16,6 +16,7 @@ import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { QueryGate, throwProblem, useMe } from "./common";
+import "./aiusage.css";
 
 type AiUsage = components["schemas"]["AiUsage"];
 type UsageTask = AiUsage["days"][number]["tasks"][number];
@@ -186,15 +187,8 @@ function AiUsageBody({
           pct,
         })}
         control={
-          <div
-            className="settingrow-measure"
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: "var(--space-3)",
-            }}
-          >
-            <div style={{ flex: 1 }}>
+          <div className="settingrow-measure aiusage-budget">
+            <div className="aiusage-budget-bar">
               {/* pct, not the raw token pair: a workspace with no monthly budget
                   configured reads as fully spent (pct is 100 above), and the bar
                   must say what the caption beside it says. */}
@@ -234,8 +228,20 @@ function AiUsageBody({
       <SettingRow
         layout="stack"
         label={t("aiusage.spendLabel")}
+        // The caveat and the total are what the table says taken together, so
+        // they belong to the row's NAMING rather than standing under the table
+        // as a caption of their own — a sentence in a control column reads as
+        // that control's answer. Absent entirely when the server priced
+        // nothing: a total of zero would state a figure this window has none of.
+        description={
+          showCost ? (
+            <>
+              {t("aiusage.costNote")} {formatMoney(totalCost, currency, locale)}
+            </>
+          ) : undefined
+        }
         control={
-          <div className="form-stack settingrow-measure">
+          <div className="settingrow-measure">
             {rows.length === 0 ? (
               <EmptyState>{t("aiusage.empty")}</EmptyState>
             ) : (
@@ -249,12 +255,6 @@ function AiUsageBody({
                 rows={rows}
                 rowKey={(row) => `${row.task}-${row.tier}`}
               />
-            )}
-            {showCost && (
-              <p className="t-caption">
-                {t("aiusage.costNote")}{" "}
-                {formatMoney(totalCost, currency, locale)}
-              </p>
             )}
           </div>
         }
@@ -310,7 +310,7 @@ export function AiUsageCard() {
     return (
       <Panel title={t("aiusage.title")}>
         <PanelBody>
-          <p className="t-small settings-panel-sub">{t("aiusage.sub")}</p>
+          <p className="settings-panel-sub">{t("aiusage.sub")}</p>
           <QueryGate query={me}>
             {() => (
               <EmptyState>
@@ -327,7 +327,7 @@ export function AiUsageCard() {
   return (
     <Panel title={t("aiusage.title")}>
       <PanelBody>
-        <p className="t-small settings-panel-sub">{t("aiusage.sub")}</p>
+        <p className="settings-panel-sub">{t("aiusage.sub")}</p>
         <QueryGate query={query}>
           {(data) => (
             <AiUsageBody data={data} month={month} onMonth={setMonth} />

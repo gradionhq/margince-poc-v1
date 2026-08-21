@@ -15,11 +15,16 @@
    type chip and the audit list. */
 
 /* What a reader may NOT do here, said once for the whole section — the same
-   line products and offer templates carry, so the three read alike. */
+   line products and offer templates carry, so the three read alike.
+
+   The card's own band under the rows rather than one more row, so it pays for
+   its own interval: the same one `.settings-panel-sub` pays above the list,
+   because `SettingList` owns the gaps BETWEEN rows and nothing above or below
+   itself. */
 .cf-posture {
   font-size: var(--fs-sm);
   color: var(--textMeta);
-  margin: 0;
+  margin: var(--space-4) 0 0;
 }
 
 /* The builder is no longer a Card of its own — it is the body of the dialog the

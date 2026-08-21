@@ -181,7 +181,7 @@ export function ProductsAdmin() {
     key: "actions",
     header: t("table.actions"),
     cell: (p: Product) => (
-      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+      <div className="listsection-rowverbs">
         {canUpdate && (
           <EditAction
             label={t("product.edit")}
@@ -220,7 +220,7 @@ export function ProductsAdmin() {
   return (
     <Panel className="listsection" title={t("product.title")}>
       <PanelBody className="listsection-intro">
-        <p className="t-caption">{t("product.settingsSub")}</p>
+        <p className="settings-panel-sub">{t("product.settingsSub")}</p>
         {/* A reader who holds no write verb here sees a list with no editor, and
             silence about why is a claim that the list has none. The posture is
             stated ONCE for the whole section (design-system README, "Absent,
@@ -232,7 +232,7 @@ export function ProductsAdmin() {
             read-only notice at the admin who holds all three. Gate on the
             probe, not on its absence. */}
         {me.isSuccess && !canCreate && !canUpdate && !canArchive && (
-          <p className="t-caption">{t("product.readOnly")}</p>
+          <p className="settings-panel-sub">{t("product.readOnly")}</p>
         )}
       </PanelBody>
       <ListTable

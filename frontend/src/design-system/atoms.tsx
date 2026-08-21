@@ -13,7 +13,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
-  type TextareaHTMLAttributes,
   useEffect,
   useId,
   useRef,
@@ -468,8 +467,12 @@ export function SearchField(props: InputHTMLAttributes<HTMLInputElement>) {
  * listbox, because a native `<select>` draws its own option list in the
  * platform's idiom and no CSS reaches inside it. It still reads `.input` for its
  * closed face — a dropdown and a text input are the same field on screen.
+ *
+ * `ComponentPropsWithRef`, for the same reason `TextInput` takes it: a caller
+ * that has to move focus HERE needs the node, and a dialog whose fields are
+ * mostly prose has no single-line input to land on instead.
  */
-export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea(props: ComponentPropsWithRef<"textarea">) {
   return (
     <textarea
       {...props}

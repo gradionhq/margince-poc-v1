@@ -507,9 +507,9 @@ describe("CustomFieldsAdmin", () => {
     await waitFor(() => expect(screen.getByText("Renewal date")).toBeTruthy());
     // Positive as well as negative: without this a broken create binding would
     // pass, since "no archive control" is also true when nothing renders. The
-    // builder is behind a row verb now, so what proves it is reachable is the
-    // row plus the form the verb opens.
-    expect(screen.getByText("Add a field to Deal")).toBeTruthy();
+    // builder is behind the card's HEADER verb, so what proves it is reachable
+    // is that verb plus the form it opens.
+    expect(screen.getByRole("button", { name: "Add a field…" })).toBeTruthy();
     const dialog = await openBuilder();
     expect(
       dialog.getByRole("button", { name: /Confirm & add field/i }),

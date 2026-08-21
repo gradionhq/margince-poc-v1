@@ -54,26 +54,50 @@ const passports = () =>
   });
 
 // IT-1 governed tool console: two tools of differing tier/egress, plus a
-// read-only passport so the play() below can show the send_email row dim
+// read-only passport so the play() below can show the send_email row struck
 // (its "send" scope isn't in the selected passport's grant). Both live on the
 // personal "Your agents" entry, which no grant gates.
+//
+// `title` and `description` are REQUIRED on AgentTool and the row draws both, so
+// a fixture without them captured a console the product cannot serve: one mono
+// name per row and nothing else, which is precisely the half that made the
+// layout look settled while the real rows carry three lines of prose. The
+// governance clause is part of the served description — the server appends it —
+// so it stays here verbatim.
 const tools = () =>
   jsonResponse({
     data: [
       {
         name: "search_records",
+        title: "Search records",
+        description:
+          'Find people, organizations, deals, leads and projects by name. (Governance: runs immediately; requires passport scope "read".)',
         required_scope: "read",
         tier: "auto_execute",
         egress: false,
       },
       {
         name: "send_email",
+        title: "Send an email",
+        description:
+          'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
         required_scope: "send",
         tier: "confirmation_required",
         egress: true,
       },
     ],
   });
+
+// The MCP connector's own discovery document (RFC 9728), which is what the
+// connect guide builds its four commands from. Unrouted, the stub's list-shaped
+// fallback answers with no `resource` and the guide renders its error state — so
+// every story on the agents tab that shows the guide has to say which of the two
+// worlds it is in.
+const connectorOn = () =>
+  jsonResponse({ resource: "https://crm.acme.test/mcp" });
+
+const connectorOff = () =>
+  jsonResponse({ title: "no MCP connector on this installation" }, 404);
 
 // Attribution names the PERSON and says a machine did the typing second
 // (PD-002), so the fixture carries the resolved names the read path returns and
@@ -217,10 +241,38 @@ export const AccountSignatureDialog: Story = {
   },
 };
 
-// The person's own agent authority: the autonomy table, the passports they have
-// minted, the clients holding one, and the tools those credentials reach.
+// The person's own agent authority, and the one page the founder reads for
+// whether the four cards on it space alike: the passports minted, the clients
+// holding one (with the connect guide open, because nothing is connected), the
+// governed tools those credentials reach, and the autonomy tiers they run under.
+const agentsTabRoutes = {
+  "GET /me": me(),
+  "GET /passports": passports,
+  "GET /agent-tools": tools,
+  "GET /.well-known/oauth-protected-resource": connectorOn,
+};
+
 export const AgentsTab: Story = {
-  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  render: tab("agents", agentsTabRoutes),
+};
+
+// Dark, because the whole page is now hairlines between rows and chips against a
+// card ground — both derived values that move with the theme, and the interval
+// between two cards is only legible if the rule between two rows is.
+export const AgentsTabDark: Story = {
+  globals: { theme: "dark" },
+  render: tab("agents", agentsTabRoutes),
+};
+
+// The connector switched off: the guide has no commands to print, so its one row
+// says so and says what still works. It is the state a default install is in, and
+// it used to render as a bold line and a paragraph flush against the disclosure.
+export const AgentsConnectorOff: Story = {
+  name: "Your agents — MCP connector off",
+  render: tab("agents", {
+    ...agentsTabRoutes,
+    "GET /.well-known/oauth-protected-resource": connectorOff,
+  }),
 };
 
 // AS-2 kill-switch: PassportCard revoke is a hard DELETE behind a ConfirmModal.
@@ -228,7 +280,7 @@ export const AgentsTab: Story = {
 // (non-revoked) passport, click Revoke, leave the confirm modal open so the
 // guarded state is what the render gate captures.
 export const PassportRevokeConfirm: Story = {
-  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  render: tab("agents", agentsTabRoutes),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const revokeButton = await canvas.findByRole("button", { name: "Revoke" });
@@ -242,7 +294,7 @@ export const PassportRevokeConfirm: Story = {
 // the field ended and the choices began.
 export const PassportMintDrawer: Story = {
   name: "Mint a passport",
-  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  render: tab("agents", agentsTabRoutes),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: "Mint…" }));
@@ -255,7 +307,7 @@ export const PassportMintDrawer: Story = {
 export const PassportMintDrawerDark: Story = {
   name: "Mint a passport — dark",
   globals: { theme: "dark" },
-  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  render: tab("agents", agentsTabRoutes),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: "Mint…" }));
@@ -263,14 +315,10 @@ export const PassportMintDrawerDark: Story = {
 };
 
 // The governed tool console renders the inventory unfiltered by default,
-// then dims the send_email row once the read-only "Scout" passport (whose
+// then strikes the send_email row once the read-only "Scout" passport (whose
 // only granted scope is "read") is selected — its required "send" scope
 // is absent from that grant.
-const toolConsoleRoutes = {
-  "GET /me": me(),
-  "GET /passports": passports,
-  "GET /agent-tools": tools,
-};
+const toolConsoleRoutes = agentsTabRoutes;
 
 // Selects the read-only passport, so the send_email row is dimmed. Shared with
 // the dark variant below, which is about that dimming and nothing else.

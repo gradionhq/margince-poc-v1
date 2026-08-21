@@ -99,6 +99,12 @@ it("renders queued and lights up estimated cost only when present", async () => 
   ).toBeTruthy();
   expect(screen.getByText("Est. cost")).toBeTruthy();
   expect(screen.getAllByText(/€1\.23/).length).toBeGreaterThan(0);
+  // The caveat and the total are what the table says taken TOGETHER, so they
+  // stand in the row's naming as its description rather than under the table as
+  // a caption: a sentence in a control column reads as that control's answer.
+  const note = screen.getByText(/Costs are estimates/);
+  expect(note.closest(".settingrow-naming")).not.toBeNull();
+  expect(note.textContent).toContain("€1.23");
 });
 
 it("distinguishes an empty window and exposes a denied problem detail", async () => {

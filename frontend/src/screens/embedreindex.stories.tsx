@@ -156,6 +156,42 @@ export const PreviewDialogWithEstimate: Story = {
   },
 };
 
+// The estimate the dialog cannot produce. What to look at is that the refusal
+// reads as a refusal without its colour doing the work: it is the surface
+// speaking about ITSELF — the reason Confirm stays refused — so it takes the
+// danger `Callout` the whole product uses for that, not a red paragraph.
+export const PreviewDialogEstimateUnavailable: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": admin(),
+      "GET /embeddings/reindex/status": () => jsonResponse(STATUS_NEEDED),
+      "GET /embeddings/reindex/preview": () =>
+        jsonResponse(
+          {
+            title: "Service Unavailable",
+            detail: "the estimator could not be reached",
+            status: 503,
+            code: "unavailable",
+          },
+          503,
+        ),
+    });
+    return (
+      <StoryProviders>
+        <EmbedReindexCard />
+      </StoryProviders>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Review & reindex" }),
+    );
+    // `screen`, not the canvas: ConfirmModal portals to document.body.
+    await screen.findByText("the estimator could not be reached");
+  },
+};
+
 // The status read is admin/ops-only server-side (migration 0115): a rep holds no
 // grant on embedding_reindex at all, so the card keeps its place and says the
 // status is withheld rather than disappearing off a page the rep reaches for its

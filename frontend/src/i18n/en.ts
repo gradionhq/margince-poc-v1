@@ -1097,8 +1097,6 @@ export const en = {
   "linkedinImport.title": "LinkedIn connections",
   "linkedinImport.sub":
     "Import your own export to see who your team already knows",
-  "linkedinImport.explainer":
-    "LinkedIn gives you a Connections.csv under Settings → Data privacy → Get a copy of your data. Uploading it here shows who on your team already knows someone at an account. The connections do NOT become contacts: they never appear in search, lists or contact pages, and nobody can write to or email them.",
   "linkedinImport.profileLabel": "Your LinkedIn profile URL",
   "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
   "linkedinImport.saveProfile": "Save profile",
@@ -1108,9 +1106,9 @@ export const en = {
   "linkedinImport.connectedNote":
     "Connected. Imported connections are attributed to this profile, so the CRM can say which colleague knows someone rather than that \u201cthe company\u201d does.",
   "linkedinImport.notConnectedNote":
-    "Not connected yet. Adding your profile URL attributes any connections you import to you by name.",
+    "Recording your profile URL attributes any connections you import to you by name.",
   "linkedinImport.whichFile":
-    "The file you want is Connections.csv \u2014 the export archive holds a dozen others.",
+    "LinkedIn gives you Connections.csv under Settings \u2192 Data privacy \u2192 Get a copy of your data; the archive holds a dozen others, and this is the one. What you upload never becomes contacts: the connections stay out of search, lists and contact pages, and nobody can write to or email them.",
   "linkedinImport.choose": "Choose Connections.csv",
   "linkedinImport.importLabel": "Connections export",
   "linkedinImport.noMatchesYet":
@@ -2254,7 +2252,7 @@ export const en = {
   "rbac.masked": "Masked value",
   "settings.passports": "Agent passports",
   "settings.passportsSub":
-    "an agent acts as you, never above you — every call re-checks your RBAC",
+    "An agent acts as you, never above you: every call re-checks your RBAC.",
   // What each passport scope admits, in words. The wire carries `read`/`draft`/
   // `write`/`send`/`enrich`; a human granting them is choosing what an agent may
   // do on their behalf, and the protocol token alone does not say — "write" and
@@ -2274,7 +2272,6 @@ export const en = {
   "settings.mintCancel": "Cancel",
   "settings.mintDone": "Done",
   "settings.mintOpen": "Mint…",
-  "settings.mintLabel": "Mint a new passport",
   "settings.passportScopes": "What this agent may do",
   "settings.passportScopesHint":
     "Pick at least one. An agent can never do more than you can.",
@@ -2622,7 +2619,6 @@ export const en = {
   "settings.pipelinesSub":
     "The stages a deal moves through, one ladder per pipeline.",
   "pipeline.new": "New pipeline",
-  "pipeline.addLabel": "Add a pipeline",
   "pipeline.edit": "Edit pipeline",
   "pipeline.name": "Name",
   "pipeline.default": "Default",
@@ -2636,7 +2632,7 @@ export const en = {
   "stage.semOpen": "Open",
   "stage.semWon": "Won",
   "stage.semLost": "Lost",
-  "stage.remove": "Remove",
+  "stage.remove": "Remove…",
   "stage.removeConfirm": "Remove stage",
   "stage.removeTitle": "Remove this stage?",
   "stage.removeBody":
@@ -3071,12 +3067,23 @@ export const en = {
     "This deployment can't complete that connection yet — the provider's API isn't enabled for it. An administrator needs to enable it; the server log names which API.",
   "connectors.dismissOutcome": "Dismiss",
 
-  // The always-present "Add a connection" affordance (Task 1): the empty
-  // state and the roster footer share the same not-yet-connected provider
-  // buttons, so the copy that names them lives once here.
+  // The "Add a connection" affordance (Task 1): one verb in the card's header
+  // opens a dialog listing the providers still addable, each with the sentence
+  // it needs. `addOpen` takes the ellipsis form so the header verb and the
+  // dialog's own picks never read as the same button.
   "connectors.addConnection": "Add a connection",
-  "connectors.googleSeparateNote":
-    "Gmail and Google Calendar connect separately.",
+  "connectors.addOpen": "Connect an account…",
+  "connectors.connect": "Connect",
+  "connectors.connectProvider": "Connect {provider}",
+  "connectors.rosterLabel": "Mailboxes capturing",
+  "connectors.addGmailBrings":
+    "The mail you send and receive, from Google — and the only connection Margince can send from.",
+  "connectors.addGcalBrings":
+    "Your Google calendar. It connects separately from Gmail.",
+  "connectors.addGraphBrings":
+    "Mail and calendar on a Microsoft work account, over the Graph API. Capture only.",
+  "connectors.addImapBrings":
+    "Any other mail host, with an app password. Capture only.",
   "connectors.providerNotConfigured":
     "{provider} isn't configured in this deployment.",
 
@@ -3109,6 +3116,8 @@ export const en = {
   "connectors.telegramNotConfigured":
     "Messaging channels aren't configured in this deployment.",
   "connectors.telegramConnectCta": "Connect a Telegram bot",
+  "connectors.telegramRosterLabel": "Bot carrying messages",
+  "connectors.telegramEmpty": "No bot is connected yet.",
   "connectors.telegramEditToken": "Replace token",
   "connectors.telegramDisconnectTitle": "Disconnect this bot?",
   "connectors.telegramDisconnectBody":
@@ -3136,6 +3145,9 @@ export const en = {
   "consumerMail.kind.extra": "Consumer mail — never a company",
   "consumerMail.kind.never": "A real company — ignore the shipped list",
   "consumerMail.add": "Add",
+  // The header verb, in the ellipsis form: the dialog it opens keeps the plain
+  // one, so no two buttons on this surface read the same.
+  "consumerMail.addOpen": "Add…",
   "consumerMail.remove": "Remove",
   "consumerMail.none": "Nothing added. The shipped list decides every domain.",
   "consumerMail.adminOnly": "You do not have permission to change this list.",
@@ -4121,11 +4133,11 @@ export const en = {
   "cf.addedByYou": "You",
   "cf.addedByAdmin": "Admin",
   "cf.empty.deal":
-    "No custom fields on Deal yet. Add one below if you track something we didn't ship.",
+    "No custom fields on Deal yet. Add one if you track something we didn't ship.",
   "cf.empty.organization":
-    "No custom fields on Company yet. Add one below if you track something we didn't ship.",
+    "No custom fields on Company yet. Add one if you track something we didn't ship.",
   "cf.empty.person":
-    "No custom fields on Contact yet. Core fields cover the contact record; add one below if you track more.",
+    "No custom fields on Contact yet. Core fields cover the contact record; add one if you track more.",
   "cf.empty.lead":
     "No custom fields on Lead yet. A field you add here also appears once a lead is promoted to a contact.",
   "cf.type.text": "Text",
@@ -4557,9 +4569,10 @@ export const en = {
   "users.teamsTitle": "Teams",
   "users.teamsSub":
     "Who may edit whose records: members of a team edit every teammate's records. Customers, contacts, leads and deals are readable by everyone.",
-  "users.teamMembers": "{count} members",
   "users.archiveTeam": "Archive team {name}",
   "users.newTeamLabel": "New team",
+  "users.newTeamOpen": "New team…",
+  "users.teamNameLabel": "Team name",
   "users.newTeamPlaceholder": "e.g. DACH Sales",
   "users.createTeam": "Create team",
   "users.access.title": "What this member sees",
@@ -4606,6 +4619,7 @@ export const en = {
   "users.invite": "Invite",
   "users.setRole": "Set role…",
   "users.setRoleFor": "Set role for {name}",
+  "users.rowActions": "Actions for {name}",
   "users.rolesHeld": "Holds {roles}. Choosing one replaces them all",
   "users.deactivate": "Deactivate",
   "users.reactivate": "Reactivate",
@@ -4636,7 +4650,6 @@ export const en = {
     "Could not reach the server. Check your connection and try again.",
   "users.link.retry": "Try again",
   "users.link.done": "Done",
-  "settings.companyKicker": "Company intelligence",
   "settings.companyTitle": "What Margince knows about your company",
   "settings.companyReadOnly":
     "Read-only view — changing the company profile needs an organization write.",
@@ -4646,12 +4659,19 @@ export const en = {
     "Confirmed knowledge only — website text never becomes instructions.",
   "settings.companyConfirmed": "confirmed statements",
   "settings.companyWebsite": "Public company website",
+  "settings.companyWebsiteHint":
+    "The public site every website read starts from.",
+  "settings.companySourceTitle": "Where we read it from",
+  "settings.companyRefreshRow": "Read the website again",
+  "settings.companyRefreshHint":
+    "We fetch your public pages and propose changes. Nothing reaches the profile until you review and apply them.",
+  "settings.companyEdit": "Edit",
+  "settings.companyEditField": "Edit {field}",
   "settings.companyWebsiteRequired": "Add a company website before refreshing.",
   "settings.companyRefresh": "Refresh from website",
   "settings.companyEssentials": "The three essentials",
   "settings.companyPositioning": "Positioning, buyers, and sales motion",
   "settings.companyIdentity": "Identity and legal details",
-  "settings.companyViewSource": "View source",
   "settings.companySave": "Save company context",
   "settings.companySaved": "Saved",
   "settings.companyRefreshUnreadable":
@@ -4723,6 +4743,7 @@ export const en = {
     "The governed surface a passport can call — same inventory an MCP client sees.",
   "tools.egress": "reaches out",
   "tools.scopeAll": "All passports",
+  "tools.inventory": "All {count} tools",
   "tools.scopeLabel": "Scope to a passport",
   "tools.scopedTo": "Reachable by {label}",
   "tools.unreachable": "scope not granted",
@@ -4930,6 +4951,7 @@ export const en = {
   "captureExclusions.placeholder.address": "name@example.com",
   "captureExclusions.placeholder.domain": "example.com",
   "captureExclusions.add": "Exclude",
+  "captureExclusions.addOpen": "Exclude…",
   "captureExclusions.remove": "Capture {value} again",
   "ownDomains.title": "Own email domains",
   "ownDomains.sub":
@@ -4944,6 +4966,7 @@ export const en = {
   "ownDomains.confirmed": "confirmed",
   "ownDomains.candidate": "seen on a connected mailbox, not confirmed yet",
   "ownDomains.add": "Add",
+  "ownDomains.addOpen": "Add…",
   "ownDomains.addLabel": "Add an own domain",
   "ownDomains.placeholder": "example.com",
   "ownDomains.remove": "Remove {domain}",

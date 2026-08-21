@@ -245,9 +245,7 @@ function InstallationSettingsForm({
   return (
     <Panel title={t("installationSettings.orgTitle")}>
       <PanelBody>
-        <p className="t-small settings-panel-sub">
-          {t("installationSettings.orgSub")}
-        </p>
+        <p className="settings-panel-sub">{t("installationSettings.orgSub")}</p>
         {!canManage && (
           <p className="t-caption" id={denialId}>
             {t("installationSettings.readOnly")}

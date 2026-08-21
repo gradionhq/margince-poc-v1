@@ -1,92 +1,40 @@
 /* Admin member management layout. Colour inherits from the design tokens so the
-   purity gate stays satisfied; only structure lives here. */
-/* The invite card above the members card. */
-.users-stack {
+   purity gate stays satisfied; only structure lives here.
+
+   The roster's own rhythm is NOT here any more: a member is one `SettingRow` in
+   one `SettingList`, so the gaps, the hairlines and the column at which every
+   answer sits all come from settingrow.css. What is left is the two places the
+   row language has nothing to say about — a refusal under the member it belongs
+   to, and the two boxes inside dialogs. */
+
+/* The team checkboxes inside the invite dialog. A bare <fieldset> draws the
+   browser's 2px groove and its own padding, which is the one shape this tree
+   spends every other file avoiding; the legend keeps its place as the group's
+   name and the boxes stack under it on the dialog's own rhythm. */
+.users-invite-teams {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-}
-
-.users-invite {
-  display: flex;
-  flex-wrap: wrap;
   gap: var(--space-2);
-  align-items: center;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 }
 
-/* Keep the invite fields compact so the row wraps rather than each control
-   taking a full line (the shared .input is width:100% by default). */
-.users-invite .input {
-  flex: 1 1 12rem;
-  min-width: 8rem;
-  width: auto;
+/* A refused write on a member's row, under that row and inside its cell — so
+   the hairline the list draws still separates one member from the next, and the
+   notice is not squeezed into the right column beside the control that caused
+   it. The row above brings its own bottom padding, so this pays for the
+   interval below itself and nothing else does. */
+.users-member-error {
+  margin-bottom: var(--space-3);
 }
 
-/* The refusal a write comes back with, in the row or the form that caused it.
-   Both sit in a wrapping flex line, so the notice takes the whole next line
-   rather than being squeezed between the controls it is about. */
+/* The refusal a write comes back with inside the set-password dialog. It sits
+   in a wrapping flex line (`.users-link-row`), so the notice takes the whole
+   next line rather than being squeezed between the controls it is about. */
 .users-formerror {
   flex-basis: 100%;
-}
-
-.users-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-/* A roster row runs full-bleed against the panel's own edges, the way every
-   other list inside a Panel does — it keeps <li> semantics rather than becoming
-   a PanelRow <div>, so the look is spelled here instead. PanelRow's shape
-   EXACTLY, reset included: the band above the roster draws the seam, so the
-   first row must not draw a second hairline a pixel under it. */
-.users-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-5);
-  border-top: 1px solid var(--borderSubtle);
-}
-
-.users-row:first-child {
-  border-top: 0;
-}
-
-/* The section's own description sits on the panel's padding above the rows. The
-   line that separates it from them is the seam panel.css draws between two
-   adjacent bodies; this only trims the interval it sits on. */
-.users-intro {
-  padding-bottom: var(--space-4);
-}
-
-.users-intro > p {
-  margin: 0;
-}
-
-/* The rows are full-bleed, so this body has no padding; everything the query
-   gate can render INSTEAD of rows — skeletons, a failure, the empty state —
-   takes it back rather than sitting against the panel's edge. */
-.users-roster {
-  padding: 0;
-}
-
-.users-roster > :not(.users-list) {
-  padding: var(--space-5);
-}
-
-/* Let a long name/email shrink and wrap instead of forcing the row wider than
-   its card (notably at 390px). */
-.users-who {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  margin-right: auto;
-}
-
-.users-who b,
-.users-who .t-small {
-  overflow-wrap: anywhere;
 }
 
 /* The link and its copy button sit on one line, with the input taking the

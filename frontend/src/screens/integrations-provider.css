@@ -22,6 +22,12 @@
   padding-bottom: 0;
 }
 
+/* Same reason as `.listsection-intro`: whatever the gate renders below brings
+   the body's own top padding, so the description does not also pay 16px. */
+.provider-intro > p.settings-panel-sub {
+  margin-bottom: 0;
+}
+
 /* Identity: the mark, the name, the state. Wraps rather than overflowing —
  * a provider key and a status pill outgrow a 390px row on their own. */
 .provider-head {

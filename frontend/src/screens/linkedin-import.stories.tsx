@@ -15,6 +15,12 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // and the file picker. The edit FIELD lives in a Modal, which renders into the
 // document body rather than into the story canvas — so the story that shows it
 // scopes its `play` past `canvasElement`.
+//
+// ONE description above them, and only one. A second full-width paragraph used
+// to stand between it and the first row — where to get the file, and what
+// happens to it — and both halves of that belong to the import row rather than
+// to the card, so they read in that row's description now. What to check here is
+// that nothing on the card is prose before the list.
 
 function cardStory(account: { profile_url?: string; connected?: boolean }) {
   return () => {
@@ -55,8 +61,10 @@ export const KnownProfile: Story = {
 };
 
 // Nothing recorded yet: the row says "Not recorded yet" rather than leaving the
-// value blank, which is a different claim from "this member has no profile", and
-// the note says the account is not connected.
+// value blank, which is a different claim from "this member has no profile". The
+// description beside it says what RECORDING one does — it used to open "Not
+// connected yet", which is the same fact the value already carries, stated twice
+// on one row in two different words.
 export const NoProfileYet: Story = {
   render: cardStory({ profile_url: "", connected: false }),
 };

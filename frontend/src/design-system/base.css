@@ -286,6 +286,37 @@
   gap: var(--space-1);
 }
 
+/* A link in prose, and nothing else.
+ *
+ * Tailwind's preflight strips an anchor back to inherited colour and no
+ * underline, and no rule anywhere in this tree put either back — so every
+ * inline link inside a sentence rendered as plain text at the same
+ * --textMeta as the words around it. Copy that sends a reader somewhere was
+ * telling them nothing was there: measured on the own-domains card, the "open
+ * the company profile" link and its surrounding prose were the same colour with
+ * no decoration between them.
+ *
+ * `:not([class])` is the whole scope, deliberately. Every anchor this product
+ * styles — a nav entry, a row that navigates, a chip, `.entity-link` — carries
+ * its own class and keeps its own look; what is left is exactly the bare link in
+ * a sentence, which is the one that had nobody to draw it. A blanket `a` rule
+ * would repaint the chrome instead. */
+a:not([class]) {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a:not([class]):hover {
+  text-decoration-thickness: 2px;
+}
+
+a:not([class]):focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
 /* A bare icon affordance that is NOT a .btn: no fill, no border, no label —
    the verb a row offers where a full button would be louder than the row it
    sits in. It lived only as one panel's own rule in the shell's sheet, so the

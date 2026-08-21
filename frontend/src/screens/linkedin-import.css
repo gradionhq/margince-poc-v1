@@ -3,10 +3,6 @@
    into one flat column — a wall of alternating words and numbers that read as
    a list of eight unrelated things rather than four counts. */
 
-.li-import-explainer {
-  margin-top: 0;
-}
-
 /* The profile dialog's form. The field runs the dialog's width; only the gap
    between the field and the actions band belongs here, and `form-stack` already
    owns that — this rule exists so the heading above it is not sitting on the

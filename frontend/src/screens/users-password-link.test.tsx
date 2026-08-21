@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, StrictMode } from "react";
@@ -108,8 +109,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// The invite form is a dialog the roster's verb opens, so a case about what
-// happens AFTER an invite has to open it first. The row's verb carries the
+// The invite form is a dialog the roster header's verb opens, so a case about
+// what happens AFTER an invite has to open it first. The header verb carries the
 // ellipsis form of the label and the dialog's submit the plain one, which is
 // what keeps the two tellable apart.
 async function openInvite() {
@@ -119,28 +120,76 @@ async function openInvite() {
   return screen.findByRole("dialog");
 }
 
+// A member's verbs live behind their row's OverflowMenu, whose panel is
+// portalled to the body and whose items are not rendered until it is first
+// opened. So the link action is reached by opening that menu — and its ABSENCE
+// has to be asserted with the menu open too, or the assertion passes on a menu
+// nobody looked in.
+async function rowMenu(name: string) {
+  const row = screen.getByText(name).closest('[data-testid^="member-"]');
+  if (!(row instanceof HTMLElement)) {
+    throw new Error(`no member row rendered for ${name}`);
+  }
+  const trigger = within(row).getByRole("button", {
+    name: new RegExp(`actions for ${name}`, "i"),
+  });
+  // The trigger TOGGLES, so a helper that always clicks would shut a menu a
+  // previous step left open — and the assertion after it would then be about a
+  // panel with `hidden` on it rather than about what the row offers.
+  if (trigger.getAttribute("aria-expanded") !== "true") {
+    await userEvent.click(trigger);
+  }
+  const panelId = trigger.getAttribute("aria-controls");
+  const panel = panelId === null ? null : document.getElementById(panelId);
+  if (!(panel instanceof HTMLElement)) {
+    throw new Error(`no actions menu rendered for ${name}`);
+  }
+  return within(panel);
+}
+
+// The one verb every case below reaches for, on the one member who can redeem
+// it.
+async function clickLinkAction(name = "Ada Active") {
+  await userEvent.click(
+    (await rowMenu(name)).getByRole("button", {
+      name: /get set-password link/i,
+    }),
+  );
+}
+
 describe("admin-issued set-password link", () => {
   it("offers no link action where the installation mails the link", async () => {
     vi.stubGlobal("fetch", backend({ adminPasswordLink: false }));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
     // Where email works the invite carries the link, so this control would only
-    // ever 409 — an admin must not be shown it at all.
+    // ever 409 — an admin must not be shown it at all. Asserted with Ada's menu
+    // OPEN: a closed menu renders none of its items, so the same query against a
+    // shut one would pass whatever the installation can do.
+    const verbs = await rowMenu("Ada Active");
     expect(
-      screen.queryByRole("button", { name: /set-password link/i }),
+      verbs.queryByRole("button", { name: /set-password link/i }),
     ).toBeNull();
+    expect(verbs.getByRole("button", { name: /deactivate/i })).toBeTruthy();
   });
 
   it("offers the action only on active members", async () => {
     vi.stubGlobal("fetch", backend({ adminPasswordLink: true }));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Otto Off")).toBeTruthy());
-    // One button, for Ada — Otto is deactivated and could not redeem a link,
-    // so offering him one would hand over a link that is dead on arrival.
-    const actions = screen.getAllByRole("button", {
-      name: /get set-password link/i,
-    });
-    expect(actions).toHaveLength(1);
+    // Ada's menu carries it and Otto's does not — he is deactivated and could
+    // not redeem a link, so offering him one would hand over a link that is
+    // dead on arrival.
+    expect(
+      (await rowMenu("Ada Active")).getByRole("button", {
+        name: /get set-password link/i,
+      }),
+    ).toBeTruthy();
+    expect(
+      (await rowMenu("Otto Off")).queryByRole("button", {
+        name: /get set-password link/i,
+      }),
+    ).toBeNull();
   });
 
   it("shows the minted link with its expiry", async () => {
@@ -149,9 +198,7 @@ describe("admin-issued set-password link", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /get set-password link/i }),
-    );
+    await clickLinkAction();
     const field =
       await screen.findByLabelText<HTMLInputElement>("Set-password link");
     expect(field.value).toBe(LINK_URL);
@@ -170,11 +217,11 @@ describe("admin-issued set-password link", () => {
 
     await openInvite();
     await userEvent.type(
-      screen.getByLabelText("New member's email"),
+      screen.getByLabelText(/new member's email/i),
       "newbie@acme.test",
     );
     await userEvent.type(
-      screen.getByLabelText("New member's full name"),
+      screen.getByLabelText(/new member's full name/i),
       "New Bie",
     );
     await userEvent.click(screen.getByRole("button", { name: /^invite$/i }));
@@ -199,11 +246,11 @@ describe("admin-issued set-password link", () => {
 
     await openInvite();
     await userEvent.type(
-      screen.getByLabelText("New member's email"),
+      screen.getByLabelText(/new member's email/i),
       "newbie@acme.test",
     );
     await userEvent.type(
-      screen.getByLabelText("New member's full name"),
+      screen.getByLabelText(/new member's full name/i),
       "New Bie",
     );
     await userEvent.click(screen.getByRole("button", { name: /^invite$/i }));
@@ -222,9 +269,7 @@ describe("admin-issued set-password link", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /get set-password link/i }),
-    );
+    await clickLinkAction();
     await screen.findByLabelText("Set-password link");
     await userEvent.click(screen.getByRole("button", { name: /copy link/i }));
     // The admin is told to copy by hand rather than left with a dead button.
@@ -259,9 +304,7 @@ describe("admin-issued set-password link", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /get set-password link/i }),
-    );
+    await clickLinkAction();
     expect(await screen.findByText(/could not reach the server/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
     expect(screen.queryByText(/creating the link/i)).toBeNull();
@@ -308,10 +351,7 @@ describe("admin-issued set-password link", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    const open = () =>
-      userEvent.click(
-        screen.getByRole("button", { name: /get set-password link/i }),
-      );
+    const open = () => clickLinkAction();
     await open();
     await userEvent.click(screen.getByRole("button", { name: /done/i }));
     await open();
@@ -336,9 +376,7 @@ describe("admin-issued set-password link", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /get set-password link/i }),
-    );
+    await clickLinkAction();
     // The failure is announced, and the way out is offered. Silently closing
     // here would leave an account nobody can sign into and no visible sign of it.
     expect(await screen.findByRole("alert")).toBeTruthy();

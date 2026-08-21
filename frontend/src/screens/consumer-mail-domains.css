@@ -5,28 +5,15 @@
 
    The add form's own layout is gone from here on purpose: the domain and what
    it IS are two inputs submitted together, so they live in a Modal where
-   `.form-stack` owns the rhythm, and this sheet is left with the two things
-   that are still this card's own — the entry rows and the shipped-list
-   lookup. */
+   `.form-stack` owns the rhythm.
 
-.consumer-mail-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.consumer-mail-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
-}
-
-/* The domain takes the row's slack so its kind and the remove verb sit at the
-   far end, in the same place on every row. */
-.consumer-mail-row-domain {
-  flex: 1;
-}
+   The entry rows are gone too, and for the same kind of reason: one entry is
+   one row of the settings row language, so `SettingList` draws the hairline
+   between them and `SettingRow` puts the domain, what it IS and the remove verb
+   at the one x every other answer on these pages sits at. A card that laid its
+   own four-track flex row out was a third rhythm on a tab that already had the
+   row language. What is left here is the one thing still this card's own — the
+   shipped-list lookup. */
 
 /* The shipped-list lookup: a search box with its matches under it, inside the
    card's disclosure. It is the control of ONE stacked setting row, so the row

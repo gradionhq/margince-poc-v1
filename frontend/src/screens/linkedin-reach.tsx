@@ -53,6 +53,37 @@ function useLinkedInReach() {
   });
 }
 
+/**
+ * The row's caveat: what this view cannot show, in the terms the state calls
+ * for.
+ *
+ * Two sentences, never both — a reader looking at a list needs to know where it
+ * stops, and a reader looking at an empty one needs to know that the
+ * connections exist and simply match nothing on file yet. Neither is a
+ * footnote: they qualify the figures, so they read before them.
+ *
+ * Returns `undefined` — not an empty string — when there is nothing to say, so
+ * the row draws no description element and the control points at no
+ * `aria-describedby` that is not on the page.
+ */
+function reachCaveat(
+  t: ReturnType<typeof useT>,
+  reach: LinkedInReach | undefined,
+  shown: number,
+): string | undefined {
+  const unresolved = reach?.unresolved_connections ?? 0;
+  if (shown === 0) {
+    return unresolved > 0
+      ? t("linkedinReach.allUnresolved", { unresolved })
+      : undefined;
+  }
+  return t("linkedinReach.footnote", {
+    shown,
+    total: reach?.accounts_total ?? shown,
+    unresolved,
+  });
+}
+
 /** Which accounts this member's imported network reaches. */
 export function LinkedInReachCard() {
   const t = useT();
@@ -63,7 +94,7 @@ export function LinkedInReachCard() {
     // No per-card bottom margin: the tab owns the rhythm between its cards.
     <Panel title={t("linkedinReach.title")}>
       <PanelBody>
-        <p className="t-small settings-panel-sub">{t("linkedinReach.sub")}</p>
+        <p className="settings-panel-sub">{t("linkedinReach.sub")}</p>
         {query.isPending && <Skeleton width="70%" />}
         {/* A failed read is not an empty one. EmptyState drew "no accounts
             reached" chrome around the server's own refusal, so a read nobody
@@ -73,24 +104,14 @@ export function LinkedInReachCard() {
             {problemMessageOf(query.error, t)}
           </Callout>
         )}
-        {/* The unresolved count is reported whether or not anything resolved,
-          and it matters MOST when nothing did: a fresh workspace that imported
-          five thousand connections and matched no account should see the five
-          thousand, not just "none yet". Hiding it behind a non-empty list hid
-          the number in exactly the case it explains. */}
-        {query.isSuccess && accounts.length === 0 && (
-          <>
-            <EmptyState>{t("linkedinReach.empty")}</EmptyState>
-            {(query.data?.unresolved_connections ?? 0) > 0 && (
-              <p className="co-muted">
-                {t("linkedinReach.allUnresolved", {
-                  unresolved: query.data?.unresolved_connections ?? 0,
-                })}
-              </p>
-            )}
-          </>
-        )}
-        {accounts.length > 0 && (
+        {/* ONE row, whether the network reaches anybody or not. The empty state
+            used to stand outside the list, where `.empty` draws its
+            page-furniture slab — 90px of grey saying one sentence, the loudest
+            thing on a card whose other lines are one deep. Inside a stacked row
+            the primitive caps it at a row's own interval and reads left-aligned
+            (settingrow.css), and the answer lines up under the same naming the
+            table gets. */}
+        {query.isSuccess && (
           <SettingList>
             <SettingRow
               testId="linkedin-reach-table"
@@ -104,19 +125,26 @@ export function LinkedInReachCard() {
               // shrinks as accounts are created. The row's description is the
               // slot for exactly this, and it is the same ordering
               // `SurfaceState` makes for a stale read.
-              description={t("linkedinReach.footnote", {
-                shown: accounts.length,
-                total: query.data?.accounts_total ?? accounts.length,
-                unresolved: query.data?.unresolved_connections ?? 0,
-              })}
+              //
+              // The unresolved count is reported whether or not anything
+              // resolved, and it matters MOST when nothing did: a fresh
+              // workspace that imported five thousand connections and matched
+              // no account should see the five thousand, not just "none yet".
+              description={reachCaveat(t, query.data, accounts.length)}
               // `.settingrow-measure` is what lets the table's own
               // `.table-scroll` box scroll: `.settingrow-control` is a flex row,
               // so a child with the default `min-width: auto` would grow to the
               // table's full width and push the card sideways instead.
               control={
-                <div className="settingrow-measure">
-                  <ReachTable accounts={accounts} />
-                </div>
+                accounts.length === 0 ? (
+                  <EmptyState>
+                    <p className="t-small">{t("linkedinReach.empty")}</p>
+                  </EmptyState>
+                ) : (
+                  <div className="settingrow-measure">
+                    <ReachTable accounts={accounts} />
+                  </div>
+                )
               }
             />
           </SettingList>

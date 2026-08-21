@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type CSSProperties, useId, useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
@@ -42,8 +42,6 @@ import "./retention.css";
 export type RestrictedRecord = components["schemas"]["RestrictedRecord"];
 
 export const RESTRICTED_RECORDS_KEY = ["retention", "restrictions"] as const;
-
-const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
 // A pin names its record by id, and the id has to be well-formed BEFORE the
 // confirm opens: the dialog behind it warns about an irreversible act on a
@@ -197,9 +195,7 @@ export function RestrictedRecordsCard() {
     return (
       <Panel title={t("restricted.title")}>
         <PanelBody>
-          <p className="t-sub" style={PANEL_SUB}>
-            {t("restricted.sub")}
-          </p>
+          <p className="settings-panel-sub">{t("restricted.sub")}</p>
           <QueryGate query={me}>
             {() => (
               <EmptyState>
@@ -289,9 +285,7 @@ export function RestrictedRecordsCard() {
   return (
     <Panel title={t("restricted.title")}>
       <PanelBody>
-        <p className="t-sub" style={PANEL_SUB}>
-          {t("restricted.sub")}
-        </p>
+        <p className="settings-panel-sub">{t("restricted.sub")}</p>
         <CardBoundary>
           <SettingList>
             {/* The table is the SUBJECT of this card rather than an answer to a

@@ -12,10 +12,11 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // has to report the unresolved count), and a read that failed — which is NOT
 // an empty network.
 //
-// Only the first of the three draws a row at all: the report is the card's
-// subject, so it lives in a stacked `SettingRow` whose description carries what
-// the view cannot show, and the other two states replace the whole list rather
-// than filling a row.
+// Two of the three draw the SAME row: the report is the card's subject, so it
+// lives in a stacked `SettingRow` whose description carries what the view cannot
+// show, and an empty network is that row's `.empty` rather than a slab standing
+// outside the list. Only a failed read replaces the list, because a read nobody
+// managed to make is not a network that reaches nobody.
 
 function reachStory(body: unknown, status = 200) {
   return () => {
@@ -60,12 +61,29 @@ const REACHED = {
 export const Reaches: Story = { render: reachStory(REACHED) };
 
 // Nothing resolved yet, and the unresolved count matters MOST here: five
-// thousand imported connections that matched no account is not "none yet".
+// thousand imported connections that matched no account is not "none yet". It is
+// the row's DESCRIPTION, above the answer it qualifies, exactly where the
+// truncation caveat sits when there are figures to truncate. What to check is
+// that the whole row — label, caveat, sentence — costs about as much height as
+// one row of the reach table, rather than the 90px slab `.empty` draws when it
+// stands on a page of its own.
 export const NothingResolvedYet: Story = {
   render: reachStory({
     accounts: [],
     accounts_total: 0,
     unresolved_connections: 5210,
+  }),
+};
+
+// Nothing resolved and nothing unresolved either — a member who has recorded a
+// profile and imported no export yet. There is no caveat to state, so the row
+// draws no description at all rather than an empty one, and the sentence stands
+// alone under the label.
+export const NothingImportedYet: Story = {
+  render: reachStory({
+    accounts: [],
+    accounts_total: 0,
+    unresolved_connections: 0,
   }),
 };
 

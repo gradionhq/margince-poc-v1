@@ -498,12 +498,42 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
       expect(row).not.toBeNull();
       if (row instanceof HTMLElement) {
         expect(row.className).toContain("settingrow-stack");
-        expect(within(row).getByRole("list")).toBeTruthy();
       }
     }
     // One heading, the panel's own.
     expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
     expect(screen.queryByRole("heading", { level: 3 })).toBeNull();
+  });
+
+  // Every library entry is one ROW of the same language, so the hairlines do the
+  // separating. As a bare `<ul>` an entry ran a name, a sentence and a mono
+  // trigger/action pair together with no interval between the lines and no rule
+  // between entries, and its verb floated at the right of the first line.
+  it("gives every library entry a row, its recipe, and its verb in the answer column", async () => {
+    vi.stubGlobal("fetch", automationsBackend([], []));
+    render(<AutomationsAdmin />);
+
+    const list = await screen.findByTestId("auto-catalog");
+    const rows = list.querySelectorAll(":scope > .settingrow");
+    expect(rows).toHaveLength(catalog.length);
+
+    const stalled = screen
+      .getByText("Stalled-deal nudge")
+      .closest(".settingrow");
+    expect(stalled).not.toBeNull();
+    if (stalled instanceof HTMLElement) {
+      // The recipe is part of the naming, not a third line under the row.
+      const recipe = within(stalled).getByText(
+        /deal\.stalled\s*->\s*send_email/,
+      );
+      expect(recipe.closest(".settingrow-naming")).not.toBeNull();
+      // The verb sits at the one x every answer on this page sits at.
+      expect(
+        within(stalled)
+          .getByRole("button", { name: "Use template" })
+          .closest(".settingrow-control"),
+      ).not.toBeNull();
+    }
   });
 
   it("opens a configured automation's definition in a dialog, not under the row", async () => {

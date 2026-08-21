@@ -12,6 +12,7 @@ import { ScopeChips } from "../design-system/passportselect";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import "./connected-agents.css";
 
@@ -72,8 +73,16 @@ async function fetchConnectorState(): Promise<ConnectorState> {
 // registers itself, and the consent screen asks which passport to lend.
 //
 // Antigravity is the odd one out only in shape — it has no add command, so its
-// step is the config file its docs name. The OAuth handshake is identical.
-const CONNECT_GUIDES = [
+// step is the config file its docs name. The OAuth handshake is identical. That
+// caveat is a statement about ONE client, so it travels with that client as its
+// row's `note` rather than as a loose paragraph under all four, where it read as
+// a footnote to the whole guide.
+const CONNECT_GUIDES: readonly Readonly<{
+  id: string;
+  name: string;
+  command: (url: string) => string;
+  note?: MessageKey;
+}>[] = [
   {
     id: "claude",
     name: "Claude Code",
@@ -97,8 +106,9 @@ const CONNECT_GUIDES = [
     // rejects the `url`/`httpUrl` spellings its siblings accept.
     command: (url: string) =>
       `{ "mcpServers": { "margince": { "serverUrl": "${url}" } } }`,
+    note: "agents.connectAntigravityPath",
   },
-] as const;
+];
 
 // Four commands nobody runs twice. It is REFERENCE rather than a decision, so
 // it reads last and closed — a `Disclosure` in the card's own row list, forced
@@ -107,6 +117,15 @@ const CONNECT_GUIDES = [
 //
 // The inset Card this replaces was a box inside a box: the disclosure body
 // already says the contents belong to the section that was opened.
+//
+// Inside it, the SAME shape as a card: one line of prose, then a `SettingList`.
+// It was a hand-laid `<dl>` before — a bold client name with its command flush
+// under it at its own gap — so opening the disclosure left the page's row rhythm
+// at the summary and reverted to a third layout underneath, on the one card a
+// reader reaches it from. One client is one row: the client is the naming, its
+// command is the SUBJECT rather than an answer that fits beside the name, so it
+// takes the stacked row's full width (a 60-character command in a right-hand
+// column is unreadable at any page measure).
 function ConnectGuide() {
   const t = useT();
   const state = useQuery({
@@ -117,25 +136,38 @@ function ConnectGuide() {
     <QueryGate query={state}>
       {(connector) =>
         connector.enabled ? (
-          <div className="agents-guide">
-            <p className="t-small">{t("agents.connectSteps")}</p>
-            <dl className="agents-guide-list">
+          <>
+            <p className="settings-panel-sub">{t("agents.connectSteps")}</p>
+            <SettingList>
               {CONNECT_GUIDES.map((guide) => (
-                <div key={guide.id} className="agents-guide-item">
-                  <dt className="t-label">{guide.name}</dt>
-                  <dd className="t-mono t-small agents-guide-command">
-                    {guide.command(connector.url)}
-                  </dd>
-                </div>
+                <SettingRow
+                  key={guide.id}
+                  layout="stack"
+                  // A product's own name, never translated — the same reason the
+                  // command is not: both are typed exactly as they are shown.
+                  label={guide.name}
+                  description={guide.note && t(guide.note)}
+                  control={
+                    <code className="t-mono t-small agents-guide-command">
+                      {guide.command(connector.url)}
+                    </code>
+                  }
+                />
               ))}
-            </dl>
-            <p className="t-small">{t("agents.connectAntigravityPath")}</p>
-          </div>
+            </SettingList>
+          </>
         ) : (
-          <div className="agents-guide">
-            <p className="t-label">{t("agents.connectorOff")}</p>
-            <p className="t-small">{t("agents.connectorOffDetail")}</p>
-          </div>
+          // Nothing to do and nothing to set: the disclosure's one row states the
+          // fact and what still holds despite it. A row rather than two loose
+          // paragraphs, so the sentence a reader who opened this arrives at sits
+          // on the same beat as the rows they came from.
+          <SettingList>
+            <SettingRow
+              label={t("agents.connectorOff")}
+              description={t("agents.connectorOffDetail")}
+              control={null}
+            />
+          </SettingList>
         )
       }
     </QueryGate>
@@ -445,7 +477,7 @@ export function ConnectedAgentsCard() {
     // get.
     <Panel title={t("agents.connected")}>
       <PanelBody>
-        <p className="t-small settings-panel-sub">{t("agents.connectedSub")}</p>
+        <p className="settings-panel-sub">{t("agents.connectedSub")}</p>
         {/* The wrapper is the disconnect confirm's focus anchor: it holds the
           card's row list — the connections that remain, the "no agent is
           connected" line when the ended one was the last, and the way to

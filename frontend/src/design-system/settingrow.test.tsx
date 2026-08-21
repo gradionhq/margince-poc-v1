@@ -3,6 +3,9 @@
 
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { TextInput } from "./atoms";
@@ -10,6 +13,15 @@ import { SettingList, SettingRow } from "./settingrow";
 import { Switch } from "./switch";
 
 afterEach(cleanup);
+
+// jsdom resolves no custom property and applies no stylesheet, so a claim about
+// WHICH rule holds is read off the sheet itself — the same way panel.test.tsx
+// holds its seam rule.
+const here = dirname(fileURLToPath(import.meta.url));
+
+function settingRowCss(): string {
+  return readFileSync(join(here, "settingrow.css"), "utf8");
+}
 
 describe("SettingRow", () => {
   // The whole reason the control arrives as a function: a row draws the label
@@ -82,6 +94,39 @@ describe("SettingRow", () => {
     expect(
       screen.getByRole("switch", { name: "Auto-enrich captured companies" }),
     ).toBeInTheDocument();
+  });
+
+  // A `Switch` stacks its own `reason` under the track in a left-aligned
+  // column, which is right where the switch draws its own label at the left of a
+  // row. In a row's ANSWER column it left the track floating in the middle of
+  // the row while the sentence reached the card's edge — the one thing that
+  // column exists to prevent. Which alignment applies is a stylesheet claim, so
+  // what is asserted here is the pair the rule keys on: an inline row, and the
+  // switch's own wrapper inside the control.
+  it("puts a refused switch and its reason in the row's answer column", () => {
+    render(
+      <SettingRow
+        testId="posture-row"
+        label="Retain-only posture"
+        description="While this is on, this installation destroys nothing."
+        control={
+          <Switch
+            label="Retain-only posture"
+            labelHidden
+            reason="Only an admin or ops can change retention."
+            checked={false}
+            onChange={() => undefined}
+          />
+        }
+      />,
+    );
+    const row = screen.getByTestId("posture-row");
+    expect(row).not.toHaveClass("settingrow-stack");
+    const control = row.querySelector(".settingrow-control");
+    expect(control?.querySelector(".switchrow")).not.toBeNull();
+    expect(settingRowCss()).toMatch(
+      /\.settingrow:not\(\.settingrow-stack\) \.settingrow-control \.switchrow \{[^}]*align-items:\s*flex-end/,
+    );
   });
 
   it("gives a stacked row's control the full width below the naming", () => {

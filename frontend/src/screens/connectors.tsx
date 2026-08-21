@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, Plug, RefreshCw, Send, X } from "lucide-react";
-import { useState } from "react";
+import { Mail, RefreshCw, Send, X } from "lucide-react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useRoute } from "../app/router";
-import { Badge, Button, EmptyState } from "../design-system/atoms";
+import { Badge, Button, EmptyState, Modal } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
@@ -39,7 +39,10 @@ import "./connectors.css";
 //
 // Every decision on both panels is a SettingRow: what the connection is on the
 // left, what it is set to on the right, at the one x the whole settings page
-// lines up on (design-system/settingrow.tsx).
+// lines up on (design-system/settingrow.tsx). Adding a connection is not one of
+// those decisions — it is the card's create verb, so it sits in the header and
+// opens a dialog rather than taking a row in the column a reader travels to
+// audit the roster.
 
 type CaptureConnection = components["schemas"]["CaptureConnection"];
 type Provider = CaptureConnection["provider"];
@@ -175,76 +178,110 @@ function ConnectionIdentity({
   );
 }
 
-// The "Add a connection" affordance (Task 1): one row whose control is the
-// strip of providers not already on the roster — an OAuth pick
-// connects+redirects, IMAP opens the inline form, and a provider-specific 501
-// renders a provider-named note.
+// What each provider actually brings, one sentence each. They exist because
+// the choice cannot be made from four names: "Gmail" and "Google Calendar"
+// are two halves of one account, only Gmail can ever send, and IMAP is the
+// answer for every host with no OAuth at all. A strip of four buttons had
+// nowhere to say any of that.
+const PROVIDER_BLURB: Record<Provider, MessageKey> = {
+  gmail: "connectors.addGmailBrings",
+  gcal: "connectors.addGcalBrings",
+  graph: "connectors.addGraphBrings",
+  imap: "connectors.addImapBrings",
+};
+
+// The "Add a connection" affordance (Task 1), as ONE verb and a dialog.
 //
-// The Google note is the row's DESCRIPTION rather than a paragraph above the
-// strip: it says what the two Google picks mean, which is what a description
-// is for, and it lands in the control's `aria-describedby` for free.
-function AddConnectionRow({
+// It was a row whose control held a strip of four buttons — the shape the
+// spacing contract names outright: three or more verbs in a row's right column
+// collapse behind one. Four picks squeezed against a wrapping description also
+// left no room for the sentence each provider needs, and made Gmail the
+// primary of a card that exists to REPORT the roster rather than to push one
+// mailbox.
+//
+// So the picks are rows of their own in here: the provider names itself on the
+// left, its sentence under that, and one verb at the same x as every other
+// answer in the product. The reasons a connect failed — a provider this
+// deployment never wired, or a refusal from the one it did — land in the dialog
+// the press happened in, which is the only place that names the button they
+// answer.
+function AddConnectionDialog({
+  open,
+  onClose,
   addable,
-  pending,
+  pendingProvider,
   notConfigured501,
   connectError,
   onConnect,
   onImap,
 }: Readonly<{
+  open: boolean;
+  onClose: () => void;
   addable: Provider[];
-  pending: boolean;
+  /** The provider whose connect is in flight, or null. */
+  pendingProvider: Provider | null;
   notConfigured501: Provider | null;
-  // Why the last connect started from THESE buttons failed, or null. It renders
-  // inside this row, under the strip that produced it: a reason reported in a
-  // section of its own — below a rule, above an unrelated heading — names no
-  // button at all, and the reader has to guess which press it answers.
+  // Why the last connect started from THESE buttons failed, or null.
   connectError: string | null;
   onConnect: (provider: Provider) => void;
   onImap: () => void;
 }>) {
   const t = useT();
-  const google = addable.includes("gcal") || addable.includes("gmail");
+  const headingId = useId();
   return (
-    <SettingRow
-      testId="connector-add"
-      label={t("connectors.addConnection")}
-      description={google ? t("connectors.googleSeparateNote") : undefined}
-      control={
-        <div className="connector-control">
-          <div className="connector-add-actions">
-            {addable.map((p) =>
-              p === "imap" ? (
-                <Button key={p} small onClick={onImap}>
-                  <Mail aria-hidden /> {t(providerLabel[p])}
-                </Button>
-              ) : (
+    <Modal open={open} onClose={onClose} labelledBy={headingId}>
+      <div className="form-stack">
+        <h2 id={headingId} className="t-h2">
+          {t("connectors.addConnection")}
+        </h2>
+        <SettingList>
+          {addable.map((provider) => (
+            <SettingRow
+              key={provider}
+              testId={`connector-add-${provider}`}
+              label={t(providerLabel[provider])}
+              description={t(PROVIDER_BLURB[provider])}
+              // The function form, but for the DESCRIPTION only: the sentence
+              // under the provider's name is what the choice turns on, so the
+              // button that makes it has to carry it. The row's
+              // `aria-labelledby` is deliberately left behind — it would
+              // outrank `aria-label` and leave four buttons announcing the word
+              // they share instead of the provider they differ by, and the
+              // visible "Connect" would no longer be inside the name a reader
+              // hears.
+              control={({ id, "aria-describedby": describedBy }) => (
                 <Button
-                  key={p}
-                  small
-                  variant={p === "gmail" ? "primary" : undefined}
-                  disabled={pending}
-                  onClick={() => onConnect(p)}
+                  id={id}
+                  aria-describedby={describedBy}
+                  variant="ghost"
+                  aria-label={t("connectors.connectProvider", {
+                    provider: t(providerLabel[provider]),
+                  })}
+                  pending={pendingProvider === provider}
+                  onClick={
+                    provider === "imap" ? onImap : () => onConnect(provider)
+                  }
                 >
-                  <Plug aria-hidden /> {t(providerLabel[p])}
+                  {t("connectors.connect")}
                 </Button>
-              ),
-            )}
-          </div>
-          {notConfigured501 && (
-            <Callout tone="danger" live="alert">
-              {t("connectors.providerNotConfigured", {
-                provider: t(providerLabel[notConfigured501]),
-              })}
-            </Callout>
-          )}
-          {connectError && (
-            <Callout tone="danger" live="alert">
-              {connectError}
-            </Callout>
-          )}
-        </div>
-      }
-    />
+              )}
+            />
+          ))}
+        </SettingList>
+        {notConfigured501 && (
+          <Callout tone="danger" live="alert">
+            {t("connectors.providerNotConfigured", {
+              provider: t(providerLabel[notConfigured501]),
+            })}
+          </Callout>
+        )}
+        {connectError && (
+          <Callout tone="danger" live="alert">
+            {connectError}
+          </Callout>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -394,20 +431,42 @@ function TelegramConnectorsPanel() {
   return (
     <Panel
       title={t("connectors.telegramTitle")}
-      sub={t("connectors.telegramSub")}
+      // The connect verb in the header, the same shape the mail card next to it
+      // takes: as the zero state's row it was labelled "Telegram" under a card
+      // titled "Telegram bot" — the card's own subject, said twice, with the
+      // act beside it.
+      titleAction={
+        query.isSuccess &&
+        !query.data.notConfigured &&
+        connections.length === 0 && (
+          <Button
+            small
+            data-testid="telegram-connect"
+            onClick={() => setConnectOpen(true)}
+          >
+            <Send aria-hidden /> {t("connectors.telegramConnectCta")}
+          </Button>
+        )
+      }
     >
       <PanelBody>
+        {/* In the BODY, not `Panel`'s `sub`. A description in the header band
+            raises that band's own height, so this card's title sat lower than
+            every sibling's on the tab and the whole page lost its beat over one
+            sentence. Read here it is also the first thing under the title
+            rather than a second line competing with it. */}
+        <p className="settings-panel-sub">{t("connectors.telegramSub")}</p>
         <TelegramNotice query={query} />
         {query.isSuccess && !query.data.notConfigured && (
           <SettingList>
             {connections.length === 0 ? (
+              // What the card is FOR, in the roster's own place: which bot is
+              // carrying messages. The verb that changes it is in the header.
               <SettingRow
-                testId="telegram-connect"
-                label={t("connectors.provTelegram")}
+                label={t("connectors.telegramRosterLabel")}
+                layout="stack"
                 control={
-                  <Button small onClick={() => setConnectOpen(true)}>
-                    <Send aria-hidden /> {t("connectors.telegramConnectCta")}
-                  </Button>
+                  <EmptyState>{t("connectors.telegramEmpty")}</EmptyState>
                 }
               />
             ) : (
@@ -459,13 +518,13 @@ type ConnectFailure = {
   message: string;
 } | null;
 
-// Which strip of buttons owes the reader the reason a connect failed. One
-// mutation drives two of them — the add row's provider picks and a roster
-// row's Reconnect — so a single shared error region could only ever sit under
-// one, which is how the reason ended up in a band of its own naming no button
-// at all. A provider is either already on the roster or still addable, never
-// both, so the mutation's own variable answers it: the strip offering that
-// provider carries the message and every other strip stays silent.
+// Which surface owes the reader the reason a connect failed. One mutation
+// drives two of them — the add dialog's provider picks and a roster row's
+// Reconnect — so a single shared error region could only ever sit under one,
+// which is how the reason ended up in a band of its own naming no button at
+// all. A provider is either already on the roster or still addable, never both,
+// so the mutation's own variable answers it: whichever surface offers that
+// provider carries the message and the other stays silent.
 function failureOwnedBy(
   failure: ConnectFailure,
   owner: readonly Provider[],
@@ -536,6 +595,9 @@ function ConnectorRow({
   onDisconnect,
 }: Readonly<{
   conn: CaptureConnection;
+  // Whether the reconnect pressed on THIS row is the one in flight. One
+  // mutation serves the whole card, so an unscoped "something is connecting"
+  // would draw every row's Reconnect as busy over a press it never received.
   connectPending: boolean;
   // Why the reconnect pressed on THIS row failed, or null — reported here,
   // under the button that produced it, rather than in a band of its own.
@@ -574,7 +636,11 @@ function ConnectorRow({
             <div className="connector-actions">
               {needsReconnect &&
                 (OAUTH_PROVIDERS.has(conn.provider) ? (
-                  <Button small disabled={connectPending} onClick={onReconnect}>
+                  // `pending`, never `disabled`: a write already on its way is
+                  // a different unavailability from one the reader could fix,
+                  // and disabling the button they just pressed drops their
+                  // focus to <body> at the moment there is something to say.
+                  <Button small pending={connectPending} onClick={onReconnect}>
                     <RefreshCw aria-hidden /> {t("connectors.reconnect")}
                   </Button>
                 ) : (
@@ -626,8 +692,66 @@ export function useConnectors() {
   });
 }
 
-// The mail half: the roster of mailboxes this member captures from, and the one
-// row that adds another.
+// The roster as this card's list of decisions: one row per mailbox, or — when
+// there is no mailbox — one row saying so.
+//
+// "No inbox is connected yet" is the ANSWER to the question the whole card asks,
+// which mailboxes are capturing, so it takes a row of its own rather than
+// floating as a bare paragraph between the card's description and whatever came
+// after it. A stacked row caps `.empty`'s page-furniture slab at a row's own
+// interval and left-aligns it (settingrow.css), so the sentence reads as a
+// sentence instead of as the loudest thing on the card.
+function MailRoster({
+  rows,
+  pendingProvider,
+  connectFailure,
+  onReconnect,
+  onImapReconnect,
+  onDisconnect,
+}: Readonly<{
+  rows: readonly CaptureConnection[];
+  pendingProvider: Provider | null;
+  connectFailure: ConnectFailure;
+  onReconnect: (provider: Provider) => void;
+  onImapReconnect: () => void;
+  onDisconnect: (provider: Provider) => void;
+}>) {
+  const t = useT();
+  if (rows.length === 0) {
+    return (
+      <SettingList>
+        <SettingRow
+          testId="connector-roster-empty"
+          layout="stack"
+          label={t("connectors.rosterLabel")}
+          control={
+            <EmptyState>
+              <p className="t-small">{t("connectors.empty")}</p>
+            </EmptyState>
+          }
+        />
+      </SettingList>
+    );
+  }
+  return (
+    <SettingList>
+      {rows.map((conn) => (
+        <ConnectorRow
+          key={conn.id}
+          conn={conn}
+          connectPending={pendingProvider === conn.provider}
+          connectError={failureOwnedBy(connectFailure, [conn.provider])}
+          onReconnect={() => onReconnect(conn.provider)}
+          onImapReconnect={onImapReconnect}
+          onDisconnect={() => onDisconnect(conn.provider)}
+        />
+      ))}
+    </SettingList>
+  );
+}
+
+// The mail half: the roster of mailboxes this member captures from, and the
+// header verb that adds another.
 function MailConnectorsPanel() {
   const t = useT();
   const qc = useQueryClient();
@@ -635,6 +759,7 @@ function MailConnectorsPanel() {
     null,
   );
   const [imapConnectOpen, setImapConnectOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [notConfigured501, setNotConfigured501] = useState<Provider | null>(
     null,
   );
@@ -705,17 +830,31 @@ function MailConnectorsPanel() {
       }
     : null;
 
-  // One list, whether the roster is empty or full. Before, adding the FIRST
-  // connection and adding the second were two different blocks in two
-  // different places — an empty state at the top of the card, and a level-3
-  // heading under the rows — so the affordance a reader had learned moved the
-  // moment they used it once.
-  const offerAdd = addable.length > 0 || notConfigured501 !== null;
+  // Gated on the list having ANSWERED, not merely on it not having failed:
+  // `addable` is derived from what is already connected, so before the read
+  // lands it says "all four", and a reader would be offered a mailbox they
+  // already have.
+  const rosterKnown = connectors.isSuccess && !notConfigured;
+  const offerAdd = rosterKnown && addable.length > 0;
+  const pendingProvider = connect.isPending ? connect.variables : null;
 
   return (
-    <Panel title={t("connectors.title")}>
+    <Panel
+      title={t("connectors.title")}
+      // The card's create verb, in the header — not one more row in the list.
+      // A row named "Add a connection" whose control is a button that says the
+      // same thing is a decision-shaped thing that answers nothing, and it sat
+      // in the column a reader travels to find what each mailbox is set to.
+      titleAction={
+        offerAdd ? (
+          <Button small onClick={() => setAddOpen(true)}>
+            {t("connectors.addOpen")}
+          </Button>
+        ) : undefined
+      }
+    >
       <PanelBody>
-        <p className="t-caption">{t("connectors.sub")}</p>
+        <p className="settings-panel-sub">{t("connectors.sub")}</p>
         <OAuthOutcomeNote />
         {connectors.isPending && (
           <p className="t-small">{t("connectors.loading")}</p>
@@ -730,49 +869,36 @@ function MailConnectorsPanel() {
             <p>{t("connectors.notConfigured")}</p>
           </EmptyState>
         )}
-        {/* The roster is empty, so the sentence that says so leads the list
-            whose only row is the one that fills it. */}
-        {connectors.isSuccess && !notConfigured && rows.length === 0 && (
-          <p className="t-small">{t("connectors.empty")}</p>
+        {rosterKnown && (
+          <MailRoster
+            rows={rows}
+            pendingProvider={pendingProvider}
+            connectFailure={connectFailure}
+            onReconnect={(provider) => connect.mutate(provider)}
+            onImapReconnect={() => setImapConnectOpen(true)}
+            onDisconnect={setPendingDisconnect}
+          />
         )}
-        {/* Gated on the list having ANSWERED, not merely on it not having
-            failed: `addable` is derived from what is already connected, so
-            before the read lands it says "all four", and a reader would be
-            offered a mailbox they already have. */}
-        {connectors.isSuccess &&
-          !notConfigured &&
-          (rows.length > 0 || offerAdd) && (
-            <SettingList>
-              {rows.map((conn) => (
-                <ConnectorRow
-                  key={conn.id}
-                  conn={conn}
-                  connectPending={connect.isPending}
-                  connectError={failureOwnedBy(connectFailure, [conn.provider])}
-                  onReconnect={() => connect.mutate(conn.provider)}
-                  onImapReconnect={() => setImapConnectOpen(true)}
-                  onDisconnect={() => setPendingDisconnect(conn.provider)}
-                />
-              ))}
-              {offerAdd && (
-                <AddConnectionRow
-                  addable={addable}
-                  pending={connect.isPending}
-                  notConfigured501={notConfigured501}
-                  connectError={failureOwnedBy(connectFailure, addable)}
-                  onConnect={(p) => connect.mutate(p)}
-                  onImap={() => {
-                    // A stale "X isn't configured" note from an earlier OAuth
-                    // attempt must not linger once the user pivots to the IMAP
-                    // form instead.
-                    setNotConfigured501(null);
-                    setImapConnectOpen(true);
-                  }}
-                />
-              )}
-            </SettingList>
-          )}
       </PanelBody>
+      <AddConnectionDialog
+        open={addOpen && offerAdd}
+        onClose={() => setAddOpen(false)}
+        addable={addable}
+        pendingProvider={pendingProvider}
+        notConfigured501={notConfigured501}
+        connectError={failureOwnedBy(connectFailure, addable)}
+        onConnect={(p) => connect.mutate(p)}
+        onImap={() => {
+          // A stale "X isn't configured" note from an earlier OAuth attempt
+          // must not linger once the user pivots to the IMAP form instead.
+          setNotConfigured501(null);
+          // Closed BEFORE the IMAP form opens, never stacked behind it: two
+          // overlays deep, Escape and the focus restore both answer to the
+          // wrong layer, and the chooser has already done its job.
+          setAddOpen(false);
+          setImapConnectOpen(true);
+        }}
+      />
       <ConfirmModal
         open={pendingDisconnect !== null}
         onClose={() => setPendingDisconnect(null)}

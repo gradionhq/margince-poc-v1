@@ -162,9 +162,29 @@ export function BlockedDomainsCard() {
   }, []);
 
   return (
-    <Panel title={t("blockedDomains.title")}>
+    <Panel
+      title={t("blockedDomains.title")}
+      // The card's one create verb rides in the header, not in a row: a row
+      // states a setting and its answer, and this row's LABEL was its own
+      // button's words ("Record a decision" beside "Record…"). It also keeps
+      // the verb still while the list below it grows. Refused rather than
+      // hidden, like every other control on this card — the sentence under the
+      // list is what `reasonId` names.
+      titleAction={
+        <Button
+          small
+          reasonId={refusal}
+          onClick={() => setEditing(BLANK_DECISION)}
+        >
+          {t("blockedDomains.recordOpen")}
+        </Button>
+      }
+    >
+      {/* `form-stack` stays: the denial sentence and the stored-callout below
+          the list are non-row children, and the list owns only the intervals
+          BETWEEN its rows. */}
       <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("blockedDomains.sub")}</p>
+        <p className="settings-panel-sub">{t("blockedDomains.sub")}</p>
         <SettingList>
           {/* The decisions are the subject of this card rather than an answer
               to a question beside them, so they take the row's full width. */}
@@ -214,22 +234,6 @@ export function BlockedDomainsCard() {
                   )
                 }
               </QueryGate>
-            }
-          />
-          {/* Three inputs submitted together — the domain, the decision and the
-              sentence that justifies it — so the form lives behind this verb
-              and the row above stays a list of answers. */}
-          <SettingRow
-            label={t("blockedDomains.record")}
-            description={t("blockedDomains.reasonHint")}
-            control={
-              <Button
-                variant="ghost"
-                reasonId={refusal}
-                onClick={() => setEditing(BLANK_DECISION)}
-              >
-                {t("blockedDomains.recordOpen")}
-              </Button>
             }
           />
         </SettingList>

@@ -1080,8 +1080,6 @@ export const de = {
   "linkedinImport.title": "LinkedIn-Kontakte",
   "linkedinImport.sub":
     "Eigenen Export importieren und sehen, wen das Team bereits kennt",
-  "linkedinImport.explainer":
-    "LinkedIn stellt dir unter Einstellungen → Datenschutz → Kopie deiner Daten eine Connections.csv bereit. Hochgeladen zeigt sie, wer im Team bereits jemanden im Unternehmen kennt. Die Kontakte werden NICHT zu Personen — sie erscheinen weder in der Suche noch in Listen oder auf Kontaktseiten, und niemand kann ihnen schreiben.",
   "linkedinImport.profileLabel": "Deine LinkedIn-Profil-URL",
   "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
   "linkedinImport.saveProfile": "Profil speichern",
@@ -1091,9 +1089,9 @@ export const de = {
   "linkedinImport.connectedNote":
     "Verbunden. Importierte Kontakte werden diesem Profil zugeordnet, damit das CRM sagen kann, welche Kollegin jemanden kennt \u2014 und nicht nur, dass \u201edas Unternehmen\u201c ihn kennt.",
   "linkedinImport.notConnectedNote":
-    "Noch nicht verbunden. Mit deiner Profil-URL werden importierte Kontakte dir namentlich zugeordnet.",
+    "Mit deiner hinterlegten Profil-URL werden importierte Kontakte dir namentlich zugeordnet.",
   "linkedinImport.whichFile":
-    "Gesucht ist die Datei Connections.csv \u2014 das Export-Archiv enth\u00e4lt ein Dutzend weitere.",
+    "LinkedIn stellt dir Connections.csv unter Einstellungen \u2192 Datenschutz \u2192 Kopie deiner Daten bereit; das Archiv enth\u00e4lt ein Dutzend weitere, gesucht ist diese eine. Was du hochl\u00e4dst, wird niemals zu Kontakten: die Verbindungen erscheinen weder in der Suche noch in Listen oder auf Kontaktseiten, und niemand kann ihnen schreiben oder mailen.",
   "linkedinImport.choose": "Connections.csv ausw\u00e4hlen",
   "linkedinImport.importLabel": "Kontakt-Export",
   "linkedinImport.noMatchesYet":
@@ -2253,7 +2251,7 @@ export const de = {
   "rbac.masked": "Verborgener Wert",
   "settings.passports": "Agenten-Passports",
   "settings.passportsSub":
-    "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
+    "Ein Agent handelt als du, nie über dir: jeder Aufruf prüft deine Rechte neu.",
   "passport.scope.read": "Datensätze lesen",
   "passport.scope.draft": "Nachrichten entwerfen",
   "passport.scope.write": "Datensätze ändern",
@@ -2269,7 +2267,6 @@ export const de = {
   "settings.mintCancel": "Abbrechen",
   "settings.mintDone": "Fertig",
   "settings.mintOpen": "Ausstellen…",
-  "settings.mintLabel": "Neuen Passport ausstellen",
   "settings.passportScopes": "Was dieser Agent darf",
   "settings.passportScopesHint":
     "Mindestens eins auswählen. Ein Agent darf nie mehr als Sie selbst.",
@@ -2622,7 +2619,6 @@ export const de = {
   "settings.pipelinesSub":
     "Die Phasen, die ein Deal durchläuft — eine Leiter je Pipeline.",
   "pipeline.new": "Neue Pipeline",
-  "pipeline.addLabel": "Pipeline hinzufügen",
   "pipeline.edit": "Pipeline bearbeiten",
   "pipeline.name": "Name",
   "pipeline.default": "Standard",
@@ -2636,7 +2632,7 @@ export const de = {
   "stage.semOpen": "Offen",
   "stage.semWon": "Gewonnen",
   "stage.semLost": "Verloren",
-  "stage.remove": "Entfernen",
+  "stage.remove": "Entfernen…",
   "stage.removeConfirm": "Phase entfernen",
   "stage.removeTitle": "Diese Phase entfernen?",
   "stage.removeBody":
@@ -3073,12 +3069,22 @@ export const de = {
     "Diese Installation kann die Verbindung noch nicht abschließen — die API des Anbieters ist dafür nicht aktiviert. Ein Administrator muss sie aktivieren; das Server-Log nennt die betroffene API.",
   "connectors.dismissOutcome": "Schließen",
 
-  // Das immer sichtbare "Verbindung hinzufügen"-Element (Task 1): der
-  // Leerzustand und die Fußzeile der Liste teilen sich dieselben Buttons für
-  // noch nicht verbundene Anbieter.
+  // Das "Verbindung hinzufügen"-Element (Task 1): ein Button in der Kopfzeile
+  // der Karte öffnet einen Dialog mit allen noch verfügbaren Anbietern, jeder
+  // mit dem Satz, den er braucht.
   "connectors.addConnection": "Verbindung hinzufügen",
-  "connectors.googleSeparateNote":
-    "Gmail und Google Kalender werden separat verbunden.",
+  "connectors.addOpen": "Konto verbinden…",
+  "connectors.connect": "Verbinden",
+  "connectors.connectProvider": "{provider} verbinden",
+  "connectors.rosterLabel": "Erfassende Postfächer",
+  "connectors.addGmailBrings":
+    "Die Mails, die du sendest und empfängst, von Google — und die einzige Verbindung, über die Margince senden kann.",
+  "connectors.addGcalBrings":
+    "Dein Google Kalender. Er wird separat von Gmail verbunden.",
+  "connectors.addGraphBrings":
+    "Mail und Kalender eines Microsoft-Geschäftskontos, über die Graph-API. Nur Erfassung.",
+  "connectors.addImapBrings":
+    "Jeder andere Mail-Host, mit einem App-Passwort. Nur Erfassung.",
   "connectors.providerNotConfigured":
     "{provider} ist in dieser Installation nicht konfiguriert.",
 
@@ -3110,6 +3116,8 @@ export const de = {
   "connectors.telegramNotConfigured":
     "Messaging-Kanäle sind in dieser Installation nicht konfiguriert.",
   "connectors.telegramConnectCta": "Telegram-Bot verbinden",
+  "connectors.telegramRosterLabel": "Bot, der Nachrichten überträgt",
+  "connectors.telegramEmpty": "Noch kein Bot verbunden.",
   "connectors.telegramEditToken": "Token ersetzen",
   "connectors.telegramDisconnectTitle": "Diesen Bot trennen?",
   "connectors.telegramDisconnectBody":
@@ -3136,6 +3144,7 @@ export const de = {
   "consumerMail.kind.never":
     "Eine echte Firma — mitgelieferte Liste ignorieren",
   "consumerMail.add": "Hinzufügen",
+  "consumerMail.addOpen": "Hinzufügen…",
   "consumerMail.remove": "Entfernen",
   "consumerMail.none":
     "Nichts ergänzt. Die mitgelieferte Liste entscheidet über jede Domain.",
@@ -4103,11 +4112,11 @@ export const de = {
   "cf.addedByYou": "Du",
   "cf.addedByAdmin": "Admin",
   "cf.empty.deal":
-    "Noch keine benutzerdefinierten Felder auf Deal. Füge unten eines hinzu, wenn du etwas erfasst, das wir nicht mitgeliefert haben.",
+    "Noch keine benutzerdefinierten Felder auf Deal. Füge eines hinzu, wenn du etwas erfasst, das wir nicht mitgeliefert haben.",
   "cf.empty.organization":
-    "Noch keine benutzerdefinierten Felder auf Firma. Füge unten eines hinzu, wenn du etwas erfasst, das wir nicht mitgeliefert haben.",
+    "Noch keine benutzerdefinierten Felder auf Firma. Füge eines hinzu, wenn du etwas erfasst, das wir nicht mitgeliefert haben.",
   "cf.empty.person":
-    "Noch keine benutzerdefinierten Felder auf Kontakt. Die Kernfelder decken den Kontaktdatensatz ab; füge unten eines hinzu, wenn du mehr erfasst.",
+    "Noch keine benutzerdefinierten Felder auf Kontakt. Die Kernfelder decken den Kontaktdatensatz ab; füge eines hinzu, wenn du mehr erfasst.",
   "cf.empty.lead":
     "Noch keine benutzerdefinierten Felder auf Lead. Ein Feld, das du hier hinzufügst, erscheint auch, sobald ein Lead zu einem Kontakt befördert wird.",
   "cf.type.text": "Text",
@@ -4550,9 +4559,10 @@ export const de = {
   "users.teamsTitle": "Teams",
   "users.teamsSub":
     "Wer welche Datensätze bearbeiten darf: Mitglieder eines Teams bearbeiten die Datensätze aller Teammitglieder. Lesen dürfen Kunden, Kontakte, Leads und Deals alle.",
-  "users.teamMembers": "{count} Mitglieder",
   "users.archiveTeam": "Team {name} archivieren",
   "users.newTeamLabel": "Neues Team",
+  "users.newTeamOpen": "Neues Team…",
+  "users.teamNameLabel": "Teamname",
   "users.newTeamPlaceholder": "z. B. DACH Sales",
   "users.createTeam": "Team anlegen",
   "users.access.title": "Das sieht dieses Mitglied",
@@ -4600,6 +4610,7 @@ export const de = {
   "users.invite": "Einladen",
   "users.setRole": "Rolle setzen…",
   "users.setRoleFor": "Rolle für {name} setzen",
+  "users.rowActions": "Aktionen für {name}",
   "users.rolesHeld": "Hat {roles}. Eine auszuwählen ersetzt alle",
   "users.deactivate": "Deaktivieren",
   "users.reactivate": "Reaktivieren",
@@ -4629,7 +4640,6 @@ export const de = {
     "Server nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
   "users.link.retry": "Erneut versuchen",
   "users.link.done": "Fertig",
-  "settings.companyKicker": "Firmenwissen",
   "settings.companyReadOnly":
     "Nur-Lese-Ansicht — das Unternehmensprofil zu ändern braucht Schreibrechte auf die Organisation.",
   "settings.companyTitle": "Was Margince über dein Unternehmen weiß",
@@ -4639,13 +4649,20 @@ export const de = {
     "Nur bestätigtes Wissen — Website-Texte werden nie zu Anweisungen.",
   "settings.companyConfirmed": "bestätigte Aussagen",
   "settings.companyWebsite": "Öffentliche Unternehmenswebsite",
+  "settings.companyWebsiteHint":
+    "Die öffentliche Website, von der jede Website-Lesung ausgeht.",
+  "settings.companySourceTitle": "Woher wir es lesen",
+  "settings.companyRefreshRow": "Website erneut lesen",
+  "settings.companyRefreshHint":
+    "Wir rufen deine öffentlichen Seiten ab und schlagen Änderungen vor. Nichts landet im Profil, bevor du es geprüft und übernommen hast.",
+  "settings.companyEdit": "Bearbeiten",
+  "settings.companyEditField": "{field} bearbeiten",
   "settings.companyWebsiteRequired":
     "Füge vor der Aktualisierung eine Unternehmenswebsite hinzu.",
   "settings.companyRefresh": "Von Website aktualisieren",
   "settings.companyEssentials": "Die drei Grundlagen",
   "settings.companyPositioning": "Positionierung, Käufer und Vertrieb",
   "settings.companyIdentity": "Identität und rechtliche Angaben",
-  "settings.companyViewSource": "Quelle ansehen",
   "settings.companySave": "Firmenkontext speichern",
   "settings.companySaved": "Gespeichert",
   "settings.companyRefreshUnreadable":
@@ -4720,6 +4737,7 @@ export const de = {
     "Die geregelte Oberfläche, die ein Passport aufrufen kann — dieselbe Liste, die ein MCP-Client sieht.",
   "tools.egress": "ruft nach außen",
   "tools.scopeAll": "Alle Passports",
+  "tools.inventory": "Alle {count} Werkzeuge",
   "tools.scopeLabel": "Auf einen Passport eingrenzen",
   "tools.scopedTo": "Erreichbar durch {label}",
   "tools.unreachable": "Bereich nicht gewährt",
@@ -4929,6 +4947,7 @@ export const de = {
   "captureExclusions.placeholder.address": "name@beispiel.de",
   "captureExclusions.placeholder.domain": "beispiel.de",
   "captureExclusions.add": "Ausschließen",
+  "captureExclusions.addOpen": "Ausschließen…",
   "captureExclusions.remove": "{value} wieder erfassen",
   "ownDomains.title": "Eigene E-Mail-Domains",
   "ownDomains.sub":
@@ -4944,6 +4963,7 @@ export const de = {
   "ownDomains.candidate":
     "aus einem verbundenen Postfach, noch nicht bestätigt",
   "ownDomains.add": "Hinzufügen",
+  "ownDomains.addOpen": "Hinzufügen…",
   "ownDomains.addLabel": "Eigene Domain hinzufügen",
   "ownDomains.placeholder": "beispiel.de",
   "ownDomains.remove": "{domain} entfernen",

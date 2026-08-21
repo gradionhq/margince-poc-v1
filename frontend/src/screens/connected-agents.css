@@ -38,37 +38,17 @@
   margin-top: var(--space-1);
 }
 
-/* The connect guide, in the body of its disclosure. */
-.agents-guide {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
+/* One client's connect command, the subject of its own stacked row. The row
+   language owns everything around it now — the interval to the client name, the
+   hairline to the next client, the width — so what is left here is what the
+   command itself needs: `pre-wrap` keeps the two-line Codex recipe two lines,
+   and `break-all` is what stops a long base URL from widening the card instead
+   of wrapping inside it.
 
-.agents-guide > p {
-  margin: 0;
-}
-
-.agents-guide-list {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.agents-guide-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-/* A `dd` carries a browser indent of its own, so the command has to be pulled
-   back under the client name that labels it. `pre-wrap` keeps the two-line
-   Codex recipe two lines, and `break-all` is what stops a long base URL from
-   widening the card instead of wrapping inside it. */
+   The `<dl>` this replaces brought its own layout with it (a flex column at its
+   own gap, plus a reset for the `dd` indent), which is exactly the third rhythm
+   the disclosure now does not have. */
 .agents-guide-command {
-  margin: 0;
   white-space: pre-wrap;
   word-break: break-all;
 }

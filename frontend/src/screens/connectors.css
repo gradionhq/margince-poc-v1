@@ -57,19 +57,14 @@
   flex-wrap: wrap;
 }
 
-/* The verbs on a roster row and the provider picks under "Add a connection"
-   are ONE row shape, declared once — two strips of buttons that disagreed
-   about alignment (one centred, one left to the flex default) drew the same
-   thing two different ways.
-
-   The buttons keep their own widths on purpose. `small` is the rung that
-   deliberately drops `.btn`'s 6rem floor (design-system/base.css says why: it
-   lives in dense rows, where a floor is what breaks the layout), and a shared
-   minimum only aligns buttons that are STACKED. Side by side, every label
-   longer than the floor still sets its own width, so a floor here would widen
-   "Gmail" toward "Google Calendar" without ever making the two ends line up. */
-.connector-actions,
-.connector-add-actions {
+/* The verbs on a roster row — Reconnect beside Disconnect. They keep their own
+   widths on purpose: `small` is the rung that deliberately drops `.btn`'s 6rem
+   floor (design-system/base.css says why: it lives in dense rows, where a floor
+   is what breaks the layout), and a shared minimum only aligns buttons that are
+   STACKED. Side by side, every label longer than the floor still sets its own
+   width, so a floor here would widen one toward the other without ever making
+   the two ends line up. */
+.connector-actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);

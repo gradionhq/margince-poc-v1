@@ -121,7 +121,7 @@ export function CaptureActivityTab() {
         {/* The description belongs in the body, which is where the other ten
             settings cards put theirs — Panel's header band holds the title
             alone, by design. */}
-        <p className="t-small settings-panel-sub">{t("captureActivity.sub")}</p>
+        <p className="settings-panel-sub">{t("captureActivity.sub")}</p>
         <SettingList>
           {/* Whose activity is a one-of-two ANSWER, so it sits beside its
               naming in the right column like every other answer on the page.

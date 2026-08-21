@@ -1,0 +1,10 @@
+/* The shapes `common.tsx` draws for every list screen. It owned no sheet, so the
+   one interval it needs travelled as an inline `style` on 38 surfaces' worth of
+   button — including inside a settings card, where a raw 10px sat among rows
+   spaced in tokens. */
+
+/* "Load more" stands under the page it extends, spaced off it: it acts on the
+   list above rather than being one more row of it. */
+.load-more {
+  margin-top: var(--space-3);
+}

@@ -63,9 +63,7 @@ export function ExtensionUnitsCard({
     // header bands that disagree about their own height.
     <Panel title={t(`extUnits.${scope}.title`)}>
       <PanelBody>
-        <p className="t-small settings-panel-sub">
-          {t(`extUnits.${scope}.sub`)}
-        </p>
+        <p className="settings-panel-sub">{t(`extUnits.${scope}.sub`)}</p>
         <SettingList>
           {units.map((unit) => (
             <UnitRow key={unit.name} name={unit.name} />

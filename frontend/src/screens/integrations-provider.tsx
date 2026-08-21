@@ -109,7 +109,7 @@ export function ProviderCard() {
           a skeleton, a refusal, the no-provider state — brings the body's own
           top padding with it, and two stacked bodies would space them twice. */}
       <PanelBody className="provider-intro">
-        <p className="t-caption">{t("provider.sub")}</p>
+        <p className="settings-panel-sub">{t("provider.sub")}</p>
         {/* Hoisted OUT of QueryGate, the way the neighbouring webhooks card
             already does it: the gate's empty and error branches replace their
             children wholesale, so a posture line nested inside would go quiet
@@ -118,7 +118,9 @@ export function ProviderCard() {
             card keeps its place and says ONCE what a reader without any of the
             three writes is looking at; the controls below are then simply
             absent (design-system README, "Absent, disabled, or withheld"). */}
-        {readOnly && <p className="t-caption">{t("provider.readOnly")}</p>}
+        {readOnly && (
+          <p className="settings-panel-sub">{t("provider.readOnly")}</p>
+        )}
       </PanelBody>
       <QueryGate query={query}>
         {(result) =>
@@ -385,8 +387,12 @@ function PolicyRow({
       <SettingRow
         label={t("provider.autoEnrich")}
         description={t("provider.autoEnrichHint")}
-        control={
+        control={(control) => (
           <Switch
+            // The row's description reaches the switch: what auto-enrich DOES
+            // is the sentence on the left, and a node-form control cannot see
+            // the id the row minted for it.
+            describedBy={control["aria-describedby"]}
             checked={configuration.automatic_individual_create ?? false}
             // Three causes, and only one of them is worth words. A permission
             // is permanent and has to be explained; a write in flight explains
@@ -408,7 +414,7 @@ function PolicyRow({
             label={t("provider.autoEnrich")}
             labelHidden
           />
-        }
+        )}
       />
       {/* Under the row whose flip failed, at the row's full width, rather than
           squeezed into the control column beside the switch: the reason names

@@ -353,8 +353,13 @@ export function LeadSourcesCard() {
   const discovered = rowsOf(query.data?.discovered);
   return (
     <Panel title={t("leadSources.title")}>
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("leadSources.sub")}</p>
+      {/* No `form-stack` on the body: the description already pays for its own
+          interval to the rows (`.settings-panel-sub`), and a stack's gap on top
+          of that margin — margins do not collapse in a flex container — put 28px
+          under a line every other settings card sets 16px below. The blocks that
+          are NOT rows take their interval from `.lead-vocab-notices`. */}
+      <PanelBody>
+        <p className="settings-panel-sub">{t("leadSources.sub")}</p>
         <SettingList>
           {/* The sources are the SUBJECT of this card rather than an answer to
               a question beside them, so they take the row's full width. */}
@@ -449,13 +454,19 @@ export function LeadSourcesCard() {
             />
           )}
         </SettingList>
-        {/* Said once for the whole card rather than on each of a dozen refused
-            controls: the boundary is the same for every row in the list. */}
-        {!canEdit && <p className="t-small">{t("leadSources.readOnly")}</p>}
-        {failure && (
-          <Callout tone="danger" live="alert">
-            {problemMessageOf(failure.error, t)}
-          </Callout>
+        {/* The card's own band under the rows, not one more row: the posture is
+            said once for the whole card rather than on each of a dozen refused
+            controls — the boundary is the same for every row in the list — and a
+            refused write belongs to the card the row it failed on sits in. */}
+        {(!canEdit || failure) && (
+          <div className="lead-vocab-notices">
+            {!canEdit && <p className="t-small">{t("leadSources.readOnly")}</p>}
+            {failure && (
+              <Callout tone="danger" live="alert">
+                {problemMessageOf(failure.error, t)}
+              </Callout>
+            )}
+          </div>
         )}
         {/* Closing clears the refusal with the form that carried it: the
             dialog's own Callout and the card's read the same sentence, and
@@ -565,8 +576,9 @@ export function LeadDisqualifyReasonsCard() {
   const failure = [create, update].find((m) => m.isError);
   return (
     <Panel title={t("leadReasons.title")}>
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("leadReasons.sub")}</p>
+      {/* Plain body, for the reason the sources card above carries in full. */}
+      <PanelBody>
+        <p className="settings-panel-sub">{t("leadReasons.sub")}</p>
         <SettingList>
           {/* The reasons are the subject of this card, so they take the row's
               full width — the same shape the sources list above takes, which is
@@ -687,11 +699,15 @@ export function LeadDisqualifyReasonsCard() {
             />
           )}
         </SettingList>
-        {!canEdit && <p className="t-small">{t("leadSources.readOnly")}</p>}
-        {failure && (
-          <Callout tone="danger" live="alert">
-            {problemMessageOf(failure.error, t)}
-          </Callout>
+        {(!canEdit || failure) && (
+          <div className="lead-vocab-notices">
+            {!canEdit && <p className="t-small">{t("leadSources.readOnly")}</p>}
+            {failure && (
+              <Callout tone="danger" live="alert">
+                {problemMessageOf(failure.error, t)}
+              </Callout>
+            )}
+          </div>
         )}
         <ConfirmModal
           open={removing !== null}
@@ -741,13 +757,9 @@ export function LeadHandlingCard() {
   const targetErrorId = useId();
   return (
     <Panel title={t("leadHandling.title")}>
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">{t("leadHandling.sub")}</p>
-        {update.isError && (
-          <Callout tone="danger" live="alert">
-            {problemMessageOf(update.error, t)}
-          </Callout>
-        )}
+      {/* Plain body, for the reason the sources card carries in full. */}
+      <PanelBody>
+        <p className="settings-panel-sub">{t("leadHandling.sub")}</p>
         <QueryGate query={query}>
           {(settings) => {
             const shown =
@@ -784,13 +796,16 @@ export function LeadHandlingCard() {
                 <SettingRow
                   label={t("leadHandling.firstResponse")}
                   description={t("leadHandling.firstResponseHint")}
-                  control={
-                    // The node form with its own hidden label: a Switch owns
-                    // its accessible name by design, and pointing it at the
-                    // row's span as well would name it twice. `reason` refuses
-                    // the flip AND says why, which is what a stateful control
-                    // a permission denies owes its reader.
+                  control={(control) => (
+                    // The switch keeps its own hidden label — it owns its
+                    // accessible name by design, and pointing it at the row's
+                    // span as well would name it twice — but it takes the row's
+                    // DESCRIPTION, or the sentence saying what the setting does
+                    // reaches nobody who cannot see it. `reason` refuses the
+                    // flip AND says why, which is what a stateful control a
+                    // permission denies owes its reader.
                     <Switch
+                      describedBy={control["aria-describedby"]}
                       label={t("leadHandling.firstResponse")}
                       labelHidden
                       checked={settings.first_response_enabled}
@@ -801,7 +816,7 @@ export function LeadHandlingCard() {
                         update.mutate({ first_response_enabled: next })
                       }
                     />
-                  }
+                  )}
                 />
                 <SettingRow
                   label={t("leadHandling.targetMinutes")}
@@ -857,6 +872,16 @@ export function LeadHandlingCard() {
             );
           }}
         </QueryGate>
+        {/* Under the rows it belongs to, in the card's own band — the same place
+            the two vocabulary cards above report a refused write, so all three
+            say it in one place. */}
+        {update.isError && (
+          <div className="lead-vocab-notices">
+            <Callout tone="danger" live="alert">
+              {problemMessageOf(update.error, t)}
+            </Callout>
+          </div>
+        )}
       </PanelBody>
     </Panel>
   );

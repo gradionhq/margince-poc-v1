@@ -90,12 +90,38 @@ function roleShown(row: HTMLElement, name: string): string {
   return roleSelect(row, name).textContent ?? "";
 }
 
+// A member is one SettingRow inside a wrapper carrying the row's refusal and
+// the focus target its deactivate confirm hands back to. The wrapper's testid is
+// what identifies it: SettingRow is a <div>, so there is no <li> to climb to.
 function rowFor(name: string) {
-  const row = screen.getByText(name).closest("li");
+  const row = screen.getByText(name).closest('[data-testid^="member-"]');
   if (!(row instanceof HTMLElement)) {
     throw new Error(`no member row rendered for ${name}`);
   }
   return row;
+}
+
+// The row's verbs — the set-password link and the status change — live behind
+// its OverflowMenu, and the menu's panel is portalled to the body: a query
+// scoped to the row cannot see them, and the children are not even rendered
+// until the menu is first opened. So open it and scope to the panel the trigger
+// names.
+async function rowMenu(user: ReturnType<typeof userEvent.setup>, name: string) {
+  const trigger = within(rowFor(name)).getByRole("button", {
+    name: new RegExp(`actions for ${name}`, "i"),
+  });
+  // The trigger TOGGLES, so a helper that always clicks would shut a menu a
+  // previous step left open — and the assertion after it would then be about a
+  // panel with `hidden` on it rather than about what the row offers.
+  if (trigger.getAttribute("aria-expanded") !== "true") {
+    await user.click(trigger);
+  }
+  const panelId = trigger.getAttribute("aria-controls");
+  const panel = panelId === null ? null : document.getElementById(panelId);
+  if (!(panel instanceof HTMLElement)) {
+    throw new Error(`no actions menu rendered for ${name}`);
+  }
+  return within(panel);
 }
 
 // `roles` defaults to the admin this suite is mostly about; a caller naming
@@ -191,29 +217,34 @@ describe("UsersAdminCard", () => {
     expect(screen.getByRole("heading", { name: /^Members$/ })).toBeTruthy();
 
     // A role they cannot change is a FACT, so it reads as text rather than as a
-    // picker that could only be refused, and no row offers a status verb.
+    // picker that could only be refused, and no row offers a verb at all — so
+    // no row offers the menu those verbs live behind either.
     expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.queryByRole("button", { name: /deactivate/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /reactivate/i })).toBeNull();
+    expect(screen.getByText("Read-only")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /actions for/i })).toBeNull();
 
-    // Inviting IS the admin's, and it is withheld rather than absent: the page
-    // opens for every seat, so a missing invite card would read as "this
-    // installation cannot add people".
+    // Inviting IS the admin's, and the card SAYS it is withheld rather than
+    // simply dropping the verb: the page opens for every seat, so a roster with
+    // no explanation reads as "this installation cannot add people".
     expect(
-      screen.getByRole("heading", { name: /invite a member/i }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: /invite a member…/i }),
+    ).toBeNull();
     expect(screen.getByText(/admins only/i)).toBeTruthy();
-    expect(screen.queryByLabelText(/work email/i)).toBeNull();
+    expect(screen.queryByLabelText(/new member's email/i)).toBeNull();
   });
 
-  it("splits inviting and the roster into their own cards", async () => {
+  it("carries the roster count and the invite verb in one card's header", async () => {
     vi.stubGlobal("fetch", backend([]));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    expect(
-      screen.getByRole("heading", { name: /invite a member/i }),
-    ).toBeTruthy();
+    // ONE card, because there is one subject. Inviting used to be a second card
+    // whose title, whose only row's label and whose button all read "Invite a
+    // member" — three copies of the same three words above the list a reader
+    // came for.
+    expect(screen.getAllByRole("heading", { name: /^Members$/ })).toHaveLength(
+      1,
+    );
     const members = screen
       .getByRole("heading", { name: /^Members$/ })
       .closest("section");
@@ -222,16 +253,24 @@ describe("UsersAdminCard", () => {
     }
     // The count states what the roster holds — the deactivated member and the
     // workspace's own agent seat included, because the read opts into both and a
-    // count that skipped either would disagree with the rows beneath it.
-    expect(within(members).getByText("4 members")).toBeTruthy();
-    expect(within(members).getAllByRole("listitem").length).toBe(4);
-    // And the invite fields are not in it: two cards, two surfaces.
+    // count that skipped either would disagree with the rows beneath it. The
+    // verb that adds to it stands beside the count, on the title's own line.
+    const header = members.querySelector(".panel-head");
+    if (!(header instanceof HTMLElement)) {
+      throw new Error("the members card has no header band");
+    }
+    expect(within(header).getByText("4 members")).toBeTruthy();
+    expect(
+      within(header).getByRole("button", { name: /invite a member…/i }),
+    ).toBeTruthy();
+    // And the invite fields are not on the page until the dialog carries them.
     expect(
       within(members).queryByPlaceholderText("name@company.com"),
     ).toBeNull();
   });
 
   it("renders the include-inactive roster with per-status actions", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", backend([]));
     render(<UsersAdminCard />);
 
@@ -239,10 +278,40 @@ describe("UsersAdminCard", () => {
     expect(screen.getByText("Otto Off")).toBeTruthy();
     // The roster request opts into the inactive members.
     // (asserted indirectly: the deactivated member is present at all.)
-    const active = screen.getByText("Ada Active").closest("li") as HTMLElement;
-    const off = screen.getByText("Otto Off").closest("li") as HTMLElement;
-    expect(within(active).getByText("Deactivate")).toBeTruthy();
-    expect(within(off).getByText("Reactivate")).toBeTruthy();
+    expect(
+      (await rowMenu(user, "Ada Active")).getByText("Deactivate"),
+    ).toBeTruthy();
+    expect(
+      (await rowMenu(user, "Otto Off")).getByText("Reactivate"),
+    ).toBeTruthy();
+  });
+
+  // A row is ONE line: the member's name over their address on the left, and on
+  // the right the role, the status and the menu holding the verbs. Nine members
+  // used to be nine 140px blocks — a full-width Select on its own line and two
+  // ghost buttons stacked under it — which read as nine cards rather than one
+  // list.
+  it("keeps a member's role, status and verbs in the row's one control column", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    const row = rowFor("Ada Active");
+    expect(within(row).getByText("ada@acme.test")).toBeTruthy();
+    const control = row.querySelector(".settingrow-control");
+    if (!(control instanceof HTMLElement)) {
+      throw new Error("the member row has no control column");
+    }
+    expect(
+      within(control).getByRole("combobox", { name: /set role for ada/i }),
+    ).toBeTruthy();
+    expect(within(control).getByText("Active")).toBeTruthy();
+    expect(
+      within(control).getByRole("button", { name: /actions for ada active/i }),
+    ).toBeTruthy();
+    // The verbs are BEHIND the menu, so the closed row draws neither of them.
+    expect(within(row).queryByText("Deactivate")).toBeNull();
+    expect(within(row).queryByText(/set-password link/i)).toBeNull();
   });
 
   // The agent seat is listed — a client resolving the owner of a record it owns
@@ -250,6 +319,7 @@ describe("UsersAdminCard", () => {
   // absence below is a control the server refuses anyway, so offering it could
   // only produce a 409 an admin cannot act on.
   it("marks the agent seat and offers it no control meant for a person", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", backend([]));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Gradion Agent")).toBeTruthy());
@@ -257,25 +327,27 @@ describe("UsersAdminCard", () => {
     const agent = rowFor("Gradion Agent");
     expect(within(agent).getByText("Agent")).toBeTruthy();
     // No role control at all, not a disabled one: the seat's authority comes
-    // from a passport and the person it names, never from a role of its own.
+    // from a passport and the person it names, never from a role of its own. The
+    // line stands where the picker would be, as the row's ANSWER.
     expect(
       within(agent).queryByRole("combobox", { name: /set role for/i }),
     ).toBeNull();
     expect(within(agent).getByText(/acts under a passport/i)).toBeTruthy();
     // No set-password link: the seat holds no password by construction, which
-    // is what makes it a thing that signs in nowhere.
-    expect(
-      within(agent).queryByRole("button", { name: /set-password link/i }),
-    ).toBeNull();
+    // is what makes it a thing that signs in nowhere. Its menu still opens —
+    // deactivating the seat is a posture an operator is entitled to take.
+    const agentVerbs = await rowMenu(user, "Gradion Agent");
+    expect(agentVerbs.queryByText(/set-password link/i)).toBeNull();
+    expect(agentVerbs.getByText("Deactivate")).toBeTruthy();
 
     // A person's row is untouched by any of that — and the link's absence above
     // has to be about the AGENT rather than about an installation that mints no
-    // links at all, so the same control is asserted PRESENT here.
+    // links at all, so the same verb is asserted PRESENT here.
     const person = rowFor("Nora None");
     expect(roleSelect(person, "Nora None")).toBeTruthy();
     expect(within(person).queryByText("Agent")).toBeNull();
     expect(
-      within(person).getByRole("button", { name: /set-password link/i }),
+      (await rowMenu(user, "Nora None")).getByText(/set-password link/i),
     ).toBeTruthy();
   });
 
@@ -283,12 +355,13 @@ describe("UsersAdminCard", () => {
   // what it stops is invisible from this screen, and the body written for a
   // person describes sessions and sign-ins that the seat has none of.
   it("warns what stops before deactivating the agent seat", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", backend([]));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Gradion Agent")).toBeTruthy());
 
-    await userEvent.click(
-      within(rowFor("Gradion Agent")).getByRole("button", {
+    await user.click(
+      (await rowMenu(user, "Gradion Agent")).getByRole("button", {
         name: /deactivate/i,
       }),
     );
@@ -309,6 +382,29 @@ describe("UsersAdminCard", () => {
     );
     return screen.findByRole("dialog");
   };
+
+  it("invites nobody until the dialog behind the header verb is open", async () => {
+    vi.stubGlobal("fetch", backend([]));
+    render(<UsersAdminCard />);
+    await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
+
+    expect(screen.queryByLabelText("New member's email")).toBeNull();
+    const dialog = await openInvite();
+    // The dialog's own submit reads the plain form of the verb, so the two are
+    // tellable apart — for a reader and for `getByRole`.
+    expect(
+      within(dialog).getByRole("button", { name: /^invite$/i }),
+    ).toBeTruthy();
+    expect(within(dialog).getByLabelText(/new member's email/i)).toBeTruthy();
+    expect(
+      within(dialog).getByLabelText(/new member's full name/i),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByRole("combobox", {
+        name: /role for the new member/i,
+      }),
+    ).toBeTruthy();
+  });
 
   it("invites a member with the entered email, name, and role", async () => {
     const calls: { method: string; url: string; body?: unknown }[] = [];
@@ -344,16 +440,18 @@ describe("UsersAdminCard", () => {
   });
 
   it("deactivates an active member through the deactivate seam", async () => {
+    const user = userEvent.setup();
     const calls: { method: string; url: string; body?: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    const active = screen.getByText("Ada Active").closest("li") as HTMLElement;
-    await userEvent.click(within(active).getByText("Deactivate"));
+    await user.click(
+      (await rowMenu(user, "Ada Active")).getByText("Deactivate"),
+    );
     // Deactivation is destructive (revokes sessions/passports): confirm first.
     const dialog = await screen.findByRole("dialog");
-    await userEvent.click(
+    await user.click(
       within(dialog).getByRole("button", { name: /deactivate/i }),
     );
 
@@ -372,6 +470,7 @@ describe("UsersAdminCard", () => {
   // removed button is a silent no-op that leaves focus on <body>, from where the
   // operator's next Tab restarts at the top of the page.
   it("returns focus to the member's row after deactivating, never to the document", async () => {
+    const user = userEvent.setup();
     let deactivated = false;
     vi.stubGlobal(
       "fetch",
@@ -419,16 +518,18 @@ describe("UsersAdminCard", () => {
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
     const row = rowFor("Ada Active");
-    await userEvent.click(within(row).getByText("Deactivate"));
-    await userEvent.click(
+    const verbs = await rowMenu(user, "Ada Active");
+    await user.click(verbs.getByText("Deactivate"));
+    await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: /deactivate/i,
       }),
     );
 
-    await waitFor(() =>
-      expect(within(row).getByText("Reactivate")).toBeTruthy(),
-    );
+    // The menu the verb was pressed in stays open — a dialog restores focus to
+    // whatever opened it, so hiding that item first would send focus, on close,
+    // to a node that is gone. What it now offers is the opposite verb.
+    await waitFor(() => expect(verbs.getByText("Reactivate")).toBeTruthy());
     expect(document.activeElement).toBe(row);
     expect(document.activeElement).not.toBe(document.body);
   });
@@ -522,7 +623,7 @@ describe("UsersAdminCard", () => {
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Ada Active")).toBeTruthy());
 
-    const active = screen.getByText("Ada Active").closest("li") as HTMLElement;
+    const active = rowFor("Ada Active");
     await pickOption(user, roleSelect(active, "ada active"), "Team Lead");
 
     await waitFor(() =>
@@ -538,13 +639,13 @@ describe("UsersAdminCard", () => {
   });
 
   it("reactivates a deactivated member", async () => {
+    const user = userEvent.setup();
     const calls: { method: string; url: string; body?: unknown }[] = [];
     vi.stubGlobal("fetch", backend(calls));
     render(<UsersAdminCard />);
     await waitFor(() => expect(screen.getByText("Otto Off")).toBeTruthy());
 
-    const off = screen.getByText("Otto Off").closest("li") as HTMLElement;
-    await userEvent.click(within(off).getByText("Reactivate"));
+    await user.click((await rowMenu(user, "Otto Off")).getByText("Reactivate"));
 
     await waitFor(() =>
       expect(

@@ -7,6 +7,7 @@ import { Button, EmptyState, PendingBody } from "../design-system/atoms";
 import type { Provenance } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import "./common.css";
 
 // Shared screen plumbing: honest loading / error / empty states (§3a screen-
 // state matrix), the captured_by → provenance mapping every list reuses, and
@@ -298,9 +299,9 @@ export function LoadMoreButton({
   return (
     <Button
       small
+      className="load-more"
       disabled={query.isFetchingNextPage}
       onClick={() => query.fetchNextPage()}
-      style={{ marginTop: 10 }}
     >
       {t("list.loadMore")}
     </Button>

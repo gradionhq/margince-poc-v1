@@ -13,6 +13,7 @@ import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
 import { QueryGate, QueryStates, throwProblem, useMe } from "./common";
+import "./aicalls.css";
 
 // A string response is shown verbatim (real newlines); an object is
 // pretty-printed. Either way the .code-block surface wraps and scrolls it.
@@ -39,7 +40,7 @@ export function CallDetailPanel({
   return (
     <QueryStates query={query}>
       {query.data && (
-        <Card as="div" inset>
+        <Card as="div" inset className="aicalls-detail">
           <p>
             {t("aicalls.detail.identity", {
               served: query.data.served_model,
@@ -82,10 +83,7 @@ export function CallDetailPanel({
             <p>{t("aicalls.payload.none")}</p>
           ) : (
             <>
-              <div
-                className="form-stack"
-                style={{ marginTop: "var(--space-3)" }}
-              >
+              <div className="form-stack">
                 <div className="field">
                   <span className="code-label t-eyebrow">
                     {t("aicalls.detail.request")}
@@ -163,7 +161,7 @@ export function AiCallsCard() {
     return (
       <Panel title={t("aicalls.title")}>
         <PanelBody>
-          <p className="t-small settings-panel-sub">{t("aicalls.sub")}</p>
+          <p className="settings-panel-sub">{t("aicalls.sub")}</p>
           <QueryGate query={me}>
             {() => (
               <EmptyState>
@@ -180,7 +178,7 @@ export function AiCallsCard() {
   return (
     <Panel title={t("aicalls.title")}>
       <PanelBody>
-        <p className="t-small settings-panel-sub">{t("aicalls.sub")}</p>
+        <p className="settings-panel-sub">{t("aicalls.sub")}</p>
         <QueryStates query={query}>
           <SettingList>
             <SettingRow
@@ -307,8 +305,17 @@ function FragmentRow({
           (screens/privacy.tsx) is the shape this follows. */}
       <tr>
         <td>
+          {/* NOT a `Disclosure`: that primitive is a `<details>` element, and
+              what opens here is the NEXT table row, which no element can
+              contain from inside a cell of the row above it. So the trigger
+              stays a real button carrying the expanded state in ARIA, and the
+              chevron is turned by that same attribute, by the catalog's own
+              `.expander-chevron` — `iconOnly` because the glyph is its whole
+              label, which is what makes the control square instead of a pill
+              around 14px. */}
           <Button
             small
+            iconOnly
             variant="ghost"
             aria-expanded={expanded}
             aria-controls={expanded ? panelId : undefined}
@@ -317,17 +324,16 @@ function FragmentRow({
             aria-label={t("aicalls.expandCall", { task: call.task, when })}
             onClick={onToggle}
           >
-            <ChevronDown
-              aria-hidden
-              size={14}
-              style={{ transform: expanded ? "rotate(180deg)" : undefined }}
-            />
+            {/* No `size=`: `.btn-sm svg` already sizes a button's icon child
+                (base.css), and a size at the call site is the drift that rule
+                exists to stop. */}
+            <ChevronDown className="expander-chevron" aria-hidden />
           </Button>
         </td>
         <td>{when}</td>
         <td>
           {call.task}
-          <div style={{ display: "flex", gap: "var(--space-1)" }}>
+          <div className="aicalls-badges">
             {call.cache_hit && <Badge>{t("aicalls.badge.cacheHit")}</Badge>}
             {call.degraded && (
               <Badge tone="warn">{t("aicalls.badge.degraded")}</Badge>
