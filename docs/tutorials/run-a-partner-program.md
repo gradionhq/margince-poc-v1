@@ -1,163 +1,165 @@
-# Run a partner program
+# Partner programs
 
-Some of your deals arrive because somebody else brought them. This tutorial follows one such
-deal from the introduction to the money owed, so that by the end you can answer the question a
-partner will eventually ask you: *what have we earned?*
+## In short
 
-You will make a company a partner, attribute a deal to them, win it, and watch the commission
-appear on its own. It takes about fifteen minutes and touches four screens.
+Some deals come to you because somebody else brought them — an agency that
+recommended you, a consultancy that sells you into its clients, a hosting
+company whose customers need your software.
 
-This is a walkthrough, not a reference. Every field on the partner form, with its full
-vocabulary, is in [how-to/set-up-a-partner-program.md](../how-to/set-up-a-partner-program.md) —
-read that when you want the complete list; read this to learn the shape of the thing.
+A partner program is how you keep track of those people and pay them. In
+Margince you can:
 
-**Before you start** you need a login and at least two companies in Margince: one that will be
-the partner, and one that will be the customer. That distinction is the whole idea, so it is
-worth being deliberate about it now.
+- **Mark a company as a partner** and record what kind of partner they are.
+- **Agree a share** — 15%, 20% or 25% of the deals they bring you.
+- **Tag a deal with the partner who brought it**, and say what they did:
+  brought it to you, or helped with one you already had.
+- **See what a partner is owed.** Win a deal they brought and Margince works
+  out their share by itself and adds it to their ledger.
+- **Answer "what have we earned?"** — the question every partner eventually
+  asks — from one screen on their company page.
 
-## The one idea worth getting straight
+It is a prototype. Two things are missing, and both are covered at the end:
+you cannot mark a commission as paid from the app, and partners cannot log in
+to see their own numbers.
 
-A partner is **not** a customer who happens to be called a partner. In an ordinary deal there
-is one company: the one buying. In a partner-sourced deal there are two:
+**This page explains how partner programs work and shows you one deal from
+start to finish.** For the setup form field by field — every role, every
+status, all ten relationship stages — see
+[how-to/set-up-a-partner-program.md](../how-to/set-up-a-partner-program.md).
 
-- the **customer**, who is buying — the company the deal belongs to, and
-- the **partner**, who brought it — a different company, who earns a share.
+## The one thing to get right
 
-If both are the same company, something is wrong. That is a company buying for itself, not a
-partner bringing you business, and no commission is owed to anybody.
+An ordinary deal has one company in it: the one buying.
 
-Margince keeps them apart everywhere: a company's **Deals** tab lists deals where it is the
-*customer*, and its **Partner** tab lists deals it *brought*. Two different lists, two
-different questions, and a partner page where both are populated is a partner who both buys
-from you and sells for you.
+A partner deal has two:
+
+- the **customer** — who is buying, and
+- the **partner** — who brought it to you, and gets a share.
+
+They are different companies. If you find yourself putting the same company in
+both, stop: that is a company buying for itself, and nobody is owed anything.
+
+Margince keeps the two apart on every screen. A company's **Deals** tab shows
+what *it* is buying. Its **Partner** tab shows what it has *brought you*. Two
+lists, two questions.
 
 ## 1. Make a company a partner
 
-Open the company that will be your partner — **Companies**, then pick it — and go to its
-**Partner** tab. A company that isn't a partner yet says **"Not a partner yet"** and offers
-**"Make this a partner"**.
+Open the company, go to its **Partner** tab, and choose **Make this a
+partner**.
 
-Fill in two things and leave the rest for now:
+Two fields matter to begin with:
 
-- **Partner role** — the only required field. *Hosting* if they run the software for their
-  clients, *Consulting* if they advise clients and bring you in, *Strategic* for a wider
-  alliance.
-- **Margin tier** — the share they earn on deals they bring:
+**Partner role** — what sort of partner they are. *Hosting* if they run the
+software for their clients, *Consulting* if they advise clients and bring you
+in, *Strategic* for anything broader.
 
-  | Tier | Choose it when |
-  |---|---|
-  | **Intro (15%)** | they make the introduction and hand it over. |
-  | **Active Collab (20%)** | they work the opportunity alongside you. |
-  | **Partner closed (25%)** | they run the sale and close it themselves. |
+**Margin tier** — their share of the deals they bring:
 
-Save. The tab switches from the setup form to the partner record, and the company now appears
-under **Partners** in the Companies list header.
+| | |
+|---|---|
+| **Intro (15%)** | they make the introduction and hand it over |
+| **Active Collab (20%)** | they work the deal alongside you |
+| **Partner closed (25%)** | they run the sale and close it themselves |
 
-**Leave the margin tier unset and no commission is ever calculated for them.** That is
-deliberate — a tier is a commercial agreement, and Margince will not invent one — but it means
-a partner you forgot to tier earns nothing while looking perfectly set up. If you take one
-thing from this tutorial, take that.
+**If you leave the tier blank, they never earn anything.** The record looks
+complete, deals get attributed to them, and no money is ever calculated.
+Margince will not guess a rate you have not agreed — but nothing warns you
+either, so set it when you set the role.
 
-## 2. Give them a deal
+The rest of the form — certification, relationship stage, next step — is for
+managing the relationship rather than the money.
+[The how-to explains each one.](../how-to/set-up-a-partner-program.md)
 
-Go to **Deals** and create one, or open a deal that already exists and edit it. Two fields
-matter here, and they only appear once at least one company is a partner:
+## 2. Say who brought the deal
 
-- **via Partner** — the partner who brought it. The list offers partners only, so you cannot
-  accidentally name an ordinary customer.
-- **What the partner did** — appears once you have picked a partner:
-  - **Brought us this deal (earns commission)** — they sourced it. This is what pays.
-  - **Helped on a deal we already had (no commission)** — they influenced it. Recorded, not
-    paid.
+Open the deal and edit it, or fill these in as you create it. Two fields, and
+they only appear if you have at least one partner:
 
-Leave the second field alone and Margince treats the deal as *brought* — the common case, and
-the field says so.
+**via Partner** — who brought it. Only actual partners are offered, so you
+cannot pick an ordinary customer by mistake.
 
-Set the **Company** to your *customer* and **via Partner** to your *partner*. Two different
-companies. Give it an amount and save.
+**What the partner did** — appears once you have chosen someone:
 
-The deal now reads, under its name: **€10,000.00 · Northgate GmbH · via VietnamPartner JSC** —
-the value, the customer, and who brought it. The deals list can show the partner as a column
-too: open the column picker and add **via Partner**. (That column cannot be sorted yet; the
-API sorts by a fixed set of five fields that does not include it.)
+- **Brought us this deal (earns commission)** — they found it.
+- **Helped on a deal we already had (no commission)** — they pitched in, and
+  it is recorded, but there is no share in it for them.
+
+Skip the second field and Margince assumes they brought it, which is the usual
+case.
+
+Set **Company** to the customer and **via Partner** to the partner. The deal
+then reads:
+
+> **€10,000.00 · Northgate GmbH · via VietnamPartner JSC**
+
+The value, who is buying, and who brought them. You can add **via Partner** as
+a column in the deals list too, from the column picker. It cannot be sorted
+yet.
 
 ## 3. Win it
 
-Move the deal to **Won** the way you would any other — on the board, drag its card into the Won
-column and confirm.
+Move the deal to **Won** as you normally would — drag its card into the Won
+column.
 
-If the deal has no signed contract attached, Margince asks **"How was it won?"** before
-accepting it — *Verbally, in person or by phone*, *On a purchase order*, and so on. That answer
-is kept on the deal and counted in reports; it is not a commission question, and any of the
-options lets the win through.
+If there is no signed contract on the deal, Margince asks **"How was it
+won?"** — verbally, on a purchase order, and so on. That is a record-keeping
+question, not a commission one. Any answer lets the win through.
 
-Nothing else is required of you. Behind the scenes the win is what triggers commission: a deal
-that was *brought* by a partner who *has* a margin tier produces a commission entry
-automatically, priced at that partner's tier against the deal's value at the moment it was won.
-It appears within a second or two — the calculation happens just after the win is recorded, not
-inside it, so give the page a refresh if the ledger looks empty.
+That is all you do. Winning the deal is what pays the partner.
 
 ## 4. See what they earned
 
-Go back to the partner's company page and open its **Partner** tab. Two panels sit under the
-partner record:
+Back on the partner's company page, the **Partner** tab now has two panels
+under their record.
 
-**Deals they brought** lists every deal attributed to them — open ones as well as won, sourced
-as well as influenced — with the customer each was brought for. This is their pipeline with
-you, and it is the only place those deals appear on this company's page: they belong to the
-customers, so the company's own **Deals** tab does not show them.
+**Deals they brought** — everything attributed to them, won or still open,
+with the customer each one was for. This is the only place these deals show up
+on this company's page, because the deals themselves belong to the customers.
 
-**Commission** is the ledger: one row per entry, naming the deal it was earned on, the amount,
-the rate, and the deal value it was calculated from. A €10,000 deal for a partner on *Partner
-closed (25%)* shows **€2,500.00** — accrued.
+**Commission** — what they have earned. One row per deal, with the amount, the
+rate, and the deal value it came from. A €10,000 deal at *Partner closed
+(25%)* shows **€2,500.00**.
 
-Both the deal name and the customer are links, so a figure can always be traced back to the
-work that produced it.
+Both the deal and the customer are links, so any number can be traced back to
+the work behind it. The commission appears a second or two after the win —
+refresh if the panel still looks empty.
 
-## What the statuses mean
+## Reading the ledger
 
-A commission entry moves through four states:
+Every entry has a status:
 
-| Status | Meaning |
+| | |
 |---|---|
-| **Accrued** | earned, not yet agreed. This is where every entry starts. |
-| **Approved** | somebody signed it off. |
-| **Paid** | the money went out. |
-| **Reversed** | the entry was cancelled — see below. |
+| **Accrued** | earned, not yet agreed — where every entry starts |
+| **Approved** | signed off |
+| **Paid** | the money has gone out |
+| **Reversed** | cancelled, because the deal was reopened |
 
-**Today the app shows these but cannot change them.** Approving and paying exist in the API and
-are not yet wired to buttons, so a ledger read from the Partner tab is a record of what is
-owed, not a place to settle it. Until that ships, treat the panel as the source of truth for
-*what was earned* and handle payment in whatever you use for payments.
+**Reopening a won deal does not delete the commission.** Margince adds a
+reversal row and marks the original *Reversed*, leaving both on the page. Win
+it again and a new entry appears. So a deal that was won, reopened and won
+again shows three rows — that is right, not a mistake. The ledger is a history
+of what happened, not a snapshot of what is true today.
 
-## When a won deal is reopened
+The rate is fixed at the moment a deal is won. Move a partner to a different
+tier and it changes what their *next* deals earn; it never rewrites what an
+old one already paid.
 
-Reopen a won deal and its commission is **not deleted**. Margince adds a reversal row and marks
-the original as *Reversed*, leaving both visible. Win the deal again and a fresh entry accrues.
+## What this prototype cannot do yet
 
-That is the point of a ledger: it records what happened rather than what is currently true, so
-a partner asking "what happened to that one?" can be shown both halves. You will see three rows
-for a deal that was won, reopened, and won again — and that is correct, not a duplicate.
-
-The rate is frozen when an entry accrues. Re-tiering a partner changes what their *future*
-deals earn and never rewrites what a past one already did.
-
-## What is not here yet
-
-Worth knowing before you promise anything to a partner:
-
-- **No approve or pay buttons** — as above.
-- **No partner-facing view.** Partners cannot log in and see their own pipeline; everything
-  here is internal.
-- **Nothing enforces that a partner is a partner** on the API. The web form only offers real
-  partners, but a deal created through the API can name any company, and if that company has no
-  partner row it will never earn anything.
-- **Assistants can read a deal's partner** and what they did, but cannot yet read or change the
-  partner record itself — the tier, the certification, the stage.
+- **You cannot approve or pay from the app.** Those steps exist behind the
+  scenes but have no buttons. Use the Commission panel as the record of what
+  is owed, and pay it however you normally pay people.
+- **Partners cannot see any of this.** There is no partner login. Everything
+  here is yours internally.
+- **The API is more permissive than the app.** Deals created through the API
+  can name any company as the partner, even one that is not a partner — in
+  which case nothing is ever earned. The web form only offers real partners.
+- **Assistants can read a deal's partner** and what they did, but cannot yet
+  read or change the partner record itself.
 
 ## Where next
 
-- Every field, with its full vocabulary and the ten relationship stages:
-  [how-to/set-up-a-partner-program.md](../how-to/set-up-a-partner-program.md).
-- Running deals in general, of which this is one flavour:
-  [how-to/work-your-pipeline.md](../how-to/work-your-pipeline.md).
+- [Setting up partners, field by field](../how-to/set-up-a-partner-program.md)
+- [Working deals in general](../how-to/work-your-pipeline.md)

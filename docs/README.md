@@ -12,7 +12,7 @@ maps the codebase and links everything below.
 
 ### Tutorials — learn by doing
 - [getting-started.md](tutorials/getting-started.md) — clone → running instance with a bootstrapped workspace.
-- [run-a-partner-program.md](tutorials/run-a-partner-program.md) — follow one partner-sourced deal from the introduction to the commission it earns; no code.
+- [run-a-partner-program.md](tutorials/run-a-partner-program.md) — what partner programs are and what you can do with them, then one deal from the introduction to the money it earns; no code.
 
 ### How-to — accomplish a task
 - [add-an-endpoint.md](how-to/add-an-endpoint.md) — add or change an API operation (contract → gen → handler).
