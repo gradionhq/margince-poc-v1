@@ -66,17 +66,27 @@ func New(cfg Config) (Vault, error) {
 }
 
 // FromEnv builds a local Vault from MARGINCE_KEYVAULT_ROOT_KEY over the given
-// pool. It reports configured=false with a nil Vault when the key is unset,
-// so a deployment without a vault boots normally (a capture-capable role then
-// declares the gap at wiring time rather than nil-derefing at Authenticate).
-// A key that is set but malformed or the wrong length is a hard error — a
-// misconfigured vault must fail loudly, never fall back to something weaker.
+// pool. It reports configured=false with a nil Vault when the key is unset AND
+// this installation has sealed nothing, so a deployment without a vault boots
+// normally (a capture-capable role then declares the gap at wiring time rather
+// than nil-derefing at Authenticate). A key that is set but malformed or the
+// wrong length is a hard error — a misconfigured vault must fail loudly, never
+// fall back to something weaker.
+//
+// An unset key with sealed secrets BEHIND it is the same class of error and is
+// refused here rather than at each reader. A root key dropped in a redeploy
+// puts every credential the installation holds out of reach at once — connector
+// tokens, provider keys, the relay password, the license — and each reader
+// discovering that separately describes it in its own words, the worst of which
+// is the license path's, which would call an installation that has a license
+// unlicensed. One question asked once, where the vault is built, answers for all
+// of them. An installation that has never sealed anything is unaffected.
 //
 //nolint:ireturn // the seam has two providers behind one Vault; returning the interface is the design.
-func FromEnv(pool *pgxpool.Pool, env config.Lookup) (vault Vault, configured bool, err error) {
+func FromEnv(ctx context.Context, pool *pgxpool.Pool, env config.Lookup) (vault Vault, configured bool, err error) {
 	encoded := env(EnvRootKey)
 	if encoded == "" {
-		return nil, false, nil
+		return nil, false, refuseIfAnythingIsSealed(ctx, pool)
 	}
 	key, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
@@ -245,4 +255,33 @@ func ConfigItems() []config.Item {
 		Roles: []string{config.RoleAPI, config.RoleWorker},
 		Doc:   "base64 (standard, padded) 32-byte root key sealing connector credentials; unset disables the vault",
 	}}
+}
+
+// refuseIfAnythingIsSealed turns "no vault configured" into a boot error when
+// the installation is holding sealed ciphertext.
+//
+// A pool is not always there to ask — cmd/migrate builds a vault before it has
+// one — and a database that cannot answer is not evidence of anything, so both
+// stay silent. The check exists to catch the loud case: rows are there, the key
+// is not, and every reader downstream is about to fail in its own dialect.
+func refuseIfAnythingIsSealed(ctx context.Context, pool *pgxpool.Pool) error {
+	if pool == nil {
+		return nil
+	}
+	var sealed bool
+	// vault_secret carries no workspace_id by design (the ref itself is
+	// workspace-scoped), so this is an installation-wide question and needs no
+	// workspace predicate to be a correct one.
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM vault_secret)`).Scan(&sealed); err != nil {
+		// Not evidence. A pool that cannot answer this has a problem the boot
+		// will hit again in a moment, with a better message than this one.
+		return nil //nolint:nilerr // an unanswerable question is not a failed check; see above.
+	}
+	if !sealed {
+		return nil
+	}
+	return fmt.Errorf("keyvault: this installation holds sealed secrets but %s is not set — "+
+		"every credential it has sealed is unreachable, including any connector token, provider "+
+		"key, outbound-mail password and license token. Restore the root key this installation "+
+		"sealed with; it is not recoverable from anywhere else", EnvRootKey)
 }

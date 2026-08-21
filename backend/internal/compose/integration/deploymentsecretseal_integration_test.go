@@ -162,6 +162,11 @@ func TestARotatedDeclarationIsResealed(t *testing.T) {
 		config.Static(map[string]string{"SMTP_PASSWORD": "the-old-password"}), log); err != nil {
 		t.Fatalf("first boot: %v", err)
 	}
+	superseded, err := settings.Get(readCtx(e.WS), compose.NewSettingsStore(e.Pool), identity.SMTPPasswordRef)
+	if err != nil {
+		t.Fatalf("reading the recorded ref: %v", err)
+	}
+
 	if _, err := compose.SealedSMTPPassword(sealCtx(), e.Pool, vault, cfg,
 		config.Static(map[string]string{"SMTP_PASSWORD": "the-new-password"}), log); err != nil {
 		t.Fatalf("boot after rotation: %v", err)
@@ -173,6 +178,12 @@ func TestARotatedDeclarationIsResealed(t *testing.T) {
 	}
 	if after != "the-new-password" {
 		t.Errorf("the vault still answers %q after the deployment rotated the password", after)
+	}
+	// The superseded blob is destroyed, not merely unreferenced. Leaving it is
+	// how a rotation quietly turns into two copies of a credential, one of them
+	// the value the operator rotated AWAY from and nobody is watching.
+	if _, err := vault.Get(sealCtx(), ids.From[ids.WorkspaceKind](e.WS), keyvault.Ref(superseded)); err == nil {
+		t.Error("the rotated-away password is still readable from the vault; a re-seal must destroy what it supersedes")
 	}
 }
 

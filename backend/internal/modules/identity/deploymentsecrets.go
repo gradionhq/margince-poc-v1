@@ -21,6 +21,14 @@ package identity
 // unfinished: the deployment still DECLARES these credentials, compose seals
 // what it declared, and these rows only record where the sealed copy went. An
 // operator rotates by changing the declaration, exactly as before.
+//
+// Both are marked AsInstallationIdentity, and not because a relay password is
+// identity in the sense the installation's name and timezone are. It is a
+// pairing with the reset: `vault_secret` is in preservedResetTables, so the
+// ciphertext survives a data reset — and an unmarked ref row would not, which
+// would leave every sealed deployment credential orphaned and the next boot
+// without a license. The two halves have to agree, and this is the half that
+// is easy to drop.
 
 import (
 	"fmt"
@@ -77,11 +85,4 @@ func validateSecretRef(ref string) error {
 		return fmt.Errorf("identity: a sealed credential reference cannot be empty; delete the row to unseal")
 	}
 	return nil
-}
-
-// DeploymentSecretDefinitions is identity's credential-reference contribution
-// to the settings catalog, kept beside Definitions so the module declares its
-// catalog in one place.
-func DeploymentSecretDefinitions() []settings.Definition {
-	return []settings.Definition{SMTPPasswordRef, LicenseTokenRef}
 }

@@ -94,7 +94,7 @@ func bindInstallation(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, lo
 	// wiring, because an installation that has sealed its token and dropped the
 	// declaration reads it out of the vault: the license question cannot be
 	// answered before the vault exists.
-	vault, _, err := keyvault.FromEnv(pool, config.FromOS)
+	vault, _, err := keyvault.FromEnv(ctx, pool, config.FromOS)
 	if err != nil {
 		return deployconfig.Config{}, nil, fmt.Errorf("api: keyvault: %w", err)
 	}

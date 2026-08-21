@@ -106,7 +106,7 @@ var BaseCurrency = settings.Define[string](
 
 // Definitions is identity's contribution to the settings registry.
 func Definitions() []settings.Definition {
-	return []settings.Definition{Name, Timezone, BaseCurrency}
+	return []settings.Definition{Name, Timezone, BaseCurrency, SMTPPasswordRef, LicenseTokenRef}
 }
 
 // BaseCurrencyOf resolves the installation's reporting currency inside a

@@ -93,7 +93,8 @@ bootstrap_admin:
 #
 # Sealed on the first boot that resolves it: the token goes into the key vault
 # and the installation records where. The boot log says so, and from then on
-# this block (or MARGINCE_LICENSE) can be removed and the vault answers instead.
+# this whole block can be DELETED and the vault answers instead — deleting only
+# the file it points at, and leaving the block, fails the boot instead.
 # To rotate, put the new token back here — the declaration still wins, and the
 # next boot re-seals it. docs/reference/configuration.md, "the vault also holds
 # the two deployment credentials".

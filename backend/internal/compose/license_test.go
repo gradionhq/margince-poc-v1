@@ -249,7 +249,7 @@ func TestTheTokenOriginNamesTheVaultOnlyWhenAVaultAnsweredIt(t *testing.T) {
 	}{
 		{"a declared token names the declaration", declared, licensecheck.Posture{State: licensecheck.StateValid}, "license.token"},
 		{"nothing declared and nothing sealed is none", deployconfig.Config{}, licensecheck.Posture{State: licensecheck.StateAbsent}, "none"},
-		{"nothing declared but a token in hand came from the vault", deployconfig.Config{}, licensecheck.Posture{State: licensecheck.StateValid}, "the key vault"},
+		{"nothing declared but a token in hand came from the vault", deployconfig.Config{}, licensecheck.Posture{State: licensecheck.StateValid}, "keyvault"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := licenseTokenOrigin(tc.cfg, config.Static(nil), tc.posture); got != tc.want {

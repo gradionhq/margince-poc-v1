@@ -16,10 +16,13 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -609,4 +612,66 @@ func resetTestVault(t *testing.T, e *integration.Env) keyvault.Vault {
 		t.Fatalf("building the test vault: %v", err)
 	}
 	return vault
+}
+
+// TestResetKeepsTheDeploymentCredentialsSealedBeforeIt: the mirror image of the
+// purge above, and the half that is easy to lose.
+//
+// The relay password and the license token are sealed into the same vault, but
+// their refs live in `setting` rather than in a `credential_ref` column, so the
+// purge never collects them — which is correct, because those two must SURVIVE
+// a reset. A reset returns the installation to first-boot state without
+// re-creating it, and an installation that came back without its license would
+// refuse to serve in production over a wipe that was supposed to be routine.
+//
+// Both halves have to agree: `vault_secret` is in preservedResetTables and both
+// entries are marked AsInstallationIdentity. Dropping either marker leaves a ref
+// pointing at nothing or a blob nobody names, and neither failure is visible
+// until the next boot.
+func TestResetKeepsTheDeploymentCredentialsSealedBeforeIt(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+
+	vault := resetTestVault(t, e)
+	wsID := ids.From[ids.WorkspaceKind](e.WS)
+	// Sealed through the real boot path, not by hand. No seeded role holds
+	// license:update — that is the point of the entry — so a hand-written row
+	// would need a principal the product never uses, and would prove nothing
+	// about the row the product actually writes.
+	cfg, err := deployconfig.Parse([]byte("version: 1\nlicense:\n  token: ${env:LICENSE_TOKEN}\n"))
+	if err != nil {
+		t.Fatalf("parsing the deployment file: %v", err)
+	}
+	source := SealedLicenseTokenSource(context.Background(), e.Pool, vault, cfg,
+		config.Static(map[string]string{"LICENSE_TOKEN": "a license token"}),
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, err := source(); err != nil {
+		t.Fatalf("sealing the credential under test: %v", err)
+	}
+	ref, err := settings.Get(bootCtx(context.Background(), e.WS, secretSealActor), NewSettingsStore(e.Pool), identity.LicenseTokenRef)
+	if err != nil {
+		t.Fatalf("reading the recorded ref: %v", err)
+	}
+
+	h := dataResetHandlers{
+		pool:             e.Pool,
+		seeds:            deployconfig.Seeds{},
+		dataResetAllowed: true,
+		log:              slog.New(slog.NewTextHandler(io.Discard, nil)),
+		vault:            vault,
+	}
+	if _, err := h.run(ctx, "Authz"); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	after, err := settings.Get(bootCtx(context.Background(), e.WS, secretSealActor), NewSettingsStore(e.Pool), identity.LicenseTokenRef)
+	if err != nil {
+		t.Fatalf("reading the ref after the reset: %v", err)
+	}
+	if after != ref {
+		t.Fatalf("the reset left the license ref as %q, want the sealed ref — the next boot has no license", after)
+	}
+	if _, err := vault.Get(ctx, wsID, keyvault.Ref(ref)); err != nil {
+		t.Errorf("the sealed license did not survive the reset (Get returned %v) — the ref survived but points at nothing", err)
+	}
 }

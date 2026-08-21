@@ -455,14 +455,17 @@ line (argv is world-readable) or in any log or error. A connector credential
 is sealed with AES-256-GCM under this key and stored as ciphertext in the
 operational `vault_secret` table; the `connector_connection` row carries only
 an opaque, workspace-scoped `credential_ref`, never the credential bytes.
-Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset and the vault is absent: every
+Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset **on an installation that has sealed
+nothing** and the vault is absent: every
 connector's connect path (gmail, gcal, graph, imap all connect through the
 same operation, sealing to the vault) refuses loudly rather than store a
 credential in the clear. Set it and the api gains the
 `/readyz` keyvault probe and the vault-backed path, and the worker migrates
 any legacy `auth`-bytea rows onto the vault at boot (idempotent). A key that
 is SET but not exactly 32 bytes (base64-decoded) is a boot error — never a
-silent fallback.
+silent fallback — and so is leaving it unset on an installation that already
+holds sealed ciphertext, which is the redeploy-dropped-the-variable case and is
+refused rather than degraded (see below).
 
 | Env | Default | Meaning |
 |---|---|---|
@@ -483,10 +486,17 @@ sealed a deployment credential into the key vault; the deployment configuration
 that carried it can be removed  credential_name="the license token" declared_at=license.token
 ```
 
-Once that line appears the declaration may be deleted — the variable dropped
-from the orchestrator, the file unmounted — and the installation keeps booting
-on the sealed copy. Nothing here can delete it for you: a process cannot edit
-its own deployment.
+Once that line appears the declaration may be deleted and the installation keeps
+booting on the sealed copy. Nothing here can delete it for you: a process cannot
+edit its own deployment.
+
+**Delete the declaration, not just what it points at.** Dropping the variable or
+unmounting the file while the `license:` block or the `password:` line is still
+in `margince.yaml` fails the boot in `deployconfig`, before the vault is ever
+consulted — a `${file:…}` that is gone cannot be read, and a `${env:…}` that is
+unset is a named source that yielded nothing, which has always been an error
+rather than an absence. Remove the whole `license:` block, or the `password:`
+line from `email.smtp`. Then the variable or the file can go too.
 
 **Rotation moves into the vault only for reading, never for writing.** There is
 no product surface that changes either credential, and no seeded role holds the
@@ -497,13 +507,22 @@ and the next boot re-seals it and destroys the superseded blob. This is the
 opposite precedence to a BYOK provider key, which the vault wins because the
 routing surface can change one.
 
-**A vault that cannot be opened says so.** These two are the only credentials
-whose absence used to read as a posture — "unlicensed", "unauthenticated relay"
-— and once the declaration is gone the vault holds the only copy. So a process
-that finds a sealed reference it cannot open refuses to boot naming the vault
-and the root key, rather than reporting an installation that has a license as
-having none. Restore `MARGINCE_KEYVAULT_ROOT_KEY` to the value the installation
-sealed with, or re-declare the credential where it used to be.
+**A vault that cannot be opened says so**, in two places, because there are two
+ways to lose it and they need different sentences.
+
+*The root key is gone.* An installation holding sealed ciphertext with
+`MARGINCE_KEYVAULT_ROOT_KEY` unset **refuses to boot**, naming the variable.
+This is asked once, where the vault is built, rather than by each reader —
+because the loss is not the license's or the relay's, it is every credential the
+installation holds at once, connector tokens included. An installation that has
+sealed nothing is unaffected and boots with no vault exactly as before. The key
+is not recoverable from the ciphertext, or from us: restore the one this
+installation sealed with.
+
+*The root key is wrong.* A sealed reference that will not open refuses the boot
+naming the vault and the root key, rather than reporting an installation that
+has a license as having none — which is what "absent" used to mean on that path,
+and a completely different problem for whoever is paged.
 
 One consequence for the **worker**: its license check now runs after its
 database pool, because a sealed token lives in a table. It still happens before

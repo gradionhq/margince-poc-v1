@@ -133,7 +133,7 @@ func TestNewAEAD_errorDoesNotLeakKey(t *testing.T) {
 }
 
 func TestFromEnv_unsetIsNotConfigured(t *testing.T) {
-	v, configured, err := FromEnv(nil, config.Static(nil))
+	v, configured, err := FromEnv(t.Context(), nil, config.Static(nil))
 	if err != nil {
 		t.Fatalf("FromEnv unset: %v", err)
 	}
@@ -144,13 +144,13 @@ func TestFromEnv_unsetIsNotConfigured(t *testing.T) {
 
 func TestFromEnv_shortKeyIsAnError(t *testing.T) {
 	// base64 of 16 bytes — decodes fine but is too short for AES-256.
-	if _, _, err := FromEnv(nil, config.Static(map[string]string{EnvRootKey: "MDEyMzQ1Njc4OWFiY2RlZg=="})); err == nil {
+	if _, _, err := FromEnv(t.Context(), nil, config.Static(map[string]string{EnvRootKey: "MDEyMzQ1Njc4OWFiY2RlZg=="})); err == nil {
 		t.Fatal("FromEnv with a 16-byte key must error, not silently accept it")
 	}
 }
 
 func TestFromEnv_nonBase64IsAnError(t *testing.T) {
-	if _, _, err := FromEnv(nil, config.Static(map[string]string{EnvRootKey: "not valid base64!!!"})); err == nil {
+	if _, _, err := FromEnv(t.Context(), nil, config.Static(map[string]string{EnvRootKey: "not valid base64!!!"})); err == nil {
 		t.Fatal("FromEnv with a non-base64 key must error")
 	}
 }

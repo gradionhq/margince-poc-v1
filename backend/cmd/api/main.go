@@ -287,7 +287,7 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("api: %w", err)
 	}
-	kvOpts, err := keyvaultOptions(pool, stdout, overlayBackfillLimit)
+	kvOpts, err := keyvaultOptions(ctx, pool, stdout, overlayBackfillLimit)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -329,7 +329,7 @@ func passwordResetOptions(ctx context.Context, deployCfg deployconfig.Config, po
 	if publicBaseURL == "" {
 		return nil, errors.New("api: email.enabled requires --public-base-url/MARGINCE_PUBLIC_BASE_URL (the reset link's canonical base)")
 	}
-	vault, _, err := keyvault.FromEnv(pool, config.FromOS)
+	vault, _, err := keyvault.FromEnv(ctx, pool, config.FromOS)
 	if err != nil {
 		return nil, fmt.Errorf("api: keyvault: %w", err)
 	}

@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,8 +26,8 @@ import (
 // than nil-deref if ever invoked; the vault is required for any standing
 // connection. A key that is set but malformed is a boot error
 // (keyvault.FromEnv), never a silent fallback to something weaker.
-func keyvaultOptions(pool *pgxpool.Pool, stdout io.Writer, overlayBackfillLimit int) ([]compose.Option, error) {
-	vault, configured, err := keyvault.FromEnv(pool, config.FromOS)
+func keyvaultOptions(ctx context.Context, pool *pgxpool.Pool, stdout io.Writer, overlayBackfillLimit int) ([]compose.Option, error) {
+	vault, configured, err := keyvault.FromEnv(ctx, pool, config.FromOS)
 	if err != nil {
 		return nil, fmt.Errorf("api: keyvault: %w", err)
 	}

@@ -48,7 +48,6 @@ var settingsDefinitions = sync.OnceValue(func() []settings.Definition {
 	defs = append(defs, ai.Definitions()...)
 	defs = append(defs, capture.Definitions()...)
 	defs = append(defs, identity.Definitions()...)
-	defs = append(defs, identity.DeploymentSecretDefinitions()...)
 	defs = append(defs, people.Definitions()...)
 	defs = append(defs, privacy.Definitions()...)
 	return defs

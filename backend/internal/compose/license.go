@@ -58,14 +58,27 @@ func EnsureLicense(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, va
 	if err != nil {
 		// The setting to correct is named HERE, where the token's source is
 		// known: platform's check is handed a token, not a configuration file.
-		return nil, fmt.Errorf("%w — correct or remove %s and start again",
-			err, licenseTokenOrigin(cfg, lookup, licensecheck.Posture{}))
+		return nil, fmt.Errorf("%w — %s", err, correctTheToken(cfg, lookup))
 	}
 	if err := refuseUnlicensedProduction(watcher.Posture(), env); err != nil {
 		return nil, err
 	}
 	logLicensePosture(ctx, log, watcher.Posture(), licenseTokenOrigin(cfg, lookup, watcher.Posture()))
 	return watcher, nil
+}
+
+// correctTheToken is the second half of a refused-license error: what to do.
+//
+// It is not one sentence for both sources. "Remove the key vault and start
+// again" — which naming the origin uniformly would produce — is advice that
+// destroys the only copy of the license along with every connector credential
+// the installation holds, to fix a token the operator can simply re-declare.
+func correctTheToken(cfg deployconfig.Config, lookup config.Lookup) string {
+	if origin := cfg.License.TokenOrigin(lookup); origin != deployconfig.TokenOriginNone {
+		return "correct or remove " + origin + " and start again"
+	}
+	return "this token came from the key vault, where it was sealed from a declaration since deleted: " +
+		"re-declare license.token and the next boot re-seals it"
 }
 
 // licenseTokenOrigin names where the token came from, for the boot log and for
@@ -76,7 +89,8 @@ func EnsureLicense(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, va
 // dropped the declaration would otherwise be told its token came from "none" —
 // while running on one. Naming the vault is the difference between an operator
 // who knows where to look and one who goes looking in the file that no longer
-// mentions it.
+// mentions it. A grep token rather than prose, because every other value of
+// this field is one.
 //
 // A zero Posture is the pre-verification caller: NewWatcher refused a token, so
 // one certainly exists and the vault is the only place left it can have come
@@ -90,7 +104,7 @@ func licenseTokenOrigin(cfg deployconfig.Config, lookup config.Lookup, posture l
 		// describe an installation that had a token, which this one does not.
 		return deployconfig.TokenOriginNone
 	}
-	return "the key vault"
+	return "keyvault"
 }
 
 // refuseUnlicensedProduction stops a production boot that configured no license.

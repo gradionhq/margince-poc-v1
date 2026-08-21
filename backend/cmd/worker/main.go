@@ -307,7 +307,7 @@ func runGroupSubscriber(ctx context.Context, rdb *redis.Client, group kevents.Gr
 // installation whose root key no longer opens its own secrets has a problem
 // that outlives the license question.
 func ensureLicense(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, deployCfg deployconfig.Config, posture runtimeenv.Environment) error {
-	vault, _, err := keyvault.FromEnv(pool, config.FromOS)
+	vault, _, err := keyvault.FromEnv(ctx, pool, config.FromOS)
 	if err != nil {
 		return fmt.Errorf("worker: keyvault: %w", err)
 	}
