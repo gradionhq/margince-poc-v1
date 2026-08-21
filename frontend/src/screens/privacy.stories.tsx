@@ -83,7 +83,7 @@ async function findRow(
 }
 
 const meta: Meta<typeof PrivacyInboxCard> = {
-  title: "Settings/Organization/Privacy/Subject requests",
+  title: "Settings/Admin settings/Privacy/Subject requests",
   component: PrivacyInboxCard,
 };
 export default meta;

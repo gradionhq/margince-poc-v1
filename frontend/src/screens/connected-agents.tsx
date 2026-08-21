@@ -2,16 +2,19 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
+import { Badge, Button, Disclosure, EmptyState } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
 import { ScopeChips } from "../design-system/passportselect";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
+import "./connected-agents.css";
 
 // The other half of the passport story, and the half nothing on this screen
 // used to tell. A human mints a passport; a client that connects over MCP is
@@ -70,8 +73,16 @@ async function fetchConnectorState(): Promise<ConnectorState> {
 // registers itself, and the consent screen asks which passport to lend.
 //
 // Antigravity is the odd one out only in shape — it has no add command, so its
-// step is the config file its docs name. The OAuth handshake is identical.
-const CONNECT_GUIDES = [
+// step is the config file its docs name. The OAuth handshake is identical. That
+// caveat is a statement about ONE client, so it travels with that client as its
+// row's `note` rather than as a loose paragraph under all four, where it read as
+// a footnote to the whole guide.
+const CONNECT_GUIDES: readonly Readonly<{
+  id: string;
+  name: string;
+  command: (url: string) => string;
+  note?: MessageKey;
+}>[] = [
   {
     id: "claude",
     name: "Claude Code",
@@ -95,9 +106,26 @@ const CONNECT_GUIDES = [
     // rejects the `url`/`httpUrl` spellings its siblings accept.
     command: (url: string) =>
       `{ "mcpServers": { "margince": { "serverUrl": "${url}" } } }`,
+    note: "agents.connectAntigravityPath",
   },
-] as const;
+];
 
+// Four commands nobody runs twice. It is REFERENCE rather than a decision, so
+// it reads last and closed — a `Disclosure` in the card's own row list, forced
+// open only while nothing is connected, which is the one state where it is the
+// point of the card rather than a footnote to it.
+//
+// The inset Card this replaces was a box inside a box: the disclosure body
+// already says the contents belong to the section that was opened.
+//
+// Inside it, the SAME shape as a card: one line of prose, then a `SettingList`.
+// It was a hand-laid `<dl>` before — a bold client name with its command flush
+// under it at its own gap — so opening the disclosure left the page's row rhythm
+// at the summary and reverted to a third layout underneath, on the one card a
+// reader reaches it from. One client is one row: the client is the naming, its
+// command is the SUBJECT rather than an answer that fits beside the name, so it
+// takes the stacked row's full width (a 60-character command in a right-hand
+// column is unreadable at any page measure).
 function ConnectGuide() {
   const t = useT();
   const state = useQuery({
@@ -108,42 +136,38 @@ function ConnectGuide() {
     <QueryGate query={state}>
       {(connector) =>
         connector.enabled ? (
-          <Card as="div" inset style={{ marginTop: "var(--space-3)" }}>
-            <p className="t-label">{t("agents.connectHow")}</p>
-            <p className="t-small" style={{ marginTop: "var(--space-1)" }}>
-              {t("agents.connectSteps")}
-            </p>
-            <dl style={{ marginTop: "var(--space-3)" }}>
+          <>
+            <p className="settings-panel-sub">{t("agents.connectSteps")}</p>
+            <SettingList>
               {CONNECT_GUIDES.map((guide) => (
-                <div key={guide.id} style={{ marginTop: "var(--space-2)" }}>
-                  <dt className="t-label">{guide.name}</dt>
-                  <dd
-                    className="t-mono t-small"
-                    style={{
-                      // dd carries a browser indent of its own; the command
-                      // has to line up under the client name that labels it.
-                      margin: 0,
-                      marginTop: "var(--space-1)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-all",
-                    }}
-                  >
-                    {guide.command(connector.url)}
-                  </dd>
-                </div>
+                <SettingRow
+                  key={guide.id}
+                  layout="stack"
+                  // A product's own name, never translated — the same reason the
+                  // command is not: both are typed exactly as they are shown.
+                  label={guide.name}
+                  description={guide.note && t(guide.note)}
+                  control={
+                    <code className="t-mono t-small agents-guide-command">
+                      {guide.command(connector.url)}
+                    </code>
+                  }
+                />
               ))}
-            </dl>
-            <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
-              {t("agents.connectAntigravityPath")}
-            </p>
-          </Card>
+            </SettingList>
+          </>
         ) : (
-          <Card as="div" inset style={{ marginTop: "var(--space-3)" }}>
-            <p className="t-label">{t("agents.connectorOff")}</p>
-            <p className="t-small" style={{ marginTop: "var(--space-1)" }}>
-              {t("agents.connectorOffDetail")}
-            </p>
-          </Card>
+          // Nothing to do and nothing to set: the disclosure's one row states the
+          // fact and what still holds despite it. A row rather than two loose
+          // paragraphs, so the sentence a reader who opened this arrives at sits
+          // on the same beat as the rows they came from.
+          <SettingList>
+            <SettingRow
+              label={t("agents.connectorOff")}
+              description={t("agents.connectorOffDetail")}
+              control={null}
+            />
+          </SettingList>
         )
       }
     </QueryGate>
@@ -166,127 +190,193 @@ function ConnectGuide() {
 // which is why the server sends it: without it this row reports every live
 // connector as dead the moment its access token turns over.
 //
-// The three states do not share a control, because they are not the same thing
-// to act on. Live and renewing both offer Disconnect. Lapsed offers to end the
-// GRANT instead — its credential is already gone, but the consent beneath it is
-// not — and `onEnd` reaches the same cascade either way (revokePassportTx kills
-// the grant even when the passport it names is already dead).
+// Derived ONCE, here, because three things read it — the badge, the date line
+// and the verb — and a row whose badge said "renewing" over a button that ends
+// a lapsed grant is exactly the contradiction this card exists to remove.
+type ConnectionState = Readonly<{
+  revoked: boolean;
+  renewing: boolean;
+  lapsed: boolean;
+  ended: boolean;
+}>;
+
+function connectionStateOf(passport: Connection, now: number): ConnectionState {
+  const revoked = passport.revoked_at != null;
+  const expired =
+    !revoked &&
+    passport.expires_at != null &&
+    Date.parse(passport.expires_at) <= now;
+  // Renewing, not ended: the client repairs this itself on its next call.
+  const renewing = expired && passport.connection.renewable;
+  const lapsed = expired && !passport.connection.renewable;
+  return { revoked, renewing, lapsed, ended: revoked || lapsed };
+}
+
+type Translate = ReturnType<typeof useT>;
+
+/**
+ * The row's ANSWER: what state this connection is in, or nothing when it is
+ * simply live.
+ *
+ * `undefined` rather than an empty node for the live case, because the row
+ * draws its value slot whenever one is passed — an empty span there would take
+ * the control column's gap and push every live row's verb one step off the x
+ * the ended rows keep theirs on.
+ */
+function stateBadge(state: ConnectionState, t: Translate): ReactNode {
+  if (state.renewing) {
+    return <Badge>{t("agents.renewing")}</Badge>;
+  }
+  if (!state.ended) {
+    return undefined;
+  }
+  return (
+    <Badge tone="danger">
+      {t(state.revoked ? "agents.disconnected" : "agents.lapsed")}
+    </Badge>
+  );
+}
+
+/**
+ * The row's CONTROL, and the three states do not share one — they are not the
+ * same thing to act on.
+ *
+ * Live and renewing both offer Disconnect. Lapsed offers to end the GRANT
+ * instead: its credential is already gone, but the consent beneath it is not,
+ * and `onEnd` reaches the same cascade either way (revokePassportTx kills the
+ * grant even when the passport it names is already dead). A revoked row offers
+ * nothing, because there is nothing left to end.
+ *
+ * Both verbs take the ellipsis form while the confirm's own button keeps the
+ * plain one: two buttons reading "Disconnect" one dialog apart are ambiguous
+ * for a reader and for a name-based query.
+ */
+function endVerb(
+  passport: Connection,
+  state: ConnectionState,
+  onEnd: () => void,
+  t: Translate,
+): ReactNode {
+  const client = passport.connection.client_name;
+  if (!state.ended) {
+    return (
+      <Button
+        small
+        variant="danger"
+        aria-label={t("agents.disconnectNamed", { client })}
+        onClick={onEnd}
+      >
+        {t("agents.disconnectOpen")}
+      </Button>
+    );
+  }
+  if (!state.lapsed) {
+    return null;
+  }
+  return (
+    <Button
+      small
+      aria-label={t("agents.revokeGrantNamed", { client })}
+      onClick={onEnd}
+    >
+      {t("agents.revokeGrantOpen")}
+    </Button>
+  );
+}
+
+/**
+ * What is true of this connection, in the row's naming half: when it was made,
+ * which passport it came from, when its credential turns over, and what the
+ * client may do with it.
+ *
+ * The scope chips sit UNDER the facts rather than beside the verb. They
+ * describe the connection, and at 390px a run sharing the control's line
+ * wrapped under the button and read as its options.
+ */
+function ConnectionFacts({
+  passport,
+  state,
+}: Readonly<{ passport: Connection; state: ConnectionState }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  // A credential's lifetime is a personal deadline, so it reads on the
+  // viewer's own calendar (format.ts zone-by-purpose, the same split
+  // oauthconsent.tsx makes). connected_at is a record date and keeps the fixed
+  // zone: it says when a consent was given, not when the reader must act.
+  const connected = formatDate(
+    passport.connection.connected_at,
+    locale,
+    "Europe/Berlin",
+  );
+  // Two of the three states say something about this date; the third must not.
+  // A LIVE row shows when the agent must next hold a fresh credential, and a
+  // LAPSED one shows the moment it stopped — but a RENEWING row would read
+  // "credential expired <date>" beside its own "renewing" badge, which is the
+  // contradiction this whole card exists to remove. The badge carries that
+  // state alone. A revoked row omits the date too: its credential never
+  // reached its expiry.
+  const deadline =
+    passport.expires_at != null && !state.revoked && !state.renewing
+      ? t(state.lapsed ? "agents.expiredOn" : "agents.renewsBy", {
+          date: formatDate(
+            passport.expires_at,
+            locale,
+            Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ),
+        })
+      : null;
+  return (
+    <>
+      {/* The strikethrough wraps the FACTS, never the control beside them: a
+          struck-through button reads as disabled, and the one an ended row
+          offers is very much live. Struck, not dimmed — the same AA contrast
+          floor the passport list keeps (B-EP09.21). */}
+      <span
+        className={state.ended ? "agents-facts agents-ended" : "agents-facts"}
+      >
+        <span>{t("agents.connectedOn", { date: connected })}</span>
+        {/* Omitted, never guessed: a connection made before the provenance was
+            recorded has no answer to give. */}
+        {passport.connection.lent_passport_label && (
+          <span>
+            {t("agents.lentFrom", {
+              label: passport.connection.lent_passport_label,
+            })}
+          </span>
+        )}
+        {deadline && <span>{deadline}</span>}
+      </span>
+      <span className="agents-scopes">
+        <ScopeChips scopes={passport.scopes} />
+      </span>
+    </>
+  );
+}
+
+// One connection as a `SettingRow`: the client's name is the naming, its
+// provenance and dates are the description, the state is the answer standing in
+// the value slot, and the verb that ends it is the control. Before this the
+// whole thing was one hand-rolled flex run of eight inline styles, which is how
+// the scope chips came to wrap under the button at 390px and read as belonging
+// to it.
 function ConnectionRow({
   passport,
   onEnd,
 }: Readonly<{ passport: Connection; onEnd: () => void }>) {
   const t = useT();
-  const { locale } = useLocale();
-  const revoked = passport.revoked_at != null;
-  const expired =
-    !revoked &&
-    passport.expires_at != null &&
-    Date.parse(passport.expires_at) <= Date.now();
-  // Renewing, not ended: the client repairs this itself on its next call.
-  const renewing = expired && passport.connection.renewable;
-  const lapsed = expired && !passport.connection.renewable;
-  const ended = revoked || lapsed;
-  // A credential's lifetime is a personal deadline, so it reads on the
-  // viewer's own calendar (format.ts zone-by-purpose, the same split
-  // oauthconsent.tsx makes). connected_at is a record date and keeps the fixed
-  // zone: it says when a consent was given, not when the reader must act.
-  const recordDay = (iso: string) => formatDate(iso, locale, "Europe/Berlin");
-  const deadlineDay = (iso: string) =>
-    formatDate(iso, locale, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const state = connectionStateOf(passport, Date.now());
   return (
-    <li data-connection={passport.id}>
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        {/* The strikethrough wraps the FACTS, never the actions beside them: a
-            struck-through button reads as disabled, and the one an ended row
-            offers is very much live. Struck, not dimmed — the same AA contrast
-            floor the passport list keeps (B-EP09.21). */}
-        <span
-          style={{
-            display: "flex",
-            gap: "var(--space-2)",
-            alignItems: "center",
-            flexWrap: "wrap",
-            textDecoration: ended ? "line-through" : undefined,
-          }}
-        >
-          <strong>{passport.connection.client_name}</strong>
-          <span className="t-small">
-            {t("agents.connectedOn", {
-              date: recordDay(passport.connection.connected_at),
-            })}
-          </span>
-          {/* Omitted, never guessed: a connection made before the provenance
-              was recorded has no answer to give. */}
-          {passport.connection.lent_passport_label && (
-            <span className="t-small">
-              {t("agents.lentFrom", {
-                label: passport.connection.lent_passport_label,
-              })}
-            </span>
-          )}
-          {/* Two of the three states say something about this date; the third
-              must not. A LIVE row shows when the agent must next hold a fresh
-              credential, and a LAPSED one shows the moment it stopped — but a
-              RENEWING row would read "credential expired <date>" beside its own
-              "renewing" badge, which is the contradiction this whole card
-              exists to remove. The badge carries that state alone. A revoked
-              row omits the date too: its credential never reached its expiry. */}
-          {passport.expires_at && !revoked && !renewing && (
-            <span className="t-small">
-              {t(lapsed ? "agents.expiredOn" : "agents.renewsBy", {
-                date: deadlineDay(passport.expires_at),
-              })}
-            </span>
-          )}
+    <SettingRow
+      testId={`connection-${passport.id}`}
+      label={
+        <span className={state.ended ? "agents-ended" : undefined}>
+          {passport.connection.client_name}
         </span>
-        {renewing && <Badge>{t("agents.renewing")}</Badge>}
-        {ended && (
-          <Badge tone="danger">
-            {t(revoked ? "agents.disconnected" : "agents.lapsed")}
-          </Badge>
-        )}
-        {!ended && (
-          <Button
-            small
-            variant="danger"
-            aria-label={t("agents.disconnectNamed", {
-              client: passport.connection.client_name,
-            })}
-            onClick={onEnd}
-          >
-            {t("agents.disconnect")}
-          </Button>
-        )}
-        {lapsed && (
-          <Button
-            small
-            aria-label={t("agents.revokeGrantNamed", {
-              client: passport.connection.client_name,
-            })}
-            onClick={onEnd}
-          >
-            {t("agents.revokeGrant")}
-          </Button>
-        )}
-      </div>
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-1)",
-          flexWrap: "wrap",
-          marginTop: "var(--space-1)",
-        }}
-      >
-        <ScopeChips scopes={passport.scopes} />
-      </div>
-    </li>
+      }
+      description={<ConnectionFacts passport={passport} state={state} />}
+      value={stateBadge(state, t)}
+      control={endVerb(passport, state, onEnd, t)}
+    />
   );
 }
 
@@ -387,44 +477,50 @@ export function ConnectedAgentsCard() {
     // get.
     <Panel title={t("agents.connected")}>
       <PanelBody>
-        <p className="t-small settings-panel-sub">{t("agents.connectedSub")}</p>
-        {/* The empty state is written out here rather than left to QueryGate's
-          generic one: "nothing here" beside a guide explaining how to connect
-          reads as a loading failure, and the sentence a human needs is that no
-          agent has connected YET. */}
-        {/* The wrapper is the disconnect confirm's focus anchor: it holds whatever
-          the list currently is — the connections that remain, or the "no agent
-          is connected" line when the ended one was the last — and it is the only
-          thing here that survives every one of those transitions. tabIndex -1
-          makes it reachable by focus() without joining anybody's Tab order. */}
+        <p className="settings-panel-sub">{t("agents.connectedSub")}</p>
+        {/* The wrapper is the disconnect confirm's focus anchor: it holds the
+          card's row list — the connections that remain, the "no agent is
+          connected" line when the ended one was the last, and the way to
+          connect another — and it is the only thing here that survives every
+          one of those transitions. tabIndex -1 makes it reachable by focus()
+          without joining anybody's Tab order. */}
         <div ref={listRegion} tabIndex={-1}>
-          <QueryGate query={list}>
-            {() => {
-              if (connections.length === 0) {
-                return <EmptyState>{t("agents.noneConnected")}</EmptyState>;
-              }
-              return (
-                <ul
-                  style={{
-                    listStyle: "none",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "var(--space-3)",
-                  }}
-                >
-                  {connections.map((passport) => (
+          <SettingList>
+            {/* The gate renders straight into the list, so its rows are the
+              list's own children and the hairline falls between them. Its
+              pending and error surfaces stand in the same place a row would. */}
+            <QueryGate query={list}>
+              {() =>
+                connections.length === 0 ? (
+                  // Written out here rather than left to QueryGate's generic
+                  // one: "nothing here" beside a guide explaining how to
+                  // connect reads as a loading failure, and the sentence a
+                  // human needs is that no agent has connected YET.
+                  <EmptyState>{t("agents.noneConnected")}</EmptyState>
+                ) : (
+                  connections.map((passport) => (
                     <ConnectionRow
                       key={passport.id}
                       passport={passport}
                       onEnd={() => setConfirmId(passport.id)}
                     />
-                  ))}
-                </ul>
-              );
-            }}
-          </QueryGate>
+                  ))
+                )
+              }
+            </QueryGate>
+            {/* Forced open only once the read has ANSWERED with nothing: an
+              `open` computed while the list is still pending would flash the
+              guide open and shut for every reader who does have a connection. */}
+            <Disclosure
+              summary={t("agents.connectHow")}
+              open={
+                list.isSuccess && connections.length === 0 ? true : undefined
+              }
+            >
+              <ConnectGuide />
+            </Disclosure>
+          </SettingList>
         </div>
-        <ConnectGuide />
         <ConfirmModal
           open={confirmId != null}
           onClose={() => {

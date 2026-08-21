@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import { CompanyContextCard } from "./company-context";
 import {
   installFetchStub,
@@ -29,7 +30,43 @@ const PROFILE = {
   buying_intents: "Depot expansion, emissions deadlines.",
   common_objections: "Downtime risk, and whether the quote holds.",
   sales_motion: "Field, with a depot visit before the quote.",
-  fields: ["offer_summary", "icp", "usp"],
+  // The provenance sidecar, in the shape the server actually sends: one row per
+  // confirmed statement. The story used to pass three bare field NAMES here,
+  // which counted as three confirmed statements in the footer and produced no
+  // provenance at all — so the one state this card draws differently from a
+  // plain value, a site-read value under an evidence mark, was invisible in
+  // every story of it.
+  fields: [
+    {
+      field: "display_name",
+      value: "Brandt Automotive GmbH",
+      source: "human",
+      captured_by: "human:u-7",
+      updated_at: "2026-05-02T08:00:00Z",
+    },
+    {
+      field: "offer_summary",
+      value: "Fleet retrofit programmes for mid-size logistics operators.",
+      source: "site_read",
+      captured_by: "agent:site-read",
+      evidence_snippet:
+        "We run retrofit programmes for mid-size logistics operators.",
+      source_url: "https://brandt-automotive.de/leistungen",
+      confidence: 0.86,
+      updated_at: "2026-08-01T09:00:00Z",
+    },
+    {
+      field: "usp",
+      value:
+        "The only provider that fits around an operator's own depot calendar.",
+      source: "site_read",
+      captured_by: "agent:site-read",
+      evidence_snippet: "We plan around your depot calendar, not ours.",
+      source_url: "https://brandt-automotive.de/warum-wir",
+      confidence: 0.62,
+      updated_at: "2026-08-01T09:00:00Z",
+    },
+  ],
 };
 
 const CAPABILITIES = {
@@ -62,7 +99,7 @@ const EDITOR = { organization: ["read", "update"] } as const;
 const READER = { organization: ["read"] } as const;
 
 const meta: Meta<typeof CompanyContextCard> = {
-  title: "Settings/Organization/General/Company profile",
+  title: "Settings/Admin settings/General/Company profile",
   component: CompanyContextCard,
 };
 export default meta;
@@ -82,20 +119,49 @@ export const NotEnabledHere: Story = {
 };
 
 // The filled profile in dark, and this is the surface where that is not a
-// formality: the card is accent-toned, and the trust block sits on a
-// `PanelPlate` — a RECESSED ground. A translucent tint composites over a
-// recess differently than over the panel face, so the accent wash and the
-// callouts inside it are the pair to look at, not the text.
+// formality: the lead card is accent-toned, so its header band and its footer
+// rule are both tints that composite over the panel face. The accent wash, the
+// count in the footer and the dotted evidence marks in the value column are the
+// set to look at, not the text.
 export const FilledDark: Story = {
   globals: { theme: "dark" },
   render: story(CAPABILITIES, EDITOR),
 };
 
-// The profile at 390px. The form is a two-column grid that collapses to one at
-// 760px, so this is the only story that renders the collapsed layout at all —
-// and the website field carries a full URL with no space to break at.
+// The profile at 390px, which is where the row language earns or loses its
+// keep: below 640px a row stops holding its answer to the right and stacks the
+// naming above it, and the website value is a full URL with no space to break
+// at.
 export const FilledPhone: Story = {
   globals: { viewport: { value: "phone" } },
   tags: ["uat-phone"],
   render: story(CAPABILITIES, EDITOR),
+};
+
+// The editor the row verbs open: seventeen fields in their three sections, one
+// Save, and focus on the fact whose verb was pressed. The rows behind it are
+// answers; this is the only place on the page that is a form.
+export const EditingEssentials: Story = {
+  render: story(CAPABILITIES, EDITOR),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Edit What do you sell?" }),
+    );
+  },
+};
+
+// A profile nobody has filled in past the three the save demands. Every
+// elaboration reads "Not set" behind its disclosure, and the footer counts no
+// confirmed statements — the state a fresh installation opens on, and the one
+// where an empty right column would have been indistinguishable from a row that
+// failed to render.
+export const Sparse: Story = {
+  render: story(CAPABILITIES, EDITOR, {
+    display_name: "Brandt Automotive GmbH",
+    offer_summary:
+      "Fleet retrofit programmes for mid-size logistics operators.",
+    icp: "Operators running 50–400 vans on mixed-age fleets.",
+    fields: [],
+  }),
 };

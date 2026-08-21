@@ -1,11 +1,11 @@
 /** @vitest-environment jsdom */
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { pickOption } from "../design-system/select-testing";
 import { LOCALES, localeNameKey, translate } from "../i18n";
-import { SettingsScreen } from "./settings";
+import { SettingsScreen, settingsAddress } from "./settings";
 import {
   auditEntry,
   IDLE_JOB_HEALTH,
@@ -45,7 +45,7 @@ afterEach(() => {
 
 describe("SettingsScreen RBAC surfaces", () => {
   it("renders the session roles as localized badges on the default Account tab; a custom key stays its raw self", async () => {
-    render(<SettingsScreen />);
+    render(<SettingsScreen route={settingsAddress()} />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
     expect(screen.getByText("Admin")).toBeTruthy();
     expect(screen.getByText("field_marketing")).toBeTruthy();
@@ -55,15 +55,15 @@ describe("SettingsScreen RBAC surfaces", () => {
 
   // Appearance is chosen from the account menu, not from here: it is the
   // setting a reader changes most often and from wherever they are standing.
-  // Language stays, so the claim is that the card lost ONE control rather than
-  // that Preferences went away — and it is made against the rendered page,
-  // because an import that no longer exists is not evidence about what a reader
-  // sees.
+  // Language stays, so the claim is that the account card lost ONE control
+  // rather than that the surface went away — and it is made against the
+  // rendered page, because an import that no longer exists is not evidence
+  // about what a reader sees.
   it("offers no theme control on the Account tab", async () => {
-    render(<SettingsScreen />);
+    render(<SettingsScreen route={settingsAddress()} />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
 
-    expect(screen.getByText("Preferences")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your account" })).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Language" })).toBeTruthy();
     for (const name of ["Light", "Dark", "System", "Theme"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
@@ -71,9 +71,39 @@ describe("SettingsScreen RBAC surfaces", () => {
     }
   });
 
+  // Identity, credential, sign-off and language are ONE card, not four: a
+  // reader auditing their own account reads one title and finds three answers
+  // at one x. The claim is about the three ROWS being there, in the one card —
+  // a page that grew a second panel back would still pass a query for any one
+  // of them on its own.
+  it("carries the identity, the password, the signature and the language in ONE card", async () => {
+    render(<SettingsScreen route={settingsAddress()} />);
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+
+    const card = screen
+      .getByRole("heading", { name: "Your account" })
+      .closest("section");
+    if (!(card instanceof HTMLElement)) {
+      throw new Error("the account card is not a section");
+    }
+    // The identity block, and the three verbs/answers that belong to it.
+    expect(within(card).getByText("ada@acme.test")).toBeTruthy();
+    expect(
+      within(card).getByRole("button", { name: "Change password…" }),
+    ).toBeTruthy();
+    expect(
+      within(card).getByRole("button", { name: "Edit signature…" }),
+    ).toBeTruthy();
+    expect(
+      within(card).getByRole("combobox", { name: "Language" }),
+    ).toBeTruthy();
+    // And nothing else on the tab: four panels became one.
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
+  });
+
   it("switches the language from the Account tab, through the design-system select", async () => {
     const user = userEvent.setup();
-    render(<SettingsScreen />);
+    render(<SettingsScreen route={settingsAddress()} />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
 
     await pickOption(
@@ -84,7 +114,7 @@ describe("SettingsScreen RBAC surfaces", () => {
     // The choice reaches the chrome around the control, not just the control's
     // own face — which is the whole point of changing a language here.
     expect(screen.getByRole("combobox", { name: "Sprache" })).toBeTruthy();
-    expect(screen.getByText("Voreinstellungen")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Ihr Konto" })).toBeTruthy();
   });
 
   // WCAG 2.2 AA 3.1.2. This is the one picker in the product where every option
@@ -94,7 +124,7 @@ describe("SettingsScreen RBAC surfaces", () => {
   // language is added without one.
   it("declares each language name's own language, on the options and on the face", async () => {
     const user = userEvent.setup();
-    render(<SettingsScreen />);
+    render(<SettingsScreen route={settingsAddress()} />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
     const trigger = screen.getByRole("combobox", { name: "Language" });
 
@@ -113,7 +143,7 @@ describe("SettingsScreen RBAC surfaces", () => {
   });
 
   it("the passport row's token reads as withheld — masked, never re-disclosed — on the Agents tab", async () => {
-    render(<SettingsScreen tab="agents" />);
+    render(<SettingsScreen route={settingsAddress("agents")} />);
     await waitFor(() => expect(screen.getByText("Scout")).toBeTruthy());
     expect(screen.getByRole("img", { name: "Masked value" })).toBeTruthy();
     expect(screen.queryByText(/mgp_/)).toBeNull();
@@ -123,6 +153,10 @@ describe("SettingsScreen RBAC surfaces", () => {
   // so the principal here holds the model-price grants that open the AI entry and
   // nothing else: the read reaches the page, the write authors the price table on
   // it, and the two cards whose endpoints would 403 stay off it.
+  //
+  // An OPERATOR seat, because the AI entry is in the admin group and nobody
+  // outside that seat reaches it at all — the claim under test is about the
+  // automation grant, so the seat is the floor it stands on.
   it("withholds the AI spend and call trace from a principal without the automation grant", async () => {
     vi.stubGlobal(
       "fetch",
@@ -131,7 +165,7 @@ describe("SettingsScreen RBAC surfaces", () => {
         if (url.endsWith("/v1/me")) {
           return jsonResponse(
             meFixture({
-              roles: ["rep"],
+              roles: ["ops"],
               allow: { ai_model_rate: ["read", "update"] },
             }),
           );
@@ -142,7 +176,7 @@ describe("SettingsScreen RBAC surfaces", () => {
         });
       }),
     );
-    render(<SettingsScreen tab="ai" />);
+    render(<SettingsScreen route={settingsAddress("ai")} />);
     // The model prices this grant authors are on screen, so the tab rendered...
     await waitFor(() =>
       expect(screen.getByText("AI model costs")).toBeTruthy(),
@@ -284,23 +318,24 @@ describe("SettingsScreen restructured entries", () => {
       await screen.findByRole("heading", { name: "Consent purposes" }),
     ).toBeTruthy();
     // ...and the trail that proves those purposes were honoured, which had a
-    // tab of its own before: its filters, and an entry answering them.
-    expect(screen.getByRole("heading", { name: "Filters" })).toBeTruthy();
+    // tab of its own before: its filters — in a disclosure now, closed on
+    // arrival — and an entry answering them.
     expect(
       await screen.findByRole("heading", { name: "Audit log" }),
     ).toBeTruthy();
+    expect(screen.getByLabelText("Actor").closest("details")).not.toBeNull();
     expect(screen.getByText("update")).toBeTruthy();
   });
 
-  // Before this page absorbed it, the automations editor was a route of its own
-  // that nothing gated. Every seeded role holds `automation:read` and the server
-  // serves them, so gating the merged entry on the WRITE grant would take a
-  // working surface away from manager, rep and read_only — the merge inheriting
-  // the spend cards' authority and dropping the door's.
-  it("opens AI for a rep on the automations read alone, editor and all", async () => {
+  // The READ alone opens it, editor included. Before this page absorbed it the
+  // automations editor was a route of its own that nothing gated, so gating the
+  // merged entry on the WRITE grant would be the merge inheriting the spend
+  // cards' authority and dropping the door's — an operator who may read the
+  // automations would reach a page they cannot open.
+  it("opens AI for an operator on the automations read alone, editor and all", async () => {
     vi.stubGlobal(
       "fetch",
-      mergedEntryBackend({ roles: ["rep"], allow: { automation: ["read"] } }),
+      mergedEntryBackend({ roles: ["ops"], allow: { automation: ["read"] } }),
     );
     renderSettings("ai");
     await waitFor(() =>
@@ -347,8 +382,8 @@ describe("SettingsScreen restructured entries", () => {
       screen.getByText(/only an admin can read the full trail/i),
     ).toBeTruthy();
     // Six inputs that narrow a list you cannot see are a control with nothing
-    // behind it, so the filter row is absent rather than withheld.
-    expect(screen.queryByRole("heading", { name: "Filters" })).toBeNull();
+    // behind it, so the filter disclosure is absent rather than withheld.
+    expect(screen.queryByLabelText("Actor")).toBeNull();
     // And the request is never issued: it could only ever come back 403, and a
     // red failure with a futile Retry is what the withheld body replaces.
     const asked = backend.mock.calls.map((call) =>
@@ -357,11 +392,16 @@ describe("SettingsScreen restructured entries", () => {
     expect(asked.some((url) => url.includes("/audit-log"))).toBe(false);
   });
 
-  it("renders the reindex on Maintenance for a principal holding only that grant, and no danger zone", async () => {
+  // The two admin-ONLY surfaces inside Maintenance, from an ops seat that reaches
+  // the page. The seat gate admits the whole admin group for ops, so this is what
+  // proves it did not also hand over what the server spells with RequireAdmin:
+  // job health and the danger zone are withheld INSIDE the page the reindex read
+  // opened.
+  it("renders the reindex on Maintenance for an operator holding only that grant, and withholds job health and the danger zone", async () => {
     vi.stubGlobal(
       "fetch",
       mergedEntryBackend({
-        roles: ["rep"],
+        roles: ["ops"],
         allow: { embedding_reindex: ["read", "update"] },
         // The switch the danger zone's second gate asks for, so the ROLE is
         // the only thing left holding it back below.

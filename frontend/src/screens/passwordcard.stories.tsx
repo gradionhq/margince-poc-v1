@@ -28,8 +28,12 @@ export default meta;
 type Story = StoryObj<typeof ChangePasswordCard>;
 
 /**
- * Types into the card the way a reader would, so a story can show a state the
- * form only reaches through its own inputs.
+ * Opens the dialog and types into it the way a reader would, so a story can
+ * show a state the form only reaches through its own inputs.
+ *
+ * The fields live in the dialog the row's verb opens, so the opener is pressed
+ * first — and pressing it is what puts the inputs in the document, since a
+ * click is a discrete event React commits before this effect continues.
  *
  * Native setters rather than assigning `.value`: React tracks the last value it
  * wrote to a controlled input and swallows a change event whose value it
@@ -38,6 +42,11 @@ type Story = StoryObj<typeof ChangePasswordCard>;
  */
 function useTypedFields(values: Readonly<Record<string, string>>) {
   useEffect(() => {
+    if (!document.querySelector("[role=dialog]")) {
+      document
+        .querySelector<HTMLButtonElement>("[data-story-open] button")
+        ?.click();
+    }
     const setValue = Object.getOwnPropertyDescriptor(
       globalThis.HTMLInputElement.prototype,
       "value",
@@ -55,14 +64,36 @@ function useTypedFields(values: Readonly<Record<string, string>>) {
 
 function Typed({ values }: Readonly<{ values: Record<string, string> }>) {
   useTypedFields(values);
-  return <ChangePasswordCard />;
+  // The wrapper is how the effect above finds the opener without this file
+  // knowing the button's copy — the label is translated, and a story that
+  // matched on the English string would break the first time it changed.
+  return (
+    <div data-story-open>
+      <ChangePasswordCard />
+    </div>
+  );
 }
 
-/** Nothing typed: the rule stated once, and a submit that is not yet live. */
+/**
+ * At rest: one row saying what the setting is, and the verb that opens the
+ * form. This is what the Account page shows until somebody asks to change it.
+ */
 export const Empty: Story = {
+  name: "At rest",
   render: () => (
     <StoryProviders>
       <ChangePasswordCard />
+    </StoryProviders>
+  ),
+};
+
+/** The dialog, opened, with nothing typed: the rule stated once, and a submit
+ * that is not yet live. */
+export const Form: Story = {
+  name: "Form open",
+  render: () => (
+    <StoryProviders>
+      <Typed values={{}} />
     </StoryProviders>
   ),
 };
@@ -150,10 +181,11 @@ export const Refused: Story = {
 };
 
 /**
- * It landed — and the card says so in the success tone, having already said,
- * before the button was pressed, that the change ends every session including
- * this one. A person who is not told that reads the sign-in screen that follows
- * as being kicked out.
+ * It landed. The dialog is gone — a reader who has just been signed out
+ * everywhere has nothing left to type — and the row behind it says so in the
+ * success tone, having already said, before the button was pressed, that the
+ * change ends every session including this one. A person who is not told that
+ * reads the sign-in screen that follows as being kicked out.
  */
 export const Changed: Story = {
   render: () => {

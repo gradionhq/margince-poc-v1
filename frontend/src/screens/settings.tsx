@@ -33,33 +33,39 @@ import {
 import { api, FIRST_PAGE } from "../api/client";
 import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
-import { useCan, useCanWrite, useHoldsAdminRole } from "../app/capability";
+import {
+  useCan,
+  useCanWrite,
+  useHoldsAdminRole,
+  useHoldsOperatorSeat,
+} from "../app/capability";
 import { isEntityKind } from "../app/entity";
 import { unitsForSecretScope } from "../app/extensions";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
+import { navigateReplacing, type Route } from "../app/router";
 import { useUnsavedGuard } from "../app/unsaved";
 import {
   Avatar,
   Badge,
   Button,
   Checkbox,
+  Disclosure,
   EmptyState,
   Field,
   Modal,
-  SectionHeader,
   Skeleton,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
-import { Eyebrow } from "../design-system/eyebrow";
-import { Panel, PanelBody, PanelPlate, PanelRow } from "../design-system/panel";
+import { Panel, PanelBody, PanelPlate } from "../design-system/panel";
 import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import { Select } from "../design-system/select";
-import { ToastRegion, useToast } from "../design-system/toast";
+import { SettingList, SettingRow } from "../design-system/settingrow";
+import { type Toast, ToastRegion, useToast } from "../design-system/toast";
 import {
   AutonomyDot,
   EvidenceChip,
@@ -119,7 +125,7 @@ import { OfferTemplatesAdmin } from "./offertemplates";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
 import { OwnDomainsCard } from "./own-domains";
-import { ChangePasswordCard } from "./passwordcard";
+import { PasswordSettingRow } from "./passwordcard";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { ProductsAdmin } from "./products";
 import { FxRatesCard, ModelCostsCard } from "./rates";
@@ -166,9 +172,19 @@ import "./settings.css";
 // fourteen — a number in prose beside a list is a second source of truth that
 // nothing updates and no test can check. The list below is the count.
 //
-// Two groups: "you" (per-user, every member) and "org" (organization config).
-// Every org entry carries its OWN predicate — the grant the cards on it actually
-// ask for — and the group heading renders when at least one member survives.
+// Two groups: "you" (per-user, every member) and "admin" (installation posture,
+// operator seats only — `useHoldsOperatorSeat`, which is admin or ops). The
+// whole admin group is ABSENT for a rep or a manager: it is the only place the
+// product offers installation configuration, so a seat that configures none of
+// it is offered none of it rather than a page of withheld cards.
+//
+// Every admin entry ALSO carries its own predicate — the grant the cards on it
+// actually ask for — and the group heading renders when at least one member
+// survives. The two gates answer different questions and both are needed: the
+// seat says whether this reader administers the installation at all, the grant
+// says whether this particular page has anything in it for them. An ops
+// principal whose role was edited to drop `license:read` loses that row and
+// keeps the rest, which no role check alone could express.
 // One predicate for the whole group could only ever be a guess about a
 // heterogeneous set: it spans surfaces with clean object grants (data model,
 // organization) and surfaces with no RBAC object at all (people, privacy),
@@ -193,7 +209,7 @@ import "./settings.css";
 // last one did. A per-page measure buys a nicer form column at the cost of the
 // page appearing to change size as you navigate, and of a knob each new entry
 // has to answer for. Where a single control would otherwise stretch to the full
-// column, the control constrains itself (`.settings-intrinsic`, and each
+// column, the control constrains itself (`.settingrow-measure`, and each
 // surface's own field widths) — that is a property of the control, which knows
 // how wide it wants to be, not of the page, which does not.
 // Exported for the nav suite, which derives its expected label list from THIS
@@ -208,19 +224,19 @@ export const SETTINGS_TABS = [
   { id: "agents", icon: KeyRound, group: "you" },
   { id: "connections", icon: Plug, group: "you" },
   { id: "capture-activity", icon: Activity, group: "you" },
-  { id: "general", icon: Building2, group: "org" },
-  { id: "people", icon: UsersRound, group: "org" },
-  { id: "integrations", icon: Webhook, group: "org" },
-  { id: "capture", icon: Mail, group: "org" },
-  { id: "data-model", icon: Database, group: "org" },
-  { id: "ai", icon: Sparkles, group: "org" },
-  { id: "privacy", icon: ShieldCheck, group: "org" },
-  { id: "license", icon: BadgeCheck, group: "org" },
-  { id: "maintenance", icon: Wrench, group: "org" },
+  { id: "general", icon: Building2, group: "admin" },
+  { id: "people", icon: UsersRound, group: "admin" },
+  { id: "integrations", icon: Webhook, group: "admin" },
+  { id: "capture", icon: Mail, group: "admin" },
+  { id: "data-model", icon: Database, group: "admin" },
+  { id: "ai", icon: Sparkles, group: "admin" },
+  { id: "privacy", icon: ShieldCheck, group: "admin" },
+  { id: "license", icon: BadgeCheck, group: "admin" },
+  { id: "maintenance", icon: Wrench, group: "admin" },
 ] as const satisfies readonly {
   id: string;
   icon: LucideIcon;
-  group: "you" | "org";
+  group: "you" | "admin";
 }[];
 
 // Exported alongside the register: a caller that needs the label for an entry
@@ -233,14 +249,7 @@ export type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 function tabContent(id: SettingsTabId): ReactNode {
   switch (id) {
     case "account":
-      return (
-        <>
-          <IdentityCard />
-          <ChangePasswordCard />
-          <EmailSignatureCard />
-          <PreferencesCard />
-        </>
-      );
+      return <AccountCard />;
     case "voice":
       return <VoiceDnaCard />;
     case "agents":
@@ -431,13 +440,32 @@ function DataModelTab() {
   );
 }
 
-const SETTINGS_GROUPS = ["you", "org"] as const;
+const SETTINGS_GROUPS = ["you", "admin"] as const;
+
+/**
+ * The route segment every Admin settings entry sits under.
+ *
+ * `#/settings/admin/privacy` rather than `#/settings/privacy`, so the address
+ * says which half of settings a reader is in — the same thing the panel heading
+ * says, and the thing a link pasted into a channel could not say before. The
+ * personal entries keep their own bare addresses: they are what a reader who
+ * types `#/settings/voice` means, and moving them too would break every
+ * bookmark to buy symmetry nobody reads.
+ *
+ * A legacy `#/settings/privacy` still resolves — see `settingsRouteTab` — and
+ * is rewritten to the address above, so nothing that exists today lands
+ * nowhere.
+ */
+export const ADMIN_SEGMENT = "admin";
 
 // The route this screen answers, named once: the shell mounts the settings level
 // by matching it, and the section published below declares it.
 export const SETTINGS_SCREEN = "settings";
 
-type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
+type AdminTabId = Extract<
+  (typeof SETTINGS_TABS)[number],
+  { group: "admin" }
+>["id"];
 
 // Which Organization entries this principal can use, one answer per entry, each
 // asking for the grant the cards on it ask for. The nav then describes the seat
@@ -445,16 +473,26 @@ type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
 // an edited role reaches the data model, and nobody is offered a page whose every
 // card would refuse them.
 //
-// OPENING AN ENTRY IS A READ, so every predicate here asks for a READ grant.
+// TWO GATES, and they answer different questions.
 //
-// They asked for write grants before, because each was written to answer "can you
-// USE this", and the cost was measured against the live API: a read-only seat was
-// hidden from eight of eleven entries the server answers 200 on — including three
-// surfaces (products, offer templates, custom fields) that were ungated routes of
-// their own before the merge. A client that hides a page the server serves is not
-// protecting anything; it is disagreeing with the authority. So the rule is one
-// rule for all of them: the entry opens if the principal may READ any part of it,
-// and the write affordances inside say for themselves who may use them.
+// The SEAT decides whether this half of settings exists for the reader at all:
+// installation posture is an operator's work, so `admin` and `ops` reach it and
+// nobody else does. That is a product decision about who configures an
+// installation, not a claim about what the server would answer — and it is worth
+// being precise about the difference, because the server has NOT changed: `GET
+// /users`, the automations read and the consent registry still answer 200 to
+// every authenticated seat. A REST or MCP caller holding a rep's passport reads
+// them exactly as before. What this gate scopes is the product's own navigation.
+//
+// The GRANT then decides whether a page an operator may open has anything in it,
+// and OPENING AN ENTRY IS A READ — so every predicate below asks for a READ
+// grant. They asked for write grants once, because each was written to answer
+// "can you USE this", and the cost was measured against the live API: a
+// read-only seat was hidden from eight of eleven entries the server answers 200
+// on, including three surfaces (products, offer templates, custom fields) that
+// were ungated routes of their own before the merge. Within the section that
+// lesson still holds in full: the entry opens if the principal may READ any part
+// of it, and the write affordances inside say for themselves who may use them.
 //
 // A read grant is not a formality even where every seeded role holds it. The
 // predicate asks the live grant, so a role edited to drop `custom_field:read`
@@ -491,7 +529,7 @@ type OrgTabId = Extract<(typeof SETTINGS_TABS)[number], { group: "org" }>["id"];
  */
 export function useSettingsEntryVisibility(
   probeCompanyFlag = true,
-): Readonly<Record<OrgTabId, boolean>> {
+): Readonly<Record<AdminTabId, boolean>> {
   const capabilities = useCompanyContextCapabilities(probeCompanyFlag);
   const pipeline = useCan("pipeline", "read");
   const product = useCan("product", "read");
@@ -510,13 +548,22 @@ export function useSettingsEntryVisibility(
   // consent/store.go's ListPurposes calls auth.Require(ctx, "person", read).
   const person = useCan("person", "read");
   const overlay = useCan("overlay_connection", "read");
+  // Whether this reader administers the installation at all. It gates the WHOLE
+  // group below rather than any one entry: every predicate in the returned map
+  // is ANDed with it, so a rep holding `automation:read` — which every seeded
+  // role holds — does not reach the AI page through a grant the section is not
+  // theirs to open. Read unconditionally, like every hook here.
+  const operator = useHoldsOperatorSeat();
   // The one predicate below that is a ROLE rather than a grant. `GET /admin/reset-data`
   // and the job-health read are gated on the literal admin role server-side and no
   // RBAC object describes them — a `role` object would encode a constant, and an
   // admin who revoked their own grant on it could never restore it (capability.ts).
   // Everything else above is a `read`, because opening a page is reading it.
   const isAdmin = useHoldsAdminRole();
-  return {
+  // Each entry's own read predicate, before the seat gate. Kept as its own
+  // object so the two gates stay legible as two rules: what this page asks for,
+  // and then whether this reader is in the half of settings that holds it.
+  const granted = {
     // The organization, its profile and its currency table are one entry now, so
     // the predicate is the union of what they each asked for. Each is gated on
     // the SAME live grant the card inside asks for rather than on a role name:
@@ -539,12 +586,21 @@ export function useSettingsEntryVisibility(
     // an admin who revoked their own grant on it could never restore it
     // (capability.ts) — so the server gates it on the role directly.
     //
-    // Open to every member, because the server is: `GET /users` answers 200 to
-    // any authenticated principal, and the roster is the answer to "who is on my
-    // team, and what may they do", which is not an admin's private question. The
-    // invite form and every role control below it are the admin's, and withhold
-    // themselves. Membership is the honest predicate here, and every principal
-    // reaching this code has it by construction.
+    // `true` here means "this page asks for no grant of its own" and nothing
+    // more: the seat gate above it is what decides who reaches it, and under
+    // that gate the reader is an operator by the time this is read.
+    //
+    // The roster used to be open to every member, because the server is: `GET
+    // /users` answers 200 to any authenticated principal, and "who is on my team
+    // and what may they do" is not an admin's private question. That read is
+    // what this change costs a rep — a deliberate cost, not an oversight. The
+    // server still serves them; nothing in the product offers it any more. If
+    // the team directory turns out to be a read a rep needs, it belongs on a
+    // People screen of its own rather than back inside admin configuration.
+    //
+    // The invite form and every role control below still withhold themselves on
+    // their own authority, so an operator who is not an admin sees the roster
+    // and none of the controls.
     people: true,
     capture: captureSettings,
     // The installation's own outside wiring — the shared provider credential, the
@@ -600,20 +656,102 @@ export function useSettingsEntryVisibility(
     // between asking the grant and asking who somebody is.
     license: licenseRead,
     maintenance: isAdmin || embeddingReindex,
-  };
+  } satisfies Readonly<Record<AdminTabId, boolean>>;
+  // The seat, applied to the whole group at once. It gates the SECTION rather
+  // than any one entry, so the honest shape is one answer for all of them: a
+  // reader who does not administer the installation is offered none of it,
+  // whatever their grants say.
+  //
+  // Written out rather than mapped over the object, because `Object.entries`
+  // widens the keys to `string` and coming back to `AdminTabId` from there takes
+  // an assertion — and an assertion is exactly what must not stand between a
+  // permission map and the nav that reads it. The return type demands all nine
+  // keys, so an entry added above and forgotten here fails to compile rather
+  // than shipping ungated. Every hook above has already run, so returning here
+  // costs no hook: the count is fixed before the seat is consulted.
+  if (!operator) {
+    return {
+      general: false,
+      people: false,
+      capture: false,
+      integrations: false,
+      "data-model": false,
+      ai: false,
+      privacy: false,
+      license: false,
+      maintenance: false,
+    };
+  }
+  return granted;
+}
+
+/**
+ * Which entry an address names, and whether that address is the current one.
+ *
+ * Two shapes reach here. `#/settings/admin/privacy` is what the product mints
+ * today; `#/settings/privacy` is what every link written before the admin half
+ * had a segment of its own says, and it still resolves — a bookmark, a pasted
+ * link and a docs page must not land nowhere because the IA grew a level of
+ * naming. `legacy` is what tells `SettingsScreen` to rewrite the address it was
+ * given, so the two spellings do not both stay in circulation.
+ *
+ * A personal entry addressed THROUGH the admin segment (`#/settings/admin/voice`)
+ * is not resolved: it is not an address the product ever minted, and answering
+ * it would make two live addresses for one page.
+ */
+export function settingsRouteTab(route: Route): {
+  readonly tab: string | undefined;
+  readonly legacy: boolean;
+} {
+  if (route.id === ADMIN_SEGMENT) {
+    // Only an ADMIN entry answers under the admin segment. A personal id here
+    // resolves to nothing rather than to its page: the page already has an
+    // address, and serving it under a second one puts a spelling in circulation
+    // that nothing mints and nothing rewrites. Unresolved, it falls back like any
+    // other address the register does not answer.
+    const deep = SETTINGS_TABS.find((candidate) => candidate.id === route.id2);
+    return {
+      tab: deep?.group === "admin" ? deep.id : undefined,
+      legacy: false,
+    };
+  }
+  const entry = SETTINGS_TABS.find((candidate) => candidate.id === route.id);
+  return { tab: route.id, legacy: entry?.group === "admin" };
+}
+
+/**
+ * The address one settings entry lives at.
+ *
+ * Every caller that mints a settings link goes through this — the redirect
+ * below, the command palette's two shortcuts, the test kit's rail. The admin
+ * group's extra segment is a property of the ENTRY, so a caller that knew only
+ * the tab id would have to look the group up to build the link, and one of them
+ * would eventually not bother.
+ *
+ * An id no entry answers keeps the shallow shape: it is the address a reader
+ * typed, and `useVisibleSettingsTabs` is what decides what it lands on.
+ */
+export function settingsAddress(tab?: string): Route {
+  const entry = SETTINGS_TABS.find((candidate) => candidate.id === tab);
+  return entry?.group === "admin"
+    ? { screen: SETTINGS_SCREEN, id: ADMIN_SEGMENT, id2: entry.id }
+    : { screen: SETTINGS_SCREEN, id: tab };
 }
 
 // Which tabs this principal may use, and which of them the route selects. The
 // nav in the sidebar and the content on the page both read this, so the two
 // cannot disagree about what is current — including on the fallback below.
 function useVisibleSettingsTabs(tab?: string) {
-  const orgTabVisible = useSettingsEntryVisibility();
+  const adminTabVisible = useSettingsEntryVisibility();
   const tabs = SETTINGS_TABS.filter(
-    (entry) => entry.group !== "org" || orgTabVisible[entry.id],
+    (entry) => entry.group !== "admin" || adminTabVisible[entry.id],
   );
   // Unknown / absent id (or one this principal cannot see) falls back to the
   // first visible tab — a stale deep-link lands on Account, never a blank
-  // screen.
+  // screen. A rep who follows somebody's link to an admin page lands there too,
+  // silently: the section is absent for them, and a page announcing that it
+  // exists but is not theirs would be the one thing an absent section is chosen
+  // to avoid saying.
   return { tabs, active: tabs.find((entry) => entry.id === tab) ?? tabs[0] };
 }
 
@@ -628,8 +766,8 @@ function useVisibleSettingsTabs(tab?: string) {
  * above them already carries: "Settings / Your settings / …" said it twice in a
  * 200px column.
  */
-export function useSettingsSection(tab?: string): NavSection {
-  const { tabs, active } = useVisibleSettingsTabs(tab);
+export function useSettingsSection(route: Route): NavSection {
+  const { tabs, active } = useVisibleSettingsTabs(settingsRouteTab(route).tab);
   // Both message keys are composed from the ids, and both annotations are what
   // make them KEYS: a template literal narrows to the catalog's union only where
   // something expects one, and unannotated it would compile as any old string —
@@ -642,6 +780,10 @@ export function useSettingsSection(tab?: string): NavSection {
         .map(
           (entry): NavLevelEntry => ({
             id: entry.id,
+            // Where the row actually points. The admin group sits a segment
+            // deeper than the personal one, and the panel shows both under one
+            // pair of headings — so the depth is the ENTRY's, not the level's.
+            prefix: entry.group === "admin" ? [ADMIN_SEGMENT] : undefined,
             labelKey: `settings.tab.${entry.id}`,
             icon: entry.icon,
           }),
@@ -651,13 +793,33 @@ export function useSettingsSection(tab?: string): NavSection {
   return {
     screen: SETTINGS_SCREEN,
     titleKey: "nav.settings",
-    activeId: active.id,
+    // No row is current on a route that is not one of the tabs. An extension
+    // unit's page keeps this level in the sidebar — it is reached from here and
+    // its trail says so — but it is not a settings tab, and `settingsRouteTab`
+    // answers with the default one for any address it cannot read. Marking
+    // Account current there would point at a page the reader is not on.
+    activeId: route.screen === SETTINGS_SCREEN ? active.id : "",
     groups,
   };
 }
 
-export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
+export function SettingsScreen({ route }: Readonly<{ route: Route }>) {
+  const { tab, legacy } = settingsRouteTab(route);
   const { active } = useVisibleSettingsTabs(tab);
+  // A legacy admin address is answered AND rewritten: the reader gets the page
+  // they asked for, and the URL bar then says where that page lives, so the
+  // link they copy from it is the current one. Replaced rather than pushed, or
+  // Back would land on the address that redirects and trap them there.
+  //
+  // Keyed on the entry the route RESOLVED to rather than on the segment it
+  // carried, so a rewrite never invents an address: a rep following a link to
+  // an admin page falls back to their first visible entry, and this rewrites to
+  // THAT, which is where they actually are.
+  useEffect(() => {
+    if (legacy) {
+      navigateReplacing(settingsAddress(active.id));
+    }
+  }, [legacy, active]);
   // No nav column and no heading of its own: the entries are the sidebar's second
   // level now, and the shell's page head names the entry, so the page is that
   // entry's own content across the whole reading column.
@@ -743,18 +905,30 @@ function AgentsTab() {
   );
 }
 
-// Who you are, drawn the way the product draws an identity everywhere else: the
-// record page's own header block (composed.css `.record-head`) — a mark, the
-// name, the standing badges on the name's line, and the meta that qualifies it
-// underneath. Three items loose in a wide box said nothing about which of them
-// was the subject; the mark and the type scale do, before a word is read.
-function IdentityCard() {
+// Your account, as ONE card: who you are, and the three answers that belong to
+// you — how you sign in, how you sign off, and which language the product
+// speaks to you in.
+//
+// It used to be four panels with four header bands: Profile, Change password,
+// Email signature, Preferences. Each held exactly one decision, so a reader
+// auditing their own account read four titles to find three settings, and the
+// answers sat at four different x. The identity block is the card's SUBJECT,
+// drawn the way the product draws an identity everywhere else — the record
+// page's own header block (composed.css `.record-head`): a mark, the name, the
+// standing badges on the name's line, and the meta that qualifies it
+// underneath. Everything below it is a decision ABOUT that subject, in the
+// page's one row language.
+function AccountCard() {
   const t = useT();
   const query = useMe();
   const logout = useLogout();
+  // The card owns where an announcement lands, not the row that produced it: a
+  // toast region standing between two rows in the list would take the
+  // hairline the list draws between decisions.
+  const toast = useToast();
   return (
     <Panel
-      title={t("settings.identity")}
+      title={t("settings.accountCard")}
       actions={
         <Button
           small
@@ -765,7 +939,7 @@ function IdentityCard() {
         </Button>
       }
     >
-      <PanelBody>
+      <PanelBody className="form-stack">
         <QueryGate query={query}>
           {(me) => (
             <div className="settings-identity">
@@ -797,22 +971,38 @@ function IdentityCard() {
             </div>
           )}
         </QueryGate>
+        <SettingList>
+          {/* The credential first, because it is the one row that decides
+              whether the other two are reachable at all. The row and its
+              three-field form live in passwordcard.tsx, exported as a ROW
+              precisely so this page can place it among its own. */}
+          <PasswordSettingRow />
+          <SignatureSettingRow toast={toast} />
+          <LanguageSettingRow />
+        </SettingList>
+        <ToastRegion toast={toast} />
       </PanelBody>
     </Panel>
   );
 }
 
-// The sign-off appended below every message this member sends.
+// The sign-off appended below every message this member sends, as one row.
 //
 // It lives beside identity rather than under the composer because it is who
 // the sender IS, not something about one mail: a signature written per message
 // would be a different signature every time, which is the opposite of what one
 // is for. Plain text, because the transport sends text/plain — markup here
 // would arrive as tags in the message.
-function EmailSignatureCard() {
+//
+// A textarea committed with a Save button is the settings page's MODAL case,
+// not its row case: the row states what the setting is and what it currently
+// says, and the verb opens the form. The row's answer is the sign-off's first
+// line, which is the part a reader recognises their own signature by.
+function SignatureSettingRow({ toast }: Readonly<{ toast: Toast }>) {
   const t = useT();
   const queryClient = useQueryClient();
-  const toast = useToast();
+  const titleId = useId();
+  const [open, setOpen] = useState(false);
   const [body, setBody] = useState<string | null>(null);
   const signature = useQuery({
     queryKey: ["me-email-signature"],
@@ -841,10 +1031,10 @@ function EmailSignatureCard() {
       // save a difference that exists only in the browser.
       setBody(saved?.body ?? "");
       queryClient.invalidateQueries({ queryKey: ["me-email-signature"] });
-      // The save had no visible answer at all: the button went disabled because
-      // the draft now matched the server, and that was the whole signal — a
-      // control losing its affordance, which reads as the form having given up
-      // rather than as the write having landed. Only failure spoke.
+      // Committing the edit is what the dialog was opened for, so a save closes
+      // it — and the toast is what says the write landed, on the page the
+      // reader is handed back to.
+      setOpen(false);
       toast.show(t("settings.saved"));
     },
   });
@@ -852,105 +1042,145 @@ function EmailSignatureCard() {
   // The saved value until the member types; theirs from then on. Reading state
   // straight from the query would discard every keystroke the moment a refetch
   // landed underneath them.
-  const shown = body ?? signature.data?.body ?? "";
+  const stored = signature.data?.body ?? "";
+  const shown = body ?? stored;
   // The same comparison the Save button already made, now also the claim that
   // stops a sidebar click throwing the draft away.
-  useUnsavedGuard(shown !== (signature.data?.body ?? ""));
+  const dirty = shown !== stored;
+  useUnsavedGuard(dirty);
+  // The first line, because a sign-off is several lines and only the first one
+  // identifies it. `.split` on a string always yields at least one element, so
+  // the empty signature reads as the empty string and the row says so instead —
+  // but only once the read has answered: "no sign-off set" while the request is
+  // still out is a claim about the member's signature made before anybody knows
+  // what it is.
+  const firstLine = stored.split("\n")[0].trim();
+  const answer = signature.isPending
+    ? undefined
+    : firstLine === ""
+      ? t("settings.signatureNone")
+      : firstLine;
+
+  // Leaving discards the draft rather than keeping it: the reader closed the
+  // form, and a sign-off half-typed into a dialog nobody reopened is not an
+  // edit anybody is coming back to.
+  const close = () => {
+    setBody(null);
+    save.reset();
+    setOpen(false);
+  };
 
   return (
-    <Panel
-      title={t("settings.signature")}
-      actions={
-        <Button
-          small
-          disabled={save.isPending || shown === (signature.data?.body ?? "")}
-          onClick={() => save.mutate(shown)}
-        >
-          {save.isPending ? t("settings.signatureSaving") : t("record.save")}
-        </Button>
-      }
-    >
-      <PanelBody className="form-stack">
-        <p className="t-small settings-panel-sub">
-          {t("settings.signatureSub")}
-        </p>
-        <Field label={t("settings.signatureLabel")}>
-          {(control) => (
-            <Textarea
-              {...control}
-              rows={5}
-              value={shown}
-              placeholder={t("settings.signaturePlaceholder")}
-              onChange={(event) => setBody(event.target.value)}
-            />
-          )}
-        </Field>
-        <p className="t-caption">{t("settings.signatureHint")}</p>
-        <ToastRegion toast={toast} />
-        {save.isError && (
-          <Callout tone="danger" live="alert">
-            {problemMessageOf(save.error, t)}
-          </Callout>
-        )}
-      </PanelBody>
-    </Panel>
+    <>
+      <SettingRow
+        label={t("settings.signature")}
+        description={t("settings.signatureSub")}
+        value={answer}
+        control={
+          <Button small variant="ghost" onClick={() => setOpen(true)}>
+            {t("settings.signatureEdit")}
+          </Button>
+        }
+      />
+      {open && (
+        <Modal open onClose={close} labelledBy={titleId}>
+          {/* A real form, so Enter from the field commits it — and the Save
+              button keeps the semantics it had as a card action: nothing is
+              written until it is pressed. */}
+          <form
+            className="form-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (dirty && !save.isPending) save.mutate(shown);
+            }}
+          >
+            <h2 className="t-h3 modal-title" id={titleId}>
+              {t("settings.signature")}
+            </h2>
+            {save.isError && (
+              <Callout tone="danger" live="alert">
+                {problemMessageOf(save.error, t)}
+              </Callout>
+            )}
+            <Field label={t("settings.signatureLabel")}>
+              {(control) => (
+                <Textarea
+                  {...control}
+                  rows={5}
+                  value={shown}
+                  placeholder={t("settings.signaturePlaceholder")}
+                  onChange={(event) => setBody(event.target.value)}
+                />
+              )}
+            </Field>
+            <p className="t-caption">{t("settings.signatureHint")}</p>
+            <div className="form-actions">
+              <Button small variant="ghost" onClick={close}>
+                {t("settings.signatureCancel")}
+              </Button>
+              <Button
+                small
+                type="submit"
+                variant="primary"
+                disabled={!save.isPending && !dirty}
+                pending={save.isPending}
+                busyLabel={t("settings.signatureSaving")}
+              >
+                {t("record.save")}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
   );
 }
 
 /**
- * This person's own preferences, minus the one that is chosen elsewhere.
+ * The language this installation speaks to this reader in.
  *
- * Appearance is picked from the ACCOUNT MENU: it is the setting a reader
- * changes most often and from wherever they happen to be standing, so it lives
- * where they already are rather than three screens away. This card keeps the
- * preferences that are not appearance, and it sits beside the identity card
- * because that is what they belong to. Each control drives state the rest of
- * the app already reads, so nothing here is a second source of truth: the
- * language lasts as long as the session does because the locale context is
- * where it lives.
+ * Appearance used to stand beside it and is now picked from the ACCOUNT MENU:
+ * it is the setting a reader changes most often and from wherever they happen
+ * to be standing, so it lives where they already are rather than three screens
+ * away. What is left is one dropdown, which is one row — the locale context is
+ * where the answer lives, so nothing here is a second source of truth.
  */
-function PreferencesCard() {
+function LanguageSettingRow() {
   const t = useT();
   const { locale, setLocale } = useLocale();
   return (
-    <Panel title={t("settings.preferences")}>
-      <PanelBody>
-        <p className="t-small settings-panel-sub">
-          {t("settings.preferencesSub")}
-        </p>
-        <div className="form-stack">
-          <Field label={t("locale.switchLabel")} className="settings-intrinsic">
-            {(control) => (
-              <Select
-                {...control}
-                value={locale}
-                // `Select` reports a string. The options are built from LOCALES,
-                // so narrowing the answer through that same list is what makes
-                // it a Locale — no assertion, and nothing acted on that the
-                // control was never offering.
-                onChange={(next) => {
-                  const picked = LOCALES.find((option) => option === next);
-                  if (picked) {
-                    setLocale(picked);
-                  }
-                }}
-                // Language names are proper nouns and deliberately not
-                // translated, so every option here is in a different language
-                // from the page around it — WCAG 2.2 AA 3.1.2, the same reason
-                // the login footer's switcher carries `lang` on each name. Our
-                // locale codes are BCP 47 language subtags, so the code IS the
-                // value `lang` wants.
-                options={LOCALES.map((option) => ({
-                  value: option,
-                  label: t(localeNameKey(option)),
-                  lang: option,
-                }))}
-              />
-            )}
-          </Field>
-        </div>
-      </PanelBody>
-    </Panel>
+    <SettingRow
+      label={t("locale.switchLabel")}
+      description={t("settings.languageHelp")}
+      control={(control) => (
+        <Select
+          {...control}
+          className="settingrow-measure"
+          value={locale}
+          // `Select` reports a string. The options are built from LOCALES,
+          // so narrowing the answer through that same list is what makes
+          // it a Locale — no assertion, and nothing acted on that the
+          // control was never offering.
+          onChange={(next) => {
+            const picked = LOCALES.find((option) => option === next);
+            if (picked) {
+              setLocale(picked);
+            }
+          }}
+          // Language names are proper nouns and deliberately not
+          // translated, so every option here is in a different language
+          // from the page around it — WCAG 2.2 AA 3.1.2, the same reason
+          // the login footer's switcher carries `lang` on each name. Our
+          // locale codes are BCP 47 language subtags, so the code IS the
+          // value `lang` wants.
+          options={LOCALES.map((option) => ({
+            value: option,
+            label: t(localeNameKey(option)),
+            lang: option,
+          }))}
+        />
+      )}
+    />
   );
 }
 
@@ -1108,45 +1338,71 @@ function PassportCard() {
     // surface for one.
     <Panel
       title={t("settings.passports")}
+      // The card's one create verb, in the header band beside the title rather
+      // than as a trailing row: a row whose label reads "Mint a new passport"
+      // beside a button reading "New passport" says the same thing twice, and it made
+      // a third interval out of what is not a decision the list holds. The verb
+      // takes the ellipsis form and the drawer's submit keeps the plain one —
+      // two buttons reading "Mint passport" are one name for two acts, for a
+      // reader and for a name-based query alike.
+      //
+      // Ghost, which is Button's default: the primary it used to carry was the
+      // only one on the page, and a page with one loud button reads as if the
+      // other three cards had nothing to offer.
       titleAction={
-        <Button small variant="primary" onClick={() => setMinting(true)}>
-          {t("settings.mint")}
+        <Button small onClick={() => setMinting(true)}>
+          {t("settings.mintOpen")}
         </Button>
       }
-      footer={t("settings.passportsLendHint")}
     >
       <PanelBody>
-        <p className="t-small settings-panel-sub">
-          {t("settings.passportsSub")}
-        </p>
+        {/* The card's prose, and BOTH sentences of it, above the rows: what a
+            passport is, and what lending one does. The lending line used to be
+            a `panel-foot` band under the list, which gave one card three
+            different intervals — a body, a row list, and a ruled band — where
+            its neighbours have two. Every card on this page now reads the same
+            way: title, prose, rows. No `form-stack` either: the paragraph's own
+            margin is the interval to the list, and the flex gap on top of it
+            made this card's prose sit 28px off its rows against the 16px the
+            connected-agents card next to it keeps. */}
+        <p className="settings-panel-sub">{t("settings.passportsSub")}</p>
+        <p className="settings-panel-sub">{t("settings.passportsLendHint")}</p>
+        <SettingList>
+          {/* Only what this human MINTED, each credential its own row: the name
+              on the left, what it currently IS on the right — masked token,
+              scopes, dates, and the verb that kills it. A row carrying a
+              connection was issued by the token exchange to a client — it
+              belongs to ConnectedAgentsCard, and listing it here put a raw DCR
+              client id among the names the human chose. `connection` is the
+              server's own statement of which kind a row is; the `oauth:` label
+              prefix is display text and decides nothing.
+              The rows are handed to the enclosing list as its own children
+              rather than wrapped in a list of their own: the hairline between
+              two credentials belongs to the card that holds both. */}
+          <QueryGate
+            query={list}
+            empty={(page) =>
+              page.data.every((passport) => passport.connection != null)
+            }
+          >
+            {(page) =>
+              page.data
+                .filter((passport) => passport.connection == null)
+                .map((passport) => (
+                  <PassportRow
+                    key={passport.id}
+                    passport={passport}
+                    locale={locale}
+                    onRevoke={(row) => {
+                      revokingRow.current = row;
+                      setConfirmId(passport.id);
+                    }}
+                  />
+                ))
+            }
+          </QueryGate>
+        </SettingList>
       </PanelBody>
-      {/* Only what this human MINTED. A row carrying a connection was issued by
-          the token exchange to a client — it belongs to ConnectedAgentsCard,
-          and listing it here put a raw DCR client id among the names the human
-          chose. `connection` is the server's own statement of which kind a row
-          is; the `oauth:` label prefix is display text and decides nothing. */}
-      <QueryGate
-        query={list}
-        empty={(page) =>
-          page.data.every((passport) => passport.connection != null)
-        }
-      >
-        {(page) =>
-          page.data
-            .filter((passport) => passport.connection == null)
-            .map((passport) => (
-              <PassportRow
-                key={passport.id}
-                passport={passport}
-                locale={locale}
-                onRevoke={(row) => {
-                  revokingRow.current = row;
-                  setConfirmId(passport.id);
-                }}
-              />
-            ))
-        }
-      </QueryGate>
       <Modal
         open={minting}
         onClose={closeMint}
@@ -1179,7 +1435,7 @@ function PassportCard() {
           // still reading has no way back — the list carries metadata and the
           // server will not re-disclose a token.
           <div className="form-actions">
-            <Button variant="primary" onClick={closeMint}>
+            <Button small variant="primary" onClick={closeMint}>
               {t("settings.mintDone")}
             </Button>
           </div>
@@ -1244,10 +1500,11 @@ function PassportCard() {
               </Callout>
             )}
             <div className="form-actions">
-              <Button disabled={mint.isPending} onClick={closeMint}>
+              <Button small disabled={mint.isPending} onClick={closeMint}>
                 {t("settings.mintCancel")}
               </Button>
               <Button
+                small
                 type="submit"
                 variant="primary"
                 disabled={scopes.size === 0 || mint.isPending}
@@ -1291,9 +1548,16 @@ function PassportCard() {
 
 type PassportSummary = components["schemas"]["PassportSummary"];
 
-// One minted passport, as a full-bleed row under the mint form. The revoked
-// state is STRUCK, never dimmed: dimming drops the row under the AA contrast
-// floor (B-EP09.21), and it is the revoked row a reader most needs to read.
+// One minted passport as one row: the name the human gave it on the left, what
+// the credential currently IS on the right, and the verb that kills it at the
+// same x as every other answer on the page. The revoked state is STRUCK, never
+// dimmed: dimming drops the row under the AA contrast floor (B-EP09.21), and it
+// is the revoked row a reader most needs to read.
+//
+// The row is wrapped rather than bare because the revoke confirm hands focus
+// back HERE — the button it was opened from is gone by then — and the wrapper is
+// what carries `data-passport` for the resolver and the -1 tab index that makes
+// it reachable by focus() without joining anybody's Tab order.
 function PassportRow({
   passport,
   locale,
@@ -1306,62 +1570,73 @@ function PassportRow({
   const t = useT();
   const revoked = passport.revoked_at != null;
   return (
-    <PanelRow>
-      {/* Reachable by focus() without joining anybody's Tab order: the revoke
-          confirm hands focus back here, because the button it was opened from
-          is gone by then. */}
-      <div
-        data-passport={passport.id}
-        tabIndex={-1}
-        className={
-          revoked ? "passport-facts passport-struck" : "passport-facts"
-        }
-      >
-        <strong>{passport.label}</strong>
-        {/* The credential exists but is withheld by design (shown once at
-            mint) — masked reads as "withheld", not absent. */}
-        <span className="t-label">{t("settings.token")}</span>
-        <FieldGuard mode="masked" />
-        <ScopeChips scopes={passport.scopes} />
-        <span className="t-small">
-          {t("settings.created", {
-            date: formatDate(passport.created_at, locale, "Europe/Berlin"),
-          })}
-        </span>
-        {/* A credential's lifetime is a personal deadline, so it reads on the
-            viewer's own calendar — the same zone-by-purpose split the consent
-            screen makes. created_at above stays the fixed record zone. */}
-        {passport.expires_at && (
-          <span className="t-small">
-            {t("settings.expires", {
-              date: formatDate(
-                passport.expires_at,
-                locale,
-                Intl.DateTimeFormat().resolvedOptions().timeZone,
-              ),
-            })}
+    <div data-passport={passport.id} tabIndex={-1}>
+      <SettingRow
+        label={
+          <span className={revoked ? "passport-struck" : undefined}>
+            {passport.label}
           </span>
-        )}
-        {revoked && <Badge tone="danger">{t("settings.revoked")}</Badge>}
-        {!revoked && (
-          <Button
-            small
-            variant="danger"
-            // The row is remembered from the CLICK rather than from
-            // `confirmId`: the focus resolver runs as the dialog closes, by
-            // which time that state is already back to null and there is
-            // nothing left to look the row up by.
-            onClick={(event) =>
-              onRevoke(
-                event.currentTarget.closest<HTMLElement>("[data-passport]"),
-              )
-            }
-          >
-            {t("settings.revoke")}
-          </Button>
-        )}
-      </div>
-    </PanelRow>
+        }
+        // The credential's lifetime reads on the LEFT, under the name: it
+        // qualifies which passport this is rather than answering what it is set
+        // to, and six facts crowded into the right column left the name with
+        // three characters of width.
+        description={
+          <span className="settings-run">
+            <span>
+              {t("settings.created", {
+                date: formatDate(passport.created_at, locale, "Europe/Berlin"),
+              })}
+            </span>
+            {/* A credential's lifetime is a personal deadline, so it reads on
+                the viewer's own calendar — the same zone-by-purpose split the
+                consent screen makes. created_at above stays the fixed record
+                zone. */}
+            {passport.expires_at && (
+              <span>
+                {t("settings.expires", {
+                  date: formatDate(
+                    passport.expires_at,
+                    locale,
+                    Intl.DateTimeFormat().resolvedOptions().timeZone,
+                  ),
+                })}
+              </span>
+            )}
+          </span>
+        }
+        value={
+          <span className="settings-run">
+            {/* The credential exists but is withheld by design (shown once at
+                mint) — masked reads as "withheld", not absent. */}
+            <span className="t-label">{t("settings.token")}</span>
+            <FieldGuard mode="masked" />
+            <ScopeChips scopes={passport.scopes} />
+          </span>
+        }
+        control={
+          revoked ? (
+            <Badge tone="danger">{t("settings.revoked")}</Badge>
+          ) : (
+            <Button
+              small
+              variant="danger"
+              // The row is remembered from the CLICK rather than from
+              // `confirmId`: the focus resolver runs as the dialog closes, by
+              // which time that state is already back to null and there is
+              // nothing left to look the row up by.
+              onClick={(event) =>
+                onRevoke(
+                  event.currentTarget.closest<HTMLElement>("[data-passport]"),
+                )
+              }
+            >
+              {t("settings.revoke")}
+            </Button>
+          )
+        }
+      />
+    </div>
   );
 }
 
@@ -1411,52 +1686,103 @@ function AgentToolsCard() {
 
   return (
     <Panel title={t("tools.title")}>
+      {/* No `form-stack`: the description's own margin is the interval to the
+          rows, and the flex gap on top of it gave this card 28px where the
+          card above it has 16. */}
       <PanelBody>
-        <p className="t-small settings-panel-sub">{t("tools.sub")}</p>
-        {passports.data && passports.data.data.length > 0 && (
-          <div className="tool-scope-filter">
-            <PassportSelect
-              options={lendable.map((p) => ({
-                id: p.id,
-                label: t("tools.scopedTo", { label: p.label }),
-                scopes: p.scopes,
-              }))}
-              value={scopeId}
-              onChange={setPassportId}
-              allowEmpty
-              emptyLabel={t("tools.scopeAll")}
-              ariaLabel={t("tools.scopeAll")}
-            />
-          </div>
-        )}
-      </PanelBody>
-      <QueryGate query={tools} empty={(data) => data.data.length === 0}>
-        {(data) =>
-          data.data.map((tool) => (
-            <ToolRow
-              key={tool.name}
-              tool={tool}
-              reachable={
-                !scopeId ||
-                tool.required_scope == null ||
-                grantedScopes.has(tool.required_scope)
+        <p className="settings-panel-sub">{t("tools.sub")}</p>
+        <SettingList>
+          {/* The dial FIRST, then the inventory it narrows — the posture before
+              the judgements that read it. Absent, not disabled, while this human
+              has minted nothing: a selector offering one choice is a control
+              with nothing behind it. `PassportSelect` carries its own accessible
+              name ("All passports"), the way `Switch` does, so the row hands it
+              no ARIA of its own. */}
+          {passports.data && passports.data.data.length > 0 && (
+            <SettingRow
+              label={t("tools.scopeLabel")}
+              control={
+                <PassportSelect
+                  options={lendable.map((p) => ({
+                    id: p.id,
+                    label: t("tools.scopedTo", { label: p.label }),
+                    scopes: p.scopes,
+                  }))}
+                  value={scopeId}
+                  onChange={setPassportId}
+                  allowEmpty
+                  emptyLabel={t("tools.scopeAll")}
+                  ariaLabel={t("tools.scopeAll")}
+                />
               }
             />
-          ))
-        }
-      </QueryGate>
+          )}
+          {/* The inventory is a REFERENCE, and it is 68 tools long: each row
+              carries the tool's name, what it is for, and the text an agent
+              selects it by, which is the promise this console makes — and read
+              open it measured 14,000px, so the card was a page-long wall in
+              front of the two rows above it that a reader actually sets. So it
+              is the card's secondary half and it is closed: the rule this page
+              follows for anything advanced or diagnostic.
+
+              One row per governed tool, handed to the list inside as its own
+              children so the hairline between two tools comes from the list
+              that holds both. */}
+          <QueryGate query={tools} empty={(data) => data.data.length === 0}>
+            {(data) => (
+              <Disclosure
+                summary={t("tools.inventory", {
+                  count: String(data.data.length),
+                })}
+              >
+                <SettingList>
+                  {data.data.map((tool) => (
+                    <ToolRow
+                      key={tool.name}
+                      tool={tool}
+                      reachable={
+                        !scopeId ||
+                        tool.required_scope == null ||
+                        grantedScopes.has(tool.required_scope)
+                      }
+                    />
+                  ))}
+                </SettingList>
+              </Disclosure>
+            )}
+          </QueryGate>
+        </SettingList>
+      </PanelBody>
     </Panel>
   );
 }
 
 type AgentTool = components["schemas"]["AgentTool"];
 
-// One governed tool, as a full-bleed row. Struck, not dimmed: dimming the row
-// to 0.4 took the whole row under the AA contrast floor (B-EP09.21) — including
-// the caption that is supposed to be the text equivalent of the dimming, so the
-// one part a reader needs most became the hardest to read. The strikethrough
-// wraps the FACTS and nothing else: the badges state the tool's governance,
-// which is true either way, and the caption is the explanation.
+// One governed tool as one row, in the same two columns as every other row on
+// this page: the tool's NAME is the label, what it is for and what an agent
+// selects it by read under it, and the governance it runs under answers on the
+// right.
+//
+// The name and its written title used to share the label's line, so each row
+// read as a pair of unrelated strings — "account_coverage  Relationship coverage
+// on a deal" — beside cards whose rows are a label with a description beneath.
+// The title is a statement ABOUT the tool, so it goes where this page puts those.
+//
+// Struck, not dimmed: dimming the row to 0.4 took the whole row under the AA
+// contrast floor (B-EP09.21) — including the words that are supposed to be the
+// text equivalent of the dimming, so the one part a reader needs most became the
+// hardest to read. The strikethrough wraps the NAME and its display title and
+// nothing else: the badges state the tool's governance, which is true either
+// way, and the unreachable line is the explanation.
+//
+// That line is prose and therefore NOT a control: it used to sit in the right
+// column beside the badges, which is what left the answers on this card at three
+// different widths. It says something about the tool, so it reads with the rest
+// of what this row says about it.
+//
+// Wrapped rather than bare because `data-tool` is how the console's own coverage
+// reads one tool's row out of the inventory.
 function ToolRow({
   tool,
   reachable,
@@ -1464,10 +1790,9 @@ function ToolRow({
   const t = useT();
   const struck = reachable ? undefined : "tool-out-of-scope";
   return (
-    <PanelRow>
-      <div data-tool={tool.name} className="tool-row-body">
-        <div className="tool-row-head">
-          <AutonomyDot tier={dotTier(tool.tier)} />
+    <div data-tool={tool.name}>
+      <SettingRow
+        label={
           <span
             className={["t-mono", "tool-name", struck]
               .filter(Boolean)
@@ -1475,24 +1800,25 @@ function ToolRow({
           >
             {tool.name}
           </span>
-          {tool.title && (
-            <span className={["t-caption", struck].filter(Boolean).join(" ")}>
-              {tool.title}
-            </span>
-          )}
-          {tool.required_scope && <Badge>{tool.required_scope}</Badge>}
-          {tool.egress && <Badge tone="warn">{t("tools.egress")}</Badge>}
-          {!reachable && (
-            <span className="t-caption">{t("tools.unreachable")}</span>
-          )}
-        </div>
-        {/* The text an agent actually selects on. This console promises the
-            surface an MCP client sees, and the name alone was never that. */}
-        {tool.description && (
-          <p className="t-caption tool-description">{tool.description}</p>
-        )}
-      </div>
-    </PanelRow>
+        }
+        description={
+          <span className="tool-row-text">
+            {tool.title && <span className={struck}>{tool.title}</span>}
+            {/* The text an agent actually selects on. This console promises the
+                surface an MCP client sees, and the name alone was never that. */}
+            <span>{tool.description}</span>
+            {!reachable && <span>{t("tools.unreachable")}</span>}
+          </span>
+        }
+        control={
+          <span className="settings-run">
+            <AutonomyDot tier={dotTier(tool.tier)} />
+            {tool.required_scope && <Badge>{tool.required_scope}</Badge>}
+            {tool.egress && <Badge tone="warn">{t("tools.egress")}</Badge>}
+          </span>
+        }
+      />
+    </div>
   );
 }
 
@@ -1566,17 +1892,25 @@ function ResetDataCard() {
       // The one card that announces its own danger: the red border is what
       // separates a destructive surface from the ordinary settings around it.
       className="settings-danger"
-      actions={
-        <Button small variant="danger" onClick={() => setOpen(true)}>
-          {t("settings.resetDataButton")}
-        </Button>
-      }
     >
-      <PanelBody>
-        <p className="t-small settings-panel-sub">
-          {t("settings.dangerZoneSub")}
-        </p>
-        <p className="t-caption">{t("settings.resetDataDesc")}</p>
+      <PanelBody className="form-stack">
+        <p className="settings-panel-sub">{t("settings.dangerZoneSub")}</p>
+        <SettingList>
+          {/* One row, because there is one act: what it does on the left, the
+              verb that does it on the right. The verb takes the ellipsis form
+              and the dialog's own confirm keeps the plain one — a destructive
+              button and the button that asks again about it must not read the
+              same. */}
+          <SettingRow
+            label={t("settings.resetDataLabel")}
+            description={t("settings.resetDataDesc")}
+            control={
+              <Button small variant="danger" onClick={() => setOpen(true)}>
+                {t("settings.resetDataButton")}
+              </Button>
+            }
+          />
+        </SettingList>
         {summary && (
           <p className="t-caption settings-danger-result" role="status">
             {t("settings.resetDataResult", {
@@ -1609,7 +1943,7 @@ function ResetDataCard() {
           reset.reset();
         }}
         title={t("settings.resetDataConfirmTitle")}
-        confirmLabel={t("settings.resetDataButton")}
+        confirmLabel={t("settings.resetDataConfirmButton")}
         confirmVariant="danger"
         // The typed confirmation gates whether the reset may START; the input
         // is still editable while it runs, and a reader who clears it mid-write
@@ -1844,9 +2178,12 @@ function StageRemove({
   }
   return (
     <>
+      {/* Ghost, not danger. The dialog behind it is where the danger lives —
+          its confirm is the red one — and a trigger that shouts as loudly as
+          the act it only ASKS about put six solid red buttons in one pipeline,
+          which is the shout a reader stops reading. */}
       <Button
         small
-        variant="danger"
         data-testid={`remove-stage-${stage.id}`}
         onClick={() => setOpen(true)}
       >
@@ -1897,13 +2234,7 @@ function StageRow({
       {/* Each control carries its own verb — editing a stage is
           pipeline:update, removing one is pipeline:delete — so a role
           holding one without the other still sees the one it may use. */}
-      <span
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          alignItems: "center",
-        }}
-      >
+      <span className="stage-verbs">
         {canEdit && (
           <EditAction
             label={t("stage.edit")}
@@ -1935,6 +2266,15 @@ function StageRow({
   );
 }
 
+// One pipeline as one row: its name on the left, and under it what the pipeline
+// IS — default or not — the verbs that change it, and the stage ladder itself.
+//
+// Stacked, because the ladder IS the subject rather than an answer to a question
+// that fits beside it: three to six stages, each carrying a name, a semantic
+// badge, a probability and two verbs of its own. The pipeline's own name is the
+// row's LABEL, which is what puts it at the same x as every other naming on the
+// page — it used to be an inner heading, drawn one step larger than the card
+// title above it.
 function PipelineRow({
   pipeline,
   canEdit,
@@ -1949,18 +2289,14 @@ function PipelineRow({
     (a, b) => a.position - b.position,
   );
   return (
-    <PanelRow className="pipeline-row">
-      {/* A real heading through the primitive, not a span — nor an `h3` wearing
-          `t-h2`, which drew the inner heading at 18px under a card title at 15px
-          and told the eye the pipeline outranked the card holding it. The
-          pipeline is the subject of this row and the stage list under it, so a
-          reader navigating by heading has to be able to land on it; `level={3}`
-          is what makes the type step DOWN with the outline instead of past it. */}
-      <SectionHeader
-        title={pipeline.name}
-        level={3}
-        actions={
-          <>
+    <SettingRow
+      label={pipeline.name}
+      layout="stack"
+      control={
+        <div className="form-stack settingrow-measure">
+          {/* What this pipeline IS, and the verbs that change it, above the
+              ladder they act on. */}
+          <div className="pipeline-standing">
             <Badge tone={pipeline.is_default ? "success" : undefined}>
               {pipeline.is_default
                 ? t("pipeline.default")
@@ -1993,24 +2329,24 @@ function PipelineRow({
                 <StageCreate pipelineId={pipeline.id} />
               </>
             )}
-          </>
-        }
-      />
-      {/* tabIndex -1 so a removal can hand focus to the list it changed:
-          the row's own Remove button is gone by then, and focus dropped to
-          <body> leaves a screen-reader user at the top of the document. */}
-      <ul ref={stageList} tabIndex={-1} className="stage-rows">
-        {stages.map((stage) => (
-          <StageRow
-            key={stage.id}
-            stage={stage}
-            canEdit={canEdit}
-            t={t}
-            returnFocusTo={() => stageList.current}
-          />
-        ))}
-      </ul>
-    </PanelRow>
+          </div>
+          {/* tabIndex -1 so a removal can hand focus to the list it changed:
+              the row's own Remove button is gone by then, and focus dropped to
+              <body> leaves a screen-reader user at the top of the document. */}
+          <ul ref={stageList} tabIndex={-1} className="stage-rows">
+            {stages.map((stage) => (
+              <StageRow
+                key={stage.id}
+                stage={stage}
+                canEdit={canEdit}
+                t={t}
+                returnFocusTo={() => stageList.current}
+              />
+            ))}
+          </ul>
+        </div>
+      }
+    />
   );
 }
 
@@ -2046,10 +2382,15 @@ export function PipelinesCard() {
   return (
     <Panel
       title={t("settings.pipelines")}
-      // The verb that CHANGES this panel, in the band under its body — not one
-      // more row among the pipelines it would add to.
-      actions={
-        canCreate ? (
+      // Adding a pipeline is four inputs committed together, so the header
+      // keeps the verb and the dialog keeps the form. It sits in the header
+      // band rather than as a trailing row: a row's label would repeat the
+      // button beside it, and a card-level create verb is the header's job
+      // everywhere else on these pages. Absent without the create grant,
+      // exactly as each Edit verb is — the read-only posture is stated once
+      // below.
+      titleAction={
+        canCreate && (
           <CreateAction
             label={t("pipeline.new")}
             invalidate="pipelines"
@@ -2065,32 +2406,37 @@ export function PipelinesCard() {
             }}
             fields={pipelineFields(t)}
           />
-        ) : undefined
+        )
       }
     >
       <PanelBody>
-        <p className="t-small settings-panel-sub">
-          {t("settings.pipelinesSub")}
-        </p>
+        <p className="settings-panel-sub">{t("settings.pipelinesSub")}</p>
         {/* Said once, at the top, rather than annotating each absent control —
             the rule in design-system/README.md. A reader holding one of the two
             verbs can see for themselves which controls they got. */}
         {!canCreate && !canEdit && (
-          <p className="t-caption">{t("settings.pipelinesReadOnly")}</p>
+          <p className="settings-panel-sub">
+            {t("settings.pipelinesReadOnly")}
+          </p>
         )}
+        <SettingList>
+          <QueryGate
+            query={query}
+            empty={(pipelines) => pipelines.length === 0}
+          >
+            {(pipelines) =>
+              pipelines.map((pipeline) => (
+                <PipelineRow
+                  key={pipeline.id}
+                  pipeline={pipeline}
+                  canEdit={canEdit}
+                  t={t}
+                />
+              ))
+            }
+          </QueryGate>
+        </SettingList>
       </PanelBody>
-      <QueryGate query={query} empty={(pipelines) => pipelines.length === 0}>
-        {(pipelines) =>
-          pipelines.map((pipeline) => (
-            <PipelineRow
-              key={pipeline.id}
-              pipeline={pipeline}
-              canEdit={canEdit}
-              t={t}
-            />
-          ))
-        }
-      </QueryGate>
     </Panel>
   );
 }
@@ -2103,20 +2449,41 @@ function AutonomyCard() {
   const t = useT();
   return (
     <Panel title={t("settings.autonomy")}>
+      {/* No `form-stack`: the description's own margin is the interval to the
+          rows. See PassportCard — the flex gap on top of that margin is what
+          gave the cards on this page two different intervals. */}
       <PanelBody>
-        <p className="t-small">{t("settings.autonomySub")}</p>
+        <p className="settings-panel-sub">{t("settings.autonomySub")}</p>
+        {/* Three rows in the page's own language, even though none of them is
+            settable: what the tier COVERS reads left as prose, and the tier it
+            runs at — the dot, and on the locked row the badge saying the answer
+            cannot move — sits at the same x as every answer on this page. A
+            reader coming from the tool inventory above is matching dots. */}
+        <SettingList>
+          <SettingRow
+            label={t("settings.tierRead")}
+            control={<AutonomyDot tier="auto" />}
+          />
+          <SettingRow
+            label={t("settings.tierSend")}
+            control={<AutonomyDot tier="confirm" />}
+          />
+          <SettingRow
+            label={t("settings.tierAdvance")}
+            // The dot and the badge are ONE answer — the tier, and the fact that
+            // it cannot move — so they travel as a run at the page's own 8px chip
+            // gap. Handed to the control column loose, they took its 12px flex
+            // gap instead, which put the one row on this page carrying two chips
+            // at a different interval from every tool row above it.
+            control={
+              <span className="settings-run">
+                <AutonomyDot tier="confirm" />
+                <Badge tone="warn">{t("settings.locked")}</Badge>
+              </span>
+            }
+          />
+        </SettingList>
       </PanelBody>
-      <PanelRow className="autonomy-row">
-        <AutonomyDot tier="auto" /> <strong>{t("settings.tierRead")}</strong>
-      </PanelRow>
-      <PanelRow className="autonomy-row">
-        <AutonomyDot tier="confirm" /> <strong>{t("settings.tierSend")}</strong>
-      </PanelRow>
-      <PanelRow className="autonomy-row">
-        <AutonomyDot tier="confirm" />{" "}
-        <strong>{t("settings.tierAdvance")}</strong>{" "}
-        <Badge tone="warn">{t("settings.locked")}</Badge>
-      </PanelRow>
     </Panel>
   );
 }
@@ -2259,16 +2626,24 @@ function AuditLogFilterFields({
 }>) {
   const t = useT();
   return (
-    // Six narrow filters read as a grid of labelled cells rather than one long
-    // row: in a row each control took the width of the card and the six of them
-    // stacked into a page-tall form, which is the shape of something to fill in
-    // rather than something to narrow a list with.
-    <div className="audit-filters">
+    // Six dials, each one a row of the page's own language: what it narrows on
+    // the left, the box that narrows it on the right, at the x every other
+    // answer on this page sits at. They were a grid of labelled cells before —
+    // legible on its own, and a second layout for the same question in the one
+    // card that has both.
+    //
+    // Each one applies on its own (debounced), so this is a list of rows and NOT
+    // a form: there is nothing to submit, which is exactly why the six do not
+    // belong in a dialog.
+    <SettingList>
       {AUDIT_LOG_FILTER_FIELDS.map((field) => (
-        <Field key={field.key} label={t(field.labelKey)}>
-          {(control) => (
+        <SettingRow
+          key={field.key}
+          label={t(field.labelKey)}
+          control={(control) => (
             <TextInput
               {...control}
+              className="settingrow-measure"
               type={field.date ? "date" : undefined}
               value={filters[field.key]}
               onChange={(event) =>
@@ -2276,9 +2651,9 @@ function AuditLogFilterFields({
               }
             />
           )}
-        </Field>
+        />
       ))}
-    </div>
+    </SettingList>
   );
 }
 
@@ -2293,7 +2668,10 @@ function AuditLogRow({
   const evidence = toEvidence(entry.evidence);
 
   return (
-    <PanelRow className="audit-row">
+    // A log entry is not a settings decision, so it is not a SettingRow: it is
+    // one line of a record, and the rows of the log rule between themselves
+    // inside the one stacked row that holds the whole trail.
+    <div className="audit-row">
       <div className="audit-row-head">
         <span className="t-small">
           {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
@@ -2314,11 +2692,7 @@ function AuditLogRow({
           aria-label={t("settings.auditExpand")}
           onClick={() => setExpanded((value) => !value)}
         >
-          <ChevronDown
-            aria-hidden
-            size={14}
-            style={{ transform: expanded ? "rotate(180deg)" : undefined }}
-          />
+          <ChevronDown aria-hidden size={14} className="expander-chevron" />
         </Button>
       </div>
       {expanded && (
@@ -2347,7 +2721,7 @@ function AuditLogRow({
           {evidence && <EvidenceChip evidence={evidence} />}
         </div>
       )}
-    </PanelRow>
+    </div>
   );
 }
 
@@ -2388,62 +2762,50 @@ function AuditLogEntries({
 
   // Honest state matrix (§3a): withheld, loading, error, empty, then the rows —
   // kept as sequential branches rather than a nested ternary in the JSX below.
-  // Everything but the rows is body content and sits in a `PanelBody`; the rows
-  // themselves are full-bleed and are the panel's own direct children.
+  // The whole trail is the control of ONE stacked row now, so no branch wraps
+  // itself in a `PanelBody`: the row it sits in already owns the inset.
   if (!isAdmin) {
     // Withheld rather than absent, and the card keeps its place: an absent trail
     // on a page that opens for ops would read as "nothing has happened here",
     // which is a different claim from "this is not yours to read". The same
     // choice the subject-request queue above it makes, for the same reason.
     return (
-      <PanelBody>
-        <EmptyState>
-          <p className="t-small">{t("settings.auditAdminOnly")}</p>
-        </EmptyState>
-      </PanelBody>
+      <EmptyState>
+        <p className="t-small">{t("settings.auditAdminOnly")}</p>
+      </EmptyState>
     );
   }
   if (query.isPending) {
     return (
-      <PanelBody>
-        <div className="audit-loading">
-          <Skeleton width="60%" />
-          <Skeleton width="90%" />
-        </div>
-      </PanelBody>
+      <div className="audit-loading">
+        <Skeleton width="60%" />
+        <Skeleton width="90%" />
+      </div>
     );
   }
   if (query.isError) {
     return (
-      <PanelBody>
-        <EmptyState>
-          <p>{t("common.error")}</p>
-          <p className="t-mono audit-error-cause">
-            {problemMessageOf(query.error, t)}
-          </p>
-          <Button small onClick={() => query.refetch()}>
-            {t("common.retry")}
-          </Button>
-        </EmptyState>
-      </PanelBody>
+      <EmptyState>
+        <p>{t("common.error")}</p>
+        <p className="t-mono audit-error-cause">
+          {problemMessageOf(query.error, t)}
+        </p>
+        <Button small onClick={() => query.refetch()}>
+          {t("common.retry")}
+        </Button>
+      </EmptyState>
     );
   }
   if (entries.length === 0) {
-    return (
-      <PanelBody>
-        <EmptyState>{t("common.empty")}</EmptyState>
-      </PanelBody>
-    );
+    return <EmptyState>{t("common.empty")}</EmptyState>;
   }
   return (
-    <>
+    <div className="audit-entries settingrow-measure">
       {entries.map((entry) => (
         <AuditLogRow key={entry.id} entry={entry} meUserId={meUserId} />
       ))}
-      <PanelBody>
-        <LoadMoreButton query={query} />
-      </PanelBody>
-    </>
+      <LoadMoreButton query={query} />
+    </div>
   );
 }
 
@@ -2452,8 +2814,10 @@ function AuditLogEntries({
 // page cursor. ONE card, because every other filtered list in this product puts
 // its dials inside the list's own surface: a card of its own titled "Filters"
 // made six inputs a subject in the page outline, level with the trail they
-// narrow, and left a reader scanning two cards to answer one question.
-// Each row expands into the before/after diff plus the agent attribution trail
+// narrow, and left a reader scanning two cards to answer one question. Inside
+// that one card the dials are the secondary half — a reader arrives to read what
+// happened — so they sit in a disclosure rather than above the trail.
+// Each entry expands into the before/after diff plus the agent attribution trail
 // (passport, on-behalf-of human, authorization rule, grounding evidence) —
 // collapsed by default so the flat scan stays fast.
 export function AuditLogCard() {
@@ -2468,23 +2832,36 @@ export function AuditLogCard() {
   const asked = useSettledAuditLogFilters(filters);
   return (
     <Panel title={t("settings.auditEntries")}>
+      {/* No `form-stack`: the description's own margin is the interval to the
+          rows, and the flex gap on top of it is the second spelling that made
+          the settings cards disagree about that interval. */}
       <PanelBody>
-        <p className="t-small settings-panel-sub">{t("settings.auditSub")}</p>
-        {/* The filter row is absent, not withheld, for a reader who may not read
-            the trail: six inputs that narrow a list they cannot see are a
-            control with nothing behind it. The ROWS below stay and say why —
-            absence there would claim nothing had happened.
-            Its name is an eyebrow rather than a card title: it labels the dials
-            inside the log's surface, and the log's own name above is what says
-            which trail this is. */}
-        {isAdmin && (
-          <>
-            <Eyebrow as="h3">{t("settings.auditFilters")}</Eyebrow>
-            <AuditLogFilterFields filters={filters} onChange={setFilters} />
-          </>
-        )}
+        <p className="settings-panel-sub">{t("settings.auditSub")}</p>
+        <SettingList>
+          {/* The dials are the card's SECONDARY half — a reader arrives to read
+              what happened, and narrows it second — so they sit in a
+              disclosure, closed, rather than costing every visit six input
+              boxes above the trail. Not a dialog: each filter applies on its
+              own, and a dialog with nothing to submit would leave a narrowed
+              list behind a closed door.
+              Absent, not withheld, for a reader who may not read the trail: six
+              inputs that narrow a list they cannot see are a control with
+              nothing behind it. The TRAIL below stays and says why — absence
+              there would claim nothing had happened. */}
+          {isAdmin && (
+            <Disclosure summary={t("settings.auditFilters")}>
+              <AuditLogFilterFields filters={filters} onChange={setFilters} />
+            </Disclosure>
+          )}
+          {/* The trail is the subject of this card rather than an answer beside
+              a question, so it takes the row's whole width. */}
+          <SettingRow
+            label={t("settings.auditTrailLabel")}
+            layout="stack"
+            control={<AuditLogEntries filters={asked} meUserId={meUserId} />}
+          />
+        </SettingList>
       </PanelBody>
-      <AuditLogEntries filters={asked} meUserId={meUserId} />
     </Panel>
   );
 }

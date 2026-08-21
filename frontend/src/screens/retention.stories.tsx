@@ -3,7 +3,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
-import { meFixture } from "../app/mefixture";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { RetentionCard } from "./retention";
 import {
   installFetchStub,
@@ -66,17 +66,22 @@ function policies(
   };
 }
 
-function retention(retainOnly: boolean, extra: RouteMap = {}) {
+// The full authoring grant, and the read-only half of it — the second is what
+// draws the posture row's refusal in the answer column, so it needs a story of
+// its own rather than a prop nobody exercises.
+type RetentionGrant = NonNullable<GrantSpec["retention_policy"]>;
+const RETENTION_ADMIN: RetentionGrant = ["read", "create", "update", "delete"];
+const RETENTION_READER: RetentionGrant = ["read"];
+
+function retention(
+  retainOnly: boolean,
+  extra: RouteMap = {},
+  allow: RetentionGrant = RETENTION_ADMIN,
+) {
   return () => {
     installFetchStub({
       "GET /me": () =>
-        jsonResponse(
-          meFixture({
-            allow: {
-              retention_policy: ["read", "create", "update", "delete"],
-            },
-          }),
-        ),
+        jsonResponse(meFixture({ allow: { retention_policy: allow } })),
       "GET /retention/settings": () =>
         jsonResponse({ retain_only: retainOnly }),
       "GET /retention-policies": () => jsonResponse(policies(retainOnly)),
@@ -91,7 +96,7 @@ function retention(retainOnly: boolean, extra: RouteMap = {}) {
 }
 
 const meta: Meta<typeof RetentionCard> = {
-  title: "Settings/Organization/Privacy/Retention",
+  title: "Settings/Admin settings/Privacy/Retention",
   component: RetentionCard,
 };
 export default meta;
@@ -104,6 +109,14 @@ export const LadderActing: Story = { render: retention(false) };
 // The posture on: the erase and anonymize rows are enabled and inert, and each
 // says why; the archive row is untouched because archiving retains.
 export const RetainOnly: Story = { render: retention(true) };
+
+// A seat that may read the ladder and change none of it: the posture switch is
+// refused with the sentence that says why, and both sit in the row's answer
+// column against its right edge. The `Add policy` verb is absent from the header
+// without the create grant, so the card's title stands alone.
+export const ReadOnlyPosture: Story = {
+  render: retention(true, {}, RETENTION_READER),
+};
 
 // The same page in dark, because the two things this screen says are both said
 // in colour-adjacent ways. The posture Switch is ON, so its track carries the

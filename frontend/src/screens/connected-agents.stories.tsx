@@ -13,6 +13,14 @@ import {
 // Which OAuth clients are holding one of this person's passports. A passport
 // with no `connection` is a minted credential nobody has redeemed, so it is not
 // a connection and does not appear here.
+//
+// Each connection is one `SettingRow` — the client's name on the left, its
+// state in the value slot, the verb that ends it on the right — and the connect
+// guide is a `Disclosure` at the foot of the same list. Which stories show the
+// guide OPEN is therefore not a story setting: it opens itself while nothing is
+// connected, because that is the one state in which it is the only thing on the
+// card to act on. So `Connected` is the closed case and `NoneConnected` /
+// `ConnectorNotEnabled` are the open ones.
 const CLAUDE = {
   id: "pp-1",
   label: "Claude Desktop",
@@ -78,6 +86,8 @@ export const Connected: Story = { render: story([CLAUDE, LAPSED]) };
 
 // Nobody has connected YET — written out rather than left to the generic empty
 // state, because "nothing here" beside a connect guide reads as a failed load.
+// The guide stands open under it, which is what makes the empty state an
+// instruction rather than a dead end.
 export const NoneConnected: Story = { render: story([]) };
 
 // The installation does not serve the tool surface, so discovery 404s and the
@@ -91,17 +101,21 @@ export const ConnectorNotEnabled: Story = {
 // facts through and putting a danger badge beside them, and the code deliberately
 // strikes rather than dims to hold an AA floor (B-EP09.21) — a rule written
 // against one set of token values and never once rendered against the other.
+// The `SettingList` hairline between the two rows is the other thing to read
+// here: it has to separate two connections without reading as heavier than the
+// disclosure rule under them.
 export const ConnectedDark: Story = {
   globals: { theme: "dark" },
   render: story([CLAUDE, LAPSED]),
 };
 
-// At 390px each row is a wrapping run of facts (client name, connected date,
-// expiry, lent-from) with its verb and its scope chips in the same flex flow.
-// Watching where the wrap falls: the button lands BETWEEN the facts and the
-// scopes at this width, so the chips read as belonging to the control rather than
-// to the connection above it, and the struck-through lapsed row is the one where
-// that misreading costs something.
+// At 390px the row gives up its two columns and stacks (settingrow.css's own
+// breakpoint), which is the width the wrap used to go wrong at: the verb landed
+// BETWEEN the facts and the scope chips, so the chips read as belonging to the
+// control rather than to the connection above it, and the struck-through lapsed
+// row was where that misreading cost something. The chips now sit inside the
+// row's naming half, under the facts they qualify, so the stack cannot separate
+// them from the connection they describe.
 export const ConnectedPhone: Story = {
   globals: { viewport: { value: "phone" } },
   tags: ["uat-phone"],

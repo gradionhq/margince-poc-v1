@@ -5,44 +5,31 @@
    are SegmentedControls now, and the refusal and the confirm gate are Callouts:
    all four used to be drawn here, each in a chrome of its own. */
 
-/* The whole surface is ONE Panel now — the object bar and the three cards it
-   used to stack are its scope row, its table body and two Disclosures — so the
-   inter-card rhythm this file used to own belongs to the panel's own padding.
-   What is left here is the parts the design system has no primitive for: the
-   builder's form layout, the field cell, the type chip and the audit list.
-
-   The three bodies read as three bands, and the seam between two of them is
-   panel.css's — a card seam is full-bleed and this sheet does not draw one.
-   Each band's content sits on the body's own padding, the table included, so a
-   rule inside the table can only ever read as the table's own. */
-
-/* The scope row: what this section is, then which object it is showing. */
-.cf-scope {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
-
-/* The two Disclosures, and the read-only posture that stands in for the first
-   of them. */
-.cf-aside {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
+/* The whole surface is ONE Panel with ONE body now: the object picker, the
+   field table and the add verb are rows in a SettingList, and the change trail
+   is a Disclosure standing in the same list. So the inter-band rhythm this file
+   used to own belongs to `SettingList` — the hairline between two rows and the
+   interval around them are the list's, not each row's, which is the whole
+   reason that primitive exists. What is left here is the parts the design
+   system has no primitive for: the builder's form layout, the field cell, the
+   type chip and the audit list. */
 
 /* What a reader may NOT do here, said once for the whole section — the same
-   line products and offer templates carry, so the three read alike. */
+   line products and offer templates carry, so the three read alike.
+
+   The card's own band under the rows rather than one more row, so it pays for
+   its own interval: the same one `.settings-panel-sub` pays above the list,
+   because `SettingList` owns the gaps BETWEEN rows and nothing above or below
+   itself. */
 .cf-posture {
   font-size: var(--fs-sm);
   color: var(--textMeta);
-  margin: 0;
+  margin: var(--space-4) 0 0;
 }
 
-/* The builder is no longer a Card of its own — it is the body of a Disclosure
-   inside the section's one Panel — so it owns the rhythm between its own blocks
-   rather than inheriting a card's padding. */
+/* The builder is no longer a Card of its own — it is the body of the dialog the
+   card's add verb opens — so it owns the rhythm between its own blocks rather
+   than inheriting a card's padding. */
 .cf-builder {
   display: flex;
   flex-direction: column;

@@ -112,6 +112,38 @@ describe("LicenseCard", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  // The seat reading is ONE row, and what counts as a seat is that row's
+  // DESCRIPTION rather than a note under the figures. Which order it is in
+  // matters: the rule excludes read-only seats and counts agents, so a reader
+  // who meets it after the numbers has already taken them for something else.
+  it("puts what counts as a seat above the figures it qualifies", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor({
+        state: "valid",
+        seats_used: 9,
+        seats_granted: 10,
+        over_limit: false,
+        checked_at: checkedAt,
+      }),
+    );
+    render(<LicenseCard />);
+
+    const rule = await waitFor(() => screen.getByText(/Read-only seats/));
+    const row = rule.closest(".settingrow");
+    if (!row) {
+      throw new Error("the seat rule is not a settings row's description");
+    }
+    // One row holds the label, the rule, both figures and the bar: the whole
+    // comparison, which is what makes it one reading.
+    expect(row.textContent).toContain("Seats");
+    expect(row.querySelector('[role="meter"]')).not.toBeNull();
+    expect(
+      rule.compareDocumentPosition(screen.getByRole("meter")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("says a license with no seat count limits nothing, and draws no meter", async () => {
     vi.stubGlobal(
       "fetch",

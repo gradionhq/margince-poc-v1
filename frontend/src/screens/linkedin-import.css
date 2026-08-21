@@ -3,24 +3,12 @@
    into one flat column — a wall of alternating words and numbers that read as
    a list of eight unrelated things rather than four counts. */
 
-.li-import-explainer {
-  margin-top: 0;
-}
-
-/* Names the file, next to the icon, so it is read before the picker rather
-   than after a failed upload. */
-.li-import-which {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 var(--space-2);
-  color: var(--textContent);
-  font: 500 0.875rem / 1.5 var(--f-body);
-}
-
-.li-import-which svg {
-  flex: none;
-  color: var(--textMuted);
+/* The profile dialog's form. The field runs the dialog's width; only the gap
+   between the field and the actions band belongs here, and `form-stack` already
+   owns that — this rule exists so the heading above it is not sitting on the
+   field. */
+.li-import-profile-form {
+  margin-top: var(--space-3);
 }
 
 .li-import-picker {
@@ -39,7 +27,14 @@
 
 /* The native file input carries a browser-drawn button whose label we cannot
    set, so it is hidden and a real <label> drives it. Hidden but focusable:
-   removing it from the tab order would make the card keyboard-unusable. */
+   removing it from the tab order would make the card keyboard-unusable.
+
+   This is the one control on the card the design system does not draw, and it
+   is deliberate: `FileDropzone` is a full-width dashed drop ZONE with its own
+   `Field` label, which cannot sit in a row's right column, and it passes no
+   `accept` through to the input — this card's whole difficulty is that
+   LinkedIn's export archive holds a dozen CSVs. Give that primitive an
+   `accept` and a compact form and this block goes. */
 .li-import-picker input[type="file"] {
   position: absolute;
   width: 1px;
@@ -95,8 +90,8 @@
   background: var(--bgElevated);
 }
 
-/* The same rule as .li-import-field above: a 12px term naming the figure
- * beside it is text to be read, not a rule to be seen. */
+/* A 12px term naming the figure beside it is text to be read, not a rule to be
+ * seen — so --textMeta, the canonical AA small-text role, never --textMuted. */
 .li-import-result dt {
   color: var(--textMeta);
   font: 500 0.75rem / 1.3 var(--f-body);
@@ -107,25 +102,4 @@
   color: var(--textContent);
   font: 600 1.5rem / 1.1 var(--f-display, var(--f-body));
   font-variant-numeric: tabular-nums;
-}
-
-/* The profile section: the URL the imported network is attributed to. */
-.li-import-profile {
-  display: grid;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 var(--space-4);
-  padding-bottom: var(--space-4);
-  border-bottom: 1px solid var(--borderSubtle);
-}
-
-/* The URL field is a Field + TextInput now, so its label type, its box, its
- * border and its focus ring all come from the design system — this sheet only
- * says how wide the pair may run. `.li-import-field` declared all four by hand
- * and none of them matched the identical field in the dialogs on this tab. */
-.li-import-profile .field {
-  max-width: 32rem;
-}
-
-.li-import-profile p {
-  margin: 0;
 }

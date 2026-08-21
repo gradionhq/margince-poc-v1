@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -13,9 +16,15 @@ import type { components } from "../api/schema";
 import { useCanMutate, useHoldsAdminRole } from "../app/capability";
 import { EXTENSION_SCREEN, findExtension } from "../app/extensions";
 import { routeHash } from "../app/router";
-import { Badge, Card, EmptyState, SectionHeader } from "../design-system/atoms";
+import {
+  Badge,
+  Disclosure,
+  EmptyState,
+  TableScroll,
+} from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
 import {
@@ -244,7 +253,7 @@ export function ExtensionAccessCard() {
   const me = useMe();
   // Editing role permissions is admin-only server-side, so the whole card is
   // admin-only here — the same shape UsersAdminCard uses, and for the same
-  // reason: an ops seat in the Organization group would otherwise be handed
+  // reason: an ops seat in the Admin settings group would otherwise be handed
   // controls that only ever 403. The seat ceiling ANDs on top, because a read
   // seat may read this page and may not write anything on it.
   //
@@ -387,17 +396,13 @@ function UnitCard({
             {t("extAccess.noPage", { name: unit.name })}
           </p>
         )}
-        {/* SectionHeader level={3}, not a `t-label` h3: these are sections
-            inside the unit's section and they owe the outline a real heading.
-            Spelled as a class they announced as headings and DREW as 12.5px —
-            the smallest type in the system — so the eye read them as peers of
-            the chips beneath them while the document said otherwise. */}
-        <div className="ext-block">
-          <SectionHeader level={3} title={t("extAccess.brings.heading")} />
-          <UnitBrings unit={unit} />
-        </div>
-        <div className="ext-block">
-          <SectionHeader level={3} title={t("extAccess.grants.heading")} />
+        {/* One row per registered object, so the thing an operator DECIDES —
+            who may do what with this object — sits where every other decision
+            in settings sits. The two section headings this replaces named the
+            halves of the card; the rows name themselves, and the inventory the
+            first heading introduced is reference rather than a decision, so it
+            reads last and closed. */}
+        <SettingList>
           {/* The seat ceiling, stated in the card that HOLDS the controls it
               governs rather than one card up. Once per unit, not once per
               toggle: every switch below also carries it as its `reason`, which
@@ -410,18 +415,37 @@ function UnitCard({
           {unit.rbac_objects.length === 0 ? (
             <p className="t-small ext-note">{t("extAccess.noObjects")}</p>
           ) : (
-            <div className="ext-objects">
-              {unit.rbac_objects.map((object) => (
-                <ObjectMatrix
-                  key={object}
-                  object={object}
-                  roles={roles}
-                  canManage={canManage}
-                />
-              ))}
-            </div>
+            unit.rbac_objects.map((object) => (
+              <SettingRow
+                key={object}
+                testId={`ext-object-${object}`}
+                // A toggle matrix IS the subject of its row, not an answer that
+                // fits beside the question, so it takes the full width below
+                // the naming instead of the right column.
+                layout="stack"
+                label={t("extAccess.matrixCaption", { object })}
+                // The function form, because the row's label is now the
+                // matrix's accessible NAME: a `<caption>` here would print the
+                // same sentence twice, once as the row's naming and once inside
+                // the grid it names.
+                control={(control) => (
+                  <ObjectMatrix
+                    object={object}
+                    roles={roles}
+                    canManage={canManage}
+                    labelledBy={control["aria-labelledby"]}
+                  />
+                )}
+              />
+            ))
           )}
-        </div>
+          {/* What the unit brought, as the card's reference half: an operator
+              opens this to check that the object they are granting is the one
+              the route they care about is gated on, not to decide anything. */}
+          <Disclosure summary={t("extAccess.brings.heading")}>
+            <UnitBrings unit={unit} />
+          </Disclosure>
+        </SettingList>
       </PanelBody>
     </Panel>
   );
@@ -506,9 +530,11 @@ function BringsRow({
  * A real `<table>`, not a grid of divs: the two axes ARE the meaning here, and
  * a screen-reader user landing on a tick in the middle of it has to be able to
  * ask which role and which verb it belongs to. `scope="col"` / `scope="row"`
- * is what answers that, and the `<caption>` names which object the whole grid
- * is about — a table announced as "read create update delete" with no subject
- * is unreadable however many ticks it contains.
+ * is what answers that, and `labelledBy` names which object the whole grid is
+ * about — a table announced as "read create update delete" with no subject is
+ * unreadable however many ticks it contains. The name is the row's own label
+ * rather than a `<caption>`, because the stacked `SettingRow` already draws
+ * that sentence directly above the grid and a caption would repeat it.
  *
  * Every cell is a `Switch`, not a `Checkbox`, and the difference is the whole
  * point of this grid: flipping one WRITES an RBAC grant. A checkbox states an
@@ -530,10 +556,13 @@ function ObjectMatrix({
   object,
   roles,
   canManage,
+  labelledBy,
 }: Readonly<{
   object: string;
   roles: readonly ExtensionRole[];
   canManage: boolean;
+  /** The id of the row's label, which is this grid's accessible name. */
+  labelledBy: string;
 }>) {
   const t = useT();
   const setGrant = useSetGrant();
@@ -550,15 +579,22 @@ function ObjectMatrix({
   const nobodyReads = roles.every((role) => !grantOf(role, object).read);
 
   return (
-    // An inset panel per object: a unit registering several objects renders
-    // several tables of identically-labelled columns, and the panel edge is
-    // what tells a reader where one object's grants end and the next begin.
-    <Card inset as="div" className="ext-object">
-      <div className="ext-matrix-wrap">
-        <table className="ext-matrix">
-          <caption className="t-label ext-matrix-caption">
-            {t("extAccess.matrixCaption", { object })}
-          </caption>
+    // `.settingrow-measure` is the stacked row's own contract for a control
+    // that owns its width: `.settingrow-control` is a flex row, so without the
+    // `min-width: 0` it carries, the matrix's scroll box would grow to the
+    // grid's full width and push the card sideways. The inset panel this
+    // replaces was separating one object's grants from the next; the
+    // `SettingList` hairline between the rows does that now, and two edges
+    // around one grid read as a box inside a box.
+    <div className="settingrow-measure ext-object">
+      {/* `TableScroll` rather than a wrapper of this screen's own: five CRUD
+          columns beside a role name overrun a 720px settings column, and the
+          box that scrolls sideways — keyboard-reachable, announced — is one
+          spelling for every table in the product (atoms.tsx). Named by the
+          object rather than by a translated phrase: the object IS the grid's
+          subject, which is the same thing `labelledBy` says to the table. */}
+      <TableScroll label={object}>
+        <table className="ext-matrix" aria-labelledby={labelledBy}>
           <thead>
             <tr>
               <th scope="col">{t("extAccess.roleColumn")}</th>
@@ -631,7 +667,7 @@ function ObjectMatrix({
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
       {nobodyReads ? (
         // `warn` is exactly the claim: nothing is broken, and something will go
         // wrong if nobody acts — every screen this unit ships renders "you do
@@ -660,6 +696,6 @@ function ObjectMatrix({
             : problemMessageOf(setGrant.error, t)}
         </Callout>
       ) : null}
-    </Card>
+    </div>
   );
 }

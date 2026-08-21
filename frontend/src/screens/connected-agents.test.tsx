@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { ConnectedAgentsCard } from "./connected-agents";
-import { SettingsScreen } from "./settings";
+import { SettingsScreen, settingsAddress } from "./settings";
 
 // The split GET /passports feeds: a passport the human minted belongs to the
 // passports card, a connection's credential to this one. `connection` decides,
@@ -200,6 +200,38 @@ describe("ConnectedAgentsCard", () => {
     );
   });
 
+  // The guide is reference rather than a decision, so it reads last and closed
+  // — EXCEPT in the one state where it is the point of the card. Nobody has
+  // connected, so nothing else on the card can be acted on, and a reader who
+  // has to open a disclosure to find the only thing to do has been given a
+  // puzzle instead of an instruction.
+  it("opens the connect guide by itself while no agent is connected", async () => {
+    vi.stubGlobal("fetch", backend({ passports: [] }));
+    render(<ConnectedAgentsCard />);
+    await waitFor(() =>
+      expect(screen.getByText("No agent is connected yet.")).toBeTruthy(),
+    );
+    const guide = screen.getByText("Connect an agent").closest("details");
+    if (!(guide instanceof HTMLDetailsElement)) {
+      throw new Error("the connect guide is not a disclosure");
+    }
+    expect(guide.open).toBe(true);
+  });
+
+  // And leaves it closed once there is something else to read: four commands
+  // nobody runs twice are a footnote to a card whose subject is the clients
+  // already connected.
+  it("leaves the connect guide closed once an agent is connected", async () => {
+    vi.stubGlobal("fetch", backend({}));
+    render(<ConnectedAgentsCard />);
+    await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
+    const guide = screen.getByText("Connect an agent").closest("details");
+    if (!(guide instanceof HTMLDetailsElement)) {
+      throw new Error("the connect guide is not a disclosure");
+    }
+    expect(guide.open).toBe(false);
+  });
+
   it("offers a connect command per client, built from the URL the server advertises", async () => {
     vi.stubGlobal("fetch", backend({ passports: [] }));
     render(<ConnectedAgentsCard />);
@@ -255,7 +287,7 @@ describe("ConnectedAgentsCard", () => {
       // command, and a bare text query would match either.
       await vi.waitFor(() =>
         expect(
-          document.querySelector('[data-connection="pp-lapsed"]'),
+          document.querySelector('[data-testid="connection-pp-lapsed"]'),
         ).toBeTruthy(),
       );
       expect(screen.getByText("credential expired")).toBeTruthy();
@@ -285,7 +317,7 @@ describe("ConnectedAgentsCard", () => {
       render(<ConnectedAgentsCard />);
       await vi.waitFor(() =>
         expect(
-          document.querySelector('[data-connection="pp-renewing"]'),
+          document.querySelector('[data-testid="connection-pp-renewing"]'),
         ).toBeTruthy(),
       );
       expect(screen.getByText("renewing")).toBeTruthy();
@@ -319,9 +351,14 @@ describe("ConnectedAgentsCard", () => {
     render(<ConnectedAgentsCard />);
     await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Disconnect Claude Code" }),
-    );
+    // The row's verb takes the ellipsis form; the confirm's own button keeps
+    // the plain one. Two buttons reading "Disconnect" one dialog apart are
+    // ambiguous for a reader and for a name-based query.
+    const opener = screen.getByRole("button", {
+      name: "Disconnect Claude Code",
+    });
+    expect(opener.textContent).toBe("Disconnect…");
+    await userEvent.click(opener);
     expect(screen.getByText(/ends the whole connection/)).toBeTruthy();
     const dialog = screen.getByRole("dialog");
     await userEvent.click(
@@ -334,7 +371,7 @@ describe("ConnectedAgentsCard", () => {
     await waitFor(() =>
       expect(screen.getByText("No agent is connected yet.")).toBeTruthy(),
     );
-    expect(document.querySelector("[data-connection]")).toBeNull();
+    expect(document.querySelector('[data-testid^="connection-"]')).toBeNull();
   });
 
   // Ending a connection removes the row the confirm was opened from, so there is
@@ -373,7 +410,7 @@ describe("ConnectedAgentsCard", () => {
 describe("the two passport cards on Your agents", () => {
   it("keeps a connection out of the passports a human may lend", async () => {
     vi.stubGlobal("fetch", backend({}));
-    render(<SettingsScreen tab="agents" />);
+    render(<SettingsScreen route={settingsAddress("agents")} />);
     await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
     // The minted passport is listed as lendable...
     const passports = document.querySelector('[data-passport="pp-minted"]');
@@ -383,7 +420,7 @@ describe("the two passport cards on Your agents", () => {
       document.querySelector('[data-passport="pp-connection"]'),
     ).toBeNull();
     expect(
-      document.querySelector('[data-connection="pp-connection"]'),
+      document.querySelector('[data-testid="connection-pp-connection"]'),
     ).toBeTruthy();
   });
 });

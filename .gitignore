@@ -120,6 +120,9 @@ workspace/
 #   - the pnpm content-addressable store (machine-local build cache)
 #   - a repo-root scratch dir (real scratch belongs in the session temp dir)
 #   - Codex visualization exports (conversation artifacts, not product source)
+#   - agent worktrees. A dispatched agent working on an isolated copy of the repo
+#     puts it here; it is a second checkout, not product, and staging it would
+#     commit the whole tree twice.
 #   - screenshots dropped at the repo root. Root-ANCHORED so tracked product
 #     assets like frontend/src/assets/*.png are unaffected.
 #   - screen RECORDINGS, by the same rule and for the same reason. Proving an
@@ -134,6 +137,7 @@ workspace/
 /node_modules/
 /scratchpad/
 /.codex/visualizations/
+/.claude/worktrees/
 /*.png
 /*.jpg
 /*.jpeg

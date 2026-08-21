@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mails } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import { useCanWrite } from "../app/capability";
 import { Button } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
@@ -56,52 +56,73 @@ export function MailSharingCard() {
 
   return (
     <Panel title={t("mailSharing.title")}>
-      <PanelBody className="form-stack">
-        <p className="t-caption">{t("mailSharing.sub")}</p>
+      <PanelBody>
+        <p className="settings-panel-sub">{t("mailSharing.sub")}</p>
         <QueryGate query={query}>
           {(settings) => {
             const shown = pending ?? settings.mail_sharing;
             const dirty = pending !== null && pending !== settings.mail_sharing;
             return (
               <>
-                <Switch
-                  testId="mail-sharing-toggle"
-                  label={
-                    <>
-                      <Mails aria-hidden size={16} />
-                      {t("mailSharing.label")}
-                    </>
-                  }
-                  hint={t("mailSharing.help")}
-                  reason={
-                    canManage ? undefined : t("captureSettings.adminOnly")
-                  }
-                  checked={shown}
-                  disabled={!canManage || save.isPending}
-                  onChange={(next) => setPending(next)}
-                />
-                {!shown && (
-                  <Callout tone="danger" live="alert">
-                    {t("mailSharing.danger")}
-                  </Callout>
-                )}
-                {dirty && (
-                  <Button
-                    variant="primary"
-                    disabled={save.isPending}
-                    onClick={() => {
-                      if (pending !== null) {
-                        save.mutate(pending);
-                      }
-                    }}
-                  >
-                    {t("mailSharing.save")}
-                  </Button>
-                )}
-                {save.isError && (
-                  <Callout tone="danger" live="alert">
-                    {problemMessageOf(save.error, t)}
-                  </Callout>
+                <SettingList>
+                  {/* The row draws the naming, so the switch carries the same
+                      words as its hidden label rather than a second heading and
+                      a hint of its own beside them. */}
+                  <SettingRow
+                    label={t("mailSharing.label")}
+                    description={t("mailSharing.help")}
+                    // The function form, so the row's description reaches the
+                    // switch: the sentence saying what sharing DOES used to be
+                    // the switch's own `hint`, and moving it into the row would
+                    // otherwise take it away from every reader who cannot see
+                    // it. `labelHidden` still keeps the naming the row's.
+                    control={(control) => (
+                      <Switch
+                        describedBy={control["aria-describedby"]}
+                        testId="mail-sharing-toggle"
+                        label={t("mailSharing.label")}
+                        labelHidden
+                        reason={
+                          canManage ? undefined : t("captureSettings.adminOnly")
+                        }
+                        checked={shown}
+                        disabled={!canManage || save.isPending}
+                        onChange={(next) => setPending(next)}
+                      />
+                    )}
+                  />
+                </SettingList>
+                {/* The cost of the posture and the verb that commits it belong
+                    to the CARD, not to the row: an unsaved flip is a state of
+                    the whole card, and a callout squeezed into a row's right
+                    column would read as the switch's own answer. */}
+                {(!shown || dirty || save.isError) && (
+                  <div className="settings-panel-commit">
+                    {!shown && (
+                      <Callout tone="danger" live="alert">
+                        {t("mailSharing.danger")}
+                      </Callout>
+                    )}
+                    {save.isError && (
+                      <Callout tone="danger" live="alert">
+                        {problemMessageOf(save.error, t)}
+                      </Callout>
+                    )}
+                    {dirty && (
+                      <Button
+                        small
+                        variant="primary"
+                        disabled={save.isPending}
+                        onClick={() => {
+                          if (pending !== null) {
+                            save.mutate(pending);
+                          }
+                        }}
+                      >
+                        {t("mailSharing.save")}
+                      </Button>
+                    )}
+                  </div>
                 )}
               </>
             );

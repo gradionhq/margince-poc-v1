@@ -2,11 +2,17 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { Upload } from "lucide-react";
-import { type CSSProperties, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useCan, useCanWrite } from "../app/capability";
-import { Button, EmptyState, SegmentedControl } from "../design-system/atoms";
+import {
+  Button,
+  EmptyState,
+  Modal,
+  SegmentedControl,
+} from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -22,13 +28,6 @@ import type {
 import { identifyingFieldFor } from "./importtypes";
 import "./import.css";
 
-// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
-// is the body's first paragraph and owes its own separation from the content
-// under it; it is a token rather than a number so it moves with the scale, and
-// it lives here rather than in a screen sheet because it belongs to the panel
-// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
-const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
-
 // Bringing a customer's file into the estate (S-E11.6): upload it, see what its
 // columns actually hold, map them, read what the import WILL do, then commit.
 //
@@ -37,8 +36,11 @@ const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 // types in one act — so nothing is written until a human has read a report of
 // what will happen and pressed the button again.
 //
-// It lives beside the other operator-run bulk actions rather than in a nav
-// entry of its own, and the flow expands inside the card as each step answers.
+// It lives beside the other operator-run bulk actions rather than in a nav entry
+// of its own. On the settings page it is one row, because an import is an ACT
+// rather than an answer this installation holds: the row states what the act is
+// and carries the verb, and the steps that make up the act — object, file,
+// mapping, dry run, commit, undo — belong to the dialog that verb opens.
 
 export function ImportCard() {
   const t = useT();
@@ -51,19 +53,24 @@ export function ImportCard() {
   const mayAdvance = useCan("import_run", "update");
   const mayImport = mayCreate && mayAdvance;
   const me = useMe();
-  const fileInput = useRef<HTMLInputElement>(null);
   const flow = useImportFlow();
-  const {
-    profile,
-    mapping,
-    run,
-    report,
-    resumed,
-    upload,
-    validate,
-    commit,
-    undo,
-  } = flow;
+  const headingId = useId();
+  const [open, setOpen] = useState(false);
+  // An operator who does not know their last import stopped half-way cannot
+  // finish it. The flow reads a parked run back on mount, and inside a dialog
+  // that run is behind a button nobody knows to press — so the dialog opens
+  // itself when a run resumes.
+  //
+  // Guarded by a ref rather than driven by `resumed` alone, so it happens ONCE:
+  // a reader who has looked at the recovered run and closed the dialog is not
+  // fought by the next render.
+  const openedForResumedRun = useRef(false);
+  useEffect(() => {
+    if (flow.resumed && !openedForResumedRun.current) {
+      openedForResumedRun.current = true;
+      setOpen(true);
+    }
+  }, [flow.resumed]);
 
   // Gated on the grant the STORE demands, not on the admin role: `import_run`
   // is seeded to admin AND ops, so asking for the role would hide the card
@@ -91,6 +98,67 @@ export function ImportCard() {
     return null;
   }
 
+  return (
+    <Panel title={t("import.title")}>
+      <PanelBody>
+        <SettingList>
+          <SettingRow
+            label={t("import.startLabel")}
+            description={t("import.sub")}
+            control={
+              <Button small variant="ghost" onClick={() => setOpen(true)}>
+                {t("import.start")}
+              </Button>
+            }
+          />
+        </SettingList>
+        {/* Wide: the mapping table is four columns of a file nobody chose the
+            width of, and squeezing it costs the fill rates that decide the
+            mapping. It keeps its own horizontal scroll inside the dialog. */}
+        <Modal
+          open={open}
+          onClose={() => setOpen(false)}
+          labelledBy={headingId}
+          size="wide"
+        >
+          <h2 id={headingId} className="t-h2 modal-title">
+            {t("import.title")}
+          </h2>
+          <ImportWizard flow={flow} onClose={() => setOpen(false)} />
+        </Modal>
+      </PanelBody>
+    </Panel>
+  );
+}
+
+// ImportWizard is the act itself, in the order it is performed: what the rows
+// are, which file, where each column goes, what the run WILL do, and only then
+// the commit — with the undo that follows it.
+//
+// It takes the flow rather than owning one: the flow is what recovers a parked
+// run at mount, and a state machine that only existed while a dialog was open
+// would forget an interrupted import the moment the dialog closed.
+function ImportWizard({
+  flow,
+  onClose,
+}: Readonly<{
+  flow: ReturnType<typeof useImportFlow>;
+  onClose: () => void;
+}>) {
+  const t = useT();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const {
+    profile,
+    mapping,
+    run,
+    report,
+    resumed,
+    upload,
+    validate,
+    commit,
+    undo,
+  } = flow;
+
   // The mapping table is on screen while a file is profiled and no report has
   // been produced for it yet — the one window in which the human is choosing
   // destinations.
@@ -107,106 +175,102 @@ export function ImportCard() {
     run?.status === "undone";
 
   return (
-    <Panel title={t("import.title")}>
-      <PanelBody>
-        <p className="t-sub" style={PANEL_SUB}>
-          {t("import.sub")}
-        </p>
-        <div className="import">
-          {/* The control carries its own group label, so it needs no Field
-            around it — a second label would announce the same words twice. */}
-          <SegmentedControl
-            options={["lead", "organization"] as const}
-            value={flow.object}
-            onChange={busy ? () => undefined : flow.chooseObject}
-            label={t("import.objectLabel")}
-            labels={{
-              lead: t("import.object.lead"),
-              organization: t("import.object.organization"),
-            }}
-          />
-          <p className="import__hint">
-            {t(`import.objectHint.${flow.object}`)}
-          </p>
+    <div className="import">
+      {/* The control carries its own group label, so it needs no Field
+          around it — a second label would announce the same words twice. */}
+      <SegmentedControl
+        options={["lead", "organization"] as const}
+        value={flow.object}
+        onChange={busy ? () => undefined : flow.chooseObject}
+        label={t("import.objectLabel")}
+        labels={{
+          lead: t("import.object.lead"),
+          organization: t("import.object.organization"),
+        }}
+      />
+      <p className="import__hint">{t(`import.objectHint.${flow.object}`)}</p>
 
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".csv,text/csv"
-            /* The design system's own visually-hidden class, not a copy of it:
-             the file input stays reachable by label and keyboard while the
-             Button beside it is what a reader actually sees and presses. */
-            className="sr-only"
-            aria-label={t("import.fileLabel")}
-            // Cleared after every pick: a browser fires no change event when the
-            // SAME path is chosen again, and the natural next move after reading
-            // "Line 3 is empty" is to fix that line in that file and choose it
-            // once more. Without this the click does nothing, the old report
-            // stays on screen, and the commit button writes the FIRST upload's
-            // bytes.
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) {
-                upload.mutate(file);
-              }
-            }}
-            // Out of the tab order: it is invisible, so a keyboard user landing
-            // on it has a focus stop they cannot see. The Button beside it is the
-            // keyboard path, and the label keeps the input reachable by name.
-            tabIndex={-1}
-          />
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() => fileInput.current?.click()}
-          >
-            <Upload size={16} aria-hidden />
-            <span>
-              {profile ? t("import.chooseAnother") : t("import.choose")}
-            </span>
-          </Button>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".csv,text/csv"
+        /* The design system's own visually-hidden class, not a copy of it:
+         the file input stays reachable by label and keyboard while the
+         Button beside it is what a reader actually sees and presses. */
+        className="sr-only"
+        aria-label={t("import.fileLabel")}
+        // Cleared after every pick: a browser fires no change event when the
+        // SAME path is chosen again, and the natural next move after reading
+        // "Line 3 is empty" is to fix that line in that file and choose it
+        // once more. Without this the click does nothing, the old report
+        // stays on screen, and the commit button writes the FIRST upload's
+        // bytes.
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) {
+            upload.mutate(file);
+          }
+        }}
+        // Out of the tab order: it is invisible, so a keyboard user landing
+        // on it has a focus stop they cannot see. The Button beside it is the
+        // keyboard path, and the label keeps the input reachable by name.
+        tabIndex={-1}
+      />
+      <Button
+        small
+        variant="ghost"
+        disabled={busy}
+        onClick={() => fileInput.current?.click()}
+      >
+        <Upload size={16} aria-hidden />
+        <span>{profile ? t("import.chooseAnother") : t("import.choose")}</span>
+      </Button>
 
-          {upload.error ? (
-            <Callout tone="danger" live="alert">
-              {problemMessageOf(upload.error, t)}
-            </Callout>
-          ) : null}
+      {upload.error ? (
+        <Callout tone="danger" live="alert">
+          {problemMessageOf(upload.error, t)}
+        </Callout>
+      ) : null}
 
-          {showMapping ? (
-            <ImportMappingStep
-              profile={profile}
-              mapping={mapping}
-              object={flow.object}
-              busy={busy}
-              locked={validate.isPending}
-              pending={validate.isPending}
-              error={validate.error}
-              onChange={flow.setTarget}
-              onValidate={() =>
-                validate.mutate({ object: flow.object, profile, mapping })
-              }
-            />
-          ) : null}
+      {showMapping ? (
+        <ImportMappingStep
+          profile={profile}
+          mapping={mapping}
+          object={flow.object}
+          busy={busy}
+          locked={validate.isPending}
+          pending={validate.isPending}
+          error={validate.error}
+          onChange={flow.setTarget}
+          onValidate={() =>
+            validate.mutate({ object: flow.object, profile, mapping })
+          }
+        />
+      ) : null}
 
-          {report && run ? (
-            <ImportOutcome
-              report={report}
-              run={run}
-              committed={committed}
-              resumed={resumed}
-              busy={busy}
-              onCommit={() => commit.mutate(run)}
-              onUndo={() => undo.mutate(run)}
-              onRestart={flow.restart}
-              error={commit.error}
-              undoError={undo.error}
-              undoBusy={undo.isPending}
-            />
-          ) : null}
-        </div>
-      </PanelBody>
-    </Panel>
+      {report && run ? (
+        <ImportOutcome
+          report={report}
+          run={run}
+          committed={committed}
+          resumed={resumed}
+          busy={busy}
+          onCommit={() => commit.mutate(run)}
+          onUndo={() => undo.mutate(run)}
+          onRestart={flow.restart}
+          error={commit.error}
+          undoError={undo.error}
+          undoBusy={undo.isPending}
+        />
+      ) : null}
+
+      {/* Closing puts the act down; it does not abandon it. The flow outlives
+          the dialog, so a reader who steps away comes back to the same step. */}
+      <Button small onClick={onClose}>
+        {t("common.close")}
+      </Button>
+    </div>
   );
 }
 
@@ -315,13 +379,13 @@ function ImportOutcome({
       ) : null}
 
       {!committed ? (
-        <Button variant="primary" disabled={busy} onClick={onCommit}>
+        <Button small variant="primary" disabled={busy} onClick={onCommit}>
           {busy ? t("import.importing") : commitLabel(t, d.created + d.updated)}
         </Button>
       ) : null}
 
       {resumable ? (
-        <Button variant="primary" disabled={busy} onClick={onCommit}>
+        <Button small variant="primary" disabled={busy} onClick={onCommit}>
           {busy ? t("import.importing") : t("import.resume")}
         </Button>
       ) : null}
@@ -343,7 +407,7 @@ function ImportOutcome({
       />
 
       {committed && !resumable ? (
-        <Button variant="ghost" onClick={onRestart}>
+        <Button small variant="ghost" onClick={onRestart}>
           {t("import.another")}
         </Button>
       ) : null}
@@ -386,7 +450,7 @@ function UndoSection({
       {undone ? <UndoOutcome undo={report.undo} /> : null}
 
       {undoable || undoInterrupted ? (
-        <Button variant="ghost" disabled={busy} onClick={onUndo}>
+        <Button small variant="ghost" disabled={busy} onClick={onUndo}>
           {undoBusy
             ? t("import.undoing")
             : undoInterrupted
@@ -560,6 +624,7 @@ function ImportMappingStep({
         </Callout>
       )}
       <Button
+        small
         variant="primary"
         disabled={busy || !identifiedBy}
         onClick={onValidate}

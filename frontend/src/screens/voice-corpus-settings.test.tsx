@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -138,6 +139,13 @@ function fileInput(): HTMLInputElement {
   return input;
 }
 
+// The paste box lives in the dialog the row's verb opens, so a test whose
+// subject is that box opens it first and scopes its queries to the dialog.
+async function openPaste(): Promise<HTMLElement> {
+  await userEvent.click(screen.getByRole("button", { name: "Paste writing…" }));
+  return screen.getByRole("dialog");
+}
+
 const PROSE: CorpusPreview = {
   total_words: 1000,
   detected_format: "txt",
@@ -248,17 +256,25 @@ describe("handing a file to the Settings voice card", () => {
 
   // Pasting used to skip the preview, so the whole speaker protection could be
   // walked around by pasting a transcript instead of uploading one.
+  //
+  // The paste box is a form behind a verb now, so the claim is unchanged and
+  // the route to it is one click longer: the row opens the dialog, the dialog
+  // holds the box, and the question still has to be asked before anything
+  // reaches the corpus.
   it("asks who is speaking when a transcript is PASTED, not uploaded", async () => {
     const bodies = stubApi(CONVERSATION);
     render(<VoiceCorpusIntake profileId="vp-1" onChanged={() => {}} />);
 
+    const dialog = await openPaste();
     await userEvent.type(
-      screen.getByPlaceholderText(
+      within(dialog).getByPlaceholderText(
         "Paste an email, post, or anything you've written…",
       ),
       "Lars: we ship Friday. Sam: agreed.",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Add sample" }));
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Add sample" }),
+    );
 
     expect(await screen.findByText(/Which speaker are you in/)).toBeTruthy();
     expect(bodies).toHaveLength(0);

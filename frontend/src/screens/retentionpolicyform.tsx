@@ -1,13 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
-import {
-  Button,
-  Card,
-  Checkbox,
-  Field,
-  TextInput,
-} from "../design-system/atoms";
+import { Button, Checkbox, Field, TextInput } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
@@ -23,9 +17,9 @@ import {
   scopeLabelKey,
 } from "./retention.logic";
 
-// The inline authoring form for a new retention policy — the same
-// inline-card-never-a-modal shape PurposeCreateForm and NewDsrForm use on this
-// screen (a modal here is reserved for the destructive delete).
+// The authoring form for a new retention policy: four inputs committed
+// together, so it is the BODY of the dialog the ladder's "Add policy" row opens
+// and brings no surface of its own — a card inside a dialog is a box in a box.
 //
 // The scope select offers the WHOLE authorable enum rather than only the
 // unused scopes. Uniqueness is the database's answer, not this form's: another
@@ -102,114 +96,112 @@ export function RetentionPolicyForm({
         problemMessageOf(create.error, t);
 
   return (
-    <Card as="div" inset className="retention-form">
-      <div className="form-stack">
-        <Field label={t("retention.scope")}>
-          {(control) => (
-            <Select
-              {...control}
-              options={RETENTION_SCOPES.map((value) => ({
-                value,
-                label: t(scopeLabelKey(value)),
-              }))}
-              value={scope}
-              onChange={(value) => {
-                const picked = RETENTION_SCOPES.find(
-                  (candidate) => candidate === value,
-                );
-                if (picked) {
-                  setScope(picked);
-                  dismissError();
-                }
-              }}
-            />
-          )}
-        </Field>
-
-        <Field
-          label={t("retention.window")}
-          hint={
-            days === null && retainDays.trim() !== ""
-              ? t("retention.windowInvalid")
-              : undefined
-          }
-        >
-          {(control) => (
-            <TextInput
-              {...control}
-              inputMode="numeric"
-              value={retainDays}
-              onChange={(event) => {
-                setRetainDays(event.target.value);
+    <div className="form-stack">
+      <Field label={t("retention.scope")}>
+        {(control) => (
+          <Select
+            {...control}
+            options={RETENTION_SCOPES.map((value) => ({
+              value,
+              label: t(scopeLabelKey(value)),
+            }))}
+            value={scope}
+            onChange={(value) => {
+              const picked = RETENTION_SCOPES.find(
+                (candidate) => candidate === value,
+              );
+              if (picked) {
+                setScope(picked);
                 dismissError();
-              }}
-            />
-          )}
-        </Field>
-
-        <Field label={t("retention.action")} hint={t("retention.actionHint")}>
-          {(control) => (
-            <Select
-              {...control}
-              options={RETENTION_ACTIONS.map((value) => ({
-                value,
-                label: t(actionLabelKey(value)),
-              }))}
-              value={action}
-              onChange={(value) => {
-                const picked = RETENTION_ACTIONS.find(
-                  (candidate) => candidate === value,
-                );
-                if (picked) {
-                  setAction(picked);
-                  dismissError();
-                }
-              }}
-            />
-          )}
-        </Field>
-
-        <Field
-          label={t("retention.lawfulBasis")}
-          hint={t("retention.lawfulBasisHint")}
-        >
-          {(control) => (
-            <TextInput
-              {...control}
-              value={lawfulBasis}
-              onChange={(event) => {
-                setLawfulBasis(event.target.value);
-                dismissError();
-              }}
-            />
-          )}
-        </Field>
-
-        <Checkbox
-          className="t-caption"
-          label={t("retention.enabled")}
-          checked={enabled}
-          onChange={(event) => {
-            setEnabled(event.target.checked);
-            dismissError();
-          }}
-        />
-
-        {errorMessage && (
-          <p className="t-caption retention-error" role="alert">
-            {errorMessage}
-          </p>
+              }
+            }}
+          />
         )}
+      </Field>
 
-        <Button
-          small
-          variant="primary"
-          disabled={days === null || create.isPending}
-          onClick={() => days !== null && create.mutate(days)}
-        >
-          {t("retention.create")}
-        </Button>
-      </div>
-    </Card>
+      <Field
+        label={t("retention.window")}
+        hint={
+          days === null && retainDays.trim() !== ""
+            ? t("retention.windowInvalid")
+            : undefined
+        }
+      >
+        {(control) => (
+          <TextInput
+            {...control}
+            inputMode="numeric"
+            value={retainDays}
+            onChange={(event) => {
+              setRetainDays(event.target.value);
+              dismissError();
+            }}
+          />
+        )}
+      </Field>
+
+      <Field label={t("retention.action")} hint={t("retention.actionHint")}>
+        {(control) => (
+          <Select
+            {...control}
+            options={RETENTION_ACTIONS.map((value) => ({
+              value,
+              label: t(actionLabelKey(value)),
+            }))}
+            value={action}
+            onChange={(value) => {
+              const picked = RETENTION_ACTIONS.find(
+                (candidate) => candidate === value,
+              );
+              if (picked) {
+                setAction(picked);
+                dismissError();
+              }
+            }}
+          />
+        )}
+      </Field>
+
+      <Field
+        label={t("retention.lawfulBasis")}
+        hint={t("retention.lawfulBasisHint")}
+      >
+        {(control) => (
+          <TextInput
+            {...control}
+            value={lawfulBasis}
+            onChange={(event) => {
+              setLawfulBasis(event.target.value);
+              dismissError();
+            }}
+          />
+        )}
+      </Field>
+
+      <Checkbox
+        className="t-caption"
+        label={t("retention.enabled")}
+        checked={enabled}
+        onChange={(event) => {
+          setEnabled(event.target.checked);
+          dismissError();
+        }}
+      />
+
+      {errorMessage && (
+        <p className="t-caption retention-error" role="alert">
+          {errorMessage}
+        </p>
+      )}
+
+      <Button
+        small
+        variant="primary"
+        disabled={days === null || create.isPending}
+        onClick={() => days !== null && create.mutate(days)}
+      >
+        {t("retention.create")}
+      </Button>
+    </div>
   );
 }

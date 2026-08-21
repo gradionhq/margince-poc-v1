@@ -3,7 +3,7 @@ import { type ReactNode, useState } from "react";
 import { formatMoney } from "../format/format";
 import { Button } from "./atoms";
 import type { ListChip } from "./listsurface";
-import { ListTable } from "./listtable";
+import { type ListColumn, ListTable } from "./listtable";
 
 // The list surface every record screen renders into: header, controls, rows and
 // footer as one block. The query dials are CONTROLLED and server-backed in the
@@ -97,9 +97,12 @@ const chips: readonly ListChip[] = [
  */
 function Surface({
   rows,
+  columns: shownColumns = columns,
   ...rest
 }: Readonly<{
   rows: Company[];
+  /** Defaults to the six this file reads as the reference set. */
+  columns?: ListColumn<Company>[];
   pending?: boolean;
   problem?: ReactNode;
   hasMore?: boolean;
@@ -128,7 +131,7 @@ function Surface({
   return (
     <ListTable<Company>
       rows={shown}
-      columns={columns}
+      columns={shownColumns}
       rowKey={(row) => row.id}
       unit="companies"
       action={<Button small>New company</Button>}
@@ -270,4 +273,46 @@ function SelectableSurface() {
 
 export const Selectable: Story = {
   render: () => <SelectableSurface />,
+};
+
+// The state the settings tree put this surface in, and the one it read as
+// broken: a 720px reading column, five columns, and the last of them a pair of
+// labelled buttons. Every column sits at the floor its kind declares and the
+// BODY scrolls sideways for the rest — nothing is crushed, nothing is
+// half-drawn, and the page behind it does not move. The box takes a tab stop
+// and announces itself as "products" while it is holding something past its
+// right edge; scroll it back and the tab stop goes away again.
+//
+// The width is set here rather than by a viewport global on purpose: this is
+// not a phone (where the rows become cards), it is a DESKTOP window with a
+// narrow reading column, which is the case no other story in this file draws.
+export const InASettingsColumn: Story = {
+  name: "In a settings column (720px)",
+  render: () => (
+    <div style={{ maxWidth: "720px" }}>
+      <Surface
+        rows={companies(3)}
+        columns={[
+          ...columns,
+          {
+            key: "actions",
+            header: "Actions",
+            // A verbs column: sized by the buttons, in pixels, rather than by
+            // a share of a column this narrow.
+            verbs: true,
+            cell: () => (
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <Button small variant="ghost">
+                  Edit company
+                </Button>
+                <Button small variant="danger">
+                  Archive company
+                </Button>
+              </div>
+            ),
+          },
+        ]}
+      />
+    </div>
+  ),
 };

@@ -4,14 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  type CSSProperties,
-  type ReactNode,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useId, useMemo, useRef, useState } from "react";
 import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { useHoldsAdminRole, useHoldsConsentAdminRole } from "../app/capability";
@@ -22,8 +15,8 @@ import {
   Checkbox,
   EmptyState,
   Field,
+  Modal,
   SegmentedControl,
-  Skeleton,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
@@ -36,6 +29,7 @@ import {
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
 import { Select, type SelectOption } from "../design-system/select";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDate } from "../format/format";
 import { useNow } from "../format/now";
 import { type Locale, useLocale, useT } from "../i18n";
@@ -46,6 +40,7 @@ import {
   ProblemError,
   problemMessageOf,
   QueryGate,
+  QueryStates,
   throwProblem,
   useMe,
 } from "./common";
@@ -62,13 +57,6 @@ import {
 } from "./privacy.logic";
 import "./privacy.css";
 import { isOption } from "../app/options";
-
-// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
-// is the body's first paragraph and owes its own separation from the content
-// under it; it is a token rather than a number so it moves with the scale, and
-// it lives here rather than in a screen sheet because it belongs to the panel
-// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
-const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
 type DataSubjectRequest = components["schemas"]["DataSubjectRequest"];
 type CreateDataSubjectRequest =
@@ -110,11 +98,11 @@ function isIllegalTransition(problem: unknown): boolean {
   );
 }
 
-// G-3: the inline purpose-create form, toggled by "Add purpose" — the
-// share.tsx precedent (create is an inline card, never a modal; only the
-// destructive revoke there uses one). A stale create error must not outlive
-// the edit that could fix it, so every field's onChange clears it first
-// (share.tsx:432's dismissGrantError idiom).
+// G-3: the purpose-create form — three inputs committed together, so it is the
+// BODY of the dialog the registry's "Add purpose" row opens rather than a card
+// unfolding inside the card. A stale create error must not outlive the edit
+// that could fix it, so every field's onChange clears it first (share.tsx:432's
+// dismissGrantError idiom).
 function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -152,59 +140,57 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
   }
 
   return (
-    <Card as="div" inset className="purpose-form">
+    <div className="form-stack">
       <p className="t-caption purpose-form-warning">
         {t("privacy.purposeAppendOnly")}
       </p>
-      <div className="form-stack">
-        <Field label={t("privacy.purposeKey")}>
-          {(control) => (
-            <TextInput
-              {...control}
-              value={key}
-              onChange={(event) => {
-                setKey(event.target.value);
-                dismissCreateError();
-              }}
-            />
-          )}
-        </Field>
-        <Field label={t("privacy.purposeLabel")}>
-          {(control) => (
-            <TextInput
-              {...control}
-              value={label}
-              onChange={(event) => {
-                setLabel(event.target.value);
-                dismissCreateError();
-              }}
-            />
-          )}
-        </Field>
-        <Checkbox
-          className="t-caption"
-          label={t("privacy.purposeDoi")}
-          checked={requiresDoi}
-          onChange={(event) => {
-            setRequiresDoi(event.target.checked);
-            dismissCreateError();
-          }}
-        />
-        {create.isError && (
-          <p className="t-caption purpose-form-error">
-            {problemMessageOf(create.error, t)}
-          </p>
+      <Field label={t("privacy.purposeKey")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={key}
+            onChange={(event) => {
+              setKey(event.target.value);
+              dismissCreateError();
+            }}
+          />
         )}
-        <Button
-          small
-          variant="primary"
-          disabled={!key.trim() || !label.trim() || create.isPending}
-          onClick={() => create.mutate()}
-        >
-          {t("privacy.purposeCreate")}
-        </Button>
-      </div>
-    </Card>
+      </Field>
+      <Field label={t("privacy.purposeLabel")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={label}
+            onChange={(event) => {
+              setLabel(event.target.value);
+              dismissCreateError();
+            }}
+          />
+        )}
+      </Field>
+      <Checkbox
+        className="t-caption"
+        label={t("privacy.purposeDoi")}
+        checked={requiresDoi}
+        onChange={(event) => {
+          setRequiresDoi(event.target.checked);
+          dismissCreateError();
+        }}
+      />
+      {create.isError && (
+        <p className="t-caption purpose-form-error">
+          {problemMessageOf(create.error, t)}
+        </p>
+      )}
+      <Button
+        small
+        variant="primary"
+        disabled={!key.trim() || !label.trim() || create.isPending}
+        onClick={() => create.mutate()}
+      >
+        {t("privacy.purposeCreate")}
+      </Button>
+    </div>
   );
 }
 
@@ -215,6 +201,7 @@ export function ConsentPurposesCard() {
   // the read-only line at an admin on every load.
   const me = useMe();
   const canAdminister = useHoldsConsentAdminRole();
+  const addTitleId = useId();
   const [adding, setAdding] = useState(false);
   const query = useQuery({
     queryKey: ["consent-purposes"],
@@ -230,55 +217,77 @@ export function ConsentPurposesCard() {
   return (
     <Panel
       title={t("settings.purposes")}
-      // Authoring a purpose is an admin/ops act, and the registry is now on a page
-      // every seat opens — so the affordance has to ask. Rendered unconditionally
-      // it offered a form whose submit the server refuses, which is the one thing
-      // a governance surface must not do: promise an authority it does not carry.
+      // The card's one write affordance rides in the header rather than in a
+      // row of its own. A row states a setting and its answer; a create verb is
+      // neither, and a row whose LABEL was the button's own words said "Add
+      // purpose" twice a hand apart. `titleAction` is the slot for exactly this
+      // (panel.tsx), and it keeps the verb above a registry that grows.
+      //
+      // Authoring a purpose is an admin/ops act, and the registry is on a page
+      // every seat opens — so the verb still asks. Rendered unconditionally it
+      // offered a form whose submit the server refuses, which is the one thing
+      // a governance surface must not do: promise an authority it does not
+      // carry. The registry row's own description is where that posture is
+      // stated instead.
       titleAction={
         canAdminister ? (
-          <Button small onClick={() => setAdding((value) => !value)}>
+          <Button small onClick={() => setAdding(true)}>
             {t("privacy.addPurpose")}
           </Button>
         ) : undefined
       }
     >
       <PanelBody>
-        <p className="t-sub" style={PANEL_SUB}>
-          {t("settings.purposesSub")}
-        </p>
-        {/* Dropping the button above without this line leaves a rep looking at a
-            registry that simply has no way to grow, on a page whose other three
-            cards each explain themselves — the reader cannot tell a posture from
-            a control that broke. One sentence for the card's one write
-            affordance, never a disabled button that promises a click. */}
-        {me.isSuccess && !canAdminister && (
-          <p className="t-caption" style={{ marginBottom: "var(--space-2)" }}>
-            {t("privacy.purposesReadOnly")}
-          </p>
-        )}
-        {adding && <PurposeCreateForm onDone={() => setAdding(false)} />}
-        <QueryGate query={query} empty={(page) => page.data.length === 0}>
-          {(page) => (
-            <div
-              style={{
-                display: "flex",
-                gap: "var(--space-2)",
-                flexWrap: "wrap",
-                marginTop: adding ? "var(--space-3)" : 0,
-              }}
-            >
-              {page.data.map((purpose) => (
-                <Badge
-                  key={purpose.id}
-                  tone={purpose.requires_double_opt_in ? "warn" : undefined}
-                >
-                  {purpose.label}
-                  {purpose.requires_double_opt_in ? " · DOI" : ""}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </QueryGate>
+        <p className="settings-panel-sub">{t("settings.purposesSub")}</p>
+        <SettingList>
+          {/* The registry is the card's subject rather than an answer beside a
+              question, so it takes the full width under its naming.
+
+              The read-only posture is this row's DESCRIPTION rather than a
+              paragraph of its own between the card's line and the list: dropping
+              the write affordance without saying so leaves a rep looking at a
+              registry that has no way to grow, and the sentence belongs beside
+              the thing it is a posture about. Never a disabled button that
+              promises a click. */}
+          <SettingRow
+            label={t("privacy.purposesRegistry")}
+            description={
+              me.isSuccess && !canAdminister
+                ? t("privacy.purposesReadOnly")
+                : undefined
+            }
+            layout="stack"
+            control={
+              <QueryGate query={query} empty={(page) => page.data.length === 0}>
+                {(page) => (
+                  <div className="purpose-badges">
+                    {page.data.map((purpose) => (
+                      <Badge
+                        key={purpose.id}
+                        tone={
+                          purpose.requires_double_opt_in ? "warn" : undefined
+                        }
+                      >
+                        {purpose.label}
+                        {purpose.requires_double_opt_in ? " · DOI" : ""}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </QueryGate>
+            }
+          />
+        </SettingList>
+        <Modal
+          open={adding}
+          onClose={() => setAdding(false)}
+          labelledBy={addTitleId}
+        >
+          <h2 id={addTitleId} className="t-h2 modal-title">
+            {t("privacy.addPurpose")}
+          </h2>
+          <PurposeCreateForm onDone={() => setAdding(false)} />
+        </Modal>
       </PanelBody>
     </Panel>
   );
@@ -311,10 +320,10 @@ async function searchPersonCandidates(
   return data.data.map((person) => ({ id: person.id, name: person.full_name }));
 }
 
-// G-2: the inline DSR-open form, toggled by "New request" — the same
-// inline-card precedent as PurposeCreateForm above (create is never a modal;
-// the modal here is reserved for the one destructive action, fulfilling an
-// erasure). kind flips the subject field's very shape: an erasure locks onto
+// G-2: the DSR-open form — kind, subject and deadline committed together, so it
+// is the body of the dialog the queue's "New request" row opens, the same shape
+// PurposeCreateForm takes above. kind flips the subject field's very shape: an
+// erasure locks onto
 // a picked person (RecordPicker, uuid subject_ref) so the create form is
 // physically incapable of producing the free-text-erasure state the server
 // now refuses; access/rectify keep the free-text field the contract's
@@ -375,87 +384,85 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
   }
 
   return (
-    <Card as="div" inset className="dsr-form">
-      <div className="form-stack">
-        <Field label={t("privacy.kind")}>
-          {(control) => (
-            <Select
-              {...control}
-              options={DSR_KINDS.map((value) => ({
-                value,
-                label: humanizeToken(value),
-              }))}
-              value={kind}
-              onChange={(value) => {
-                if (isOption(value, DSR_KINDS)) changeKind(value);
-              }}
-            />
-          )}
-        </Field>
-
-        {kind === "erasure" ? (
-          <div className="field">
-            <span className="t-label">{t("privacy.person")}</span>
-            <RecordPicker
-              label={t("privacy.person")}
-              searchTargets={searchPersonCandidates}
-              selected={person}
-              onPick={(candidate) => {
-                setPerson(candidate);
-                setSubjectRef(candidate.id);
-                dismissCreateError();
-              }}
-            />
-            <p className="t-caption">{t("privacy.erasureNeedsPerson")}</p>
-          </div>
-        ) : (
-          <Field
-            label={t("privacy.subjectRef")}
-            hint={kind === "access" ? t("privacy.accessManual") : undefined}
-          >
-            {(control) => (
-              <TextInput
-                {...control}
-                value={subjectRef}
-                onChange={(event) => {
-                  setSubjectRef(event.target.value);
-                  dismissCreateError();
-                }}
-              />
-            )}
-          </Field>
+    <div className="form-stack">
+      <Field label={t("privacy.kind")}>
+        {(control) => (
+          <Select
+            {...control}
+            options={DSR_KINDS.map((value) => ({
+              value,
+              label: humanizeToken(value),
+            }))}
+            value={kind}
+            onChange={(value) => {
+              if (isOption(value, DSR_KINDS)) changeKind(value);
+            }}
+          />
         )}
+      </Field>
 
-        <Field label={t("privacy.dueAt")}>
+      {kind === "erasure" ? (
+        <div className="field">
+          <span className="t-label">{t("privacy.person")}</span>
+          <RecordPicker
+            label={t("privacy.person")}
+            searchTargets={searchPersonCandidates}
+            selected={person}
+            onPick={(candidate) => {
+              setPerson(candidate);
+              setSubjectRef(candidate.id);
+              dismissCreateError();
+            }}
+          />
+          <p className="t-caption">{t("privacy.erasureNeedsPerson")}</p>
+        </div>
+      ) : (
+        <Field
+          label={t("privacy.subjectRef")}
+          hint={kind === "access" ? t("privacy.accessManual") : undefined}
+        >
           {(control) => (
             <TextInput
               {...control}
-              type="date"
-              value={dueAt}
+              value={subjectRef}
               onChange={(event) => {
-                setDueAt(event.target.value);
+                setSubjectRef(event.target.value);
                 dismissCreateError();
               }}
             />
           )}
         </Field>
+      )}
 
-        {create.isError && (
-          <p className="t-caption dsr-error">
-            {problemMessageOf(create.error, t)}
-          </p>
+      <Field label={t("privacy.dueAt")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="date"
+            value={dueAt}
+            onChange={(event) => {
+              setDueAt(event.target.value);
+              dismissCreateError();
+            }}
+          />
         )}
+      </Field>
 
-        <Button
-          small
-          variant="primary"
-          disabled={!subjectRef.trim() || !dueAt || create.isPending}
-          onClick={() => create.mutate()}
-        >
-          {t("privacy.openRequest")}
-        </Button>
-      </div>
-    </Card>
+      {create.isError && (
+        <p className="t-caption dsr-error">
+          {problemMessageOf(create.error, t)}
+        </p>
+      )}
+
+      <Button
+        small
+        variant="primary"
+        disabled={!subjectRef.trim() || !dueAt || create.isPending}
+        onClick={() => create.mutate()}
+      >
+        {t("privacy.openRequest")}
+      </Button>
+    </div>
   );
 }
 
@@ -618,6 +625,7 @@ function DsrRow({
   return (
     <li className="dsr-row">
       <Button
+        small
         id={toggleId}
         className="dsr-row-toggle"
         onClick={onToggle}
@@ -629,7 +637,7 @@ function DsrRow({
         <Badge tone={STATUS_TONE[dsr.status]}>
           {humanizeToken(dsr.status)}
         </Badge>
-        <span className="t-small">
+        <span className="t-small dsr-due">
           {t("settings.due", { date: formatDate(dsr.due_at, locale, tz) })}
         </span>
         {overdue && <Badge tone="danger">{t("privacy.overdue")}</Badge>}
@@ -898,6 +906,7 @@ export function PrivacyInboxCard() {
   // the facet bar) stays on screen throughout; an officer working a case
   // never loses sight of what else is waiting.
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const createTitleId = useId();
   const [creating, setCreating] = useState(false);
   // Which request is staged for the destructive fulfil, not per-row — same
   // id-in-state shape as share.tsx's revokingId, so ONE modal lives at the
@@ -992,94 +1001,104 @@ export function PrivacyInboxCard() {
         )}
       </QueryGate>
     );
-  } else if (query.isPending) {
-    body = (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-3)",
-        }}
-      >
-        <Skeleton width="60%" />
-        <Skeleton width="90%" />
-      </div>
-    );
-  } else if (query.isError) {
-    body = (
-      <EmptyState>
-        <p>{t("common.error")}</p>
-        <p className="t-mono" style={{ marginTop: "var(--space-2)" }}>
-          {problemMessageOf(query.error, t)}
-        </p>
-        <Button
-          small
-          onClick={() => query.refetch()}
-          style={{ marginTop: "var(--space-3)" }}
-        >
-          {t("common.retry")}
-        </Button>
-      </EmptyState>
-    );
-  } else if (rows.length === 0) {
-    body = <EmptyState>{t("common.empty")}</EmptyState>;
   } else {
+    // The shared spelling of the loading and failure rungs, rather than a third
+    // hand-rolled copy: the placeholder announces itself as busy, and the
+    // failure is an assertive live region carrying the server's own explanation
+    // beside the retry. The hand-rolled pair said neither out loud, and it
+    // measured its own gaps in inline style objects.
     body = (
-      <>
-        <ul className="dsr-list">
-          {rows.map((dsr) => (
-            <DsrRow
-              key={dsr.id}
-              dsr={dsr}
-              expanded={expandedId === dsr.id}
-              onToggle={() =>
-                setExpandedId((current) => (current === dsr.id ? null : dsr.id))
-              }
-              nowMs={nowMs}
-              tz={tz}
-              locale={locale}
-              onFulfilErasure={(dsr, resolution, toggleId) => {
-                stagedRowToggle.current = toggleId;
-                setFulfilling({ dsr, resolution });
-              }}
-            />
-          ))}
-        </ul>
-        <LoadMoreButton query={query} />
-      </>
+      <QueryStates query={query}>
+        {rows.length === 0 ? (
+          <EmptyState>{t("common.empty")}</EmptyState>
+        ) : (
+          <>
+            <ul className="dsr-list">
+              {rows.map((dsr) => (
+                <DsrRow
+                  key={dsr.id}
+                  dsr={dsr}
+                  expanded={expandedId === dsr.id}
+                  onToggle={() =>
+                    setExpandedId((current) =>
+                      current === dsr.id ? null : dsr.id,
+                    )
+                  }
+                  nowMs={nowMs}
+                  tz={tz}
+                  locale={locale}
+                  onFulfilErasure={(dsr, resolution, toggleId) => {
+                    stagedRowToggle.current = toggleId;
+                    setFulfilling({ dsr, resolution });
+                  }}
+                />
+              ))}
+            </ul>
+            <LoadMoreButton query={query} />
+          </>
+        )}
+      </QueryStates>
     );
   }
 
   return (
     <Panel
       title={t("settings.privacy")}
+      // The verb rides in the header, above a queue that is as long as the queue
+      // is: as a row it moved every time a request arrived, and its label was
+      // the button's own words repeated. Opening a request is a kind, a subject
+      // and a statutory deadline committed together, so the header keeps the
+      // verb and the dialog keeps the form.
       titleAction={
-        <Button small onClick={() => setCreating((value) => !value)}>
+        <Button small onClick={() => setCreating(true)}>
           {t("privacy.newRequest")}
         </Button>
       }
     >
       <PanelBody>
-        <p className="t-sub" style={PANEL_SUB}>
-          {t("settings.privacySub")}
-        </p>
+        <p className="settings-panel-sub">{t("settings.privacySub")}</p>
         {/* One card's throw stays inside one card: this body renders a queue
             of subject requests straight off the wire, and without a boundary
             a single malformed row costs the reader the whole tab and the rail
             they would have left by. */}
         <CardBoundary>
-          {creating && <NewDsrForm onDone={() => setCreating(false)} />}
-          {/* .filter-tabs puts the gap below the tabs so it holds for every body
-              state (rows, empty, loading), not just a populated list. */}
-          <div className="filter-tabs">
-            <SegmentedControl
-              options={DSR_STATUS_FACETS}
-              value={facet}
-              onChange={setFacet}
-              labels={facetLabels}
+          <SettingList>
+            {/* The queue IS the subject, so it takes the full width — with its
+                own facet bar, because filtering belongs to the list it filters
+                and not to a row of its own. It stays a queue that expands in
+                place: an officer working one case keeps every sibling row and
+                the facet bar in sight, which a dialog would take away. */}
+            <SettingRow
+              label={t("privacy.queue")}
+              layout="stack"
+              control={
+                <div className="dsr-queue">
+                  {/* .filter-tabs puts the gap below the tabs so it holds for
+                      every body state (rows, empty, loading), not just a
+                      populated list. */}
+                  <div className="filter-tabs">
+                    <SegmentedControl
+                      options={DSR_STATUS_FACETS}
+                      value={facet}
+                      onChange={setFacet}
+                      labels={facetLabels}
+                    />
+                  </div>
+                  {body}
+                </div>
+              }
             />
-          </div>
-          {body}
+          </SettingList>
+          <Modal
+            open={creating}
+            onClose={() => setCreating(false)}
+            labelledBy={createTitleId}
+          >
+            <h2 id={createTitleId} className="t-h2 modal-title">
+              {t("privacy.newRequest")}
+            </h2>
+            <NewDsrForm onDone={() => setCreating(false)} />
+          </Modal>
           <FulfilErasureModal
             dsr={fulfilling?.dsr ?? null}
             resolution={fulfilling?.resolution ?? ""}

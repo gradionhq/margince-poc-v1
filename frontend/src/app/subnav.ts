@@ -18,9 +18,21 @@ import { isScreen, type Route, routeHash } from "./router";
 // shell stays ignorant of grants and this module stays free of any screen.
 
 export type NavLevelEntry = {
-  // The route segment this entry addresses at its own depth: `#/settings/privacy`
-  // is the `privacy` entry of the section the `settings` screen publishes.
+  // The route segment this entry addresses at its own depth: `#/settings/admin/privacy`
+  // is the `privacy` entry of the section the `settings` screen publishes, one
+  // segment deeper than the personal entries — see `prefix` below.
   id: string;
+  // Route segments between the level's own path and this entry's `id`. Absent
+  // for every entry that sits directly under its level, which is most of them.
+  //
+  // It exists because one level can address two depths: the settings level
+  // lists the personal entries at `#/settings/voice` and the admin ones at
+  // `#/settings/admin/privacy`, under one heading pair in one panel. The
+  // alternative was a second nav LEVEL for the admin group, which would make a
+  // reader drill through a row to reach a list the panel can already show, and
+  // the `id` stays the entry's identity either way — so `activeId` matching is
+  // unaffected by how deep the entry lives.
+  prefix?: readonly string[];
   labelKey: MessageKey;
   icon: LucideIcon;
   // The level this entry opens. Grouping is possible at every depth, so the
@@ -93,6 +105,28 @@ export function navLevelHref(path: readonly string[], id: string): string {
   return routeHash(navLevelRoute(path, id));
 }
 
+/**
+ * Where one ENTRY of a level lives — its `prefix` included.
+ *
+ * Every row a reader can press goes through this rather than through
+ * `navLevelHref` with a bare id: an entry that sits deeper than its level would
+ * otherwise be linked to the level's own depth, and the link would land on
+ * whatever answers that shorter address.
+ */
+export function navEntryRoute(
+  path: readonly string[],
+  entry: NavLevelEntry,
+): Route {
+  return navLevelRoute([...path, ...(entry.prefix ?? [])], entry.id);
+}
+
+export function navEntryHref(
+  path: readonly string[],
+  entry: NavLevelEntry,
+): string {
+  return routeHash(navEntryRoute(path, entry));
+}
+
 function activeEntry(level: NavTrailLevel): NavLevelEntry | undefined {
   for (const group of level.groups) {
     const found = group.items.find((item) => item.id === level.activeId);
@@ -127,7 +161,14 @@ export function navTrail(
   const trail: NavTrailLevel[] = [
     { ...top, activeId, ancestor: route.id !== undefined },
   ];
-  if (!section || section.screen !== route.screen) {
+  // Compared against the ROW the route makes current, not the route's raw
+  // screen. They are the same string for every destination the product owns, and
+  // they differ for exactly one case: a composed unit routes as
+  // `{screen: "ext"}` and is reached from Settings, which is what `activeRowFor`
+  // has always answered for it. On the raw screen the level was dropped, so
+  // following "Open" from a settings card replaced the whole sidebar while the
+  // URL and the trail still said Settings.
+  if (!section || section.screen !== activeId) {
     return trail;
   }
   // The segments below the screen, in order: each selects an entry of the level
@@ -137,7 +178,11 @@ export function navTrail(
     titleKey: section.titleKey,
     groups: section.groups,
     activeId: section.activeId ?? route.id,
-    path: [route.screen],
+    // The SECTION's screen, which every row in it points under. Identical to the
+    // route's for a route of that screen, and the only correct one for a unit
+    // route standing in this level: rows built from `ext` would link to
+    // addresses that resolve to nothing.
+    path: [section.screen],
   };
   trail.push(level);
   for (let depth = 1; depth < segments.length; depth += 1) {

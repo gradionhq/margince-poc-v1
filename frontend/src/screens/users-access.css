@@ -1,0 +1,28 @@
+/* The teams card and the access preview. Layout only (ds-purity): every control
+ * comes from the design system and the row language comes from settingrow.css,
+ * so what is left is the one block neither of them draws.
+ *
+ * Its own sheet rather than a block in users-admin.css: the screen that draws
+ * these classes is the one that has to import them, or the surface is styled by
+ * accident in the app and not at all in an isolated render. */
+
+/* What a seat will see, said by the server, inside the invite dialog. Both
+ * classes below were already NAMED by the markup and defined by nothing — so
+ * the preview rendered as a browser-default <ul>: disc bullets and a 40px
+ * indent, in a dialog built entirely out of these files. The list is a set of
+ * sentences about one role, not an enumeration a reader counts, so it takes the
+ * dialog's own rhythm and no marker. */
+.users-access-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.users-access-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}

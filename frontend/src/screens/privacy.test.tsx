@@ -225,9 +225,17 @@ describe("ConsentPurposesCard", () => {
       "GET /me": () => jsonResponse(meFixture({ roles: ["rep"] })),
     });
     render(<ConsentPurposesCard />);
-    expect(
-      await screen.findByText(/only an admin or ops can add a purpose/i),
-    ).toBeInTheDocument();
+    const posture = await screen.findByText(
+      /only an admin or ops can add a purpose/i,
+    );
+    // On the registry ROW rather than as a paragraph of its own between the
+    // card's description and the list: the posture is about the registry, and a
+    // row's description is where the row language puts a sentence about a row.
+    const registry = screen
+      .getByText(/registered purposes/i)
+      .closest(".settingrow");
+    expect(registry).not.toBeNull();
+    expect(registry?.contains(posture)).toBe(true);
     expect(
       screen.queryByRole("button", { name: /add purpose/i }),
     ).not.toBeInTheDocument();

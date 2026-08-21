@@ -15,12 +15,13 @@ import { LocaleProvider } from "../i18n";
 import { InstallationSettingsCard } from "./installation-settings";
 
 // Settings → Installation: the organization's name, reporting zone and base
-// currency. Every role reads them; only installation_settings:update changes
-// them, so the fields disable (never hide) for everyone else.
+// currency. Every role READS them as three rows showing what is set; only
+// installation_settings:update opens the dialog that changes them, so the verb
+// is refused with a reason (never hidden) for everyone else.
 //
 // The case worth proving beyond that is the base currency's lock: once deals
 // have converted against it the server reports it frozen WITH a reason, and
-// the field must go read-only showing that reason — otherwise an operator
+// both the row and the field must carry that reason — otherwise an operator
 // types a value they cannot save and learns why only from a 422.
 
 function jsonResponse(body: unknown, status = 200) {
@@ -96,42 +97,76 @@ function render(node: ReactNode) {
   );
 }
 
+/**
+ * Opens the profile dialog from one row's own Edit verb, and answers with the
+ * dialog.
+ *
+ * Through the row rather than by rendering the dialog directly: the verb IS the
+ * only way in, and a test that reached past it would prove nothing about
+ * whether a reader can.
+ */
+async function openFrom(
+  user: ReturnType<typeof userEvent.setup>,
+  fact: RegExp,
+): Promise<HTMLElement> {
+  const edit = await screen.findByRole("button", { name: fact });
+  await user.click(edit);
+  return screen.getByRole("dialog");
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
 describe("InstallationSettingsCard", () => {
-  it("shows the installation's values to a role that cannot change them, disabled", async () => {
+  it("shows the installation's values to a role that cannot change them, and refuses the change with a reason", async () => {
     const { fetchMock } = backendFor({});
     vi.stubGlobal("fetch", fetchMock);
 
     render(<InstallationSettingsCard />);
 
-    const name = (await screen.findByLabelText(
-      /organization name/i,
-    )) as HTMLInputElement;
-    expect(name.value).toBe("Brandt Automotive");
-    // Disabled, not hidden: a rep reading amounts benefits from knowing the
-    // currency, and hiding it would buy nothing the server does not enforce.
-    expect(name.disabled).toBe(true);
-    const currency = (await screen.findByLabelText(
-      /base currency/i,
-    )) as HTMLInputElement;
-    expect(currency.disabled).toBe(true);
-    expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
+    // Read by every role: a rep reading amounts benefits from knowing which
+    // currency they are in, and hiding the facts would buy nothing the server
+    // does not already enforce.
+    expect(await screen.findByText("Brandt Automotive")).toBeTruthy();
+    expect(screen.getByText("Europe/Berlin")).toBeTruthy();
+    expect(screen.getByText("EUR")).toBeTruthy();
+
+    // The VERB is what a permission denies, and it says why through
+    // aria-describedby — so the sentence reaches a reader who lands on the
+    // refused control, not only one who happens past the paragraph.
+    const reason = screen.getByText(
+      "Only an admin or ops can change these settings.",
+    );
+    expect(reason.id).not.toBe("");
+    for (const fact of [
+      /edit organization name/i,
+      /edit reporting timezone/i,
+      /edit base currency/i,
+    ]) {
+      const edit = screen.getByRole("button", { name: fact });
+      expect((edit as HTMLButtonElement).disabled).toBe(true);
+      expect(edit.getAttribute("aria-describedby") ?? "").toContain(reason.id);
+    }
+
+    // No form to submit: it lives behind a verb nobody here may press.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
   });
 
   it("sends only the fields that changed", async () => {
+    const user = userEvent.setup();
     const { fetchMock, patch } = backendFor(SETTINGS_EDITOR);
     vi.stubGlobal("fetch", fetchMock);
 
     render(<InstallationSettingsCard />);
 
-    const name = await screen.findByLabelText(/organization name/i);
-    await userEvent.clear(name);
-    await userEvent.type(name, "Brandt Group");
-    await userEvent.click(screen.getByRole("button", { name: /save/i }));
+    const dialog = await openFrom(user, /edit organization name/i);
+    const name = within(dialog).getByLabelText(/organization name/i);
+    await user.clear(name);
+    await user.type(name, "Brandt Group");
+    await user.click(within(dialog).getByRole("button", { name: /^save$/i }));
 
     // The currency and zone were never touched, so they must not appear in the
     // patch: re-sending an unchanged base currency would ask the server to
@@ -139,7 +174,26 @@ describe("InstallationSettingsCard", () => {
     await waitFor(() => expect(patch()).toEqual({ name: "Brandt Group" }));
   });
 
+  // The row's Edit is beside a fact, so it has to land on that fact. Three
+  // verbs opening one dialog that always focuses its first field would make
+  // two of the three lie about what they lead to.
+  it("focuses the field whose row was edited", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = backendFor(SETTINGS_EDITOR);
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<InstallationSettingsCard />);
+
+    const dialog = await openFrom(user, /edit reporting timezone/i);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(dialog).getByLabelText(/reporting timezone/i),
+      ),
+    );
+  });
+
   it("renders the base currency read-only with the server's reason once it is locked", async () => {
+    const user = userEvent.setup();
     const reason =
       "3 deal(s) have already frozen a conversion rate against it, so changing the base would re-mean every roll-up built on them";
     const { fetchMock } = backendFor(SETTINGS_EDITOR, {
@@ -150,34 +204,32 @@ describe("InstallationSettingsCard", () => {
 
     render(<InstallationSettingsCard />);
 
-    const currency = (await screen.findByLabelText(
-      /base currency/i,
-    )) as HTMLInputElement;
-    expect(currency.disabled).toBe(true);
     // The server's own sentence, not a generic "locked" — it names how much
-    // history is at stake, which is what tells the operator why.
+    // history is at stake, which is what tells the operator why. On the ROW, so
+    // it is read before the dialog is opened over a field nobody can type in.
     expect(await screen.findByText(reason)).not.toBeNull();
+
+    const dialog = await openFrom(user, /edit base currency/i);
+    const currency = within(dialog).getByLabelText(
+      /base currency/i,
+    ) as HTMLInputElement;
+    expect(currency.disabled).toBe(true);
+    // The same sentence inside the dialog, where the refused field is.
+    expect(within(dialog).getByText(reason)).not.toBeNull();
     // The editor can still change everything else.
-    const name = (await screen.findByLabelText(
+    const name = within(dialog).getByLabelText(
       /organization name/i,
-    )) as HTMLInputElement;
+    ) as HTMLInputElement;
     expect(name.disabled).toBe(false);
   });
 
-  // Two subjects, ONE surface, one save. What the organization is called and
-  // when its periods start is one subject; the currency every amount is
-  // re-expressed in is another, with a lock rule of its own that needs the room
-  // to say so — so the second gets its own heading INSIDE the panel rather than
-  // a card of its own. One submit covers both, because the server takes ONE
-  // sparse PATCH: a save per card would promise two independent writes that do
-  // not exist.
-  //
-  // The save lives with the fields it commits, which is the shape being pinned
-  // here. Split across two cards, the only place it could sit without claiming
-  // to save one of them was after BOTH — so an operator editing the base
-  // currency had to scroll past a card boundary to reach the control that
-  // writes it, and the two cards each looked like a form with no way to submit.
-  it("puts both subjects and their one save on a single surface", async () => {
+  // Three facts, ONE record, one save. The server takes ONE sparse PATCH, so
+  // the three fields are submitted together: a save per row would promise three
+  // independent writes that do not exist. The card is therefore three ANSWERS
+  // and one verb, and the form lives in the dialog that verb opens — which is
+  // what keeps every row scannable and the commit next to the fields it writes.
+  it("reads as three rows on the card and edits as one form with one save", async () => {
+    const user = userEvent.setup();
     const { fetchMock, patch } = backendFor(SETTINGS_EDITOR);
     vi.stubGlobal("fetch", fetchMock);
 
@@ -192,29 +244,37 @@ describe("InstallationSettingsCard", () => {
     if (!panel) {
       throw new Error("the Installation heading is not inside a card");
     }
-    expect(within(panel).getByLabelText(/organization name/i)).toBeTruthy();
-    expect(within(panel).getByLabelText(/reporting timezone/i)).toBeTruthy();
-    expect(within(panel).getByLabelText(/base currency/i)).toBeTruthy();
+    // No input on the card itself: a row is an answer, and the three of them
+    // line up in one column for a reader auditing the installation.
+    expect(panel.querySelectorAll("input")).toHaveLength(0);
+    for (const value of ["Brandt Automotive", "Europe/Berlin", "EUR"]) {
+      expect(within(panel).getByText(value)).toBeTruthy();
+    }
+
+    const dialog = await openFrom(user, /edit organization name/i);
+    expect(within(dialog).getByLabelText(/organization name/i)).toBeTruthy();
+    expect(within(dialog).getByLabelText(/reporting timezone/i)).toBeTruthy();
+    expect(within(dialog).getByLabelText(/base currency/i)).toBeTruthy();
 
     // The currency keeps a heading of its own, one level down: the lock rule is
     // its own subject and an unheaded field in a list of fields does not say so.
-    const currency = within(panel).getByRole("heading", {
+    const currency = within(dialog).getByRole("heading", {
       name: /^currency$/i,
     });
     expect(currency.tagName).toBe("H3");
 
     // One button, and it is on the surface that holds the fields.
-    const saves = screen.getAllByRole("button", { name: /save/i });
+    const saves = screen.getAllByRole("button", { name: /^save$/i });
     expect(saves).toHaveLength(1);
-    expect(panel.contains(saves[0])).toBe(true);
+    expect(dialog.contains(saves[0])).toBe(true);
 
-    const name = within(panel).getByLabelText(/organization name/i);
-    await userEvent.clear(name);
-    await userEvent.type(name, "Brandt Group");
-    const zone = within(panel).getByLabelText(/reporting timezone/i);
-    await userEvent.clear(zone);
-    await userEvent.type(zone, "Europe/Vilnius");
-    await userEvent.click(saves[0]);
+    const name = within(dialog).getByLabelText(/organization name/i);
+    await user.clear(name);
+    await user.type(name, "Brandt Group");
+    const zone = within(dialog).getByLabelText(/reporting timezone/i);
+    await user.clear(zone);
+    await user.type(zone, "Europe/Vilnius");
+    await user.click(saves[0]);
 
     await waitFor(() =>
       expect(patch()).toEqual({
@@ -222,6 +282,10 @@ describe("InstallationSettingsCard", () => {
         timezone: "Europe/Vilnius",
       }),
     );
+    // The write landing closes the form and puts the new answers on the rows,
+    // which is the only visible confirmation a sparse patch can give.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText("Brandt Group")).toBeTruthy();
   });
 
   // An editable field must LOOK editable. `.input` is what carries the border,
@@ -231,17 +295,19 @@ describe("InstallationSettingsCard", () => {
   // class is the observable proof the control came from the design system
   // rather than being hand-rolled again.
   it("renders every field as a design-system input", async () => {
+    const user = userEvent.setup();
     const { fetchMock } = backendFor(SETTINGS_EDITOR);
     vi.stubGlobal("fetch", fetchMock);
 
     render(<InstallationSettingsCard />);
 
+    const dialog = await openFrom(user, /edit organization name/i);
     for (const label of [
       /organization name/i,
       /reporting timezone/i,
       /base currency/i,
     ]) {
-      const control = await screen.findByLabelText(label);
+      const control = within(dialog).getByLabelText(label);
       expect(control.className.split(/\s+/)).toContain("input");
     }
   });
@@ -264,10 +330,11 @@ describe("InstallationSettingsCard", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InstallationSettingsCard />);
 
-    const zone = await screen.findByLabelText(/reporting timezone/i);
+    const dialog = await openFrom(user, /edit reporting timezone/i);
+    const zone = within(dialog).getByLabelText(/reporting timezone/i);
     await user.clear(zone);
     await user.type(zone, "Europe/Berlim");
-    await user.click(screen.getByRole("button", { name: /Save/i }));
+    await user.click(within(dialog).getByRole("button", { name: /^save$/i }));
 
     const refusal = await screen.findByText("Not an IANA time zone.");
     // ON the field: named by the control, so a screen reader hears the refusal
@@ -276,6 +343,9 @@ describe("InstallationSettingsCard", () => {
     expect(zone.getAttribute("aria-invalid")).toBe("true");
     expect(refusal.id).not.toBe("");
     expect(zone.getAttribute("aria-describedby") ?? "").toContain(refusal.id);
+    // A refused save leaves the form open with what was typed still in it —
+    // dismissing it on a refusal would discard the edit AND the reason for it.
+    expect(screen.getByRole("dialog")).toBeTruthy();
   });
 
   it("says a refusal once — on the field, or in the summary, never both", async () => {
@@ -288,9 +358,10 @@ describe("InstallationSettingsCard", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InstallationSettingsCard />);
 
-    const name = await screen.findByLabelText(/organization name/i);
+    const dialog = await openFrom(user, /edit organization name/i);
+    const name = within(dialog).getByLabelText(/organization name/i);
     await user.type(name, " GmbH");
-    await user.click(screen.getByRole("button", { name: /Save/i }));
+    await user.click(within(dialog).getByRole("button", { name: /^save$/i }));
 
     const refusal = await screen.findByText("That name is too long.");
     // One occurrence, and it is the FIELD's. A refusal drawn on the input AND

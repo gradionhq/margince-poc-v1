@@ -79,7 +79,7 @@ const RECAP_ROWS = 5;
 const MARK_FADE = 0.16;
 
 /** Where the whole trace lives, and where a model gets bound. Same tab. */
-const AI_SETTINGS_HREF = "#/settings/ai";
+const AI_SETTINGS_HREF = "#/settings/admin/ai";
 
 /** What the installation can actually tell us, and what it cannot. */
 type Signals = Readonly<{

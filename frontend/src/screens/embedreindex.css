@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ * SPDX-FileCopyrightText: 2026 Gradion */
+
+/* Settings → Maintenance → Embedding reindex. The card's own intervals come
+ * from `SettingList` / `SettingRow` / `PanelBody`; what is left here is the
+ * status line inside one row's answer, and the estimate inside the confirm
+ * dialog, which is not a settings row at all. */
+
+/* The status line: a badge with a sentence beside it. `SettingRow`'s control
+ * column already gives this the gap and the optical centring, so the only thing
+ * left to state is the WRAP — at a narrow width the column stretches to the full
+ * card and a badge plus a whole sentence no longer fits on one line, and without
+ * this the two run off the right edge instead of folding. */
+.embedreindex-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* The estimate a reindex is consented against, inside the confirm dialog. Its
+ * lines are bare paragraphs under the preflight reset, so without a rhythm here
+ * the entity count, the token estimate, the cost and the quality caveat ran
+ * together as one block and the utilization heading had to state a margin for
+ * itself. One interval on the column, at the step a dense reading wants. */
+.embedreindex-estimate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}

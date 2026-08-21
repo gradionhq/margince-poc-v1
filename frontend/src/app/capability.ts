@@ -158,6 +158,33 @@ export function useHoldsAdminRole(): boolean {
 }
 
 /**
+ * Whether the principal holds an OPERATOR seat — `admin` or `ops`.
+ *
+ * This is the Admin settings section's gate. The section is installation
+ * posture: what the organization is, who is on it, what it captures, what it
+ * keeps, what it spends. A rep or a manager configures none of that, and the
+ * entries inside it are the only place the product offers it — so the section
+ * is absent for them rather than a page of withheld cards, which is the one
+ * shape that says nothing false about the installation (design-system/README.md:
+ * a surface that reports no fact cannot be misread as reporting zero).
+ *
+ * `ops` is inside the gate rather than outside it because an ops seat is an
+ * operator of this installation and the server agrees: the embedding reindex,
+ * the license read and the consent registry all answer it. Narrowing to `admin`
+ * alone would hide surfaces the server serves an ops principal, which is the
+ * client disagreeing with the authority.
+ *
+ * The entries INSIDE the section keep their own read predicates, so an ops
+ * principal still finds the two admin-only surfaces (job health, the danger
+ * zone) withheld by the cards themselves. This predicate decides whether the
+ * section exists for a reader, never what they may do inside it.
+ */
+export function useHoldsOperatorSeat(): boolean {
+  const roles = useMe().data?.roles ?? [];
+  return roles.includes("admin") || roles.includes("ops");
+}
+
+/**
  * Whether the principal may administer consent configuration — `admin` or
  * `ops`.
  *
@@ -173,6 +200,11 @@ export function useHoldsAdminRole(): boolean {
  * `useCan("consent_config", "read")` and disappears.
  */
 export function useHoldsConsentAdminRole(): boolean {
-  const roles = useMe().data?.roles ?? [];
-  return roles.includes("admin") || roles.includes("ops");
+  // The same seat set as `useHoldsOperatorSeat`, read through it rather than
+  // spelled a second time: two copies of one expression drift, and this is the
+  // one that is meant to disappear. The NAMES stay apart because the
+  // authorities do — when `consent_config` lands in the RbacObject vocabulary
+  // this becomes `useCan("consent_config", "read")` and the section gate above
+  // is untouched.
+  return useHoldsOperatorSeat();
 }

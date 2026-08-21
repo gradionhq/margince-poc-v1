@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { CaptureActivityTab } from "./capture-activity";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -161,4 +162,19 @@ export const WithPayloadCaptureDark: Story = {
     ],
   }),
   globals: { theme: "dark" },
+};
+
+// A counter used as a filter. The count line then states BOTH numbers, at the
+// head of the log's own row: the strip counts the whole window and the filter
+// narrows what has been loaded, so "1" under a counter reading 6 has to say
+// which of the two it is.
+export const Filtered: Story = {
+  render: story(WINDOW),
+  play: async ({ canvasElement }) => {
+    await userEvent.setup().click(
+      await within(canvasElement).findByRole("button", {
+        name: /dropped as internal/i,
+      }),
+    );
+  },
 };

@@ -368,7 +368,7 @@ describe("Rail levels (a section's entries as the second level)", () => {
   });
 
   // The level names itself at heading level 2, so its group labels move down to
-  // 3 — the outline reads Settings → You / Organization, and the rail's
+  // 3 — the outline reads Settings → You / Admin settings, and the rail's
   // own destinations keep level 2 for their groups on every other route.
   it("names the level at heading level 2 and its groups at 3", () => {
     render(
@@ -382,7 +382,7 @@ describe("Rail levels (a section's entries as the second level)", () => {
     ).toEqual(["Settings"]);
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
-    ).toEqual(["You", "Organization"]);
+    ).toEqual(["You", "Admin settings"]);
   });
 
   // A section belongs to ONE screen. Without this the fixture's entries would

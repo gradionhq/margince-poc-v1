@@ -40,24 +40,21 @@
   overflow-wrap: anywhere;
 }
 
-/* What the unit brings, and who may use it: two named blocks inside the unit
-   card, so a reader can tell the inventory from the grants at a glance. The
-   block owns the interval above its heading, so SectionHeader's own page-flow
-   top margin is reset — the two together read as a heading floating between
-   the block it leaves and the one it names. */
-.ext-block {
-  margin-top: var(--space-4);
-}
-
-.ext-block > .section-header {
-  margin: 0 0 var(--space-2);
-}
-
-/* The seat ceiling and the two matrix notices sit under the thing they are
-   about, on the same interval as the blocks around them. */
-.ext-readonly,
+/* The two matrix notices sit under the grid they are about. */
 .ext-matrix-note {
   margin-top: var(--space-2);
+}
+
+/* A sentence standing in the row list instead of in a row: the seat ceiling
+   above the matrices, and the line that says a unit registered nothing to
+   grant. `.settinglist` rules BETWEEN its children but only a `.settingrow`
+   pays for its own vertical rhythm, so a plain child owes its own. Both are
+   the list's FIRST child wherever they appear — a unit with no objects has no
+   seat ceiling to state — so a margin here can never push a hairline off the
+   row above it. */
+.settinglist > .ext-readonly,
+.settinglist > .ext-note {
+  margin: var(--space-3) 0;
 }
 
 /* The sentence that stands in for the page link when this build of the SPA has
@@ -133,15 +130,14 @@
   color: var(--textContent);
 }
 
-/* One inset panel per registered object, stacked. The panel supplies the
-   separation the matrices used to lack; the gap keeps two of them apart. */
-.ext-objects {
+/* One registered object's grid and whatever it has to say about itself, in the
+   control column of a stacked row. A COLUMN, because `.settingrow-control` is
+   a flex row: the matrix and the two notices under it would otherwise sit
+   shoulder to shoulder. The separation between one object and the next is the
+   `SettingList` hairline now, which is why there is no panel edge here. */
+.ext-object {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-}
-
-.ext-object {
   min-width: 0;
 }
 
@@ -149,20 +145,9 @@
    inside its own box rather than pushing the page sideways (the §3.8 no
    horizontal page scroll rule). The region holds the checkboxes themselves, so
    it is reachable by keyboard without a tabindex of its own. */
-.ext-matrix-wrap {
-  overflow-x: auto;
-}
-
 .ext-matrix {
   border-collapse: collapse;
   width: 100%;
-}
-
-.ext-matrix-caption {
-  text-align: left;
-  color: var(--textSecondary);
-  padding-bottom: var(--space-1);
-  overflow-wrap: anywhere;
 }
 
 /* A table's rules are drawn under each cell and inset by the cell's own padding

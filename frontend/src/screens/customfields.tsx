@@ -25,6 +25,7 @@ import {
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { ToastRegion, useToast } from "../design-system/toast";
 import { AutonomyDot } from "../design-system/trust";
@@ -77,11 +78,16 @@ export function FieldBuilder({
   object,
   pending,
   onSubmit,
+  onCancel,
   onToast,
 }: Readonly<{
   object: CfObject;
   pending: boolean;
   onSubmit: (draft: NewFieldDraft) => void;
+  // Leaving the form without adding a field. The builder lives in a dialog, so
+  // its secondary verb is what closes that dialog rather than what empties the
+  // inputs: a form that is discarded on close has nothing to reset to.
+  onCancel: () => void;
   onToast: (msg: string) => void;
 }>) {
   const t = useT();
@@ -250,19 +256,22 @@ export function FieldBuilder({
         </code>
       </Callout>
 
+      {/* Cancel first, then the verb that writes — the order every dialog in
+          this tree uses, so the destructive-looking half is never where the
+          reader's hand expects the safe one. Reset went with the disclosure
+          this form used to live in: closing the dialog discards the draft, so
+          a control that empties the inputs in place has nothing left to do. */}
       <div className="cf-actions">
-        <Button variant="primary" disabled={!canConfirm} onClick={confirm}>
-          {t("cf.confirm")}
+        <Button small variant="ghost" onClick={onCancel}>
+          {t("deals.cancel")}
         </Button>
         <Button
-          onClick={() => {
-            setLabel("");
-            setType("text");
-            setCurrency("EUR");
-            setOptions([""]);
-          }}
+          small
+          variant="primary"
+          disabled={!canConfirm}
+          onClick={confirm}
         >
-          {t("cf.reset")}
+          {t("cf.confirm")}
         </Button>
       </div>
     </div>
@@ -417,19 +426,17 @@ export function FieldTable({
           <span className="cf-cell-staged">{t("cf.writing")}</span>
         ) : (
           <div className="cf-rowactions">
-            <Button
-              small
-              aria-label={t("cf.edit")}
-              onClick={() => onRename(field)}
-            >
+            {/* Two ghost verbs. Archiving a field hides it from new records and
+                keeps every value already captured — the toast says so, and the
+                act is reversible — so `danger` overstated it: three solid red
+                buttons per table were the loudest thing on the tab, which is
+                the shout a reader learns to ignore. An `aria-label` repeating
+                the button's own words is not a name either; the text is the
+                name. */}
+            <Button small onClick={() => onRename(field)}>
               {t("cf.edit")}
             </Button>
-            <Button
-              small
-              variant="danger"
-              aria-label={t("cf.archive")}
-              onClick={() => onArchive(field)}
-            >
+            <Button small onClick={() => onArchive(field)}>
               {t("cf.archive")}
             </Button>
           </div>
@@ -438,7 +445,12 @@ export function FieldTable({
   }
 
   return (
-    <DataTable columns={columns} rows={fields} rowKey={(field) => field.id} />
+    <DataTable
+      label={t("cf.listLabel", { object: objectLabels(t)[object] })}
+      columns={columns}
+      rows={fields}
+      rowKey={(field) => field.id}
+    />
   );
 }
 
@@ -601,10 +613,12 @@ export function CustomFieldsAdmin() {
   const toast = useToast();
   const [renaming, setRenaming] = useState<CustomField | null>(null);
   const [renameLabel, setRenameLabel] = useState("");
-  // Remounting the builder to its default state after a successful create so a
-  // second Confirm can't resubmit the same, now-committed, draft (m6).
-  const [builderKey, setBuilderKey] = useState(0);
+  // The builder is mounted only while its dialog is open, which is what stops a
+  // second Confirm resubmitting the same, now-committed, draft (m6): a
+  // successful create closes the dialog and the form's state goes with it.
+  const [adding, setAdding] = useState(false);
   const renameId = useId();
+  const addId = useId();
 
   const list = useQuery({
     queryKey: ["custom-fields", object],
@@ -678,9 +692,10 @@ export function CustomFieldsAdmin() {
       });
       queryClient.invalidateQueries({ queryKey: ["cf-audit"] });
       toast.show(t("cf.added", { label: draft.label }));
-      // Remount the builder so its label/type/options clear — a committed draft
-      // can't be resubmitted (m6).
-      setBuilderKey((key) => key + 1);
+      // The dialog goes, and the toast is what reports the outcome on the card
+      // behind it — a reader who has just added a column has no second one to
+      // type into, and unmounting the form is what clears the committed draft.
+      setAdding(false);
     },
   });
 
@@ -737,52 +752,96 @@ export function CustomFieldsAdmin() {
   const objectName = t(`cf.obj.${object}`);
 
   return (
-    <Panel className="cf-screen" title={t("cf.title")}>
-      <PanelBody className="cf-scope">
-        <p className="cf-hint">{t("cf.subtitle")}</p>
-        {/* The object bar WAS a fieldset of aria-pressed buttons in a pill
-            chrome of its own — SegmentedControl by hand, down to the ARIA, with
-            different radius, weight and padding. The count that used to ride
-            the active pill is gone with it: it only ever described the object
-            already selected, whose whole list is immediately below. */}
-        <SegmentedControl
-          label={t("cf.object")}
-          options={CF_OBJECTS}
-          value={object}
-          onChange={setObject}
-          labels={objectLabels(t)}
-        />
-      </PanelBody>
-
-      {/* The field table is read per object, so the object bar above is a tab
-          strip: the table that lands is a fresh element and arrives. */}
-      <PanelBody className="arrive-stack">
-        <QueryGate query={list}>
-          {(page) => (
-            <FieldTable
-              object={object}
-              fields={page.data}
-              canEdit={canEdit}
+    <Panel
+      className="cf-screen"
+      title={t("cf.title")}
+      // The create verb is the card's, so it stands in the header band. As a
+      // trailing row its label ("Add a field to Deal") said the same thing as
+      // the button beside it, which is one act named twice on one line; the
+      // object it applies to is chosen in the row below and named again by the
+      // dialog. Absent without the create grant, as the row was: a
+      // surface that is only an action makes no claim about the data by not
+      // being there.
+      titleAction={
+        canCreate && (
+          <Button small onClick={() => setAdding(true)}>
+            {t("cf.builder.open")}
+          </Button>
+        )
+      }
+    >
+      {/* No `form-stack` on the body: the description already pays for its own
+          interval to the rows (`.settings-panel-sub`), and a stack's gap on top
+          of that margin — margins do not collapse in a flex container — put 28px
+          under a line every other settings card sets 16px below. The posture
+          line below the rows takes its interval from `.cf-posture`. */}
+      <PanelBody>
+        <p className="settings-panel-sub">{t("cf.subtitle")}</p>
+        <SettingList>
+          {/* Which object the rows below belong to. One closed set of four, all
+              visible at once, so it answers its own row from the right column —
+              the same shape every other single-choice setting on this page
+              takes. The count that used to ride the active pill is gone: it
+              only ever described the object already selected, whose whole list
+              is immediately below. */}
+          <SettingRow
+            label={t("cf.object")}
+            control={
+              <SegmentedControl
+                label={t("cf.object")}
+                options={CF_OBJECTS}
+                value={object}
+                onChange={setObject}
+                labels={objectLabels(t)}
+              />
+            }
+          />
+          {/* The fields are the SUBJECT of this card rather than an answer to a
+              question beside them, so they take the row's full width. The table
+              is read per object, so the row above is a tab strip: the table
+              that lands is a fresh element and arrives. */}
+          <SettingRow
+            label={t("cf.listLabel", { object: objectName })}
+            layout="stack"
+            control={
+              <div className="arrive-stack">
+                <QueryGate query={list}>
+                  {(page) => (
+                    <FieldTable
+                      object={object}
+                      fields={page.data}
+                      canEdit={canEdit}
+                      meUserId={meUserId}
+                      onRename={startRename}
+                      onArchive={(field) => archive.mutate(field)}
+                    />
+                  )}
+                </QueryGate>
+              </div>
+            }
+          />
+          {/* Withheld, not absent: the trail keeps its place for every reader,
+              because a section that simply were not there would read as "nobody
+              has changed a field" — a claim about the data in place of one about
+              who may read it. Closed by default because it is a secondary read;
+              the state inside it is settled before it is ever opened. */}
+          <Disclosure summary={t("cf.audit.title")}>
+            <AuditRail
+              entries={audit.data?.data ?? []}
+              state={auditState(
+                isAdmin,
+                audit.isPending,
+                audit.isError,
+                audit.data?.data.length ?? 0,
+              )}
               meUserId={meUserId}
-              onRename={startRename}
-              onArchive={(field) => archive.mutate(field)}
+              onRetry={() => void audit.refetch()}
             />
-          )}
-        </QueryGate>
-      </PanelBody>
-
-      <PanelBody className="cf-aside">
-        {canCreate ? (
-          <Disclosure summary={t("cf.builder.addTo", { object: objectName })}>
-            <FieldBuilder
-              key={`${object}-${builderKey}`}
-              object={object}
-              pending={create.isPending}
-              onSubmit={(draft) => create.mutate(draft)}
-              onToast={toast.show}
-            />
+            {/* True for every reader: the recording happens whether or not this
+                one may read it back. */}
+            <p className="t-caption">{t("cf.audit.footer")}</p>
           </Disclosure>
-        ) : null}
+        </SettingList>
         {/* The posture speaks for BOTH grants, so it is bound to both. The
             server splits them — create.go admits `custom_field:create`, the
             lifecycle handlers admit `update` — and a principal holding update
@@ -792,31 +851,39 @@ export function CustomFieldsAdmin() {
         {!canCreate && !canEdit && (
           <p className="cf-posture">{t("cf.noPermission")}</p>
         )}
-
-        {/* Withheld, not absent: the trail keeps its place for every reader,
-            because a section that simply were not there would read as "nobody
-            has changed a field" — a claim about the data in place of one about
-            who may read it. Closed by default because it is a secondary read;
-            the state inside it is settled before it is ever opened. */}
-        <Disclosure summary={t("cf.audit.title")}>
-          <AuditRail
-            entries={audit.data?.data ?? []}
-            state={auditState(
-              isAdmin,
-              audit.isPending,
-              audit.isError,
-              audit.data?.data.length ?? 0,
-            )}
-            meUserId={meUserId}
-            onRetry={() => void audit.refetch()}
-          />
-          {/* True for every reader: the recording happens whether or not this
-              one may read it back. */}
-          <p className="t-caption">{t("cf.audit.footer")}</p>
-        </Disclosure>
       </PanelBody>
 
       <ToastRegion toast={toast} />
+
+      {/* Mounted only while it is open, so a half-typed label is gone the next
+          time the dialog opens rather than waiting there under an object
+          nobody re-chose.
+
+          `wide` is the variant's stated case: the builder carries the pending
+          DDL, and a 440px dialog wraps
+          `ALTER organization ADD COLUMN cf_contract_end_date (date)` into an
+          unreadable stack — the one line a reader is meant to check before
+          confirming a live schema change. It also keeps the label and the API
+          key derived from it side by side. */}
+      {adding && (
+        <Modal
+          open
+          size="wide"
+          onClose={() => setAdding(false)}
+          labelledBy={addId}
+        >
+          <h2 id={addId} className="t-h2 modal-title">
+            {t("cf.builder.addTo", { object: objectName })}
+          </h2>
+          <FieldBuilder
+            object={object}
+            pending={create.isPending}
+            onSubmit={(draft) => create.mutate(draft)}
+            onCancel={() => setAdding(false)}
+            onToast={toast.show}
+          />
+        </Modal>
+      )}
 
       <Modal
         open={renaming !== null}
@@ -828,13 +895,10 @@ export function CustomFieldsAdmin() {
             it is the flex row that carries a card section's title, subtitle and
             actions, and a dialog title is none of those — inside the modal it
             only contributed a page-flow top margin that pushed the title off
-            the modal's own padding. --space-3 is the 12px ConfirmModal sets by
-            hand. */}
-        <h2
-          id={renameId}
-          className="t-h2"
-          style={{ marginBottom: "var(--space-3)" }}
-        >
+            the modal's own padding. `.modal-title` is the catalog's own name for
+            the interval under a dialog title, so the twelve pixels are declared
+            once for every dialog rather than typed in here. */}
+        <h2 id={renameId} className="t-h2 modal-title">
           {t("cf.edit")}
         </h2>
         <Field label={t("cf.renamePrompt")}>
@@ -847,7 +911,11 @@ export function CustomFieldsAdmin() {
           )}
         </Field>
         <div className="cf-actions">
+          <Button small variant="ghost" onClick={() => setRenaming(null)}>
+            {t("deals.cancel")}
+          </Button>
           <Button
+            small
             variant="primary"
             disabled={rename.isPending || renameLabel.trim().length === 0}
             onClick={() => {
@@ -858,7 +926,6 @@ export function CustomFieldsAdmin() {
           >
             {t("trust.save")}
           </Button>
-          <Button onClick={() => setRenaming(null)}>{t("deals.cancel")}</Button>
         </div>
       </Modal>
     </Panel>

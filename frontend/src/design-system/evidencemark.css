@@ -15,6 +15,11 @@
   padding: 0;
   font: inherit;
   color: inherit;
+  /* The mark is a BUTTON, and a button centres its own text — so a marked value
+   * long enough to wrap centred itself while the plain value beside it followed
+   * the column it was in. `font: inherit` above already says this control is
+   * meant to read as the text it sits in; alignment is the rest of that claim. */
+  text-align: inherit;
   cursor: help;
   text-decoration: underline dotted var(--borderStrong);
   text-underline-offset: 3px;

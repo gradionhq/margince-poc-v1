@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -207,6 +208,14 @@ const SETTLE_MS = 10_000;
 // than one of these waiters alone.
 const TEST_MS = SETTLE_MS * 4;
 
+// The same arithmetic for a test that renders the seeded card, opens the editor
+// and then waits for focus to land in it: three sequential waiters — `renderAs`
+// brings its own — so three budgets. Stated rather than left on vitest's
+// default, which is smaller than one of them; the guard in
+// `scripts/test-budget.test.ts` is what catches that, and what it asks for is a
+// ceiling that covers the waiters, not waiters trimmed to fit a ceiling.
+const DIALOG_MS = SETTLE_MS * 3;
+
 // The fixture's two selectable changes — the `new` and `machine_change` rows.
 // The human_conflict row is decided by radio and the unchanged row offers
 // nothing, so neither carries a checkbox.
@@ -221,20 +230,14 @@ async function renderReview() {
       <CompanyContextCard />
     </Providers>,
   );
+  // The refresh verb only exists on a card the seeded form renders, and the
+  // website it sends is that same form's — so the button's arrival IS the
+  // seeding, and there is no second wait to race it. That was not true while
+  // the website sat in an input beside the button: the button landed with the
+  // profile and the input filled a tick later.
   const refresh = await screen.findByRole(
     "button",
     { name: "Refresh from website" },
-    { timeout: SETTLE_MS },
-  );
-  // The same wait `clickRefresh` below makes, and for the same reason: the
-  // button appears as soon as the profile lands, while the website the start
-  // sends comes from the form state seeded beside it. Clicking on the button's
-  // arrival alone races that seeding.
-  await waitFor(
-    () =>
-      expect(
-        screen.getByLabelText<HTMLInputElement>("Public company website").value,
-      ).toBe(COMPANY.website),
     { timeout: SETTLE_MS },
   );
   fireEvent.click(refresh);
@@ -311,6 +314,10 @@ describe("CompanyContextCard write posture", () => {
     "Read-only view — changing the company profile needs an organization write.";
   const SAVE = "Save company context";
   const REFRESH = "Refresh from website";
+  // The row verb, named by the fact it changes rather than by the word "Edit":
+  // seventeen rows offer seventeen of these buttons, and a suite that asked for
+  // "Edit" would be asking which one.
+  const EDIT_OFFER = "Edit What do you sell?";
 
   async function renderAs(principal: Me) {
     vi.stubGlobal("fetch", backend(principal));
@@ -321,26 +328,24 @@ describe("CompanyContextCard write posture", () => {
     );
     // The profile itself, waited on rather than assumed: every assertion below
     // is about what a LOADED card offers, and a card still fetching offers
-    // nothing either way.
-    await waitFor(
-      () =>
-        expect(
-          screen.getByLabelText<HTMLInputElement>("Public company website")
-            .value,
-        ).toBe(COMPANY.website),
-      { timeout: SETTLE_MS },
-    );
+    // nothing either way. The website is the second card's own answer for where
+    // the profile is read from, and that card exists only once the form is
+    // seeded — so its arrival is the profile's arrival.
+    await screen.findByText(COMPANY.website ?? "", undefined, {
+      timeout: SETTLE_MS,
+    });
   }
 
   it("withholds both writes from a seat that holds none, and says so", async () => {
     await renderAs(ME_READER);
 
-    // The read is granted, so the data is there to read.
-    expect(screen.getByDisplayValue(COMPANY.offer_summary ?? "")).toBeTruthy();
+    // The read is granted, so the data is there to read — as the row's own
+    // answer now rather than as the contents of an input.
+    expect(screen.getByText(COMPANY.offer_summary ?? "")).toBeTruthy();
     // Stated once, at the surface, rather than annotated onto each absent
     // control.
     expect(screen.getByText(READ_ONLY)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: SAVE })).toBeNull();
+    expect(screen.queryByRole("button", { name: EDIT_OFFER })).toBeNull();
     expect(screen.queryByRole("button", { name: REFRESH })).toBeNull();
   });
 
@@ -349,11 +354,48 @@ describe("CompanyContextCard write posture", () => {
 
     // Without this arm the test above would pass on a card that renders no
     // buttons for anybody.
-    expect(screen.getByRole("button", { name: SAVE })).toBeTruthy();
+    expect(screen.getByRole("button", { name: EDIT_OFFER })).toBeTruthy();
     expect(screen.getByRole("button", { name: REFRESH })).toBeTruthy();
     // A reader who may write is told nothing about a posture they do not have.
     expect(screen.queryByText(READ_ONLY)).toBeNull();
   });
+
+  // One PUT writes this profile, so there is one form and one Save — and both
+  // are behind a row's verb rather than standing on the card. A row states an
+  // ANSWER; what commits seventeen fields belongs with the seventeen fields.
+  it(
+    "keeps the save inside the form the row verb opens",
+    async () => {
+      await renderAs(ME_EDITOR);
+
+      expect(screen.queryByRole("button", { name: SAVE })).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: EDIT_OFFER }));
+      const dialog = await screen.findByRole("dialog", undefined, {
+        timeout: SETTLE_MS,
+      });
+
+      expect(within(dialog).getByRole("button", { name: SAVE })).toBeTruthy();
+      // The whole profile is in there, not just the row that was pressed: a form
+      // holding three of seventeen fields would be committing the other fourteen
+      // out of sight.
+      expect(
+        within(dialog).getByLabelText<HTMLInputElement>(
+          "Registered legal name",
+        ),
+      ).toBeTruthy();
+      // Focus lands on the fact whose verb was pressed, so a keyboard reader who
+      // asked to change one field is not dropped at the top of a long form.
+      await waitFor(
+        () =>
+          expect(document.activeElement).toBe(
+            within(dialog).getByLabelText("What do you sell?"),
+          ),
+        { timeout: SETTLE_MS },
+      );
+    },
+    DIALOG_MS,
+  );
 });
 
 // Two failures reach the same paragraph and only one of them was written for
@@ -397,17 +439,6 @@ describe("CompanyContextCard refresh failures", () => {
     const refresh = await screen.findByRole(
       "button",
       { name: "Refresh from website" },
-      { timeout: SETTLE_MS },
-    );
-    // The button appears as soon as the profile lands, but the start it fires
-    // reads the website out of the form state — so the click waits for the
-    // control that holds it rather than for the button alone.
-    await waitFor(
-      () =>
-        expect(
-          screen.getByLabelText<HTMLInputElement>("Public company website")
-            .value,
-        ).toBe(COMPANY.website),
       { timeout: SETTLE_MS },
     );
     await userEvent.click(refresh);

@@ -138,6 +138,17 @@ function requestsTo(calls: Request[], suffix: string, method: string) {
   );
 }
 
+// Adding a connection is the card's create verb, so it lives in the panel
+// header and its provider picks live in the dialog it opens — a strip of four
+// buttons in a row's right column was the shape it replaced. Every claim about
+// a pick therefore opens the dialog first and scopes its queries to it.
+async function openAddDialog() {
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Connect an account" }),
+  );
+  return screen.getByRole("dialog", { name: "Add a connection" });
+}
+
 beforeEach(() => {
   vi.stubGlobal("scrollTo", vi.fn());
 });
@@ -157,22 +168,79 @@ describe("the connected-inboxes card", () => {
     expect(screen.getByText(/Last synced/)).toBeTruthy();
   });
 
-  it("shows an empty state with a connect CTA when nothing is connected", async () => {
-    stubApi([]);
+  // Mail capture and the workspace's messaging bot are two subjects, so they
+  // are two panels. The Telegram half used to be a level-3 heading buried under
+  // the mail roster, which put a workspace-wide bot inside a per-user card.
+  it("draws mail capture and the Telegram bot as two separate panels", async () => {
+    stubApi([gmailConnected]);
     render(<ConnectorsCard />);
-    expect(await screen.findByText(/No inbox is connected yet/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Gmail" })).toBeTruthy();
+    const inboxes = await screen.findByRole("heading", {
+      name: "Connected inboxes",
+    });
+    const telegram = screen.getByRole("heading", { name: "Telegram bot" });
+    // Two panel headings means two panels: neither heading may sit inside the
+    // other's section, which is what a nested SectionHeader did.
+    expect(inboxes.closest(".panel")).not.toBe(telegram.closest(".panel"));
   });
 
-  it("opens the inline IMAP form from the empty state instead of bouncing to onboarding", async () => {
+  // The history import belongs to the mailbox it imports for. Mounted as a
+  // sibling of that row rather than inside a Disclosure: <details> renders its
+  // children while closed, and BackfillPanel fires a scope-preview POST from an
+  // effect, so a collapsed one would spend requests nobody asked for.
+  it("attaches the history import to the connected mailbox's own row", async () => {
+    stubApi([gmailConnected]);
+    render(<ConnectorsCard />);
+    const row = await screen.findByTestId("connector-gmail");
+    const backfill = document.querySelector(".connector-backfill");
+    expect(backfill).not.toBeNull();
+    expect(row.nextElementSibling).toBe(backfill);
+  });
+
+  // An empty roster is the ANSWER to the question this card asks, so it is a
+  // row of the card's own list rather than a bare paragraph floating between
+  // the description and whatever came next.
+  it("states an empty roster as a row of the list, with the connect verb in the header", async () => {
     stubApi([]);
     render(<ConnectorsCard />);
-    await userEvent.click(
-      await screen.findByRole("button", { name: "IMAP mailbox" }),
-    );
+    const row = await screen.findByTestId("connector-roster-empty");
+    expect(within(row).getByText(/No inbox is connected yet/)).toBeTruthy();
+    expect(row.closest(".settinglist")).not.toBeNull();
     expect(
-      screen.getByRole("dialog", { name: "Connect an IMAP mailbox" }),
+      screen.getByRole("button", { name: "Connect an account" }),
     ).toBeTruthy();
+  });
+
+  it("offers every provider from the dialog when nothing is connected", async () => {
+    stubApi([]);
+    render(<ConnectorsCard />);
+    const dialog = await openAddDialog();
+    for (const provider of [
+      "Gmail",
+      "Google Calendar",
+      "Microsoft",
+      "IMAP mailbox",
+    ]) {
+      expect(
+        within(dialog).getByRole("button", { name: `Connect ${provider}` }),
+      ).toBeTruthy();
+    }
+  });
+
+  it("opens the inline IMAP form from the dialog instead of bouncing to onboarding", async () => {
+    stubApi([]);
+    render(<ConnectorsCard />);
+    const dialog = await openAddDialog();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Connect IMAP mailbox" }),
+    );
+    // The chooser gives way rather than stacking behind the form: two overlays
+    // deep, Escape and the focus restore both answer to the wrong layer.
+    expect(
+      await screen.findByRole("dialog", { name: "Connect an IMAP mailbox" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("dialog", { name: "Add a connection" }),
+    ).toBeNull();
   });
 
   it("offers reconnect only for a connection that needs re-auth", async () => {
@@ -284,7 +352,7 @@ describe("the connected-inboxes card", () => {
     expect(alert.textContent).toMatch(/connect failed/);
     const row = screen
       .getByRole("button", { name: /Reconnect/ })
-      .closest(".panel-row");
+      .closest(".settingrow");
     expect(row).not.toBeNull();
     expect(row?.contains(alert)).toBe(true);
   });
@@ -471,7 +539,7 @@ describe("the OAuth return outcome", () => {
       "GET /connectors": () => jsonResponse({ data: [] }),
     });
     render(<ConnectorsCard />);
-    await screen.findByText(/No inbox is connected yet/);
+    await screen.findByTestId("connector-roster-empty");
     expect(screen.queryByRole("status")).toBeNull();
   });
 
@@ -487,30 +555,27 @@ describe("the OAuth return outcome", () => {
   });
 });
 
-// The always-present "Add a connection" affordance (Task 1): the empty
-// state and the roster footer share the same not-yet-connected provider
-// buttons, an OAuth pick connects+redirects, IMAP opens the inline form, and
-// a 501 from a specific provider's connect renders an honest named note.
+// The "Add a connection" affordance (Task 1): one verb in the card's header
+// opens a dialog listing the providers still addable, each with the sentence
+// its choice needs. An OAuth pick connects+redirects, IMAP hands over to the
+// inline form, and a 501 from a specific provider's connect renders an honest
+// named note — in the dialog the press happened in.
 describe("add a connection", () => {
   it("offers only not-yet-connected providers when one is connected", async () => {
     stubApi([gmailConnected]);
     render(<ConnectorsCard />);
-    await screen.findByText("Add a connection");
-    // The block is scoped by the panel section its heading leads: the seam
-    // between two sections is the panel's own adjacency rule now, so the block
-    // no longer carries a screen class of its own to name it by.
-    const add = screen.getByText("Add a connection").closest(".panel-body");
-    expect(add).not.toBeNull();
-    const panel = add as HTMLElement;
-    expect(within(panel).queryByRole("button", { name: "Gmail" })).toBeNull();
+    const dialog = await openAddDialog();
     expect(
-      within(panel).getByRole("button", { name: "Google Calendar" }),
+      within(dialog).queryByRole("button", { name: "Connect Gmail" }),
+    ).toBeNull();
+    expect(
+      within(dialog).getByRole("button", { name: "Connect Google Calendar" }),
     ).toBeTruthy();
     expect(
-      within(panel).getByRole("button", { name: "Microsoft" }),
+      within(dialog).getByRole("button", { name: "Connect Microsoft" }),
     ).toBeTruthy();
     expect(
-      within(panel).getByRole("button", { name: "IMAP mailbox" }),
+      within(dialog).getByRole("button", { name: "Connect IMAP mailbox" }),
     ).toBeTruthy();
   });
 
@@ -521,9 +586,9 @@ describe("add a connection", () => {
       connect: { authorize_url: "https://accounts.google/cal" },
     });
     render(<ConnectorsCard />);
-    await screen.findByText("Add a connection");
+    const dialog = await openAddDialog();
     await userEvent.click(
-      screen.getByRole("button", { name: "Google Calendar" }),
+      within(dialog).getByRole("button", { name: "Connect Google Calendar" }),
     );
     await waitFor(() =>
       expect(assign).toHaveBeenCalledWith("https://accounts.google/cal"),
@@ -533,32 +598,51 @@ describe("add a connection", () => {
   it("shows an honest note when a provider is not configured (501)", async () => {
     stubApi([gmailConnected], { connect: { status: 501 } });
     render(<ConnectorsCard />);
-    await screen.findByText("Add a connection");
-    await userEvent.click(screen.getByRole("button", { name: "Microsoft" }));
+    const dialog = await openAddDialog();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Connect Microsoft" }),
+    );
     expect(
-      await screen.findByText("Microsoft isn't configured in this deployment."),
+      await within(dialog).findByText(
+        "Microsoft isn't configured in this deployment.",
+      ),
     ).toBeTruthy();
   });
 
-  it("reports a refused connect directly under the buttons that produced it", async () => {
+  it("reports a refused connect inside the dialog whose button produced it", async () => {
     stubApi([gmailConnected], { connect: { status: 502 } });
     render(<ConnectorsCard />);
-    await screen.findByText("Add a connection");
-    await userEvent.click(screen.getByRole("button", { name: "Microsoft" }));
+    const dialog = await openAddDialog();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Connect Microsoft" }),
+    );
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toMatch(/connect failed/);
-    // Inside the same block as the picks, and immediately after the strip of
-    // them — not in a section of its own between the roster and an unrelated
-    // heading, where nothing says which press it answers.
-    const block = screen.getByText("Add a connection").closest(".panel-body");
-    expect(block?.contains(alert)).toBe(true);
-    expect(alert.previousElementSibling?.className).toContain(
-      "connector-add-actions",
-    );
+    // In the dialog the press happened in — not in a band of its own on the
+    // card behind it, where nothing says which press it answers.
+    expect(dialog.contains(alert)).toBe(true);
   });
 
-  it("hides the footer when all four providers are connected", async () => {
+  // Four provider names decide nothing: Gmail and Google Calendar are two
+  // halves of one account, only Gmail can ever send, and IMAP is the answer for
+  // every host with no OAuth. Each pick carries the sentence that says so, and
+  // it lands in that button's own aria-describedby.
+  it("gives every pick the sentence its choice needs", async () => {
+    stubApi([]);
+    render(<ConnectorsCard />);
+    await openAddDialog();
+    const gcal = await screen.findByTestId("connector-add-gcal");
+    expect(within(gcal).getByText(/separately from Gmail/i)).toBeTruthy();
+    const imap = screen.getByTestId("connector-add-imap");
+    expect(within(imap).getByText(/app password/i)).toBeTruthy();
+    const describedBy = within(imap)
+      .getByRole("button", { name: "Connect IMAP mailbox" })
+      .getAttribute("aria-describedby");
+    expect(describedBy).not.toBeNull();
+  });
+
+  it("withdraws the header verb when all four providers are connected", async () => {
     stubApi([
       gmailConnected,
       { ...gmailConnected, id: "c2", provider: "gcal" },
@@ -567,7 +651,9 @@ describe("add a connection", () => {
     ]);
     render(<ConnectorsCard />);
     await screen.findByText("Google Calendar"); // a roster row label
-    expect(screen.queryByText("Add a connection")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Connect an account" }),
+    ).toBeNull();
   });
 });
 
@@ -596,7 +682,10 @@ describe("the Telegram connector panel", () => {
     stubApi([], { channels: [salesBot, supportBot] });
     render(<ConnectorsCard />);
 
-    const rows = await screen.findAllByRole("listitem");
+    // One SettingRow per bot: the roster is a list of decisions now, so a bot
+    // is identified by its own row rather than by an <li> the list wrapper
+    // used to supply.
+    const rows = await screen.findAllByTestId("telegram-connection");
     expect(rows.length).toBe(2);
     expect(within(rows[0]).getByText("@acme_sales_bot")).toBeTruthy();
     expect(within(rows[1]).getByText("@acme_support_bot")).toBeTruthy();
@@ -613,7 +702,7 @@ describe("the Telegram connector panel", () => {
     stubApi([], { channels: [salesBot, supportBot] });
     render(<ConnectorsCard />);
 
-    const rows = await screen.findAllByRole("listitem");
+    const rows = await screen.findAllByTestId("telegram-connection");
     await userEvent.click(
       within(rows[1]).getByRole("button", { name: "Replace token" }),
     );

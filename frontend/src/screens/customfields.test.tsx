@@ -1,7 +1,13 @@
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
@@ -37,17 +43,19 @@ function builder(
   overrides: Partial<React.ComponentProps<typeof FieldBuilder>> = {},
 ) {
   const onSubmit = vi.fn();
+  const onCancel = vi.fn();
   const onToast = vi.fn();
   wrap(
     <FieldBuilder
       object="organization"
       pending={false}
       onSubmit={onSubmit}
+      onCancel={onCancel}
       onToast={onToast}
       {...overrides}
     />,
   );
-  return { onSubmit, onToast };
+  return { onSubmit, onCancel, onToast };
 }
 
 describe("FieldBuilder", () => {
@@ -126,6 +134,14 @@ describe("FieldBuilder", () => {
         type: "date",
       }),
     );
+  });
+
+  it("leaves through Cancel without submitting a draft", async () => {
+    const { onCancel, onSubmit } = builder();
+    await userEvent.type(screen.getByLabelText(/Label/i), "Renewal date");
+    await userEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
+    expect(onCancel).toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("keeps Confirm disabled for a picklist whose only option is blank", async () => {
@@ -319,6 +335,17 @@ const renderAdmin = () => {
 };
 
 describe("CustomFieldsAdmin", () => {
+  // The builder is a dialog behind a row verb now, so anything whose subject is
+  // one of its inputs opens it first. The row's verb and the dialog's submit are
+  // deliberately different strings — "Add a field" against "Confirm & add
+  // field" — so neither query can pick up the other.
+  const openBuilder = async () => {
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Add a field" }),
+    );
+    return within(screen.getByRole("dialog"));
+  };
+
   // The settings page that hosts this owns the .wrap reading column and the h1,
   // so the surface must contribute neither: a nested .wrap double-pads the page
   // and a second h1 gives the document two page titles.
@@ -389,15 +416,11 @@ describe("CustomFieldsAdmin", () => {
     const calls: Recorded[] = [];
     vi.stubGlobal("fetch", customFieldsBackend([], [], calls));
     renderAdmin();
-    await waitFor(() =>
-      expect(
-        screen.getByRole("button", { name: /Confirm & add field/i }),
-      ).toBeInTheDocument(),
-    );
-    await userEvent.type(screen.getByLabelText(/^Label/i), "Deal size");
-    await userEvent.click(screen.getByRole("button", { name: /^Number$/i }));
+    const dialog = await openBuilder();
+    await userEvent.type(dialog.getByLabelText(/^Label/i), "Deal size");
+    await userEvent.click(dialog.getByRole("button", { name: /^Number$/i }));
     await userEvent.click(
-      screen.getByRole("button", { name: /Confirm & add field/i }),
+      dialog.getByRole("button", { name: /Confirm & add field/i }),
     );
     await waitFor(() =>
       expect(calls.some((call) => call.method === "POST")).toBe(true),
@@ -412,6 +435,11 @@ describe("CustomFieldsAdmin", () => {
     await waitFor(() =>
       expect(screen.getByText(/Deal size" added/)).toBeInTheDocument(),
     );
+    // The dialog is what carried the form, so a committed draft has nothing
+    // left to type into: it closes, and the toast reports the outcome on the
+    // card behind it. This is also what stops a second Confirm resubmitting a
+    // field that already exists.
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("gives a non-managing role the read-only view with no builder or archive", async () => {
@@ -428,6 +456,7 @@ describe("CustomFieldsAdmin", () => {
     await waitFor(() =>
       expect(screen.getByText("Renewal date")).toBeInTheDocument(),
     );
+    expect(screen.queryByRole("button", { name: "Add a field" })).toBeNull();
     expect(
       screen.queryByRole("button", { name: /Confirm & add field/i }),
     ).toBeNull();
@@ -457,10 +486,11 @@ describe("CustomFieldsAdmin", () => {
     expect(screen.getAllByRole("button", { name: /Edit label/i }).length).toBe(
       1,
     );
-    // The builder's own summary, spelled as the catalog spells it — the older
-    // assertion looked for "Add field to Deal", a string this screen has never
-    // rendered, so it passed whether or not the builder was there.
+    // The row that opens the builder, spelled as the catalog spells it — the
+    // older assertion looked for "Add field to Deal", a string this screen has
+    // never rendered, so it passed whether or not the builder was reachable.
     expect(screen.queryByText("Add a field to Deal")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a field" })).toBeNull();
   });
 
   it("offers the builder on create alone, without rename or retire", async () => {
@@ -477,11 +507,12 @@ describe("CustomFieldsAdmin", () => {
     await waitFor(() => expect(screen.getByText("Renewal date")).toBeTruthy());
     // Positive as well as negative: without this a broken create binding would
     // pass, since "no archive control" is also true when nothing renders. The
-    // builder is a Disclosure now, so what proves it is there is its summary
-    // plus the control inside it.
-    expect(screen.getByText("Add a field to Deal")).toBeTruthy();
+    // builder is behind the card's HEADER verb, so what proves it is reachable
+    // is that verb plus the form it opens.
+    expect(screen.getByRole("button", { name: "Add a field" })).toBeTruthy();
+    const dialog = await openBuilder();
     expect(
-      screen.getByRole("button", { name: /Confirm & add field/i }),
+      dialog.getByRole("button", { name: /Confirm & add field/i }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Archive field/i })).toBeNull();
   });
@@ -502,10 +533,11 @@ describe("CustomFieldsAdmin", () => {
     await waitFor(() =>
       expect(screen.getByText("Existing field")).toBeInTheDocument(),
     );
-    await userEvent.type(screen.getByLabelText(/^Label/i), "Doomed field");
-    await userEvent.click(screen.getByRole("button", { name: /^Number$/i }));
+    const dialog = await openBuilder();
+    await userEvent.type(dialog.getByLabelText(/^Label/i), "Doomed field");
+    await userEvent.click(dialog.getByRole("button", { name: /^Number$/i }));
     await userEvent.click(
-      screen.getByRole("button", { name: /Confirm & add field/i }),
+      dialog.getByRole("button", { name: /Confirm & add field/i }),
     );
     // The POST is attempted…
     await waitFor(() =>

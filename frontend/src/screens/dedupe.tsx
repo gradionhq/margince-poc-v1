@@ -3,7 +3,13 @@ import { GitMerge } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, Button, Card, Radio } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  Card,
+  Radio,
+  TableScroll,
+} from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
@@ -286,9 +292,9 @@ function CandidateCard({
       {/* The design system's table, not a second one: DataTable cannot express
           either of the two things this table needs — a column header that IS
           the winner radio, and a row carrying the detector's signal — so the
-          caller draws the rows and `.table` / `.table-scroll` keep the chrome
+          caller draws the rows, and `.table` / `TableScroll` keep the chrome
           one spelling. */}
-      <div className="table-scroll">
+      <TableScroll label={t("dedupe.evidenceTable")}>
         <table className="table dedupe-evidence">
           <thead>
             <tr>
@@ -332,7 +338,7 @@ function CandidateCard({
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
       <div className="card-actions">
         <Button
           variant="primary"

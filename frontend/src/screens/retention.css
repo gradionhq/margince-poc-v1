@@ -1,36 +1,21 @@
-/* The retention section of the privacy tab: the posture block, the policy
- * ladder and its inline editor. Layout + token colours only (ds-purity) — every
- * control comes from the design system. */
+/* The retention section of the privacy tab: the posture row, the policy ladder
+ * and the dialog each policy is edited in. Layout + token colours only
+ * (ds-purity) — every control, and the row language itself, comes from the
+ * design system. */
 
+/* The posture switch and, when a flip is refused, the sentence saying so. Both
+ * sit in the row's ANSWER column now, so they stack against its right edge
+ * rather than starting a second column of their own — a refusal that began at
+ * the switch's left would hang off the one x every answer on this page shares. */
 .retention-posture {
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: var(--space-1);
 }
 
-.retention-form {
-  margin-top: var(--space-3);
-}
-
-.retention-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-
-.retention-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.retention-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
+.retention-posture > .retention-error {
+  text-align: right;
 }
 
 /* The words and the wire identifier stack, so a wide row stays one line per
@@ -40,12 +25,17 @@
   flex-direction: column;
 }
 
-.retention-reason {
-  color: var(--textMeta);
-}
-
-.retention-edit {
-  margin-top: var(--space-2);
+/* What a policy does tonight, as the row's ANSWER: the window, the action and
+ * the effect on one line in the right column, wrapping there rather than
+ * widening the row past the card. `justify-content: flex-end` so a wrapped
+ * second line stays on the answer column's own edge instead of drifting back
+ * towards the naming it belongs beside. */
+.retention-answer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }
 
 .retention-actions {
@@ -58,16 +48,30 @@
   color: var(--danger);
 }
 
-/* The pin form above the restricted-records table: a label, an id and its
-   button on one line, wrapping on a narrow viewport rather than overflowing. */
+/* The pin form in the row under the restricted-records table: an id and the
+   verb that submits it on one line, wrapping rather than overflowing — the row
+   owns the naming and the hint, so nothing here draws a label. */
 .restricted-pin {
   display: flex;
-  align-items: flex-end;
-  gap: var(--space-3);
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
   flex-wrap: wrap;
-  margin-bottom: var(--space-4);
 }
 
-.restricted-pin > :first-child {
-  flex: 1 1 20rem;
+/* The id is a UUID, so the field asks for room and gives it back on a narrow
+   card instead of pushing the row past the card's edge. `.input` is width:100%
+   by default, which in a flex line is the whole row. */
+.restricted-pin .input {
+  flex: 1 1 16rem;
+  min-width: 0;
+  width: auto;
+}
+
+/* A malformed id takes the whole next line: squeezed between the field and the
+   button it is about, the refusal reads as a third control. */
+.restricted-pin-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--danger);
 }

@@ -753,6 +753,7 @@ function DealTableDemo() {
   return (
     <div style={stack}>
       <DataTable
+        label={"Deals"}
         columns={DEAL_COLUMNS}
         rows={DEMO_DEALS}
         rowKey={(deal) => deal.id}
@@ -775,7 +776,12 @@ export const Tables: Story = {
     <div style={stack}>
       <DealTableDemo />
       <SectionHeader title="No rows" sub="The same table with rows={[]}" />
-      <DataTable columns={DEAL_COLUMNS} rows={[]} rowKey={(deal) => deal.id} />
+      <DataTable
+        label={"Deals"}
+        columns={DEAL_COLUMNS}
+        rows={[]}
+        rowKey={(deal) => deal.id}
+      />
       <EmptyState>No deals in this pipeline yet.</EmptyState>
     </div>
   ),

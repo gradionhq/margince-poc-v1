@@ -1,0 +1,54 @@
+/* Connected agents (Settings → Your agents): the MCP clients holding a
+   credential of their own, and the commands that make another one.
+
+   Every row is a SettingRow now, so the two columns, the hairline between them
+   and the vertical rhythm all come from the design system. What is left here is
+   what the CONTENT of a row's naming half needs, plus the connect guide inside
+   its disclosure. It exists at all because this card used to carry eight inline
+   style objects — a flex run per row, a `<dl>` laid out by hand — which is how
+   the scope chips came to wrap under the Disconnect button at 390px and read as
+   belonging to it. */
+
+/* A connection that is over. Struck rather than dimmed: dimming would drop the
+   facts below the AA contrast floor the passport list holds (B-EP09.21), and
+   the reader still has to be able to read what ended. It rides on the naming
+   half only — the verb an ended row offers is very much live, and a
+   struck-through button reads as disabled. */
+.agents-ended {
+  text-decoration: line-through;
+}
+
+/* When the connection was made, which passport it was lent from, and when its
+   credential turns over — a wrapping run rather than three lines, because they
+   are one sentence about one connection and a narrow card should break them
+   where it needs to. */
+.agents-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* What the client may do, under the facts rather than beside the verb: the
+   chips describe the CONNECTION, and at 390px a run that shared the control's
+   line wrapped under the button and read as its options. */
+.agents-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+/* One client's connect command, the subject of its own stacked row. The row
+   language owns everything around it now — the interval to the client name, the
+   hairline to the next client, the width — so what is left here is what the
+   command itself needs: `pre-wrap` keeps the two-line Codex recipe two lines,
+   and `break-all` is what stops a long base URL from widening the card instead
+   of wrapping inside it.
+
+   The `<dl>` this replaces brought its own layout with it (a flex column at its
+   own gap, plus a reset for the `dd` indent), which is exactly the third rhythm
+   the disclosure now does not have. */
+.agents-guide-command {
+  white-space: pre-wrap;
+  word-break: break-all;
+}

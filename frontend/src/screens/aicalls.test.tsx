@@ -119,20 +119,34 @@ it("renders call badges and expands the attempt and payload detail", async () =>
   // filter's option list as well as in the row, and the row is what expands.
   // The disclosure is a real button now, not the row: a `<tr onClick>`
   // could only ever be reached by pointer.
-  await userEvent.click(
-    screen.getByRole("button", { name: /show the attempt trail/i }),
-  );
+  const toggle = screen.getByRole("button", {
+    name: /show the attempt trail/i,
+  });
+  // The chevron is turned by this attribute (aicalls.css), so what the reader
+  // sees and what a screen reader hears are one fact rather than two that can
+  // disagree. It is also why this stays a button and not a `Disclosure`: what
+  // opens is the NEXT table row, which no element can contain from inside a
+  // cell of the row above it.
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  await userEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
   expect(await screen.findByText(/retry_on_5xx/)).toBeTruthy();
   expect(screen.getByText("Request payload")).toBeTruthy();
   expect(screen.getByText("Export as cert scenario")).toBeTruthy();
 });
 
-// The filter stands alone above the table with no visible label beside it, so
-// its name has to come from the control itself — an unnamed combobox tells a
-// screen reader nothing about what it narrows.
-it("names the task filter", async () => {
+// The filter is a settings row now: the row draws the label and the Select is
+// named BY it, so the combobox still says what it narrows while carrying no
+// second name of its own — one visible label naming one control is the whole
+// reason `control` is a function here.
+it("names the task filter from its row, and stacks the trace under its own label", async () => {
   mount();
-  expect(await screen.findByRole("combobox", { name: "Task" })).toBeTruthy();
+  const filter = await screen.findByRole("combobox", { name: "Task" });
+  expect(filter.getAttribute("aria-label")).toBeNull();
+  expect(filter.getAttribute("aria-labelledby")).toBeTruthy();
+  // The trace is the subject of its row, not an answer beside it, so it stacks
+  // under a label of its own rather than sharing the filter's.
+  expect(screen.getByText("Recent calls")).toBeTruthy();
 });
 
 it("distinguishes capture disabled from a call without payload", async () => {

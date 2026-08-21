@@ -14,20 +14,30 @@
    The gap is the same --space-4 the shell's rule gives, so a settings page and any
    other page space alike.
 
-   And no width of its own: every settings page fills the page column, the same
-   column every other screen gets. This sheet carried a reading measure for a
-   while and gave the two table-carrying pages an exemption from it, which is two
-   problems. A reader navigating between entries watched the page change size,
-   because the width belonged to the entry rather than to settings. And the
-   exemption was a knob every new entry had to answer, which is how a register
-   grows a column of values nobody revisits. A control that should not stretch is
-   a control that knows its own width — see `.settings-intrinsic` below — and
-   that is where the constraint belongs, on the thing with an opinion rather than
-   on the page around it. */
+   ONE measure for every settings page, and it is 720px. A settings page is a
+   column of decisions read top to bottom, and the row language puts the naming on
+   the left and the answer on the right — at 1100px that pair is separated by half
+   a screen of nothing, which is the width doing the opposite of what the layout
+   is for. 720 keeps a label and its answer in one glance and holds the
+   description to a readable line.
+
+   It is the PAGE's width and not the entry's, which is the part that was wrong
+   before: this sheet once carried a measure with an exemption for the two
+   table-carrying pages, so a reader navigating between entries watched the page
+   change size. Every entry gets the same 720, tables included — a table wider
+   than that scrolls inside its own box (`.table-scroll`), which is a property of
+   the table rather than a knob the page has to answer for.
+
+   Centred in the wrap, and the heading above it deliberately is NOT: the page
+   title sits where every other route in the product puts it, so moving between
+   settings and anywhere else does not move the name of the page. Only this
+   column takes the narrower measure. */
 .settings-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  max-width: 720px;
+  margin-inline: auto;
 }
 
 /* A section heading inside the stack separates SUBJECTS, so it needs more air
@@ -45,22 +55,48 @@
 /* A Card drew its descriptive line in the header, under the title. Panel's
    header is a fixed-height band with room for a title and one control, so that
    line moves into the body — where it is the first thing read, above the form
-   or the rows it describes, and it pays for its own interval to them. */
-.settings-panel-sub {
+   or the rows it describes, and it pays for its own interval to them.
+
+   It owns its own TYPE SCALE as well as its interval, and that is the point of
+   the element-plus-class selector: `base.css` carries three near-identical meta
+   scales — `.t-small` 12px, `.t-caption` 12.5px, `.t-sub` 13px — and a card
+   description picked one of them per file, so a page of cards read at three
+   sizes. Being one specificity step above a bare utility class, this wins
+   wherever it lands in the bundle rather than depending on sheet order.
+
+   13px is `SettingRow`'s description size, deliberately: a card's own
+   description says what the whole card is for, so it is never smaller than the
+   description of one row inside it. */
+p.settings-panel-sub {
   margin-bottom: var(--space-4);
+  color: var(--textMeta);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
-/* A control whose width is intrinsic: a language dropdown is one language wide.
-   It sits in a `.field`, which is a flex COLUMN — its default
-   `align-items: stretch` is what dragged it across the whole page column.
-   Stated once here rather than as an inline width per control, because the rule
-   is about what the control IS, not about this page. */
-.settings-intrinsic {
-  align-items: flex-start;
+/* Inside a container that owns its intervals, the description's own margin ADDS
+   to the container's gap rather than collapsing into it — the same arithmetic
+   `.settings-stack > .section-header` above spells out. A `.form-stack` body
+   therefore measured 28px from the description to its rows where a plain body
+   measures 16, which is two rhythms for one relationship across cards that sit
+   next to each other. What is left here is the difference, so both spellings
+   land on the same 16. */
+.form-stack > p.settings-panel-sub {
+  margin-bottom: calc(var(--space-4) - var(--space-3));
 }
-.settings-intrinsic .input {
-  width: auto;
-  min-width: 12rem;
+
+/* A notice and the verb that commits an unsaved change, standing below the rows
+   they belong to. It is the card's own band rather than one more row: an unsaved
+   flip is a state of the whole card, and a callout in a row's control column
+   reads as that row's answer. The interval is here for the same reason
+   `.settings-panel-sub`'s is — `SettingList` owns the gaps BETWEEN rows and
+   nothing above or below itself. */
+.settings-panel-commit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 /* The one panel that announces its own danger: the red border is what separates
@@ -74,6 +110,28 @@
 .settings-danger-warning {
   margin-top: var(--space-1);
   color: var(--warn);
+}
+
+/* A RUN of small items inside one of a row's two columns: a passport's dates,
+   its masked token and scope chips, a tool's tier dot and its governance
+   badges, the autonomy row's dot beside the badge that says it cannot move.
+
+   ONE class, because these are the same object — several small things sharing a
+   line, wrapping when the card is narrow — and this sheet had grown two
+   spellings of it (`.passport-facts` at an 8px gap, `.tool-row-head` at 8 with
+   a 4px row gap) while a third cluster used the row's own 12px flex gap. Three
+   gaps for one relationship on one page is exactly what a reader reads as
+   "the spacing is different in every card".
+
+   Wrapping is not optional: an unwrapped flex line does not shrink, so a long
+   badge run pushed the card's scroll width out and the whole settings column
+   scrolled sideways. */
+.settings-run {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
 }
 
 /* The profile block, borrowed from the record page's identity header
@@ -115,39 +173,20 @@
      rather than set its minimum width. */
   overflow-wrap: anywhere;
 }
-.passport-facts {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
 /* Struck, not dimmed: dimming a revoked row drops it under the AA contrast
    floor (B-EP09.21), and the revoked row is the one a reader most needs. */
 .passport-struck {
   text-decoration: line-through;
 }
 
-/* AutonomyCard: the tier, its name, and — on the locked row — the badge saying
-   so, on one line each. */
-.autonomy-row {
+/* PipelinesCard. One pipeline per stacked SettingRow: its name is the row's
+   label, and under it the standing badge, the verbs, and the stage ladder.
+   A standing badge plus two verbs is wider than a phone, so the strip wraps —
+   an unwrapped one ran past the panel's edge and clipped the last verb away. */
+.pipeline-standing {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-/* PipelinesCard. One pipeline per full-bleed row: its own heading (a real
-   `h3` through SectionHeader), the verbs beside it, and its stages under. */
-.pipeline-row > .section-header {
-  margin: 0 0 var(--space-2);
-  /* A pipeline name plus a standing badge plus two verbs is wider than a phone.
-     `.section-header` keeps its actions on one unwrapped line by default, which
-     is right for a page header and wrong here: the strip simply ran past the
-     panel's edge and the last verb was clipped away. Wrapping costs a line and
-     keeps every verb reachable. */
-  flex-wrap: wrap;
-}
-.pipeline-row > .section-header .section-header-actions {
   flex-wrap: wrap;
 }
 .stage-rows {
@@ -165,6 +204,14 @@
   gap: var(--space-2);
   align-items: center;
 }
+/* The stage's two verbs, side by side at the end of its row. A grid cell, so
+   they need a line of their own rather than each becoming a track. */
+.stage-verbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 /* A stage name is free text nobody promised would be short. Without this it
    could not break, so at any width where the fixed tracks and the Edit button
    leave it ~60px it painted straight over the badge beside it. */
@@ -194,19 +241,23 @@
   }
 }
 
-/* AuditLogCard. Six narrow filters as a grid of labelled cells rather than one
-   long row — in a row each control took the width of the card and the six of
-   them stacked into a page-tall form. */
-.audit-filters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-  gap: var(--space-3);
-  margin-top: var(--space-2);
+/* AuditLogCard. The trail is the control of ONE stacked row, so the rules
+   between its entries are its own: a log is a list of records rather than a list
+   of settings decisions, and the `SettingList` above it rules between DECISIONS.
+   The interval belongs to the list holding both entries, never to each entry —
+   the same reason `.settinglist` owns its hairline. */
+.audit-entries {
+  display: flex;
+  flex-direction: column;
+}
+.audit-entries > * + * {
+  border-top: 1px solid var(--borderSubtle);
 }
 .audit-row {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  padding: var(--space-3) 0;
 }
 .audit-row-head {
   display: flex;
@@ -214,6 +265,29 @@
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+
+/* The expander is the entry's VERB, so it stands at the trail's right edge
+   rather than trailing the last fact on the line.
+
+   A list that is the SUBJECT of a stacked row still owes a reader the two
+   anchors every `SettingRow` keeps — what this is on the left, what acts on it
+   at one x on the right. Left to hug its content the run of facts stopped a
+   third of the way across a 720px card and the whole trail read as a
+   left-aligned block in a box twice its width, which is the one thing the row
+   language exists to prevent. `.audit-when` in `audit.css` holds the same edge
+   for the shared attribution line: one reading, two lists. */
+.audit-row-head > .btn:last-child {
+  margin-left: auto;
+}
+
+/* "Load more" acts on the trail above it rather than being one more entry of
+   it, so it keeps its own width. `.audit-entries` is a stretch column, which
+   would otherwise make a full-card banner of a button — the same rail
+   `settingrow.css` keeps on a verb inside a stacked row. */
+.audit-entries > .load-more {
+  align-self: flex-start;
+}
+
 /* The expanded before/after trail, set in from the row it belongs to and
    marked by a rule so it reads as this entry's detail rather than the next. */
 .audit-row-diff {
@@ -237,36 +311,21 @@
   margin: var(--space-2) 0 var(--space-3);
 }
 
-/* Tool console's passport-scope filter (AgentToolsCard): the gap between the
-   selector and the inventory it scopes, on the shared spacing scale rather
-   than the off-scale value the inline <select> style used to carry. */
-.tool-scope-filter {
-  margin-bottom: var(--space-3);
-}
-/* One of a handful of passports is an intrinsic choice, like the language
-   dropdown beside the theme on Account: it takes the width its longest option
-   needs, not the width of the card it narrows. */
-.tool-scope-filter .input {
-  width: auto;
-  min-width: 14rem;
-  max-width: 100%;
-}
+/* Tool console rows (AgentToolsCard). One tool is one SettingRow: the tool's
+   name IS the row's label, what it is for reads under it, and its governance
+   answers on the right in a `.settings-run` like every other cluster on the
+   page. The name and the written title used to share the label's line, which
+   made every row a PAIR of unrelated strings — "account_coverage  Relationship
+   coverage on a deal" — where the rows above it read as a label with a
+   description under it.
 
-/* Tool console rows (AgentToolsCard): the verb and its governance badges on
-   one line, the selection prose under them. All of it lives here rather than in
-   inline styles so it reads on the spacing scale — including the strikethrough
-   on a tool the chosen passport cannot reach, which is a state with one
-   spelling and not a per-row decision. */
-.tool-row-body {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-1);
-}
-/* The verb is the identifier an agent selects on, so it reads in the accent
-   the rest of the product gives an identifier. */
+   The name is the identifier an agent selects on, so it reads in the accent the
+   rest of the product gives an identifier. It is a machine identifier with no
+   spaces to break at, so it also has to be allowed to break inside itself
+   rather than set the row's minimum width. */
 .tool-name {
   color: var(--accent);
+  overflow-wrap: anywhere;
 }
 /* Struck, not dimmed. Dimming the row to 0.4 took it under the AA contrast
    floor (B-EP09.21) — including the caption that is supposed to be the text
@@ -275,30 +334,13 @@
 .tool-out-of-scope {
   text-decoration: line-through;
 }
-.tool-row-head {
+/* The naming half's prose: the written title, the text an agent selects the
+   tool by, and — when a passport is selected that cannot reach it — the words
+   that say so. Lines, at the same interval the row already puts between a label
+   and its description, because they are three separate statements: run
+   together they read as one sentence that does not parse. */
+.tool-row-text {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  /* The verb, the written title and the badges are one line only while there
-     is room for one. A long verb next to a long title and two badges is wider
-     than a narrow viewport, and an unwrapped flex line does not shrink — it
-     pushes the card's own scroll width out and the whole settings column
-     scrolls sideways. Wrapping costs a line and keeps the page still. */
-  flex-wrap: wrap;
-  row-gap: var(--space-1);
-}
-/* The verb is a machine identifier with no spaces to break at, so wrapping the
-   line around it is not enough on its own: it has to be allowed to break
-   inside itself rather than set the row's minimum width. */
-.tool-row-head .t-mono {
-  overflow-wrap: anywhere;
-}
-
-/* The tool console's selection prose (AgentToolsCard). It hangs under the
-   verb, indented past the autonomy dot so a scan down the column still reads
-   as one tool per line, and its measure is capped: this text is written to be
-   read by a model and a person needs a line length they can follow. */
-.tool-description {
-  margin: 0 0 var(--space-1) calc(var(--space-3) + var(--space-2));
-  max-width: 76ch;
+  flex-direction: column;
+  gap: var(--space-1);
 }

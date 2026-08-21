@@ -727,7 +727,7 @@ describe("AgentRail", () => {
     expect(panel().textContent).not.toContain("capture_classify");
     expect(
       screen.getByRole("link", { name: LABELS.fullLog }).getAttribute("href"),
-    ).toBe("#/settings/ai");
+    ).toBe("#/settings/admin/ai");
   });
 
   // A task named `constructor` is a plain string off the wire, but a bare

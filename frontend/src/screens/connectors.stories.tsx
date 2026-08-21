@@ -11,6 +11,18 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // reauth-needed one (the reconnect affordance), a sync-error one, the empty
 // state, and a load failure — all off the same GET /connectors shape the
 // unit tests (connectors.test.tsx) already exercise.
+//
+// Every story renders TWO panels now — mail capture and the workspace's
+// Telegram bot — because the component draws both, and both are built from the
+// same SettingRow: identity and health on the left, state and verbs on the
+// right, at one x. What to check in any of these pictures is that the right
+// column really does line up down the whole pair, including across the
+// history-import block that rides under a connected mailbox's row.
+//
+// Both panels also put their description in the BODY rather than in `Panel`'s
+// `sub`, which is what keeps the two header bands the same height: a sentence in
+// the band raises it, and one card taller than its neighbour is a page that has
+// lost its beat.
 
 type CaptureConnection = components["schemas"]["CaptureConnection"];
 
@@ -151,34 +163,57 @@ export const ImapPolled: Story = {
   render: cardStory([imapPolled]),
 };
 
+// No mailbox at all. The sentence that says so is a ROW of the card's list now
+// — a stacked row, so `.empty` gives up its 90px page-furniture slab and reads
+// left-aligned at a row's own interval — and the verb that fills it sits in the
+// header rather than in the column a reader travels to audit the roster.
 export const Empty: Story = {
   render: cardStory([]),
 };
 
-// The "Add a connection" affordance (Task 1): the empty state offers all
-// four providers, and once one is connected the roster grows a footer
-// offering only the ones still missing.
-export const EmptyStateAllProviders: Story = {
-  render: () => {
-    installFetchStub({
-      "GET /connectors": () => jsonResponse({ data: [] }),
-    });
-    return (
-      <StoryProviders>
-        <ConnectorsCard />
-      </StoryProviders>
-    );
+/** Open the card's header verb, so the picture is the dialog behind it. */
+async function openAddDialog(canvasElement: HTMLElement) {
+  const body = within(canvasElement.ownerDocument.body);
+  await userEvent.click(
+    await body.findByRole("button", { name: "Connect an account" }),
+  );
+  await body.findByRole("dialog", { name: "Add a connection" });
+}
+
+// The "Add a connection" affordance (Task 1): ONE verb in the card's header,
+// and the picks in the dialog it opens. What to check is that four providers
+// each carrying a sentence read as four rows of one list — the shape they
+// replaced was a strip of four buttons squeezed against a wrapping description,
+// with Gmail drawn primary on a card that exists to report a roster rather than
+// to push one mailbox.
+export const AddConnectionDialogAllProviders: Story = {
+  render: cardStory([]),
+  play: async ({ canvasElement }) => {
+    await openAddDialog(canvasElement);
   },
 };
 
-export const OneConnectedWithFooter: Story = {
+// The same dialog once Gmail is on the roster: three picks, not four. And in
+// dark, where the muted description under each provider name is the ink most
+// likely to collapse into the dialog's own ground under the accent lift.
+export const AddConnectionDialogDark: Story = {
+  globals: { theme: "dark" },
+  render: cardStory([gmailConnected]),
+  play: async ({ canvasElement }) => {
+    await openAddDialog(canvasElement);
+  },
+};
+
+// One mailbox connected, dialog closed: the header carries the verb and the
+// body carries only the roster.
+export const OneConnectedWithHeaderVerb: Story = {
   render: cardStory([gmailConnected]),
 };
 
-// A refused connect reports itself under the buttons that produced it, not in
-// a band of its own further down the card. One `connect` mutation serves both
-// strips, so both placements are worth seeing: the add block's provider picks,
-// and a roster row's Reconnect.
+// A refused connect reports itself where the press happened, not in a band of
+// its own further down the card. One `connect` mutation serves two surfaces, so
+// both placements are worth seeing: the add dialog's provider picks, and a
+// roster row's Reconnect.
 function connectFailureStory(connections: CaptureConnection[], path: string) {
   return () => {
     installFetchStub({
@@ -200,11 +235,12 @@ function connectFailureStory(connections: CaptureConnection[], path: string) {
 export const AddConnectionFailed: Story = {
   render: connectFailureStory([gmailConnected], "graph"),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    await openAddDialog(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
     await userEvent.click(
-      await canvas.findByRole("button", { name: "Microsoft" }),
+      await body.findByRole("button", { name: "Connect Microsoft" }),
     );
-    await canvas.findByRole("alert");
+    await body.findByRole("alert");
   },
 };
 
@@ -277,4 +313,64 @@ export const OAuthError: Story = {
 
 export const OAuthOk: Story = {
   render: outcomeStory("ok", [gmailConnected]),
+};
+
+// The Telegram panel is its own card now, and it has three states of its own
+// that the mail roster's stories never reach: no bot yet (one row offering the
+// connect), live bots (a row each), and a deployment with no credential store
+// to seal a token in (503, a calm feature-off state and not an error).
+function telegramStory(channels: unknown[] | null) {
+  return () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [gmailConnected] }),
+      "GET /channel-connections": () =>
+        channels === null
+          ? jsonResponse({ code: "channel_credentials_not_configured" }, 503)
+          : jsonResponse({ data: channels }),
+    });
+    return (
+      <StoryProviders>
+        <ConnectorsCard />
+      </StoryProviders>
+    );
+  };
+}
+
+const salesBot = {
+  id: "018f3a1b-0000-7000-8000-0000000000d1",
+  provider: "telegram",
+  channelId: "555000111",
+  channelLabel: "acme_sales_bot",
+  status: "connected",
+  version: 1,
+};
+
+export const TelegramNoBotYet: Story = { render: telegramStory([]) };
+
+// Two live bots is the state a send refuses outright in, and this panel is the
+// only surface that can end it — so both have to be here, each with its own
+// Disconnect.
+export const TelegramTwoBots: Story = {
+  render: telegramStory([
+    salesBot,
+    {
+      ...salesBot,
+      id: "018f3a1b-0000-7000-8000-0000000000d2",
+      channelId: "555000222",
+      channelLabel: "acme_support_bot",
+      status: "pending",
+    },
+  ]),
+};
+
+export const TelegramNotConfigured: Story = { render: telegramStory(null) };
+
+// Both panels' rows in dark. The row language puts the answer in the right
+// column against the panel's own ground, and `--textMuted` (the description)
+// against `--textSecondary` (the account label) is the pair most likely to
+// collapse into one grey under the dark accent lift — a mailbox address that
+// reads as help text is the failure to look for.
+export const BothPanelsDark: Story = {
+  globals: { theme: "dark" },
+  render: telegramStory([salesBot]),
 };

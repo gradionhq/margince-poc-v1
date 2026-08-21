@@ -25,7 +25,12 @@ export type {
   NavSection,
   NavTrailLevel,
 } from "./subnav";
-export { navLevelHref, navLevelRoute } from "./subnav";
+export {
+  navEntryHref,
+  navEntryRoute,
+  navLevelHref,
+  navLevelRoute,
+} from "./subnav";
 
 // The primary nav. Order is normative and shell.test.tsx pins it. Home stands
 // alone above three labeled groups; the groups are the expanded sidebar's own

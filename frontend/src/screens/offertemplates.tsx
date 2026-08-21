@@ -155,8 +155,11 @@ export function OfferTemplatesAdmin() {
   const rowActions: ListColumn<OfferTemplate> = {
     key: "actions",
     header: t("table.actions"),
+    // Sized by its verbs rather than by a share of the page — see the same
+    // column on the products table beside it (listtable.tsx, COLUMN_SIZES.verbs).
+    verbs: true,
     cell: (tpl: OfferTemplate) => (
-      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+      <div className="listsection-rowverbs">
         {canUpdate && (
           <EditAction
             label={t("template.edit")}
@@ -201,7 +204,7 @@ export function OfferTemplatesAdmin() {
   return (
     <Panel className="listsection" title={t("template.title")}>
       <PanelBody className="listsection-intro">
-        <p className="t-caption">{t("template.settingsSub")}</p>
+        <p className="settings-panel-sub">{t("template.settingsSub")}</p>
         {/* Stated once for the whole section (design-system README, "Absent,
             disabled, or withheld"): a readable list whose editors are all withheld
             has to say so, or their absence reads as a claim about the list rather
@@ -212,7 +215,7 @@ export function OfferTemplatesAdmin() {
             read-only notice at the admin who holds all three. Gate on the
             probe, not on its absence. */}
         {me.isSuccess && !canCreate && !canUpdate && !canArchive && (
-          <p className="t-caption">{t("template.readOnly")}</p>
+          <p className="settings-panel-sub">{t("template.readOnly")}</p>
         )}
       </PanelBody>
       <ListTable

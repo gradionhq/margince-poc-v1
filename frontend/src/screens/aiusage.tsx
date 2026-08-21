@@ -1,21 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
-import { type CSSProperties, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
-import { Badge, Button, DataTable, EmptyState } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  DataTable,
+  Disclosure,
+  EmptyState,
+} from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Meter } from "../design-system/readings";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { QueryGate, throwProblem, useMe } from "./common";
-
-// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
-// is the body's first paragraph and owes its own separation from the content
-// under it; it is a token rather than a number so it moves with the scale, and
-// it lives here rather than in a screen sheet because it belongs to the panel
-// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
-const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
+import "./aiusage.css";
 
 type AiUsage = components["schemas"]["AiUsage"];
 type UsageTask = AiUsage["days"][number]["tasks"][number];
@@ -155,7 +156,6 @@ function AiUsageBody({
 }>) {
   const t = useT();
   const { locale } = useLocale();
-  const [showDays, setShowDays] = useState(false);
   const pct =
     data.budget.monthly_tokens > 0
       ? Math.round(
@@ -177,85 +177,104 @@ function AiUsageBody({
   );
 
   return (
-    <>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "var(--space-3)",
-        }}
-      >
-        <div style={{ flex: 1 }}>
-          {/* pct, not the raw token pair: a workspace with no monthly budget
-              configured reads as fully spent (pct is 100 above), and the bar
-              must say what the caption beside it says. */}
-          <Meter value={pct} max={100} label={t("aiusage.budgetMeter")} />
-          <p className="t-sub" style={PANEL_SUB}>
-            {t("aiusage.budget", {
-              spent: formatNumber(data.budget.spent_tokens, locale),
-              budget: formatNumber(data.budget.monthly_tokens, locale),
-              pct,
-            })}
-          </p>
-        </div>
-        <Badge tone={bandTone(data.budget.band)}>
-          {bandLabel(data.budget.band, t)}
-        </Badge>
-      </div>
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          margin: "var(--space-3) 0",
-        }}
-      >
-        <Button
-          small
-          aria-label={t("aiusage.prevMonth")}
-          onClick={() => onMonth(adjacentMonth(month, -1))}
-        >
-          ‹
-        </Button>
-        <Button
-          small
-          aria-label={t("aiusage.nextMonth")}
-          disabled={isCurrentMonth(month)}
-          onClick={() => onMonth(adjacentMonth(month, 1))}
-        >
-          ›
-        </Button>
-      </div>
-      {rows.length === 0 ? (
-        <EmptyState>{t("aiusage.empty")}</EmptyState>
-      ) : (
-        // Seven columns do not fit a phone, and nothing here can be dropped —
-        // a spend row is only reconcilable whole. DataTable is what scrolls the
-        // TABLE sideways inside the card rather than the page; a hand-rolled
-        // <table className="table"> borrowed the look and left the wrapper out.
-        <DataTable
-          columns={usageColumns(showCost, currency, locale, t)}
-          rows={rows}
-          rowKey={(row) => `${row.task}-${row.tier}`}
-        />
-      )}
-      {showCost && (
-        <p className="t-caption">
-          {t("aiusage.costNote")} {formatMoney(totalCost, currency, locale)}
-        </p>
-      )}
+    <SettingList>
+      <SettingRow
+        layout="stack"
+        label={t("aiusage.budgetMeter")}
+        description={t("aiusage.budget", {
+          spent: formatNumber(data.budget.spent_tokens, locale),
+          budget: formatNumber(data.budget.monthly_tokens, locale),
+          pct,
+        })}
+        control={
+          <div className="settingrow-measure aiusage-budget">
+            <div className="aiusage-budget-bar">
+              {/* pct, not the raw token pair: a workspace with no monthly budget
+                  configured reads as fully spent (pct is 100 above), and the bar
+                  must say what the caption beside it says. */}
+              <Meter value={pct} max={100} label={t("aiusage.budgetMeter")} />
+            </div>
+            <Badge tone={bandTone(data.budget.band)}>
+              {bandLabel(data.budget.band, t)}
+            </Badge>
+          </div>
+        }
+      />
+      <SettingRow
+        label={t("aiusage.monthLabel")}
+        control={
+          // The two arrows keep their own names: a glyph announces as nothing,
+          // and the row's label says which decision this is, not which way each
+          // button moves it.
+          <>
+            <Button
+              small
+              aria-label={t("aiusage.prevMonth")}
+              onClick={() => onMonth(adjacentMonth(month, -1))}
+            >
+              ‹
+            </Button>
+            <Button
+              small
+              aria-label={t("aiusage.nextMonth")}
+              disabled={isCurrentMonth(month)}
+              onClick={() => onMonth(adjacentMonth(month, 1))}
+            >
+              ›
+            </Button>
+          </>
+        }
+      />
+      <SettingRow
+        layout="stack"
+        label={t("aiusage.spendLabel")}
+        // The caveat and the total are what the table says taken together, so
+        // they belong to the row's NAMING rather than standing under the table
+        // as a caption of their own — a sentence in a control column reads as
+        // that control's answer. Absent entirely when the server priced
+        // nothing: a total of zero would state a figure this window has none of.
+        description={
+          showCost ? (
+            <>
+              {t("aiusage.costNote")} {formatMoney(totalCost, currency, locale)}
+            </>
+          ) : undefined
+        }
+        control={
+          <div className="settingrow-measure">
+            {rows.length === 0 ? (
+              <EmptyState>{t("aiusage.empty")}</EmptyState>
+            ) : (
+              // Seven columns do not fit a phone, and nothing here can be
+              // dropped — a spend row is only reconcilable whole. DataTable is
+              // what scrolls the TABLE sideways inside the card rather than the
+              // page; a hand-rolled <table className="table"> borrowed the look
+              // and left the wrapper out.
+              <DataTable
+                label={t("aiusage.spendLabel")}
+                columns={usageColumns(showCost, currency, locale, t)}
+                rows={rows}
+                rowKey={(row) => `${row.task}-${row.tier}`}
+              />
+            )}
+          </div>
+        }
+      />
+      {/* The per-day breakdown is diagnostic — a reader reconciling one day's
+          calls asks for it, and it is noise to everyone else — so it stands in
+          the list as its own closed section rather than as a fourth row. */}
       {data.days.length > 0 && (
-        <Button small onClick={() => setShowDays((value) => !value)}>
-          {showDays ? t("aiusage.days.hide") : t("aiusage.days.show")}
-        </Button>
+        <Disclosure summary={t("aiusage.days.show")}>
+          {data.days.map((day) => (
+            <p key={day.date} className="t-mono">
+              {day.date} ·{" "}
+              {day.tasks.reduce((sum, task) => sum + task.calls, 0)}{" "}
+              {t("aiusage.col.calls")}
+            </p>
+          ))}
+        </Disclosure>
       )}
-      {showDays &&
-        data.days.map((day) => (
-          <p key={day.date} className="t-mono">
-            {day.date} · {day.tasks.reduce((sum, task) => sum + task.calls, 0)}{" "}
-            {t("aiusage.col.calls")}
-          </p>
-        ))}
-    </>
+    </SettingList>
   );
 }
 
@@ -292,9 +311,7 @@ export function AiUsageCard() {
     return (
       <Panel title={t("aiusage.title")}>
         <PanelBody>
-          <p className="t-sub" style={PANEL_SUB}>
-            {t("aiusage.sub")}
-          </p>
+          <p className="settings-panel-sub">{t("aiusage.sub")}</p>
           <QueryGate query={me}>
             {() => (
               <EmptyState>
@@ -311,9 +328,7 @@ export function AiUsageCard() {
   return (
     <Panel title={t("aiusage.title")}>
       <PanelBody>
-        <p className="t-sub" style={PANEL_SUB}>
-          {t("aiusage.sub")}
-        </p>
+        <p className="settings-panel-sub">{t("aiusage.sub")}</p>
         <QueryGate query={query}>
           {(data) => (
             <AiUsageBody data={data} month={month} onMonth={setMonth} />

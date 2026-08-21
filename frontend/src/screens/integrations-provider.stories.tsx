@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { screen, userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { ProviderCard } from "./integrations-provider";
@@ -104,7 +105,7 @@ function cardStory(allow: GrantSpec, connections: ProviderConnection[]) {
 }
 
 const meta: Meta<typeof ProviderCard> = {
-  title: "Settings/Organization/Integrations/Contact data provider",
+  title: "Settings/Admin settings/Integrations/Contact data provider",
   component: ProviderCard,
 };
 export default meta;
@@ -116,6 +117,28 @@ export const OperatorConnected: Story = {
 
 export const OperatorNotYetConnected: Story = {
   render: cardStory(OPERATOR, [unconnected]),
+};
+
+/**
+ * The key field itself, which now lives behind the row's verb.
+ *
+ * Opened by a `play` rather than left to a reader's click, because the dialog is
+ * where the one input on this card lives: without it the render gate captures a
+ * row and proves nothing about the field, the warning that a connect costs
+ * money, or the submit's pending state.
+ */
+export const ConnectDialog: Story = {
+  render: cardStory(OPERATOR, [unconnected]),
+  play: async ({ canvasElement }) => {
+    const user = userEvent.setup();
+    await user.click(
+      await within(canvasElement).findByRole("button", { name: /connect/i }),
+    );
+    // Asserted, not merely awaited: a `play` that clicks and moves on records a
+    // screenshot of whatever happened, and a dialog that failed to open looks
+    // like a story nobody wrote a state for.
+    await screen.findByRole("dialog");
+  },
 };
 
 // May bind a key, may not destroy what it bought — so the overflow that holds

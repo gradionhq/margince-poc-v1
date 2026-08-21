@@ -4,7 +4,10 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { useSettingsEntryVisibility } from "../screens/settings";
+import {
+  settingsAddress,
+  useSettingsEntryVisibility,
+} from "../screens/settings";
 import { ENTITY, ENTITY_KINDS, type EntityKind } from "./entity";
 import { NAV } from "./nav";
 import { navigate, type Route } from "./router";
@@ -29,7 +32,7 @@ export type Command = {
 
 // The settings entries this palette offers a shortcut to. Narrower than the full
 // entry set on purpose — only these two lost an address of their own.
-type OrgEntry = "data-model" | "ai";
+type AdminEntry = "data-model" | "ai";
 
 export function useBuiltinCommands(): Command[] {
   const t = useT();
@@ -81,14 +84,14 @@ export function useBuiltinCommands(): Command[] {
     // address, and the rest are reachable by the rail door beside them.
     // Each carries the entry it opens, so the gate below reads the same answer the
     // settings level does rather than a second copy of the predicate.
-    const settingsShortcuts: readonly (Command & { entry: OrgEntry })[] = [
+    const settingsShortcuts: readonly (Command & { entry: AdminEntry })[] = [
       {
         entry: "data-model",
         id: "screen:settings-data-model",
         label: t("settings.tab.data-model"),
         keywords: ["custom-fields", "products", "offer-templates", "pipelines"],
         type: "screen",
-        route: { screen: "settings", id: "data-model" },
+        route: settingsAddress("data-model"),
       },
       {
         entry: "ai",
@@ -96,7 +99,7 @@ export function useBuiltinCommands(): Command[] {
         label: t("settings.tab.ai"),
         keywords: ["automations"],
         type: "screen",
-        route: { screen: "settings", id: "ai" },
+        route: settingsAddress("ai"),
       },
     ];
     const settingsScreens: Command[] = settingsShortcuts.filter(

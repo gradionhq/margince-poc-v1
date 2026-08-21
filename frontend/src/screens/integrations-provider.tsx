@@ -14,15 +14,16 @@ import {
   EmptyState,
   Field,
   OverflowMenu,
+  TableScroll,
   TextInput,
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
-import { Eyebrow } from "../design-system/eyebrow";
 import { type Fact, FactList } from "../design-system/factlist";
-import { Panel, PanelBody, PanelPlate, PanelRow } from "../design-system/panel";
+import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { ProviderMark } from "../design-system/provider-mark";
 import { Meter } from "../design-system/readings";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
 import {
@@ -35,20 +36,23 @@ import {
 import { connectionLabel, connectionTone } from "./provider-status";
 
 // The licensed-data-provider card (ADR-0101, PI-WIRE-1..5): connect a key,
-// see what the provider says is left, decide whether new contacts are
-// enriched automatically, and — separately — stop the flow or destroy what
-// was bought.
+// decide whether new contacts are enriched automatically, and read what the
+// provider says is left against what this installation has spent.
 //
-// Disconnect and delete-data are two buttons because they are two decisions.
+// Four settings ROWS, in the order a reader needs them: the key that makes any
+// of this possible, the one judgement that spends it, then the two readings
+// those two produce. The readings take the full width because a table IS the
+// subject rather than an answer to a question; the key and the switch are
+// answers, so they sit in the right column at the same x as every other card on
+// the page.
+//
+// Disconnect and delete-data are two verbs because they are two decisions.
 // Disconnecting stops new lookups and destroys the key; the data already paid
-// for stays on the records. A customer may want either without the other, and
-// a single button would make one of them a surprise.
-//
-// They are also not the same WEIGHT as connecting, which is why neither stands
-// in the button row any more: Connect is the move this block offers, and the
-// two ways to undo it live behind the overflow. Three buttons eight pixels
-// apart, one of which irreversibly destroys purchased contact data, made a
-// misclick the same size as a decision.
+// for stays on the records. A customer may want either without the other, and a
+// single button would make one of them a surprise. Neither is the same WEIGHT as
+// connecting, which is why both live behind the overflow beside it: three
+// buttons eight pixels apart, one of which irreversibly destroys purchased
+// contact data, made a misclick the same size as a decision.
 
 type ProviderConnection = components["schemas"]["ProviderConnection"];
 
@@ -106,7 +110,7 @@ export function ProviderCard() {
           a skeleton, a refusal, the no-provider state — brings the body's own
           top padding with it, and two stacked bodies would space them twice. */}
       <PanelBody className="provider-intro">
-        <p className="t-caption">{t("provider.sub")}</p>
+        <p className="settings-panel-sub">{t("provider.sub")}</p>
         {/* Hoisted OUT of QueryGate, the way the neighbouring webhooks card
             already does it: the gate's empty and error branches replace their
             children wholesale, so a posture line nested inside would go quiet
@@ -115,7 +119,9 @@ export function ProviderCard() {
             card keeps its place and says ONCE what a reader without any of the
             three writes is looking at; the controls below are then simply
             absent (design-system README, "Absent, disabled, or withheld"). */}
-        {readOnly && <p className="t-caption">{t("provider.readOnly")}</p>}
+        {readOnly && (
+          <p className="settings-panel-sub">{t("provider.readOnly")}</p>
+        )}
       </PanelBody>
       <QueryGate query={query}>
         {(result) =>
@@ -162,8 +168,9 @@ function ProviderConnectionRow({
       {/* The provider is what this block is ABOUT, so it names it as a
           heading: the panel's own h2 is "Contact data", and heading navigation
           that lands there has to be able to step into one provider at a time.
-          That fixes the level for everything nested here — the blocks below
-          are h4 eyebrows, one step under this name. */}
+          The rows under it are named by their own labels rather than by
+          headings — a settings row's naming is the label, which is what puts
+          every answer on this page at one x. */}
       <PanelRow>
         <div className="provider-head">
           <span className="provider-mark">
@@ -175,50 +182,41 @@ function ProviderConnectionRow({
           </Badge>
         </div>
       </PanelRow>
-      {/* What IS, on the recessed plate: two readings a rep comes here to
-          check. What to DO runs full-bleed on the panel's own ground below,
-          and the two halves are distinguishable before a word of either is
-          read (panel.tsx, PanelPlate). */}
-      <PanelPlate>
-        <div className="provider-block">
-          <CreditsBlock connection={connection} />
-        </div>
-        <div className="provider-block">
-          <SpendBlock connection={connection} />
-        </div>
-      </PanelPlate>
       <PanelBody>
-        <div className="provider-block">
-          <PolicyBlock connection={connection} canEdit={canEdit} />
-        </div>
-        <div className="provider-block">
-          <CredentialBlock
+        <SettingList>
+          <CredentialRow
             connection={connection}
             canConnect={canConnect}
             canDestroy={canDestroy}
           />
-        </div>
+          <PolicyRow connection={connection} canEdit={canEdit} />
+          <SettingRow
+            label={t("provider.credits")}
+            layout="stack"
+            control={<CreditsReading connection={connection} />}
+          />
+          <SettingRow
+            label={t("provider.spend")}
+            description={t("provider.spend.hint")}
+            layout="stack"
+            control={<SpendReading connection={connection} />}
+          />
+        </SettingList>
       </PanelBody>
     </>
   );
 }
 
-// What THIS installation consumed, directly under what the provider says is
-// left — the two are the questions a customer asks together, and seeing them
-// side by side is what stops either being mistaken for the other. The label
-// says whose number it is; the hint says why they can legitimately differ.
-function SpendBlock({
+// What THIS installation consumed. The hint on the row above says why it can
+// legitimately differ from the provider's own invoice: the same credits are
+// spendable through their app, so neither figure is a check on the other.
+function SpendReading({
   connection,
 }: Readonly<{ connection: ProviderConnection }>) {
   const t = useT();
   const months = connection.spend?.months ?? [];
   if (months.length === 0) {
-    return (
-      <>
-        <Eyebrow as="h4">{t("provider.spend")}</Eyebrow>
-        <p className="provider-empty">{t("provider.spend.none")}</p>
-      </>
-    );
+    return <p className="provider-empty">{t("provider.spend.none")}</p>;
   }
   // The series only carries months that HAD spend, so its newest entry is not
   // necessarily this one — an installation that bought nothing yet this month
@@ -226,55 +224,52 @@ function SpendBlock({
   const now = new Date();
   const current = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
   return (
-    <>
-      <Eyebrow as="h4">{t("provider.spend")}</Eyebrow>
-      {/* Five columns of billing, all of them reconciled against an invoice, so
-          none can be dropped on a narrow screen. The table scrolls sideways
-          inside the card the way DataTable's does (atoms.tsx). */}
-      <div className="table-scroll">
-        <table className="provider-spend-table">
-          <thead>
-            <tr>
-              <th>{t("provider.spend.month")}</th>
-              <th>{t("provider.spend.pool")}</th>
-              <th>{t("provider.spend.chargedHead")}</th>
-              <th>{t("provider.spend.heldHead")}</th>
-              <th>{t("provider.spend.runsHead")}</th>
+    // Five columns of billing, all of them reconciled against an invoice, so
+    // none can be dropped on a narrow screen. `TableScroll` is the one spelling
+    // of the box that scrolls inside the card, the same one DataTable puts
+    // every list it draws inside (atoms.tsx).
+    <TableScroll className="provider-reading" label={t("provider.spend")}>
+      <table className="provider-spend-table">
+        <thead>
+          <tr>
+            <th>{t("provider.spend.month")}</th>
+            <th>{t("provider.spend.pool")}</th>
+            <th>{t("provider.spend.chargedHead")}</th>
+            <th>{t("provider.spend.heldHead")}</th>
+            <th>{t("provider.spend.runsHead")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {months.map((month) => (
+            <tr key={`${month.month}-${month.pool}`}>
+              <td>
+                {month.month === current
+                  ? t("provider.spend.thisMonth")
+                  : month.month}
+              </td>
+              <td>{month.pool}</td>
+              <td>{month.charged_credits}</td>
+              {/* Never folded into the charge: the platform does not know
+                  whether those credits were spent, and a total that quietly
+                  counted them either way would assert something it cannot
+                  support. This is the figure a human reconciles against the
+                  provider's invoice. */}
+              <td className="provider-held">
+                {month.held_credits > 0 ? month.held_credits : "—"}
+              </td>
+              <td>{month.runs}</td>
             </tr>
-          </thead>
-          <tbody>
-            {months.map((month) => (
-              <tr key={`${month.month}-${month.pool}`}>
-                <td>
-                  {month.month === current
-                    ? t("provider.spend.thisMonth")
-                    : month.month}
-                </td>
-                <td>{month.pool}</td>
-                <td>{month.charged_credits}</td>
-                {/* Never folded into the charge: the platform does not know
-                    whether those credits were spent, and a total that quietly
-                    counted them either way would assert something it cannot
-                    support. This is the figure a human reconciles against the
-                    provider's invoice. */}
-                <td className="provider-held">
-                  {month.held_credits > 0 ? month.held_credits : "—"}
-                </td>
-                <td>{month.runs}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="provider-block-hint">{t("provider.spend.hint")}</p>
-    </>
+          ))}
+        </tbody>
+      </table>
+    </TableScroll>
   );
 }
 
 // What the PROVIDER says is left — their number, never ours. A customer may
 // spend the same credits through the provider's own app, so this is a reading
 // of their ledger and the card never presents it as our accounting.
-function CreditsBlock({
+function CreditsReading({
   connection,
 }: Readonly<{ connection: ProviderConnection }>) {
   const t = useT();
@@ -299,12 +294,10 @@ function CreditsBlock({
     );
   }
   const highest = Math.max(1, ...pools.map(([, balance]) => balance ?? 0));
-  // A pool is one reading inside the credits block, not a section of its own:
-  // FactList's `dt` is the row label the grid was built for, and promoting each
-  // to a heading would fill the outline with rows instead of the questions the
-  // card asks. The bar rides in `note`, under the figure it qualifies — and it
-  // carries the pool's name itself, since a role="meter" takes no accessible
-  // name from the text sitting beside it.
+  // A pool is one reading inside the row, not a section of its own: FactList's
+  // `dt` is the row label the grid was built for. The bar rides in `note`,
+  // under the figure it qualifies — and it carries the pool's name itself,
+  // since a role="meter" takes no accessible name from the text beside it.
   const facts: Fact[] = pools.map(([pool, balance]) => ({
     key: pool,
     term: pool,
@@ -312,8 +305,7 @@ function CreditsBlock({
     note: <Meter value={balance ?? 0} max={highest} label={pool} flat />,
   }));
   return (
-    <>
-      <Eyebrow as="h4">{t("provider.credits")}</Eyebrow>
+    <div className="provider-reading">
       <FactList className="provider-pools" facts={facts} numeric />
       {(connection.effective_constraints ?? []).length > 0 && (
         <p className="provider-block-hint">
@@ -321,7 +313,7 @@ function CreditsBlock({
           {(connection.effective_constraints ?? []).join(", ")}
         </p>
       )}
-    </>
+    </div>
   );
 }
 
@@ -380,15 +372,11 @@ function usePatchConfiguration(
 // Auto-enrich is the one control here that a reader who may not change it still
 // needs to READ: it is the only place the installation says whether new contacts
 // are being enriched at somebody's expense. So it is neither absent (that would
-// hide a granted read) nor withheld (there is a fact to show) — it is the shape the
-// design system keeps for exactly this: a Switch, because flipping it writes, with
-// `reason` carrying the denial to a screen reader through aria-describedby rather
-// than leaving it beside the control as decoration.
-//
-// It carries a heading for the same reason the read-only blocks do. It was the
-// only block on the card WITHOUT one, which put three things a reader cannot
-// change into the document outline and left the one setting they can out of it.
-function PolicyBlock({
+// hide a granted read) nor withheld (there is a fact to show) — it is the shape
+// the design system keeps for exactly this: a Switch, because flipping it
+// writes, with `reason` carrying the denial to a screen reader through
+// aria-describedby rather than leaving it beside the control as decoration.
+function PolicyRow({
   connection,
   canEdit,
 }: Readonly<{ connection: ProviderConnection; canEdit: boolean }>) {
@@ -398,28 +386,48 @@ function PolicyBlock({
   const disconnected = connection.status !== "connected";
   return (
     <>
-      <Eyebrow as="h4">{t("provider.mode")}</Eyebrow>
-      <Switch
-        checked={configuration.automatic_individual_create ?? false}
-        // Three causes, and only one of them is worth words. A permission is
-        // permanent and has to be explained; a write in flight explains itself by
-        // finishing, and a disconnected provider is already stated by the status
-        // beside it.
-        //
-        // The shared single-control sentence, not the card's own posture line: that
-        // one names why the CARD is read-only and would say the same thing twice
-        // here, once as prose and once attached to the control.
-        reason={canEdit ? undefined : t("captureSettings.adminOnly")}
-        disabled={!canEdit || disconnected}
-        pending={patch.isPending}
-        onChange={(next) => patch.mutate(next)}
+      <SettingRow
         label={t("provider.autoEnrich")}
+        description={t("provider.autoEnrichHint")}
+        control={(control) => (
+          <Switch
+            // The row's description reaches the switch: what auto-enrich DOES
+            // is the sentence on the left, and a node-form control cannot see
+            // the id the row minted for it.
+            describedBy={control["aria-describedby"]}
+            checked={configuration.automatic_individual_create ?? false}
+            // Three causes, and only one of them is worth words. A permission
+            // is permanent and has to be explained; a write in flight explains
+            // itself by finishing, and a disconnected provider is already
+            // stated by the status beside the provider's name.
+            //
+            // The shared single-control sentence, not the card's own posture
+            // line: that one names why the CARD is read-only and would say the
+            // same thing twice here, once as prose and once attached to the
+            // control.
+            reason={canEdit ? undefined : t("captureSettings.adminOnly")}
+            disabled={!canEdit || disconnected}
+            pending={patch.isPending}
+            onChange={(next) => patch.mutate(next)}
+            // The row already draws this name on the left, so the switch keeps
+            // its own copy hidden: it owns its accessible name by design (see
+            // switch.tsx) and pointing it at the row's span as well would name
+            // it twice.
+            label={t("provider.autoEnrich")}
+            labelHidden
+          />
+        )}
       />
-      <p className="provider-block-hint">{t("provider.autoEnrichHint")}</p>
+      {/* Under the row whose flip failed, at the row's full width, rather than
+          squeezed into the control column beside the switch: the reason names
+          what the reader just tried to change, and a sentence sharing a
+          nowrap flex line with a switch is a sentence nobody reads. */}
       {patch.error && (
-        <Callout tone="danger" live="alert">
-          {problemMessageOf(patch.error, t)}
-        </Callout>
+        <div className="provider-row-note">
+          <Callout tone="danger" live="alert">
+            {problemMessageOf(patch.error, t)}
+          </Callout>
+        </div>
       )}
     </>
   );
@@ -427,7 +435,7 @@ function PolicyBlock({
 
 // The two destructive decisions, behind the overflow they share. A component
 // rather than duplicated JSX because they render in two places: beside the key
-// form for a reader who may also connect, and alone for one who may not.
+// verb for a reader who may also connect, and alone for one who may not.
 //
 // The overflow is the point, not the tidiness. Disconnect is recoverable —
 // reconnect the key and lookups resume — while delete-data irreversibly
@@ -451,7 +459,74 @@ function DestructiveActions({
   );
 }
 
-function CredentialBlock({
+// The key, and the confirm it is submitted through. Mounted only while it is
+// open: a key sealed server-side is never returned, so holding a typed one
+// after a dialog the reader abandoned would keep a secret in the page for no
+// purpose at all.
+//
+// The field lives INSIDE the confirm rather than behind a second dialog on top
+// of it. The posture is the same either way — nothing is sent until the confirm
+// is pressed — and this way the sentence about what connecting costs is on
+// screen while the key is being pasted.
+function CredentialDialog({
+  connection,
+  pending,
+  error,
+  onClose,
+  onConnect,
+}: Readonly<{
+  connection: ProviderConnection;
+  pending: boolean;
+  error: string | null;
+  onClose: () => void;
+  onConnect: (apiKey: string) => void;
+}>) {
+  const t = useT();
+  const [key, setKey] = useState("");
+  const connected = connection.credential_present;
+  return (
+    <ConfirmModal
+      open
+      title={t("provider.connectConfirm.title")}
+      confirmLabel={connected ? t("provider.reconnect") : t("provider.connect")}
+      confirmDisabled={key.trim() === ""}
+      onConfirm={() => onConnect(key.trim())}
+      onClose={onClose}
+      pending={pending}
+      error={error}
+    >
+      <p className="t-small">{t("provider.connectConfirm.body")}</p>
+      {/* The field is write-only in both states: a sealed key is never sent
+          back to the browser, so the box is empty even when one is in place.
+          Left unexplained that reads as "no key connected" while the card
+          behind it shows a live balance — so the label and the hint say which
+          state this is, and the placeholder does not pretend to hold a
+          value. */}
+      <Field
+        label={connected ? t("provider.apiKeyStored") : t("provider.apiKey")}
+        hint={
+          connected ? t("provider.apiKeyReplaceHint") : t("provider.apiKeyHint")
+        }
+      >
+        {(control) => (
+          <TextInput
+            {...control}
+            type="password"
+            autoComplete="off"
+            value={key}
+            required
+            placeholder={
+              connected ? t("provider.apiKeyReplacePlaceholder") : ""
+            }
+            onChange={(event) => setKey(event.target.value)}
+          />
+        )}
+      </Field>
+    </ConfirmModal>
+  );
+}
+
+function CredentialRow({
   connection,
   canConnect,
   canDestroy,
@@ -462,28 +537,29 @@ function CredentialBlock({
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
-  const [key, setKey] = useState("");
-  const [confirming, setConfirming] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [typed, setTyped] = useState("");
 
   const connect = useMutation({
-    mutationFn: async () => {
+    // The key arrives as a variable rather than through a closure over the
+    // dialog's state: the press belongs to the committed render, so what it
+    // carries cannot be older than the field the reader typed into.
+    mutationFn: async (apiKey: string) => {
       const { error } = await api.PUT("/provider-connections/{provider}", {
         params: { path: { provider: connection.provider } },
-        body: { api_key: key },
+        body: { api_key: apiKey },
       });
       if (error) {
         throwProblem(error);
       }
     },
     onSuccess: () => {
-      // The key never lives in this component longer than the request: it is
-      // sealed server-side and never returned, so holding it would keep a
+      // Closing unmounts the dialog, which is what discards the typed key: it
+      // is sealed server-side and never returned, so keeping it would hold a
       // secret in the page for no purpose.
-      setKey("");
-      setConfirming(false);
+      setConnecting(false);
       void queryClient.invalidateQueries({
         queryKey: ["provider-connections"],
       });
@@ -533,97 +609,56 @@ function CredentialBlock({
   // grant is what makes it permitted.
   const destructive = connected && canDestroy;
   return (
-    <div className="provider-credential">
-      {/* The key field goes with the submit it feeds: it is write-only and
-          exists for no other purpose, so a reader who may not connect has
-          nothing to type into it. */}
-      {canConnect && (
-        <form
-          className="form-stack"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (key.trim() !== "") {
-              setConfirming(true);
-            }
-          }}
-        >
-          {/* The field is write-only in both states: a sealed key is never sent
-              back to the browser, so the box is empty even when one is in
-              place. Left unexplained that reads as "no key connected" while the
-              card above shows a live balance — so the label and the hint say
-              which state this is, and the placeholder does not pretend to hold
-              a value. */}
-          <Field
-            label={
-              connected ? t("provider.apiKeyStored") : t("provider.apiKey")
-            }
-            hint={
-              connected
-                ? t("provider.apiKeyReplaceHint")
-                : t("provider.apiKeyHint")
-            }
-          >
-            {(control) => (
-              <TextInput
-                {...control}
-                type="password"
-                autoComplete="off"
-                value={key}
-                required
-                placeholder={
-                  connected ? t("provider.apiKeyReplacePlaceholder") : ""
-                }
-                onChange={(event) => setKey(event.target.value)}
-              />
+    <>
+      <SettingRow
+        label={t("provider.apiKey")}
+        description={
+          connected ? t("provider.apiKeyReplaceHint") : t("provider.apiKeyHint")
+        }
+        control={
+          <>
+            {/* The key field goes behind the verb it feeds: two of the three
+                things a connect needs — the key and the confirmation that it
+                costs money — are not answers that fit in a row's right
+                column. A reader who may not connect has nothing to open. */}
+            {canConnect && (
+              <Button
+                small
+                variant="primary"
+                type="button"
+                onClick={() => setConnecting(true)}
+              >
+                <Plug aria-hidden />{" "}
+                {connected ? t("provider.reconnect") : t("provider.connect")}
+              </Button>
             )}
-          </Field>
-          <div className="provider-actions">
-            <Button
-              small
-              variant="primary"
-              type="submit"
-              disabled={key.trim() === ""}
-            >
-              <Plug aria-hidden />{" "}
-              {connected ? t("provider.reconnect") : t("provider.connect")}
-            </Button>
+            {/* Stopping the flow and destroying what was bought are a
+                different authority from connecting, so they stand on their own
+                for a reader who holds one grant and not the other. */}
             {destructive && (
               <DestructiveActions
                 onDisconnect={() => setDisconnecting(true)}
                 onDeleteData={() => setDeleting(true)}
               />
             )}
-          </div>
-        </form>
-      )}
-      {/* Stopping the flow and destroying what was bought are a different
-          authority from connecting, so they stand on their own for a reader who
-          holds one grant and not the other. */}
-      {!canConnect && destructive && (
-        <div className="provider-actions">
-          <DestructiveActions
-            onDisconnect={() => setDisconnecting(true)}
-            onDeleteData={() => setDeleting(true)}
-          />
-        </div>
-      )}
-      {connect.error && (
-        <Callout tone="danger" live="alert">
-          {problemMessageOf(connect.error, t)}
-        </Callout>
-      )}
+          </>
+        }
+      />
 
-      <ConfirmModal
-        open={confirming}
-        title={t("provider.connectConfirm.title")}
-        confirmLabel={t("provider.connect")}
-        onConfirm={() => connect.mutate()}
-        onClose={() => setConfirming(false)}
-        pending={connect.isPending}
-        error={connect.isError ? problemMessageOf(connect.error, t) : null}
-      >
-        {t("provider.connectConfirm.body")}
-      </ConfirmModal>
+      {connecting && (
+        <CredentialDialog
+          connection={connection}
+          pending={connect.isPending}
+          error={connect.isError ? problemMessageOf(connect.error, t) : null}
+          onClose={() => setConnecting(false)}
+          onConnect={(apiKey) => {
+            if (!canConnect) {
+              return;
+            }
+            connect.mutate(apiKey);
+          }}
+        />
+      )}
 
       {/* Both destructive confirms carry their own mutation's failure. Without
           it the dialog simply closed on a refusal and the card looked exactly
@@ -673,6 +708,6 @@ function CredentialBlock({
           )}
         </Field>
       </ConfirmModal>
-    </div>
+    </>
   );
 }

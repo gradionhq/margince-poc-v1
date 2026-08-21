@@ -9,7 +9,7 @@ import {
 } from "./story-utils";
 
 const meta: Meta = {
-  title: "Settings/Organization/Data model/Products",
+  title: "Settings/Admin settings/Data model/Products",
   parameters: { layout: "padded" },
 };
 export default meta;

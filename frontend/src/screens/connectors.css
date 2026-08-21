@@ -1,36 +1,13 @@
-/* Connected inboxes (Settings → Connections): the roster rows and the add
-   affordance. Split out of settings.css so the sheet sits beside the screen
-   that draws it.
+/* Connected inboxes and the workspace's messaging bot (Settings → Connections):
+   the two panels' row content. Split out of settings.css so the sheet sits
+   beside the screen that draws it.
 
-   The mail roster rows are the panel's own full-bleed rows now, so this sheet
-   describes their LAYOUT and nothing else — the hairline, the padding and the
-   hover belong to PanelRow, and a border drawn here as well was the second
-   card nested inside the first. */
+   Both panels' rows are SettingRows now, so the row itself — the two columns,
+   the hairline between them, the vertical rhythm — belongs to
+   design-system/settingrow.css. What is left here is only what is specific to a
+   CONNECTION: the identity block, the health facts under it, and the strips of
+   verbs that change it. */
 
-.connectors-list {
-  list-style: none;
-  margin: var(--space-3) 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.connector-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  min-width: 0;
-}
-/* The bordered variant, for a row that sits one level deeper — inside the
-   panel's padded body rather than on its own ground, where a full-bleed
-   hairline has no edge to run to. */
-.connector-card {
-  padding: var(--space-3);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-}
 .connector-id {
   display: flex;
   align-items: center;
@@ -54,46 +31,66 @@
    page scroll sideways on a phone. */
 .connector-account {
   color: var(--textSecondary);
+  font-weight: var(--fw-regular);
   overflow-wrap: anywhere;
 }
-.connector-synced {
-  color: var(--textSecondary);
+
+/* One health fact per line inside the row's description. The description is a
+   single <p> that the row owns, so the facts inside it are spans and it is this
+   rule — not a stack of paragraphs — that puts each on its own line. */
+.connector-fact {
+  display: block;
 }
 /* The row's own failure sentence. A class rather than an inline style, so the
    danger tone is named in a stylesheet like every other colour in the tree. */
 .connector-error {
   color: var(--danger);
 }
-/* The verbs on a roster row and the provider picks under "Add a connection"
-   are ONE row shape, declared once — two strips of buttons that disagreed
-   about alignment (one centred, one left to the flex default) drew the same
-   thing two different ways.
 
-   The buttons keep their own widths on purpose. `small` is the rung that
-   deliberately drops `.btn`'s 6rem floor (design-system/base.css says why: it
-   lives in dense rows, where a floor is what breaks the layout), and a shared
-   minimum only aligns buttons that are STACKED. Side by side, every label
-   longer than the floor still sets its own width, so a floor here would widen
-   "Gmail" toward "Google Calendar" without ever making the two ends line up. */
-.connector-actions,
-.connector-add-actions {
+/* Two badges answering one row — the status, and the send refusal that can ride
+   alongside it. They wrap rather than widen the control column. */
+.connector-badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The verbs on a roster row — Reconnect beside Disconnect. They keep their own
+   widths on purpose: `small` is the rung that deliberately drops `.btn`'s 6rem
+   floor (design-system/base.css says why: it lives in dense rows, where a floor
+   is what breaks the layout), and a shared minimum only aligns buttons that are
+   STACKED. Side by side, every label longer than the floor still sets its own
+   width, so a floor here would widen one toward the other without ever making
+   the two ends line up. */
+.connector-actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
 }
-/* A note that belongs to the row above it: the BackfillPanel, and the reason a
-   reconnect from this row failed. The row is flex-wrap: wrap, so a 100%-basis
-   child cannot share a line with its siblings and drops below them. */
-.connector-backfill,
-.connector-row-note {
-  flex-basis: 100%;
+
+/* A row's control column when it has to report as well as offer: the strip of
+   verbs, and under it the reason the last press failed. The reason belongs
+   directly beneath the button that produced it — a shared error band further
+   down the card names no button at all. */
+.connector-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
   min-width: 0;
-  margin-top: var(--space-2);
 }
 
-/* A failure reported directly under the buttons that produced it still needs
-   to read as a separate thing from them, not as a fifth item in the strip. */
-.connector-add-note {
-  margin-top: var(--space-3);
+/* The history import belongs to the mailbox row ABOVE it, not beside it, so it
+   stands as its own child of the list and gives up the hairline that would
+   otherwise read as a row of its own. (It is a sibling rather than a
+   Disclosure because <details> renders its children while closed, and this
+   panel fires a scope-preview request from an effect — see the note in
+   connectors.tsx.) */
+.settinglist > .connector-backfill {
+  border-top: 0;
+  padding-bottom: var(--space-3);
+  min-width: 0;
 }

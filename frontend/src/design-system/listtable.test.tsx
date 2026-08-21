@@ -204,6 +204,60 @@ describe("filter chips", () => {
   });
 });
 
+describe("column widths", () => {
+  /** The `<col>` width the table hands column `key`, as the caller reads it. */
+  function widthOf(container: HTMLElement, index: number): string {
+    const col = container.querySelectorAll(".lt-table col")[index];
+    if (!(col instanceof HTMLTableColElement)) {
+      throw new Error(`no col at index ${index}`);
+    }
+    return col.style.width;
+  }
+
+  // The defect this pins: the minimums used to be summed into the table's own
+  // min-width and never applied to a column, so a column whose share came out
+  // under its minimum took the share and cut its content off. jsdom reports a
+  // zero-width body, which is the narrowest case there is — every column is
+  // then at its floor, and its floor is what has to be on the element.
+  it("never hands a column less than the minimum its kind declares", () => {
+    const { container } = render(
+      <ListTable
+        rows={testRows(1)}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+      />,
+    );
+    // identity, numeric, standard, standard — COLUMN_SIZES' own floors.
+    expect(widthOf(container, 0)).toBe("200px");
+    expect(widthOf(container, 1)).toBe("110px");
+    expect(widthOf(container, 2)).toBe("130px");
+    expect(widthOf(container, 3)).toBe("130px");
+  });
+
+  // A verbs column is sized by its buttons, so it takes its width outright
+  // instead of a share: a fraction of a 654px settings column is not a width
+  // "Produkt archivieren" fits in, and a half-drawn verb is an unusable one.
+  it("gives a verbs column its own width, whatever the table's is", () => {
+    const { container } = render(
+      <ListTable
+        rows={testRows(1)}
+        columns={[
+          ...columns,
+          { key: "actions", header: "Actions", cell: () => "-", verbs: true },
+        ]}
+        rowKey={(row) => row.id}
+        unit="rows"
+      />,
+    );
+    expect(widthOf(container, 4)).toBe("320px");
+    // And the columns beside it keep their own floors rather than being
+    // squeezed to pay for it.
+    expect(widthOf(container, 0)).toBe("200px");
+    expect(widthOf(container, 1)).toBe("110px");
+  });
+});
+
 describe("the frozen column's edge", () => {
   it("only casts a shadow once columns have scrolled under it", () => {
     const { container } = render(

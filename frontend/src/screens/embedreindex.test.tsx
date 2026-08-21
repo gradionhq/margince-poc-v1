@@ -147,6 +147,33 @@ it("shows the estimate + utilization disclosure and disables confirm until the e
   expect(screen.getByText(/would enter economy mode|degraded/i)).toBeTruthy();
 });
 
+it("states a failed estimate as the dialog's own refusal rather than as red text", async () => {
+  mount(REINDEX_OPERATOR, {
+    "GET /embeddings/reindex/status": () => json(STATUS_NEEDED),
+    "GET /embeddings/reindex/preview": () =>
+      json(
+        {
+          title: "Service Unavailable",
+          detail: "the estimator could not be reached",
+          status: 503,
+          code: "unavailable",
+        },
+        503,
+      ),
+  });
+
+  await userEvent.click(await screen.findByText("Review & reindex"));
+
+  // The server's own sentence, and it is what the dialog says ABOUT ITSELF —
+  // the reason Confirm is refused — so it is spoken as an alert rather than
+  // carried in a colour a reader may not perceive.
+  const refusal = await screen.findByText("the estimator could not be reached");
+  expect(refusal.closest('[role="alert"]')).not.toBeNull();
+  expect(
+    await screen.findByRole("button", { name: "Start reindex" }),
+  ).toBeDisabled();
+});
+
 it("posts previewed_identity from the status read and force:false on a plain confirm", async () => {
   const { requests } = mount(REINDEX_OPERATOR, {
     "GET /embeddings/reindex/status": () => json(STATUS_NEEDED),
@@ -186,9 +213,16 @@ it("Rebuild index stays available even when no reindex is needed, and posts forc
   });
 
   expect(await screen.findByText("Rebuild index")).toBeTruthy();
+  // The naming of the row the button answers, not only the button: an action
+  // row is a label, a help line and a verb, and a verb standing in the list
+  // without the two says nothing about what it will do.
+  expect(screen.getByText("Rebuild the whole index")).toBeTruthy();
   // The "Review & reindex" trigger only appears when a reindex is actually
-  // needed — Rebuild is the always-available affordance instead.
+  // needed — Rebuild is the always-available affordance instead. Its whole ROW
+  // goes with it: a naming line left behind would offer an action nothing can
+  // start.
   expect(screen.queryByText("Review & reindex")).toBeNull();
+  expect(screen.queryByText("Reindex what changed")).toBeNull();
 
   await userEvent.click(screen.getByText("Rebuild index"));
   const confirmButton = await screen.findByRole("button", {
@@ -277,8 +311,16 @@ it("renders the status but no rebuild actions on the read grant alone", async ()
   // a broken READ binding produces, and is exactly the case this test exists to
   // distinguish.
   expect(await screen.findByText("Reindex needed")).toBeTruthy();
+  // The status row keeps its own naming, so the reading is still labelled for a
+  // seat that may only read it.
+  expect(screen.getByText("Index status")).toBeTruthy();
   expect(screen.queryByText("Review & reindex")).toBeNull();
   expect(screen.queryByRole("button", { name: /Rebuild/ })).toBeNull();
+  // Both ACTION rows go whole. A naming line whose control the update grant
+  // withheld would describe a rebuild this reader cannot start, which reads as a
+  // broken card rather than as a boundary.
+  expect(screen.queryByText("Reindex what changed")).toBeNull();
+  expect(screen.queryByText("Rebuild the whole index")).toBeNull();
 });
 
 // Withheld, not absent: the card shares the maintenance page with sections a
@@ -301,8 +343,10 @@ it("says the search index is withheld, and asks the server for nothing", async (
   // the denial is already known, so the status query never fires rather than
   // turning it into an "unavailable" the reader cannot act on.
   expect(screen.queryByText("Reindex needed")).toBeNull();
+  expect(screen.queryByText("Index status")).toBeNull();
   expect(screen.queryByText("Review & reindex")).toBeNull();
   expect(screen.queryByText("Rebuild index")).toBeNull();
+  expect(screen.queryByText("Rebuild the whole index")).toBeNull();
   expect(requests.some((r) => r.url === "/embeddings/reindex/status")).toBe(
     false,
   );

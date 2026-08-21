@@ -32,7 +32,7 @@ const MANAGER = { capture_settings: ["read", "update"] } as const;
 const READER = { capture_settings: ["read"] } as const;
 
 const meta: Meta<typeof CaptureSettingsCard> = {
-  title: "Settings/Organization/Capture/Capture posture",
+  title: "Settings/Admin settings/Capture/Capture posture",
   component: CaptureSettingsCard,
 };
 export default meta;

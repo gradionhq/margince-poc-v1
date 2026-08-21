@@ -2,9 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Card, StatCard } from "../design-system/atoms";
+import { StatCard } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Meter } from "../design-system/readings";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { StatStrip } from "../design-system/statstrip";
 import { useT } from "../i18n";
 import { QueryGate, throwProblem } from "./common";
@@ -27,7 +29,8 @@ import { LicenseHolderCard } from "./licenseholder";
 //
 // A strip rather than two cards, because the two numbers are ONE comparison —
 // used against granted is the whole question this screen answers, and cards are
-// read one at a time.
+// read one at a time. It sits in one stacked `SettingRow`, for the same reason:
+// a row per figure would split the comparison the strip exists to make.
 //
 // Over the limit is REPORTED, never enforced. The workspace keeps working — P7's
 // warning-then-grace, not a silent mid-month lockout — so the notice says what is
@@ -91,65 +94,92 @@ export function LicenseReading({
   const capped = granted !== undefined && granted !== null;
 
   return (
-    <Card
-      className="card-stack"
-      title={t("license.card.title")}
-      // The state is said in words rather than as a coloured pill alone: "no
-      // license" and "licensed" are different facts about the installation, and a
-      // reader should not have to learn a colour to tell them apart.
-      sub={
-        capped
-          ? t("license.state.licensed")
-          : entitlement.state === "valid"
-            ? t("license.state.uncapped")
-            : t("license.state.unlicensed")
-      }
-    >
-      {entitlement.over_limit && (
-        // `alert` interrupts, which is right here and nowhere else on this
-        // screen: the installation is past what it is entitled to, and that is a
-        // thing the admin has to act on rather than notice eventually.
-        <Callout
-          tone="danger"
-          live="alert"
-          icon={TriangleAlert}
-          title={t("license.over.title")}
-        >
-          {t("license.over.body", {
-            used: String(entitlement.seats_used),
-            granted: String(granted),
-          })}
-        </Callout>
-      )}
-      <StatStrip>
-        <StatCard
-          label={t("license.seats.used")}
-          value={String(entitlement.seats_used)}
-          // The slot itself is the bad news when the count is past the grant, so
-          // `alert` rather than `tone`, which would only colour the figure.
-          alert={entitlement.over_limit}
-        />
-        <StatCard
-          label={t("license.seats.granted")}
-          // Absent, not zero, and it says which absence it is: an unlicensed
-          // installation and a license that caps nothing both have no number
-          // here, and only the first is something an admin might want to change.
-          value={capped ? String(granted) : t("license.seats.uncapped")}
-        />
-      </StatStrip>
-      {capped && (
-        <Meter
-          value={entitlement.seats_used}
-          max={granted}
-          // A role="meter" takes no accessible name from the slots beside it, so
-          // the reading is named here rather than by the label above it.
-          label={t("license.meter.label", {
-            used: String(entitlement.seats_used),
-            granted: String(granted),
-          })}
-        />
-      )}
-      <p className="muted">{t("license.counting")}</p>
-    </Card>
+    // A `Panel`, like every other card on every other settings page. This card
+    // was the last `Card` on the surface, and a `Card` draws its title INSIDE
+    // the padded body with no band and no rule — so on a page of panels it read
+    // as a different kind of object rather than as one more card.
+    <Panel title={t("license.card.title")}>
+      <PanelBody>
+        {/* The state is said in words rather than as a coloured pill alone: "no
+            license" and "licensed" are different facts about the installation,
+            and a reader should not have to learn a colour to tell them apart. */}
+        <p className="settings-panel-sub">
+          {capped
+            ? t("license.state.licensed")
+            : entitlement.state === "valid"
+              ? t("license.state.uncapped")
+              : t("license.state.unlicensed")}
+        </p>
+        {entitlement.over_limit && (
+          // `alert` interrupts, which is right here and nowhere else on this
+          // screen: the installation is past what it is entitled to, and that is a
+          // thing the admin has to act on rather than notice eventually.
+          <Callout
+            tone="danger"
+            live="alert"
+            icon={TriangleAlert}
+            title={t("license.over.title")}
+          >
+            {t("license.over.body", {
+              used: String(entitlement.seats_used),
+              granted: String(granted),
+            })}
+          </Callout>
+        )}
+        <SettingList>
+          {/* ONE row, stacked. The two figures and the bar under them are the
+            card's SUBJECT rather than an answer that fits in a right-hand
+            column (design-system README, `SettingList` / `SettingRow`): used
+            against granted is the whole question this screen answers, and
+            splitting it into two rows would make it two readings. What counts
+            as a seat rides as the row's description — it is the rule the
+            figures are drawn under, which is exactly what a description is
+            for, and it used to sit at the foot of the card where a reader met
+            it after taking the numbers at face value. */}
+          <SettingRow
+            label={t("license.seats.title")}
+            description={t("license.counting")}
+            layout="stack"
+            control={
+              <div className="form-stack">
+                <StatStrip>
+                  <StatCard
+                    label={t("license.seats.used")}
+                    value={String(entitlement.seats_used)}
+                    // The slot itself is the bad news when the count is past the
+                    // grant, so `alert` rather than `tone`, which would only
+                    // colour the figure.
+                    alert={entitlement.over_limit}
+                  />
+                  <StatCard
+                    label={t("license.seats.granted")}
+                    // Absent, not zero, and it says which absence it is: an
+                    // unlicensed installation and a license that caps nothing
+                    // both have no number here, and only the first is something
+                    // an admin might want to change.
+                    value={
+                      capped ? String(granted) : t("license.seats.uncapped")
+                    }
+                  />
+                </StatStrip>
+                {capped && (
+                  <Meter
+                    value={entitlement.seats_used}
+                    max={granted}
+                    // A role="meter" takes no accessible name from the slots
+                    // beside it, so the reading is named here rather than by the
+                    // row's own label.
+                    label={t("license.meter.label", {
+                      used: String(entitlement.seats_used),
+                      granted: String(granted),
+                    })}
+                  />
+                )}
+              </div>
+            }
+          />
+        </SettingList>
+      </PanelBody>
+    </Panel>
   );
 }

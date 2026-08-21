@@ -6,22 +6,28 @@ import { useCan, useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
-  Card,
   Checkbox,
   EmptyState,
+  Modal,
   OverflowMenu,
-  SectionHeader,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { Switch } from "../design-system/switch";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AutomationInspectors } from "./automationdetail";
 import { DateFieldSelect } from "./automations.datefield";
-import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
+import {
+  problemMessageOf,
+  QueryGate,
+  type QueryLike,
+  throwProblem,
+  useMe,
+} from "./common";
 import "./automations.css";
 
 // The automations editor (B-EP09.15): a management UI over the CLOSED
@@ -164,7 +170,7 @@ function ParamFieldControl({
 }>) {
   if (field.kind === "boolean") {
     return (
-      <div className="field" style={{ marginTop: "var(--space-2)" }}>
+      <div className="field">
         <Checkbox
           label={field.key}
           checked={value === "true"}
@@ -176,7 +182,7 @@ function ParamFieldControl({
     );
   }
   return (
-    <div className="field" style={{ marginTop: "var(--space-2)" }}>
+    <div className="field">
       <span className="t-label" id={`${formId}-${field.key}`}>
         {field.key}
       </span>
@@ -211,8 +217,15 @@ function ParamFieldControl({
 
 // Pick-a-template + fill-parameters (B-E15.7b1). Also serves the edit flow:
 // initial values arrive from the instance instead of the schema defaults.
+//
+// It is the BODY of a dialog in both cases, never a panel that unfolds under a
+// row: a name plus every parameter the schema declares is a form submitted
+// together, and the settings page keeps a row an ANSWER by putting the form
+// behind the verb. So it draws the dialog's own heading — the caller owns the
+// id, since `Modal` needs it before this renders.
 function AutomationForm({
   entry,
+  titleId,
   initialName,
   initialParams,
   submitLabel,
@@ -221,6 +234,8 @@ function AutomationForm({
   onCancel,
 }: Readonly<{
   entry: CatalogEntry;
+  /** The id `Modal`'s `labelledBy` points at; this form's heading carries it. */
+  titleId: string;
   initialName: string;
   initialParams?: Automation["params"];
   submitLabel: string;
@@ -245,20 +260,22 @@ function AutomationForm({
   );
 
   return (
-    <Card
-      as="form"
-      inset
-      className="auto-form"
+    <form
+      className="form-stack"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit(name.trim() || entry.name, paramsFromValues(fields, values));
       }}
     >
-      <p className="t-label">{entry.name}</p>
-      <p className="t-mono t-small auto-recipe">
+      {/* The dialog covers the row that would otherwise have said which
+          automation is open, so the heading says it instead. */}
+      <h2 className="t-h3 modal-title" id={titleId}>
+        {initialName}
+      </h2>
+      <p className="t-mono t-small">
         {entry.trigger} {"->"} {entry.action}
       </p>
-      <div className="field auto-field">
+      <div className="field">
         <span className="t-label" id={`${formId}-name`}>
           {t("auto.name")}
         </span>
@@ -280,19 +297,21 @@ function AutomationForm({
           }
         />
       ))}
-      <div className="approval-gate auto-form-actions">
-        {/* Save STARTED the write, so it goes busy and keeps the focus the
-            reader is standing on; Cancel started nothing and is simply not
-            available while the write is out, since backing out of something
-            already on its way to the server would say it was stopped. */}
-        <Button type="submit" variant="primary" small pending={pending}>
-          {submitLabel}
-        </Button>
+      <div className="form-actions">
+        {/* Cancel first, submit last: the house submit row reads left to right
+            towards the primary action. Save STARTED the write, so it goes busy
+            and keeps the focus the reader is standing on; Cancel started
+            nothing and is simply not available while the write is out, since
+            backing out of something already on its way to the server would say
+            it was stopped. */}
         <Button small disabled={pending} onClick={onCancel}>
           {t("deals.cancel")}
         </Button>
+        <Button type="submit" variant="primary" small pending={pending}>
+          {submitLabel}
+        </Button>
       </div>
-    </Card>
+    </form>
   );
 }
 
@@ -425,11 +444,19 @@ type AutomationPatch = {
   body: AutomationPatchBody;
 };
 
-// Which of a row's two writes is in flight. One mutation serves the enable
-// switch and the edit form, so `isPending` alone makes each of them announce
-// the other's write — a switch reporting a flip nobody made while the reader
-// was pressing Save. The request body already tells them apart: only a status
-// flip carries `status`.
+// Which of a row's two writes a body describes. The request body is what tells
+// them apart — only a status flip carries `status` — and one mutation serves
+// both the enable switch and the edit dialog, so this is what keeps each of
+// them from speaking for the other: a switch reporting a flip nobody made
+// while the reader was pressing Save, or a refusal reported behind the dialog
+// that is covering it.
+function writeTarget(
+  write: AutomationPatch | undefined,
+): "status" | "definition" {
+  return write?.body.status === undefined ? "definition" : "status";
+}
+
+// Which of a row's two writes is in flight, or neither.
 function rowWriteInFlight(
   isPending: boolean,
   write: AutomationPatch | undefined,
@@ -437,7 +464,97 @@ function rowWriteInFlight(
   if (!isPending) {
     return "none";
   }
-  return write?.body.status === undefined ? "definition" : "status";
+  return writeTarget(write);
+}
+
+// Whether the automation is on, in the one place the row's answers sit.
+//
+// A Switch, because flipping it IS the write: the old pair was a button whose
+// label named the NEXT state beside a badge naming the current one, so the row
+// said "Pause" and "enabled" and left the reader to work out which of the two
+// their click would produce. Without the update grant there is nothing to flip
+// and the badge comes back — the state is a read this row still owes, and the
+// card says once, above the list, why the control is not here.
+function AutomationStatus({
+  automation,
+  canEdit,
+  pending,
+  onChange,
+}: Readonly<{
+  automation: Automation;
+  canEdit: boolean;
+  pending: boolean;
+  onChange: (next: boolean) => void;
+}>) {
+  const t = useT();
+  const enabled = automation.status === "enabled";
+  if (!canEdit) {
+    return (
+      <Badge tone={enabled ? "success" : "warn"}>
+        {enabled ? t("auto.statusEnabled") : t("auto.statusPaused")}
+      </Badge>
+    );
+  }
+  return (
+    <Switch
+      // Named for the automation it governs, like the row's menu beside it:
+      // twenty switches all announcing "Enabled" tell a reader which control
+      // they are on and nothing about which rule it belongs to. labelHidden
+      // because the row already prints the name in view — the words are for the
+      // announcement, not a second copy on screen.
+      label={t("auto.enabledFor", { name: automation.name })}
+      labelHidden
+      checked={enabled}
+      pending={pending}
+      onChange={onChange}
+    />
+  );
+}
+
+// The definition editor, behind the row's Edit verb.
+//
+// A name plus every parameter the schema declares is a form submitted
+// together, so it is a dialog rather than a panel that unfolds under the row —
+// which is what stopped the list reading as a list. Its own refusal stays
+// inside it, because the dialog is covering the row that would otherwise have
+// reported it.
+function AutomationEditor({
+  automation,
+  entry,
+  pending,
+  refusal,
+  onSubmit,
+  onClose,
+}: Readonly<{
+  automation: Automation;
+  entry: CatalogEntry;
+  pending: boolean;
+  /** The server's own words for a refused save, or null while there is none. */
+  refusal: string | null;
+  onSubmit: (name: string, params: Record<string, unknown>) => void;
+  onClose: () => void;
+}>) {
+  const t = useT();
+  const titleId = useId();
+  return (
+    <Modal open onClose={onClose} labelledBy={titleId}>
+      <AutomationForm
+        entry={entry}
+        titleId={titleId}
+        initialName={automation.name}
+        initialParams={automation.params}
+        submitLabel={t("trust.save")}
+        pending={pending}
+        onSubmit={onSubmit}
+        onCancel={onClose}
+      />
+      {refusal !== null && (
+        <p className="t-caption auto-error" role="alert">
+          {refusal}
+        </p>
+      )}
+    </Modal>
+  );
 }
 
 export function AutomationRow({
@@ -488,8 +605,12 @@ export function AutomationRow({
     },
   });
 
-  const enabled = automation.status === "enabled";
   const writeInFlight = rowWriteInFlight(patch.isPending, patch.variables);
+  // A refusal is reported where the reader still is. The dialog covers the row,
+  // so the definition's refusal belongs inside it and only the switch's lands
+  // underneath.
+  const refused = patch.isError ? writeTarget(patch.variables) : "none";
+  const refusal = patch.isError ? problemMessageOf(patch.error, t) : null;
   // The row offers at least one verb worth folding away. With none of the three
   // grants there is nothing behind the control, and a menu that opens on an
   // empty panel is worse than no menu.
@@ -511,37 +632,18 @@ export function AutomationRow({
             .join(" ")}
         </span>
         <span className="auto-row-fill" />
-        {/* A Switch, because flipping it IS the write: the old pair was a
-            button whose label named the NEXT state beside a badge naming the
-            current one, so the row said "Pause" and "enabled" and left the
-            reader to work out which of the two their click would produce.
-            Without the update grant there is nothing to flip, and the badge
-            comes back — the state is a read this row still owes, and the
-            section says once, above the list, why the control is not here. */}
-        {canEdit ? (
-          <Switch
-            // Named for the automation it governs, like the row's menu beside
-            // it: twenty switches all announcing "Enabled" tell a reader which
-            // control they are on and nothing about which rule it belongs to.
-            // labelHidden because the row already prints the name in view — the
-            // words are for the announcement, not a second copy on screen.
-            label={t("auto.enabledFor", { name: automation.name })}
-            labelHidden
-            checked={enabled}
-            pending={writeInFlight === "status"}
-            onChange={(next) =>
-              patch.mutate({
-                id: automation.id,
-                version: automation.version,
-                body: { status: next ? "enabled" : "paused" },
-              })
-            }
-          />
-        ) : (
-          <Badge tone={enabled ? "success" : "warn"}>
-            {enabled ? t("auto.statusEnabled") : t("auto.statusPaused")}
-          </Badge>
-        )}
+        <AutomationStatus
+          automation={automation}
+          canEdit={canEdit}
+          pending={writeInFlight === "status"}
+          onChange={(next) =>
+            patch.mutate({
+              id: automation.id,
+              version: automation.version,
+              body: { status: next ? "enabled" : "paused" },
+            })
+          }
+        />
         {/* Four verbs of equal visual weight, one of them irreversible, used to
             sit in a row separated from the rest only by a flex spacer. The menu
             is what the design system offers for exactly that: the row carries
@@ -550,7 +652,7 @@ export function AutomationRow({
         {hasVerbs && (
           <OverflowMenu label={t("auto.rowActions", { name: automation.name })}>
             {canEdit && entry && (
-              <Button small onClick={() => setEditing((open) => !open)}>
+              <Button small onClick={() => setEditing(true)}>
                 {t("trust.edit")}
               </Button>
             )}
@@ -572,13 +674,15 @@ export function AutomationRow({
         previewOpen={previewOpen}
         canConfigure={canViewRuns}
       />
+      {/* Mounted only while open, so each open re-seeds the fields from the
+          automation as it now stands instead of reviving a draft typed before
+          somebody else changed it. */}
       {editing && entry && (
-        <AutomationForm
+        <AutomationEditor
+          automation={automation}
           entry={entry}
-          initialName={automation.name}
-          initialParams={automation.params}
-          submitLabel={t("trust.save")}
           pending={writeInFlight === "definition"}
+          refusal={refused === "definition" ? refusal : null}
           onSubmit={(name, params) =>
             patch.mutate({
               id: automation.id,
@@ -586,16 +690,15 @@ export function AutomationRow({
               body: { name, params },
             })
           }
-          onCancel={() => setEditing(false)}
+          onClose={() => setEditing(false)}
         />
       )}
-      {/* The switch and the edit form share one mutation, and a refused write
-          moves nothing on screen — so this line is the only report that the
-          flip did not land, and it has to be spoken. The delete's own refusal
-          stays in its dialog, where the reader still is. */}
-      {patch.isError && (
+      {/* A refused flip moves nothing on screen — so this line is the only
+          report that it did not land, and it has to be spoken. The edit
+          dialog's own refusal stays inside it, and so does the delete's. */}
+      {refused === "status" && (
         <p className="t-caption auto-error" role="alert">
-          {problemMessageOf(patch.error, t)}
+          {refusal}
         </p>
       )}
     </li>
@@ -610,6 +713,7 @@ export function AutomationRow({
 export function AutomationsAdmin() {
   const t = useT();
   const queryClient = useQueryClient();
+  const createTitleId = useId();
   const [template, setTemplate] = useState<CatalogEntry | null>(null);
   // Grants come from the session (/v1/me); until they arrive every predicate
   // is false, so the section shows no mutation affordance until one is confirmed.
@@ -681,19 +785,19 @@ export function AutomationsAdmin() {
     catalog.data?.data.find((entry) => entry.key === key);
 
   return (
-    // ONE panel, not two side by side under a heading of their own. The old
-    // shape put an h2 over two cards that each minted a second h2, and gave the
-    // pair hard 240px/280px floors — the tightest in settings — against about
-    // 308px of card interior on a phone. The panel's h2 names the surface, the
-    // two halves are sections INSIDE it, and neither has a width it refuses to
-    // go below.
+    // ONE panel, and its body is the settings page's row language: two
+    // decisions, each of which IS a list rather than an answer to a question
+    // that would fit beside it, so both take the full width below their naming.
+    // The old shape put them side by side in two columns with hard 240px/280px
+    // floors — the tightest in settings — against about 308px of card interior
+    // on a phone, and gave each a heading of its own on top of the panel's.
     //
     // `data-automations-admin` still marks the one addressable region, so a
     // reader — and the acceptance suite — can say "the automations surface"
     // rather than "the whole settings page".
     <Panel title={t("nav.automations")}>
       <PanelBody>
-        <p className="t-sub">{t("auto.sub")}</p>
+        <p className="settings-panel-sub">{t("auto.sub")}</p>
         {/* Bound to the grant the CONTROL asks for. It read "no create AND no
             edit AND no delete" while the row swaps its Switch for a Badge on
             `update` alone — so a seat holding create but not update lost the
@@ -702,109 +806,220 @@ export function AutomationsAdmin() {
         {me.isSuccess && !canEdit && (
           <p className="t-caption auto-readonly">{t("auto.readOnly")}</p>
         )}
-        <div className="auto-columns" data-automations-admin>
-          <section className="auto-column">
-            <SectionHeader
-              level={3}
-              title={t("auto.catalog")}
-              sub={t("auto.catalogSub")}
+        <div data-automations-admin>
+          <SettingList>
+            {/* What is running comes first: the library below it is only ever
+                read in order to add to this. */}
+            <ConfiguredAutomationsRow
+              instances={instances}
+              me={me}
+              entryFor={entryFor}
+              canViewRuns={canViewRuns}
+              canEdit={canEdit}
+              canDelete={canDelete}
             />
-            <QueryGate query={catalog} empty={(page) => page.data.length === 0}>
-              {(page) => (
-                <ul className="auto-catalog">
-                  {page.data.map((entry) => (
-                    <li key={entry.key}>
-                      <div className="auto-catalog-head">
-                        {entry.tier && (
-                          <AutonomyDot
-                            tier={
-                              entry.tier === "auto_execute" ? "auto" : "confirm"
-                            }
-                          />
-                        )}
-                        <strong>{entry.name}</strong>
-                        {canCreate && (
-                          <Button small onClick={() => setTemplate(entry)}>
-                            {t("auto.use")}
-                          </Button>
-                        )}
-                      </div>
-                      {entry.description && (
-                        <p className="t-caption auto-note">
-                          {entry.description}
-                        </p>
-                      )}
-                      <p className="t-mono t-small auto-note">
-                        {entry.trigger} {"->"} {entry.action}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </QueryGate>
-            {template && (
-              <AutomationForm
-                key={template.key}
-                entry={template}
-                initialName={template.name}
-                submitLabel={t("auto.create")}
-                pending={create.isPending}
-                onSubmit={(name, params) =>
-                  create.mutate({ key: template.key, name, params })
-                }
-                onCancel={() => setTemplate(null)}
-              />
-            )}
-            {create.isSuccess && (
-              <p className="t-caption auto-note" role="status">
-                {t("auto.createdPaused")}
-              </p>
-            )}
+            <StarterLibraryRow
+              catalog={catalog}
+              canCreate={canCreate}
+              onUse={setTemplate}
+            />
+          </SettingList>
+        </div>
+        {/* The outcome lands on the CARD, because by the time it is true the
+            dialog that produced it is gone. */}
+        {create.isSuccess && (
+          <p className="t-caption auto-outcome" role="status">
+            {t("auto.createdPaused")}
+          </p>
+        )}
+        {/* Name and parameters are one form submitted together, so they live
+            behind the library's verb rather than unfolding under it. Mounted
+            only while a template is staged, which is what re-seeds the fields
+            from that template's own defaults on every open. */}
+        {template && (
+          <Modal
+            open
+            onClose={() => setTemplate(null)}
+            labelledBy={createTitleId}
+          >
+            <AutomationForm
+              key={template.key}
+              entry={template}
+              titleId={createTitleId}
+              initialName={template.name}
+              submitLabel={t("auto.create")}
+              pending={create.isPending}
+              onSubmit={(name, params) =>
+                create.mutate({ key: template.key, name, params })
+              }
+              onCancel={() => setTemplate(null)}
+            />
+            {/* The refusal stays where the reader is: the dialog is still open
+                over the card, so a line underneath it would report the failure
+                behind the thing covering it. */}
             {create.isError && (
               <p className="t-caption auto-error" role="alert">
                 {problemMessageOf(create.error, t)}
               </p>
             )}
-          </section>
-          <section className="auto-column auto-column-wide">
-            <SectionHeader level={3} title={t("auto.instances")} />
-            {canViewRuns ? (
-              <QueryGate
-                query={instances}
-                empty={(page) => page.data.length === 0}
-              >
-                {(page) => (
-                  <ul className="auto-instances">
-                    {page.data.map((automation) => (
-                      <AutomationRow
-                        key={automation.id}
-                        automation={automation}
-                        entry={entryFor(automation.key)}
-                        canViewRuns={canViewRuns}
-                        canEdit={canEdit}
-                        canDelete={canDelete}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </QueryGate>
-            ) : (
-              // Withheld, not absent, and not empty: an empty instance list
-              // says this installation runs no automations, which is a claim
-              // about the workspace rather than about who may read it. Behind
-              // the probe, so it states a settled denial rather than the
-              // absence of an answer.
-              <QueryGate query={me}>
-                {() => (
-                  <EmptyState>
-                    <p className="t-small">{t("auto.withheld")}</p>
-                  </EmptyState>
-                )}
-              </QueryGate>
-            )}
-          </section>
-        </div>
+          </Modal>
+        )}
       </PanelBody>
     </Panel>
+  );
+}
+
+// What is running, as the subject of one stacked row: a list of rules at the
+// card's full width, never squeezed into the column an answer would sit in.
+//
+// Without the read grant the row keeps its place and says it is WITHHELD — not
+// absent, and not empty: an empty instance list says this installation runs no
+// automations, which is a claim about the workspace rather than about who may
+// read it. Behind the /me probe, so it states a settled denial rather than the
+// absence of an answer.
+function ConfiguredAutomationsRow({
+  instances,
+  me,
+  entryFor,
+  canViewRuns,
+  canEdit,
+  canDelete,
+}: Readonly<{
+  instances: QueryLike<{ data: Automation[] }>;
+  me: QueryLike<unknown>;
+  entryFor: (key: string) => CatalogEntry | undefined;
+  canViewRuns: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+}>) {
+  const t = useT();
+  return (
+    <SettingRow
+      label={t("auto.instances")}
+      layout="stack"
+      control={
+        canViewRuns ? (
+          <QueryGate query={instances} empty={(page) => page.data.length === 0}>
+            {(page) => (
+              <ul className="auto-instances">
+                {page.data.map((automation) => (
+                  <AutomationRow
+                    key={automation.id}
+                    automation={automation}
+                    entry={entryFor(automation.key)}
+                    canViewRuns={canViewRuns}
+                    canEdit={canEdit}
+                    canDelete={canDelete}
+                  />
+                ))}
+              </ul>
+            )}
+          </QueryGate>
+        ) : (
+          <QueryGate query={me}>
+            {() => (
+              <EmptyState>
+                <p className="t-small">{t("auto.withheld")}</p>
+              </EmptyState>
+            )}
+          </QueryGate>
+        )
+      }
+    />
+  );
+}
+
+// The closed catalog, as the subject of the card's other stacked row.
+//
+// It is a LIST and stays in the card: every seat may read it —
+// ListAutomationCatalog reaches no store and asks for no object grant — so it
+// is the per-entry verb that answers to the create grant, never the list.
+// Authoring is what that verb opens.
+function StarterLibraryRow({
+  catalog,
+  canCreate,
+  onUse,
+}: Readonly<{
+  catalog: QueryLike<{ data: CatalogEntry[] }>;
+  canCreate: boolean;
+  onUse: (entry: CatalogEntry) => void;
+}>) {
+  const t = useT();
+  return (
+    <SettingRow
+      label={t("auto.catalog")}
+      description={t("auto.catalogSub")}
+      layout="stack"
+      control={
+        <QueryGate query={catalog} empty={(page) => page.data.length === 0}>
+          {(page) => (
+            // A nested SettingList, so the interval between two entries and the
+            // hairline that separates them are the row language's own. As a bare
+            // `<ul>` each entry ran three text lines together with no rule
+            // anywhere and no interval between the lines — a wall of names,
+            // sentences and identifiers with a verb floating at the right.
+            <SettingList testId="auto-catalog">
+              {page.data.map((entry) => (
+                <CatalogEntryItem
+                  key={entry.key}
+                  entry={entry}
+                  canCreate={canCreate}
+                  onUse={() => onUse(entry)}
+                />
+              ))}
+            </SettingList>
+          )}
+        </QueryGate>
+      }
+    />
+  );
+}
+
+// One entry of the closed catalog as ONE row: what it is on the left — the name,
+// what it does, and the trigger/action pair in the wire's own words — and, for a
+// seat holding create, the verb that turns it into a configured automation at
+// the x every answer on this page sits at.
+//
+// The recipe joins the DESCRIPTION rather than standing as a third line of its
+// own: it is what the entry does, said in identifiers instead of prose, so the
+// two together are the naming and the row has one naming column and one answer.
+function CatalogEntryItem({
+  entry,
+  canCreate,
+  onUse,
+}: Readonly<{
+  entry: CatalogEntry;
+  canCreate: boolean;
+  onUse: () => void;
+}>) {
+  const t = useT();
+  return (
+    <SettingRow
+      label={
+        <span className="auto-catalog-name">
+          {entry.tier && (
+            <AutonomyDot
+              tier={entry.tier === "auto_execute" ? "auto" : "confirm"}
+            />
+          )}
+          {entry.name}
+        </span>
+      }
+      description={
+        <>
+          {entry.description}
+          <span className="t-mono auto-catalog-recipe">
+            {entry.trigger} {"->"} {entry.action}
+          </span>
+        </>
+      }
+      control={
+        canCreate ? (
+          <Button small variant="ghost" onClick={onUse}>
+            {t("auto.use")}
+          </Button>
+        ) : null
+      }
+    />
   );
 }

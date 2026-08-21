@@ -116,6 +116,24 @@ async function openRowMenu(name = "Nudge stalled fleet deals") {
   );
 }
 
+// Authoring is a name plus every parameter the schema declares, submitted
+// together, so it lives in a dialog behind the library's verb. A test whose
+// subject is one of those fields opens the dialog first and scopes its queries
+// to it — the card behind it still carries the library the verb came from.
+async function openCreateDialog(index = 0): Promise<HTMLElement> {
+  await userEvent.click(
+    screen.getAllByRole("button", { name: "Use template" })[index],
+  );
+  return screen.getByRole("dialog");
+}
+
+// The same, for a configured automation's own definition.
+async function openRowEditor(name = "Nudge stalled fleet deals") {
+  await openRowMenu(name);
+  await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+  return screen.getByRole("dialog");
+}
+
 // React mints an id per render tree, and a second tree in the same document
 // gets different ones. They say nothing about the row's CONTENT, which is what
 // the authorship-blindness check is about, so the comparison drops them.
@@ -207,21 +225,22 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
 
   it("anti-DSL guard: form fields derive only from params_schema + name — no rule body, no trigger input", async () => {
     vi.stubGlobal("fetch", automationsBackend([], []));
-    const { container } = render(<AutomationsAdmin />);
+    render(<AutomationsAdmin />);
     await waitFor(() =>
       expect(screen.getByText("Stalled-deal nudge")).toBeTruthy(),
     );
-    await userEvent.click(
-      screen.getAllByRole("button", { name: "Use template" })[0],
-    );
+    const dialog = await openCreateDialog();
     // exactly the name field + the one schema-derived integer parameter
-    expect(screen.getAllByRole("textbox")).toHaveLength(1);
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(1);
+    expect(within(dialog).getAllByRole("textbox")).toHaveLength(1);
+    expect(within(dialog).getAllByRole("spinbutton")).toHaveLength(1);
     expect(
-      screen.getByRole("spinbutton", { name: "due_in_days" }),
+      within(dialog).getByRole("spinbutton", { name: "due_in_days" }),
     ).toBeTruthy();
-    // no free-form rule body, no user-defined trigger, anywhere
-    expect(container.querySelectorAll("textarea")).toHaveLength(0);
+    // No free-form rule body, no user-defined trigger, anywhere on the page —
+    // the DOCUMENT, not the render container: the dialog is portalled to the
+    // body, so a container-scoped count would pass by looking somewhere the
+    // form is not.
+    expect(document.querySelectorAll("textarea")).toHaveLength(0);
     expect(screen.queryByRole("textbox", { name: /trigger/i })).toBeNull();
     // the schema bounds reach the input verbatim
     const param = screen.getByRole("spinbutton", { name: "due_in_days" });
@@ -244,9 +263,7 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
     await waitFor(() =>
       expect(screen.getByText("Stalled-deal nudge")).toBeTruthy(),
     );
-    await userEvent.click(
-      screen.getAllByRole("button", { name: "Use template" })[0],
-    );
+    await openCreateDialog();
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].body).toMatchObject({
@@ -463,6 +480,128 @@ describe("AutomationsAdmin (B-EP09.15)", () => {
     expect(screen.getAllByRole("button", { name: "Preview" }).length).toBe(1);
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  // The row language: this card holds two decisions, and each of them IS a list
+  // rather than an answer that would fit beside its naming — so each takes the
+  // full width below it, and neither carries a heading of its own on top of the
+  // panel's.
+  it("lays both lists out as stacked settings rows under one heading", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal("fetch", automationsBackend(automations, []));
+    render(<AutomationsAdmin />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    for (const label of ["Configured automations", "Starter library"]) {
+      const row = screen.getByText(label).closest(".settingrow");
+      expect(row).not.toBeNull();
+      if (row instanceof HTMLElement) {
+        expect(row.className).toContain("settingrow-stack");
+      }
+    }
+    // One heading, the panel's own.
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
+    expect(screen.queryByRole("heading", { level: 3 })).toBeNull();
+  });
+
+  // Every library entry is one ROW of the same language, so the hairlines do the
+  // separating. As a bare `<ul>` an entry ran a name, a sentence and a mono
+  // trigger/action pair together with no interval between the lines and no rule
+  // between entries, and its verb floated at the right of the first line.
+  it("gives every library entry a row, its recipe, and its verb in the answer column", async () => {
+    vi.stubGlobal("fetch", automationsBackend([], []));
+    render(<AutomationsAdmin />);
+
+    const list = await screen.findByTestId("auto-catalog");
+    const rows = list.querySelectorAll(":scope > .settingrow");
+    expect(rows).toHaveLength(catalog.length);
+
+    const stalled = screen
+      .getByText("Stalled-deal nudge")
+      .closest(".settingrow");
+    expect(stalled).not.toBeNull();
+    if (stalled instanceof HTMLElement) {
+      // The recipe is part of the naming, not a third line under the row.
+      const recipe = within(stalled).getByText(
+        /deal\.stalled\s*->\s*send_email/,
+      );
+      expect(recipe.closest(".settingrow-naming")).not.toBeNull();
+      // The verb sits at the one x every answer on this page sits at.
+      expect(
+        within(stalled)
+          .getByRole("button", { name: "Use template" })
+          .closest(".settingrow-control"),
+      ).not.toBeNull();
+    }
+  });
+
+  it("opens a configured automation's definition in a dialog, not under the row", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal("fetch", automationsBackend(automations, []));
+    render(<AutomationsAdmin />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    // Nothing to edit with until the verb is used: the row is an answer.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const dialog = await openRowEditor();
+    // The dialog names WHICH automation is open, because it covers the row that
+    // would otherwise have said.
+    expect(
+      within(dialog).getByRole("heading", {
+        name: "Nudge stalled fleet deals",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByRole("spinbutton", { name: "due_in_days" }),
+    ).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeTruthy();
+  });
+
+  it("reports a refused definition edit inside the dialog, never behind it", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : null;
+        const url = String(request ? request.url : input);
+        const method = request ? request.method : (init?.method ?? "GET");
+        if (url.endsWith("/v1/me")) {
+          return jsonResponse(meFixture({ allow: AUTOMATION_OPERATOR }));
+        }
+        if (url.includes("/automations/catalog")) {
+          return jsonResponse({ data: catalog });
+        }
+        if (/\/automations\/au-\d+$/.test(url) && method === "PATCH") {
+          return jsonResponse(
+            {
+              title: "Conflict",
+              status: 409,
+              detail: "somebody else changed this automation",
+            },
+            409,
+          );
+        }
+        return jsonResponse({
+          data: automations,
+          page: { next_cursor: null },
+        });
+      }),
+    );
+    const { container } = render(<AutomationsAdmin />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    const dialog = await openRowEditor();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    // Where the reader still is. The card behind the dialog says nothing: a
+    // refusal reported there is a refusal reported behind the thing covering
+    // it.
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      /somebody else changed this automation/,
+    );
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it("the config affordances stay for admin", async () => {
@@ -757,7 +896,7 @@ describe("renewal_reminder's schema-driven params (GH-706)", () => {
     await waitFor(() =>
       expect(screen.getByText("Renewal reminder")).toBeTruthy(),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Use template" }));
+    await openCreateDialog();
 
     // recurs_yearly: a checkbox, not a spinbutton or free-text box, and it
     // starts at the schema's own default (false, i.e. unchecked).
@@ -781,7 +920,7 @@ describe("renewal_reminder's schema-driven params (GH-706)", () => {
     await waitFor(() =>
       expect(screen.getByText("Renewal reminder")).toBeTruthy(),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Use template" }));
+    await openCreateDialog();
 
     // No object chosen yet: disabled, with the reason stated rather than a
     // silently broken empty control.
@@ -840,7 +979,7 @@ describe("renewal_reminder's schema-driven params (GH-706)", () => {
     await waitFor(() =>
       expect(screen.getByText("Renewal reminder")).toBeTruthy(),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Use template" }));
+    await openCreateDialog();
 
     await pickOption(
       userEvent.setup(),
@@ -862,7 +1001,7 @@ describe("renewal_reminder's schema-driven params (GH-706)", () => {
     await waitFor(() =>
       expect(screen.getByText("Renewal reminder")).toBeTruthy(),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Use template" }));
+    await openCreateDialog();
 
     await pickOption(
       userEvent.setup(),

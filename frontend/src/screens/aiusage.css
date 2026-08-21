@@ -1,0 +1,25 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ * SPDX-FileCopyrightText: 2026 Gradion */
+
+/* Settings → AI → usage & budget. The card's intervals belong to
+ * `SettingList` / `SettingRow` / `PanelBody`; the one thing left here is how the
+ * budget bar and the band it is in share a single line. */
+
+/* The bar takes the width and the band stands at the end of it: the two are one
+ * reading — how much is spent, and what that has done to the runtime — so they
+ * sit on one line rather than stacking into two facts. They wrap at a narrow
+ * width, because a bar squeezed to nothing next to a pill reads as neither. */
+.aiusage-budget {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* `Meter` sizes itself to its container and takes no className of its own (the
+ * geometry belongs to the primitive), so the growth is stated on the box around
+ * it. A floor as well, so the bar stays a bar once the band pill has taken its
+ * own width. */
+.aiusage-budget-bar {
+  flex: 1 1 12rem;
+}

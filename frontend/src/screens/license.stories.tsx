@@ -10,6 +10,13 @@ import { StoryProviders } from "./story-utils";
 // fetching card: every state worth looking at is a state of the ENTITLEMENT, and
 // stubbing a query to reach it would put the fetch on trial instead of the
 // surface.
+//
+// The seats live in ONE stacked `SettingRow` — the two figures and the bar under
+// them are this card's subject, not an answer that fits in a right-hand column,
+// and a row per figure would split the comparison the strip exists to make. So
+// what these stories put on trial is the strip and the meter INSIDE a row: the
+// row's label and its what-counts-as-a-seat description above them, and the
+// hairline the row draws.
 
 type Entitlement = components["schemas"]["LicenseEntitlement"];
 
@@ -24,7 +31,7 @@ function story(entitlement: Entitlement) {
 }
 
 const meta: Meta<typeof LicenseReading> = {
-  title: "Settings/Organization/License",
+  title: "Settings/Admin settings/License",
   component: LicenseReading,
 };
 export default meta;
@@ -98,7 +105,8 @@ export const OverTheGrantDark: Story = {
 // At 390px. The strip is two slots, so what narrow tests is whether they still
 // read as ONE comparison once they fold — used above granted rather than beside
 // it is a different sentence, and the meter under both is what has to keep them
-// tied together.
+// tied together. The row itself folds at the same width, so its label and
+// description sit above the strip rather than beside it.
 export const OverTheGrantNarrow: Story = {
   globals: { viewport: { value: "phone" } },
   render: story({
