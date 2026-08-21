@@ -21772,7 +21772,7 @@ components:
          computed_field, quota, offer_template, overlay_connection, embedding_reindex,
          webhook_subscription, fx_rate, ai_model_rate, capture_settings, project,
          channel_connection, import_run, installation_settings, finance, integrations,
-         retention_policy, capture_trace, license, contract, ai_routing, commission]
+         retention_policy, capture_trace, license, contract, ai_routing, commission, deal_room]
 
     RbacAction:
       type: string
