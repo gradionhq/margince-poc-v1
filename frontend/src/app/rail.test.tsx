@@ -514,7 +514,6 @@ describe("Rail levels (a section's entries as the second level)", () => {
     expect(railDisplay(container, ".ws-chip")).not.toBe("none");
   });
 
-
   // An entry that HAS children opens them: standing on it, the panel shows the
   // level it leads to rather than the list it came from. Nothing carries the
   // current page there until a child is addressed — the same as any list a
