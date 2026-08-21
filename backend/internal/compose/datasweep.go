@@ -77,6 +77,29 @@ var preservedResetTables = map[string]bool{
 	// It is still cleared by a reset — `activity` is swept, and the cascade takes
 	// the evidence with it. Preserved here means "not a target", never "kept".
 	"activity_retention_evidence": true,
+	// A buyer's frozen release (migration 1787324555), and here for the same
+	// reason as the line above: a direct DELETE is REFUSED outright. The guard
+	// permits one only once the parent room is already gone — precisely the
+	// room's own CASCADE — and the FK makes an orphaned release impossible, so
+	// every row the sweep's own DELETE could ever meet still has its room and
+	// raises. The raise is a restrict_violation rather than a foreign-key one,
+	// which the pass deferral does not catch, so it aborts the whole reset.
+	//
+	// Preserved rather than classified as a row-conditional guard because the
+	// condition can never be false for a direct delete: this is a protected
+	// store, on the same footing as the append-only ledgers above.
+	//
+	// The sweep does not in fact meet such a row today — `deal_room` sorts
+	// first and no child RESTRICTs it, so its cascade has already taken the
+	// releases by the time the target list reaches them. That is an incidental
+	// consequence of ordering by table name, not a property anyone chose, and
+	// it is not what this entry rests on: one child FK turning to RESTRICT, or
+	// one rename, would defer the room past its own releases.
+	//
+	// It is still cleared by a reset — `deal_room` is swept, and the cascade
+	// takes the releases with it. Preserved here means "not a target", never
+	// "kept".
+	"deal_room_release": true,
 }
 
 // providerCredentialRefs collects the sealed API keys the provider
