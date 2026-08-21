@@ -429,18 +429,28 @@ func talkingPointLine(claim ClaimIn) string {
 	}
 }
 
-// companyContextSection (D) is background, collapsed and last. Provider
-// research is not wired to this surface, so it says what THIS installation
-// recorded and nothing more: an empty section is honest, and a filled one made
-// of inference would be exactly the filler the spec's first rule forbids.
+// companyContextSection (D) is background, collapsed and last.
+//
+// It answers "when did this room last meet, and about what" — the question a
+// recurring delivery review opens with, and the one thing on the page that is
+// about the CONVERSATION rather than the state of play.
+//
+// It used to say the company is where the lead attendee works, which the
+// header already implies. The section kind is a closed enum by contract, so
+// this replaces that line rather than adding a ninth heading, and the brief
+// keeps its two-to-three-minute budget.
+//
+// Empty is honest and stays empty: a first meeting with a room has no history,
+// and inventing background for one is the filler the spec's first rule forbids.
 func companyContextSection(in Input) []Sentence {
-	if in.Company == "" || len(in.Attendees) == 0 {
-		return nil
+	out := make([]Sentence, 0, len(in.PriorMeetings))
+	for _, prior := range in.PriorMeetings {
+		out = append(out, Sentence{
+			Text:     priorMeetingLine(prior, in.Now),
+			Evidence: []Evidence{{EntityType: citeActivity, EntityID: prior.ID}},
+		})
 	}
-	return []Sentence{{
-		Text:     fmt.Sprintf("%s is where %s works.", in.Company, in.Attendees[0].FullName),
-		Evidence: []Evidence{{EntityType: citePerson, EntityID: in.Attendees[0].PersonID}},
-	}}
+	return out
 }
 
 // firstOfKind returns the newest claim of one kind that is still open. Claims

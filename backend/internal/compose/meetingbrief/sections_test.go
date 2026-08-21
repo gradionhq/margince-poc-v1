@@ -297,3 +297,46 @@ func TestAMeetingWithNoProjectSaysNothingAboutOne(t *testing.T) {
 		}
 	}
 }
+
+func TestTheLastSectionSaysWhenThisRoomLastMet(t *testing.T) {
+	in := fullInput()
+	in.PriorMeetings = []PriorMeetingIn{
+		{ID: activityID, Subject: "Kickoff", StartsAt: at(3)},
+	}
+	section := sectionOf(t, Deterministic(in), crmcontracts.MeetingBriefSectionKindCompanyContext)
+	if len(section.Sentences) != 1 {
+		t.Fatalf("prior meetings = %d sentences, want 1", len(section.Sentences))
+	}
+	// Days, not a date: the reader is placing it against today.
+	if !strings.Contains(section.Sentences[0].Text, "7 days ago") {
+		t.Errorf("line = %q, want the gap in days", section.Sentences[0].Text)
+	}
+	if !strings.Contains(section.Sentences[0].Text, "Kickoff") {
+		t.Errorf("line = %q, want the meeting named — a gap alone says which conversation?", section.Sentences[0].Text)
+	}
+}
+
+func TestAFirstMeetingWithARoomInventsNoHistory(t *testing.T) {
+	// A section with nothing to say is ABSENT, and background invented for a
+	// room nobody has met is the filler the brief's first rule forbids.
+	in := fullInput()
+	in.PriorMeetings = nil
+	for _, section := range Deterministic(in) {
+		if section.Kind == crmcontracts.MeetingBriefSectionKindCompanyContext &&
+			len(section.Sentences) > 0 {
+			t.Errorf("a first meeting got history: %q", section.Sentences[0].Text)
+		}
+	}
+}
+
+func TestEveryPriorMeetingCitesTheMeetingItNames(t *testing.T) {
+	// The reader's next move is to open the earlier meeting, so the line must
+	// carry the record rather than only describing it.
+	in := fullInput()
+	in.PriorMeetings = []PriorMeetingIn{{ID: activityID, Subject: "Kickoff", StartsAt: at(3)}}
+	section := sectionOf(t, Deterministic(in), crmcontracts.MeetingBriefSectionKindCompanyContext)
+	cited := section.Sentences[0].Evidence
+	if len(cited) != 1 || cited[0].EntityID != activityID || cited[0].EntityType != citeActivity {
+		t.Errorf("evidence = %+v, want the earlier meeting's own activity", cited)
+	}
+}

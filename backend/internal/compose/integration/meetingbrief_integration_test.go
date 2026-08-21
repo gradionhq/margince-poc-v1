@@ -342,3 +342,108 @@ func TestMeetingBriefWithholdsTheEngagementFromACallerWithNoProjectGrant(t *test
 		t.Errorf("the brief disclosed the engagement to a caller with no project grant: %q", prose)
 	}
 }
+
+// "This room" is the PEOPLE, not the calendar entry. A recurring series that
+// changed its title is still the same conversation; two unrelated meetings on
+// one account are not. Only a real query proves the overlap rule.
+func TestMeetingBriefRecallsWhenThisRoomLastMet(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	ours := e.SeedPerson(t, "Ana Roth", &e.Rep1)
+	stranger := e.SeedPerson(t, "Someone Else", &e.Rep1)
+
+	newMeeting := func(subject string, when time.Duration, who ids.UUID) {
+		id := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+			VALUES ($1, 'meeting', $2, $3, 'manual', 'human:x')`, subject, roomAgo(when))
+		LinkActivity(t, owner, id, "person", who)
+		seatInRoom(t, owner, e.WS, id, who)
+	}
+	newMeeting("Kickoff", 30*24*time.Hour, ours)
+	// A meeting on the same account with nobody from this room in it. It must
+	// not be recalled: it is a different conversation.
+	newMeeting("Unrelated review", 5*24*time.Hour, stranger)
+
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Cutover review', $2, 'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", ours)
+	seatInRoom(t, owner, e.WS, meeting, ours)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	brief, err := meetingBriefService(e).Get(rep, meeting)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	var recalled string
+	for _, section := range brief.Sections {
+		if section.Kind != "company_context" {
+			continue
+		}
+		for _, sentence := range section.Sentences {
+			recalled += sentence.Text + "\n"
+		}
+	}
+	if !strings.Contains(recalled, "Kickoff") {
+		t.Errorf("recalled = %q, want the earlier meeting with this same room", recalled)
+	}
+	if strings.Contains(recalled, "Unrelated") {
+		t.Errorf("recalled = %q, but nobody from this room was in that meeting", recalled)
+	}
+}
+
+// A brief scoped to one engagement must not reach into the other for its
+// history — the same rule the rest of the page runs.
+func TestMeetingBriefRecallsNoMeetingFromAnotherEngagement(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	org := e.SeedOrg(t, "Northwind", &e.Rep1)
+	ours := e.SeedPerson(t, "Ana Roth", &e.Rep1)
+
+	newProject := func(name, key string) ids.UUID {
+		return SeedIDRow(t, owner, `INSERT INTO project (id, owner_id, name, key, organization_id, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, 'manual', 'human:x')`, e.Rep1, name, key, org)
+	}
+	erp := newProject("ERP rollout", "ERP-27")
+	migration := newProject("Datacentre migration", "DC-4")
+
+	fileUnder := func(activity, project ids.UUID) {
+		e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id)
+			VALUES ($1, 'project', $2)`, activity, project)
+	}
+	newMeeting := func(subject string, when time.Duration) ids.UUID {
+		id := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+			VALUES ($1, 'meeting', $2, $3, 'manual', 'human:x')`, subject, roomAgo(when))
+		LinkActivity(t, owner, id, "person", ours)
+		seatInRoom(t, owner, e.WS, id, ours)
+		return id
+	}
+
+	fileUnder(newMeeting("ERP kickoff", 30*24*time.Hour), erp)
+	fileUnder(newMeeting("Rack walkthrough", 5*24*time.Hour), migration)
+	// Unfiled history stays: attribution is optional, so most of the record
+	// carries no project and dropping it would erase the relationship.
+	newMeeting("Quarterly catch-up", 10*24*time.Hour)
+
+	meeting := newMeeting("Cutover review", -24*time.Hour)
+	fileUnder(meeting, erp)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	brief, err := meetingBriefService(e).Get(rep, meeting)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	var recalled string
+	for _, section := range brief.Sections {
+		if section.Kind != "company_context" {
+			continue
+		}
+		for _, sentence := range section.Sentences {
+			recalled += sentence.Text + "\n"
+		}
+	}
+	if strings.Contains(recalled, "Rack walkthrough") {
+		t.Errorf("recalled = %q, but that meeting belongs to the other engagement", recalled)
+	}
+	if !strings.Contains(recalled, "ERP kickoff") && !strings.Contains(recalled, "Quarterly catch-up") {
+		t.Errorf("recalled = %q, want this engagement's history or the unfiled kind", recalled)
+	}
+}

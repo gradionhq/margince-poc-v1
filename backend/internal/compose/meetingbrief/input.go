@@ -42,6 +42,10 @@ type Input struct {
 	Commitments []ClaimIn
 	// Recent is the newest captured conversation with the lead attendee first.
 	Recent []ActIn
+	// PriorMeetings are the last times this same room met, newest first. It is
+	// what a recurring delivery review opens wanting: not the state of play,
+	// but what was agreed here last time.
+	PriorMeetings []PriorMeetingIn
 	// LastTouchAt is the newest conversation with anyone in the room before
 	// this meeting. Nil means nothing was ever captured with any of them.
 	LastTouchAt *time.Time
@@ -55,6 +59,24 @@ type DealIn struct {
 	AmountMinor int64
 	Currency    string
 	CloseDate   *time.Time
+}
+
+// PriorMeetingIn is one earlier meeting with somebody from this room.
+type PriorMeetingIn struct {
+	ID       string
+	Subject  string
+	StartsAt time.Time
+}
+
+// foldPriorMeetings maps the read rows into the brief's own shape.
+func foldPriorMeetings(rows []priorMeeting) []PriorMeetingIn {
+	out := make([]PriorMeetingIn, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PriorMeetingIn{
+			ID: row.ID.String(), Subject: row.Subject, StartsAt: row.StartsAt,
+		})
+	}
+	return out
 }
 
 // ProjectIn is the engagement this meeting is part of.
