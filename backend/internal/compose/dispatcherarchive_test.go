@@ -17,9 +17,12 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -55,20 +58,37 @@ func TestArchivableTypesAnswersForTheRoutedMode(t *testing.T) {
 }
 
 // The stage-time refusal routes by the same read, and reaches the overlay
-// provider rather than the nil native one.
+// provider's own work rather than the nil native one.
 //
-// The assertion is that it reaches a provider AT ALL — the error is overlay's
-// own (no mirror store is wired in this fixture), which is exactly the evidence
-// wanted: a question that had routed native would have panicked on nil.
+// The context carries a real actor with the delete grant, and that is the whole
+// design of this case rather than setup. Without one, overlay's RefuseArchive
+// refuses at its `auth.Require` and the test passes on "no actor bound to
+// context" — an error every path in the tree can raise, satisfying the
+// assertion by a mechanism upstream of the subject. What is wanted is the
+// refusal that proves the call got as far as overlay's OWN state: this fixture
+// wires no mirror store, so reaching that is reaching errNoMirrorStore.
 func TestRefuseArchiveRoutesByTheSameModeRead(t *testing.T) {
 	wsID := ids.NewV7()
 	d, calls := cachedModeDispatcher(wsID, modeNative)
-	ctx := principal.WithWorkspaceID(context.Background(), wsID)
+	ctx := principal.WithActor(principal.WithWorkspaceID(context.Background(), wsID),
+		principal.Principal{
+			Type: principal.PrincipalHuman, ID: "archive-probe", SeatType: principal.SeatFull,
+			UserID: ids.NewV7(),
+			Permissions: principal.Permissions{
+				Objects: map[string]principal.ObjectGrant{"person": {Delete: true}},
+			},
+		})
 	ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
 
-	if err := d.RefuseArchive(ctx, ref); err == nil {
+	err := d.RefuseArchive(ctx, ref)
+
+	if err == nil {
 		t.Fatal("RefuseArchive answered nil: it never reached a provider, so it refused nothing and " +
 			"a staging it should have stopped would proceed to a human")
+	}
+	if strings.Contains(err.Error(), "no actor bound") {
+		t.Fatalf("RefuseArchive stopped at its object gate (%v) — that refusal is upstream of "+
+			"everything this case is about, and it would pass whether or not the routing works", err)
 	}
 	if *calls == 0 {
 		t.Error("RefuseArchive answered from the cached mode; the refusals it reports belong to the " +
@@ -88,8 +108,15 @@ func TestRefuseArchiveRefusesATypeTheMirrorDoesNotArchive(t *testing.T) {
 	ctx := principal.WithWorkspaceID(context.Background(), wsID)
 	ref := datasource.EntityRef{Type: datasource.EntityProject, ID: ids.NewV7()}
 
-	if err := d.RefuseArchive(ctx, ref); err == nil {
-		t.Fatal("staging a project archive against an overlay workspace was not refused — overlay " +
-			"archives person, organization and deal, so this approval could never be carried out")
+	err := d.RefuseArchive(ctx, ref)
+
+	// The SENTINEL, not merely an error. This context binds no actor, so an
+	// assertion on "some error" is satisfied by overlay's object gate — a
+	// refusal that has nothing to do with which types the mirror archives and
+	// that would hold if the type check were deleted outright.
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("staging a project archive against an overlay workspace answered %v, want the "+
+			"unsupported-by-SoR refusal — overlay archives person, organization and deal, so this "+
+			"approval could never be carried out", err)
 	}
 }
