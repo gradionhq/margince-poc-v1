@@ -36,7 +36,7 @@ import (
 // fixed literal. This suite exercises entity-type dispatch through the
 // shared gate stack (proven per-type by the fieldhistory suite), so its
 // seeds stay on person. INSERT is the one verb the append-only trigger
-// admits, and the workspace tx satisfies RLS.
+// admits, and the append-only trigger admits it.
 func seedRecordAuditRow(t *testing.T, e *Env, action string, personID ids.UUID,
 	actorType, actorID string, onBehalfOf *ids.UUID, before, after map[string]any, occurredAt time.Time,
 ) ids.UUID {

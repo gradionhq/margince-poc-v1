@@ -101,7 +101,7 @@ func (s *Service) ChangePassword(ctx context.Context, current, next string) erro
 			passwordChangeRevokeReason); err != nil {
 			return err
 		}
-		return logAuthEvent(ctx, tx, wsID, userID, "password_changed",
+		return logAuthEvent(ctx, tx, userID, "password_changed",
 			"password changed by its owner; every borrowed credential revoked")
 	})
 	// Counted and recorded in the SERVICE, the way Login records its own
@@ -186,7 +186,7 @@ func (s *Service) recordFailedChange(ctx context.Context, wsID ids.WorkspaceID, 
 		if errors.Is(err, pgx.ErrNoRows) {
 			// The row went away between the refusal and this write. Nothing to
 			// count against; the evidence below still lands.
-			return logAuthEvent(ctx, tx, wsID, userID, "password_change_failed",
+			return logAuthEvent(ctx, tx, userID, "password_change_failed",
 				"wrong current password; the account was no longer active")
 		}
 		if err != nil {
@@ -205,7 +205,7 @@ func (s *Service) recordFailedChange(ctx context.Context, wsID ids.WorkspaceID, 
 			// on the attempt that caused it.
 			detail = "wrong current password; the account is now locked"
 		}
-		return logAuthEvent(ctx, tx, wsID, userID, "password_change_failed", detail)
+		return logAuthEvent(ctx, tx, userID, "password_change_failed", detail)
 	})
 }
 

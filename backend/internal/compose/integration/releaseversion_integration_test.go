@@ -148,13 +148,3 @@ func TestReleaseGuardIsInertOnAnUnbootstrappedInstallation(t *testing.T) {
 		t.Fatalf("a pre-bootstrap boot wrote %d release observations, want 0", rows)
 	}
 }
-
-// A suite here pinned that an ARCHIVED workspace's release row was ignored,
-// which the read did by carrying a workspace predicate. ADR-0091 §8 phase D took
-// the tenant column off system_log — the last two tables to lose it — so there
-// is no second tenant's row to mistake for ours: an installation serves one
-// organization (ADR-0061) and the ledger records one installation's releases.
-//
-// The two guarantees that outlive it are asserted above: a role at the wrong
-// release is refused, and the guard is inert on an installation that has
-// recorded none.

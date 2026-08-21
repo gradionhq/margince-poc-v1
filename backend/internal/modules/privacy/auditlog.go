@@ -4,7 +4,7 @@
 package privacy
 
 // The audit-log read surface (GET /audit-log): the Settings governance
-// view over the append-only audit_log table. Reading the workspace's
+// view over the append-only audit_log table. Reading the installation's
 // full attributable history deliberately crosses row scope, and it is
 // the admin's alone — distinct from the per-record history in
 // recordhistory.go, which every member may read on records they can
@@ -80,7 +80,7 @@ type AuditPage struct {
 	HasMore    bool
 }
 
-// ListAuditLog reads the workspace's audit history, newest first.
+// ListAuditLog reads the installation's audit history, newest first.
 //
 // Human-only: an agent reading the log that records its own governance would
 // observe exactly the oversight trail that bounds it. The agent gate refuses

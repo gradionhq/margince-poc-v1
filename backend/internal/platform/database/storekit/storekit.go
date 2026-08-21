@@ -134,7 +134,7 @@ func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string
 // is an evidence parameter threaded through every core write path — hundreds of
 // call sites, all of which would have to keep passing it — and a parameter that
 // every site must remember is one a new site forgets. Resolving it here is how
-// Audit already resolves the actor and the workspace, so attribution follows a
+// Audit already resolves the actor, so attribution follows a
 // core write wherever it happens, including inside a tx-accepting seam a unit
 // reached through the port.
 //
@@ -163,10 +163,10 @@ func withExtensionAttribution(ctx context.Context, evidence map[string]any) (map
 // LogSystem writes one append-only system_log row inside the current
 // transaction — the ledger for a SYSTEM / non-entity operational event
 // (login, bulk export, capture skip) that mutates no record and so has no
-// place in audit_log (the P12 record-mutation spine). Actor and workspace
-// are derived exactly as Audit derives them — from the authenticated
-// principal and the workspace GUC — so a caller with no actor bound is a
-// programming error, refused before any SQL runs. It returns the row id so
+// place in audit_log (the P12 record-mutation spine). The actor is derived
+// exactly as Audit derives it — from the authenticated principal — so a
+// caller with no actor bound is a programming error, refused before any SQL
+// runs. It returns the row id so
 // an entity-less pipeline event can carry it as trace.audit_log_id (the
 // repurposed "ledger row id", events.md §2). detail is nil-safe: nil writes
 // SQL NULL.
@@ -315,13 +315,14 @@ func UUIDOrNil(id ids.UUID) *ids.UUID {
 	return &id
 }
 
-// MustWorkspace is the workspace the caller's context names, for the domain
-// INSERTs that still stamp a `workspace_id` column of their own.
+// MustWorkspace is the installation's workspace as the caller's context names
+// it — for the job envelopes, blob keys and audit ENTITY ids that still name a
+// workspace, not for a tenant column: ADR-0091 §8 phase D has taken the last of
+// those off the schema, the ledgers included.
 //
-// The ledger writes above no longer use it: they take the tenant from the
-// TRANSACTION's binding, which is the only thing that can agree with the
-// domain row by construction. These callers follow when the column itself
-// goes (ADR-0091 §8 phase D).
+// It survives that phase rather than following it, because what its callers
+// need is an identifier for the installation, which the collapse of
+// WithWorkspaceTx into a plain Tx (§5) is what actually retires.
 func MustWorkspace(ctx context.Context) ids.UUID {
 	wsID, _ := principal.WorkspaceID(ctx)
 	return wsID

@@ -12,19 +12,49 @@
 -- could repair them either.
 SET LOCAL lock_timeout = '3s';
 
-ALTER TABLE audit_log ADD COLUMN workspace_id uuid;
-UPDATE audit_log SET workspace_id =
-  (SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at LIMIT 1);
+-- ADD COLUMN ... DEFAULT, never ADD then UPDATE. These two tables carry a
+-- BEFORE UPDATE OR DELETE ... FOR EACH ROW trigger that raises unconditionally
+-- (trg_audit_no_mutate, core 0012; trg_system_log_no_mutate, core 0074), so an
+-- UPDATE backfill aborts on the first existing row and takes the ADD COLUMN
+-- with it — dbmigrate runs each file in one transaction, so the rollback would
+-- restore NOTHING and pin the operator at head. ADD COLUMN with a DEFAULT
+-- rewrites the rows without issuing row UPDATEs, so the trigger never fires.
+--
+-- Every other phase D down half is a plain ADD-then-UPDATE. It works there
+-- because those tables are mutable; the ledgers are exactly the two where it
+-- cannot, which is why this one is spelled differently.
+--
+-- format() with %L rather than a parameter: a migration is plain SQL with no
+-- bind parameters, and the value has to reach a DDL statement.
+DO $$
+DECLARE ws uuid;
+BEGIN
+  SELECT id INTO ws FROM workspace WHERE archived_at IS NULL ORDER BY created_at LIMIT 1;
+  IF ws IS NULL THEN
+    SELECT id INTO ws FROM workspace ORDER BY created_at LIMIT 1;
+  END IF;
+  IF ws IS NULL THEN
+    -- No workspace at all, so no ledger row can exist either: every row in
+    -- both tables is written inside a workspace-bound transaction, and the
+    -- foreign key restored below would have refused one otherwise. An empty
+    -- table takes the column NOT NULL with nothing to backfill.
+    ALTER TABLE audit_log  ADD COLUMN workspace_id uuid NOT NULL;
+    ALTER TABLE system_log ADD COLUMN workspace_id uuid NOT NULL;
+  ELSE
+    EXECUTE format('ALTER TABLE audit_log  ADD COLUMN workspace_id uuid NOT NULL DEFAULT %L', ws);
+    EXECUTE format('ALTER TABLE system_log ADD COLUMN workspace_id uuid NOT NULL DEFAULT %L', ws);
+    -- The default was the backfill's vehicle, not part of the restored shape:
+    -- every writer names the column, and leaving a default would let one that
+    -- forgot it land on a silently-chosen workspace.
+    ALTER TABLE audit_log  ALTER COLUMN workspace_id DROP DEFAULT;
+    ALTER TABLE system_log ALTER COLUMN workspace_id DROP DEFAULT;
+  END IF;
+END $$;
+
 ALTER TABLE audit_log
-  ALTER COLUMN workspace_id SET NOT NULL,
   ADD CONSTRAINT audit_log_workspace_id_fkey
     FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE RESTRICT;
-
-ALTER TABLE system_log ADD COLUMN workspace_id uuid;
-UPDATE system_log SET workspace_id =
-  (SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at LIMIT 1);
 ALTER TABLE system_log
-  ALTER COLUMN workspace_id SET NOT NULL,
   ADD CONSTRAINT system_log_workspace_id_fkey
     FOREIGN KEY (workspace_id) REFERENCES workspace(id) ON DELETE RESTRICT;
 

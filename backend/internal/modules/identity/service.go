@@ -262,7 +262,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 		if err := insertSession(ctx, tx, account.UserID, tokenHash); err != nil {
 			return err
 		}
-		if err := auditLogin(ctx, tx, wsID, account.UserID, "password login"); err != nil {
+		if err := auditLogin(ctx, tx, account.UserID, "password login"); err != nil {
 			return err
 		}
 
@@ -303,7 +303,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 		// failure audit needs its own transaction — an invisible
 		// brute-force is exactly what the audit trail exists to catch.
 		// A failure writing it outranks the 401.
-		if auditErr := s.recordFailedLogin(ctx, wsID, email); auditErr != nil {
+		if auditErr := s.recordFailedLogin(ctx, email); auditErr != nil {
 			return Identity{}, "", auditErr
 		}
 		return Identity{}, "", err
@@ -389,8 +389,8 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 // non-entity operational events. A login mutates no record (it has no
 // entity), so it belongs in system_log, not the audit_log record-mutation
 // spine.
-func auditLogin(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids.UserID, detail string) error {
-	return logAuthEvent(ctx, tx, wsID, userID, "login", detail)
+func auditLogin(ctx context.Context, tx pgx.Tx, userID ids.UserID, detail string) error {
+	return logAuthEvent(ctx, tx, userID, "login", detail)
 }
 
 // logAuthEvent writes one system_log row for a human auth event (login,
@@ -398,7 +398,7 @@ func auditLogin(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids
 // storekit.LogSystem) because the auth paths have no authenticated
 // principal for LogSystem to stamp from — the same reason identity owns
 // its own audit-ledger writer.
-func logAuthEvent(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids.UserID, action, detail string) error {
+func logAuthEvent(ctx context.Context, tx pgx.Tx, userID ids.UserID, action, detail string) error {
 	_, err := tx.Exec(ctx,
 		`INSERT INTO system_log (actor_type, actor_id, action, detail)
 		 VALUES ('human', $1, $2, jsonb_build_object('detail', $3::text))`,

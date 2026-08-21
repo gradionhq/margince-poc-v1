@@ -122,6 +122,13 @@ func TestMigrations_applyReverseReapply(t *testing.T) {
 		t.Fatalf("re-run applied %d, want 0", applied)
 	}
 
+	// Rows FIRST, and specifically in the append-only ledgers. An empty schema
+	// reverses through anything: a down half that backfills with an UPDATE
+	// aborts on the ledgers' immutability trigger, and a FOR EACH ROW trigger
+	// never fires on zero rows — so this suite would report a rollback that
+	// cannot happen on any installation that has ever done anything.
+	seedLedgerRowsForReversal(t, conn)
+
 	// Every migration reverses (B-EP02.1b), then the schema re-applies.
 	reverted, err := dbmigrate.Down(ctx, conn, core, len(core.Migrations))
 	if err != nil {
@@ -256,5 +263,31 @@ func TestAuditLogIsAppendOnly(t *testing.T) {
 		} else if !errors.As(err, &pgErr) {
 			t.Errorf("%q failed with %v, want a loud database error", stmt, err)
 		}
+	}
+}
+
+// seedLedgerRowsForReversal plants one row in each append-only ledger, at head,
+// so the reversal above has something a row-level trigger can refuse.
+//
+// The two ledgers are the only tables in the schema that forbid UPDATE and
+// DELETE outright, which makes them the only ones whose down half cannot
+// backfill the ordinary way. That asymmetry is invisible against an empty
+// table, and an empty table is what this suite used to reverse.
+func seedLedgerRowsForReversal(t *testing.T, conn *pgx.Conn) {
+	t.Helper()
+	ctx := context.Background()
+	// A workspace first, because that is the only state these rows exist in:
+	// both ledgers are written inside a workspace-bound transaction, and the
+	// foreign key the rollback restores would have refused a row without one.
+	seedWorkspace(t, conn, "ledger-reversal")
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id)
+		VALUES ('system', 'system:reversal-fixture', 'create', 'workspace', gen_random_uuid())`); err != nil {
+		t.Fatalf("seeding the audit_log row this reversal must survive: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO system_log (actor_type, actor_id, action)
+		VALUES ('system', 'system:reversal-fixture', 'reversal_fixture')`); err != nil {
+		t.Fatalf("seeding the system_log row this reversal must survive: %v", err)
 	}
 }

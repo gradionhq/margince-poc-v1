@@ -493,11 +493,12 @@ func TestEveryMirroredRowWritesItsAuditRowAndASecondPassWritesNone(t *testing.T)
 	}
 }
 
-// auditRowsByEntity counts what the ledger holds per finance entity type. The
-// workspace is minted per run, so every row it sees belongs to this fixture.
 // auditWatermark is the highest audit_log id before the work under test runs.
-// audit_log ids are UUIDv7 and therefore time-ordered, so a later row always
-// compares greater — which is what makes this a watermark rather than a guess.
+// audit_log ids are minted by this process under a monotonic counter, so a row
+// written after the mark always compares greater. UUIDv7 orders by millisecond
+// and the counter breaks ties WITHIN a process — which is enough here because
+// the lane gives each package its own database and runs it single-threaded, so
+// the only writers racing this mark are earlier tests in the same process.
 func auditWatermark(ctx context.Context, t *testing.T, e *financeEnv) ids.UUID {
 	t.Helper()
 	var high ids.UUID
@@ -745,6 +746,9 @@ func TestTheMirrorsAuditRowsNameNoGrantTheSweepDoesNotHold(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 	var rules []string
+	// Unfenced on purpose, unlike the counts above: this asserts a property
+	// EVERY finance audit row must hold, so widening it from this run's rows to
+	// the package's is strictly stronger and cannot produce a false pass.
 	if err := e.store.tx(e.ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(e.ctx, `
 			SELECT array_agg(DISTINCT authorization_rule) FROM audit_log
@@ -770,8 +774,6 @@ func TestTheMirrorsAuditRowsNameNoGrantTheSweepDoesNotHold(t *testing.T) {
 	}
 }
 
-// updateImages reads the two images off the one `update` audit row this
-// workspace holds for an entity type.
 // updateImages reads the one update row this run wrote for entityType, fenced
 // on the same watermark auditRowsByEntity uses: the package's tests share a
 // database, so an unfenced read returns whichever update landed first, and the

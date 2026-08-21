@@ -163,7 +163,7 @@ func detachedForFailure(ctx context.Context) (context.Context, context.CancelFun
 	return context.WithTimeout(context.WithoutCancel(ctx), failureRecordTimeout)
 }
 
-func (s *Service) recordFailedLogin(ctx context.Context, wsID ids.WorkspaceID, email string) error {
+func (s *Service) recordFailedLogin(ctx context.Context, email string) error {
 	ctx, cancel := detachedForFailure(ctx)
 	defer cancel()
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {

@@ -33,7 +33,7 @@ import (
 
 // seedAuditActionRow inserts a raw audit row with a controlled verb and
 // before/after payload — the projection's input. INSERT is the one verb
-// the append-only trigger admits, and the workspace tx satisfies RLS.
+// the append-only trigger admits.
 // before/after are marshaled to jsonb bytes explicitly: pgx does not
 // accept a bare map[string]any for a jsonb column without a registered
 // type, the same reason storekit.Audit marshals before binding.

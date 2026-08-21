@@ -19,9 +19,13 @@
 -- these six are what the audit reads page by. Each keeps the rest of its own
 -- key, so the read it serves is unchanged with the leading column gone.
 --
--- SET LOCAL lock_timeout: these are the two largest tables in a mature
--- installation and every mutation writes one of them, so an unbounded wait
--- would queue behind one open transaction for as long as it lives.
+-- SET LOCAL lock_timeout bounds how long this waits to ACQUIRE a lock, not how
+-- long it holds one. These are the two largest tables in a mature installation
+-- and every mutation writes one of them, so the wait matters — but so does what
+-- it does not cover: the six index builds are not CONCURRENTLY (a migration runs
+-- in one transaction, which CONCURRENTLY forbids), so each holds a write-blocking
+-- SHARE lock for its whole build. On a large ledger that is a maintenance
+-- window, not a rolling deploy.
 SET LOCAL lock_timeout = '3s';
 
 CREATE INDEX idx_audit_actor_narrow  ON audit_log (actor_id, occurred_at DESC);
