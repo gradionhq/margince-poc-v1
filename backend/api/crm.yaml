@@ -6122,6 +6122,11 @@ paths:
       tags: [Tags]
       operationId: listTags
       summary: List tags.
+      description: |
+        The workspace's tag vocabulary. Read it before applying one: apply_tag takes a tag_name and
+        creates the word when there is none, so a caller who cannot see the existing words invents a
+        near-duplicate — "K5 Conference" beside "K5 Conference 2026" — and the vocabulary stops being one.
+      x-mcp-tool: { verb: list_tags, record_type: tag, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/IncludeArchived'
       responses:

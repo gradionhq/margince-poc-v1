@@ -12,6 +12,7 @@ package agents
 // provenance any more than a browser can.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -82,7 +83,26 @@ type FieldOwnership interface {
 	HumanOwnedConflicts(ctx context.Context, entityType string, id ids.UUID, patch json.RawMessage) ([]string, error)
 }
 
-func schema(s string) json.RawMessage { return json.RawMessage(s) }
+// schema turns a hand-written JSON schema into the wire form, COMPACTED.
+//
+// The compaction is not tidiness. Every spec's InputSchema is rendered
+// verbatim into the tool listing that rides every Surface-B prompt
+// (runner.ToolListing), so the tabs and newlines these literals are indented
+// with are paid for on every run — ~210 tokens across the core surface, out of
+// a listing already held to a two-thirds budget of the window.
+//
+// Doing it here rather than by unindenting forty literals keeps the source
+// readable: a schema stays legible where it is written, and costs nothing
+// where it is read. A literal that is not valid JSON is left exactly as it
+// was, so a malformed schema still fails the test that reads it rather than
+// being hidden by this.
+func schema(s string) json.RawMessage {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, []byte(s)); err != nil {
+		return json.RawMessage(s)
+	}
+	return json.RawMessage(compact.String())
+}
 
 // --- search_records (🟢 read) ---
 
