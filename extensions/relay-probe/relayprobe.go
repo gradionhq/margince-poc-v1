@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-// Package relay is the ingress seam's consumer: a unit that pulls each
+// Package relayprobe is the ingress seam's consumer: a unit that pulls each
 // connected member's Relay inbox and lands what they were directed at on the
 // CRM timeline, through the same capture pipeline a mailbox goes through.
 //

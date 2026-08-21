@@ -32,3 +32,24 @@ func TestDeclaresTheProviderFacingShapes(t *testing.T) {
 		t.Error("Channels is empty — a provider-facing unit is a transport replies leave on")
 	}
 }
+
+// The declaration's literals and this unit's own constants are the same
+// strings. They are spelled twice on purpose — the operator manifest is derived
+// from New()'s AST WITHOUT compiling the unit, so a constant in the declaration
+// would be a name the generator cannot resolve — and this is what stops the two
+// spellings from becoming two names.
+func TestTheDeclaredNamesMatchTheConstants(t *testing.T) {
+	unit := New()
+	if len(unit.Ingress) == 0 || len(unit.Channels) == 0 {
+		t.Fatal("the declaration is missing the shapes TestDeclaresTheProviderFacingShapes covers")
+	}
+	if got := unit.Ingress[0].System; got != ingressSystem {
+		t.Errorf("declared ingress system %q, constant is %q — a landed record's provenance would not match what this unit writes", got, ingressSystem)
+	}
+	if got := unit.Channels[0].Provider; got != provider {
+		t.Errorf("declared channel provider %q, constant is %q — a carried message would land under a provider this unit does not answer to", got, provider)
+	}
+	if len(unit.Secrets) == 0 || unit.Secrets[0].Key != tokenKey {
+		t.Errorf("declared secret key does not match tokenKey %q — the poll would read back a key nothing deposited", tokenKey)
+	}
+}
