@@ -204,32 +204,77 @@ describe("what a sent message files under", () => {
     ]);
   });
 
-  it("never repeats a record the page is already anchored on", async () => {
+  it("keeps a deal whose id happens to match the company's", async () => {
+    // A link is identified by its TYPE and its id together, which is how the
+    // server identifies one. Two records of different kinds live in different
+    // tables and may hold the same uuid; collapsing them on the id alone would
+    // drop the deal here, and the message would be missing from its timeline
+    // with nothing to say why. The shared id is the whole point of the case.
     const sent = stubRoutes({
       "POST /emails": () => jsonResponse(SENT_ACTIVITY, 202),
+      "GET /organizations/shared-id/360": () =>
+        jsonResponse({
+          organization: { id: "shared-id", name: "Acme" },
+          people: { data: [{ person_id: "per-1", full_name: "Dieter Klein" }] },
+          deals: { data: [{ deal_id: "shared-id", name: "Acme Renewal" }] },
+        }),
     });
     render(
       <ComposeModal
         entityType="organization"
-        entityId="org-1"
+        entityId="shared-id"
         personId="per-1"
         open
         onClose={vi.fn()}
       />,
     );
 
-    await screen.findByLabelText("Draft to");
-    // Re-picking the contact the composer opened on is a no-op the rep can
-    // perform, and it must not produce the same person twice on the wire.
-    await pickBy("Draft to", "Dieter Klein");
+    await screen.findByLabelText("Related to");
+    await pickBy("Related to", "Acme Renewal");
     await fillBody();
     await pickBy("Consent purpose", "Deal messages");
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(linksOf(sent)).toBeDefined());
-    const ids = (linksOf(sent) as { entity_id: string }[]).map(
-      (l) => l.entity_id,
+    expect(linksOf(sent)).toEqual([
+      { entity_type: "organization", entity_id: "shared-id" },
+      { entity_type: "person", entity_id: "per-1" },
+      { entity_type: "deal", entity_id: "shared-id" },
+    ]);
+  });
+
+  it("files a reply under its own record and adds nothing the rep did not pick", async () => {
+    // A reply grounds on the thread, not the account: the rep chose nothing,
+    // and the recipient is already a participant on the activity being
+    // answered. Anchored sends go to the activity's own endpoint, so the
+    // composed links never reach the wire at all.
+    const sent = stubRoutes({
+      "POST /activities/act-1/send-email": () =>
+        jsonResponse(SENT_ACTIVITY, 202),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="per-1"
+        personId="per-1"
+        open
+        onClose={vi.fn()}
+      />,
     );
-    expect(new Set(ids).size).toBe(ids.length);
+
+    await screen.findByPlaceholderText("Subject");
+    await fillBody();
+    await pickBy("Consent purpose", "Deal messages");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(
+        sent.some((r) => r.key === "POST /activities/act-1/send-email"),
+      ).toBe(true),
+    );
+    // The account-started endpoint is the only one that takes links, and a
+    // reply must never reach it.
+    expect(sent.some((r) => r.key === "POST /emails")).toBe(false);
   });
 });

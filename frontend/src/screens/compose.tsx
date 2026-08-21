@@ -369,7 +369,11 @@ function useAccountGrounding(
 //
 // Duplicates are dropped rather than sent twice: on a person page the anchor
 // and the recipient are the same record, and the link table treats a repeat as
-// a conflict rather than a no-op.
+// a conflict rather than a no-op. A link is identified by BOTH of its fields,
+// the way the server identifies it — matching on the id alone would drop a
+// legitimate second link whenever two records of different kinds happened to
+// share a uuid, and the message would then be missing from that record's
+// timeline with nothing to say why.
 //
 // `chosen` is null on a reply, whose links are the thread's own business: the
 // rep picked nothing, and the recipient is already a participant on the
@@ -385,7 +389,10 @@ function composedLinks(
     return links;
   }
   const add = (kind: RelinkKind, id: string) => {
-    if (!id || links.some((l) => l.entity_id === id)) {
+    const already = links.some(
+      (l) => l.entity_type === kind && l.entity_id === id,
+    );
+    if (!id || already) {
       return;
     }
     links.push({ entity_type: kind, entity_id: id });
