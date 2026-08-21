@@ -221,6 +221,13 @@ type demoOffer struct {
 type demoOfferLine struct {
 	Product  string `json:"product"`
 	Quantity int    `json:"quantity"`
+	// UnitPriceMinor overrides the product's own price, in the OFFER's
+	// currency. Required when the two differ: a line snapshots its price
+	// from the product, and the API refuses to convert one currency into
+	// another rather than fabricate a rate (ProductCurrencyMismatchError).
+	// Zero means "take the product's price", which is right whenever the
+	// offer and the product agree on currency.
+	UnitPriceMinor int64 `json:"unit_price_minor"`
 }
 
 // demoConsent is a consent state for one person, addressed by their position

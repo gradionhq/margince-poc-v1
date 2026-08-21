@@ -348,7 +348,14 @@ func seedOffers(c *client, cfg demoConfig, refs pipelineRefs, products map[strin
 			if !ok {
 				return created, fmt.Errorf("offer %s names product %q, which is not seeded", offer.Ref, line.Product)
 			}
-			lines = append(lines, jsonBody{"product_id": productID, "quantity": line.Quantity})
+			item := jsonBody{"product_id": productID, "quantity": line.Quantity}
+			// Only sent when the dataset states one. Otherwise the line takes
+			// the product's own price, which is what every same-currency
+			// offer wants.
+			if line.UnitPriceMinor > 0 {
+				item["unit_price_minor"] = line.UnitPriceMinor
+			}
+			lines = append(lines, item)
 		}
 		body := jsonBody{"currency": offer.Currency, "source": seedSource, "line_items": lines}
 		addIfSet(body, "intro_text", offer.IntroText)
