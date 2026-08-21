@@ -605,7 +605,6 @@ export const vi = {
   "consent.actorAgent": "Agent",
   "consent.actorSystem": "Hệ thống",
   "consent.actorConnector": "Connector",
-  "consent.actorBuyer": "Người tham gia Deal Room",
   "consent.actorUnknown": "không ghi nhận tác nhân",
   "consent.purposesUnavailable":
     "Không tải được danh mục mục đích chấp thuận, nên hiện chưa thể cho biết mục đích nào cần xác nhận kép.",

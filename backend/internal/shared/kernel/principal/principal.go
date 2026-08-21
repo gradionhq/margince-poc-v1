@@ -25,21 +25,14 @@ const (
 	PrincipalAgent     PrincipalType = "agent"
 	PrincipalConnector PrincipalType = "connector"
 	PrincipalSystem    PrincipalType = "system"
-	// PrincipalBuyer is an external person acting inside ONE Deal Room, and
-	// it exists because the other four cannot describe them honestly. They
-	// are not `human`: that kind means a seat, and every reader of an audit
-	// row treats it as one it can resolve against the member directory. They
-	// are certainly not `system` — recording a buyer's confirmation as the
-	// installation itself would render "System confirmed v5" over the one
-	// question a disputed negotiation asks, and the audit log is append-only,
-	// so that reading cannot be corrected once written.
-	//
-	// A buyer's authority comes from their room session and NOTHING else.
-	// This kind is deliberately absent from every bypass the other kinds
-	// enjoy — it holds no RBAC grant, no row scope and no seat, so a buyer
-	// principal reaching a general-purpose store is refused rather than
-	// admitted. The Deal Room's own public store methods carry the room
-	// predicate that admits them.
+	// PrincipalBuyer is an external person acting inside ONE Deal Room: no
+	// seat, no RBAC grant, no row scope. Their authority is the room session
+	// and nothing else, so every gate in platform/auth refuses them and the
+	// Deal Room's own store methods carry the room predicate that admits
+	// them. The kind exists so the audit log can attribute their action to
+	// THEM — `human` would send a reader to a member directory they will
+	// never appear in, and `system` would put the installation's name on a
+	// person's decision in an append-only ledger.
 	PrincipalBuyer PrincipalType = "buyer"
 )
 

@@ -17703,7 +17703,7 @@ export interface components {
             /** @description How consent was captured (e.g. webform, import, double_opt_in). */
             source?: string | null;
             /** @enum {string} */
-            actor_type?: "human" | "agent" | "system" | "connector" | "buyer";
+            actor_type?: "human" | "agent" | "system" | "connector";
             actor_id?: string | null;
             /** Format: date-time */
             occurred_at: string;

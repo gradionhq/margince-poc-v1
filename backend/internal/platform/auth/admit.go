@@ -79,6 +79,14 @@ func (g *Gate) Admit(ctx context.Context, spec mcp.ToolSpec, resolve func() (mcp
 	// their authority is their RBAC, enforced at the store. The gate
 	// exists to bound AGENTS (03b Layer 1); a human reaching a tool
 	// through the UI already answered for the action.
+	// A buyer holds no scope, no seat and no quota, so "not an agent, pass"
+	// would wave one through every check this gate exists to apply. Refused
+	// by kind rather than by the absence of a passport, because the absence
+	// is what makes the pass-through look safe.
+	if p.Type == principal.PrincipalBuyer {
+		return ctx, fmt.Errorf("gate: %s: a Deal Room participant holds no tool authority: %w",
+			spec.Name, apperrors.ErrPermissionDenied)
+	}
 	if p.Type != principal.PrincipalAgent {
 		return ctx, nil
 	}

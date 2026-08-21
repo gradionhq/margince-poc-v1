@@ -654,7 +654,6 @@ export const en = {
   "consent.actorAgent": "Agent",
   "consent.actorSystem": "System",
   "consent.actorConnector": "Connector",
-  "consent.actorBuyer": "Deal Room participant",
   "consent.actorUnknown": "actor not recorded",
   "consent.purposesUnavailable":
     "Couldn't load the consent purpose catalogue, so which purposes need a double opt-in can't be shown right now.",

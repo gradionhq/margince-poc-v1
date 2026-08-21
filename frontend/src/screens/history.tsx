@@ -90,6 +90,14 @@ function provenanceOfEntry(
   entry: Pick<AuditHistoryEntry, "actor_type" | "actor_id">,
   viewerUserId?: string,
 ): Provenance {
+  // A buyer is a person, not a machine, and drawing them with the machine
+  // treatment is the mislabel the actor kind exists to prevent. Provenance has
+  // no buyer variant yet, so `unknown` is the honest placeholder: it says the
+  // source is not recorded rather than naming the wrong kind of source. Giving
+  // Provenance a buyer variant is a design-system change, tracked separately.
+  if (entry.actor_type === "buyer") {
+    return { kind: "unknown" };
+  }
   if (entry.actor_type !== "human") {
     return machineProvenance(entry.actor_type, entry.actor_id);
   }

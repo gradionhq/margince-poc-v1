@@ -72,7 +72,7 @@ var fieldHistoryEntityTypes = map[string]bool{
 }
 
 var fieldHistoryActorTypes = map[string]bool{
-	"human": true, "agent": true, "system": true, "connector": true,
+	"human": true, "agent": true, "system": true, "connector": true, "buyer": true,
 }
 
 // fieldHistoryProjectedActions is the closed set of audit verbs whose

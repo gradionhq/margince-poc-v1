@@ -23925,7 +23925,7 @@ components:
         new_state: { type: string, enum: [granted, withdrawn], description: Proof rows record only transitions to granted/withdrawn (never to unknown). }
         lawful_basis: { type: [string, 'null'] }
         source: { type: [string, 'null'], description: 'How consent was captured (e.g. webform, import, double_opt_in).' }
-        actor_type: { type: string, enum: [human, agent, system, connector, buyer] }
+        actor_type: { type: string, enum: [human, agent, system, connector] }
         actor_id: { type: [string, 'null'] }
         occurred_at: { type: string, format: date-time }
 

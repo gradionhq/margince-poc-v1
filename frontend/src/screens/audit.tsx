@@ -105,14 +105,16 @@ function actorAttribution(
   if (entry.actor_type === "system") {
     return { labelKey: "audit.system" };
   }
-  // A Deal Room participant. Their name is carried on the row because no
-  // directory lookup can resolve them — they hold no seat and never will — so
-  // an absent name is the honest end of the line rather than a reason to print
-  // the raw participant id at a reader.
+  // A Deal Room participant. The read path resolves actor_name from app_user
+  // for humans only, and a buyer holds no seat, so no name arrives today and
+  // this renders the kind rather than inventing one. Naming the participant
+  // means resolving actor_id against deal_room_participant on the read path —
+  // when that lands, the name replaces the label here.
   if (entry.actor_type === "buyer") {
-    return entry.actor_name
-      ? { name: entry.actor_name, qualifierKey: "audit.viaDealRoom" }
-      : { labelKey: "audit.unknownBuyer", qualifierKey: "audit.viaDealRoom" };
+    return {
+      labelKey: "audit.unknownBuyer",
+      qualifierKey: "audit.viaDealRoom",
+    };
   }
 
   const qualifierKey = MACHINE_QUALIFIER[entry.actor_type];

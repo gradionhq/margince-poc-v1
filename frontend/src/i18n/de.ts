@@ -616,7 +616,6 @@ export const de = {
   "consent.actorAgent": "Agent",
   "consent.actorSystem": "System",
   "consent.actorConnector": "Connector",
-  "consent.actorBuyer": "Teilnehmer im Deal Room",
   "consent.actorUnknown": "Akteur nicht erfasst",
   "consent.purposesUnavailable":
     "Der Einwilligungszweck-Katalog konnte nicht geladen werden — welche Zwecke ein Double-Opt-in brauchen, lässt sich gerade nicht anzeigen.",

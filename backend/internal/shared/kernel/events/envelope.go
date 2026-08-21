@@ -91,7 +91,7 @@ func (e Envelope) Validate() error {
 		return fmt.Errorf("events: %s envelope has no occurred_at", e.Type)
 	}
 	switch e.Actor.Type {
-	case "human", "agent", "connector", "system":
+	case "human", "agent", "connector", "system", "buyer":
 	default:
 		// The schema (audit_log CHECK) and the wire contract must agree
 		// on the actor classes — a fifth class slipping onto the bus

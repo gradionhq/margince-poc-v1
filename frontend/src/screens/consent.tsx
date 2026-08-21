@@ -73,12 +73,6 @@ const ACTOR_LABEL: Record<
   agent: "consent.actorAgent",
   system: "consent.actorSystem",
   connector: "consent.actorConnector",
-  // A Deal Room participant cannot capture a consent decision today — they
-  // reach one room and nothing in it touches the consent registry. The label
-  // exists because this table is keyed on the wire's closed enum ON PURPOSE:
-  // a proof log that fell back to a generic word for an actor the wire named
-  // would assert less than the record holds.
-  buyer: "consent.actorBuyer",
 };
 
 // The actor line on the Art. 7 proof log: names WHO the server says captured

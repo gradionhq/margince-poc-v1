@@ -42,6 +42,15 @@ var identityTables = map[string]bool{
 // readsEveryRow reports whether the principal's READ of the table carries no
 // owner-scope arm: an unbounded actor, or any actor on an identity table. It is
 // the read-side twin of Unbounded and deliberately says nothing about writes.
+//
+// The identity-table arm says "no owner predicate narrows this read", which is
+// true for a seated actor and false for a buyer: a Deal Room participant's
+// reads are bounded by their room, and no identity table carries that bound. So
+// the kind is answered before the table is, or a buyer would read every person,
+// organization, lead, deal and project in the installation.
 func readsEveryRow(p principal.Principal, table string) bool {
+	if p.Type == principal.PrincipalBuyer {
+		return false
+	}
 	return Unbounded(p) || identityTables[table]
 }

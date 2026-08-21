@@ -2787,7 +2787,6 @@ func (e ConnectConnectorRequestReturnTo) Valid() bool {
 // Defines values for ConsentEventActorType.
 const (
 	ConsentEventActorTypeAgent     ConsentEventActorType = "agent"
-	ConsentEventActorTypeBuyer     ConsentEventActorType = "buyer"
 	ConsentEventActorTypeConnector ConsentEventActorType = "connector"
 	ConsentEventActorTypeHuman     ConsentEventActorType = "human"
 	ConsentEventActorTypeSystem    ConsentEventActorType = "system"
@@ -2797,8 +2796,6 @@ const (
 func (e ConsentEventActorType) Valid() bool {
 	switch e {
 	case ConsentEventActorTypeAgent:
-		return true
-	case ConsentEventActorTypeBuyer:
 		return true
 	case ConsentEventActorTypeConnector:
 		return true
