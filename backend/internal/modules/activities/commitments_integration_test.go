@@ -201,27 +201,28 @@ func TestAPromiseNamesOnlyTheRecordsItsReaderMaySee(t *testing.T) {
 // otherwise the reply "here are its promises" is itself the disclosure.
 func TestNarrowingToAnUnreadableRecordAnswersNotFound(t *testing.T) {
 	e := setupPromises(t)
-	orgID, hiddenProjectID, taskID := ids.NewV7(), ids.NewV7(), ids.NewV7()
-	e.exec(t, `INSERT INTO organization (id, display_name, owner_id, source, captured_by)
-		VALUES ($1, 'Zeta GmbH', $2, 'seed', 'system')`, orgID, e.rep)
-	e.exec(t, `INSERT INTO project (id, name, organization_id, owner_id, source, captured_by)
-		VALUES ($1, $2, $3, $4, 'seed', 'system')`,
-		hiddenProjectID, hiddenProjectNam, orgID, e.other)
+	hiddenOrgID, taskID := ids.NewV7(), ids.NewV7()
+	// Another rep's unpromoted capture: capture privacy holds it to its own
+	// owner, and every other shareable record type is read by every seat
+	// (platform/auth tableclass.go), so this is the narrowing target a caller
+	// can genuinely not reach.
+	e.exec(t, `INSERT INTO organization (id, display_name, owner_id, visibility, source, captured_by)
+		VALUES ($1, 'Zeta GmbH', $2, 'owner', 'seed', 'system')`, hiddenOrgID, e.other)
 	// The task is assigned to the CALLER, so nothing about the task itself is
-	// what hides it — only the project the sweep is narrowed to.
+	// what hides it — only the company the sweep is narrowed to.
 	e.exec(t, `INSERT INTO activity (id, kind, subject, occurred_at, due_at, assignee_id, is_done, source, captured_by)
 		VALUES ($1, 'task', 'Ship the Zeta rollout', now(), now(), $2, false, 'seed', 'system')`,
 		taskID, e.rep)
-	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, project_id)
-		VALUES ($1, $2, 'project', $3)`, ids.NewV7(), taskID, hiddenProjectID)
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, organization_id)
+		VALUES ($1, $2, 'organization', $3)`, ids.NewV7(), taskID, hiddenOrgID)
 
-	projectType := "project"
+	orgType := "organization"
 	_, _, err := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).ListOpenTasks(e.as(), ListOpenTasksInput{
-		EntityType: &projectType, EntityID: &hiddenProjectID,
+		EntityType: &orgType, EntityID: &hiddenOrgID,
 	})
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("narrowing to a project owned by another rep → %v, want ErrNotFound — an "+
-			"answer of any kind tells the caller the project is there", err)
+		t.Fatalf("narrowing to another rep's unpromoted capture → %v, want ErrNotFound — an "+
+			"answer of any kind tells the caller the company is there", err)
 	}
 }
 

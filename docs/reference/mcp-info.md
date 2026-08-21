@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 8 |
 | Tool catalog | 136.6 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 35752 |
+| Approx. wire tokens | 35756 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -5116,7 +5116,6 @@ Renders its result in [`ui://margince/handoff.html`](#handoff_view), visible to 
         "gaps",
         "name",
         "open_commitments",
-        "organization_id",
         "phase",
         "project_id",
         "stakeholders"
@@ -5983,6 +5982,9 @@ Answer a question that has STRUCTURE — a record type, conditions on its fields
         "rows": {
           "items": {
             "properties": {
+              "distance_km": {
+                "type": "number"
+              },
               "evidence": {
                 "items": {
                   "properties": {

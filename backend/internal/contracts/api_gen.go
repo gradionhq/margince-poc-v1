@@ -19434,10 +19434,13 @@ type Project struct {
 
 	// LastActivityAt Maintained from the timeline on link write; a read accelerator, never a second truth — a rebuild must reproduce it exactly.
 	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
-	Name           string     `json:"name"`
 
-	// OrganizationId The anchor company — required and singular. A company has many projects; a project has one company.
-	OrganizationId openapi_types.UUID  `json:"organization_id"`
+	// MaskedFields The fields of THIS row the caller may not read (a field mask). A named field is null because it is withheld, not because it is empty; absent or empty means nothing is withheld.
+	MaskedFields *[]string `json:"masked_fields,omitempty"`
+	Name         string    `json:"name"`
+
+	// OrganizationId The anchor company — singular, and always set on the row. A company has many projects; a project has one company. Null on the wire when the caller may not read that company, in which case `masked_fields` names it: a project is readable across the workspace while the company it hangs off can still be an unpromoted capture.
+	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
 	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// Phase Read-only here — transitions go through advanceProjectPhase so the history row and project.phase_changed are written from one transaction.
@@ -22171,6 +22174,16 @@ type LogActivityParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ArchiveActivityParams defines parameters for ArchiveActivity.
+type ArchiveActivityParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // UpdateActivityParams defines parameters for UpdateActivity.
 type UpdateActivityParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
@@ -23055,6 +23068,16 @@ type CreateDealParams struct {
 	// than half-honouring it, so read this contract, not the client, to know which calls are safe
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ArchiveDealParams defines parameters for ArchiveDeal.
+type ArchiveDealParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // UpdateDealParams defines parameters for UpdateDeal.
@@ -23967,6 +23990,16 @@ type CreateOrganizationParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ArchiveOrganizationParams defines parameters for ArchiveOrganization.
+type ArchiveOrganizationParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // UpdateOrganizationParams defines parameters for UpdateOrganization.
 type UpdateOrganizationParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
@@ -24453,6 +24486,16 @@ type CreatePersonParams struct {
 	// than half-honouring it, so read this contract, not the client, to know which calls are safe
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ArchivePersonParams defines parameters for ArchivePerson.
+type ArchivePersonParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // UpdatePersonParams defines parameters for UpdatePerson.
@@ -25152,6 +25195,16 @@ type ListRelationshipsParams struct {
 
 // ListRelationshipsParamsKind defines parameters for ListRelationships.
 type ListRelationshipsParamsKind string
+
+// ArchiveRelationshipParams defines parameters for ArchiveRelationship.
+type ArchiveRelationshipParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
 
 // UpdateRelationshipParams defines parameters for UpdateRelationship.
 type UpdateRelationshipParams struct {
@@ -30699,6 +30752,14 @@ func (a *Project) UnmarshalJSON(b []byte) error {
 		delete(object, "last_activity_at")
 	}
 
+	if raw, found := object["masked_fields"]; found {
+		err = json.Unmarshal(raw, &a.MaskedFields)
+		if err != nil {
+			return fmt.Errorf("error reading 'masked_fields': %w", err)
+		}
+		delete(object, "masked_fields")
+	}
+
 	if raw, found := object["name"]; found {
 		err = json.Unmarshal(raw, &a.Name)
 		if err != nil {
@@ -30855,14 +30916,23 @@ func (a Project) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.MaskedFields != nil {
+		object["masked_fields"], err = json.Marshal(a.MaskedFields)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'masked_fields': %w", err)
+		}
+	}
+
 	object["name"], err = json.Marshal(a.Name)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'name': %w", err)
 	}
 
-	object["organization_id"], err = json.Marshal(a.OrganizationId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'organization_id': %w", err)
+	if a.OrganizationId != nil {
+		object["organization_id"], err = json.Marshal(a.OrganizationId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'organization_id': %w", err)
+		}
 	}
 
 	if a.OwnerId != nil {
@@ -32445,7 +32515,7 @@ type ServerInterface interface {
 	LogActivity(w http.ResponseWriter, r *http.Request, params LogActivityParams)
 	// Archive (soft-delete) an activity.
 	// (DELETE /activities/{id})
-	ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id)
+	ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id, params ArchiveActivityParams)
 	// Get an activity by id (includes its links and raw capture payload).
 	// (GET /activities/{id})
 	GetActivity(w http.ResponseWriter, r *http.Request, id Id)
@@ -32826,7 +32896,7 @@ type ServerInterface interface {
 	CreateDeal(w http.ResponseWriter, r *http.Request, params CreateDealParams)
 	// Archive (soft-delete) a deal.
 	// (DELETE /deals/{id})
-	ArchiveDeal(w http.ResponseWriter, r *http.Request, id Id)
+	ArchiveDeal(w http.ResponseWriter, r *http.Request, id Id, params ArchiveDealParams)
 	// Get a deal by id (the 360 record).
 	// (GET /deals/{id})
 	GetDeal(w http.ResponseWriter, r *http.Request, id Id)
@@ -33105,7 +33175,7 @@ type ServerInterface interface {
 	CreateOrganization(w http.ResponseWriter, r *http.Request, params CreateOrganizationParams)
 	// Archive (soft-delete) an organization.
 	// (DELETE /organizations/{id})
-	ArchiveOrganization(w http.ResponseWriter, r *http.Request, id Id)
+	ArchiveOrganization(w http.ResponseWriter, r *http.Request, id Id, params ArchiveOrganizationParams)
 	// Get an organization by id (the 360 record).
 	// (GET /organizations/{id})
 	GetOrganization(w http.ResponseWriter, r *http.Request, id Id)
@@ -33267,7 +33337,7 @@ type ServerInterface interface {
 	CreatePerson(w http.ResponseWriter, r *http.Request, params CreatePersonParams)
 	// Archive (soft-delete) a person.
 	// (DELETE /people/{id})
-	ArchivePerson(w http.ResponseWriter, r *http.Request, id Id)
+	ArchivePerson(w http.ResponseWriter, r *http.Request, id Id, params ArchivePersonParams)
 	// Get a person by id (the 360 record).
 	// (GET /people/{id})
 	GetPerson(w http.ResponseWriter, r *http.Request, id Id)
@@ -33462,7 +33532,7 @@ type ServerInterface interface {
 	CreateRelationship(w http.ResponseWriter, r *http.Request)
 	// Archive (soft-delete) a relationship.
 	// (DELETE /relationships/{id})
-	ArchiveRelationship(w http.ResponseWriter, r *http.Request, id Id)
+	ArchiveRelationship(w http.ResponseWriter, r *http.Request, id Id, params ArchiveRelationshipParams)
 	// Update a relationship (role, primary flag, dates).
 	// (PATCH /relationships/{id})
 	UpdateRelationship(w http.ResponseWriter, r *http.Request, id Id, params UpdateRelationshipParams)
@@ -33732,7 +33802,7 @@ func (_ Unimplemented) LogActivity(w http.ResponseWriter, r *http.Request, param
 
 // Archive (soft-delete) an activity.
 // (DELETE /activities/{id})
-func (_ Unimplemented) ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id, params ArchiveActivityParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -34494,7 +34564,7 @@ func (_ Unimplemented) CreateDeal(w http.ResponseWriter, r *http.Request, params
 
 // Archive (soft-delete) a deal.
 // (DELETE /deals/{id})
-func (_ Unimplemented) ArchiveDeal(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchiveDeal(w http.ResponseWriter, r *http.Request, id Id, params ArchiveDealParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35052,7 +35122,7 @@ func (_ Unimplemented) CreateOrganization(w http.ResponseWriter, r *http.Request
 
 // Archive (soft-delete) an organization.
 // (DELETE /organizations/{id})
-func (_ Unimplemented) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id Id, params ArchiveOrganizationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35376,7 +35446,7 @@ func (_ Unimplemented) CreatePerson(w http.ResponseWriter, r *http.Request, para
 
 // Archive (soft-delete) a person.
 // (DELETE /people/{id})
-func (_ Unimplemented) ArchivePerson(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchivePerson(w http.ResponseWriter, r *http.Request, id Id, params ArchivePersonParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35766,7 +35836,7 @@ func (_ Unimplemented) CreateRelationship(w http.ResponseWriter, r *http.Request
 
 // Archive (soft-delete) a relationship.
 // (DELETE /relationships/{id})
-func (_ Unimplemented) ArchiveRelationship(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchiveRelationship(w http.ResponseWriter, r *http.Request, id Id, params ArchiveRelationshipParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36520,8 +36590,32 @@ func (siw *ServerInterfaceWrapper) ArchiveActivity(w http.ResponseWriter, r *htt
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveActivityParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveActivity(w, r, id)
+		siw.Handler.ArchiveActivity(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -41614,8 +41708,32 @@ func (siw *ServerInterfaceWrapper) ArchiveDeal(w http.ResponseWriter, r *http.Re
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveDealParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveDeal(w, r, id)
+		siw.Handler.ArchiveDeal(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -45771,8 +45889,32 @@ func (siw *ServerInterfaceWrapper) ArchiveOrganization(w http.ResponseWriter, r 
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveOrganizationParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveOrganization(w, r, id)
+		siw.Handler.ArchiveOrganization(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -48253,8 +48395,32 @@ func (siw *ServerInterfaceWrapper) ArchivePerson(w http.ResponseWriter, r *http.
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchivePersonParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchivePerson(w, r, id)
+		siw.Handler.ArchivePerson(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -51583,8 +51749,32 @@ func (siw *ServerInterfaceWrapper) ArchiveRelationship(w http.ResponseWriter, r 
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveRelationshipParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveRelationship(w, r, id)
+		siw.Handler.ArchiveRelationship(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

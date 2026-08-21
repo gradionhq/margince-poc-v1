@@ -46,7 +46,7 @@ func TestEachAnchorRefusalNamesItsFieldAndAWorkingMove(t *testing.T) {
 	env := newAnchorEnv(t)
 	other := env.newOrganization(t)
 
-	_, archiveErr := env.store.ArchiveOrganization(env.ctx, env.anchorID)
+	_, archiveErr := env.store.ArchiveOrganization(env.ctx, env.anchorID, nil)
 	_, sourceErr := env.store.MergeOrganization(env.ctx, env.anchorID, other)
 	_, targetErr := env.store.MergeOrganization(env.ctx, other, env.anchorID)
 
@@ -133,7 +133,7 @@ func TestTheGuardPassesOnAnAbsentRowAndRefusesOnAnUnreadableOne(t *testing.T) {
 func TestTheAnchorCannotBeArchived(t *testing.T) {
 	env := newAnchorEnv(t)
 
-	_, err := env.store.ArchiveOrganization(env.ctx, env.anchorID)
+	_, err := env.store.ArchiveOrganization(env.ctx, env.anchorID, nil)
 	if !anchorProtected(err) {
 		t.Fatalf("ArchiveOrganization on the anchor: got %v, want the anchor refusal", err)
 	}

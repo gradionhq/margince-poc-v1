@@ -377,29 +377,6 @@ func (d *Dispatcher) AdvanceDeal(ctx context.Context, in datasource.AdvanceDealI
 	return d.native.AdvanceDeal(ctx, in)
 }
 
-// Archive dispatches to the overlay mirror or the native SoR modules
-// per ctx's workspace.x_sor_mode; see Create's doc on overlay's write
-// gap.
-func (d *Dispatcher) Archive(ctx context.Context, ref datasource.EntityRef) (datasource.EntityRef, error) {
-	ov, err := d.isOverlayUncached(ctx)
-	if err != nil {
-		return datasource.EntityRef{}, err
-	}
-	return d.archiveInMode(ctx, ov, ref)
-}
-
-// archiveInMode is Archive for a caller that already resolved the mode this
-// request — see updateInMode.
-func (d *Dispatcher) archiveInMode(ctx context.Context, ov bool, ref datasource.EntityRef) (datasource.EntityRef, error) {
-	if ov {
-		if err := refuseUngovernedAgentEgress(ctx, overlay.WriteArchive, ref.Type); err != nil {
-			return datasource.EntityRef{}, err
-		}
-		return d.overlay.Archive(ctx, ref)
-	}
-	return d.native.Archive(ctx, ref)
-}
-
 // Merge dispatches to the overlay mirror or the native SoR modules per
 // ctx's workspace.x_sor_mode; see Create's doc on the uncached mode read.
 func (d *Dispatcher) Merge(ctx context.Context, in datasource.MergeInput) (datasource.EntityRef, error) {

@@ -41,10 +41,21 @@ func (e *SearchEnv) seedProjects(t *testing.T, phase string, owner *ids.UUID, n 
 // the report path gates on the object grant before any row scope applies, and
 // the shared searchReadGrants helper predates the project vocabulary.
 func (e *SearchEnv) projectReader(user *ids.UUID, team *ids.UUID, scope principal.RowScope) context.Context {
+	return e.scopedReaderOf("project", user, team, scope)
+}
+
+// orgReader is projectReader over organization — the record type that still
+// narrows a reader, because capture privacy holds an unpromoted capture to
+// its own owner (platform/auth rowscope.go).
+func (e *SearchEnv) orgReader(user *ids.UUID, team *ids.UUID, scope principal.RowScope) context.Context {
+	return e.scopedReaderOf("organization", user, team, scope)
+}
+
+func (e *SearchEnv) scopedReaderOf(object string, user *ids.UUID, team *ids.UUID, scope principal.RowScope) context.Context {
 	actor := principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
 		Permissions: principal.Permissions{
-			Objects:  map[string]principal.ObjectGrant{"project": {Read: true}},
+			Objects:  map[string]principal.ObjectGrant{object: {Read: true}},
 			RowScope: scope,
 		},
 	}
@@ -105,20 +116,24 @@ func TestAdHocProjectReportCountsUnderRowScope(t *testing.T) {
 		t.Fatalf("filtered project rows = %+v, want the same 2 under the anchor company", res.Rows)
 	}
 
-	// A team1 rep owns none of team2's projects — the aggregate cannot count
-	// what the lists hide.
+	// A team1 rep owns none of team2's projects and counts them anyway: a
+	// project is read by every seat holding the object grant (platform/auth
+	// tableclass.go), so the aggregate reports the work the lists also show.
+	// An aggregate that hid it would tell a delivery lead their department
+	// has no projects running.
 	res, err = provider.RunReport(e.projectReader(&e.Rep1, &e.Team1, principal.RowScopeTeam), datasource.ReportPlan{
 		Entity: datasource.EntityProject, GroupBy: []string{"phase"},
 	})
 	if err != nil {
 		t.Fatalf("team-scoped project plan: %v", err)
 	}
-	if len(res.Rows) != 0 {
-		t.Fatalf("row scope leaked into the project aggregate: %+v", res.Rows)
+	if len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][0]) != "delivering" || fmt.Sprint(res.Rows[0][1]) != "2" {
+		t.Fatalf("team-scoped project rows = %+v, want the same one 'delivering' row counting 2 "+
+			"the all-scope reader saw — a project carries no owner narrowing", res.Rows)
 	}
 
-	// The rep's own project is counted — the empty answer above is scope, not
-	// a plan that never matches.
+	// Adding the rep's own project moves the aggregate, so the answer above
+	// tracks the data rather than being a plan that always says the same thing.
 	e.SeedID(t, `INSERT INTO project (id, name, organization_id, owner_id, phase, source, captured_by)
 		VALUES ($1, 'Own Rollout', $2, $3, 'pursuing', 'manual', 'human:x')`, orgID, e.Rep1)
 	res, err = provider.RunReport(e.projectReader(&e.Rep1, &e.Team1, principal.RowScopeTeam), datasource.ReportPlan{
@@ -127,8 +142,12 @@ func TestAdHocProjectReportCountsUnderRowScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("team-scoped project plan after seeding an own row: %v", err)
 	}
-	if len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][0]) != "pursuing" || fmt.Sprint(res.Rows[0][1]) != "1" {
-		t.Fatalf("own project rows = %+v, want one 'pursuing' row counting 1", res.Rows)
+	counts := map[string]string{}
+	for _, row := range res.Rows {
+		counts[fmt.Sprint(row[0])] = fmt.Sprint(row[1])
+	}
+	if len(res.Rows) != 2 || counts["delivering"] != "2" || counts["pursuing"] != "1" {
+		t.Fatalf("project rows = %+v, want both phases: 2 delivering and 1 pursuing", res.Rows)
 	}
 }
 

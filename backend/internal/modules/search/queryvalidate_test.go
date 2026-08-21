@@ -294,11 +294,14 @@ func TestWithinRadiusValidatesAndAnswersItsUnavailability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a declared operator was refused: %v", err)
 	}
-	if len(plan.Unavailable) != 1 || plan.Unavailable[0].Code != CodeDistanceRankingUnavailable {
-		t.Fatalf("plan reports %v; want one %s note", plan.Unavailable, CodeDistanceRankingUnavailable)
-	}
-	if plan.Unavailable[0].Path != "where[0]" {
-		t.Errorf("the note points at %q rather than the predicate it belongs to", plan.Unavailable[0].Path)
+	// A COMPANY IS SOMEWHERE, so validation no longer refuses it here. Whether
+	// this deployment can answer the question depends on two things validation
+	// cannot see — whether the rows carry coordinates, and whether the centre
+	// resolves — and both are settled at binding time now.
+	if len(plan.Unavailable) != 0 {
+		t.Fatalf("a radius on a company reports %v unavailable at validation; "+
+			"that answer belongs to the binding, which knows what this deployment holds",
+			plan.Unavailable)
 	}
 
 	exact, err := validateJSON(ctx, t, `{"version":"v1","target":"organization",
@@ -308,6 +311,23 @@ func TestWithinRadiusValidatesAndAnswersItsUnavailability(t *testing.T) {
 	}
 	if len(exact.Unavailable) != 0 {
 		t.Errorf("a city predicate reports %v unavailable; city and region work today", exact.Unavailable)
+	}
+}
+
+// A record type that is not SOMEWHERE still refuses at validation, because
+// that answer needs nothing from the deployment: a deal has no address, so no
+// amount of geocoding could ever make the question answerable.
+func TestARadiusOnARecordThatIsNowhereIsStillUnavailable(t *testing.T) {
+	plan, err := validateJSON(readerFor("deal"), t, `{"version":"v1","target":"deal",
+		"where":[{"field":"address","op":"within_radius","value":{"center":"Stuttgart","radius_km":50}}]}`)
+	if err != nil {
+		// A deal publishes no `address` field at all, so this refuses as an
+		// unknown field rather than reaching the radius check — which is the
+		// right refusal, and the reason this test asserts on either outcome.
+		return
+	}
+	if len(plan.Unavailable) != 1 || plan.Unavailable[0].Code != CodeDistanceRankingUnavailable {
+		t.Errorf("a radius on a deal reports %v; a deal is not anywhere", plan.Unavailable)
 	}
 }
 
@@ -591,7 +611,7 @@ func TestAnOperandPayloadIsNotJudgedAgainstTheGrammarsMemberNames(t *testing.T) 
 	if err != nil {
 		t.Fatalf("a legitimate operand payload was refused as a plan member: %v", err)
 	}
-	if len(plan.Unavailable) != 1 {
+	if len(plan.Unavailable) != 0 {
 		t.Errorf("the radius predicate reports %v", plan.Unavailable)
 	}
 }

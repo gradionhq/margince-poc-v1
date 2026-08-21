@@ -236,18 +236,23 @@ func TestArchivingAProjectKeepsWhatItGrouped(t *testing.T) {
 	}
 }
 
-// The row-scope case that fails SILENTLY if the activity link-walk has no
-// project branch: an activity linked ONLY to a project must follow that
-// project's visibility, in both directions. Getting this half-right looks
-// exactly like missing data.
-func TestAnActivityLinkedOnlyToAProjectFollowsItsRowScope(t *testing.T) {
+// The case that fails SILENTLY if the activity link-walk has no project
+// branch: an activity linked ONLY to a project is reached through that
+// project, so a seat that reads the project reads its conversation too.
+// Getting this half-right looks exactly like missing data.
+//
+// A project is workspace-readable (platform/auth tableclass.go), so the walk
+// admits every seat here rather than only the owner's team. What the walk
+// still narrows is a link onto a capture-private record, which
+// TestAMeetingNeverDisclosesTheRecordBehindALinkTheCallerCannotSee covers.
+func TestAnActivityLinkedOnlyToAProjectIsReachedThroughIt(t *testing.T) {
 	e := Setup(t)
 	org := e.SeedOrg(t, "BAER Pharma", nil)
 	// Real seeded users: owner_id is a composite FK to app_user, so a
 	// synthetic uuid would be refused before the scope rule is exercised.
-	ownerA := e.Rep1
-	ownerB := e.Rep3
-	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, org, &ownerA)
+	owner := e.Rep1
+	colleague := e.Rep3
+	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, org, &owner)
 
 	act, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
 		Kind: "email", Subject: strPtr("rollout schedule"), Source: "manual",
@@ -256,6 +261,7 @@ func TestAnActivityLinkedOnlyToAProjectFollowsItsRowScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	activityID := ids.From[ids.ActivityKind](ids.UUID(act.Id))
 
 	scoped := principal.Permissions{
 		RoleKeys: []string{"rep"},
@@ -265,16 +271,98 @@ func TestAnActivityLinkedOnlyToAProjectFollowsItsRowScope(t *testing.T) {
 		},
 		RowScope: principal.RowScopeOwn,
 	}
-
 	// The project's owner sees the conversation about their project.
-	if _, err := e.Activities.GetActivity(e.As(ownerA, nil, scoped), ids.From[ids.ActivityKind](ids.UUID(act.Id)), storekit.LiveOnly); err != nil {
+	if _, err := e.Activities.GetActivity(e.As(owner, nil, scoped), activityID, storekit.LiveOnly); err != nil {
 		t.Errorf("the project's owner cannot see its activity: %v", err)
 	}
-	// Someone with no claim on the project does not — and reads as absent,
-	// not as forbidden, so existence is not disclosed.
-	_, err = e.Activities.GetActivity(e.As(ownerB, nil, scoped), ids.From[ids.ActivityKind](ids.UUID(act.Id)), storekit.LiveOnly)
-	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("a stranger to the project got %v, want ErrNotFound", err)
+	// So does a colleague who neither owns it nor was granted it: a project
+	// is the workspace's to read, and its timeline travels with it.
+	if _, err := e.Activities.GetActivity(e.As(colleague, nil, scoped), activityID, storekit.LiveOnly); err != nil {
+		t.Errorf("a colleague on the project's timeline got %v; a project is read by every seat "+
+			"holding the object grant, and the conversation about it is reached through it", err)
+	}
+	// A seat holding no ACTIVITY grant is refused the record type outright —
+	// the link walk decides which rows, never whether the caller may read
+	// activities at all.
+	noActivity := principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects:  map[string]principal.ObjectGrant{"project": {Read: true}},
+		RowScope: principal.RowScopeOwn,
+	}
+	_, err = e.Activities.GetActivity(e.As(colleague, nil, noActivity), activityID, storekit.LiveOnly)
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("a seat with no activity grant got %v, want ErrPermissionDenied", err)
+	}
+}
+
+// A rep who is neither owner nor stakeholder reads the project and its
+// timeline whole, and still cannot change it. The read class and the write
+// arm are separate rules (platform/auth tableclass.go vs writescope.go), and
+// widening the first must not move the second: a consultant seeing the work
+// is not a consultant who may rewrite it.
+func TestARepReadsAProjectTheyDoNotOwnButCannotWriteIt(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "BAER Pharma", nil)
+	owner := e.Rep1
+	// Rep3 sits in the other team, so neither own nor team scope reaches the
+	// project — only the read class can.
+	consultant := e.Rep3
+	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, org, &owner)
+
+	act, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
+		Kind: "note", Subject: strPtr("kickoff notes"), Source: "manual",
+		Links: []activities.ActivityLinkInput{{EntityType: "project", EntityID: p.ID.UUID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reader := e.As(consultant, []ids.UUID{e.Team2}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"project":  {Read: true, Update: true},
+			"activity": {Read: true},
+		},
+		RowScope: principal.RowScopeOwn,
+	})
+
+	got, err := e.Deals.GetProject(reader, p.ID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("a rep working a project they do not own cannot read it: %v", err)
+	}
+	if ids.UUID(got.Id) != p.ID.UUID {
+		t.Fatalf("read back project %s, want %s", ids.UUID(got.Id), p.ID.UUID)
+	}
+
+	// The timeline travels with the record it hangs off.
+	entityType, entityID := "project", p.ID.UUID
+	timeline, _, err := e.Activities.ListActivities(reader, activities.ListActivitiesInput{
+		EntityType: &entityType, EntityID: &entityID,
+	})
+	if err != nil {
+		t.Fatalf("reading the project's timeline: %v", err)
+	}
+	if len(timeline) != 1 || ids.UUID(timeline[0].Id) != ids.UUID(act.Id) {
+		t.Fatalf("the project timeline returned %d activities, want the one linked to it", len(timeline))
+	}
+
+	// The object grant says update; the ROW is still not theirs to change.
+	// The refusal is permission-denied rather than not-found: this caller
+	// legitimately reads the row, so there is no existence left to hide and
+	// saying "not there" about a record they can see would be a lie.
+	renamed := "Renamed by a passer-by"
+	if _, err := e.Deals.UpdateProject(reader, p.ID, deals.UpdateProjectInput{Name: &renamed}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("a rep who does not own the project changed its name → %v, want ErrPermissionDenied — "+
+			"reading a project is not permission to rewrite it", err)
+	}
+	// And the row really is untouched, so the refusal was not a rollback of a
+	// write that had already landed.
+	after, err := e.Deals.GetProject(e.Admin(), p.ID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Name == renamed {
+		t.Fatal("the refused update still landed on the row")
 	}
 }
 
@@ -427,20 +515,24 @@ func TestListProjectsAppliesFiltersRegisteredAfterThePrelude(t *testing.T) {
 	}
 }
 
-// The merge refusal is a read of both sides, so it obeys row scope like any
-// other read. Work the caller cannot see must still BLOCK the merge —
-// otherwise a rep quietly combines two companies whose projects another team
-// owns — but it must not be NAMED, because naming a project is reading it.
-func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
+// The merge refusal reads both sides, and it must block on work the caller
+// does not own — otherwise a rep quietly combines two companies whose projects
+// another team is delivering.
+//
+// It names them too, and that is not a leak: every seat holding the object
+// grant reads every project (platform/auth tableclass.go), and a project
+// cannot be capture-private since migration 1787320003 narrowed its
+// visibility CHECK to 'workspace'. A refusal that counted these without
+// naming them would be withholding from a caller who can open both records
+// on the project page a moment later — precision, not silence, is the point.
+func TestTheMergeRefusalBlocksAndNamesProjectsTheCallerDoesNotOwn(t *testing.T) {
 	e := Setup(t)
 	// The merging rep owns both companies (a merge is a write, and an own-scope
-	// seat only writes what it owns), but not the projects under them.
+	// seat only writes what it owns), but neither project under them.
 	source := e.SeedOrg(t, "Helios GmbH", &e.Rep3)
 	target := e.SeedOrg(t, "Helios AG", &e.Rep3)
-	// Each side's project belongs to a different rep, and the caller below
-	// owns neither.
-	seedProject(e.Admin(), t, e, "Secret migration", nil, source, &e.Rep1)
-	seedProject(e.Admin(), t, e, "Secret rollout", nil, target, &e.Rep2)
+	seedProject(e.Admin(), t, e, "Another team's migration", nil, source, &e.Rep1)
+	seedProject(e.Admin(), t, e, "Another team's rollout", nil, target, &e.Rep2)
 
 	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
 		RoleKeys: []string{"rep"},
@@ -456,26 +548,17 @@ func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
 	_, err := e.People.MergeOrganization(outsider, orgIDOf(source), orgIDOf(target))
 	var both *people.BothCompaniesCarryProjectsError
 	if !errors.As(err, &both) {
-		t.Fatalf("the merge produced %v, want a refusal — invisible work still blocks it", err)
+		t.Fatalf("the merge produced %v, want a refusal — another team's work still blocks it", err)
 	}
-	// Blocked on the true state of the world...
 	if both.SourceCount != 1 || both.TargetCount != 1 {
 		t.Errorf("counted %d and %d live projects, want one each", both.SourceCount, both.TargetCount)
 	}
-	// ...and silent about work this caller may not read.
-	if len(both.Source) != 0 || len(both.Target) != 0 {
-		t.Errorf("the refusal named %v and %v to a caller who can see neither", both.Source, both.Target)
-	}
-	for _, secret := range []string{"Secret migration", "Secret rollout"} {
-		if strings.Contains(err.Error(), secret) {
-			t.Errorf("the refusal message leaked %q to a caller who cannot read it: %v", secret, err)
+	// Named, so the rep can act on the refusal instead of hunting for what
+	// blocked it. A count with no name is an instruction to guess.
+	for _, name := range []string{"Another team's migration", "Another team's rollout"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("the refusal does not name %q, so the caller cannot act on it: %v", name, err)
 		}
-	}
-	// Nor the SIZE of what is hidden. A number here is a census: repeat the
-	// merge against every company you can reach and the refusals report how
-	// much hidden work each carries, and how that moves week to week.
-	if strings.ContainsAny(err.Error(), "0123456789") {
-		t.Errorf("the refusal counted work the caller cannot see: %v", err)
 	}
 }
 
@@ -585,31 +668,39 @@ func TestRelinkReplacesOnlyTheLinksTheCallerCanSee(t *testing.T) {
 	}
 }
 
-// The residual the scoped delete leaves behind, pinned so it cannot widen.
+// Moving an activity from one project to another is a plain success now, and
+// that is the point worth pinning.
 //
-// At most one project link may exist per activity, so replacing an invisible
-// one refuses where replacing nothing succeeds — and that difference tells a
-// caller a project link they cannot see is there. One bit escapes and cannot
-// be closed from the relink path: hiding the link and enforcing
-// one-per-activity are the same question asked twice.
+// The scoped delete in relink only removes links the caller can SEE, and at
+// most one project link may exist per activity. While a project was row-
+// scoped those two rules collided: replacing a project link the caller could
+// not see refused where replacing nothing succeeded, and the difference told
+// them a hidden link was there. One bit escaped, and it could not be closed
+// from the relink path — hiding the link and enforcing one-per-activity were
+// the same question asked twice.
 //
-// What this holds is that the bit is ALL that escapes at the store: the
-// invisible link survives, so a caller who cannot see it also cannot remove
-// it. The refusal's caller-visible WORDING is not this layer's to prove —
-// the store answers a raw uniqueness violation here, and the transport turns
-// it into the message; that message is pinned in
-// TestASecondProjectLinkIsRefusedWithoutNamingTheFirst.
-func TestReplacingAnInvisibleProjectLinkCannotRemoveIt(t *testing.T) {
+// Making a project workspace-readable (platform/auth tableclass.go) closed it
+// by removing the premise: there is no project link a seat holding the object
+// grant cannot see, so the delete reaches every one of them and the move
+// simply works.
+//
+// The closure rests on BOTH halves of "a project is never invisible": no
+// own/team arm, and no capture privacy — migration 1787320003 narrowed the
+// visibility CHECK to 'workspace', so an owner-private project is not a state
+// the database can hold. Widen either and the oracle returns, which is why
+// TestEveryTableThatCanHoldAnOwnerRowIsOwnerPrivate guards the second half.
+// This case is the witness that the oracle is gone.
+func TestMovingAnActivityBetweenProjectsReplacesTheLinkItCannotSee(t *testing.T) {
 	e := Setup(t)
 	org := e.SeedOrg(t, "Oracle GmbH", nil)
-	hidden := seedProject(e.Admin(), t, e, "Hidden delivery", nil, org, &e.Rep1)
+	theirs := seedProject(e.Admin(), t, e, "Their delivery", nil, org, &e.Rep1)
 	ours := seedProject(e.Admin(), t, e, "Our pursuit", nil, org, &e.Rep3)
 	person := e.SeedPerson(t, "Reachable Contact", &e.Rep3)
 
 	act, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
 		Kind: "note", Source: "manual",
 		Links: []activities.ActivityLinkInput{
-			{EntityType: "project", EntityID: hidden.ID.UUID},
+			{EntityType: "project", EntityID: theirs.ID.UUID},
 			{EntityType: "person", EntityID: person},
 		},
 	})
@@ -617,6 +708,8 @@ func TestReplacingAnInvisibleProjectLinkCannotRemoveIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Rep3 owns neither the activity's current project nor sits in Rep1's
+	// team: only the read class reaches that link.
 	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
@@ -630,15 +723,28 @@ func TestReplacingAnInvisibleProjectLinkCannotRemoveIt(t *testing.T) {
 	if _, err := e.Activities.RelinkActivity(outsider, ids.From[ids.ActivityKind](ids.UUID(act.Id)),
 		activities.RelinkActivityInput{
 			EntityType: "project", EntityID: ours.ID.UUID, ReplaceExistingOfType: true,
-		}); err == nil {
-		t.Fatal("replacing an invisible project link succeeded — it was removed by someone who could not see it")
+		}); err != nil {
+		t.Fatalf("moving the activity onto another project: %v — the replace could not reach the "+
+			"link it had to delete, which is the 23505 the one-project index raises", err)
 	}
-	// An oracle, not a lever: the link they could not see is still there.
+	// The move really happened: the old link is gone and the new one is there.
 	if n := e.WsCount(t, `
 		SELECT count(*) FROM activity_link
 		WHERE activity_id = $1 AND entity_type = 'project' AND project_id = $2`,
-		ids.UUID(act.Id), hidden.ID.UUID); n != 1 {
-		t.Fatalf("the invisible project link was removed (%d remain)", n)
+		ids.UUID(act.Id), theirs.ID.UUID); n != 0 {
+		t.Errorf("the displaced project link survived (%d remain)", n)
+	}
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM activity_link
+		WHERE activity_id = $1 AND entity_type = 'project' AND project_id = $2`,
+		ids.UUID(act.Id), ours.ID.UUID); n != 1 {
+		t.Errorf("the new project link did not land (%d rows)", n)
+	}
+	// And exactly one project link remains, which is what the index is for.
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM activity_link WHERE activity_id = $1 AND entity_type = 'project'`,
+		ids.UUID(act.Id)); n != 1 {
+		t.Errorf("project links = %d, want exactly 1", n)
 	}
 }
 

@@ -36,6 +36,19 @@ const srcRoot = join(apiDir, "..");
 // here is deleted. Nothing keeps a stale entry alive.
 const UNPINNED_WRITES: readonly string[] = [
   "screens/automations.tsx PATCH /automations/{id}",
+  // The six archive screens. They join this list because the ENDPOINTS learned
+  // the precondition, not because the screens changed: the archive routes
+  // declared no If-Match at all until an approved agent archive needed to
+  // carry the version a human released it against, so these calls were outside
+  // this gate's subject set rather than inside it and passing. Threading a
+  // version through six screens is its own change with its own proof; what
+  // matters here is that the class is now visible and the count can only fall.
+  "screens/companyheader.tsx DELETE /organizations/{id}",
+  "screens/dealbulk.tsx DELETE /deals/{id}",
+  "screens/deals.tsx DELETE /deals/{id}",
+  "screens/people.tsx DELETE /people/{id}",
+  "screens/personrail.tsx DELETE /relationships/{id}",
+  "screens/relationships.tsx DELETE /relationships/{id}",
   "screens/contractform.tsx PATCH /contracts/{id}",
   "screens/customfields.tsx PATCH /custom-fields/{id}",
   "screens/evidenceverdict.tsx PATCH /organizations/{id}/facts/{factKey}",

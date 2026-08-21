@@ -90,10 +90,12 @@ func (s *Store) UpdateProject(ctx context.Context, id ids.ProjectID, in UpdatePr
 		}); err != nil {
 			return fmt.Errorf("emit project.updated: %w", err)
 		}
-		if out, err = readProject(ctx, tx, id, storekit.LiveOnly, active); err != nil {
+		updated, err := readProject(ctx, tx, id, storekit.LiveOnly, active)
+		if err != nil {
 			return fmt.Errorf("read updated project: %w", err)
 		}
-		return nil
+		out, err = maskProjectForCaller(ctx, tx, updated)
+		return err
 	})
 	return out, err
 }

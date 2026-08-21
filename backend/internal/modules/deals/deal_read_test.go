@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -119,10 +120,16 @@ func TestAppendDealFiltersPartnerBeforeCursorKeepsPlaceholderOrder(t *testing.T)
 // `?organization_id=<an org I cannot open>` cannot confirm the binding the
 // projection withholds — it returns the empty page a company with no deals
 // returns.
+//
+// A project is deliberately not among the narrowed arms: every seat reads
+// every project (platform/auth tableclass.go), so its predicate renders
+// nothing and there is no existence to hide. The narrowing is derived from
+// that predicate rather than listed here, so a project that ever goes back to
+// a scoped read picks the clause up without this test being edited.
 func TestAReferenceFilterIsNarrowedToTargetsTheCallerReads(t *testing.T) {
 	org := ids.New[ids.OrganizationKind]()
 	project := ids.New[ids.ProjectKind]()
-	bounded := principal.WithActor(context.Background(), principal.Principal{
+	rep := principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:test",
 		UserID: ids.NewV7(),
 		Permissions: principal.Permissions{
@@ -130,7 +137,8 @@ func TestAReferenceFilterIsNarrowedToTargetsTheCallerReads(t *testing.T) {
 			Objects:  map[string]principal.ObjectGrant{"deal": {Read: true}},
 			RowScope: principal.RowScopeOwn,
 		},
-	})
+	}
+	bounded := principal.WithActor(context.Background(), rep)
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	got, err := appendDealFilters(bounded, nil,
@@ -138,13 +146,20 @@ func TestAReferenceFilterIsNarrowedToTargetsTheCallerReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("appendDealFilters: %v", err)
 	}
-	for _, want := range []string{
-		"EXISTS (SELECT 1 FROM organization ref WHERE ref.id = $1",
-		"EXISTS (SELECT 1 FROM project ref WHERE ref.id = $",
-	} {
-		if !slices.ContainsFunc(got, func(c string) bool { return strings.Contains(c, want) }) {
-			t.Errorf("clauses = %q, want one carrying %q — an unnarrowed filter is an existence oracle", got, want)
-		}
+	if want := "EXISTS (SELECT 1 FROM organization ref WHERE ref.id = $1"; !slices.ContainsFunc(got,
+		func(c string) bool { return strings.Contains(c, want) }) {
+		t.Errorf("clauses = %q, want one carrying %q — an unnarrowed filter is an existence oracle", got, want)
+	}
+	// The project arm is unnarrowed only for as long as a project stays
+	// workspace-readable. Ask auth rather than assuming, so a project that
+	// goes back to a scoped read fails HERE instead of shipping an oracle.
+	projectNarrowed := slices.ContainsFunc(got, func(c string) bool {
+		return strings.Contains(c, "EXISTS (SELECT 1 FROM project ref WHERE ref.id = $")
+	})
+	if wantNarrowed := !auth.UnboundedFor(rep, "project"); projectNarrowed != wantNarrowed {
+		t.Errorf("project filter narrowed = %v, want %v — the reference filter and the row-scope "+
+			"class disagree, so the filter is either an existence oracle or a needless join: %q",
+			projectNarrowed, wantNarrowed, got)
 	}
 	// partner_org_id is the third arm and points at the same table; it must be
 	// narrowed too, or the oracle simply moves one column across.

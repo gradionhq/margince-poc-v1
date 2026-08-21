@@ -191,7 +191,7 @@ func TestArchivingAPersonArchivesTheChannelIdentity(t *testing.T) {
 	person := e.SeedPerson(t, "Vera Vanished", nil)
 	seedChannelIdentity(t, e, person, "50505", "vera")
 
-	if _, err := e.People.ArchivePerson(e.Admin(), integration.PersonIDOf(person)); err != nil {
+	if _, err := e.People.ArchivePerson(e.Admin(), integration.PersonIDOf(person), nil); err != nil {
 		t.Fatalf("ArchivePerson: %v", err)
 	}
 
@@ -380,7 +380,7 @@ func archiveAndRebindTheAccount(t *testing.T, e *integration.Env, account, handl
 	t.Helper()
 	archived = e.SeedPerson(t, "Ada Archived", nil)
 	seedChannelIdentity(t, e, archived, account, handle)
-	if _, err := e.People.ArchivePerson(e.Admin(), integration.PersonIDOf(archived)); err != nil {
+	if _, err := e.People.ArchivePerson(e.Admin(), integration.PersonIDOf(archived), nil); err != nil {
 		t.Fatalf("ArchivePerson: %v", err)
 	}
 	live = e.SeedPerson(t, "Ada Writes Again", nil)
@@ -432,7 +432,7 @@ func TestErasureRefusesWhenAnotherLivePersonHoldsTheSameEmail(t *testing.T) {
 	e := integration.Setup(t)
 	archived := e.SeedPerson(t, "Bruno Archived", nil)
 	seedPersonEmail(t, e, archived, "bruno@rival.test")
-	if _, err := e.People.ArchivePerson(e.Admin(), integration.PersonIDOf(archived)); err != nil {
+	if _, err := e.People.ArchivePerson(e.Admin(), integration.PersonIDOf(archived), nil); err != nil {
 		t.Fatalf("ArchivePerson: %v", err)
 	}
 	live := e.SeedPerson(t, "Bruno Captured Again", nil)

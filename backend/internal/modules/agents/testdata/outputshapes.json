@@ -3478,7 +3478,6 @@
           "gaps",
           "name",
           "open_commitments",
-          "organization_id",
           "phase",
           "project_id",
           "stakeholders"
@@ -4105,6 +4104,9 @@
             "items": {
               "type": "object",
               "properties": {
+                "distance_km": {
+                  "type": "number"
+                },
                 "evidence": {
                   "type": "array",
                   "items": {

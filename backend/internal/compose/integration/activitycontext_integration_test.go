@@ -95,10 +95,12 @@ func seedMeetingFixture(t *testing.T, e *SearchEnv) meetingFixture {
 
 	// Seeded rep3-first on purpose: ids are time-ordered, so the record the
 	// caller may NOT see sorts ahead of the one they may. A walk that skipped
-	// the per-subject visibility probe would prep against it. Accounts are
-	// readable by every seat, so the other team's organization is
-	// capture-private (only Rep3 reads it); the other team's project is hidden
-	// by the plain team row scope a project keeps.
+	// the per-subject visibility probe would prep against it. Every shareable
+	// record type is read by every seat (platform/auth tableclass.go), so
+	// capture privacy is what hides a record here: the other team's
+	// organization is 'owner'-visible and only Rep3 reads it. The project
+	// hanging off it is visible to everyone and is the neighbourhood, not the
+	// hidden record.
 	f.rep3Org = e.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, visibility, source, captured_by)
 		VALUES ($1, $2, 'Other Team GmbH', 'owner', 'manual', 'human:x')`, e.Rep3)
 	f.rep3Project = e.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
@@ -284,30 +286,30 @@ func TestAMeetingNeverDisclosesTheRecordBehindALinkTheCallerCannotSee(t *testing
 		assertAbsent(t, assembled, datasource.EntityRef{Type: datasource.EntityOrganization, ID: f.rep3Org})
 	})
 
-	// A record the caller cannot see that WOULD have been the subject (a
-	// project outranks an account in the subject tiers): the prep is built
-	// around the one they can, not refused and not built around the one they
-	// cannot.
+	// A record the caller cannot see that WOULD have been the subject (an
+	// account outranks a single contact in the subject tiers): the prep is
+	// built around the one they can, not refused and not built around the one
+	// they cannot.
 	t.Run("a hidden record is never the subject", func(t *testing.T) {
 		e := SetupSearch(t)
 		f := seedMeetingFixture(t, e)
 		meeting := seedMeeting(t, e, "Joint review")
-		linkMeeting(t, e, meeting, "project", "project_id", f.rep3Project)
-		linkMeeting(t, e, meeting, "organization", "organization_id", f.rep1Org)
+		linkMeeting(t, e, meeting, "organization", "organization_id", f.rep3Org)
+		linkMeeting(t, e, meeting, "person", "person_id", f.organizer)
 
-		// The control: the project's own team preps against the project.
+		// The control: the capture's own owner preps against the account.
 		theirs, err := prepFor(e.teamRepWhoReadsProjects(e.Rep3, e.Team2), t, e, meeting)
 		if err != nil {
-			t.Fatalf("preparing for the meeting as the project's team: %v", err)
+			t.Fatalf("preparing for the meeting as the capture's owner: %v", err)
 		}
-		assertPreparedFor(t, theirs, datasource.EntityRef{Type: datasource.EntityProject, ID: f.rep3Project})
+		assertPreparedFor(t, theirs, datasource.EntityRef{Type: datasource.EntityOrganization, ID: f.rep3Org})
 
 		assembled, err := prepFor(e.teamRepWhoReadsProjects(e.Rep1, e.Team1), t, e, meeting)
 		if err != nil {
 			t.Fatalf("preparing for the meeting: %v", err)
 		}
-		assertPreparedFor(t, assembled, datasource.EntityRef{Type: datasource.EntityOrganization, ID: f.rep1Org})
-		assertAbsent(t, assembled, datasource.EntityRef{Type: datasource.EntityProject, ID: f.rep3Project})
+		assertPreparedFor(t, assembled, datasource.EntityRef{Type: datasource.EntityPerson, ID: f.organizer})
+		assertAbsent(t, assembled, datasource.EntityRef{Type: datasource.EntityOrganization, ID: f.rep3Org})
 	})
 }
 
@@ -487,10 +489,13 @@ func TestAnEventOutsideTheCallersScopeIsNotFound(t *testing.T) {
 	e := SetupSearch(t)
 	f := seedMeetingFixture(t, e)
 	meeting := seedMeeting(t, e, "Other team only")
-	linkMeeting(t, e, meeting, "project", "project_id", f.rep3Project)
+	// The one link is to a capture-private account: every other record type
+	// is read by every seat (platform/auth tableclass.go), so this is what an
+	// event nobody else may reach looks like now.
+	linkMeeting(t, e, meeting, "organization", "organization_id", f.rep3Org)
 
 	if _, err := prepFor(e.teamRepWhoReadsProjects(e.Rep3, e.Team2), t, e, meeting); err != nil {
-		t.Fatalf("preparing for the meeting as the project's own team: %v", err)
+		t.Fatalf("preparing for the meeting as the capture's own owner: %v", err)
 	}
 	if _, err := prepFor(e.teamRepWhoReadsProjects(e.Rep1, e.Team1), t, e, meeting); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("preparing for another team's meeting = %v, want not-found", err)

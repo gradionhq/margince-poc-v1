@@ -845,6 +845,8 @@ paths:
         Sets `archived_at`, removes from default lists, retains in audit; the row is
         still fetchable by id (features/01 §1.1 AC). No hard delete by default.
       x-mcp-tool: { verb: archive_record, record_type: person, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived person (now carries a non-null `archived_at`).
@@ -854,6 +856,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /people/{id}/merge:
     parameters:
@@ -1732,6 +1735,8 @@ paths:
       operationId: archiveOrganization
       summary: Archive (soft-delete) an organization.
       x-mcp-tool: { verb: archive_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived organization.
@@ -1739,6 +1744,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Organization' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /organizations/{id}/merge:
     parameters:
@@ -2944,6 +2950,8 @@ paths:
       operationId: archiveDeal
       summary: Archive (soft-delete) a deal.
       x-mcp-tool: { verb: archive_record, record_type: deal, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived deal.
@@ -2951,6 +2959,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Deal' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /deals/{id}/advance:
     parameters:
@@ -3666,6 +3675,8 @@ paths:
       operationId: archiveActivity
       x-mcp-tool: { verb: archive_record, record_type: activity, tier: confirmation_required, scope: write }
       summary: Archive (soft-delete) an activity.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived activity.
@@ -3673,6 +3684,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Activity' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /activities/{id}/audience:
     parameters:
@@ -5455,6 +5467,8 @@ paths:
       operationId: archiveRelationship
       x-mcp-tool: { verb: archive_record, record_type: relationship, tier: confirmation_required, scope: write }
       summary: Archive (soft-delete) a relationship.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived relationship.
@@ -5462,6 +5476,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Relationship' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   # ------------------------------ /lists ------------------------------------
   /lists:
@@ -19321,7 +19336,7 @@ components:
     Project:
       type: object
       description: A project — the body of work a client relationship is made of. Mirrors the `project` table.
-      required: [id, name, organization_id, phase, source, captured_by, created_at, updated_at]
+      required: [id, name, phase, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -19329,10 +19344,18 @@ components:
           type: [string, 'null']
           pattern: '^[A-Za-z][A-Za-z0-9_-]{1,23}$'
           description: 'The short handle a human writes in a subject line. Letter-led and bounded so it can never be a bare number, which would match dates, amounts and order numbers. Unique among LIVE projects; archiving frees it.'
+        masked_fields:
+          type: array
+          readOnly: true
+          items: { type: string }
+          description: >-
+            The fields of THIS row the caller may not read (a field mask). A named field is null
+            because it is withheld, not because it is empty; absent or empty means nothing is
+            withheld.
         organization_id:
-          type: string
+          type: [string, 'null']
           format: uuid
-          description: 'The anchor company — required and singular. A company has many projects; a project has one company.'
+          description: 'The anchor company — singular, and always set on the row. A company has many projects; a project has one company. Null on the wire when the caller may not read that company, in which case `masked_fields` names it: a project is readable across the workspace while the company it hangs off can still be an unpromoted capture.'
         owner_id: { type: [string, 'null'], format: uuid }
         phase:
           type: string

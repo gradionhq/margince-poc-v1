@@ -158,7 +158,18 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 	if err != nil {
 		return crmcontracts.Project{}, fmt.Errorf("read created project: %w", err)
 	}
-	return out, nil
+	return maskProjectForCaller(ctx, tx, out)
+}
+
+// RefuseArchiveProject answers every authority refusal ArchiveProject would
+// answer with, and writes nothing. Its sibling on deal says why.
+func (s *Store) RefuseArchiveProject(ctx context.Context, id ids.ProjectID) error {
+	if err := auth.Require(ctx, projectObject, principal.ActionDelete); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		return auth.EnsureWritable(ctx, tx, projectObject, id.UUID)
+	})
 }
 
 // ArchiveProject soft-deletes a project and the grouping it provided. It
@@ -167,6 +178,8 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 // the FK's ON DELETE SET NULL only on a hard delete, so an archived
 // project keeps its rollup readable — which is what "the history does not
 // die" means in practice.
+//
+// ifVersion pins the row where the caller's authority named a version.
 func (s *Store) ArchiveProject(ctx context.Context, id ids.ProjectID, ifVersion *int64) (crmcontracts.Project, error) {
 	if err := auth.Require(ctx, projectObject, principal.ActionDelete); err != nil {
 		return crmcontracts.Project{}, err
@@ -219,10 +232,12 @@ func (s *Store) ArchiveProject(ctx context.Context, id ids.ProjectID, ifVersion 
 		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventProjectArchived{}); err != nil {
 			return fmt.Errorf("emit project.archived: %w", err)
 		}
-		if out, err = readProject(ctx, tx, id, storekit.IncludeArchived, active); err != nil {
+		archivedRow, err := readProject(ctx, tx, id, storekit.IncludeArchived, active)
+		if err != nil {
 			return fmt.Errorf("read archived project: %w", err)
 		}
-		return nil
+		out, err = maskProjectForCaller(ctx, tx, archivedRow)
+		return err
 	})
 	return out, err
 }

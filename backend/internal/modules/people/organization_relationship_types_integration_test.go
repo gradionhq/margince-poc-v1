@@ -228,7 +228,7 @@ func TestArchivingAnAccountRetiresItsRelationshipTypes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := e.store.ArchiveOrganization(ctx, orgID); err != nil {
+	if _, err := e.store.ArchiveOrganization(ctx, orgID, nil); err != nil {
 		t.Fatalf("archive: %v", err)
 	}
 	// An archived account holding a live type row would keep answering the

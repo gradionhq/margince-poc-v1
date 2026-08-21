@@ -148,7 +148,7 @@ func TestAReadShareCannotArchiveOrEraseThePersonItOpens(t *testing.T) {
 
 	// Archive is gated on person:delete, which this caller holds — so the only
 	// thing that can refuse it is the row authority.
-	if _, err := store.ArchivePerson(f.holder, id); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := store.ArchivePerson(f.holder, id, nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("archiving under a read share → %v, want permission-denied", err)
 	}
 	// Erasure rides the subject-rights probe, which lifts capture privacy and
@@ -161,7 +161,7 @@ func TestAReadShareCannotArchiveOrEraseThePersonItOpens(t *testing.T) {
 	}
 
 	f.share(t, "write")
-	if _, err := store.ArchivePerson(f.holder, id); err != nil {
+	if _, err := store.ArchivePerson(f.holder, id, nil); err != nil {
 		t.Fatalf("archiving under a write share → %v, want allowed", err)
 	}
 }

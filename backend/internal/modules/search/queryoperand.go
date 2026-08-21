@@ -114,7 +114,7 @@ func operandShape(kind FieldKind) string {
 	case KindBoolean:
 		return "boolean"
 	case KindGeo:
-		return `{"center": <text>, "radius_km": <number>}`
+		return `{"center": <text>, "radius_km": <number>} or {"lat": <number>, "lon": <number>, "radius_km": <number>}`
 	case KindText, KindID, KindDate, KindTimestamp:
 		return "string"
 	default:
@@ -156,8 +156,43 @@ func operandMatches(kind FieldKind, raw json.RawMessage) bool {
 // a zero one — both are refused, but for different reasons, and a plan that
 // meant `0` should not read as a plan that forgot.
 type radiusOperand struct {
-	Center   string   `json:"center"`
+	// Center is a place NAME — "Stuttgart", "Munich, Germany" — resolved
+	// against the workspace's place cache and NEVER by asking a geocoder from
+	// here. query_workspace is declared workspace-local, and Scope.Egresses()
+	// is derived rather than declared precisely so a tool cannot claim a cap
+	// that leaves the workspace. A name the cache does not hold answers an
+	// honest note naming the place it could not resolve.
+	Center string `json:"center"`
+	// Lat and Lon are the center given DIRECTLY, for a caller that already
+	// holds coordinates. Either form is accepted; neither, or both, is
+	// refused — a request carrying a name AND a point has two answers and no
+	// way to say which was meant.
+	Lat      *float64 `json:"lat,omitempty"`
+	Lon      *float64 `json:"lon,omitempty"`
 	RadiusKM *float64 `json:"radius_km"`
+}
+
+// namesACenter reports whether the operand says WHERE, exactly once.
+func (o radiusOperand) namesACenter() bool {
+	byName := o.Center != ""
+	byPoint := o.Lat != nil && o.Lon != nil
+	// A HALF point — one coordinate without the other — is not a center, and
+	// treating it as absent would let a caller who mistyped `lon` silently fall
+	// back to a name they never sent.
+	if (o.Lat == nil) != (o.Lon == nil) {
+		return false
+	}
+	return byName != byPoint
+}
+
+// plausibleCenter rejects a point that is not on the earth. It is the cheapest
+// place to catch a transposed lat/lon pair, which otherwise produces
+// confidently wrong distances rather than an error anyone notices.
+func (o radiusOperand) plausibleCenter() bool {
+	if o.Lat == nil || o.Lon == nil {
+		return true
+	}
+	return *o.Lat >= -90 && *o.Lat <= 90 && *o.Lon >= -180 && *o.Lon <= 180
 }
 
 // geoOperandMatches checks the radius operand's shape. The operator does not
@@ -176,5 +211,6 @@ func geoOperandMatches(raw json.RawMessage) bool {
 	if err := dec.Decode(&operand); err != nil {
 		return false
 	}
-	return operand.Center != "" && operand.RadiusKM != nil && *operand.RadiusKM > 0
+	return operand.namesACenter() && operand.plausibleCenter() &&
+		operand.RadiusKM != nil && *operand.RadiusKM > 0
 }

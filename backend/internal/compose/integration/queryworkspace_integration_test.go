@@ -133,59 +133,64 @@ func TestQueryWorkspaceSourcesEveryRowItAnswersWith(t *testing.T) {
 // cannot see would leak exactly what the row scope withheld, and nothing in the
 // executor's suite can see the envelope.
 //
-// The target is `project`, the record type that still carries the own/team/all
-// row scope: a deal is readable by every seat holding the deal grant, so two
-// principals asking about deals would get the same answer by design.
+// The target is `organization`, the record type that still narrows a reader:
+// every shareable record type is read by every seat holding the object grant
+// (platform/auth tableclass.go), so capture privacy is the one narrowing left
+// and two principals asking about anything else get the same answer by design.
 func TestQueryWorkspaceAnswersTwoPrincipalsFromOneCorpusWithoutLeaking(t *testing.T) {
 	q := setupQuery(t)
-	f := q.seedFixture(t)
-	rep3Project := q.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
-		VALUES ($1, $2, 'Rollout', $3, 'manual', 'human:x')`, q.Rep3, f.rep3Org)
-	// An ownerless project is workspace-shared and visible at every tier.
-	sharedProject := q.SeedID(t, `INSERT INTO project (id, name, organization_id, source, captured_by)
-		VALUES ($1, 'Rollout', $2, 'manual', 'human:x')`, f.rep1Org)
+	// Rep1's unpromoted capture: theirs alone until a human promotes it, and
+	// capture privacy does not yield to row_scope=all — so the two principals
+	// compared here are the capture's OWNER and a colleague.
+	rep1Capture := q.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, visibility, source, captured_by)
+		VALUES ($1, $2, 'Rollout', 'owner', 'manual', 'human:x')`, q.Rep1)
+	// An ownerless workspace-visible company is visible at every tier.
+	sharedOrg := q.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Rollout', 'manual', 'human:x')`)
+	rep3Org := q.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)
+		VALUES ($1, $2, 'Rollout', 'manual', 'human:x')`, q.Rep3)
 	registry := compose.NewRegistry(q.Pool, compose.SendPath{})
-	const plan = `{"plan":{"version": "v1", "target": "project",
-		"where": [{"field": "name", "op": "eq", "value": "Rollout"}]}}`
+	const plan = `{"plan":{"version": "v1", "target": "organization",
+		"where": [{"field": "display_name", "op": "eq", "value": "Rollout"}]}}`
 
-	adminSealed := invokeQuery(q.admin(), t, registry, plan)
-	repSealed := invokeQuery(q.teamRep(q.Rep1, q.Team1), t, registry, plan)
-	admin, rep := queryPayload(t, adminSealed.Data), queryPayload(t, repSealed.Data)
+	ownerSealed := invokeQuery(q.teamRep(q.Rep1, q.Team1), t, registry, plan)
+	colleagueSealed := invokeQuery(q.teamRep(q.Rep3, q.Team2), t, registry, plan)
+	owner, colleague := queryPayload(t, ownerSealed.Data), queryPayload(t, colleagueSealed.Data)
 
-	adminRows, repRows := rowIDs(admin), rowIDs(rep)
-	if len(adminRows) != 3 {
-		t.Fatalf("the unbounded reader sees %d of 3 projects — the corpus is not what the bounded arm is measured against", len(adminRows))
+	ownerRows, colleagueRows := rowIDs(owner), rowIDs(colleague)
+	if len(ownerRows) != 3 {
+		t.Fatalf("the capture's owner sees %d of 3 companies — the corpus is not what the narrowed arm is measured against", len(ownerRows))
 	}
-	if !repRows[f.project] || !repRows[sharedProject] {
-		t.Fatalf("the rep cannot see their own rows: %v", repRows)
+	if !colleagueRows[sharedOrg] || !colleagueRows[rep3Org] {
+		t.Fatalf("the colleague cannot see the rows they are entitled to: %v", colleagueRows)
 	}
-	if repRows[rep3Project] {
-		t.Fatal("the rep reads another team's project — hydration widened an answer row scope had already narrowed")
+	if colleagueRows[rep1Capture] {
+		t.Fatal("the colleague reads another rep's unpromoted capture — hydration widened an answer row scope had already narrowed")
 	}
-	for id := range repRows {
-		if !adminRows[id] {
-			t.Fatalf("the rep sees a row the unbounded reader does not: %s", id)
+	for id := range colleagueRows {
+		if !ownerRows[id] {
+			t.Fatalf("the colleague sees a row the wider reader does not: %s", id)
 		}
 	}
 	// The verdict is computed over THEIR answer. A coverage or a note counted
 	// over rows they cannot see would state the size of what was withheld.
-	if rep.Coverage != agents.CoverageCompleteExact {
-		t.Errorf("the rep's coverage = %q with notes %+v — their own answer is exact and complete FOR THEM",
-			rep.Coverage, rep.Notes)
+	if colleague.Coverage != agents.CoverageCompleteExact {
+		t.Errorf("the colleague’s coverage = %q with notes %+v — their own answer is exact and complete FOR THEM",
+			colleague.Coverage, colleague.Notes)
 	}
 	// And the envelope, which the executor's suite cannot see: it names the
 	// records this answer rests on, so it must name only records this caller
 	// could read.
-	for _, row := range rep.Rows {
-		if !sealedNames(repSealed, row.Record.ID) {
-			t.Errorf("the rep's envelope does not name their own row %s", row.Record.ID)
+	for _, row := range colleague.Rows {
+		if !sealedNames(colleagueSealed, row.Record.ID) {
+			t.Errorf("the colleague’s envelope does not name their own row %s", row.Record.ID)
 		}
 	}
 	// The leak that would matter: a record only the OTHER team can see, named
 	// in this caller's envelope. The plan has no hop, so the rows are the only
 	// records this answer may rest on.
-	if sealedNames(repSealed, rep3Project) {
-		t.Errorf("the rep's envelope names %s, another team's project", rep3Project)
+	if sealedNames(colleagueSealed, rep1Capture) {
+		t.Errorf("the colleague’s envelope names %s, another rep’s unpromoted capture", rep1Capture)
 	}
 }
 

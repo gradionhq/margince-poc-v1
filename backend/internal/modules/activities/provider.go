@@ -82,10 +82,30 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 // confirmation, a human approved it, and the call then died at this switch with
 // `unsupported_entity_type`. An approval spent on a verb that could never run.
 func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
+	return p.ArchiveAt(ctx, datasource.ArchiveInput{Ref: r})
+}
+
+// ArchivableTypes is datasource.RecordArchiverV2's: this module archives the
+// one entity it owns.
+func (p *Provider) ArchivableTypes(context.Context) ([]datasource.EntityType, error) {
+	return []datasource.EntityType{datasource.EntityActivity}, nil
+}
+
+// RefuseArchive is datasource.RecordArchiverV2's stage-time half: the store's
+// own authority probes, run without the write.
+func (p *Provider) RefuseArchive(ctx context.Context, r datasource.EntityRef) error {
 	if r.Type != datasource.EntityActivity {
-		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
+		return &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}
-	v, err := p.store.ArchiveActivity(ctx, ids.From[ids.ActivityKind](r.ID))
+	return p.store.RefuseArchiveActivity(ctx, ids.From[ids.ActivityKind](r.ID))
+}
+
+// ArchiveAt is Archive carrying the version the caller's authority named.
+func (p *Provider) ArchiveAt(ctx context.Context, in datasource.ArchiveInput) (datasource.EntityRef, error) {
+	if in.Ref.Type != datasource.EntityActivity {
+		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
+	}
+	v, err := p.store.ArchiveActivity(ctx, ids.From[ids.ActivityKind](in.Ref.ID), in.IfVersion)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}

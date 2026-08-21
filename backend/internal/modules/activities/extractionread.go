@@ -122,7 +122,7 @@ func (s *Store) StartExtractionReadQueued(
 		// Update, not read: what a reading exists to produce is a change to the
 		// deal. A caller who may read a document but not write what it says has
 		// nothing to gain from a reading whose every outcome they could not accept.
-		if _, err := resolveVisibleAttachmentParent(ctx, tx, attachmentID, principal.ActionUpdate); err != nil {
+		if _, err := resolveAttachmentParent(ctx, tx, attachmentID, principal.ActionUpdate); err != nil {
 			return err
 		}
 		readID := ids.NewV7()
@@ -350,7 +350,7 @@ func requireExtractionAuthority(ctx context.Context, tx pgx.Tx, readID ids.UUID)
 	if err != nil {
 		return fmt.Errorf("resolve extraction reading: %w", err)
 	}
-	_, err = resolveVisibleAttachmentParent(ctx, tx, attachmentID, principal.ActionUpdate)
+	_, err = resolveAttachmentParent(ctx, tx, attachmentID, principal.ActionUpdate)
 	return err
 }
 
@@ -393,7 +393,7 @@ func nonNilFields(fields []extraction.ExtractedField) []extraction.ExtractedFiel
 func (s *Store) GetExtractionRead(ctx context.Context, attachmentID, readID ids.UUID) (ExtractionRead, error) {
 	var out ExtractionRead
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := resolveVisibleAttachmentParent(ctx, tx, attachmentID, principal.ActionRead); err != nil {
+		if _, err := resolveAttachmentParent(ctx, tx, attachmentID, principal.ActionRead); err != nil {
 			return err
 		}
 		var err error
@@ -450,7 +450,7 @@ func (s *Store) ReleaseExtractionRead(ctx context.Context, readID ids.UUID, clai
 func (s *Store) LatestExtractionRead(ctx context.Context, attachmentID ids.UUID) (ExtractionRead, error) {
 	var out ExtractionRead
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := resolveVisibleAttachmentParent(ctx, tx, attachmentID, principal.ActionRead); err != nil {
+		if _, err := resolveAttachmentParent(ctx, tx, attachmentID, principal.ActionRead); err != nil {
 			return err
 		}
 		var err error

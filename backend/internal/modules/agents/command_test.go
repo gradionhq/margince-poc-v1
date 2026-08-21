@@ -100,10 +100,33 @@ func TestArchiveStagesATypeTheRecordSeamDoesNotServe(t *testing.T) {
 	}
 }
 
+// archivesWhatNativeDoes is the RecordArchiverV2 half a stub embeds to stand
+// for a provider that CAN carry an approved version.
+//
+// A stub that omits it is a fork's v1-only adapter, which staging refuses on
+// purpose — so leaving it off is a choice a suite makes deliberately (see
+// v1Archiver in archiveauthority_test.go), never an omission that quietly
+// turns a staging assertion into a refusal one.
+type archivesWhatNativeDoes struct{}
+
+func (archivesWhatNativeDoes) ArchivableTypes(context.Context) ([]datasource.EntityType, error) {
+	return []datasource.EntityType{
+		datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityDeal,
+		datasource.EntityProject, datasource.EntityRelationship, datasource.EntityActivity,
+	}, nil
+}
+
+func (archivesWhatNativeDoes) RefuseArchive(context.Context, datasource.EntityRef) error { return nil }
+
+func (archivesWhatNativeDoes) ArchiveAt(_ context.Context, in datasource.ArchiveInput) (datasource.EntityRef, error) {
+	return in.Ref, nil
+}
+
 // countingProvider answers every read from the same authoritative record and
 // counts how many times it was asked.
 type countingProvider struct {
 	datasource.SystemOfRecordProvider
+	archivesWhatNativeDoes
 	reads int
 }
 

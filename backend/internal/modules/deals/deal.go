@@ -18,7 +18,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
@@ -131,6 +130,14 @@ func (s *Store) dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontr
 // only settable to a target the caller may see, so each one gates before it
 // patches (auth.EnsureLinkTarget), and a miss reads as not-found rather than
 // disclosing that the row exists.
+//
+// The project pointer is the exception, and it needs WRITE authority
+// (ensureProjectAttachable). Pointing a deal at a project is not a read of the
+// project: winning that deal advances the project's phase and writes its
+// history (startDeliveryForWonDeal), and that advance deliberately does not
+// re-check the caller's authority over the project — the authority to attach
+// is what stands in for it. A visibility-only gate here would let any seat
+// attach any project in the workspace and then force it into `delivering`.
 func applyDealLinkPatches(ctx context.Context, tx pgx.Tx,
 	current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch,
 	ensurePartner EnsurePartner,
@@ -145,7 +152,7 @@ func applyDealLinkPatches(ctx context.Context, tx pgx.Tx,
 		p.Set("owner_id", current.OwnerId, *in.OwnerID)
 	}
 	if in.ProjectID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
+		if err := ensureProjectAttachable(ctx, tx, in.ProjectID.UUID); err != nil {
 			return err
 		}
 		p.Set("project_id", current.ProjectId, *in.ProjectID)
@@ -428,54 +435,4 @@ func (e *TerminalStageOnCreateError) Error() string {
 // FieldFault refuses creating a deal directly into a won/lost stage.
 func (e *TerminalStageOnCreateError) FieldFault() (field, code, message string) {
 	return "stage_id", "terminal_stage_on_create", e.Error()
-}
-
-func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.Deal, error) {
-	if err := auth.Require(ctx, "deal", principal.ActionDelete); err != nil {
-		return crmcontracts.Deal{}, err
-	}
-	active, err := s.activeColumns(ctx)
-	if err != nil {
-		return crmcontracts.Deal{}, err
-	}
-	var out crmcontracts.Deal
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureWritable(ctx, tx, "deal", id.UUID); err != nil {
-			return err
-		}
-		// A liveness probe, not a wire read — no custom columns needed.
-		if _, err := readDeal(ctx, tx, id, storekit.LiveOnly, nil); err != nil {
-			return err
-		}
-		now := time.Now().UTC()
-		for _, stmt := range []string{
-			`UPDATE deal SET archived_at = $2 WHERE id = $1 AND archived_at IS NULL`,
-			`UPDATE relationship SET archived_at = $2 WHERE deal_id = $1 AND archived_at IS NULL`,
-		} {
-			if _, err := tx.Exec(ctx, stmt, id, now); err != nil {
-				return fmt.Errorf("archive deal and its relationships: %w", err)
-			}
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM list_member WHERE entity_type = 'deal' AND entity_id = $1`, id); err != nil {
-			return fmt.Errorf("detach list memberships: %w", err)
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM taggable WHERE entity_type = 'deal' AND entity_id = $1`, id); err != nil {
-			return fmt.Errorf("detach tags: %w", err)
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "archive", "deal", id.UUID, nil, nil)
-		if err != nil {
-			return fmt.Errorf("audit deal archive: %w", err)
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventDealArchived{}); err != nil {
-			return fmt.Errorf("emit deal.archived: %w", err)
-		}
-		if out, err = readDealForCaller(ctx, tx, id, storekit.IncludeArchived, active); err != nil {
-			return fmt.Errorf("read archived deal: %w", err)
-		}
-		return nil
-	})
-	return out, err
 }

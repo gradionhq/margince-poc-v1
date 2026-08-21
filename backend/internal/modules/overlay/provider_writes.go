@@ -319,18 +319,6 @@ func (p *Provider) completeWritePatch(t datasource.EntityType, fields map[string
 	return nil
 }
 
-// archivableTypes are the entity types overlay Archive supports — the same
-// set the native provider archives (person/organization/deal). A lead is
-// retired through its own lifecycle verbs, and an activity is not archivable
-// through this seam; both are refused before any incumbent call, matching the
-// frozen contract rather than issuing a destructive write the native path
-// would reject.
-var archivableTypes = map[datasource.EntityType]bool{
-	datasource.EntityPerson:       true,
-	datasource.EntityOrganization: true,
-	datasource.EntityDeal:         true,
-}
-
 // WriteVerb names the three record-write verbs the SoR seam exposes.
 type WriteVerb string
 
@@ -420,51 +408,6 @@ func SupportsWrite(verb WriteVerb, et datasource.EntityType) bool {
 	default:
 		return false
 	}
-}
-
-// Archive removes a record from the incumbent (its own archive/delete) after
-// the stored-baseline drift check, then purges the mirror row so it stops
-// being readable rather than lingering visible until the next sync.
-func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
-	if err := requireSupportedWrite(WriteArchive, r.Type); err != nil {
-		return datasource.EntityRef{}, err
-	}
-	if err := auth.Require(ctx, string(r.Type), principal.ActionDelete); err != nil {
-		return datasource.EntityRef{}, err
-	}
-	if p.ms == nil {
-		return datasource.EntityRef{}, errNoMirrorStore()
-	}
-	inc, err := p.writeIncumbent(ctx)
-	if err != nil {
-		return datasource.EntityRef{}, err
-	}
-	externalID := uuidToExternalID(r.ID)
-	// Row-scope gate + drift baseline: a record the actor cannot see is
-	// ErrNotFound, never archived on their behalf.
-	row, err := p.ms.Get(ctx, string(r.Type), externalID)
-	if err != nil {
-		return datasource.EntityRef{}, err
-	}
-	if err := inc.Archive(ctx, string(r.Type), externalID, row.UpdatedAtBaseline); err != nil {
-		return datasource.EntityRef{}, err
-	}
-	// The incumbent has archived the record; the local half runs detached
-	// from the caller (afterIncumbentCommit) because a closed tab must not
-	// leave a record that no longer exists at the incumbent still listed and
-	// still readable here until the next full reconcile sweep.
-	//
-	// The purge goes through the disconnect fence so a teardown racing the
-	// archive cannot leave the row readable, matching the sync path — and the
-	// archive's audit_log and event_outbox rows commit in that same
-	// transaction, so a record removed from the customer's own CRM can never
-	// be missing from the ledger that answers who removed it.
-	localCtx, cancel := afterIncumbentCommit(ctx)
-	defer cancel()
-	if err := p.commitArchiveWriteBack(localCtx, Deletion{ObjectClass: string(r.Type), ExternalID: externalID}, r); err != nil {
-		return datasource.EntityRef{}, writePathError(err)
-	}
-	return r, nil
 }
 
 // AdvanceDeal is unsupported in overlay V1: advancing an overlay deal
