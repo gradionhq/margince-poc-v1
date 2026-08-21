@@ -1,2 +1,0 @@
-DROP TABLE IF EXISTS activity_link;
-DROP TABLE IF EXISTS activity;

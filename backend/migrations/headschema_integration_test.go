@@ -99,12 +99,21 @@ func headSchema(t *testing.T, conn *pgx.Conn) {
 //   - triggers AND the function bodies they execute — the version bump and
 //     audit_log's append-only guard are trigger behaviour, asserted by two
 //     tests. Both halves, because pg_get_triggerdef prints which function a
-//     trigger calls and not what that function does, and this tree ships
-//     migrations that change nothing but a function body (core 0291 is one)
+//     trigger calls and not what that function does, and a migration that
+//     changes nothing but a function body is a shape this tree ships
 //   - table grants — the two behaviour tests above connect as the app role, so
 //     a revoked grant changes what they observe while disturbing no object
 //   - indexes and constraints — asserted directly by the cascade-index and FK
 //     visibility tests
+//   - the privilege and isolation surface no behaviour test here reaches, but a
+//     migration can widen in one line: SECURITY DEFINER and search_path on a
+//     function, EXECUTE grants, schema-level grants, default privileges, and
+//     row-level security state including every policy. None of these change an
+//     object's shape, so a projection built from shapes alone would call
+//     `GRANT CREATE ON SCHEMA public TO margince_app` a no-op
+//   - NOT extension-owned objects. pgvector alone installs ~109 functions into
+//     public, and the image is digest-pinned: carrying them would make a
+//     Renovate bump of that digest read as the migrations having changed head
 //
 // A schema with no objects at all digests to the empty string rather than to
 // SQL NULL, so a caller arriving after a suite that dropped the schema and left
@@ -113,8 +122,42 @@ func headSchema(t *testing.T, conn *pgx.Conn) {
 func catalogDigest(t *testing.T, conn *pgx.Conn) string {
 	t.Helper()
 	var digest string
-	err := conn.QueryRow(context.Background(), `
-		WITH parts AS (
+	err := conn.QueryRow(context.Background(),
+		catalogParts+`
+		SELECT COALESCE(md5(string_agg(part, E'\n' ORDER BY part)), '') FROM parts`).Scan(&digest)
+	if err != nil {
+		t.Fatalf("fingerprinting the schema catalog: %v", err)
+	}
+	return digest
+}
+
+// catalogParts is the schema surface both readers of the catalog share: the
+// digest above, and the committed projection headcatalog_integration_test.go
+// compares against.
+//
+// ONE definition, deliberately. The digest answers "is this database still the
+// one my process built" and the projection answers "is that schema the one the
+// repository expects"; a second copy of the query would let the two questions
+// drift apart, and the failure mode is silent — whichever list lost an object
+// class still reads as verification. The doc comment on catalogDigest says which
+// object classes are here and why each one earns its line.
+const catalogParts = `
+		WITH tracked AS (
+			-- The migration ledgers are excluded from every arm a table can
+			-- appear in. They are
+			-- how the runner records what it applied, not schema any migration
+			-- builds: dbmigrate owns their shape, so a change there — the
+			-- content_digest column, say — would read as the migrations having
+			-- altered head. Which is also why the two readers of this query
+			-- want them gone. The digest asks "is this the schema my process
+			-- built" and the committed projection asks "is it the one the
+			-- repository expects"; neither question is about the ledger.
+			SELECT c.oid
+			  FROM pg_class c
+			  JOIN pg_namespace n ON n.oid = c.relnamespace
+			 WHERE n.nspname IN ('public', 'ext')
+			   AND c.relname LIKE 'schema\_migrations\_%'
+		), parts AS (
 			SELECT n.nspname || '.' || c.relname || '.' || a.attname || ' ' ||
 			       format_type(a.atttypid, a.atttypmod) ||
 			       CASE WHEN a.attnotnull THEN ' NOT NULL' ELSE '' END ||
@@ -126,6 +169,7 @@ func catalogDigest(t *testing.T, conn *pgx.Conn) string {
 			  LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
 			 WHERE n.nspname IN ('public', 'ext')
 			   AND c.relkind IN ('r', 'p', 'v', 'm')
+			   AND c.oid NOT IN (SELECT oid FROM tracked)
 			   AND a.attnum > 0
 			   AND NOT a.attisdropped
 			UNION ALL
@@ -146,17 +190,44 @@ func catalogDigest(t *testing.T, conn *pgx.Conn) string {
 			   AND NOT t.tgisinternal
 			UNION ALL
 			SELECT n.nspname || '.' || p.proname || '(' ||
-			       pg_get_function_identity_arguments(p.oid) || ') ' || p.prosrc
+			       pg_get_function_identity_arguments(p.oid) || ')' ||
+			       ' secdef=' || p.prosecdef::text ||
+			       ' cfg=' || COALESCE(array_to_string(p.proconfig, ','), '-') ||
+			       ' acl=' || COALESCE(array_to_string(p.proacl, ','), '-') ||
+			       ' ' || p.prosrc
 			  FROM pg_proc p
 			  JOIN pg_namespace n ON n.oid = p.pronamespace
 			 WHERE n.nspname IN ('public', 'ext')
+			   AND NOT EXISTS (SELECT 1 FROM pg_depend d
+			                    WHERE d.objid = p.oid AND d.deptype = 'e')
 			UNION ALL
 			SELECT n.nspname || '.' || c.relname || ' acl=' ||
-			       COALESCE(array_to_string(c.relacl, ','), '-')
+			       COALESCE(array_to_string(c.relacl, ','), '-') ||
+			       ' rls=' || c.relrowsecurity::text || ' force=' || c.relforcerowsecurity::text
 			  FROM pg_class c
 			  JOIN pg_namespace n ON n.oid = c.relnamespace
 			 WHERE n.nspname IN ('public', 'ext')
-			   AND c.relkind IN ('r', 'p', 'v', 'm')
+			   AND c.relkind IN ('r', 'p', 'v', 'm', 'S')
+			   AND c.oid NOT IN (SELECT oid FROM tracked)
+			UNION ALL
+			SELECT 'policy ' || n.nspname || '.' || c.relname || '.' || pol.polname ||
+			       ' cmd=' || pol.polcmd::text || ' permissive=' || pol.polpermissive::text ||
+			       ' qual=' || COALESCE(pg_get_expr(pol.polqual, pol.polrelid), '-') ||
+			       ' check=' || COALESCE(pg_get_expr(pol.polwithcheck, pol.polrelid), '-')
+			  FROM pg_policy pol
+			  JOIN pg_class c ON c.oid = pol.polrelid
+			  JOIN pg_namespace n ON n.oid = c.relnamespace
+			 WHERE n.nspname IN ('public', 'ext')
+			UNION ALL
+			SELECT 'schema ' || n.nspname || ' acl=' ||
+			       COALESCE(array_to_string(n.nspacl, ','), '-')
+			  FROM pg_namespace n
+			 WHERE n.nspname IN ('public', 'ext')
+			UNION ALL
+			SELECT 'defacl ' || COALESCE(n.nspname, '-') || ' objtype=' ||
+			       d.defaclobjtype::text || ' acl=' || array_to_string(d.defaclacl, ',')
+			  FROM pg_default_acl d
+			  LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace
 			UNION ALL
 			SELECT n.nspname || '.' || c.relname || '.' || con.conname || ' ' ||
 			       pg_get_constraintdef(con.oid)
@@ -164,17 +235,13 @@ func catalogDigest(t *testing.T, conn *pgx.Conn) string {
 			  JOIN pg_class c ON c.oid = con.conrelid
 			  JOIN pg_namespace n ON n.oid = c.relnamespace
 			 WHERE n.nspname IN ('public', 'ext')
+			   AND c.oid NOT IN (SELECT oid FROM tracked)
 			UNION ALL
 			SELECT schemaname || '.' || indexname || ' ' || indexdef
 			  FROM pg_indexes
 			 WHERE schemaname IN ('public', 'ext')
-		)
-		SELECT COALESCE(md5(string_agg(part, E'\n' ORDER BY part)), '') FROM parts`).Scan(&digest)
-	if err != nil {
-		t.Fatalf("fingerprinting the schema catalog: %v", err)
-	}
-	return digest
-}
+			   AND tablename NOT LIKE 'schema\_migrations\_%'
+		)`
 
 // The helper's own two claims, which nothing else in this package can make:
 // a database still at head is not rebuilt, and one that is NOT still at head is.

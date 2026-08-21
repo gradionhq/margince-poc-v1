@@ -39,6 +39,20 @@ import (
 // migrations rather than maintained as a list.
 var byIDUpdate = regexp.MustCompile(`(?is)\bUPDATE\s+([a-z_]+)\s.*\bSET\b.*\bWHERE\s+(?:[a-z]\.)?id\s*=\s*\$`)
 
+// versionPredicate is a version compared against a PARAMETER, which is a
+// compare-and-set. `version = version + 1` in the SET clause is not one and does
+// not match: the placeholder is what makes the statement fail on a row somebody
+// else moved.
+//
+// Matched against the WHERE clause only, never the whole statement. `SET …,
+// version = $5` assigns a client-supplied version and guards nothing, so
+// crediting it would wave through the lost update this gate exists to refuse.
+var versionPredicate = regexp.MustCompile(`(?i)\bversion\s*=\s*\$\d+`)
+
+// whereClause is the tail of a statement from its last WHERE onward, which is
+// the only part where a predicate can constrain which row is written.
+var whereClause = regexp.MustCompile(`(?is)\bWHERE\b(.*)$`)
+
 var (
 	// createTableLine opens a CREATE TABLE block; versionColumnLine marks
 	// the block's table as optimistic-locking. Line-based on purpose:
@@ -207,6 +221,16 @@ func TestEveryByIDUpdateCarriesAConcurrencyGuard(t *testing.T) {
 						}
 						if m := byIDUpdate.FindStringSubmatch(lit); m != nil && versioned[m[1]] {
 							updatesByID = true
+							// A version predicate in the statement's own WHERE
+							// IS the compare-and-set this gate asks for, and the
+							// most direct form of it — the UPDATE matches no row
+							// unless the version is still the one that was read.
+							// Crediting only the storekit helpers would push a
+							// correct fix toward a waiver.
+							if w := whereClause.FindStringSubmatch(lit); w != nil &&
+								versionPredicate.MatchString(w[1]) {
+								guarded = true
+							}
 						}
 						if strings.Contains(lit, "FOR UPDATE") || strings.Contains(lit, "pg_advisory_xact_lock") {
 							guarded = true

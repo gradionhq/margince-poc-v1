@@ -7,12 +7,27 @@
 // packs bring their own third namespace. Apply order is always core, then
 // custom, then packs.
 //
-// core/ carries two version shapes. Everything through 0292 is the
-// four-digit sequence it started with, closed rather than renamed because
-// renaming a version a database already recorded strands that database.
-// Those versions are zero-padded, so each sorts below every ten-digit
-// stamp written since, and the runner's string ordering puts the two eras
-// in the order they were written.
+// core/ carries two version shapes. 0001 is the BASELINE: the schema core
+// builds, as the shape it arrives at rather than the path it took, in one
+// file whose ORDER is a dependency order — extensions and the ext schema,
+// the functions a column default can call, every table, the functions whose
+// bodies read a table, then every constraint, index, trigger, grant and
+// reference row, because a foreign key names two tables and person/lead
+// reference each other. Everything after the baseline is named for the unix
+// second it was written. The baseline's version is zero-padded, so it sorts
+// below every ten-digit stamp, and the runner's string ordering puts the
+// two in the order they were written.
+//
+// A database built by migrations that predate the baseline cannot be moved
+// onto it: the baseline reuses 0001, its ledger records 0001 under another
+// name, and dbmigrate stops there rather than skip a migration as done. That
+// stop is the intended outcome — rebuild the database (make dev-fresh).
+//
+// What the baseline BUILDS is committed too, in testdata/head_catalog.txt,
+// and TestMigrationsBuildTheCommittedSchema compares the two. So a migration
+// added here shows its schema effect as a diff a reviewer can read, and the
+// next consolidation is checkable the same way this one was
+// (scripts/migration-baseline.sh verify).
 package migrations
 
 import (

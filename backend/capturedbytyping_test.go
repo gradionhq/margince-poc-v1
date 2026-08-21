@@ -53,11 +53,11 @@ func TestCapturedByIsAlwaysTextAndNeverAUserForeignKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listing core migrations: %v", err)
 	}
-	// Vacuous-pass guard: the walk finding nothing would report success for
-	// the one reason that means it stopped working.
-	if len(migrations) < 100 {
-		t.Fatalf("only %d core migrations found — the glob lost its source", len(migrations))
-	}
+	// No floor on the FILE count. core opens with a single baseline holding every
+	// table, so "at least N files" would be satisfied by the one file existing
+	// and says nothing about whether it was read. The `declared` floor below is
+	// the real vacuous-pass guard: it counts captured_by columns actually parsed
+	// out, which is what stops working when the glob or the pattern breaks.
 
 	// The last word on each table wins: migrations apply in order, so a later
 	// ALTER repairs an earlier CREATE and the final shape is what ships.

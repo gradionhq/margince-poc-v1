@@ -23,7 +23,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // logProjectNote files one note against the named links through the real
@@ -174,82 +173,6 @@ func TestProjectLastActivity_CountsOnlyDirectlyLinkedActivities(t *testing.T) {
 		t.Fatal(err)
 	} else if got.LastActivityAt == nil || !got.LastActivityAt.Equal(when) {
 		t.Fatalf("the deal's own last_activity_at = %v, want %v", got.LastActivityAt, when)
-	}
-}
-
-// projectClockMigrationVersion is the migration under test. Named once so a
-// renumber is one edit and a wrong number is a loud "no such migration" rather
-// than a silently skipped assertion.
-const projectClockMigrationVersion = "1787320000"
-
-// projectClockMigrationSQL is the shipped up-migration's own text, loaded from
-// the embedded namespace. A paraphrase pasted here would drift from the file
-// that actually runs, and drift is exactly what this test exists to catch.
-func projectClockMigrationSQL(t *testing.T) string {
-	t.Helper()
-	core, err := migrations.Core()
-	if err != nil {
-		t.Fatalf("loading the core namespace: %v", err)
-	}
-	for _, m := range core.Migrations {
-		if m.Version == projectClockMigrationVersion {
-			return m.UpSQL
-		}
-	}
-	t.Fatalf("core migration %s is not in the namespace — renumbered, or removed without removing this test",
-		projectClockMigrationVersion)
-	return ""
-}
-
-// The migration's backfill reaches rows that already carried links when it ran.
-// Every installation this ships to has projects whose clock nothing ever wrote,
-// and a project created after the migration can never tell a working backfill
-// from a working trigger. The two are separated by turning the trigger off,
-// writing the link the way the pre-migration product did, and re-running the
-// migration's own SQL — which is idempotent, so replaying it is the same work
-// an installation already did except for the rows the fixture just planted.
-func TestProjectLastActivity_BackfillReachesRowsWrittenBeforeTheTrigger(t *testing.T) {
-	e := Setup(t)
-	ctx := context.Background()
-	owner := OwnerConn(t)
-	org := e.SeedOrg(t, "Backfilled Client", nil)
-	project := seedProject(e.Admin(), t, e, "Legacy programme", strPtr("LEG-1"), org, nil)
-
-	if _, err := owner.Exec(ctx, `ALTER TABLE activity_link DISABLE TRIGGER activity_link_project_last_activity`); err != nil {
-		t.Fatalf("disabling the maintenance trigger: %v", err)
-	}
-	when := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
-	logProjectNote(e.Admin(), t, e, when,
-		activities.ActivityLinkInput{EntityType: "project", EntityID: project.ID.UUID})
-	if _, err := owner.Exec(ctx, `ALTER TABLE activity_link ENABLE TRIGGER activity_link_project_last_activity`); err != nil {
-		t.Fatalf("re-enabling the maintenance trigger: %v", err)
-	}
-	if got := projectClock(e.Admin(), t, e, project.ID); got != nil {
-		t.Fatalf("last_activity_at = %v with the trigger off, want NULL — the fixture did not reproduce a pre-migration row", got)
-	}
-
-	before, err := e.Deals.GetProject(e.Admin(), project.ID, storekit.LiveOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := owner.Exec(ctx, projectClockMigrationSQL(t)); err != nil {
-		t.Fatalf("replaying migration %s: %v", projectClockMigrationVersion, err)
-	}
-	after, err := e.Deals.GetProject(e.Admin(), project.ID, storekit.LiveOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.LastActivityAt == nil || !after.LastActivityAt.Equal(when) {
-		t.Fatalf("last_activity_at after the backfill = %v, want %v", after.LastActivityAt, when)
-	}
-	// The backfill runs under the flag, so it does not invalidate the If-Match
-	// version of every editor open when the migration lands.
-	if before.Version == nil || after.Version == nil || *before.Version != *after.Version {
-		t.Fatalf("project.version went %d → %d across the backfill, want unchanged",
-			derefVersion(before.Version), derefVersion(after.Version))
-	}
-	if !after.UpdatedAt.Equal(before.UpdatedAt) {
-		t.Fatalf("project.updated_at went %v → %v across the backfill, want unchanged", before.UpdatedAt, after.UpdatedAt)
 	}
 }
 

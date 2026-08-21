@@ -40,7 +40,7 @@
 # The namespace list is derived from the tree (backend/migrations/*/), not
 # hand-maintained, so a third namespace is gated the day it appears. Every
 # shape in the tree works: custom's YYYYMMDDHHMMSS stamp, core's unix seconds,
-# and core's closed 0001-0292 sequence — which the ten-digit stamps sort above
+# and core's zero-padded baseline version — which the ten-digit stamps sort above
 # — all compare as strings, the same ordering pgmigrate itself applies.
 #
 # Usage: check-migration-versions.sh [base-ref]   (default: origin/main)
@@ -89,6 +89,96 @@ fi
 failed=0
 checked=0
 
+# A BASELINE CONSOLIDATION is the one change this gate cannot judge on version
+# numbers alone.
+#
+# Squashing a namespace into a baseline reuses its lowest versions under new
+# names — that is the point, because a database whose ledger records the old name
+# at that version must be STOPPED rather than migrated forward, and
+# dbmigrate.assertLedgerMatches is what stops it. To this gate that is
+# indistinguishable from the outage it exists to report: version 0001 claimed by
+# two different migrations.
+#
+# A consolidation therefore DECLARES itself with MIGRATION_VERSIONS_BASELINE_RESET=1.
+# The declaration is not taken at its word.
+#
+# WHY IT IS CHECKED, AND WHY THAT MATTERS MORE HERE THAN USUALLY. A declaration
+# that is merely believed has to be REMOVED once the consolidation lands, and
+# whoever forgets has left this gate reporting findings it no longer enforces —
+# permanently, silently, and looking green. CI's environment is a committed file,
+# so "set it for one PR" is not a thing the environment can express. So the
+# declaration is honored only in the situation it describes, and it goes inert by
+# itself: after the consolidation merges, the base IS the baseline, every version
+# keeps its name, and the check below refuses the declaration on its own.
+#
+# THE CHECK, in two parts, both required. A consolidation (a) replaces a
+# namespace wholesale, so the tree and the base share NO (version, name) pair in
+# it, and (b) COLLAPSES, ending with strictly fewer migrations than the base had.
+# A broken rebase — the case that would otherwise ride in on the same
+# declaration — leaves surviving migrations at the versions and names they
+# already had, so it fails (a); and renaming a small namespace's files one for
+# one shares nothing but fails (b). Part (b) is also what makes the declaration
+# inert after the merge regardless of how few files a namespace has: the base
+# then holds exactly what the tree does, so the count cannot fall.
+#
+# Per namespace, because a branch may consolidate one and not the other.
+baseline_reset="${MIGRATION_VERSIONS_BASELINE_RESET:-}"
+
+# reset_admitted NS TREE_ROWS BASE_ROWS — is a declared reset true of this
+# namespace? Only when it collapses AND shares no "<version> <name>" line.
+reset_admitted() {
+  local ns="$1" tree_rows="$2" base_rows="$3" shared
+  [ "$baseline_reset" = "1" ] || return 1
+
+  # FAIL CLOSED from here down. Admitting is what disarms the gate, so anything
+  # this function is not sure of has to be "no". An empty row set or a comparison
+  # that did not run would otherwise yield zero shared migrations — which is
+  # exactly the shape of a true consolidation.
+  if [ -z "$tree_rows" ] || [ -z "$base_rows" ]; then
+    echo "note: $ns declares a baseline reset but one side has no migrations to compare — refusing the declaration rather than reading that as 'nothing in common'" >&2
+    return 1
+  fi
+  # A consolidation COLLAPSES: it must end with strictly fewer migrations than
+  # the base had. Sharing no version is necessary and not sufficient — renaming
+  # a one-file namespace's single file also shares nothing, and that is a broken
+  # rebase, not a consolidation. Requiring a collapse is also what keeps this
+  # declaration inert after the merge for a namespace of ANY size: the base then
+  # has exactly what the tree has, so the count never falls.
+  local tree_n base_n
+  tree_n="$(echo "$tree_rows" | grep -c . || true)"
+  base_n="$(echo "$base_rows" | grep -c . || true)"
+  if [ "${tree_n:-0}" -ge "${base_n:-0}" ]; then
+    echo "note: $ns declares a baseline reset but does not collapse ($tree_n migration(s) here, $base_n on $BASE_REF) — a consolidation ends with fewer, so the findings below are enforced" >&2
+    return 1
+  fi
+
+  # wc -l, not grep -c: grep exits 1 when it counts zero, which is the ADMITTING
+  # case, so a failure and a true consolidation would be the same exit status.
+  shared="$(comm -12 <(echo "$tree_rows") <(echo "$base_rows") | wc -l | tr -d '[:space:]')"
+  case "$shared" in
+    ''|*[!0-9]*)
+      echo "note: $ns declares a baseline reset but the comparison produced '$shared' instead of a count — refusing the declaration" >&2
+      return 1 ;;
+  esac
+  if [ "$shared" -ne 0 ]; then
+    echo "note: $ns declares a baseline reset but keeps $shared migration(s) at the version AND name the base has — that is not a consolidation, so the findings below are enforced" >&2
+    return 1
+  fi
+  echo "note: $ns is a declared baseline reset and shares no version with $BASE_REF — findings are reported, not enforced"
+  return 0
+}
+
+# fail MESSAGE — report a finding, and fail unless this namespace is an admitted
+# baseline reset.
+fail() {
+  if [ "$ns_reset" = "1" ]; then
+    echo "baseline-reset (would FAIL): $1" >&2
+    return
+  fi
+  echo "FAIL: $1" >&2
+  failed=1
+}
+
 for dir in "$MIGRATIONS_DIR"/*/; do
   [ -d "$dir" ] || continue
   ns="$(basename "$dir")"
@@ -118,6 +208,13 @@ for dir in "$MIGRATIONS_DIR"/*/; do
   fi
   base_max="$(echo "$base_rows" | cut -d' ' -f1 | tail -n1)"
 
+  # Decided per namespace and BEFORE the row loop, so every finding in it is
+  # judged by one verdict rather than re-deriving it per migration.
+  ns_reset=0
+  if reset_admitted "$ns" "$tree_rows" "$base_rows"; then
+    ns_reset=1
+  fi
+
   while read -r version name; do
     [ -n "$version" ] || continue
     base_name="$(echo "$base_rows" | awk -v v="$version" '$1==v {print $2}')"
@@ -140,8 +237,7 @@ for dir in "$MIGRATIONS_DIR"/*/; do
         continue
       fi
       if [ "$base_name" != "$name" ]; then
-        echo "FAIL: $ns/$version is claimed by two different migrations — '$name' here, '$base_name' on $BASE_REF. Rename this one above $base_max and rebase (in core, re-stamp it with 'make migrate-create')" >&2
-        failed=1
+        fail "$ns/$version is claimed by two different migrations — '$name' here, '$base_name' on $BASE_REF. Rename this one above $base_max and rebase (in core, re-stamp it with 'make migrate-create'). If this branch is a baseline consolidation, set MIGRATION_VERSIONS_BASELINE_RESET=1"
       fi
       continue
     fi
@@ -151,14 +247,21 @@ for dir in "$MIGRATIONS_DIR"/*/; do
     # skips only what the ledger already names — but it applies in a different
     # PLACE on a fresh database than on one already past $base_max.
     if [[ ! "$version" > "$base_max" ]]; then
-      echo "FAIL: $ns/$version ('$name') sorts at or below $base_max, the highest on $BASE_REF — it would still be applied, but in a different place on each installation: before $base_max on a fresh database, after it on one already past it. Anything order-dependent then leaves the two schemas different with nothing to report it. Rename it above $base_max and rebase (in core, re-stamp it with 'make migrate-create')" >&2
-      failed=1
+      fail "$ns/$version ('$name') sorts at or below $base_max, the highest on $BASE_REF — it would still be applied, but in a different place on each installation: before $base_max on a fresh database, after it on one already past it. Anything order-dependent then leaves the two schemas different with nothing to report it. Rename it above $base_max and rebase (in core, re-stamp it with 'make migrate-create'). If this branch is a baseline consolidation, set MIGRATION_VERSIONS_BASELINE_RESET=1"
     fi
   done <<<"$tree_rows"
 done
 
 if [ "$failed" -ne 0 ]; then
   exit 1
+fi
+
+if [ "$baseline_reset" = "1" ]; then
+  # Which namespaces the declaration actually covered is in the per-namespace
+  # notes above. Saying only "a reset was declared" here would read as though it
+  # applied everywhere, including to a namespace that refused it.
+  echo "OK: check-migration-versions — $checked namespace(s) checked against $BASE_REF; a baseline reset was declared, and admitted only where the notes above say so"
+  exit 0
 fi
 
 echo "OK: check-migration-versions — $checked namespace(s) sort after $BASE_REF"

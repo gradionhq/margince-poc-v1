@@ -24,10 +24,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// attributionMigration is the migration that introduced the pair, read here so
-// the vocabulary this package enforces is checked against the vocabulary the
-// table actually admits rather than against a second copy of the list.
-const attributionMigration = "../../../migrations/core/1787226902_deal_partner_attribution.up.sql"
+// attributionMigration declares the pair, read here so the vocabulary this
+// package enforces is checked against the vocabulary the table actually admits
+// rather than against a second copy of the list. core opens with one baseline
+// file holding every table.
+const attributionMigration = "../../../migrations/core/0001_baseline.up.sql"
 
 func TestMigrationAdmitsExactlyTheAttributionsTheStoreAccepts(t *testing.T) {
 	raw, err := os.ReadFile(attributionMigration)

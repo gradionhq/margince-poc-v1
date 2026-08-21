@@ -367,12 +367,16 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 
 - `internal/contracts/api_gen.go`, `internal/compose/stubs_gen.go` —
   generated (`make gen`); the drift gate fails a hand edit.
-- `migrations/core/*` that have shipped — additive migrations only.
+- `migrations/core/*` that have shipped — additive migrations only. core/ opens
+  with a single baseline file (`0001`) whose internal order is a dependency
+  order; a new migration goes after it, named for the unix second it was
+  written, and updates `migrations/testdata/head_catalog.txt` in the same
+  commit.
 - The `database.WithWorkspaceTx` GUC contract — every tenant query goes through
   it; there is no raw-pool path for tenant data. Core tenant isolation is a
   per-statement predicate bound by that contract and held by
-  `scripts/check-rls-store-path.sh`; migration `0217` retired row-level security
-  in core. Extension tables still carry FORCE RLS.
+  `scripts/check-rls-store-path.sh`; core carries no row-level security at all.
+  Extension tables still carry FORCE RLS.
 - `internal/shared/apperrors` — the fixed sentinel registry; extend it only
   alongside the error contract it implements, never for one call site.
 

@@ -379,6 +379,17 @@ jobs:
           # In CI a missing base ref is a broken checkout, never a skip.
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
           MIGRATION_VERSIONS_REQUIRE_BASE: "1"
+          # A migration baseline consolidation reuses a namespace's lowest
+          # versions under new names, which check-migration-versions.sh cannot
+          # tell from the collision outage it exists to report. This declares
+          # that it may happen; the script decides whether it DID, per namespace,
+          # by requiring the tree and the base to share no version at all.
+          #
+          # Safe to leave here. Once a consolidation merges, the base IS the
+          # baseline and every version keeps its name, so the script refuses the
+          # declaration and the gate enforces again — it goes inert on its own
+          # rather than waiting for somebody to remember to delete this line.
+          MIGRATION_VERSIONS_BASELINE_RESET: "1"
         run: make check-backend
 
   # The composed-build lane (ADR-0069): materialize the walking-skeleton

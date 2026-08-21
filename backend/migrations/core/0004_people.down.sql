@@ -1,3 +1,0 @@
-DROP TABLE IF EXISTS person_phone;
-DROP TABLE IF EXISTS person_email;
-DROP TABLE IF EXISTS person;
