@@ -174,7 +174,7 @@ afterEach(() => {
 // queries to it; the claims themselves are unchanged.
 async function openFirstSample(): Promise<HTMLElement> {
   await userEvent.click(
-    await screen.findByRole("button", { name: "Paste your first sample…" }),
+    await screen.findByRole("button", { name: "Paste your first sample" }),
   );
   return screen.getByRole("dialog");
 }
@@ -334,7 +334,7 @@ describe("the Settings Voice DNA card with a profile", () => {
     }
     expect(await within(corpus).findByText(/420 of 30,000 words/)).toBeTruthy();
     expect(
-      within(corpus).getByRole("button", { name: "Paste writing…" }),
+      within(corpus).getByRole("button", { name: "Paste writing" }),
     ).toBeTruthy();
     expect(
       within(corpus).getByRole("button", { name: /Choose files/ }),
@@ -356,7 +356,7 @@ describe("the Settings Voice DNA card with a profile", () => {
     // The add box draws its own label inside the dialog, and the label is tied
     // to the control — and it names the dialog too.
     await userEvent.click(
-      screen.getByRole("button", { name: "Paste writing…" }),
+      screen.getByRole("button", { name: "Paste writing" }),
     );
     const dialog = screen.getByRole("dialog", { name: "Add sample" });
     expect(within(dialog).getByLabelText("Add sample")).toBeTruthy();

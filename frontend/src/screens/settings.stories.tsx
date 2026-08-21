@@ -236,7 +236,7 @@ export const AccountSignatureDialog: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
-      await canvas.findByRole("button", { name: "Edit signature…" }),
+      await canvas.findByRole("button", { name: "Edit signature" }),
     );
   },
 };

@@ -55,14 +55,14 @@ export const FirstSample: Story = { render: story(true) };
 
 export const AnotherSample: Story = { render: story(false) };
 
-/** The form behind the verb: one box, its own label, and the plain verb the
- * row's ellipsis form opens. */
+/** The form behind the verb: one box, its own label, and the verb that commits
+ * the sample rather than the row's verb that opened the form. */
 export const PasteDialog: Story = {
   render: story(false),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
-      await canvas.findByRole("button", { name: "Paste writing…" }),
+      await canvas.findByRole("button", { name: "Paste writing" }),
     );
   },
 };

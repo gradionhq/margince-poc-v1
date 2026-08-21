@@ -237,8 +237,8 @@ function NewTeamAction() {
   const ready = draft.trim() !== "" && !create.isPending;
   return (
     <>
-      {/* The ellipsis form, because it opens a dialog; the dialog's submit reads
-          "Create team", so the two are tellable apart. */}
+      {/* Named for what it opens; the dialog's submit reads "Create team", so
+          the two buttons on screen together are tellable apart. */}
       <Button small onClick={() => setOpen(true)}>
         {t("users.newTeamOpen")}
       </Button>

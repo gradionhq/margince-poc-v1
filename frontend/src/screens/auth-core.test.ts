@@ -19,8 +19,8 @@ describe("typeSpeedFor", () => {
     "hi",
     "a short sentence",
     "a considerably longer sentence than the ones above it",
-    en["auth.coreBoundary"],
-    de["auth.coreBoundary"],
+    en["auth.coreGreeting"],
+    de["auth.coreGreeting"],
   ];
 
   it("keeps the whole reveal inside the budget for a representative set of strings", () => {
@@ -35,8 +35,8 @@ describe("typeSpeedFor", () => {
   // German is the case that matters: it runs about a quarter longer than
   // English and is the beachhead language, so it is asserted on its own
   // rather than folded anonymously into the loop above.
-  it("keeps the shipped German boundary statement inside the budget", () => {
-    const text = de["auth.coreBoundary"];
+  it("keeps the shipped German greeting inside the budget", () => {
+    const text = de["auth.coreGreeting"];
     expect(totalRevealMs(text)).toBeLessThanOrEqual(TYPE_BUDGET_MS);
   });
 

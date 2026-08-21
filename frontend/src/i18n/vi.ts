@@ -510,8 +510,8 @@ export const vi = {
   "overlay.userMap.you": "Bạn",
   "overlay.userMap.matchEmail": "Khớp theo email",
   "overlay.userMap.matchManual": "Đặt thủ công",
-  "overlay.userMap.map": "Gán ánh xạ…",
-  "overlay.userMap.change": "Đổi ánh xạ…",
+  "overlay.userMap.map": "Gán ánh xạ",
+  "overlay.userMap.change": "Đổi ánh xạ",
   "overlay.userMap.unmap": "Bỏ ánh xạ",
   "overlay.userMap.cancel": "Huỷ",
   "overlay.userMap.pickerLabel": "Tìm người dùng {principal}",
@@ -2205,7 +2205,7 @@ export const vi = {
   "settings.signatureHint":
     "Chỉ văn bản thuần. Để trống nghĩa là gửi không chữ ký. AI không bao giờ tự viết lời kết — chữ ký này mới là thứ được gửi đi.",
   "settings.signatureSaving": "Đang lưu…",
-  "settings.signatureEdit": "Sửa chữ ký…",
+  "settings.signatureEdit": "Sửa chữ ký",
   "settings.signatureNone": "Chưa đặt lời kết",
   "settings.signatureCancel": "Hủy",
   "settings.languageHelp": "Chỉ giữ trong phiên làm việc.",
@@ -2273,14 +2273,14 @@ export const vi = {
   "agents.connectedOn": "kết nối {date}",
   "agents.lentFrom": "cho mượn từ “{label}”",
   "agents.disconnect": "Ngắt kết nối",
-  "agents.disconnectOpen": "Ngắt kết nối…",
+  "agents.disconnectOpen": "Ngắt kết nối",
   "agents.disconnectNamed": "Ngắt kết nối {client}",
   "agents.disconnected": "đã ngắt kết nối",
   "agents.lapsed": "thông tin xác thực đã hết hạn",
   "agents.renewing": "đang gia hạn",
   "agents.renewsBy": "thông tin xác thực gia hạn trước {date}",
   "agents.expiredOn": "thông tin xác thực hết hạn {date}",
-  "agents.revokeGrantOpen": "Kết thúc kết nối…",
+  "agents.revokeGrantOpen": "Kết thúc kết nối",
   "agents.revokeGrantNamed": "Kết thúc kết nối tới {client}",
   "agents.disconnectConfirm":
     "Việc này kết thúc toàn bộ kết nối, không chỉ một thông tin xác thực: Agent mất quyền truy cập ở lần gọi kế tiếp và không gia hạn được. Muốn kết nối lại thì phải cho mượn passport lần nữa.",
@@ -2378,7 +2378,7 @@ export const vi = {
     "Chỉ dùng ngoài môi trường vận hành — không thể hoàn tác trên bản cài đặt này.",
   "settings.resetDataDesc":
     "Đưa bản cài đặt này về trạng thái khởi động lần đầu. Dữ liệu nghiệp vụ và cấu hình của tổ chức bị xoá sạch; tổ chức cùng người dùng của nó được giữ lại và vẫn đang đăng nhập.",
-  "settings.resetDataButton": "Xoá sạch dữ liệu…",
+  "settings.resetDataButton": "Xoá sạch dữ liệu",
   "settings.resetDataLabel": "Xóa toàn bộ dữ liệu",
   "settings.resetDataConfirmButton": "Xóa dữ liệu",
   "settings.resetDataConfirmTitle": "Xoá sạch toàn bộ dữ liệu?",
@@ -2622,7 +2622,7 @@ export const vi = {
   "stage.semOpen": "Đang mở",
   "stage.semWon": "Thắng",
   "stage.semLost": "Thua",
-  "stage.remove": "Gỡ bỏ…",
+  "stage.remove": "Gỡ bỏ",
   "stage.removeConfirm": "Gỡ giai đoạn",
   "stage.removeTitle": "Gỡ giai đoạn này?",
   "stage.removeBody":
@@ -3757,20 +3757,13 @@ export const vi = {
   "auth.loginSub":
     "Tài khoản do quản trị viên của bạn cấp. Không có đăng ký tự do.",
   "auth.coreDisclosure": "Margince · hệ thống AI",
-  "auth.coreBoundary":
-    "Tôi chỉ dùng được ngữ cảnh của bạn sau khi Margince xác minh đúng là bạn.",
-  // The scope of the context the statement above is about. Bounded on purpose:
-  // "nothing else" is what keeps it a limit rather than a list of capabilities,
-  // which is what the artifact's version of this line was.
-  "auth.coreScope":
-    "Ngữ cảnh đó là thư của bạn, lịch của bạn, và những gì tôi đọc được trên web mở. Không gì khác, và không gì khi chưa được bạn cho phép.",
-  "auth.corePermission": "Tôi dùng đúng quyền của bạn.",
-  "auth.coreCites": "Tôi dẫn nguồn những gì tìm được.",
-  "auth.coreWaits": "Tôi chờ trước khi thực hiện hành động ra bên ngoài.",
-  // The fourth limit. The mockup's five became four, and one that did not
-  // travel says why: "enriches records from sources it names" is a capability
-  // claim, and ADR-0076 Decision 2 admits only limits. This one is a limit.
-  "auth.coreMarks": "Tôi đánh dấu mọi giá trị do tôi ghi.",
+  "auth.coreGreeting": "Xin chào, tôi là Margince.",
+  "auth.corePurpose": "Tôi ở đây để lo phần việc xung quanh công việc của bạn.",
+  "auth.coreWork":
+    "Tôi sẽ giữ CRM của bạn luôn cập nhật, phát hiện điều cần chú ý và chuẩn bị bước tiếp theo — để bạn tập trung vào khách hàng.",
+  "auth.corePromise":
+    "Và đừng lo: tôi sẽ không bao giờ gửi email hay tin nhắn mà chưa hỏi bạn trước.",
+  "auth.coreHandover": "Trước tiên, hãy để tôi xác minh đúng là bạn…",
   "auth.coreConfigured": "Đã cấu hình",
   "auth.coreUnconfigured": "AI chưa được cấu hình",
   "auth.coreStillWorks": "CRM vẫn hoạt động.",
@@ -3852,9 +3845,9 @@ export const vi = {
   "password.signsYouOut":
     "Việc đổi mật khẩu sẽ đăng xuất bạn ở mọi nơi, kể cả ở đây. Hãy đăng nhập lại bằng mật khẩu mới.",
   "password.changing": "Đang đổi mật khẩu…",
-  "password.open": "Đổi mật khẩu…",
+  "password.open": "Đổi mật khẩu",
   "password.cancel": "Hủy",
-  "password.submit": "Đổi mật khẩu",
+  "password.submit": "Lưu mật khẩu mới",
   "password.done": "Đã đổi mật khẩu. Hãy đăng nhập lại bằng mật khẩu mới.",
   "password.errorGeneric": "Không đổi được mật khẩu. Hãy thử lại.",
   "setup.pageTitle": "Thiết lập Margince",
@@ -4459,10 +4452,10 @@ export const vi = {
   "settings.voice.addPlaceholder":
     "Dán một email, bài đăng, hay bất cứ gì bạn đã viết…",
   "settings.voice.addSource": "Thêm mẫu văn",
-  "settings.voice.addSourceOpen": "Dán văn bản…",
+  "settings.voice.addSourceOpen": "Dán văn bản",
   "settings.voice.pasteCancel": "Huỷ",
   "settings.voice.addFirstLabel": "Mẫu văn đầu tiên của bạn",
-  "settings.voice.addFirstOpen": "Dán mẫu văn đầu tiên…",
+  "settings.voice.addFirstOpen": "Dán mẫu văn đầu tiên",
   "settings.voice.addFirstCta": "Thêm và bắt đầu Voice DNA của tôi",
   "settings.voice.browseFiles": "Chọn tệp",
   "settings.voice.dropHint":

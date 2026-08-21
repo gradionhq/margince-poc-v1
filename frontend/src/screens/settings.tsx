@@ -1342,7 +1342,7 @@ function PassportCard() {
       // than as a trailing row: a row whose label reads "Mint a new passport"
       // beside a button reading "New passport" says the same thing twice, and it made
       // a third interval out of what is not a decision the list holds. The verb
-      // takes the ellipsis form and the drawer's submit keeps the plain one —
+      // names the THING it creates and the drawer's submit names the act —
       // two buttons reading "Mint passport" are one name for two acts, for a
       // reader and for a name-based query alike.
       //
@@ -1897,10 +1897,10 @@ function ResetDataCard() {
         <p className="settings-panel-sub">{t("settings.dangerZoneSub")}</p>
         <SettingList>
           {/* One row, because there is one act: what it does on the left, the
-              verb that does it on the right. The verb takes the ellipsis form
-              and the dialog's own confirm keeps the plain one — a destructive
-              button and the button that asks again about it must not read the
-              same. */}
+              verb that does it on the right. This verb opens the question and
+              the dialog's confirm answers it, so each is named for its own act
+              — a destructive button and the button that asks again about it
+              must not read the same while both are on screen. */}
           <SettingRow
             label={t("settings.resetDataLabel")}
             description={t("settings.resetDataDesc")}

@@ -116,8 +116,8 @@ function mintBackend(
 // forgets which keys and buttons the first left held.
 //
 // The CARD's verb — in its header band, beside the title, since minting is what
-// the card is for rather than one of the credentials it lists — takes the
-// ellipsis form ("Mint…") while the drawer's submit keeps the plain one ("Mint
+// the card is for rather than one of the credentials it lists — names the THING
+// it creates ("New passport") while the drawer's submit names the act ("Mint
 // passport"), so the two are never one name for two acts. That is what lets
 // every assertion below name the button it means.
 async function openDrawer(user: ReturnType<typeof userEvent.setup>) {
