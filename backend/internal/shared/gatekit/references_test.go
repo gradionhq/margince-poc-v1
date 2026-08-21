@@ -51,8 +51,11 @@ func TestReferencesFindsEverySpellingOfReachingASymbol(t *testing.T) {
 			want:   false,
 		},
 		{
+			// The file imports the target too, so the traversal runs and the
+			// qualifier comparison is what rejects this — not the cheap import
+			// check, which would exit before reading a single node.
 			name:   "another package's symbol of the same name",
-			source: "package s\nimport \"example.com/x/other\"\nfunc f() { other.NewPool() }",
+			source: "package s\nimport (\n\"example.com/x/database\"\n\"example.com/x/other\"\n)\nfunc f() { other.NewPool(); database.BindTo() }",
 			want:   false,
 		},
 		{
@@ -66,9 +69,20 @@ func TestReferencesFindsEverySpellingOfReachingASymbol(t *testing.T) {
 			want:   false,
 		},
 		{
-			name:   "a local variable that happens to share the qualifier's name",
+			name:   "a file that neither imports the package nor is declared in it",
 			source: "package s\nfunc f() { database := struct{ NewPool int }{}; _ = database.NewPool }",
 			want:   false,
+		},
+		{
+			// Shadowing the qualifier does NOT hide the symbol, and that is the
+			// bar this gate is set at: it matches names, because following a
+			// value to its type needs analysis a fitness test does not have. A
+			// file that holds the import is judged on the import, so the cost of
+			// naming is a false positive a waiver can answer for — while the
+			// cost of the alternative is a real call the gate walks past.
+			name:   "a local variable shadowing the qualifier, in a file that imports it",
+			source: "package s\nimport \"example.com/x/database\"\nfunc g() { database.BindTo() }\nfunc f() { database := struct{ NewPool int }{}; _ = database.NewPool }",
+			want:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
