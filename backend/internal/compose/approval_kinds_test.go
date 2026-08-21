@@ -419,6 +419,7 @@ func collectStringConsts(file *ast.File, into map[string]string) {
 var exportedApprovalKinds = map[string]string{
 	"KindQuotaRelease":      approvals.KindQuotaRelease,
 	"KindScheduledSendHeld": approvals.KindScheduledSendHeld,
+	"KindImportCommit":      approvals.KindImportCommit,
 }
 
 // crossPackageKinds resolves a kind another module exports and compose stages

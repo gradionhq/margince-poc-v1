@@ -78,6 +78,7 @@ type restCommandDeps struct {
 // reason patch never had that question at all — see patchResolver.Guards'
 // own comment.
 var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error){
+	"approveImportRun":     commitImportCommand,
 	"archiveActivity":      archiveCommand,
 	"archiveDeal":          archiveCommand,
 	"archiveList":          archiveCommand,
@@ -93,6 +94,7 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 
 	"createCustomField":         createCommand,
 	"createDeal":                createCommand,
+	"createImportRun":           previewImportCommand,
 	"createLead":                createCommand,
 	"createList":                createCommand,
 	"createOfferTemplate":       createCommand,
@@ -226,7 +228,36 @@ const (
 // annotation, so a type spelled again in this file could disagree with the one
 // the gate admitted against.
 //
+// previewImportCommand decodes POST /v1/imports. The run does not exist yet,
+// so the approval binds to no id — which is safe because the call writes no
+// domain rows (AC-M5), and honest because inventing an id would be a lie.
+//
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair the table above is typed by
+//nolint:ireturn // same as every other decoder here — GovernedCall is the table's value type.
+func previewImportCommand(_ agentPolicy, _ restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
+	cmd, err := agents.DecodeImportPreview(body)
+	if err != nil {
+		return nil, err
+	}
+	return agents.NewImportCall(cmd), nil
+}
+
+// commitImportCommand decodes POST /v1/imports/{id}/approve. The run id IS the
+// target: what a person approves is one validated run, and the report they
+// read belongs to that id.
+//
+//nolint:ireturn // every decoder in restCommands returns GovernedCall — that IS the table's value type, and a concrete return would not satisfy it.
+func commitImportCommand(_ agentPolicy, _ restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
+	id, err := routedID(r)
+	if err != nil {
+		return nil, err
+	}
+	return agents.NewImportCall(agents.ImportCommand{
+		Verb:  agents.ImportVerbCommit,
+		RunID: id,
+	}), nil
+}
+
 func archiveCommand(pol agentPolicy, deps restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
 	id, err := routedID(r)
 	if err != nil {

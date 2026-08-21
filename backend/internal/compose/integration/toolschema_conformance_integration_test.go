@@ -227,6 +227,13 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 // listed here and then made reachable fails as loudly as one that was never
 // covered, so the list cannot quietly outlive its reason.
 var unreachableInThisLane = gatekit.Waive(map[string]string{
+	"preview_import": "needs an object store to put the source file in; this lane composes none, " +
+		"so the call would exercise the refusal rather than the handler",
+	"read_import_run": "needs a seat holding import_run.read, which this lane's seat does not " +
+		"carry — a migration run is an admin-scoped object, and granting it here would widen the " +
+		"authority every other tool in the sweep runs under",
+	"read_import_report": "needs a run that has been dry-run, which needs the object store above",
+	"commit_import":      "confirm-first, and needs the object store above to reach a committable run",
 	"apply_tag": "needs a seat holding tag.read, which this lane's seat does not carry — " +
 		"granting it here would widen the authority every other tool in the sweep runs under, " +
 		"and the answer shape it would prove is the one remove_tag already shares",

@@ -47,7 +47,7 @@ func NewRegistryFor(db *database.DB, send SendPath) *agents.Registry {
 	// The gate resolves seats through identity, and identity binds the same
 	// handle: a registry built for a named workspace must not admit through a
 	// service that resolves a different one.
-	return registryWithGate(db, auth.NewGate(identity.NewServiceFor(db)), nil, nil, send, companyEnricher{}, nil, nil, slog.Default())
+	return registryWithGate(db, auth.NewGate(identity.NewServiceFor(db)), nil, nil, send, companyEnricher{}, nil, nil, nil, slog.Default())
 }
 
 // NewRegistryWithIncumbent is NewRegistry plus the per-workspace live-incumbent
@@ -55,14 +55,14 @@ func NewRegistryFor(db *database.DB, send SendPath) *agents.Registry {
 // through — the wiring a role with a vault (the api server) installs so the MCP
 // tool surface can actually write back, not just answer errNoWriteIncumbent.
 func NewRegistryWithIncumbent(pool *pgxpool.Pool, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
-	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil, nil, slog.Default())
+	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil, nil, nil, slog.Default())
 }
 
 func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
 	if brain == nil {
-		return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil, nil, slog.Default())
+		return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil, nil, nil, slog.Default())
 	}
-	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{}, nil, nil, slog.Default())
+	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{}, nil, nil, nil, slog.Default())
 }
 
 // registryWithGate composes the tool surface. The quota charger arrives as
@@ -79,7 +79,7 @@ func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumben
 // model path has none, and the offline fake binds no embeddings model — and
 // every path that can lose the vector lane says so on the wire rather than
 // serving a lexically-ranked page under a semantic label.
-func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher, embedder search.Embedder, transcriptOnLanding activities.TranscriptReadEnqueue, log *slog.Logger, opts ...agents.RegistryOption) *agents.Registry {
+func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher, embedder search.Embedder, transcriptOnLanding activities.TranscriptReadEnqueue, imports agents.Imports, log *slog.Logger, opts ...agents.RegistryOption) *agents.Registry {
 	// The Dispatcher is the datasource seam every core/slipping tool
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
@@ -212,6 +212,16 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	agents.RegisterWhoamiTool(registry, actingIdentity(pool))
 	agents.RegisterColleaguesTool(registry, colleagueLister(pool))
 	agents.RegisterTagTools(registry, tagSeam(pool))
+	// The migrate-in verbs, ALWAYS served: the contract declares all four, and
+	// a registry that does not serve a declared verb advertises something
+	// tools/list cannot offer. A registry built with no Server falls back to
+	// bare handlers — its reads work, and the three verbs that need the source
+	// file refuse with errNoObjectStore, which is what a role storing no
+	// objects can honestly do.
+	if imports == nil {
+		imports = importsOverDB(db)
+	}
+	agents.RegisterImportTools(registry, imports)
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))
