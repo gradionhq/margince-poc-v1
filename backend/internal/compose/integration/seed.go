@@ -16,8 +16,9 @@ import (
 )
 
 // The raw-SQL seeding helpers, as opposed to the store-mediated fixtures on Env
-// in harness.go: everything here writes rows with its own INSERT rather than
-// going through a module store, which is the line the two files are split on.
+// in harnessfixtures.go: everything here writes rows with its own INSERT rather
+// than going through a module store, which is the line the two files are split
+// on.
 //
 // That line is load-bearing, not tidiness. This file is the identity-mint site
 // backend/dedupespine_test.go sanctions BY PATH, so a direct
