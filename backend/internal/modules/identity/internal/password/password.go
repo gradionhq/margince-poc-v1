@@ -17,11 +17,16 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// OWASP-recommended interactive-login parameters (2024 baseline).
+// The COST parameters — timeCost, memoryKiB, threads — live in params.go and
+// params_integration.go, selected by build tag. The two below do not, and that
+// is deliberate: neither is a cost knob, and both have a correctness floor.
+//
+// keyLength must stay within the 16..64 bytes Verify accepts below; a shorter
+// key would make every hash this package writes fail its own Verify, and the
+// failure would surface as a login error far from the constant that caused it.
+// saltLength changes the PHC encoding and buys no speed. Keeping them out of
+// the tagged files is what makes those mistakes unavailable.
 const (
-	timeCost   = 2
-	memoryKiB  = 19 * 1024
-	threads    = 1
 	saltLength = 16
 	keyLength  = 32
 )
