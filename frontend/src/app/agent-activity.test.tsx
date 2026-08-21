@@ -95,6 +95,9 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  // The listener-registry case spies on document itself, which would otherwise
+  // outlive its test.
+  vi.restoreAllMocks();
   Reflect.deleteProperty(document, "hidden");
 });
 
@@ -161,17 +164,33 @@ describe("the visibility pause", () => {
     expect(result.current.running).toEqual([]);
   });
 
-  it("removes its listener when the caller unmounts", async () => {
-    const { reads, unmount } = mount(() => jsonResponse(activity([A_RUN])));
+  it("releases the very listener it registered, when the caller unmounts", async () => {
+    // Asserted against the listener registry rather than against a read count,
+    // because a read count cannot see this leak: the query unsubscribes its own
+    // observer on unmount, so a listener left behind fetches nothing extra and
+    // looks exactly like a listener that was removed. What it does do is keep
+    // this hook's state setter alive across every route change for the life of
+    // the document, and the registry is where that is visible.
+    const added = vi.spyOn(document, "addEventListener");
+    const removed = vi.spyOn(document, "removeEventListener");
+    const { unmount } = mount(() => jsonResponse(activity([A_RUN])));
     await advance(0);
-    expect(reads).toHaveLength(1);
+
+    const registered = added.mock.calls
+      .filter(([type]) => type === "visibilitychange")
+      .map(([, listener]) => listener);
+    expect(registered).not.toHaveLength(0);
 
     unmount();
-    await setTabHidden(true);
-    await setTabHidden(false);
-    await advance(60_000);
 
-    expect(reads).toHaveLength(1);
+    // toContain compares functions by identity, so removing SOME other
+    // listener, or a fresh closure with the same body, does not satisfy this.
+    const released = removed.mock.calls
+      .filter(([type]) => type === "visibilitychange")
+      .map(([, listener]) => listener);
+    for (const listener of registered) {
+      expect(released).toContain(listener);
+    }
   });
 });
 
