@@ -124,14 +124,20 @@ const recentSQL = `
 // finished for them today. The three reads are unioned in Go rather than in SQL
 // so each keeps its own state vocabulary and its own mapper.
 //
-// ONE ANSWER, ONE SNAPSHOT: all three statements run inside a single
-// transaction. Across separate transactions a run that is `running` when the
-// first statement executes and `completed` when the third does appears in BOTH
-// lists, and the panel then says "putting your brief together" and "your brief
-// is ready" about one occurrence at once; the mirror interleaving makes an
-// occurrence vanish for a poll. That is the same double-report the queued-vs-
-// claimed split defends against, and a transaction boundary is no more allowed
-// to reopen it than a status boundary is.
+// ONE OCCURRENCE, ONE LINE, and a run that settles mid-read is reported as
+// settled. The three statements share a transaction, but that transaction is
+// READ COMMITTED — platform/database opens it with a bare pool.Begin and nothing
+// sets an isolation level — so each statement still takes its OWN snapshot: a run
+// that is `running` when runningSQL executes and `completed` when recentSQL does
+// is returned by both. The panel would then say "putting your brief together"
+// and "your brief is ready" about one occurrence at once. So the overlap is
+// removed here, by id, rather than assumed away; that is the same double-report
+// the queued-vs-claimed split defends against, and a transaction boundary is no
+// more allowed to reopen it than a status boundary is.
+//
+// The statement ORDER closes the mirror case: in-flight is read before settled,
+// so an occurrence that moves between the two reads is caught by the later one
+// and cannot fall through the gap.
 func (s *Store) Mine(ctx context.Context, userID ids.UUID) (running, recent []Item, err error) {
 	var inFlight, queued []Item
 	if err := s.db.Tx(ctx, func(tx pgx.Tx) error {
@@ -149,11 +155,7 @@ func (s *Store) Mine(ctx context.Context, userID ids.UUID) (running, recent []It
 	}); err != nil {
 		return nil, nil, fmt.Errorf("agentactivity: %w", err)
 	}
-	running = make([]Item, 0, len(inFlight)+len(queued))
-	running = append(running, inFlight...)
-	running = append(running, queued...)
-	newestFirst(running)
-	return running, recent, nil
+	return inFlightFeed(inFlight, queued, recent), recent, nil
 }
 
 // startOfToday is midnight in the clock's own location, which is what "today"
@@ -220,6 +222,33 @@ func summaryOf(result []byte) *string {
 		return nil
 	}
 	return final.Summary
+}
+
+// inFlightFeed is the whole of what "running" means on the wire: the runs still
+// going, the jobs still waiting, in one order, minus anything the settled feed
+// already reports.
+//
+// Merging and deduplicating are ONE step on purpose. Done separately they can be
+// applied separately, and a merge without the dedupe is the double report this
+// feed exists not to make.
+func inFlightFeed(inFlight, queued, recent []Item) []Item {
+	settled := make(map[ids.UUID]struct{}, len(recent))
+	for _, item := range recent {
+		settled[item.ID] = struct{}{}
+	}
+	feed := make([]Item, 0, len(inFlight)+len(queued))
+	for _, group := range [][]Item{inFlight, queued} {
+		for _, item := range group {
+			// The settled row is the newer truth: a run that finished while the
+			// read was in progress has finished.
+			if _, done := settled[item.ID]; done {
+				continue
+			}
+			feed = append(feed, item)
+		}
+	}
+	newestFirst(feed)
+	return feed
 }
 
 // capped bounds a free-text column on its way to the wire, counting RUNES so a

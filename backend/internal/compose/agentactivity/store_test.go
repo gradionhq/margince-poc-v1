@@ -116,3 +116,61 @@ func TestCappedLeavesAnAbsentColumnAbsent(t *testing.T) {
 		t.Errorf("an absent column must stay absent, got %q", *got)
 	}
 }
+
+// The read's three statements share a transaction, but READ COMMITTED gives each
+// one its own snapshot, so a run that settles between the first and the third is
+// returned by both. Reported twice, the panel says "putting your brief together"
+// and "your brief is ready" about one occurrence at once — so the settled row
+// wins and the in-flight copy goes.
+func TestAnOccurrenceThatSettlesMidReadIsReportedOnceAsSettled(t *testing.T) {
+	raced, stillRunning := ids.NewV7(), ids.NewV7()
+	inFlight := []Item{
+		{ID: raced, State: StateRunning, Kind: "morning_brief"},
+		{ID: stillRunning, State: StateRunning, Kind: "overnight_at_risk_sweep"},
+	}
+	recent := []Item{{ID: raced, State: StateDone, Kind: "morning_brief"}}
+
+	feed := inFlightFeed(inFlight, nil, recent)
+	if len(feed) != 1 {
+		t.Fatalf("want only the run that is still going, got %d items: %v", len(feed), feed)
+	}
+	if feed[0].ID != stillRunning {
+		t.Errorf("the settled occurrence was kept in flight: %v", feed[0])
+	}
+	// The settled list is the half that holds the newer truth, and it is not
+	// this function's to edit.
+	if len(recent) != 1 || recent[0].State != StateDone {
+		t.Errorf("the settled feed must keep the occurrence, got %v", recent)
+	}
+}
+
+func TestTheInFlightFeedKeepsEveryOccurrenceWhenNothingSettled(t *testing.T) {
+	runs := []Item{{ID: ids.NewV7(), State: StateRunning}}
+	jobs := []Item{{ID: ids.NewV7(), State: StateQueued}}
+	if feed := inFlightFeed(runs, jobs, nil); len(feed) != 2 {
+		t.Errorf("nothing settled, so nothing may be dropped: got %d of 2", len(feed))
+	}
+}
+
+// A queued job and a run are rows in different tables, so a matching id is the
+// SAME agent_run seen twice and never a collision. The dedupe must not touch a
+// queued item merely because some other run settled.
+func TestTheInFlightFeedDoesNotConfuseAQueuedJobWithASettledRun(t *testing.T) {
+	queued := Item{ID: ids.NewV7(), State: StateQueued}
+	feed := inFlightFeed(nil, []Item{queued}, []Item{{ID: ids.NewV7(), State: StateDone}})
+	if len(feed) != 1 || feed[0].ID != queued.ID {
+		t.Errorf("a queued job was dropped for an unrelated settled run: %v", feed)
+	}
+}
+
+// The merged feed is ordered by the same rule each statement uses, so a client
+// that renders it top-down shows the newest occurrence first whichever list it
+// came from.
+func TestTheInFlightFeedOrdersRunsAndJobsTogether(t *testing.T) {
+	newest := Item{ID: ids.NewV7(), StartedAt: time.Date(2026, 8, 21, 6, 0, 0, 0, time.UTC), State: StateQueued}
+	oldest := Item{ID: ids.NewV7(), StartedAt: time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC), State: StateRunning}
+	feed := inFlightFeed([]Item{oldest}, []Item{newest}, nil)
+	if len(feed) != 2 || feed[0].ID != newest.ID {
+		t.Errorf("the merged feed is not newest-first: %v", feed)
+	}
+}
