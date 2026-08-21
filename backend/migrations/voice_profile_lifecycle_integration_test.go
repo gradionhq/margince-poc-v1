@@ -21,6 +21,24 @@ import (
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
+// wantMigratedSource is the `source` these rows carry once the WHOLE core
+// namespace has been applied, which is what this suite does — it stops before
+// 0107, seeds a legacy installation, and then migrates all the way up.
+//
+// 0107's backfill stamps `ui`, and it is not the last word: the later
+// `source_names_the_origin` migration collapses `mcp` and `ui` into `manual` on
+// every table carrying the column, voice_profile, voice_corpus_source and
+// voice_profile_version among them. So `manual` is the value an upgraded
+// installation actually holds, and asserting `ui` asserts a vocabulary that no
+// longer exists at head.
+//
+// Named once, with that reason, because the obvious "fix" when this fails is to
+// change the migration back — and the collapse was deliberate. It was safe only
+// because the retrieval ranking that used to read this column had already moved
+// to `captured_by`; reversed, every agent-written note would have been promoted
+// to human-statement trust silently.
+const wantMigratedSource = "manual"
+
 func TestVoiceProfileLifecycleUpgradePreservesBuiltProfile(t *testing.T) {
 	ownerDSN, _ := dsns(t)
 	conn := connect(t, ownerDSN)
@@ -114,8 +132,8 @@ func assertMigratedVoiceCorpus(t *testing.T, conn *pgx.Conn, profileID, wantCont
 	if kind != "linkedin" || register != "social" {
 		t.Errorf("translated corpus vocabulary = (%q, %q), want (linkedin, social)", kind, register)
 	}
-	if source != "ui" || capturedBy != "system" {
-		t.Errorf("corpus provenance = (%q, %q), want (ui, system)", source, capturedBy)
+	if source != wantMigratedSource || capturedBy != "system" {
+		t.Errorf("corpus provenance = (%q, %q), want (%s, system)", source, capturedBy, wantMigratedSource)
 	}
 }
 
@@ -141,8 +159,9 @@ func assertMigratedVoiceProfile(t *testing.T, conn *pgx.Conn, profileID, ownerID
 	if sourceHash != wantSourceHash {
 		t.Errorf("active_source_hash = %q, want %q", sourceHash, wantSourceHash)
 	}
-	if source != "ui" || capturedBy != "system" || !builtAtPresent {
-		t.Errorf("profile backfill = source %q, captured_by %q, built_at %v; want ui, system, true", source, capturedBy, builtAtPresent)
+	if source != wantMigratedSource || capturedBy != "system" || !builtAtPresent {
+		t.Errorf("profile backfill = source %q, captured_by %q, built_at %v; want %s, system, true",
+			source, capturedBy, builtAtPresent, wantMigratedSource)
 	}
 }
 
@@ -168,8 +187,8 @@ func assertMigratedVoiceVersion(t *testing.T, conn *pgx.Conn, profileID string, 
 	if sourceHash != wantSourceHash || sourceCount != 1 {
 		t.Errorf("immutable version source snapshot = (%q, %d), want (%q, 1)", sourceHash, sourceCount, wantSourceHash)
 	}
-	if source != "ui" || capturedBy != "system" {
-		t.Errorf("immutable version provenance = (%q, %q), want (ui, system)", source, capturedBy)
+	if source != wantMigratedSource || capturedBy != "system" {
+		t.Errorf("immutable version provenance = (%q, %q), want (%s, system)", source, capturedBy, wantMigratedSource)
 	}
 }
 
