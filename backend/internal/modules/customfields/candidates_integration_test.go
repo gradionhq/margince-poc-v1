@@ -29,7 +29,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -68,6 +67,13 @@ func setupCandidates(t *testing.T) *candidatesFixture {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+	// To head before anything else touches this database: testdb.Pool refuses
+	// until EnsureSchema has run, and EnsureSchema still REBUILDS whenever it
+	// cannot prove the database is a fresh lane clone — so a seed written
+	// before it would be dropped rather than reset.
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
 	if err := testdb.Reset(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
@@ -88,16 +94,19 @@ func setupCandidates(t *testing.T) *candidatesFixture {
 		t.Fatal(err)
 	}
 
-	appPool, err := database.NewPool(ctx, appDSN)
+	appPool, err := testdb.Pool(ctx, appDSN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(appPool.Close)
-	schemaPool, err := database.NewPool(ctx, ownerDSN)
+	// Registered where the pool is handed out, before the test adds any cleanup
+	// of its own, so it runs last and sees a package that has genuinely stopped.
+	// The pool outlives the test now, so a goroutine still holding a connection
+	// would go on writing into the database the NEXT test just reset.
+	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
+	schemaPool, err := testdb.Pool(ctx, ownerDSN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(schemaPool.Close)
 
 	svc := NewService(appPool, schemaPool)
 	fctx := principal.WithActor(principal.WithCorrelationID(principal.WithWorkspaceID(ctx, ws), ids.NewV7()),

@@ -21,14 +21,9 @@ package backendarch
 // compiles a file.
 //
 // Any such file that REFERENCES the migrate entry point is caught, not only one
-// that applies it: `up := dm.Up; up(...)` migrates just as much as `dm.Up(...)`,
-// and a file has no reason to hold the migrator except to run it. That closes the
-// function-value route without type-aware analysis, and the qualifier is resolved
-// through imports so a rename or dot-import cannot walk past it either.
-//
-// Detection is over the syntax tree, not the text: the string "dbmigrate.Up"
-// appears in this file's own doc and failure message, and a text scan over a tree
-// that includes this file would flag the gate as its own offender.
+// that applies it, and detection is over the syntax tree rather than the text —
+// both through gatekit.References, which carries the reasoning for each and is
+// shared with the module-pool gate that needs exactly the same thing.
 
 import (
 	"go/ast"
@@ -36,7 +31,6 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -142,78 +136,10 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 const dbmigratePath = "github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 
 // referencesInlineMigrate reports whether the file reaches the migrate entry
-// point at all — as a call, or as a value it could call later.
-//
-// Naming it is enough, deliberately. A gate that matched only `dm.Up(...)` would
-// be walked past by `up := dm.Up; up(...)`, and following a function value needs
-// type-aware analysis of the whole module. Treating any reference as a migration
-// closes that without it: a test file has no reason to hold the migrator except
-// to run it, and a suite that genuinely needs one says so through a waiver rather
-// than through a spelling the gate cannot see.
-//
-// The qualifier is resolved through the file's own imports, because the name is
-// the caller's choice — `import dm ".../dbmigrate"`, or a dot-import leaving `Up`
-// bare, migrate exactly as much as the canonical spelling does. A test inside
-// package dbmigrate itself reaches `Up` with no import at all, so that case is
-// keyed on the package clause.
-//
-// Prose is not a reference: the strings "dbmigrate.Up" in this file's own doc and
-// failure message are comments and literals, which carry no selector for the AST
-// to match.
+// point at all — as a call, or as a value it could call later. gatekit.References
+// carries the reasoning for treating a mere reference as a migration, and for
+// resolving the qualifier through the file's own imports; this names WHAT is
+// hunted, and nothing about how.
 func referencesInlineMigrate(file *ast.File) bool {
-	qualifier, dotImported := dbmigrateName(file)
-	inPackage := file.Name != nil && file.Name.Name == "dbmigrate"
-	if qualifier == "" && !dotImported && !inPackage {
-		return false
-	}
-	found := false
-	ast.Inspect(file, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		switch node := n.(type) {
-		case *ast.SelectorExpr:
-			// qualifier.Up, whether or not it is being applied here.
-			if qualifier == "" || node.Sel == nil || node.Sel.Name != "Up" {
-				return true
-			}
-			if pkg, ok := node.X.(*ast.Ident); ok && pkg.Name == qualifier {
-				found = true
-				return false
-			}
-		case *ast.Ident:
-			// A bare Up: reachable under a dot-import, or from inside the
-			// migrator's own package.
-			if (dotImported || inPackage) && node.Name == "Up" {
-				found = true
-				return false
-			}
-		}
-		return true
-	})
-	return found
-}
-
-// dbmigrateName returns the identifier this file binds the migrate package to,
-// and whether it was dot-imported. Both are empty/false when the file does not
-// import it at all, which is the cheap way to skip most of the tree.
-func dbmigrateName(file *ast.File) (qualifier string, dotImported bool) {
-	for _, spec := range file.Imports {
-		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || path != dbmigratePath {
-			continue
-		}
-		switch {
-		case spec.Name == nil:
-			return "dbmigrate", false
-		case spec.Name.Name == ".":
-			return "", true
-		case spec.Name.Name == "_":
-			// Imported for side effects only; it cannot be called through.
-			return "", false
-		default:
-			return spec.Name.Name, false
-		}
-	}
-	return "", false
+	return gatekit.References(file, dbmigratePath, "Up")
 }

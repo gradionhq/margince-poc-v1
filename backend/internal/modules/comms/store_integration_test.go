@@ -81,6 +81,13 @@ func setupStore(t *testing.T) *storeEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+	// To head before anything else touches this database: testdb.Pool refuses
+	// until EnsureSchema has run, and EnsureSchema still REBUILDS whenever it
+	// cannot prove the database is a fresh lane clone — so a seed written
+	// before it would be dropped rather than reset.
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
 
 	e := &storeEnv{
 		owner:      owner,
@@ -115,11 +122,15 @@ func setupStore(t *testing.T) *storeEnv {
 		}
 	}
 
-	pool, err := database.NewPool(ctx, appDSN)
+	pool, err := testdb.Pool(ctx, appDSN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(pool.Close)
+	// Registered where the pool is handed out, before the test adds any cleanup
+	// of its own, so it runs last and sees a package that has genuinely stopped.
+	// The pool outlives the test now, so a goroutine still holding a connection
+	// would go on writing into the database the NEXT test just reset.
+	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.store = NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)), func() time.Time { return e.clockValue }, honouredIdentity{})
 	e.ctx = actorCtx(e.ws, e.user)
 	return e
