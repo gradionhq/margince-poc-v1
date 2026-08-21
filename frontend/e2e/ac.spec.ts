@@ -311,25 +311,29 @@ test("features/10 §7: the locale switch flips the chrome DE↔EN", async ({
   // locales ship, so the control is a list rather than a toggle — a toggle
   // cannot say where the next click lands.
   await page.goto("/#/settings/account");
-  await expect(page.getByText("Voreinstellungen")).toBeVisible();
+  // The card the language row sits in: password, sign-off and language are one
+  // account card now rather than a Preferences card of their own.
+  await expect(page.getByRole("heading", { name: "Ihr Konto" })).toBeVisible();
   await page.getByRole("combobox", { name: "Sprache" }).click();
   await page.getByRole("option", { name: "English" }).click();
   // The surface around the control follows the choice, not just the control's
   // own face: every word on it is rendered from the catalog that just changed.
-  await expect(page.getByText("Preferences")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Your account" }),
+  ).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Language" })).toBeVisible();
 });
 
 // Appearance is chosen from the account menu now — it is the setting a reader
-// changes most often, and from wherever they happen to be standing. Preferences
-// keeps the preferences that are not appearance, so this asserts what the card
-// LOST rather than that the card went away: the language control beside it has
-// to still be there, or a Preferences card that failed to render would pass.
+// changes most often, and from wherever they happen to be standing. The account
+// card keeps the preferences that are not appearance, so this asserts what the
+// page LOST rather than that the card went away: the language control beside it
+// has to still be there, or an account card that failed to render would pass.
 test("features/10 §7: Settings → Account keeps language and offers no theme control", async ({
   page,
 }) => {
   await page.goto("/#/settings/account");
-  await expect(page.getByText("Voreinstellungen")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ihr Konto" })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Sprache" })).toBeVisible();
   for (const name of ["Hell", "Dunkel", "System", "Design"]) {
     await expect(page.getByRole("button", { name, exact: true })).toHaveCount(
@@ -442,15 +446,18 @@ test("AC-automations-1 (B-EP09.15): create from the catalog arrives paused; enab
     .getByRole("button", { name: "Vorlage verwenden" })
     .first()
     .click();
+  // Name and parameters are one form behind the library's verb, so they are
+  // asserted in the dialog it opens rather than in the region it opened from.
+  const form = page.getByRole("dialog");
   // the schema default arrives in the one parameter field
   await expect(
-    automations.getByRole("spinbutton", { name: "due_in_days" }),
+    form.getByRole("spinbutton", { name: "due_in_days" }),
   ).toHaveValue("3");
-  await automations.getByRole("button", { name: "Anlegen" }).click();
+  await form.getByRole("button", { name: "Anlegen" }).click();
+  // The outcome lands on the CARD: by the time it is true the dialog that
+  // produced it is gone.
   await expect(
-    automations.getByText(
-      "Pausiert angelegt — es läuft nichts, bis du aktivierst.",
-    ),
+    page.getByText("Pausiert angelegt — es läuft nichts, bis du aktivierst."),
   ).toBeVisible();
   const row = page.locator('[data-automation="au-2"]');
   // The row states its status on the control that changes it, rather than on a
@@ -476,10 +483,16 @@ test("AC-automations-2 (features/10 §1): anti-DSL — no free-form rule body, n
     .getByRole("button", { name: "Vorlage verwenden" })
     .first()
     .click();
+  // The authoring form is the dialog the verb opens. The claim is about what a
+  // reader can WRITE, so it is counted where the inputs are — and counted in
+  // the region too, so a rule body that reappeared beside the library rather
+  // than inside the dialog would still fail this.
+  const form = page.getByRole("dialog");
+  await expect(form.locator("textarea")).toHaveCount(0);
   await expect(automations.locator("textarea")).toHaveCount(0);
   // exactly the instance name plus the schema-derived parameter
-  await expect(automations.getByRole("textbox")).toHaveCount(1);
-  await expect(automations.getByRole("spinbutton")).toHaveCount(1);
+  await expect(form.getByRole("textbox")).toHaveCount(1);
+  await expect(form.getByRole("spinbutton")).toHaveCount(1);
 });
 
 test("AC-settings-16: the audit log renders attributed entries, filters live, and loads more", async ({
@@ -504,6 +517,14 @@ test("AC-settings-16: the audit log renders attributed entries, filters live, an
   await expect(
     page.getByText("connector:gmail", { exact: true }),
   ).toBeVisible();
+  // The dials are the card's SECONDARY half — a reader arrives to read what
+  // happened and narrows it second — so they sit in a disclosure closed on
+  // arrival and the filter has to be opened before it can be typed in.
+  await page
+    .locator("details")
+    .filter({ has: page.getByText("Filter", { exact: true }) })
+    .locator("summary")
+    .click();
   // The actor filter still speaks the API's `type:id` vocabulary, which is the
   // spelling the column itself carries.
   await page.getByRole("textbox", { name: "Akteur" }).fill("agent:runner");
@@ -527,7 +548,13 @@ test("AC-settings: the passport list is metadata-only and strikes revoked rows",
   await expect(page.getByText("Marcus' Claude", { exact: true })).toBeVisible();
   const revoked = page.locator('[data-passport="pp-2"]');
   await expect(revoked.getByText("widerrufen")).toBeVisible();
-  await expect(revoked).toHaveCSS("text-decoration-line", "line-through");
+  // Struck on the NAME rather than across the whole row: the row also carries
+  // the dates and the standing, and a line drawn through those made the one
+  // part a reader needs hardest to read.
+  await expect(revoked.getByText("Alter Runner")).toHaveCSS(
+    "text-decoration-line",
+    "line-through",
+  );
   // no token is ever re-disclosed on this surface
   await expect(page.getByText(/mgp_/)).toHaveCount(0);
 });
@@ -681,7 +708,10 @@ test.describe("B-EP09.23: overlay mode", () => {
     });
     await expect(chip).toBeVisible();
     await expect(chip).toHaveText("Liest aus HubSpot");
-    await expect(chip).toHaveAttribute("href", "#/settings/integrations");
+    // Integrations lives under the admin segment, which is the address the
+    // chip has to mint: the personal Connections entry now holds only a
+    // reader's own mailbox and network.
+    await expect(chip).toHaveAttribute("href", "#/settings/admin/integrations");
   });
 
   test("AC-overlay-2: the card shows connection, sync rows and budget band", async ({

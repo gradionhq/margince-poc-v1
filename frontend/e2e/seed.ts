@@ -24,6 +24,11 @@ const E2E_ADMIN_GRANTS: GrantSpec = {
   // `settings/voice` sweep measures a card with no controls at all — the
   // read-only posture a `read_only` seat gets, not the admin the specs drive.
   voice_profile: ["create", "read", "update", "delete"],
+  // The installation's own profile — name, timezone, base currency — which the
+  // organization card gates every write on. The unsaved-guard suite needs it:
+  // that card's draft is the one that OUTLIVES its dialog, so it is the only
+  // settings edit a reader can still be holding while they navigate away.
+  installation_settings: ["read", "update"],
   // The consent registry's own gate, and so the Privacy & audit ENTRY's: the
   // server reads purposes under `person:read` (consent/store.go), not under a
   // role. Read alone, because no spec exercises a person write from here and a
