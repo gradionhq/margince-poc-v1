@@ -42,14 +42,14 @@ type Colleague struct {
 	// flag, because WHICH colleague is suspended is an admin's fact — the REST
 	// roster honours `include_inactive` only for an admin caller, and a tool
 	// any read passport can call must not be the way around that.
-	// IsAgent marks a machine seat (the workspace's own agent account). Named
+	// IsAgent marks a machine seat (the installation's own agent account). Named
 	// rather than filtered out, because an assistant listing colleagues should
 	// not silently pretend the agent seat does not exist — and must not offer
 	// it as a person to give work to either.
 	IsAgent bool
 }
 
-// Colleagues lists the workspace's seats, newest-relevant first by name, with
+// Colleagues lists the installation's seats, newest-relevant first by name, with
 // an optional case-insensitive filter over display name and email.
 //
 // Archived seats are absent: a person who has left is not a colleague, and
@@ -69,7 +69,6 @@ func (s *Service) Colleagues(ctx context.Context, q string) ([]Colleague, bool, 
 			 WHERE archived_at IS NULL
 			   AND status = 'active'
 			   AND locked_until IS NULL
-			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			   AND ($1 = '' OR display_name ILIKE $2 OR email ILIKE $2)
 			 ORDER BY display_name, id
 			 LIMIT $3`, trimmed, pattern, colleagueCap+1)
