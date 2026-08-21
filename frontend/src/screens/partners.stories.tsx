@@ -71,11 +71,35 @@ const commission = {
   updated_at: "2026-08-01T00:00:00Z",
 };
 
+// The deal that commission was earned on, held by the CUSTOMER rather than by
+// the partner — which is the fact the panel exists to show, and the one an
+// empty story would document away.
+const sourcedDeal = {
+  id: "d-1",
+  name: "Northgate rollout",
+  organization_id: "cust-1",
+  partner_org_id: "o-1",
+  partner_attribution: "sourced",
+  amount_minor: 100000,
+  currency: "EUR",
+  status: "won",
+  pipeline_id: "p-1",
+  stage_id: "s-1",
+  version: 1,
+  created_at: "2026-08-01T00:00:00Z",
+  updated_at: "2026-08-01T00:00:00Z",
+};
+
 export const ExistingPartner: Story = {
   render: () => {
     installFetchStub({
       "GET /me": meRoute({}),
       "GET /organizations/o-1/partner": () => jsonResponse(partner),
+      "GET /organizations/cust-1": () =>
+        jsonResponse({ id: "cust-1", display_name: "Northgate GmbH" }),
+      "GET /deals": () =>
+        jsonResponse({ data: [sourcedDeal], page: { has_more: false } }),
+      "GET /deals/d-1": () => jsonResponse(sourcedDeal),
       "GET /commissions": () =>
         jsonResponse({ data: [commission], page: { has_more: false } }),
     });

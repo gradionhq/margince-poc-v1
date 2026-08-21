@@ -284,6 +284,15 @@ export const de = {
   "deal.attributionUnset": "Nicht angegeben (gilt als gebracht)",
   "deal.attributionSourced": "Hat den Deal gebracht",
   "deal.attributionInfluenced": "Hat bei einem bestehenden Deal geholfen",
+  "partnerDeals.panelTitle": "Gebrachte Deals",
+  "partnerDeals.panelSub":
+    "Deals bei anderen Firmen, die über diesen Partner zustande kamen",
+  "partnerDeals.none": "Noch keine Deals gebracht",
+  "partnerDeals.column.deal": "Deal",
+  "partnerDeals.column.customer": "Kunde",
+  "partnerDeals.column.attribution": "Sein Anteil",
+  "partnerDeals.column.amount": "Deal-Wert",
+  "partnerDeals.column.status": "Status",
   "commission.panelTitle": "Provision",
   "commission.panelSub":
     "Was dieser Partner an selbst gebrachten Deals verdient hat",

@@ -929,7 +929,10 @@ function useAdvanceDeal(toast: Toast) {
 }
 
 // Won reads success, lost reads danger, an open deal carries no status tone.
-function dealStatusTone(
+// Exported so the partner page's sourced-deals panel reads a deal's status the
+// same way the board and the deal record do — a second mapping is how the same
+// status came to render in two colours on two screens.
+export function dealStatusTone(
   status: Deal["status"],
 ): "success" | "danger" | undefined {
   if (status === "won") {
