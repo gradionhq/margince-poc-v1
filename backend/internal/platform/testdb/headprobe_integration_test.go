@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
 	"github.com/gradionhq/margince/backend/migrations"
 )
@@ -306,6 +308,59 @@ func TestAPopulatedCloneIsNeverReused(t *testing.T) {
 	}
 	if reason, err := schemaEmpty(ctx, owner); err != nil || reason != "" {
 		t.Fatalf("a reset database was still called populated (err=%v): %s", err, reason)
+	}
+}
+
+// TestASchemalessDatabaseIsNotMistakenForAnEmptyOne is the other half of the
+// emptiness proof, and the half a "no rows anywhere" check gets wrong for free.
+//
+// "Every table this reset touches holds no rows" is trivially true of a database
+// with NO TABLES AT ALL. A probe that stopped at the row count would call such a
+// database empty, agree to reuse it, and hand EnsureSchema a connection to
+// nothing — where the first suite to run would fail on a missing relation rather
+// than on the schema that was never built. So the absence of tables is a
+// REFUSAL, phrased as its own reason, not a pass.
+//
+// A throwaway database, because the point is a database with no schema and the
+// clone every other test in this package shares must keep its own.
+func TestASchemalessDatabaseIsNotMistakenForAnEmptyOne(t *testing.T) {
+	ctx := context.Background()
+	owner := ownerConn(t)
+
+	const bare = "margince_headprobe_no_schema"
+	if _, err := owner.Exec(ctx, `DROP DATABASE IF EXISTS `+bare); err != nil {
+		t.Fatalf("clearing a previous run's throwaway database: %v", err)
+	}
+	if _, err := owner.Exec(ctx, `CREATE DATABASE `+bare); err != nil {
+		t.Fatalf("creating the throwaway database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := owner.Exec(context.Background(), `DROP DATABASE IF EXISTS `+bare); err != nil {
+			t.Errorf("dropping the throwaway database: %v", err)
+		}
+	})
+
+	cfg := owner.Config().Copy()
+	cfg.Database = bare
+	empty, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("connecting to the throwaway database: %v", err)
+	}
+	defer func() {
+		if err := empty.Close(context.Background()); err != nil {
+			t.Errorf("closing the throwaway connection: %v", err)
+		}
+	}()
+
+	reason, err := schemaEmpty(ctx, empty)
+	if err != nil {
+		t.Fatalf("probing a database with no schema: %v", err)
+	}
+	if reason == "" {
+		t.Fatal("the probe called a database with no tables empty — reuse would hand every suite a connection to nothing, and the first missing relation would read as a product bug rather than as a schema that was never built")
+	}
+	if !strings.Contains(reason, "no data tables") {
+		t.Errorf("the refusal does not say the schema is absent, which is what a reader has to act on: %q", reason)
 	}
 }
 
