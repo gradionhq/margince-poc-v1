@@ -28,7 +28,8 @@ type failingBrain struct{}
 
 func (failingBrain) Complete(context.Context, model.Request) (model.Response, Meta, error) {
 	return model.Response{}, Meta{}, errors.New(
-		"ai: openai-compat: invalid_api_key: Incorrect API key provided: " + providerLeak + " (http 401)")
+		"ai: openai-compat: invalid_api_key: Incorrect API key provided: " + providerLeak + " (http 401)",
+	)
 }
 
 // leakingOutput is a model that cannot produce a step and names a secret while
@@ -47,12 +48,18 @@ func TestADegradeReasonNeverCarriesTheCauseItDegradedOn(t *testing.T) {
 		wantReason string
 		wantCause  string
 	}{
-		{name: "the provider refused the call", brain: failingBrain{},
-			wantReason: "model call failed", wantCause: providerLeak},
-		{name: "the model could not produce a step", brain: leakingOutput{},
-			wantReason: "failed validation", wantCause: providerLeak},
-		{name: "the run ran out of wall clock", brain: failingBrain{}, cancelled: true,
-			wantReason: "wall clock exceeded", wantCause: "context canceled"},
+		{
+			name: "the provider refused the call", brain: failingBrain{},
+			wantReason: "model call failed", wantCause: providerLeak,
+		},
+		{
+			name: "the model could not produce a step", brain: leakingOutput{},
+			wantReason: "failed validation", wantCause: providerLeak,
+		},
+		{
+			name: "the run ran out of wall clock", brain: failingBrain{}, cancelled: true,
+			wantReason: "wall clock exceeded", wantCause: "context canceled",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())

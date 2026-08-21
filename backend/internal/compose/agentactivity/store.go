@@ -149,7 +149,9 @@ func (s *Store) Mine(ctx context.Context, userID ids.UUID) (running, recent []It
 	}); err != nil {
 		return nil, nil, fmt.Errorf("agentactivity: %w", err)
 	}
-	running = append(inFlight, queued...)
+	running = make([]Item, 0, len(inFlight)+len(queued))
+	running = append(running, inFlight...)
+	running = append(running, queued...)
 	newestFirst(running)
 	return running, recent, nil
 }

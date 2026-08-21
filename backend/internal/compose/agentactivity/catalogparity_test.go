@@ -57,8 +57,9 @@ func TestTheContractDeclaresNoKindNothingCanProduce(t *testing.T) {
 // contractProperty is the part of one ActivityItem property this file measures
 // against the Go side.
 type contractProperty struct {
-	Enum      []string `yaml:"enum"`
-	MaxLength *int     `yaml:"maxLength"`
+	Enum []string `yaml:"enum"`
+	//nolint:tagliatelle // OpenAPI names this key, not us.
+	MaxLength *int `yaml:"maxLength"`
 }
 
 // activityKindsFromContract reads the enum out of the authoritative OpenAPI

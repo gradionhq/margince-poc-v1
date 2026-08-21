@@ -179,12 +179,11 @@ func (f *activityFixture) finish(t *testing.T, runID ids.UUID, final string) {
 // instant this test means. There is no writer that takes a start time — the
 // column defaults to the database's now() — so the row is born real and then
 // aged.
-func (f *activityFixture) seedFinishedRun(t *testing.T, specName string, passport ids.PassportID, startedAt time.Time) ids.UUID {
+func (f *activityFixture) seedFinishedRun(t *testing.T, specName string, passport ids.PassportID, startedAt time.Time) {
 	t.Helper()
 	runID := f.seedRun(t, specName, passport)
 	f.finish(t, runID, `{"summary":"seeded"}`)
 	f.env.WsExec(t, `UPDATE agent_run SET created_at = $2 WHERE id = $1`, runID, startedAt)
-	return runID
 }
 
 func (f *activityFixture) deleteEveryPassport(t *testing.T) {

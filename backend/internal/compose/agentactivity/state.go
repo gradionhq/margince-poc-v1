@@ -8,6 +8,8 @@ package agentactivity
 // word for one idea.
 type State string
 
+// The whole vocabulary, and it is closed: a status the store cannot map to one
+// of these is dropped rather than renamed on the way out.
 const (
 	StateQueued           State = "queued"
 	StateRunning          State = "running"
