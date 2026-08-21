@@ -11570,7 +11570,10 @@ type ActivityAudience string
 
 // ActivityItem defines model for ActivityItem.
 type ActivityItem struct {
-	// DegradeReason Operator vocabulary; shown in the panel detail, never interpolated into a reader-facing line.
+	// DegradeReason One of the runner's own closed reasons for stopping early, shown in the panel detail and
+	// never interpolated into a reader-facing line. It is NEVER a model provider's or a parser's
+	// own message: those carry vendor text and can echo credential material, and this field
+	// reaches an ordinary rep. The underlying cause goes to the operator log instead.
 	DegradeReason *string            `json:"degrade_reason,omitempty"`
 	FinishedAt    *time.Time         `json:"finished_at,omitempty"`
 	Id            openapi_types.UUID `json:"id"`
@@ -11587,7 +11590,8 @@ type ActivityItem struct {
 	// auto-execute only) and is declared for the states the runner itself can reach.
 	State ActivityItemState `json:"state"`
 
-	// Summary The run own final summary when it produced one. OPTIONAL — the runner never validates that `final` carries it.
+	// Summary The run's own final summary when it produced one. OPTIONAL — the runner never validates
+	// that `final` carries it. Model-authored, so it is truncated to `maxLength` on the way out.
 	Summary *string `json:"summary,omitempty"`
 }
 
