@@ -228,6 +228,25 @@ func invalidateGeocodeInTx(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 	return err
 }
 
+// addressChanged is what an address writer calls: invalidate what is there,
+// then queue the lookup that will replace it — both in the caller's own
+// transaction, so a rollback takes the job with it and a commit cannot leave a
+// company holding coordinates for an address it no longer has.
+//
+// The two halves are ONE call because they must not be separated. Invalidating
+// without enqueueing leaves a company permanently unqueryable by distance;
+// enqueueing without invalidating leaves the old point answering until the
+// worker catches up.
+func (s *Store) addressChanged(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) error {
+	if err := invalidateGeocodeInTx(ctx, tx, orgID); err != nil {
+		return err
+	}
+	if s.geocodeEnqueue == nil {
+		return nil
+	}
+	return s.geocodeEnqueue(ctx, tx, orgID)
+}
+
 // GeocodedPoint is one company's resolved position, for the query executor.
 type GeocodedPoint struct {
 	OrganizationID ids.OrganizationID

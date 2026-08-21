@@ -72,7 +72,12 @@ func TestEveryWriterOfACompanyAddressInvalidatesItsCoordinates(t *testing.T) {
 		// Two acceptable forms: the Go helper, or geocode_status written in the
 		// same SQL statement as the address. The second is what a table-driven
 		// update uses, and it is stronger — one statement cannot interleave.
-		if !strings.Contains(src, "invalidateGeocode") && !strings.Contains(src, "geocode_status") {
+		// Three acceptable forms: addressChanged (invalidate + enqueue, which is
+		// what a writer should call), the bare invalidate, or geocode_status
+		// written in the same SQL statement as the address.
+		if !strings.Contains(src, "addressChanged") &&
+			!strings.Contains(src, "invalidateGeocode") &&
+			!strings.Contains(src, "geocode_status") {
 			t.Errorf("%s writes a company's address and never calls invalidateGeocode — a radius query "+
 				"will keep answering from the PREVIOUS address, reporting success. Invalidate in the same "+
 				"transaction as the write, or ratify the file in addressWritersExempt with the reason.", name)

@@ -1,3 +1,9 @@
+-- Dropping the columns takes an ACCESS EXCLUSIVE lock on organization, which
+-- blocks every reader and writer of it. Bounded so a rollback on a busy
+-- installation fails fast rather than queueing behind an open transaction and
+-- holding the whole table while it waits.
+SET LOCAL lock_timeout = '3s';
+
 DROP TABLE IF EXISTS geocode_cache;
 DROP TABLE IF EXISTS organization_geocode_state;
 DROP INDEX IF EXISTS idx_organization_geocoded;

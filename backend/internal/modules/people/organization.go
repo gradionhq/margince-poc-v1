@@ -248,8 +248,8 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		// — reporting success — for as long as the worker took to catch up,
 		// which is forever if it is down.
 		if in.Address != nil {
-			if err := invalidateGeocodeInTx(ctx, tx, id); err != nil {
-				return fmt.Errorf("invalidating the coordinates of a moved company: %w", err)
+			if err := s.addressChanged(ctx, tx, id); err != nil {
+				return fmt.Errorf("re-locating a moved company: %w", err)
 			}
 		}
 
