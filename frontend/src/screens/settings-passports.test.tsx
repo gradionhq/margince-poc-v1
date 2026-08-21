@@ -233,13 +233,15 @@ describe("PassportCard — minting", () => {
     rtlRender(
       <QueryClientProvider client={client}>
         <LocaleProvider initial="en">
-          <SettingsScreen tab="agents" />
+          <SettingsScreen route={settingsAddress("agents")} />
         </LocaleProvider>
       </QueryClientProvider>,
     );
-    await user.click(
-      await screen.findByRole("button", { name: "Mint passport" }),
-    );
+    // The ROW's verb opens the drawer; the drawer's submit is the plain label
+    // clicked further down. This case renders its own client rather than going
+    // through `openDrawer`, because it reads the cache the mint is supposed to
+    // drop.
+    await user.click(await screen.findByRole("button", { name: "Mint…" }));
     const dialog = await screen.findByRole("dialog");
 
     // A cache entry from this session, which the next one must not inherit.
