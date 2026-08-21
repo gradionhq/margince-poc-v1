@@ -241,6 +241,14 @@ func (c *planCompiler) predicates(alias string, columns *storage, vocab TargetVo
 	)
 	for i, clause := range clauses {
 		at := path + "[" + strconv.Itoa(i) + "]"
+		if clause.Op == OpWithinRadius {
+			// Rendered by planCompiler.radius instead, from the bound centre
+			// and the deployment's coordinate columns. A place has no single
+			// column to compare, so the ordinary `field op value` path below
+			// cannot express it — it would refuse with unknown_field, which is
+			// exactly what it did before this skip existed.
+			continue
+		}
 		fragment, refusal := c.clause(alias, columns, vocab, at, clause)
 		if refusal != nil {
 			refusals = append(refusals, *refusal)
