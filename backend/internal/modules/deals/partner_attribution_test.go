@@ -193,10 +193,10 @@ func TestWhatANewbornDealClaimsAboutThePartnerItNames(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := checkBirthAttribution(tc.in); err != nil {
-				t.Fatalf("checkBirthAttribution: %v", err)
+			got, err := birthAttribution(tc.in)
+			if err != nil {
+				t.Fatalf("birthAttribution: %v", err)
 			}
-			got := birthAttribution(tc.in)
 			switch {
 			case tc.want == nil && got != nil:
 				t.Errorf("attribution = %q, want none — the pair must be empty together", *got)
@@ -212,7 +212,7 @@ func TestWhatANewbornDealClaimsAboutThePartnerItNames(t *testing.T) {
 func TestANewbornDealsAttributionWithoutAPartnerIsRefused(t *testing.T) {
 	sourced := attributionSourced
 
-	err := checkBirthAttribution(CreateDealInput{PartnerAttribution: &sourced})
+	_, err := birthAttribution(CreateDealInput{PartnerAttribution: &sourced})
 
 	var unpaired *PartnerAttributionUnpairedError
 	if !errors.As(err, &unpaired) {
@@ -226,7 +226,7 @@ func TestANewbornDealsAttributionWithoutAPartnerIsRefused(t *testing.T) {
 func TestANewbornDealsUnknownAttributionIsRefusedBeforeTheDatabaseSeesIt(t *testing.T) {
 	bogus := "co_sold"
 
-	err := checkBirthAttribution(CreateDealInput{PartnerOrganizationID: orgIDPtr(t), PartnerAttribution: &bogus})
+	_, err := birthAttribution(CreateDealInput{PartnerOrganizationID: orgIDPtr(t), PartnerAttribution: &bogus})
 
 	var invalid *PartnerAttributionValueError
 	if !errors.As(err, &invalid) {

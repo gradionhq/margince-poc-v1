@@ -67,7 +67,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 	if err := auth.Require(ctx, "deal", principal.ActionCreate); err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	by, err := s.readyDealCreate(ctx, in)
+	born, err := s.readyDealCreate(ctx, in)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
@@ -82,7 +82,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 	var out crmcontracts.Deal
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		out, err = s.createDealInTx(ctx, tx, in, by, active)
+		out, err = s.createDealInTx(ctx, tx, in, born, active)
 		return err
 	})
 	return out, err
@@ -102,24 +102,35 @@ func (s *Store) CreateDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput)
 	if len(in.CustomFields) > 0 {
 		return crmcontracts.Deal{}, ErrCustomFieldsNeedTheStoresOwnTransaction
 	}
-	by, err := s.readyDealCreate(ctx, in)
+	born, err := s.readyDealCreate(ctx, in)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
 	if !in.OwnerExact {
 		in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
 	}
-	return s.createDealInTx(ctx, tx, in, by, nil)
+	return s.createDealInTx(ctx, tx, in, born, nil)
+}
+
+// bornDeal is what a create settles before any transaction opens: who is
+// stamped as having captured the row, and what it claims about the partner it
+// names. Both travel to createDealInTx as decided values, so the insert has
+// nothing left to resolve and no half-settled pair can reach the pairing CHECK.
+type bornDeal struct {
+	by string
+	// attribution is nil exactly when the deal names no partner — the pair the
+	// deal_partner_attribution_pairing CHECK admits populated together or not
+	// at all.
+	attribution *string
 }
 
 // readyDealCreate runs what a create settles BEFORE any transaction opens —
-// the captured-by resolution and the money-pair invariant — and answers the
-// attribution the write shape stamps. Both entry points call it, so neither
-// can drift from the other's validation.
-func (s *Store) readyDealCreate(ctx context.Context, in CreateDealInput) (string, error) {
+// the captured-by resolution, the money-pair invariant and the partner pair.
+// Both entry points call it, so neither can drift from the other's validation.
+func (s *Store) readyDealCreate(ctx context.Context, in CreateDealInput) (bornDeal, error) {
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
-		return "", err
+		return bornDeal{}, err
 	}
 	// The money pair holds from birth (data-model §6): a deal with an
 	// amount and no currency would silently skip the FX freeze at close
@@ -127,63 +138,108 @@ func (s *Store) readyDealCreate(ctx context.Context, in CreateDealInput) (string
 	// is the one spelling of "a valid amount+currency" — the same rule
 	// the schema CHECKs repeat.
 	if (in.AmountMinor == nil) != (in.Currency == nil) {
-		return "", &AmountCurrencyPairError{Missing: missingMoneyHalf(in.AmountMinor == nil)}
+		return bornDeal{}, &AmountCurrencyPairError{Missing: missingMoneyHalf(in.AmountMinor == nil)}
 	}
 	if in.AmountMinor != nil {
 		if _, err := values.NewMoney(*in.AmountMinor, *in.Currency); err != nil {
-			return "", err
+			return bornDeal{}, err
 		}
 	}
-	if err := checkBirthAttribution(in); err != nil {
-		return "", err
+	attribution, err := birthAttribution(in)
+	if err != nil {
+		return bornDeal{}, err
 	}
-	return by, nil
+	return bornDeal{by: by, attribution: attribution}, nil
 }
 
-// checkBirthAttribution refuses an attribution a newborn deal may not carry,
-// under the same rules the update path holds: the vocabulary is closed, and an
-// attribution naming no partner is refused rather than defaulted, because there
-// is no partner to attribute it to.
+// birthAttribution settles what a newborn deal claims about the partner it
+// names, refusing what it may not claim, under the same rules the update path
+// holds one file over in applyPartnerAttributionPatch.
 //
-// Separate from birthAttribution below so the refusal happens BEFORE any
-// transaction opens — a caller deserves "you left out the partner" rather than
-// a constraint violation from the pairing CHECK.
-func checkBirthAttribution(in CreateDealInput) error {
-	if in.PartnerAttribution == nil {
-		return nil
-	}
-	if err := validPartnerAttribution(*in.PartnerAttribution); err != nil {
-		return err
+// The vocabulary is closed. An attribution naming no partner is refused rather
+// than defaulted: there is nobody to attribute it to, and inventing a partner
+// is worse than saying no. Naming a partner without an attribution means
+// "sourced" — what the link meant for every row written before the column
+// existed, so an older caller and a newer one say the same thing.
+//
+// A deal naming no partner carries no attribution, which is what the
+// deal_partner_attribution_pairing CHECK requires: the columns are populated
+// together or not at all. Settling this before any transaction opens is what
+// earns the caller "you left out the partner" instead of a constraint
+// violation from the database.
+//
+// The vocabulary is checked before the pairing, in that order, because the
+// update path checks it in that order — the same body must earn the same
+// refusal whichever verb carried it.
+func birthAttribution(in CreateDealInput) (*string, error) {
+	if in.PartnerAttribution != nil {
+		if err := validPartnerAttribution(*in.PartnerAttribution); err != nil {
+			return nil, err
+		}
 	}
 	if in.PartnerOrganizationID == nil {
-		return &PartnerAttributionUnpairedError{}
+		if in.PartnerAttribution == nil {
+			return nil, nil //nolint:nilnil // both halves empty IS the settled answer for a deal naming no partner — the pairing CHECK admits the pair populated together or not at all, and a sentinel here would be an error the caller must discard.
+		}
+		return nil, &PartnerAttributionUnpairedError{}
+	}
+	if in.PartnerAttribution != nil {
+		return in.PartnerAttribution, nil
+	}
+	sourced := attributionSourced
+	return &sourced, nil
+}
+
+// ensureBirthLinksVisible holds every row-scoped record a newborn deal points
+// at to the caller's own row scope.
+//
+// An FK argument that names a row-scoped business record is a read of that
+// record: embedding organization_id into a deal the caller will read back
+// discloses the link, so the target must be visible under the caller's row
+// scope — not merely same-workspace, which the composite FK already enforces.
+// The partner link is the same kind of disclosure and carries the same gate.
+//
+// Owner references point at app_user, which carries no row scope: any workspace
+// member may be an owner, so the FK check alone governs them.
+func ensureBirthLinksVisible(ctx context.Context, tx pgx.Tx, in CreateDealInput) error {
+	// A link the deal does not name is not a read, so it is left out rather
+	// than checked as a zero id.
+	var links []recordLink
+	if in.OrganizationID != nil {
+		links = append(links, recordLink{linkEntityOrganization, in.OrganizationID.UUID})
+	}
+	if in.PartnerOrganizationID != nil {
+		links = append(links, recordLink{linkEntityOrganization, in.PartnerOrganizationID.UUID})
+	}
+	if in.ProjectID != nil {
+		links = append(links, recordLink{linkEntityProject, in.ProjectID.UUID})
+	}
+	for _, link := range links {
+		if err := auth.EnsureLinkTarget(ctx, tx, link.entity, link.id); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// birthAttribution answers what a newborn deal claims about the partner it
-// names: an explicit claim wins, and naming a partner without one means
-// "sourced" — the same default the update path applies, and what the link meant
-// for every row written before the column existed.
-//
-// A deal naming no partner carries no attribution, which is what the pairing
-// CHECK requires: the columns are populated together or not at all. Call
-// checkBirthAttribution first; this answers only for input already found valid.
-func birthAttribution(in CreateDealInput) *string {
-	if in.PartnerOrganizationID == nil {
-		return nil
-	}
-	if in.PartnerAttribution != nil {
-		return in.PartnerAttribution
-	}
-	sourced := attributionSourced
-	return &sourced
+// recordLink is one row-scoped record a deal points at, named by the entity the
+// visibility gate knows it as.
+type recordLink struct {
+	entity string
+	id     ids.UUID
 }
+
+// The entities a deal's birth links point at, as the visibility gate names
+// them. Both the customer and the partner are organizations.
+const (
+	linkEntityOrganization = "organization"
+	linkEntityProject      = "project"
+)
 
 // createDealInTx guards the birth invariants (open stage, future close,
 // visible organization), inserts the deal with its first stage-history
 // row, and runs the write shape — all inside the caller's transaction.
-func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string, active []fieldcatalog.Column) (crmcontracts.Deal, error) {
+func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, born bornDeal, active []fieldcatalog.Column) (crmcontracts.Deal, error) {
 
 	if err := ensureOpenBirthStage(ctx, tx, in.StageID, in.PipelineID); err != nil {
 		return crmcontracts.Deal{}, err
@@ -196,42 +252,15 @@ func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInpu
 		return crmcontracts.Deal{}, err
 	}
 
-	// An FK argument that names a row-scoped business record is a read
-	// of that record: embedding organization_id into a deal the caller
-	// will read back discloses the link, so the target must be visible
-	// under the caller's row scope — not merely same-workspace (which
-	// the composite FK already enforces). Owner references point at
-	// app_user, which carries no row scope: any workspace member may be
-	// an owner, so the FK check alone governs them.
-	if in.OrganizationID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
-			return crmcontracts.Deal{}, err
-		}
-	}
-	if in.PartnerOrganizationID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.PartnerOrganizationID.UUID); err != nil {
-			return crmcontracts.Deal{}, err
-		}
-	}
-	if in.ProjectID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
-			return crmcontracts.Deal{}, err
-		}
-	}
-
-	// Both entry points settle this before opening a transaction; re-checked
-	// here so the insert can never reach the pairing CHECK with a half-filled
-	// pair regardless of which one called.
-	if err := checkBirthAttribution(in); err != nil {
+	if err := ensureBirthLinksVisible(ctx, tx, in); err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	attribution := birthAttribution(in)
 
 	id := ids.New[ids.DealKind]()
 	cfCols, cfHolders, args := storekit.InsertFragments(active, in.CustomFields, []any{
 		id, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
-		in.OrganizationID, in.PartnerOrganizationID, attribution,
-		in.ProjectID, in.OwnerID, in.ExpectedClose, in.Source, by,
+		in.OrganizationID, in.PartnerOrganizationID, born.attribution,
+		in.ProjectID, in.OwnerID, in.ExpectedClose, in.Source, born.by,
 	})
 	_, err := tx.Exec(ctx,
 		`INSERT INTO deal (id, name, amount_minor, currency, pipeline_id, stage_id,
@@ -254,7 +283,7 @@ func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInpu
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO deal_stage_history (deal_id, from_stage_id, to_stage_id, changed_by, amount_minor_at_change, currency_at_change)
 		 VALUES ($1, NULL, $2, $3, $4, $5)`,
-		id, in.StageID, by, in.AmountMinor, in.Currency); err != nil {
+		id, in.StageID, born.by, in.AmountMinor, in.Currency); err != nil {
 		return crmcontracts.Deal{}, fmt.Errorf("record stage history: %w", err)
 	}
 

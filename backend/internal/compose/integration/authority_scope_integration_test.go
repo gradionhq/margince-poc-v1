@@ -68,6 +68,14 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("CreateDeal with out-of-scope organization → %v, want ErrNotFound", err)
 	}
+	// Naming a partner at birth is the same disclosure as naming one on an
+	// update, so it carries the same gate: a rep may not attribute a deal to a
+	// partner organization they cannot read.
+	if _, err := e.Deals.CreateDeal(rep, deals.CreateDealInput{
+		Name: "Sneaky Partner", PipelineID: pipeline, StageID: open, PartnerOrganizationID: &foreignOrgID,
+	}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("CreateDeal with out-of-scope partner → %v, want ErrNotFound", err)
+	}
 	if _, err := e.People.CreateOrganization(rep, people.CreateOrganizationInput{
 		DisplayName: "Sneaky Child", ParentOrgID: &foreignOrgID,
 	}); !errors.Is(err, apperrors.ErrNotFound) {
@@ -89,6 +97,11 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	// narrows scope, it does not break the feature.
 	if _, err := e.Deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{OrganizationID: &visibleOrgID}); err != nil {
 		t.Errorf("UpdateDeal attaching own-team organization → %v, want ok", err)
+	}
+	if _, err := e.Deals.CreateDeal(rep, deals.CreateDealInput{
+		Name: "Partner deal", PipelineID: pipeline, StageID: open, PartnerOrganizationID: &visibleOrgID,
+	}); err != nil {
+		t.Errorf("CreateDeal naming a visible partner → %v, want ok", err)
 	}
 }
 
