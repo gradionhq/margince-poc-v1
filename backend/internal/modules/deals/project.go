@@ -323,6 +323,8 @@ func projectCheckError(constraint string, dateField string) error {
 		return &ClosedReasonRequiredError{}
 	case "project_dates":
 		return &ProjectDateRangeError{Field: dateField}
+	case "project_phase_check":
+		return &ProjectPhaseError{}
 	default:
 		return &ProjectConstraintError{Constraint: constraint}
 	}
@@ -350,6 +352,24 @@ func (e *ProjectKeyShapeError) Error() string {
 // FieldFault refuses a project key outside the contract's shape.
 func (e *ProjectKeyShapeError) FieldFault() (field, code, message string) {
 	return "key", "invalid_key", e.Error()
+}
+
+// ProjectPhaseError maps to 422: the phase is not one the lifecycle admits.
+//
+// The contract declares `to_phase` as an enum, but nothing between the wire and
+// the table checks it — httperr.Decode reads JSON and does not validate, and
+// this installation runs no request-validator middleware. So the schema CHECK is
+// the first thing to refuse an unknown phase, and without this arm the caller is
+// handed the constraint's own name instead of the four values it could have sent.
+type ProjectPhaseError struct{}
+
+func (e *ProjectPhaseError) Error() string {
+	return "a project phase is one of initiative, pursuing, delivering or closed"
+}
+
+// FieldFault names the field the caller actually sent.
+func (e *ProjectPhaseError) FieldFault() (field, code, message string) {
+	return "to_phase", "invalid_phase", e.Error()
 }
 
 // ClosedReasonRequiredError maps to 422 closed_reason_required.

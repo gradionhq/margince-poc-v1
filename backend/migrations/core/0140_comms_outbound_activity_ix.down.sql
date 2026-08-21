@@ -1,1 +1,0 @@
-DROP INDEX IF EXISTS comms_outbound_workspace_activity_ix;

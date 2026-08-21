@@ -1,1 +1,0 @@
-DROP TABLE organization_profile_field;

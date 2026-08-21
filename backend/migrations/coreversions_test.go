@@ -12,18 +12,23 @@ import (
 )
 
 // closedSequenceEnd is the last core migration named by the four-digit
-// sequence.
+// sequence: the final file of the BASELINE, which is what core/ now opens with.
 //
-// The sequence is CLOSED, not renamed. Those versions are recorded in the
-// schema_migrations_core of every database that ever applied them, and a
-// renamed version strands its database: dbmigrate stops rather than apply a
-// migration the ledger records under another name, because continuing would
-// skip it as done forever. So the boundary is permanent, and a new migration
-// is named for the unix second it was written instead — where the next number
-// in a sequence is the name two branches off the same main both pick, a clock
+// The sequence is closed at the baseline's end, and a new migration is named
+// for the unix second it was written instead — where the next number in a
+// sequence is the name two branches off the same main both pick, a clock
 // reading collides only between two branches stamped in the same second, and
 // check-migration-versions.sh catches that against the base.
-const closedSequenceEnd = "0292"
+//
+// WHY THE BASELINE REUSES 0001-0027 rather than being stamped above everything.
+// A database that applied the old history recorded 0001 as `foundation`;
+// the baseline's 0001 is `baseline_prelude`. dbmigrate.assertLedgerMatches sees
+// the mismatch and STOPS with an actionable message, which is the outcome that
+// database needs — its schema was built by migrations that no longer exist, and
+// there is no forward repair. A baseline stamped above the history would instead
+// be applied ON TOP of a schema it was meant to create, and fail halfway with
+// nothing to say why.
+const closedSequenceEnd = "0001"
 
 // stampSlack is how far ahead of the machine running this test a stamp may sit
 // before the name is a skewed clock rather than a migration. It absorbs a
@@ -32,11 +37,12 @@ const closedSequenceEnd = "0292"
 const stampSlack = 24 * time.Hour
 
 // TestCoreMigrationVersionsAreUnixSecondsAfterTheClosedSequence holds the two
-// shapes core/ admits and the order between them. dbmigrate compares versions
+// shapes core/ admits and the order between them: the four-digit baseline, then
+// unix-second stamps for everything written since. dbmigrate compares versions
 // as strings, so "sorts after" is the whole contract — and it holds because
-// every version in the closed sequence is ZERO-PADDED, not because ten digits
-// beat four: "9999" sorts above "1787000000". Zero-padding is what lets one
-// namespace carry both eras without renumbering an applied migration.
+// every version in the baseline is ZERO-PADDED, not because ten digits beat
+// four: "9999" sorts above "1787000000". Zero-padding is what lets one namespace
+// carry the baseline and the stamps without renumbering either.
 func TestCoreMigrationVersionsAreUnixSecondsAfterTheClosedSequence(t *testing.T) {
 	core, _ := namespaces(t)
 
@@ -59,7 +65,7 @@ func TestCoreMigrationVersionsAreUnixSecondsAfterTheClosedSequence(t *testing.T)
 			}
 		case sequence.MatchString(m.Version):
 			if m.Version > closedSequenceEnd {
-				t.Errorf("core %s_%s: the four-digit sequence is closed at %s — scaffold the pair with `make migrate-create NAME=%s`, which names it for the current unix second",
+				t.Errorf("core %s_%s: the four-digit range is the baseline and is closed at %s — a new migration goes after it, scaffolded with `make migrate-create NAME=%s`, which names it for the current unix second",
 					m.Version, m.Name, closedSequenceEnd, m.Name)
 			}
 			if !strings.HasPrefix(m.Version, "0") {
@@ -70,7 +76,7 @@ func TestCoreMigrationVersionsAreUnixSecondsAfterTheClosedSequence(t *testing.T)
 				highestSequence = m.Version
 			}
 		default:
-			t.Errorf("core %s_%s: a core version is ten digits of unix seconds (`make migrate-create NAME=%s`) or a four-digit version from the closed 0001-%s sequence",
+			t.Errorf("core %s_%s: a core version is ten digits of unix seconds (`make migrate-create NAME=%s`) or a four-digit version from the closed baseline, 0001-%s",
 				m.Version, m.Name, m.Name, closedSequenceEnd)
 		}
 	}

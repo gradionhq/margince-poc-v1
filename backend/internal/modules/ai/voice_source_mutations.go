@@ -112,9 +112,17 @@ func (s *VoiceStore) updateVoiceSource(ctx context.Context, tx pgx.Tx, profileID
 			  weight = coalesce($4, weight),
 			  version = version + 1,
 			  updated_at = $5
-			WHERE id = $1 AND voice_profile_id = $2
+			WHERE id = $1 AND voice_profile_id = $2 AND version = $6
 			RETURNING %s`, voiceSourceColumns),
-		sourceID, profileID, excluded, in.Weight, s.now().UTC()))
+		sourceID, profileID, excluded, in.Weight, s.now().UTC(), before.Version))
+	// The version predicate carries the read above into the write. Both
+	// `excluded` and `exclusion_reason` are derived from the row's own prior
+	// state, so a writer that committed between the SELECT and this UPDATE would
+	// have its change folded away silently — the coalesce reads the new row while
+	// the decision was made against the old one.
+	if errors.Is(err, pgx.ErrNoRows) {
+		return VoiceCorpusSource{}, CorpusSummary{}, apperrors.ErrVersionSkew
+	}
 	if err != nil {
 		return VoiceCorpusSource{}, CorpusSummary{}, err
 	}
@@ -194,8 +202,15 @@ func (s *VoiceStore) DeleteSource(ctx context.Context, profileID, sourceID ids.U
 			  content = NULL, content_erased_at = $3, archived_at = $3,
 			  excluded = true, exclusion_reason = 'owner_removed',
 			  version = version + 1, updated_at = $3
-			WHERE id = $1 AND voice_profile_id = $2
-			RETURNING %s`, voiceSourceColumns), sourceID, profileID, now))
+			WHERE id = $1 AND voice_profile_id = $2 AND version = $4
+			RETURNING %s`, voiceSourceColumns), sourceID, profileID, now, before.Version))
+		// The version predicate is what makes the audit row below true. It
+		// reports `before`'s word count and inclusion as what was removed, so a
+		// writer that committed in between would have this archive attributed to
+		// a state it never had.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.ErrVersionSkew
+		}
 		if err != nil {
 			return err
 		}

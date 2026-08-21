@@ -14,18 +14,30 @@ package backendarch
 // else", permanently. That is exactly how saved_view, webhook_subscription,
 // relationship and partner reached production ungranted.
 //
-// The proof of the whole obligation is the replay in backend/migrations: seed
-// the documents an old installation held, upgrade it to head, and assert the
-// end state equals the matrix the server seeds today. That test executes the
-// property instead of approximating it, which is why no list of objects, and
-// no scan of the migration SQL for '{objects,<name>}', survives here.
+// THE PROOF THIS FILE FED NO LONGER EXISTS, and the obligation above does.
 //
-// This file owns the replay's starting state. The cohort an old installation
-// held is DERIVED from git rather than restated, because a hand-written cohort
-// is a waiver in disguise: moving an object into it silently excuses that
-// object from ever having to reach an existing installation, which is the
-// defect the replay exists to catch. What IS pinned — and says so below — is
-// the pair of coordinates that reach the derivation.
+// That proof was the replay in backend/migrations: seed the documents an old
+// installation held, upgrade it to head, assert the end state equals the matrix
+// the server seeds today. The baseline consolidation deleted it along with the
+// migration history it replayed — correctly, because no database can move from
+// a pre-baseline schema onto the baseline at all (dbmigrate refuses; see
+// migrations.go). So the UPGRADE half of the obligation is genuinely void.
+//
+// The FRESH-INSTALL half is not. seedSystemRoles still writes each role document
+// once and never re-syncs, so an object added to policy.coreObjects after an
+// installation bootstrapped on the baseline still reaches it only through a
+// backfill migration — and nothing now checks that such a migration grants what
+// policy.MustDefaultJSON says, in either direction: a missing backfill is the
+// permanent 403 this comment names by example, and a hand-written jsonb_set
+// handing a role a verb the seeded matrix withholds is the mirror defect.
+// identity/rbacfixture_test.go still pins the code side, which is one end of the
+// arrow. Issue #2192 tracks the other.
+//
+// What this file still does, and all it does: own the cohort fixture, DERIVED
+// from git rather than restated, because a hand-written cohort is a waiver in
+// disguise — moving an object into it would silently excuse that object. What IS
+// pinned, and says so below, is the pair of coordinates that reach the
+// derivation.
 
 import (
 	"encoding/json"

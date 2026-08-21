@@ -382,17 +382,33 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `migrations/core/*` that have shipped — additive migrations only. An applied
   version never re-runs, so editing one changes what FRESH installations get
   while every deployed database keeps the old behaviour: the two diverge
-  silently. The 2026-08 tenant-scope sweep is the
-  one authorized exception in this tree's history, and it only holds because it
-  shipped WITH additive repair migrations (core `0190`,
-  custom `20260806120000`) that reach the already-deployed databases. Editing
-  history without that second half is how an installation ends up permanently
-  missing a backfill nobody can see is missing.
+  silently. Editing history without a second, additive half that reaches
+  already-deployed databases is how an installation ends up permanently missing
+  a backfill nobody can see is missing.
+
+  **Two authorized exceptions in this tree's history**, and both name the reason
+  they were safe rather than the fact that they happened:
+
+  1. The 2026-08 tenant-scope sweep edited applied migrations and shipped WITH
+     additive repair migrations, so every already-deployed database was reached.
+  2. The 2026-08-21 baseline consolidation replaced core's 318 migrations and
+     custom's 24 with one baseline file each. It carries NO repair half and
+     needs none, because at the time there was no production installation and
+     every database was rebuildable — and rather than reach a stale database it
+     STOPS one: the baseline reuses version `0001`, whose ledger row on such a
+     database names a migration that no longer exists, so
+     `dbmigrate.assertLedgerMatches` refuses and says `make dev-fresh`.
+
+  Neither exception generalizes. The second is available only while no
+  installation holds data somebody cannot rebuild, and it was checkable only
+  because `scripts/migration-baseline.sh verify` could prove the baseline builds
+  the schema the history built, byte for byte.
 - The `database.WithWorkspaceTx` GUC contract — every tenant query goes through
   it; there is no raw-pool path for tenant data. Core tenant isolation is a
   per-statement predicate bound by that contract and held by
-  `scripts/check-rls-store-path.sh`; migration `0217` retired row-level security
-  in core. Extension tables still carry FORCE RLS.
+  `scripts/check-rls-store-path.sh`; core carries no row-level security at all
+  (a migration retired it, and the baseline has never declared a policy).
+  Extension tables still carry FORCE RLS.
 - `internal/shared/apperrors` — the fixed sentinel registry; extend it only
   alongside the error contract it implements, never for one call site.
 

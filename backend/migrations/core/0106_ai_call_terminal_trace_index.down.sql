@@ -1,1 +1,0 @@
-DROP INDEX ai_call_terminal_trace_idx;

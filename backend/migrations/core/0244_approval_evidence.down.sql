@@ -1,1 +1,0 @@
-ALTER TABLE approval DROP COLUMN IF EXISTS evidence;
