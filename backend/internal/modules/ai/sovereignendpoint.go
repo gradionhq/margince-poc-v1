@@ -15,6 +15,7 @@ package ai
 // other half.
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -80,7 +81,10 @@ func hostOf(baseURL string) (string, error) {
 		// binding declared in margince.yaml, from the file whose whole promise
 		// is that it carries no credential. url.Parse's own message names the
 		// syntax fault without the string.
-		return "", fmt.Errorf("base_url cannot be parsed as a url: %w", err)
+		// NOT the raw error: url.Error quotes the WHOLE input in its own
+		// Error(), so wrapping it would put back exactly what omitting the
+		// value was meant to keep out. Its .Err is the syntax fault alone.
+		return "", fmt.Errorf("base_url cannot be parsed as a url: %w", parseFault(err))
 	}
 	host := parsed.Hostname()
 	if host == "" {
@@ -95,7 +99,11 @@ func hostOf(baseURL string) (string, error) {
 	// deployment that fails at 3am with a transport error instead of at boot
 	// with a config one.
 	if scheme := strings.ToLower(parsed.Scheme); scheme != "http" && scheme != "https" {
-		return "", fmt.Errorf("base_url %q must be an http(s) url; %q is not a scheme this adapter can call", baseURL, parsed.Scheme)
+		// Redacted, like the two branches above: a scheme this adapter cannot
+		// dial is a malformed value, and a malformed value is the shape most
+		// likely to have been pasted with a credential still in it. The scheme
+		// itself is safe to name and is what the operator has to change.
+		return "", fmt.Errorf("base_url %q must be an http(s) url; %q is not a scheme this adapter can call", parsed.Redacted(), parsed.Scheme)
 	}
 	return host, nil
 }
@@ -159,4 +167,18 @@ func classifyHost(host string) hostVerdict {
 func isReservedLoopbackName(host string) bool {
 	lowered := strings.ToLower(host)
 	return lowered == "localhost" || strings.HasSuffix(lowered, ".localhost")
+}
+
+// parseFault is url.Parse's diagnosis without its subject.
+//
+// url.Error.Error() renders as `parse "<the whole input>": <fault>`, so every
+// error from url.Parse carries the value that produced it. Unwrapping to .Err
+// keeps the fault — "invalid control character in URL" — and drops the string,
+// which on this path may be a credential.
+func parseFault(err error) error {
+	var uerr *url.Error
+	if errors.As(err, &uerr) {
+		return uerr.Err
+	}
+	return err
 }
