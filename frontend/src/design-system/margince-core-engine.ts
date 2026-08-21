@@ -3,7 +3,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { MarginceCoreState } from "./margince-core";
-import { type CoreFrame, createCoreRenderer } from "./margince-core-gl";
+import {
+  type CoreFrame,
+  type CoreRenderer,
+  createCoreRenderer,
+} from "./margince-core-gl";
 import {
   asHero,
   type CoreBehaviour,
@@ -97,7 +101,7 @@ function step(dials: Dials, target: CoreBehaviour): boolean {
 }
 
 /** What the hook's callers can change under a running loop. */
-type Wanted = {
+export type Wanted = {
   behaviour: CoreBehaviour;
   paper: number;
 };
@@ -109,11 +113,24 @@ type Loop = Readonly<{
   stop: () => void;
 }>;
 
-function runCoreLoop(
+/**
+ * Where the pixels go.
+ *
+ * The GPU is the one true boundary this file has, and the loop's contract with
+ * it (one advance per frame, one draw per budget, a draw on the frame that
+ * parks) is a claim about timing that only a stand-in can be asked about: a
+ * real context reports how it looks, never how often it was asked.
+ */
+export type CoreRendererFactory = (
+  canvas: HTMLCanvasElement,
+) => CoreRenderer | null;
+
+export function runCoreLoop(
   canvas: HTMLCanvasElement,
   wanted: { current: Wanted },
+  makeRenderer: CoreRendererFactory = createCoreRenderer,
 ): Loop | null {
-  const renderer = createCoreRenderer(canvas);
+  const renderer = makeRenderer(canvas);
   if (!renderer) {
     return null;
   }
