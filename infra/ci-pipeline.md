@@ -150,7 +150,7 @@ would report a documentation PR as a broken integration lane.
 
 | Scope | Paths | Gates |
 |---|---|---|
-| `backend_db` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | the integration shards and the `integration` fan-in — every lane that opens a database |
+| `backend_db` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/workflows/_lane-*.yml` (the caller plus every lane it invokes — globbed so a lane added later is covered the day it lands), `.github/actions/**`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | the integration shards and the `integration` fan-in — every lane that opens a database |
 | `backend` | `backend_db` (by YAML anchor, so the two cannot drift) plus the agent rulebooks `AGENTS.md` and `CLAUDE.md` | Go build/gate, extension reference, craftsmanship, unit coverage, vuln |
 | `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types), plus the composition inputs the lane now typechecks against — `extensions/**`, `fixtures/**`, `composition/**`, `backend/tools/gen-composition/**`, `Makefile` — and the install inputs `pnpm-lock.yaml` and `pnpm-workspace.yaml`, which decide *which* dependency the SPA builds on and which one `openapi-typescript` parses the contract with (`overrides` lives in the workspace file, so it resolves versions the lockfile then merely records) | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**/!(*.md)`, `extensions/**`, `fixtures/**`, `composition/**` | full-stack live-boot |
@@ -209,14 +209,18 @@ Consequences:
 
 ```
 changes ──┬─> deterministic-gates ──> craftsmanship
-          ├─> integration-shards (×12) ─────┬─> integration (fan-in) ──┐
-          ├─> integration-unit-coverage ────┘                          │
-          ├─> extension-reference ──────────────────────────────────┐  │
-          ├─> vuln                                                  │  │
-          ├─> license gate  (`deps` scope)                          │  │
-          ├─> frontend ──> uat                                      │  │
-          ├─> live-boot                                             │  │
-          v                                                         v  v
+          ├─> integration  →  _lane-integration.yml ────────────────┐
+          │                     integration-shards (×6) ──┐         │
+          │                     integration-unit-coverage ┴─> fan-in│
+          ├─> extension-reference ──────────────────────────────┐   │
+          ├─> vuln                                              │   │
+          ├─> license gate  (`deps` scope)                      │   │
+          ├─> frontend  →  _lane-frontend.yml ──> uat           │   │
+          │                  fe-quality ┐                       │   │
+          │                  fe-unit    ├─> fan-in              │   │
+          │                  fe-bundle  ┘                       │   │
+          ├─> live-boot                                         │   │
+          v                                                     v   v
  deterministic-gates + integration + extension-reference + frontend ──> sonarcloud
   dco            (independent — runs on merge_group too)
   craft-residue  (every non-draft change, independent)
@@ -227,6 +231,43 @@ changes ──┬─> deterministic-gates ──> craftsmanship
          integration, frontend, license-gate   (nine — vuln, live-boot and uat
          stay advisory and are NOT in the fan-in)
 ```
+
+### Two lanes are called, not inlined
+
+`integration` and `frontend` are `workflow_call` jobs: the caller decides whether
+the lane runs, and the lane's jobs live in
+[`_lane-integration.yml`](../.github/workflows/_lane-integration.yml) and
+[`_lane-frontend.yml`](../.github/workflows/_lane-frontend.yml). Those two
+clusters were a third of `ci.yml` — the six-way shard matrix, the coverage
+plumbing, the two fan-ins — and none of it is read when the merge gate itself
+changes.
+
+Both were already **fan-in contexts**, which is why they are the two that moved:
+`needs.integration.result` and `needs.frontend.result` mean exactly what they
+meant before, so the `ci` aggregate and the `sonarcloud` conditions are unchanged.
+Extracting a cluster whose members the aggregate names individually would have
+coarsened its verdict from "craftsmanship failed" to "the Go lane failed".
+
+**A lane carries no `if:` of its own.** The condition lives at the call site, and
+that is load-bearing rather than stylistic: it makes
+`needs.<lane>.result == 'skipped'` mean exactly one thing — the caller skipped the
+whole lane — which is the distinction the aggregate reads when it refuses a skip
+on the merge queue. An internal conditional would let a job inside skip while the
+lane still reported `success`, reopening the skip-as-pass hole one level down.
+
+**`defaults.run.working-directory` does not inherit** into a called workflow. Each
+lane restates it; without that, every step would run from the repository root.
+
+Check names inside a lane are reported as `<caller-job> / <lane-job>` — e.g.
+`integration / integration shard (3/6)`. Only `ci` is a required context, so no
+ruleset depends on those names.
+
+Why the pipeline stays **one caller** rather than splitting into `pr.yml` and
+`merge-queue.yml`: the `ci` aggregate is the single required check, and two
+callers would mean two definitions of it that must stay byte-identical or the two
+events gate differently. That is the "two hand-maintained copies of one list"
+shape this repository refuses everywhere else, and it would be guarding the one
+check everything depends on.
 
 Two deliberate shapes here. The Playwright `uat` lane is **fail-fast**: it
 starts only after the cheaper `frontend` gate (biome + vitest + tsc + build)
@@ -471,7 +512,10 @@ Wiring details:
 
 ## The other workflows
 
-`ci.yml` is the merge gate. Six workflows sit beside it, deliberately outside it:
+`ci.yml` is the merge gate, and `_lane-integration.yml` / `_lane-frontend.yml` are
+part of it — called by it, never triggered on their own (see
+[Two lanes are called](#two-lanes-are-called-not-inlined)). Six workflows sit
+beside the gate, deliberately outside it:
 
 - **`cache-warm.yml`** — the Go build cache's only writer, on `main` every three
   hours plus manual dispatch. **Gates nothing**: a red or cancelled run costs

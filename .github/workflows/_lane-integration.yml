@@ -1,0 +1,254 @@
+# The real-Postgres lane, as a callable unit.
+#
+# Called by ci.yml. It carries NO `if:` of its own — the caller decides whether
+# this lane runs at all, and that is the whole point of the split: a lane's jobs
+# either all run or the lane is skipped, so `needs.<lane>.result == 'skipped'`
+# means exactly one thing (the caller skipped it) rather than "some job inside
+# quietly did not run". The `ci` aggregate reads that distinction and refuses a
+# skip on the merge queue, so an internal conditional here would reopen the
+# skip-as-pass hole one level down.
+#
+# `defaults.run.working-directory` does NOT inherit from a calling workflow, so
+# it is restated below. Without it every step would run from the repository root
+# and the Go jobs would fail to find their module.
+name: _lane-integration
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  # Sharded across independent runners. One runner already fans packages out
+  # onto per-package clone DBs, but the heaviest package (compose/integration,
+  # minutes of serial tests) floors any package-level split — so each shard runs
+  # a deterministic per-TEST slice of every package
+  # (scripts/test-integration-parallel.sh, INTEGRATION_SHARD) against its own
+  # Postgres/Redis/MinIO. The `integration` fan-in below reconciles the slices
+  # back into one verdict and one coverage profile.
+  #
+  # The caller runs this lane in parallel with the Go gate, not behind it: gating
+  # the longest lane on the build gate serialized the two slowest jobs and
+  # dominated PR wall-clock. A broken build is still caught by the Go gate
+  # itself, and sonarcloud gates its scan on that result directly.
+  integration-shards:
+    name: integration shard (${{ matrix.shard }}/${{ strategy.job-total }})
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      # A red shard must not cancel its siblings: one CI run should report
+      # every failing test, not the first shard to trip.
+      fail-fast: false
+      # Six, not twelve. The slice is per-TEST, so a shard's own tests are the
+      # small half of what it costs: measured on a green run, a shard spent ~146s
+      # restoring the build cache and ~275s compiling, against ~40s running the
+      # tests it was assigned. Twelve shards paid those fixed costs twelve times
+      # to divide the one cost that was already small.
+      #
+      # Halving doubles a shard's test slice — about +40s — and removes six
+      # cache-restore-plus-compile pairs, which is roughly half the lane's
+      # runner-minutes for about a minute of wall clock. Raise it again only
+      # against a measurement showing the TEST half has grown enough to matter;
+      # the compile half is addressed by building once rather than by sharding
+      # harder.
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # The `integration` flavour: a shard compiles ~26 of the 31 tagged packages
+      # with `-tags=integration -cover -coverpkg=./...`, and because the slice is
+      # per-TEST rather than per-package, EVERY shard compiles nearly the whole
+      # lane. Sharding therefore divides the test execution N ways and
+      # multiplies the compile by N — which is why N is six rather than twelve
+      # (see the matrix above): past a point, another shard buys a smaller slice
+      # of the cheap half and pays another copy of the expensive one.
+      - name: Restore the Go build cache
+        id: go-cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: integration
+      # The same compose stack dev machines use (infra/docker-compose.dev.yml:
+      # Postgres + Redis + MinIO, digest-pinned there) plus scripts/db-init.sql
+      # for the cluster-level margince_app role — migration 0015 GRANTs to it,
+      # and the parallel lane's clones inherit those grants. One stack
+      # definition instead of hand-mirrored GH service containers; the lane's
+      # database admin goes through cmd/migrate's db verbs on the test DSN
+      # (scripts/lib-testdb.sh db_admin), so no host psql is assumed.
+      - name: Start the dev infra stack (compose + app role)
+        run: make db-up
+      # INTEGRATION_SHARD_OUT collects the slice manifests + binary coverage
+      # pods the fan-in reconciles and merges — so the scan is NOT a second
+      # Postgres/Redis/MinIO stack running the whole lane a second time.
+      - name: Integration shard (slice + coverage)
+        env:
+          INTEGRATION_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          INTEGRATION_SHARD_OUT: ${{ runner.temp }}/shard-out
+          # The tests are DB-bound, not CPU-bound: on the 4-core runner the
+          # nproc-derived default leaves the slice mostly waiting on Postgres.
+          INTEGRATION_JOBS: 16
+        run: make test-integration
+      # `!cancelled()` and not the default success(): a RED shard is exactly when
+      # somebody needs this artifact, and on failure the script writes the
+      # failing packages' logs + a failure-summary.txt into the same directory.
+      # Uploading only on green kept the evidence for the runs that did not need
+      # it and destroyed it with the runner for the runs that did.
+      - name: Upload the shard manifest + coverage pods
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/shard-out
+          if-no-files-found: error
+          retention-days: 1
+
+  # Unit coverage for SonarCloud. The shards run only the integration-tagged
+  # packages, but the unit-only packages need a `-cover` pass of their own —
+  # otherwise SonarCloud sees them at a false ~0% new-code coverage and the
+  # gate fails on well-unit-tested code. Untagged tests never open a real DB
+  # (the test-lanes gate enforces it), so this pass needs no services; it runs
+  # beside the shards and the fan-in merges its pods with theirs.
+  #
+  # It lives in this lane rather than beside it because the fan-in is what
+  # consumes its pods: when the fan-in does not run, nothing ever reads them.
+  # Split across two scopes — this job on `backend`, the shards on `backend_db` —
+  # a rulebook-only change ran this job and then discarded its output.
+  integration-unit-coverage:
+    name: integration unit coverage
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history: this job runs the backend unit lane, which includes
+          # the RBAC legacy-cohort gates. Those derive the initial commit's
+          # object vocabulary and grants by reading 2cb50021 — a fixture the
+          # migration replay seeds from, so it must not be hand-editable. They
+          # FAIL on a shallow checkout rather than degrading to an empty cohort,
+          # because a gate that quietly checks nothing looks exactly like a
+          # passing one.
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # The `plain` flavour, not `integration`: this pass is untagged. Coverage
+      # instrumentation means its own package builds miss, but the dependency
+      # builds underneath — the bulk of a cold compile — hit.
+      - name: Restore the Go build cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
+      - name: Unit tests with binary coverage
+        run: |
+          mkdir -p "$RUNNER_TEMP/covdata-unit"
+          go test ./... -cover -coverpkg=./... -covermode=atomic -args -test.gocoverdir="$RUNNER_TEMP/covdata-unit"
+      - name: Upload the unit coverage pods
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-covdata-unit
+          path: ${{ runner.temp }}/covdata-unit
+          if-no-files-found: error
+          retention-days: 1
+
+  # The fan-in: this is the result the caller's `integration` job reports, and
+  # therefore what the `ci` aggregate reads. It must RUN and FAIL when a shard
+  # fails — `needs` alone would leave it skipped, and a skipped required check
+  # counts as passing — hence the always() guard plus the explicit result
+  # assertion in the first step. Then it proves the slices add up
+  # (scripts/test-integration-reconcile.sh: every shard present, same discovery,
+  # union complete + disjoint) and merges every binary coverage pod (shards +
+  # unit) into the one text profile the sonarcloud job consumes.
+  integration:
+    name: integration (RLS + erasure + HTTP e2e)
+    timeout-minutes: 20
+    needs: [integration-shards, integration-unit-coverage]
+    # always(), and not !cancelled(): the latter is false for every job once a
+    # run is cancelled, so cancelling mid-lane would have skipped this check and
+    # greened it. The assertion below sees `cancelled` and fails on it.
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Every shard and the unit pass are green
+        working-directory: .
+        env:
+          SHARDS_RESULT: ${{ needs.integration-shards.result }}
+          UNIT_RESULT: ${{ needs.integration-unit-coverage.result }}
+        run: |
+          [ "$SHARDS_RESULT" = "success" ] || { echo "integration shards: $SHARDS_RESULT"; exit 1; }
+          [ "$UNIT_RESULT" = "success" ] || { echo "unit coverage pass: $UNIT_RESULT"; exit 1; }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Download the shard + unit artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: integration-*
+          path: ${{ runner.temp }}/shards
+      - name: Reconcile the slices and merge coverage
+        working-directory: .
+        run: ./scripts/test-integration-reconcile.sh "$RUNNER_TEMP/shards" backend/coverage.out
+      - name: Upload Go coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-coverage
+          path: backend/coverage.out
+          if-no-files-found: ignore
+          retention-days: 1
+      # The extension migration gate (ADR-0069) — the ONE gate in the tier that
+      # is not textual: it applies each unit's migrations as that unit's own
+      # restricted ext_<name> role against a throwaway database and checks the
+      # resulting catalog against the allowlist.
+      #
+      # It lives HERE, on the integration lane, and not in check-backend where
+      # it started. From the first unit that ships a migrations/ layer the gate
+      # needs a cluster, and the Go gate is the fastest merge gate and
+      # container-free: arming it there would put a compose-stack start on every
+      # backend PR forever, to buy locality once. This lane is already the slow,
+      # cluster-bearing path.
+      #
+      # It ARMS ITSELF off the same condition the script tests, so the first
+      # migrations/ layer to land gets the cluster with no workflow edit and
+      # nobody having to remember. `make db-up` is the same compose stack the
+      # shards use (infra/docker-compose.dev.yml + scripts/db-init.sql for the
+      # cluster-level margince_app role migration 0015 GRANTs to), not a
+      # hand-mirrored service container. No margince_test template is built:
+      # the gate deliberately migrates a FRESH database under the root
+      # workspace rather than cloning the shared template, because a template
+      # migrated under the COMPOSED workspace already holds the very
+      # ext.ext_<name>_* objects the gate is about to apply.
+      #
+      # If the glob matches and the cluster is missing, the script FAILS with a
+      # named error rather than skipping — a gate that quietly checks nothing
+      # looks exactly like a passing one.
+      - name: Extension migration gate (armed by the tree)
+        working-directory: .
+        run: |
+          if ls -d extensions/*/migrations >/dev/null 2>&1; then
+            echo "an enabled unit declares migrations/ — starting the test cluster"
+            make db-up
+          else
+            echo "no enabled unit declares a migrations/ layer — the gate stays hermetic"
+          fi
+          make check-ext-migrations
