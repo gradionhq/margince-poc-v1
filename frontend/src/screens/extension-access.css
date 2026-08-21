@@ -145,10 +145,6 @@
    inside its own box rather than pushing the page sideways (the §3.8 no
    horizontal page scroll rule). The region holds the checkboxes themselves, so
    it is reachable by keyboard without a tabindex of its own. */
-.ext-matrix-wrap {
-  overflow-x: auto;
-}
-
 .ext-matrix {
   border-collapse: collapse;
   width: 100%;

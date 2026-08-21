@@ -16,7 +16,12 @@ import type { components } from "../api/schema";
 import { useCanMutate, useHoldsAdminRole } from "../app/capability";
 import { EXTENSION_SCREEN, findExtension } from "../app/extensions";
 import { routeHash } from "../app/router";
-import { Badge, Disclosure, EmptyState } from "../design-system/atoms";
+import {
+  Badge,
+  Disclosure,
+  EmptyState,
+  TableScroll,
+} from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
 import { SettingList, SettingRow } from "../design-system/settingrow";
@@ -582,7 +587,13 @@ function ObjectMatrix({
     // `SettingList` hairline between the rows does that now, and two edges
     // around one grid read as a box inside a box.
     <div className="settingrow-measure ext-object">
-      <div className="ext-matrix-wrap">
+      {/* `TableScroll` rather than a wrapper of this screen's own: five CRUD
+          columns beside a role name overrun a 720px settings column, and the
+          box that scrolls sideways — keyboard-reachable, announced — is one
+          spelling for every table in the product (atoms.tsx). Named by the
+          object rather than by a translated phrase: the object IS the grid's
+          subject, which is the same thing `labelledBy` says to the table. */}
+      <TableScroll label={object}>
         <table className="ext-matrix" aria-labelledby={labelledBy}>
           <thead>
             <tr>
@@ -656,7 +667,7 @@ function ObjectMatrix({
             })}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
       {nobodyReads ? (
         // `warn` is exactly the claim: nothing is broken, and something will go
         // wrong if nobody acts — every screen this unit ships renders "you do

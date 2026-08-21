@@ -155,6 +155,9 @@ export function OfferTemplatesAdmin() {
   const rowActions: ListColumn<OfferTemplate> = {
     key: "actions",
     header: t("table.actions"),
+    // Sized by its verbs rather than by a share of the page — see the same
+    // column on the products table beside it (listtable.tsx, COLUMN_SIZES.verbs).
+    verbs: true,
     cell: (tpl: OfferTemplate) => (
       <div className="listsection-rowverbs">
         {canUpdate && (

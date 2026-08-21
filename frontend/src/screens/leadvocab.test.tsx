@@ -192,10 +192,11 @@ describe("LeadSourcesCard", () => {
       </Providers>,
     );
     // A label and a weight are committed together, so the form is a dialog the
-    // row's verb opens. The verb and the submit read differently on purpose —
-    // "Add a source…" against "Add source" — so neither query finds the other.
+    // card's HEADER verb opens. The verb and the submit read differently on
+    // purpose — "New source" against "Add source" — so neither query finds the
+    // other.
     await userEvent.click(
-      await screen.findByRole("button", { name: "Add a source…" }),
+      await screen.findByRole("button", { name: "New source" }),
     );
     const dialog = within(screen.getByRole("dialog"));
     await userEvent.type(

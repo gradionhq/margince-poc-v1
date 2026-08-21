@@ -185,6 +185,7 @@ export function TeamsCard() {
                     )}
                     control={
                       <Button
+                        small
                         variant="ghost"
                         iconOnly
                         aria-label={t("users.archiveTeam", { name: team.name })}

@@ -216,6 +216,7 @@ export function FxRatesCard() {
                     </EmptyState>
                   ) : (
                     <DataTable<FxRate>
+                      label={t("settings.rates.fxTableLabel")}
                       rows={rows}
                       rowKey={(row) => row.from_currency}
                       columns={[
@@ -336,10 +337,11 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
           </Callout>
         ) : null}
         <div className="form-actions">
-          <Button variant="ghost" onClick={onClose}>
+          <Button small variant="ghost" onClick={onClose}>
             {t("create.cancel")}
           </Button>
           <Button
+            small
             variant="primary"
             onClick={() => {
               setError(null);
@@ -442,6 +444,7 @@ export function ModelCostsCard() {
                     </EmptyState>
                   ) : (
                     <DataTable<AiModelRate>
+                      label={t("settings.rates.modelTableLabel")}
                       rows={rows}
                       rowKey={(row) => `${row.provider}/${row.model_id}`}
                       columns={[
@@ -597,10 +600,11 @@ function ModelCostModal({ onClose }: Readonly<{ onClose: () => void }>) {
           </Callout>
         ) : null}
         <div className="form-actions">
-          <Button variant="ghost" onClick={onClose}>
+          <Button small variant="ghost" onClick={onClose}>
             {t("create.cancel")}
           </Button>
           <Button
+            small
             variant="primary"
             onClick={() => {
               setError(null);

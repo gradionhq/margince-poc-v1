@@ -652,6 +652,7 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
   return (
     <Card testId="offer-line-editor" title={t("offer.lines")}>
       <DataTable
+        label={t("offer.lines")}
         columns={columns}
         rows={offer.line_items}
         rowKey={(line) => `${line.id}:${line.version ?? 0}`}

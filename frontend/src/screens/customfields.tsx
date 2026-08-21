@@ -262,10 +262,15 @@ export function FieldBuilder({
           this form used to live in: closing the dialog discards the draft, so
           a control that empties the inputs in place has nothing left to do. */}
       <div className="cf-actions">
-        <Button variant="ghost" onClick={onCancel}>
+        <Button small variant="ghost" onClick={onCancel}>
           {t("deals.cancel")}
         </Button>
-        <Button variant="primary" disabled={!canConfirm} onClick={confirm}>
+        <Button
+          small
+          variant="primary"
+          disabled={!canConfirm}
+          onClick={confirm}
+        >
           {t("cf.confirm")}
         </Button>
       </div>
@@ -440,7 +445,12 @@ export function FieldTable({
   }
 
   return (
-    <DataTable columns={columns} rows={fields} rowKey={(field) => field.id} />
+    <DataTable
+      label={t("cf.listLabel", { object: objectLabels(t)[object] })}
+      columns={columns}
+      rows={fields}
+      rowKey={(field) => field.id}
+    />
   );
 }
 
@@ -747,9 +757,9 @@ export function CustomFieldsAdmin() {
       title={t("cf.title")}
       // The create verb is the card's, so it stands in the header band. As a
       // trailing row its label ("Add a field to Deal") said the same thing as
-      // the button beside it ("Add a field…"), which is one act named twice on
-      // one line; the object it applies to is chosen in the row below and named
-      // again by the dialog. Absent without the create grant, as the row was: a
+      // the button beside it, which is one act named twice on one line; the
+      // object it applies to is chosen in the row below and named again by the
+      // dialog. Absent without the create grant, as the row was: a
       // surface that is only an action makes no claim about the data by not
       // being there.
       titleAction={
@@ -901,10 +911,11 @@ export function CustomFieldsAdmin() {
           )}
         </Field>
         <div className="cf-actions">
-          <Button variant="ghost" onClick={() => setRenaming(null)}>
+          <Button small variant="ghost" onClick={() => setRenaming(null)}>
             {t("deals.cancel")}
           </Button>
           <Button
+            small
             variant="primary"
             disabled={rename.isPending || renameLabel.trim().length === 0}
             onClick={() => {

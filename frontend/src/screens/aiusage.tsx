@@ -251,6 +251,7 @@ function AiUsageBody({
               // page; a hand-rolled <table className="table"> borrowed the look
               // and left the wrapper out.
               <DataTable
+                label={t("aiusage.spendLabel")}
                 columns={usageColumns(showCost, currency, locale, t)}
                 rows={rows}
                 rowKey={(row) => `${row.task}-${row.tier}`}

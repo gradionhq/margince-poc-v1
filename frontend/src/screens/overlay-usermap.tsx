@@ -816,7 +816,7 @@ export function MirrorUserMapCard() {
   return (
     <Panel title={t("overlay.userMap.title")}>
       <PanelBody>
-        <p className="t-caption">
+        <p className="settings-panel-sub">
           {t("overlay.userMap.sub", { principal: directory.principal })}
         </p>
         <UserMapNotice

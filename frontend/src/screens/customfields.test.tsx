@@ -337,11 +337,11 @@ const renderAdmin = () => {
 describe("CustomFieldsAdmin", () => {
   // The builder is a dialog behind a row verb now, so anything whose subject is
   // one of its inputs opens it first. The row's verb and the dialog's submit are
-  // deliberately different strings — "Add a field…" against "Confirm & add
+  // deliberately different strings — "Add a field" against "Confirm & add
   // field" — so neither query can pick up the other.
   const openBuilder = async () => {
     await userEvent.click(
-      await screen.findByRole("button", { name: "Add a field…" }),
+      await screen.findByRole("button", { name: "Add a field" }),
     );
     return within(screen.getByRole("dialog"));
   };
@@ -456,7 +456,7 @@ describe("CustomFieldsAdmin", () => {
     await waitFor(() =>
       expect(screen.getByText("Renewal date")).toBeInTheDocument(),
     );
-    expect(screen.queryByRole("button", { name: "Add a field…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a field" })).toBeNull();
     expect(
       screen.queryByRole("button", { name: /Confirm & add field/i }),
     ).toBeNull();
@@ -490,7 +490,7 @@ describe("CustomFieldsAdmin", () => {
     // older assertion looked for "Add field to Deal", a string this screen has
     // never rendered, so it passed whether or not the builder was reachable.
     expect(screen.queryByText("Add a field to Deal")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add a field…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a field" })).toBeNull();
   });
 
   it("offers the builder on create alone, without rename or retire", async () => {
@@ -509,7 +509,7 @@ describe("CustomFieldsAdmin", () => {
     // pass, since "no archive control" is also true when nothing renders. The
     // builder is behind the card's HEADER verb, so what proves it is reachable
     // is that verb plus the form it opens.
-    expect(screen.getByRole("button", { name: "Add a field…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add a field" })).toBeTruthy();
     const dialog = await openBuilder();
     expect(
       dialog.getByRole("button", { name: /Confirm & add field/i }),

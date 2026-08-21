@@ -625,6 +625,7 @@ function DsrRow({
   return (
     <li className="dsr-row">
       <Button
+        small
         id={toggleId}
         className="dsr-row-toggle"
         onClick={onToggle}
@@ -636,7 +637,7 @@ function DsrRow({
         <Badge tone={STATUS_TONE[dsr.status]}>
           {humanizeToken(dsr.status)}
         </Badge>
-        <span className="t-small">
+        <span className="t-small dsr-due">
           {t("settings.due", { date: formatDate(dsr.due_at, locale, tz) })}
         </span>
         {overdue && <Badge tone="danger">{t("privacy.overdue")}</Badge>}

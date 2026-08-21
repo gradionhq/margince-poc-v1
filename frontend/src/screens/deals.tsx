@@ -1833,6 +1833,7 @@ function DealTable({
         </div>
       )}
       <DataTable
+        label={t("nav.deals")}
         columns={[
           {
             key: "name",
@@ -2279,6 +2280,7 @@ export function OffersPanel({
       {offers &&
         (offers.length > 0 ? (
           <DataTable
+            label={t("deal.offers")}
             columns={[
               {
                 key: "offer_number",

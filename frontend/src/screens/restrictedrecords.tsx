@@ -301,6 +301,7 @@ export function RestrictedRecordsCard() {
                       <EmptyState>{t("restricted.empty")}</EmptyState>
                     ) : (
                       <DataTable
+                        label={t("restricted.heldLabel")}
                         columns={columns}
                         rows={records.data.data}
                         rowKey={(row) => row.activity_id}

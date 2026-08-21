@@ -191,6 +191,7 @@ export function ManualCompanySetup() {
         }
         actions={
           <Button
+            small
             variant="primary"
             disabled={!requiredComplete(form) || save.isPending}
             onClick={() => save.mutate()}
@@ -761,6 +762,7 @@ function CompanySourceCard({
             control={
               canEdit ? (
                 <Button
+                  small
                   variant="ghost"
                   aria-label={t("settings.companyEditField", {
                     field: t("settings.companyWebsite"),
@@ -788,6 +790,7 @@ function CompanySourceCard({
               description={t("settings.companyRefreshHint")}
               control={
                 <Button
+                  small
                   variant="primary"
                   reason={
                     website === ""
@@ -855,6 +858,7 @@ function CompanyFactRow({
       control={
         canEdit ? (
           <Button
+            small
             variant="ghost"
             // Named by the fact it changes, not "Edit": seventeen rows offering
             // seventeen identically-named buttons make a screen reader's user
@@ -977,13 +981,14 @@ function CompanyProfileDialog({
           </Callout>
         )}
         <div className="form-actions">
-          <Button variant="ghost" type="button" onClick={onClose}>
+          <Button small variant="ghost" type="button" onClick={onClose}>
             {t("create.cancel")}
           </Button>
           {/* The three the server demands are the three the button waits for —
               the same condition the page's Save carried, now beside the fields
               that satisfy it. */}
           <Button
+            small
             type="submit"
             variant="primary"
             disabled={!pending && !requiredComplete(form)}
@@ -1118,6 +1123,7 @@ function RefreshReview(
           )}
           {props.canApply && (
             <Button
+              small
               variant="primary"
               disabled={!ready || unresolved || props.confirming}
               onClick={props.onConfirm}

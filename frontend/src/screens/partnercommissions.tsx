@@ -112,6 +112,7 @@ function CommissionLedger({
   return (
     <div data-testid="commission-ledger">
       <DataTable
+        label={t("commission.panelTitle")}
         rows={entries}
         rowKey={(entry) => entry.id}
         columns={[

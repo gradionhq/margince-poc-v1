@@ -265,6 +265,29 @@ p.settings-panel-sub {
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+
+/* The expander is the entry's VERB, so it stands at the trail's right edge
+   rather than trailing the last fact on the line.
+
+   A list that is the SUBJECT of a stacked row still owes a reader the two
+   anchors every `SettingRow` keeps — what this is on the left, what acts on it
+   at one x on the right. Left to hug its content the run of facts stopped a
+   third of the way across a 720px card and the whole trail read as a
+   left-aligned block in a box twice its width, which is the one thing the row
+   language exists to prevent. `.audit-when` in `audit.css` holds the same edge
+   for the shared attribution line: one reading, two lists. */
+.audit-row-head > .btn:last-child {
+  margin-left: auto;
+}
+
+/* "Load more" acts on the trail above it rather than being one more entry of
+   it, so it keeps its own width. `.audit-entries` is a stretch column, which
+   would otherwise make a full-card banner of a button — the same rail
+   `settingrow.css` keeps on a verb inside a stacked row. */
+.audit-entries > .load-more {
+  align-self: flex-start;
+}
+
 /* The expanded before/after trail, set in from the row it belongs to and
    marked by a rule so it reads as this entry's detail rather than the next. */
 .audit-row-diff {

@@ -106,7 +106,7 @@ export function ImportCard() {
             label={t("import.startLabel")}
             description={t("import.sub")}
             control={
-              <Button variant="ghost" onClick={() => setOpen(true)}>
+              <Button small variant="ghost" onClick={() => setOpen(true)}>
                 {t("import.start")}
               </Button>
             }
@@ -218,6 +218,7 @@ function ImportWizard({
         tabIndex={-1}
       />
       <Button
+        small
         variant="ghost"
         disabled={busy}
         onClick={() => fileInput.current?.click()}
@@ -266,7 +267,9 @@ function ImportWizard({
 
       {/* Closing puts the act down; it does not abandon it. The flow outlives
           the dialog, so a reader who steps away comes back to the same step. */}
-      <Button onClick={onClose}>{t("common.close")}</Button>
+      <Button small onClick={onClose}>
+        {t("common.close")}
+      </Button>
     </div>
   );
 }
@@ -376,13 +379,13 @@ function ImportOutcome({
       ) : null}
 
       {!committed ? (
-        <Button variant="primary" disabled={busy} onClick={onCommit}>
+        <Button small variant="primary" disabled={busy} onClick={onCommit}>
           {busy ? t("import.importing") : commitLabel(t, d.created + d.updated)}
         </Button>
       ) : null}
 
       {resumable ? (
-        <Button variant="primary" disabled={busy} onClick={onCommit}>
+        <Button small variant="primary" disabled={busy} onClick={onCommit}>
           {busy ? t("import.importing") : t("import.resume")}
         </Button>
       ) : null}
@@ -404,7 +407,7 @@ function ImportOutcome({
       />
 
       {committed && !resumable ? (
-        <Button variant="ghost" onClick={onRestart}>
+        <Button small variant="ghost" onClick={onRestart}>
           {t("import.another")}
         </Button>
       ) : null}
@@ -447,7 +450,7 @@ function UndoSection({
       {undone ? <UndoOutcome undo={report.undo} /> : null}
 
       {undoable || undoInterrupted ? (
-        <Button variant="ghost" disabled={busy} onClick={onUndo}>
+        <Button small variant="ghost" disabled={busy} onClick={onUndo}>
           {undoBusy
             ? t("import.undoing")
             : undoInterrupted
@@ -621,6 +624,7 @@ function ImportMappingStep({
         </Callout>
       )}
       <Button
+        small
         variant="primary"
         disabled={busy || !identifiedBy}
         onClick={onValidate}

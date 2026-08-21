@@ -14,6 +14,7 @@ import {
   EmptyState,
   Field,
   OverflowMenu,
+  TableScroll,
   TextInput,
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
@@ -224,9 +225,10 @@ function SpendReading({
   const current = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
   return (
     // Five columns of billing, all of them reconciled against an invoice, so
-    // none can be dropped on a narrow screen. The table scrolls sideways
-    // inside the card the way DataTable's does (atoms.tsx).
-    <div className="provider-reading table-scroll">
+    // none can be dropped on a narrow screen. `TableScroll` is the one spelling
+    // of the box that scrolls inside the card, the same one DataTable puts
+    // every list it draws inside (atoms.tsx).
+    <TableScroll className="provider-reading" label={t("provider.spend")}>
       <table className="provider-spend-table">
         <thead>
           <tr>
@@ -260,7 +262,7 @@ function SpendReading({
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }
 
@@ -621,6 +623,7 @@ function CredentialRow({
                 column. A reader who may not connect has nothing to open. */}
             {canConnect && (
               <Button
+                small
                 variant="primary"
                 type="button"
                 onClick={() => setConnecting(true)}

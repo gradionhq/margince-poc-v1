@@ -136,6 +136,16 @@
   margin-top: 0;
 }
 
+/* A row FOLLOWING a body is a new section of the card, so it pays a section's
+ * interval rather than a row's. A body whose last line is prose and a row 12px
+ * under it read as one crowded block — measured on the provider card, where the
+ * intro's own bottom padding is deliberately zero because whatever comes next
+ * brings the body's 20px, which a row does not. Only the FIRST row after a body
+ * pays it; the rows under that one keep the list's own 12px rhythm. */
+.panel-body + .panel-row {
+  padding-top: var(--space-5);
+}
+
 /* A hairline row whose CONTENT runs edge to edge, in the panel's own margin
  * rather than the body's — the shape every list inside a panel wants. The rule
  * between two rows is inset to that margin, like every other rule in a card, so

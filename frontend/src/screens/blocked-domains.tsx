@@ -166,10 +166,9 @@ export function BlockedDomainsCard() {
       title={t("blockedDomains.title")}
       // The card's one create verb rides in the header, not in a row: a row
       // states a setting and its answer, and this row's LABEL was its own
-      // button's words ("Record a decision" beside "Record…"). It also keeps
-      // the verb still while the list below it grows. Refused rather than
-      // hidden, like every other control on this card — the sentence under the
-      // list is what `reasonId` names.
+      // button's words. It also keeps the verb still while the list below it
+      // grows. Refused rather than hidden, like every other control on this
+      // card — the sentence under the list is what `reasonId` names.
       titleAction={
         <Button
           small
@@ -205,6 +204,7 @@ export function BlockedDomainsCard() {
                   ) : (
                     <div className="form-stack settingrow-measure">
                       <DataTable
+                        label={t("blockedDomains.listTitle")}
                         columns={decisionColumns({
                           t,
                           locale,

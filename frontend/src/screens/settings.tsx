@@ -792,7 +792,12 @@ export function useSettingsSection(route: Route): NavSection {
   return {
     screen: SETTINGS_SCREEN,
     titleKey: "nav.settings",
-    activeId: active.id,
+    // No row is current on a route that is not one of the tabs. An extension
+    // unit's page keeps this level in the sidebar — it is reached from here and
+    // its trail says so — but it is not a settings tab, and `settingsRouteTab`
+    // answers with the default one for any address it cannot read. Marking
+    // Account current there would point at a page the reader is not on.
+    activeId: route.screen === SETTINGS_SCREEN ? active.id : "",
     groups,
   };
 }
@@ -1068,7 +1073,7 @@ function SignatureSettingRow({ toast }: Readonly<{ toast: Toast }>) {
         description={t("settings.signatureSub")}
         value={answer}
         control={
-          <Button variant="ghost" onClick={() => setOpen(true)}>
+          <Button small variant="ghost" onClick={() => setOpen(true)}>
             {t("settings.signatureEdit")}
           </Button>
         }
@@ -1106,10 +1111,11 @@ function SignatureSettingRow({ toast }: Readonly<{ toast: Toast }>) {
             </Field>
             <p className="t-caption">{t("settings.signatureHint")}</p>
             <div className="form-actions">
-              <Button variant="ghost" onClick={close}>
+              <Button small variant="ghost" onClick={close}>
                 {t("settings.signatureCancel")}
               </Button>
               <Button
+                small
                 type="submit"
                 variant="primary"
                 disabled={!save.isPending && !dirty}
@@ -1330,7 +1336,7 @@ function PassportCard() {
       title={t("settings.passports")}
       // The card's one create verb, in the header band beside the title rather
       // than as a trailing row: a row whose label reads "Mint a new passport"
-      // beside a button reading "Mint…" says the same thing twice, and it made
+      // beside a button reading "New passport" says the same thing twice, and it made
       // a third interval out of what is not a decision the list holds. The verb
       // takes the ellipsis form and the drawer's submit keeps the plain one —
       // two buttons reading "Mint passport" are one name for two acts, for a
@@ -1425,7 +1431,7 @@ function PassportCard() {
           // still reading has no way back — the list carries metadata and the
           // server will not re-disclose a token.
           <div className="form-actions">
-            <Button variant="primary" onClick={closeMint}>
+            <Button small variant="primary" onClick={closeMint}>
               {t("settings.mintDone")}
             </Button>
           </div>
@@ -1490,10 +1496,11 @@ function PassportCard() {
               </Callout>
             )}
             <div className="form-actions">
-              <Button disabled={mint.isPending} onClick={closeMint}>
+              <Button small disabled={mint.isPending} onClick={closeMint}>
                 {t("settings.mintCancel")}
               </Button>
               <Button
+                small
                 type="submit"
                 variant="primary"
                 disabled={scopes.size === 0 || mint.isPending}
@@ -1894,7 +1901,7 @@ function ResetDataCard() {
             label={t("settings.resetDataLabel")}
             description={t("settings.resetDataDesc")}
             control={
-              <Button variant="danger" onClick={() => setOpen(true)}>
+              <Button small variant="danger" onClick={() => setOpen(true)}>
                 {t("settings.resetDataButton")}
               </Button>
             }

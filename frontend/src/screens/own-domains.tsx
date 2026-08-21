@@ -243,6 +243,7 @@ function CuratedDomains({
           }
           control={
             <Button
+              small
               variant="ghost"
               aria-label={t("ownDomains.remove", { domain: domain.domain })}
               disabled={pending}

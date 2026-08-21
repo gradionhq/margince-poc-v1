@@ -160,7 +160,14 @@ export function navTrail(
   const trail: NavTrailLevel[] = [
     { ...top, activeId, ancestor: route.id !== undefined },
   ];
-  if (!section || section.screen !== route.screen) {
+  // Compared against the ROW the route makes current, not the route's raw
+  // screen. They are the same string for every destination the product owns, and
+  // they differ for exactly one case: a composed unit routes as
+  // `{screen: "ext"}` and is reached from Settings, which is what `activeRowFor`
+  // has always answered for it. On the raw screen the level was dropped, so
+  // following "Open" from a settings card replaced the whole sidebar while the
+  // URL and the trail still said Settings.
+  if (!section || section.screen !== activeId) {
     return trail;
   }
   // The segments below the screen, in order: each selects an entry of the level
@@ -170,7 +177,11 @@ export function navTrail(
     titleKey: section.titleKey,
     groups: section.groups,
     activeId: section.activeId ?? route.id,
-    path: [route.screen],
+    // The SECTION's screen, which every row in it points under. Identical to the
+    // route's for a route of that screen, and the only correct one for a unit
+    // route standing in this level: rows built from `ext` would link to
+    // addresses that resolve to nothing.
+    path: [section.screen],
   };
   trail.push(level);
   for (let depth = 1; depth < segments.length; depth += 1) {

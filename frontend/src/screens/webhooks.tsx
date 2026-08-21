@@ -705,6 +705,9 @@ function DeliveriesBody({
             level={3}
           />
           <DataTable
+            label={t("webhooks.deliveries.deadLetterGroup", {
+              count: deadLettered.length,
+            })}
             columns={columns}
             rows={deadLettered}
             rowKey={(d) => d.id}
@@ -719,7 +722,12 @@ function DeliveriesBody({
               level={3}
             />
           )}
-          <DataTable columns={columns} rows={others} rowKey={(d) => d.id} />
+          <DataTable
+            label={t("webhooks.deliveries.allGroup")}
+            columns={columns}
+            rows={others}
+            rowKey={(d) => d.id}
+          />
         </div>
       )}
       <LoadMoreButton query={loadMoreQuery} />
@@ -927,14 +935,14 @@ export function WebhooksCard() {
       }
     >
       <PanelBody>
-        <p className="t-caption">{t("webhooks.sub")}</p>
+        <p className="settings-panel-sub">{t("webhooks.sub")}</p>
         {/* Outside QueryGate for the same reason the create button is: its
             `empty` branch replaces `children` wholesale, and the posture is most
             needed precisely when the list is empty — a seat that can neither add
             the first subscription nor be told why would read the empty card as
             the whole story. */}
         {showReadOnlyPosture && (
-          <p className="t-caption">{t("webhooks.readOnly")}</p>
+          <p className="settings-panel-sub">{t("webhooks.readOnly")}</p>
         )}
         {/* No signing key: delivery is off, so mutating controls are withheld
             and a not-enabled note explains why. It sits outside the gate too —

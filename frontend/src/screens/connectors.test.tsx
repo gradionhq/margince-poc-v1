@@ -144,7 +144,7 @@ function requestsTo(calls: Request[], suffix: string, method: string) {
 // a pick therefore opens the dialog first and scopes its queries to it.
 async function openAddDialog() {
   await userEvent.click(
-    await screen.findByRole("button", { name: "Connect an account…" }),
+    await screen.findByRole("button", { name: "Connect an account" }),
   );
   return screen.getByRole("dialog", { name: "Add a connection" });
 }
@@ -206,7 +206,7 @@ describe("the connected-inboxes card", () => {
     expect(within(row).getByText(/No inbox is connected yet/)).toBeTruthy();
     expect(row.closest(".settinglist")).not.toBeNull();
     expect(
-      screen.getByRole("button", { name: "Connect an account…" }),
+      screen.getByRole("button", { name: "Connect an account" }),
     ).toBeTruthy();
   });
 
@@ -652,7 +652,7 @@ describe("add a connection", () => {
     render(<ConnectorsCard />);
     await screen.findByText("Google Calendar"); // a roster row label
     expect(
-      screen.queryByRole("button", { name: "Connect an account…" }),
+      screen.queryByRole("button", { name: "Connect an account" }),
     ).toBeNull();
   });
 });

@@ -57,6 +57,16 @@
   text-align: left;
 }
 
+/* The deadline, and the overdue mark that qualifies it, at the row's right edge
+ * — the same two anchors every settings row keeps: what this request IS on the
+ * left, when it is DUE on the right. Left-packed, the five children stopped
+ * about 245px short of the card's inner edge and the whole inbox read as a
+ * left-aligned block in a card twice its width. Wrapping still saves the phone
+ * case: on a second line the push simply has nothing left to push against. */
+.dsr-due {
+  margin-left: auto;
+}
+
 .dsr-expanded {
   margin-top: var(--space-2);
 }

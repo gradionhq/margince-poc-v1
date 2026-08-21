@@ -323,7 +323,7 @@ export const CardAddDialog: Story = {
     const canvas = within(canvasElement);
     await userEvent.click(
       await canvas.findByRole("button", {
-        name: "Add a field…",
+        name: "Add a field",
       }),
     );
   },

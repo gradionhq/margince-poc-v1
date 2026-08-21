@@ -312,13 +312,14 @@ function AddSourceDialog({
           )}
         </Field>
         <div className="form-actions">
-          <Button variant="ghost" onClick={onClose}>
+          <Button small variant="ghost" onClick={onClose}>
             {t("deals.cancel")}
           </Button>
           {/* Two facts, two props: `!ready` is a form with nothing in it yet
               and `isPending` is a write already on its way, and one `disabled`
               covering both draws them the same. */}
           <Button
+            small
             type="submit"
             variant="primary"
             disabled={!create.isPending && !ready}
@@ -352,7 +353,19 @@ export function LeadSourcesCard() {
   const administered = rowsOf(query.data?.data);
   const discovered = rowsOf(query.data?.discovered);
   return (
-    <Panel title={t("leadSources.title")}>
+    <Panel
+      title={t("leadSources.title")}
+      // The create verb in the header, not as a trailing row: that row's LABEL
+      // ("New source") was its own button's words, and it stood at the end of a
+      // list of sources as though it were one of them.
+      titleAction={
+        canCreate && (
+          <Button small onClick={() => setAdding(true)}>
+            {t("leadSources.addOpen")}
+          </Button>
+        )
+      }
+    >
       {/* No `form-stack` on the body: the description already pays for its own
           interval to the rows (`.settings-panel-sub`), and a stack's gap on top
           of that margin — margins do not collapse in a flex container — put 28px
@@ -437,19 +450,6 @@ export function LeadSourcesCard() {
                     </li>
                   ))}
                 </ul>
-              }
-            />
-          )}
-          {/* Two inputs submitted together, so the form lives behind this verb
-              and the rows above stay a list of answers. Absent without the
-              create grant, exactly as the inline form it replaces was. */}
-          {canCreate && (
-            <SettingRow
-              label={t("leadSources.newLabel")}
-              control={
-                <Button variant="ghost" onClick={() => setAdding(true)}>
-                  {t("leadSources.addOpen")}
-                </Button>
               }
             />
           )}

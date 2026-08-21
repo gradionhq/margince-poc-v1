@@ -229,6 +229,7 @@ function ExclusionRows({
           value={`${words.scope[rule.scope]} · ${words.kind[rule.kind]}`}
           control={
             <Button
+              small
               variant="ghost"
               aria-label={t("captureExclusions.remove", { value: rule.value })}
               disabled={pending}

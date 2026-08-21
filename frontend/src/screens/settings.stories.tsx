@@ -297,7 +297,9 @@ export const PassportMintDrawer: Story = {
   render: tab("agents", agentsTabRoutes),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByRole("button", { name: "Mint…" }));
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "New passport" }),
+    );
   },
 };
 
@@ -310,7 +312,9 @@ export const PassportMintDrawerDark: Story = {
   render: tab("agents", agentsTabRoutes),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByRole("button", { name: "Mint…" }));
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "New passport" }),
+    );
   },
 };
 

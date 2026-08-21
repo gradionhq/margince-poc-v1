@@ -251,6 +251,7 @@ function AddConnectionDialog({
               // hears.
               control={({ id, "aria-describedby": describedBy }) => (
                 <Button
+                  small
                   id={id}
                   aria-describedby={describedBy}
                   variant="ghost"

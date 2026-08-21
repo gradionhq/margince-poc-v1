@@ -4,7 +4,13 @@ import { useId, useState } from "react";
 import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
-import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  TableScroll,
+} from "../design-system/atoms";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
@@ -213,10 +219,10 @@ export function AiCallsCard() {
                   ) : (
                     // Six columns of trace, none of them droppable — a call is
                     // only diagnosable with its model, its tokens and its latency
-                    // side by side. The table scrolls sideways inside the card
-                    // instead of the page scrolling, the same containment
-                    // DataTable gives every list built from it (atoms.tsx).
-                    <div className="table-scroll">
+                    // side by side. `TableScroll` is the one spelling of that
+                    // containment, the same box DataTable puts every list it
+                    // draws inside (atoms.tsx).
+                    <TableScroll label={t("aicalls.callsLabel")}>
                       <table className="table">
                         <thead>
                           <tr>
@@ -255,7 +261,7 @@ export function AiCallsCard() {
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                    </TableScroll>
                   )}
                   {query.hasNextPage && (
                     <div>

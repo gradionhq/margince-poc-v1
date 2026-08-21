@@ -175,7 +175,7 @@ export const Empty: Story = {
 async function openAddDialog(canvasElement: HTMLElement) {
   const body = within(canvasElement.ownerDocument.body);
   await userEvent.click(
-    await body.findByRole("button", { name: "Connect an account…" }),
+    await body.findByRole("button", { name: "Connect an account" }),
   );
   await body.findByRole("dialog", { name: "Add a connection" });
 }

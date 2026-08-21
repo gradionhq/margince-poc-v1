@@ -82,18 +82,40 @@
 /* A pressed slot fills the SLOT, not the button around the card inside it: a
  * fill painted on the wrapper is repainted by the card's own `--bgElevated`
  * directly over it, which left the selected filter showing an accent ring and
- * almost no fill. Both halves land on the slot now, and the ring is inset so
- * it reads inside the plate's own rules rather than doubling them. */
+ * almost no fill. Both halves land on the slot now.
+ *
+ * A tint and an underline rather than a RING, because the plate clips: it is
+ * `overflow: hidden` with a corner radius, so a rectangular 2px ring drawn at a
+ * corner slot's own edge lost its corners to the plate's curve and read as a
+ * broken box. An underline has no corners to lose — only the two extreme
+ * bottom corners of the plate trim it at all, and a straight line trimmed by a
+ * curve still reads as a straight line. The tint carries the state at a glance;
+ * the line is what makes it unambiguous next to `--bgHover`. */
 .stat-strip > [aria-pressed="true"] {
-  background: var(--bgHover);
+  background: var(--accentLight);
   box-shadow:
     -1px 0 0 var(--borderSubtle),
     0 -1px 0 var(--borderSubtle),
-    inset 0 0 0 2px var(--accent);
+    inset 0 -2px 0 var(--accent);
 }
 .stat-strip > *:focus-visible {
   outline: var(--focus-ring);
   outline-offset: -2px;
+}
+
+/* The plate's own corners, on the slots that sit in them. A slot is square, so
+ * a fill painted in a corner slot squared off the plate's curve — visible the
+ * moment any slot is pressed or hovered. `- 1px` because the plate's border
+ * takes one of those pixels; the inner curve is one pixel tighter than the
+ * outer one. First and last are the plate's leading and trailing corners at
+ * every column count, including after the fold to three and to two. */
+.stat-strip > *:first-child {
+  border-start-start-radius: calc(var(--r-md) - 1px);
+  border-end-start-radius: calc(var(--r-md) - 1px);
+}
+.stat-strip > *:last-child {
+  border-start-end-radius: calc(var(--r-md) - 1px);
+  border-end-end-radius: calc(var(--r-md) - 1px);
 }
 
 /* ONE size for every slot in the row, sized to the SLOT rather than to a

@@ -1015,7 +1015,7 @@ function CatalogEntryItem({
       }
       control={
         canCreate ? (
-          <Button variant="ghost" onClick={onUse}>
+          <Button small variant="ghost" onClick={onUse}>
             {t("auto.use")}
           </Button>
         ) : null

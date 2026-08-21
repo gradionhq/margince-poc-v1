@@ -156,6 +156,7 @@ function ConnectVerb({
   }
   return (
     <Button
+      small
       variant="primary"
       reason={canConnect ? undefined : t("overlay.adminOnly")}
       onClick={onOpen}

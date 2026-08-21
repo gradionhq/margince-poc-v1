@@ -134,6 +134,23 @@
   text-align: left;
 }
 
+/* A hairline is never drawn against a filled SLAB.
+ *
+ * The list draws its rule on the following sibling, and a `Disclosure` carries a
+ * `border-top` of its own — so where an empty state or a callout is the sibling
+ * ABOVE, the line landed flush on that box's rounded bottom and read as a line
+ * hanging off it rather than as the interval to the section below. A filled box
+ * is bounded by its own fill; that edge IS the separation, which is the same
+ * reason a panel drops its head rule against a tinted header band.
+ *
+ * Three surfaces had it — connected agents (where the founder saw it), the
+ * extension-access read-only notice, and the LinkedIn account-read failure — so
+ * it is the row language's rule and not any card's. */
+.settinglist > .empty + *,
+.settinglist > .callout + * {
+  border-top: 0;
+}
+
 /* An empty subject inside a row is a SENTENCE, not a stage.
  *
  * `.empty` is page furniture — 36px of air above and below, sized for the middle

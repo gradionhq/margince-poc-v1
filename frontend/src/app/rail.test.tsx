@@ -514,6 +514,31 @@ describe("Rail levels (a section's entries as the second level)", () => {
     expect(railDisplay(container, ".ws-chip")).not.toBe("none");
   });
 
+  // The foot reports what the INSTALLATION is entitled to, and what it leads to
+  // is a settings tab — so on the rail that IS the settings level it names a
+  // place the reader is already standing in, under the list of tabs it would
+  // send them to.
+  //
+  // The other half — that a rail with no level KEEPS the foot — cannot be read
+  // off the DOM here: the license row renders nothing without `license:read`,
+  // which this harness stubs no answer for, so the foot is already empty and
+  // `:not(:has(*))` hides it for that unrelated reason. What is assertable is
+  // that the new rule is SCOPED, which is the whole claim: a hiding rule keyed
+  // on nothing would pass the first assertion just as well.
+  it("drops the entitlement foot while a level is shown", () => {
+    shellStyles = mountShellStyles();
+    const { container } = render(
+      <WorkspaceRail
+        route={{ screen: "settings", id: "account" }}
+        section={fixtureSection("account")}
+      />,
+    );
+    expect(railDisplay(container, ".railfoot")).toBe("none");
+    expect(SHELL_CSS).toMatch(
+      /\.rail\.leveled \.railfoot\s*\{\s*display:\s*none/,
+    );
+  });
+
   // An entry that HAS children opens them: standing on it, the panel shows the
   // level it leads to rather than the list it came from. Nothing carries the
   // current page there until a child is addressed — the same as any list a

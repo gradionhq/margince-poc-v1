@@ -180,6 +180,11 @@ export function ProductsAdmin() {
   const rowActions: ListColumn<Product> = {
     key: "actions",
     header: t("table.actions"),
+    // Two labelled buttons, not a value: the column is sized by the verbs in
+    // it rather than by a share of a 720px settings column, which is what had
+    // this cell handing the reader half an "Edit product" and a red sliver of
+    // "Archive product" (listtable.tsx, COLUMN_SIZES.verbs).
+    verbs: true,
     cell: (p: Product) => (
       <div className="listsection-rowverbs">
         {canUpdate && (

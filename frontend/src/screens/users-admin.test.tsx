@@ -227,7 +227,7 @@ describe("UsersAdminCard", () => {
     // simply dropping the verb: the page opens for every seat, so a roster with
     // no explanation reads as "this installation cannot add people".
     expect(
-      screen.queryByRole("button", { name: /invite a member…/i }),
+      screen.queryByRole("button", { name: /invite a member/i }),
     ).toBeNull();
     expect(screen.getByText(/admins only/i)).toBeTruthy();
     expect(screen.queryByLabelText(/new member's email/i)).toBeNull();
@@ -261,7 +261,7 @@ describe("UsersAdminCard", () => {
     }
     expect(within(header).getByText("4 members")).toBeTruthy();
     expect(
-      within(header).getByRole("button", { name: /invite a member…/i }),
+      within(header).getByRole("button", { name: /invite a member/i }),
     ).toBeTruthy();
     // And the invite fields are not on the page until the dialog carries them.
     expect(
@@ -378,7 +378,7 @@ describe("UsersAdminCard", () => {
   // ellipsis form of the label while the dialog's submit carries the plain one.
   const openInvite = async () => {
     await userEvent.click(
-      screen.getByRole("button", { name: /invite a member…/i }),
+      screen.getByRole("button", { name: /invite a member/i }),
     );
     return screen.findByRole("dialog");
   };

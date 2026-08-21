@@ -160,4 +160,25 @@ describe("SettingList", () => {
       [...list.children].map((child) => child.getAttribute("data-testid")),
     ).toEqual(["one", "two"]);
   });
+
+  // A filled box is bounded by its own fill, so the rule after one says the
+  // same thing twice — and lands flush on that box's rounded bottom, reading as
+  // a line hanging off it. Three surfaces had grown the symptom (connected
+  // agents, the extension-access read-only notice, the LinkedIn account-read
+  // failure) before it was recognised as the list's rule rather than any card's,
+  // and one of them had already spelled a screen-level workaround.
+  it("draws no hairline against a filled slab above it", () => {
+    const css = settingRowCss();
+    const rule =
+      /\.settinglist > \.empty \+ \*,\s*\.settinglist > \.callout \+ \*\s*\{([^}]*)\}/.exec(
+        css,
+      );
+    expect(rule).not.toBeNull();
+    expect(rule?.[1] ?? "").toMatch(/border-top:\s*0/);
+    // And only against a slab: the rule between two ordinary rows is the whole
+    // point of the list.
+    expect(css).toMatch(
+      /\.settinglist > \* \+ \*\s*\{\s*border-top:\s*1px solid var\(--borderSubtle\)/,
+    );
+  });
 });

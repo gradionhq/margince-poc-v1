@@ -173,6 +173,7 @@ function ReachTable({
   const t = useT();
   return (
     <DataTable
+      label={t("linkedinReach.accountsLabel")}
       columns={[
         {
           key: "account",

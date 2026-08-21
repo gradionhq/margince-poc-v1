@@ -173,7 +173,7 @@ function LinkedInProfileRow() {
             : t("linkedinImport.notConnectedNote")
         }
         control={
-          <Button variant="ghost" onClick={() => setEditing(true)}>
+          <Button small variant="ghost" onClick={() => setEditing(true)}>
             {t("linkedinImport.editProfile")}
           </Button>
         }
@@ -214,7 +214,12 @@ function LinkedInProfileRow() {
             </Callout>
           )}
           <div className="actions">
-            <Button type="button" onClick={close} disabled={save.isPending}>
+            <Button
+              small
+              type="button"
+              onClick={close}
+              disabled={save.isPending}
+            >
               {t("create.cancel")}
             </Button>
             {/* An unchanged URL and a save in flight are two different
@@ -223,6 +228,7 @@ function LinkedInProfileRow() {
                 `pending` for the write they have already started, which keeps
                 the button focusable so the wait is announced from it. */}
             <Button
+              small
               variant="primary"
               type="submit"
               disabled={!dirty}

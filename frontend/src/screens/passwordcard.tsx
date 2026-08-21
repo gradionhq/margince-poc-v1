@@ -137,7 +137,7 @@ export function PasswordSettingRow({
         label={t("password.title")}
         description={t("password.body")}
         control={
-          <Button variant="ghost" onClick={() => setOpen(true)}>
+          <Button small variant="ghost" onClick={() => setOpen(true)}>
             {t("password.open")}
           </Button>
         }
@@ -243,7 +243,7 @@ export function PasswordSettingRow({
                 being kicked out. */}
             <p className="t-small">{t("password.signsYouOut")}</p>
             <div className="form-actions">
-              <Button variant="ghost" onClick={close}>
+              <Button small variant="ghost" onClick={close}>
                 {t("password.cancel")}
               </Button>
               {/* Two facts, two props. `!ready` is a form that is not filled in
@@ -259,6 +259,7 @@ export function PasswordSettingRow({
                   of `pending`, and — since refusal outranks busy — drop both the
                   focus and the busy state in the middle of the change. */}
               <Button
+                small
                 type="submit"
                 variant="primary"
                 disabled={!change.isPending && !ready}

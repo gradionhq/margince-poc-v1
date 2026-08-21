@@ -114,6 +114,7 @@ function Catalog() {
           layout="stack"
           control={
             <DataTable
+              label={"Refused domains"}
               columns={[
                 {
                   key: "domain",

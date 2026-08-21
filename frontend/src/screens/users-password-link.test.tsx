@@ -115,7 +115,7 @@ afterEach(() => {
 // what keeps the two tellable apart.
 async function openInvite() {
   await userEvent.click(
-    screen.getByRole("button", { name: /invite a member…/i }),
+    screen.getByRole("button", { name: /invite a member/i }),
   );
   return screen.findByRole("dialog");
 }

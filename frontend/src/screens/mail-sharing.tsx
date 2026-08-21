@@ -110,6 +110,7 @@ export function MailSharingCard() {
                     )}
                     {dirty && (
                       <Button
+                        small
                         variant="primary"
                         disabled={save.isPending}
                         onClick={() => {

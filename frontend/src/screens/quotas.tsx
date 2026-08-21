@@ -246,6 +246,7 @@ export function ContributingDeals({
     >
       <div className="quota-contrib">
         <DataTable
+          label={t("quotas.contributing.title")}
           columns={[
             {
               key: "deal",

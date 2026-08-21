@@ -122,7 +122,7 @@ function mintBackend(
 // every assertion below name the button it means.
 async function openDrawer(user: ReturnType<typeof userEvent.setup>) {
   render("agents");
-  await user.click(await screen.findByRole("button", { name: "Mint…" }));
+  await user.click(await screen.findByRole("button", { name: "New passport" }));
   return screen.findByRole("dialog");
 }
 
@@ -243,7 +243,9 @@ describe("PassportCard — minting", () => {
     // clicked further down. This case renders its own client rather than going
     // through `openDrawer`, because it reads the cache the mint is supposed to
     // drop.
-    await user.click(await screen.findByRole("button", { name: "Mint…" }));
+    await user.click(
+      await screen.findByRole("button", { name: "New passport" }),
+    );
     const dialog = await screen.findByRole("dialog");
 
     // A cache entry from this session, which the next one must not inherit.
@@ -307,9 +309,9 @@ describe("PassportCard — minting", () => {
     await within(dialog).findByText("mgp_live_0f3a91c4");
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
 
-    await screen.findByRole("button", { name: "Mint…" });
+    await screen.findByRole("button", { name: "New passport" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Mint…" }));
+    await user.click(screen.getByRole("button", { name: "New passport" }));
     const reopened = await screen.findByRole("dialog");
     expect(reopened).toBeTruthy();
     expect(within(reopened).queryByText("mgp_live_0f3a91c4")).toBeNull();
