@@ -3,17 +3,19 @@
 
 package backendarch
 
-// Every writer of a company's address must invalidate its coordinates.
+// The staleness rule lives in the SCHEMA, and this holds it there.
 //
-// This is the one rule the geocoding design rests on, and it is exactly the
-// rule that rots: a new address writer added later looks complete and correct
-// on its own, and the defect it introduces is invisible — a radius query that
-// keeps answering from the previous address, reporting success, until somebody
-// notices a customer listed in the wrong city.
+// A company whose address moved must not keep answering radius queries from
+// where it used to be. The first cut enforced that in Go, in the two address
+// writers that were easy to find; a review found four more, each writing an
+// address through its own table-driven SQL several columns deep in a generic
+// builder with no seam to carry. Six writers is already more than anyone holds
+// in their head, and the defect is invisible when missed — a wrong answer that
+// reports success.
 //
-// So the obligation is derived rather than remembered. Any statement that
-// writes an address column must either invalidate in the same statement or be
-// ratified here with the reason it does not have to.
+// So the rule is a trigger, and what this test guards is that the trigger
+// exists and that nothing has quietly replaced it with a Go-side convention
+// that a seventh writer could skip.
 
 import (
 	"os"
@@ -21,71 +23,109 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
-// addressWrite matches a statement that sets an address column.
-var addressWrite = regexp.MustCompile(`(?i)(UPDATE|INSERT INTO)[\s\S]*address_(line1|line2|city|region|postal_code|country)\s*=`)
+// geocodeMigrationFile finds where the rule lives.
+//
+// Found rather than named: a migration is renumbered whenever main takes the
+// number first, which happens on any branch that lives longer than an
+// afternoon, and a test pinned to the old filename fails for a reason that has
+// nothing to do with what it checks.
+func geocodeMigrationFile(t *testing.T) string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join("migrations", "core", "*_organization_geocode.up.sql"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("looking for the organization_geocode migration found %v (err %v); "+
+			"want exactly one", matches, err)
+	}
+	return matches[0]
+}
 
-// setsAddressColumn matches the patch-builder form, which writes through a
-// column name rather than SQL.
-var setsAddressColumn = regexp.MustCompile(`Set\("address_(line1|line2|city|region|postal_code|country)"`)
+// addressColumns is every column the trigger must watch. A column added to the
+// address later and not to the trigger is a writer path that silently stops
+// invalidating.
+var addressColumns = []string{
+	"address_line1", "address_line2", "address_city",
+	"address_region", "address_postal_code", "address_country",
+}
 
-// addressWritersExempt ratifies the writers that need no invalidation, each
-// with the reason. A writer here that later starts needing one fails as loudly
-// as one that was never covered.
-var addressWritersExempt = gatekit.Waive(map[string]string{
-	"merge.go": "a merge writes the surviving row's address from the row being merged INTO it, and " +
-		"mergeOrganizations invalidates once for the survivor after every field is copied — " +
-		"invalidating per column would queue the same company six times",
-	"person.go": "writes a PERSON's address, not a company's. The columns are named alike on both " +
-		"tables, which is why the pattern above matches it; only organization rows carry coordinates.",
-	"coldstartprofile.go": "the cold-start profile applies an address and enqueues its own geocode " +
-		"through applyProfileField, which invalidates for the whole apply rather than per column",
-})
+func TestTheSchemaMarksCoordinatesStaleWhenAnAddressMoves(t *testing.T) {
+	migration := geocodeMigrationFile(t)
+	body, err := os.ReadFile(migration)
+	if err != nil {
+		t.Fatalf("reading %s: %v", migration, err)
+	}
+	src := string(body)
 
-func TestEveryWriterOfACompanyAddressInvalidatesItsCoordinates(t *testing.T) {
+	if !strings.Contains(src, "CREATE TRIGGER trg_organization_geocode_stale") {
+		t.Fatal("the staleness trigger is gone. Without it, every address writer has to remember to " +
+			"invalidate — and the one that forgets produces a company answering radius queries from " +
+			"an address it no longer has, reporting success.")
+	}
+	for _, column := range addressColumns {
+		if !strings.Contains(src, column) {
+			t.Errorf("the trigger does not watch %s, so a write to that column alone leaves the "+
+				"coordinates queryable and wrong", column)
+		}
+	}
+	if !strings.Contains(src, "geocode_status IS DISTINCT FROM OLD.geocode_status") {
+		t.Error("the trigger no longer yields to a writer that set geocode_status itself — the worker " +
+			"recording a fresh point would have it stamped stale immediately, and no company would " +
+			"ever be locatable")
+	}
+}
+
+// The query predicate reads geocode_status, never the coordinates alone.
+//
+// This is the other half of the rule: the trigger marks a moved company stale,
+// and only a status of 'ok' may be selected. A query that read lat/lon on its
+// own would answer from the previous address however diligently the trigger
+// fired.
+func TestOnlyResolvedCoordinatesAreQueryable(t *testing.T) {
+	migration := geocodeMigrationFile(t)
+	body, err := os.ReadFile(migration)
+	if err != nil {
+		t.Fatalf("reading %s: %v", migration, err)
+	}
+	index := regexp.MustCompile(`(?s)CREATE INDEX idx_organization_geocoded.*?;`).FindString(string(body))
+	if index == "" {
+		t.Fatal("the geocoded index is gone; a radius query has nothing to select through")
+	}
+	if !strings.Contains(index, "geocode_status = 'ok'") {
+		t.Errorf("the index does not restrict to resolved rows:\n%s\n\nA stale or failed row reachable "+
+			"through it answers a distance from an address the company no longer has.", index)
+	}
+}
+
+// Every organization address writer is still accounted for, so the trigger's
+// coverage can be checked against something rather than assumed.
+func TestTheAddressWritersAreStillTheOnesTheTriggerCovers(t *testing.T) {
 	root := filepath.Join("internal", "modules", "people")
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatalf("reading %s: %v", root, err)
 	}
-	checked := 0
+	writes := regexp.MustCompile(`(?i)(UPDATE|INSERT INTO)\s+organization\b[\s\S]{0,400}?address_(line1|city|country)`)
+	found := 0
 	for _, entry := range entries {
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "geocode.go" {
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		body, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatalf("reading %s: %v", name, err)
 		}
-		src := string(body)
-		if !addressWrite.MatchString(src) && !setsAddressColumn.MatchString(src) {
-			continue
-		}
-		checked++
-		if addressWritersExempt.Waived(t, name) {
-			continue
-		}
-		// Two acceptable forms: the Go helper, or geocode_status written in the
-		// same SQL statement as the address. The second is what a table-driven
-		// update uses, and it is stronger — one statement cannot interleave.
-		// Three acceptable forms: addressChanged (invalidate + enqueue, which is
-		// what a writer should call), the bare invalidate, or geocode_status
-		// written in the same SQL statement as the address.
-		if !strings.Contains(src, "addressChanged") &&
-			!strings.Contains(src, "invalidateGeocode") &&
-			!strings.Contains(src, "geocode_status") {
-			t.Errorf("%s writes a company's address and never calls invalidateGeocode — a radius query "+
-				"will keep answering from the PREVIOUS address, reporting success. Invalidate in the same "+
-				"transaction as the write, or ratify the file in addressWritersExempt with the reason.", name)
+		if writes.MatchString(string(body)) {
+			found++
 		}
 	}
-	if checked == 0 {
-		t.Fatal("no address writer was found — this gate checked nothing, which means the patterns above " +
-			"have drifted from how addresses are written")
+	// The count is a floor, not a pin: writers may be added, and the trigger
+	// covers them whether or not this test knows their names. What a zero would
+	// mean is that the pattern has drifted from how addresses are written, and
+	// this test is checking nothing.
+	if found == 0 {
+		t.Fatal("no organization address writer was found — the pattern has drifted from how addresses " +
+			"are written, so this test proves nothing about the trigger's coverage")
 	}
-	addressWritersExempt.AssertAllMatched(t)
 }

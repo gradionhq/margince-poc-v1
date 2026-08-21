@@ -389,7 +389,7 @@ func addModelLaneJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig,
 		newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, cfg.DeepReadTriageBrain, log, cfg.DeepReadCaps, cfg.Blobstore),
 		deepReadTimeout(cfg.DeepReadCaps))
 	addDeclaredWorker[TranscriptProposeArgs](reg, newTranscriptProposeWorker(pool, cfg.TranscriptProposeBrain, log))
-	addDeclaredWorker[GeocodeOrganizationArgs](reg, newGeocodeWorker(pool, cfg.Geocoder, log))
+	addDeclaredWorker[GeocodeOrganizationArgs](reg, newGeocodeWorker(pool, cfg.Geocoder))
 	addDeclaredWorker[DocumentExtractArgs](reg, newDocumentExtractWorker(pool, cfg.DocumentExtractBrain, cfg.SendBlob, log))
 	addDeclaredWorker[VoiceBuildArgs](reg, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
 	addDeclaredWorker[VoiceBuildRetryArgs](reg, &voiceBuildRetryWorker{store: ai.NewVoiceStore(InstallationDB(pool)), log: log})

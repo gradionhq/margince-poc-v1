@@ -22,11 +22,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -93,8 +93,22 @@ type geocodeEnqueuer interface {
 // the worker reads the address when it RUNS rather than from the args.
 func geocodeInsertOpts() *river.InsertOpts {
 	return &river.InsertOpts{
-		Queue:      geocodeQueue,
-		UniqueOpts: river.UniqueOpts{ByArgs: true},
+		Queue: geocodeQueue,
+		// The states matter as much as ByArgs. River's default duplicate set
+		// includes running and completed, which is wrong here: a company edited
+		// while its lookup is in flight would have its successor job silently
+		// dropped, and the row would sit stale forever with nothing to resolve
+		// it. Only a job still WAITING is a duplicate — one already running
+		// resolved a different address, and one that completed is history.
+		UniqueOpts: river.UniqueOpts{
+			ByArgs:  true,
+			ByState: []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStateScheduled},
+		},
+		// The provider is asked at most this many times for one address. River's
+		// own default would keep retrying past the point the attempt ledger
+		// stops caring, spending the installation's shared rate on a lookup
+		// AddressForGeocode already refuses.
+		MaxAttempts: geocodeMaxAttempts,
 	}
 }
 
@@ -105,6 +119,9 @@ const (
 	// geocodeMaxWorkers mirrors api/jobs.yaml. One, for the policy reason
 	// stated at the top of this file.
 	geocodeMaxWorkers = 1
+	// geocodeMaxAttempts mirrors people.geocodeMaxAttempts: River stops
+	// retrying at the same count the attempt ledger stops accepting.
+	geocodeMaxAttempts = 3
 )
 
 // geocodeWorker resolves one company's address.
@@ -117,13 +134,16 @@ type geocodeWorker struct {
 	river.WorkerDefaults[GeocodeOrganizationArgs]
 	pool     *pgxpool.Pool
 	geocoder geocode.Client
-	log      *slog.Logger
 }
 
 // newGeocodeWorker assembles the worker-role lookup. geocoder may be nil — a
 // deployment with no provider records the refusal rather than retrying.
-func newGeocodeWorker(pool *pgxpool.Pool, geocoder geocode.Client, log *slog.Logger) *geocodeWorker {
-	return &geocodeWorker{pool: pool, geocoder: geocoder, log: log}
+// No logger: every failure this worker has is RETURNED, through
+// jobs.FaultContext, so it lands in river_job.errors where an operator looking
+// at a stuck job will actually find it. A log line beside a returned error is
+// the same fact in a second place nobody correlates.
+func newGeocodeWorker(pool *pgxpool.Pool, geocoder geocode.Client) *geocodeWorker {
+	return &geocodeWorker{pool: pool, geocoder: geocoder}
 }
 
 // Work performs the lookup and records whatever came back.
@@ -167,6 +187,18 @@ func (w *geocodeWorker) Work(ctx context.Context, job *river.Job[GeocodeOrganiza
 			store.RecordGeocode(wsCtx, orgID, people.GeocodeFailed, nil, nil, "", address.InputHash))
 	}
 
+	// THE CACHE IS ASKED FIRST, and it is a policy requirement rather than an
+	// optimisation: Nominatim's terms require a client that runs regularly to
+	// cache. Several companies share one street or one small town, and each
+	// repeat would otherwise spend fifteen seconds of a budget the whole
+	// installation shares.
+	if cached, hit, err := store.LookupPlace(wsCtx, address.Query); err != nil {
+		return jobs.FaultContext(wsCtx, fmt.Errorf("reading the place cache: %w", err))
+	} else if hit {
+		return jobs.FaultContext(wsCtx, store.RecordGeocode(wsCtx, orgID, people.GeocodeOK,
+			&cached.Lat, &cached.Lon, cached.Provider, address.InputHash))
+	}
+
 	point, found, err := w.geocoder.Resolve(wsCtx, address.Query)
 	if err != nil {
 		// The lookup did not complete. Recorded as failed so the ledger counts
@@ -177,7 +209,14 @@ func (w *geocodeWorker) Work(ctx context.Context, job *river.Job[GeocodeOrganiza
 		// dropped: this job is failing either way, and a reader of
 		// river_job.errors should see both causes rather than one plus a log
 		// line nobody correlates.
+		// A provider that named a wait gets that wait. Retrying on River's own
+		// schedule when Nominatim has said "not for ten minutes" is how a rate
+		// limit becomes a block.
 		recErr := store.RecordGeocode(wsCtx, orgID, people.GeocodeFailed, nil, nil, "", address.InputHash)
+		var refused *geocode.ProviderRefusedError
+		if errors.As(err, &refused) && refused.RetryAfter > 0 {
+			recErr = store.RecordGeocodeBackoff(wsCtx, orgID, address.InputHash, refused.RetryAfter)
+		}
 		return jobs.FaultContext(wsCtx, errors.Join(
 			fmt.Errorf("geocoding %q: %w", address.Query, err), recErr))
 	}
@@ -188,8 +227,20 @@ func (w *geocodeWorker) Work(ctx context.Context, job *river.Job[GeocodeOrganiza
 		return jobs.FaultContext(wsCtx,
 			store.RecordGeocode(wsCtx, orgID, people.GeocodeNoMatch, nil, nil, geocodeProvider, address.InputHash))
 	}
-	return jobs.FaultContext(wsCtx,
-		store.RecordGeocode(wsCtx, orgID, people.GeocodeOK, &point.Lat, &point.Lon, geocodeProvider, address.InputHash))
+	// Remembered BEFORE the row is written, so a failure to record the company
+	// does not also lose the lookup: the point is a fact about a place, and the
+	// next company on that street should not have to pay for it again.
+	// The cache write's failure is JOINED rather than logged and dropped. It is
+	// the less important of the two writes — the company still gets its point —
+	// but a cache that silently stops taking entries makes this installation
+	// re-ask the provider for every place, which is the policy breach the cache
+	// exists to prevent. A reader of river_job.errors should see it.
+	cacheErr := store.RememberPlace(wsCtx, address.Query, people.CachedPlace{
+		Lat: point.Lat, Lon: point.Lon, Provider: geocodeProvider,
+	})
+	return jobs.FaultContext(wsCtx, errors.Join(
+		store.RecordGeocode(wsCtx, orgID, people.GeocodeOK, &point.Lat, &point.Lon, geocodeProvider, address.InputHash),
+		cacheErr))
 }
 
 // geocodeProvider names what answered, recorded on the row so a later change

@@ -104,6 +104,12 @@ type nominatimResult struct {
 	Lon string `json:"lon"`
 }
 
+// Resolve asks the provider where a place is.
+//
+// Three outcomes, and telling them apart is the caller's whole retry policy: a
+// point, a definite "not a place" (ok=false, no error — recorded and never
+// re-asked), and a lookup that did not complete (an error — retried, and after
+// a 429 retried on the provider's own schedule via ProviderRefusedError).
 func (n *Nominatim) Resolve(ctx context.Context, query string) (Point, bool, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -134,10 +140,13 @@ func (n *Nominatim) Resolve(ctx context.Context, query string) (Point, bool, err
 	//craft:ignore swallowed-errors best-effort close: the decode below reads what it needs and may leave the body mid-stream, so a close error says nothing about whether the address resolved
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		// A 429 or a 403 here means this installation is being rate-limited or
-		// blocked, which is a condition to surface rather than absorb: the
-		// caller backs off, and the operator log names the status.
-		return Point{}, false, fmt.Errorf("geocode: the provider answered %d", resp.StatusCode)
+		// A 429 or a 403 means this installation is being rate-limited or
+		// blocked — a condition to surface rather than absorb, and one that
+		// carries its own instruction about when to come back.
+		return Point{}, false, &ProviderRefusedError{
+			Status:     resp.StatusCode,
+			RetryAfter: retryAfter(resp.Header.Get("Retry-After")),
+		}
 	}
 
 	var results []nominatimResult
@@ -171,4 +180,44 @@ func (n *Nominatim) Resolve(ctx context.Context, query string) (Point, bool, err
 // wrong distances rather than an error anyone notices.
 func plausible(lat, lon float64) bool {
 	return lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+}
+
+// ProviderRefusedError is the provider declining, with the wait it asked for.
+//
+// The wait is the part worth carrying. A 429 means this installation is asking
+// too often, and retrying on the job runner's own schedule rather than the
+// provider's is how a rate limit becomes a block.
+type ProviderRefusedError struct {
+	Status int
+	// RetryAfter is what the provider asked for, or zero when it said nothing.
+	RetryAfter time.Duration
+}
+
+func (e *ProviderRefusedError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("geocode: the provider answered %d and asked for %s before the next request",
+			e.Status, e.RetryAfter)
+	}
+	return fmt.Sprintf("geocode: the provider answered %d", e.Status)
+}
+
+// retryAfter reads the header, in either form the RFC allows.
+//
+// A malformed or absent value is zero rather than a guess: the caller's own
+// backoff is the fallback, and inventing a number the provider did not give
+// would be a worse answer than admitting it said nothing.
+func retryAfter(header string) time.Duration {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(header); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if at, err := http.ParseTime(header); err == nil {
+		if wait := time.Until(at); wait > 0 {
+			return wait
+		}
+	}
+	return 0
 }

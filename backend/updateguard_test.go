@@ -110,8 +110,7 @@ var unguardedByIDUpdates = gatekit.Waive(map[string]string{
 	// invalidateGeocodeInTx only ever moves a status TOWARD stale, never away,
 	// and it runs inside the address writer's own transaction — the row is
 	// already locked by the patch that changed the address.
-	"internal/modules/people:RecordGeocode":         "last-writer-wins by design: the write is keyed to an address hash, and a racing writer either writes the same point or writes the newer address's — a guard would leave coordinates for an address the company no longer has",
-	"internal/modules/people:invalidateGeocodeInTx": "runs inside the address writer's own transaction, where the row is already locked by the patch that changed the address; the transition is one-way toward stale",
+	"internal/modules/people:recordGeocodeAfter":    "guarded by a re-read rather than a version: the transaction rebuilds the address hash from the live columns and writes nothing unless it still matches what was resolved (addressHashInTx). That is a stronger check than a version pin here — a version would refuse a write whose address is unchanged but whose row was touched for some unrelated reason, and accept one whose address moved without bumping it",
 	"internal/modules/automation:Archive":           "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the audit before-image",
 	"internal/modules/collections:ArchiveList":      "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/collections:ArchiveSavedView": "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",

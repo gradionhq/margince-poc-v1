@@ -54,6 +54,12 @@ const (
 // only thing that could make the answer different.
 const geocodeMaxAttempts = 3
 
+// defaultGeocodeBackoff is how long a failure with no provider instruction
+// waits. Long, because a lookup that failed for a reason this code cannot read
+// is not worth spending the installation's shared rate on again soon — and an
+// address edit resets the ledger regardless.
+const defaultGeocodeBackoff = 24 * time.Hour
+
 // GeocodeEnqueue hands the worker job to whatever runs jobs, inside the
 // caller's transaction.
 //
@@ -77,6 +83,13 @@ type GeocodableAddress struct {
 // AddressForGeocode reads the address to resolve, or ok=false when there is
 // nothing to resolve or nothing worth re-asking.
 //
+// EVERY query here carries an explicit workspace predicate. Migration 0217
+// retired row-level security, so a store query that names only an id reaches
+// any workspace's row — and this path runs under the SYSTEM principal from a
+// job whose args name their own workspace, which means the args would
+// otherwise be the authority on which tenant's data is touched. A job carrying
+// workspace A and an organization id from workspace B would read and write B.
+//
 // It answers false for THREE different situations and the caller does not need
 // to tell them apart: no address at all, an address already resolved to the
 // same coordinates, and an address whose attempts are spent. Each means "do
@@ -90,16 +103,19 @@ func (s *Store) AddressForGeocode(ctx context.Context, orgID ids.OrganizationID)
 		currentHash                                 *string
 		status                                      *string
 		attempts                                    int
+		nextAttempt                                 *time.Time
 	)
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT o.address_line1, o.address_line2, o.address_city, o.address_region,
 			       o.address_postal_code, o.address_country, o.geocode_input_hash, o.geocode_status,
-			       coalesce(g.attempts, 0)
+			       coalesce(g.attempts, 0), g.next_attempt_at
 			  FROM organization o
 			  LEFT JOIN organization_geocode_state g ON g.organization_id = o.id
-			 WHERE o.id = $1 AND o.archived_at IS NULL`, orgID).
-			Scan(&line1, &line2, &city, &region, &postal, &country, &currentHash, &status, &attempts)
+			 WHERE o.id = $1 AND o.archived_at IS NULL
+			   AND o.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, orgID).
+			Scan(&line1, &line2, &city, &region, &postal, &country, &currentHash, &status,
+				&attempts, &nextAttempt)
 	})
 	if err != nil {
 		return GeocodableAddress{}, false, err
@@ -110,15 +126,48 @@ func (s *Store) AddressForGeocode(ctx context.Context, orgID ids.OrganizationID)
 		return GeocodableAddress{}, false, nil
 	}
 	hash := addressHash(query)
-	// Already resolved to THIS address. The hash rather than the status,
-	// because a row that failed on a different address is worth asking again.
-	if currentHash != nil && *currentHash == hash && status != nil && *status != GeocodeStale {
+	sameAddress := currentHash != nil && *currentHash == hash
+	if sameAddress && settledFor(status) {
+		// This address has an answer already — a point, or a definite "not a
+		// place". Asking again changes nothing until the address does.
 		return GeocodableAddress{}, false, nil
 	}
-	if attempts >= geocodeMaxAttempts && currentHash != nil && *currentHash == hash {
+	if sameAddress && attempts >= geocodeMaxAttempts {
+		// Tried and failed enough times. The row waits for its address to
+		// change, which is the only thing that could make the answer different.
+		return GeocodableAddress{}, false, nil
+	}
+	if sameAddress && !dueForRetry(nextAttempt, time.Now()) {
+		// Failed recently. River's own schedule is not the provider's: a rate
+		// limit wants the backoff this ledger recorded, not an immediate retry.
 		return GeocodableAddress{}, false, nil
 	}
 	return GeocodableAddress{OrganizationID: orgID, Query: query, InputHash: hash}, true, nil
+}
+
+// settledFor reports whether this address already has a final answer.
+//
+// `failed` is NOT settled, and that distinction was the bug: treating it as
+// settled meant one network blip or one 429 permanently suppressed every
+// retry, because the next attempt read the same hash and gave up before
+// asking. A lookup that did not complete has no answer at all.
+//
+// `stale` is not settled either — it is the marker saying the coordinates
+// belong to a previous address.
+func settledFor(status *string) bool {
+	if status == nil {
+		return false
+	}
+	return *status == GeocodeOK || *status == GeocodeNoMatch
+}
+
+// dueForRetry honours the backoff the ledger recorded.
+//
+// It is read HERE rather than only written, which is what the first cut got
+// wrong: next_attempt_at was stamped on every failure and consulted by
+// nothing, so the column documented a policy the code did not have.
+func dueForRetry(nextAttempt *time.Time, now time.Time) bool {
+	return nextAttempt == nil || !now.Before(*nextAttempt)
 }
 
 // addressQuery builds the one line a geocoder is asked about.
@@ -161,6 +210,31 @@ func addressHash(query string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// addressHashInTx identifies the address the row holds RIGHT NOW.
+//
+// Separate from AddressForGeocode because the two ask different questions at
+// different times: that one asks "is this worth looking up", before the
+// lookup; this one asks "is this still the address I looked up", after it. One
+// query serving both would have to answer the second with data read for the
+// first, which is the staleness this whole file is about.
+func addressHashInTx(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (string, error) {
+	var line1, line2, city, region, postal, country *string
+	if err := tx.QueryRow(ctx, `
+		SELECT address_line1, address_line2, address_city, address_region,
+		       address_postal_code, address_country
+		  FROM organization
+		 WHERE id = $1 AND archived_at IS NULL
+		   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, orgID).
+		Scan(&line1, &line2, &city, &region, &postal, &country); err != nil {
+		return "", fmt.Errorf("re-reading the address before recording its point: %w", err)
+	}
+	query := addressQuery(line1, line2, city, region, postal, country)
+	if query == "" {
+		return "", nil
+	}
+	return addressHash(query), nil
+}
+
 // RecordGeocode writes what the geocoder said, whatever it said.
 //
 // Every outcome is recorded, including the ones with no coordinates: a company
@@ -171,15 +245,62 @@ func addressHash(query string) string {
 func (s *Store) RecordGeocode(
 	ctx context.Context, orgID ids.OrganizationID, status string, lat, lon *float64, provider, inputHash string,
 ) error {
+	return s.recordGeocodeAfter(ctx, orgID, status, lat, lon, provider, inputHash, 0)
+}
+
+// RecordGeocodeBackoff is RecordGeocode for a failure the PROVIDER put a clock
+// on: a 429 carrying Retry-After.
+//
+// The wait is honoured rather than noted. Retrying on the job runner's own
+// schedule when a provider has said "not for ten minutes" is how a rate limit
+// becomes a block, and this installation shares one budget across every
+// company it will ever geocode.
+func (s *Store) RecordGeocodeBackoff(
+	ctx context.Context, orgID ids.OrganizationID, inputHash string, wait time.Duration,
+) error {
+	return s.recordGeocodeAfter(ctx, orgID, GeocodeFailed, nil, nil, "", inputHash, wait)
+}
+
+func (s *Store) recordGeocodeAfter(
+	ctx context.Context, orgID ids.OrganizationID, status string, lat, lon *float64,
+	provider, inputHash string, wait time.Duration,
+) error {
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
+		// CONDITIONAL ON THE ADDRESS NOT HAVING MOVED, and this is the whole
+		// point of the input hash.
+		//
+		// The worker read the address, left the process for seconds, and came
+		// back. An editor can have committed a new address in between. An
+		// unconditional write would then stamp status='ok' with the point of
+		// the PREVIOUS address onto a row that now holds a different one, and a
+		// radius query would answer from the old place while reporting success
+		// — the exact defect geocode_status exists to prevent, reintroduced by
+		// the code that clears it.
+		//
+		// The row is re-read and re-hashed rather than compared against
+		// geocode_input_hash: that column records what was last RESOLVED, so
+		// matching it would accept a write for an address the row no longer
+		// has. The live columns are the only authority on what the address IS.
+		current, err := addressHashInTx(ctx, tx, orgID)
+		if err != nil {
+			return err
+		}
+		if current != inputHash {
+			// The address moved while we were asking. Nothing is written: the
+			// trigger has already marked the row stale, and a successor job for
+			// the new address is what resolves it.
+			return nil
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE organization
 			   SET geocode_lat = $2, geocode_lon = $3, geocode_status = $4,
 			       geocode_provider = $5, geocode_input_hash = $6, geocoded_at = now()
-			 WHERE id = $1`, orgID, lat, lon, status, provider, inputHash); err != nil {
+			 WHERE id = $1
+			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+			orgID, lat, lon, status, provider, inputHash); err != nil {
 			return fmt.Errorf("recording the geocode: %w", err)
 		}
 		// A success RESETS the attempts. The next address change starts with a
@@ -194,53 +315,60 @@ func (s *Store) RecordGeocode(
 				orgID, status)
 			return err
 		}
-		_, err := tx.Exec(ctx, `
+		// The provider's own wait when it gave one, and a day otherwise. A day
+		// is deliberately long: a lookup that failed for any reason this code
+		// cannot read is not worth spending the shared rate on again soon, and
+		// an address edit resets the ledger anyway.
+		next := defaultGeocodeBackoff
+		if wait > 0 {
+			next = wait
+		}
+		_, err = tx.Exec(ctx, `
 			INSERT INTO organization_geocode_state
 			       (organization_id, attempts, last_outcome, next_attempt_at, updated_at)
-			VALUES ($1, 1, $2, now() + interval '1 day', now())
+			VALUES ($1, 1, $2, now() + $3::interval, now())
 			ON CONFLICT (organization_id) DO UPDATE
 			   SET attempts = organization_geocode_state.attempts + 1,
 			       last_outcome = $2,
-			       next_attempt_at = now() + interval '1 day',
-			       updated_at = now()`, orgID, status)
+			       next_attempt_at = now() + $3::interval,
+			       updated_at = now()`, orgID, status, next.String())
 		return err
 	})
 }
 
-// invalidateGeocodeInTx marks a company's coordinates stale, in the SAME
-// transaction as the address change that made them stale.
-//
-// This is the load-bearing half of the whole design, and it must not be
-// separated from the address write. Enqueueing a job without it leaves the old
-// coordinates queryable until the worker runs — seconds at best, forever if
-// the worker is down — and a radius query would keep answering from the
-// previous address the entire time.
-//
-// It is a no-op for a company that has no coordinates yet, which is most of
-// them: there is nothing to invalidate, and stamping 'stale' on a row that was
-// never resolved would say the coordinates are out of date rather than absent.
-func invalidateGeocodeInTx(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) error {
-	_, err := tx.Exec(ctx, `
-		UPDATE organization
-		   SET geocode_status = $2
-		 WHERE id = $1 AND geocode_status IS NOT NULL AND geocode_status <> $2`,
-		orgID, GeocodeStale)
-	return err
+// organizationAddressColumns is the set an address change touches. Named once
+// so a caller asking "did the address move" cannot ask about five of six.
+var organizationAddressColumns = []string{
+	"address_line1", "address_line2", "address_city",
+	"address_region", "address_postal_code", "address_country",
 }
 
-// addressChanged is what an address writer calls: invalidate what is there,
-// then queue the lookup that will replace it — both in the caller's own
-// transaction, so a rollback takes the job with it and a commit cannot leave a
-// company holding coordinates for an address it no longer has.
+// movedAddress reports whether the patch actually assigned an address column.
 //
-// The two halves are ONE call because they must not be separated. Invalidating
-// without enqueueing leaves a company permanently unqueryable by distance;
-// enqueueing without invalidating leaves the old point answering until the
-// worker catches up.
-func (s *Store) addressChanged(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) error {
-	if err := invalidateGeocodeInTx(ctx, tx, orgID); err != nil {
-		return err
+// The patch records a column only when the value CHANGED (storekit's
+// recordAssignment), so this asks the question that matters — did the company
+// move — rather than "did the request mention an address". Re-submitting a form
+// with an unchanged address would otherwise spend a lookup, and every lookup is
+// fifteen seconds of a rate the whole installation shares.
+func movedAddress(after map[string]any) bool {
+	for _, column := range organizationAddressColumns {
+		if _, assigned := after[column]; assigned {
+			return true
+		}
 	}
+	return false
+}
+
+// enqueueGeocode queues the lookup that will replace a company's coordinates,
+// in the CALLER's transaction — so a rollback takes the job with it and a
+// commit cannot leave a company marked stale with nothing coming to fix it.
+//
+// It does NOT invalidate. The trigger installed with the geocode columns does
+// that, on any address column that actually changed, which is the only place
+// the rule cannot be forgotten: six writers in this package touch an address,
+// several through table-driven SQL with no seam to carry, and the seventh will
+// be written by somebody who never read this file.
+func (s *Store) enqueueGeocode(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) error {
 	if s.geocodeEnqueue == nil {
 		return nil
 	}

@@ -4,6 +4,8 @@
 -- holding the whole table while it waits.
 SET LOCAL lock_timeout = '3s';
 
+DROP TRIGGER IF EXISTS trg_organization_geocode_stale ON organization;
+DROP FUNCTION IF EXISTS organization_geocode_goes_stale();
 DROP TABLE IF EXISTS geocode_cache;
 DROP TABLE IF EXISTS organization_geocode_state;
 DROP INDEX IF EXISTS idx_organization_geocoded;
