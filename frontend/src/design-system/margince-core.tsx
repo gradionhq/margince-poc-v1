@@ -67,11 +67,20 @@ export type MarginceCoreState =
  */
 export type CoreSurface = "auto" | "dark";
 
-/** Reads the theme the shell has already resolved onto the root element. */
+/**
+ * Reads the theme the shell has already resolved onto the root element.
+ *
+ * DARK unless the root says `light`, which is the same reading the Core's own
+ * stylesheet makes (`:root:not([data-theme="light"]) .core`). A host that mounts
+ * the Core before stamping the attribute would otherwise get the paper dress
+ * from the shader and the dark dress from the CSS, on the same ball.
+ */
+function isDarkRoot(): boolean {
+  return document.documentElement.dataset.theme !== "light";
+}
+
 function useDarkPage(): boolean {
-  const [dark, setDark] = useState(
-    () => document.documentElement.dataset.theme === "dark",
-  );
+  const [dark, setDark] = useState(isDarkRoot);
   useEffect(() => {
     const root = document.documentElement;
     // The attribute is the shell's own output (app/theme.ts), and the Core's
@@ -79,7 +88,7 @@ function useDarkPage(): boolean {
     // than subscribing to the store keeps the design system from importing the
     // app it dresses.
     const observer = new MutationObserver(() => {
-      setDark(root.dataset.theme === "dark");
+      setDark(isDarkRoot());
     });
     observer.observe(root, {
       attributes: true,

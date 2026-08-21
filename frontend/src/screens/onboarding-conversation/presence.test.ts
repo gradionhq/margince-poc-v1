@@ -67,7 +67,7 @@ describe("presenceFor: welcome and company act", () => {
     ).toBe("warning");
   });
 
-  it("rests at review and applies once confirmed", () => {
+  it("rests at review and once confirmed", () => {
     // Review is proposals in front of a person: the agent has stopped, so the orb
     // must not claim work nobody asked it to keep doing.
     expect(
@@ -133,7 +133,7 @@ describe("presenceFor: voice, results, connect", () => {
     );
   });
 
-  it("settles on the recap, rests through consent, applies on done", () => {
+  it("settles on the recap, and rests through consent and done", () => {
     expect(presenceFor(state({ act: "results", phase: "re.recap" }))).toEqual({
       core: "idle",
     });

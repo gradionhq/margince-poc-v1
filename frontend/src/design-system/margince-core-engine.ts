@@ -302,6 +302,11 @@ export function useCoreEngine(
     // back, which is the honest picture of what the machine can draw.
     const onLost = (event: Event) => {
       event.preventDefault();
+      // Stop as well as report. Reporting alone leaves `tick` re-arming itself
+      // for every state whose eased speed is still above rest, drawing each
+      // frame into a context that no longer exists; and nothing unmounts the
+      // canvas on a loss, so only unmount would ever have ended it.
+      loop.stop();
       setLive(false);
     };
     canvas.addEventListener("webglcontextlost", onLost);

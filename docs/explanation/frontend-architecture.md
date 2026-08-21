@@ -279,16 +279,16 @@ workbench. Four things about it are load-bearing rather than stylistic:
 - **One implementation.** A caller passes `state` and never restyles. Sizing
   through the documented `--coreSize` / `--coreGlass` custom properties is
   configuration; anything beyond that is a caller restyling a shared primitive.
-- **The state list is closed** — exactly eight: `dormant`, `ingesting`,
-  `reasoning`, `drafting`, `applied`, `flagged`, `disconnected`, `error`. Callers
-  use the Core
-  as a *status channel* (a sign-in in flight, a server that cannot be reached),
-  and a status channel with an open vocabulary is one nobody can test and no
-  second caller can reuse. `progress` is optional and draws the ring only when
-  passed.
-- **Rendering is a fallback ladder, not a technology.** The shader is preferred
-  and a non-GPU CSS rendering of *every* state is required
-  (`margince-core-liquid.tsx`).
+- **The state list is closed** — exactly five: `idle`, `ingest`, `working`,
+  `warning`, `error`. Callers use the Core as a *status channel* (a sign-in in
+  flight, a server that cannot be reached), and a status channel with an open
+  vocabulary is one nobody can test and no second caller can reuse. Red means
+  NOT CONNECTED and nothing else; amber is the fault that can wait. `progress`
+  is optional and draws the ring only when passed.
+- **Rendering is a fallback ladder, not a technology.** The WebGL2 shader is
+  preferred (`margince-core-shader.ts`), and a host without it gets a static CSS
+  dress carrying the same `data-core-state`, so nothing reading the Core's state
+  off the DOM can tell the two apart.
 - **It is `aria-hidden`.** Every state it shows is also stated in text by the
   surface around it, which is what makes it safe to be this decorative.
 
@@ -338,7 +338,7 @@ frontend lane is separate from the Go merge gate and needs node + pnpm. Run
 | copy | `src/i18n/en.ts` **and** `src/i18n/de.ts` — key parity is compile-time |
 | money, dates, durations, zones | `src/format/format.ts` — except which calendar day an instant falls on, and the instant a picked day ends, which are `src/format/calendarday.ts` |
 | an API call | `src/api/client.ts` is the seam; regenerate types with `pnpm gen:api` |
-| the Core's appearance or states | `src/design-system/margince-core.tsx` + `margince-core-liquid.tsx` |
+| the Core's appearance or states | `src/design-system/margince-core.tsx` + `margince-core-shader.ts` + `margince-core-motion.ts` |
 
 ## Where the code lives
 

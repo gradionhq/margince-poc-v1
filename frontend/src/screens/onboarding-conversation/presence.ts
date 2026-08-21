@@ -106,7 +106,15 @@ function companyPresence(
  * first pair, `working` the second, which is as far as the orb's report
  * needs to go.
  */
-function buildCore(stage: BuildStage | null): MarginceCoreState {
+/**
+ * What a build stage looks like on the Core, for every surface that draws one.
+ *
+ * Exported because two of them draw one (`voice-scenes.tsx` renders its own),
+ * and a second copy is how a queued build came to read as intake on one surface
+ * and rest on the other. A build that has started and reported no stage yet is
+ * still a build in flight: material is arriving, so it is intake, not rest.
+ */
+export function buildCore(stage: BuildStage | null): MarginceCoreState {
   return stage === "evaluate" || stage === "activate" ? "working" : "ingest";
 }
 

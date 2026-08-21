@@ -3,16 +3,14 @@ import type { ChangeEvent, ReactNode, RefObject } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { Button, Disclosure } from "../../design-system/atoms";
-import {
-  MarginceCoreScene,
-  type MarginceCoreState,
-} from "../../design-system/margince-core";
+import { MarginceCoreScene } from "../../design-system/margince-core";
 import { usePrefersReducedMotion } from "../../design-system/motion";
 import { useT } from "../../i18n";
 import type { VoiceInsightsData } from "../voice-insights";
 import { parseVoiceInsights } from "../voice-insights";
 import { ACCEPTED_CORPUS_ATTR, VOICE_MIN_WORDS } from "../voice-intake-core";
 import type { BuildStage, ConversationQuestion } from "./conversation-machine";
+import { buildCore } from "./presence";
 import type { CorpusManifestEntry } from "./use-voice-corpus";
 
 // The voice act's work surface, as scenes: collect the writing, decide who
@@ -39,13 +37,6 @@ const BUILD_STAGES: readonly BuildStage[] = [
  * spends the vocabulary's whole point: five distinguishable formations, showing
  * one. A queued build with no stage yet has nothing to claim and rests.
  */
-const BUILD_STAGE_STATE: Readonly<Record<BuildStage, MarginceCoreState>> = {
-  snapshot: "ingest",
-  extract: "ingest",
-  evaluate: "working",
-  activate: "working",
-};
-
 const stageLabelKeys = {
   snapshot: "ob.conv.build.snapshot",
   extract: "ob.conv.build.extract",
@@ -473,7 +464,7 @@ export function VoiceBuildScene({
     <div className="ob-scene ob-voice-building">
       <div className="ob-voice-orb">
         <MarginceCoreScene
-          state={stage === null ? "idle" : BUILD_STAGE_STATE[stage]}
+          state={buildCore(stage)}
           progress={progress}
           feed={false}
         />

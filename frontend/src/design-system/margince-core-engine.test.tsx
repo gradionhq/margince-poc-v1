@@ -5,8 +5,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MarginceCoreScene } from "./margince-core";
-import { BEHAVIOUR } from "./margince-core-motion";
+import { MarginceCoreScene, type MarginceCoreState } from "./margince-core";
 import { WINDOW_BLURRED_ATTRIBUTE } from "./window-focus";
 
 // jsdom's `getContext("webgl2")` always returns null, so every case here
@@ -38,6 +37,21 @@ function frameClock() {
   };
 }
 
+/**
+ * The closed vocabulary, written out rather than read off the behaviour table.
+ *
+ * A list derived from the table would pass on a table that had quietly lost a
+ * state, which is the failure this case exists to catch. Typed, so a name that
+ * is not a state does not compile.
+ */
+const STATES: readonly MarginceCoreState[] = [
+  "idle",
+  "ingest",
+  "working",
+  "warning",
+  "error",
+];
+
 describe("the Core's engine, on a host without WebGL2", () => {
   let clock: ReturnType<typeof frameClock>;
 
@@ -63,7 +77,7 @@ describe("the Core's engine, on a host without WebGL2", () => {
     // Other surfaces read the Core's state off this attribute, which has to
     // hold whether or not the GL path is live: the fallback is what a locked-
     // down browser and a lost context both fall back to, not a special case.
-    for (const state of Object.keys(BEHAVIOUR) as (keyof typeof BEHAVIOUR)[]) {
+    for (const state of STATES) {
       const { container, unmount } = render(
         <MarginceCoreScene state={state} />,
       );

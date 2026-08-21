@@ -27,11 +27,12 @@ import { NAMED, SAID, WROTE } from "./agentrail-copy";
  * language, and a surface whose job is to be believed cannot afford a sentence
  * nobody wrote.
  *
- * WHAT IT CANNOT SEE, and the reason is worth writing down. Writes are invisible
- * here, because no `useMutation` in this tree carries a `mutationKey`, so the
- * cache cannot say WHICH write is running. And the overnight run is invisible for
- * a harder reason: it happens in the worker, hours before this tab existed. Both
- * gaps show as the state's own resting line, never as a fabricated event.
+ * WHAT IT CANNOT SEE, and the reason is worth writing down. The overnight run:
+ * it happens in the worker, hours before this tab existed, and the contract
+ * serves no run-progress read and no stream, so nothing about it reaches a
+ * browser. A write with no `mutationKey` is invisible for a much smaller reason,
+ * which is that the cache cannot say which write it is. Both gaps show as the
+ * state's own resting line, never as a fabricated event.
  */
 
 /** One named thing the tool is doing, as the reader would say it. */
@@ -308,9 +309,14 @@ export function useAgentTicker(): readonly TickerLine[] {
       ) {
         return;
       }
-      const said = wroteFor(client, event.mutation.options.mutationKey);
-      if (said !== null) {
-        push(said);
+      // Through `sayOnce`, not `push`: the cache publishes an `updated` event
+      // for `pause`, `continue` and `failed` while the mutation is still
+      // pending, so one write that retries would otherwise announce itself
+      // several times over.
+      const key = event.mutation.options.mutationKey;
+      const said = wroteFor(client, key);
+      if (said !== null && key !== undefined) {
+        sayOnce(said, key);
       }
     });
 

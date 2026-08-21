@@ -82,7 +82,7 @@ export function uiPreviewResetEnabled(): boolean {
  * `VITE_UI_PREVIEW_TASKBAR=1`: put the review-only STATE SWITCHER into the
  * agent panel at the foot of the workspace rail (`app/agentrail.tsx`).
  *
- * Why it exists: the agent section reports what it reads, and three of the eight
+ * Why it exists: the agent section reports what it reads, and some of the five
  * Core states describe an overnight run no read can reach. The only way to judge
  * how those look is to walk the real screens wearing them, because what is being
  * judged is how the section sits in a rail that collapses beside a page that
@@ -96,7 +96,7 @@ export function uiPreviewResetEnabled(): boolean {
  * What this switch adds is the part no read can reach. Three states, the
  * overnight run taking captured mail in, traversing the graph and drafting, have
  * nothing behind them: the contract serves no run phase and no stream. With the
- * switch on, all eight are offered from the panel under a heading that says
+ * switch on, all five are offered from the panel under a heading that says
  * review-only, so a reviewer can see each one dressed on the real surface.
  *
  * Read at the call rather than at module load, for the same reason as the

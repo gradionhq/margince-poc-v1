@@ -106,7 +106,7 @@
     var(--accentLight);
 }
 .arhit:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: var(--focus-ring);
   outline-offset: -2px;
 }
 
@@ -820,7 +820,7 @@
   color: var(--textOnAccentControl);
 }
 .arplay:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   box-shadow: 0 0 0 3px var(--accentLight);
 }
 
@@ -846,6 +846,6 @@
   color: var(--textOnAccentControl);
 }
 .archip:focus-visible {
-  outline: 2px solid transparent;
+  outline: var(--focus-ring-forced);
   box-shadow: 0 0 0 3px var(--accentLight);
 }
