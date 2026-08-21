@@ -294,7 +294,7 @@ func (s *VoiceStore) RollbackVersion(ctx context.Context, profileID ids.UUID, so
 			   model_provider, model_name, builder_version, activation_policy_version,
 			   evaluation_json, review_reasons, activated_at, source, captured_by, updated_at)
 			VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, 'rollback', $8,
-			        $9, $10, $11, $12, $13, $14, $15, 'ui', $16, $15)
+			        $9, $10, $11, $12, $13, $14, $15, 'manual', $16, $15)
 			RETURNING %s`, voiceVersionColumns), profileID, nextVersion, source.VoiceProfileMD,
 			storekit.JSONArg(source.ProfileJSON), storekit.JSONArg(source.StatsJSON), source.SourceHash,
 			source.SourceCount, profile.ProfileVersion, source.ModelProvider, source.ModelName,

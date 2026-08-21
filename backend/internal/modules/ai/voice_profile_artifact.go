@@ -150,7 +150,7 @@ func persistDerivedVoiceVersion(ctx context.Context, tx pgx.Tx, build derivedPro
 			   model_provider, model_name, builder_version, activation_policy_version,
 			   evaluation_json, activated_at, source, captured_by, updated_at)
 			VALUES ($1, $2, 'active', $3, $4, '{}'::jsonb, $5, $6, 'manual', $7,
-			        'internal', $8, 'legacy-set-derived', '1', $9, $10, 'ui', $11, $10)
+			        'internal', $8, 'legacy-set-derived', '1', $9, $10, 'manual', $11, $10)
 			RETURNING id`, build.profileID, build.nextVersion, build.voiceProfileMD,
 		storekit.JSONArg(map[string]any{voiceKeyDocument: build.voiceProfileMD}), build.sourceHash,
 		build.sourceCount, build.predecessorVersion, modelName, storekit.JSONArg(evaluation), build.now,

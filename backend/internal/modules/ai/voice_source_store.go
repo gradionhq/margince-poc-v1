@@ -122,7 +122,7 @@ func (s *VoiceStore) persistPreparedSource(ctx context.Context, tx pgx.Tx, profi
 			   source_ref, content, content_hash, word_count, excluded, exclusion_reason,
 			   extractor_version, occurred_at, source, captured_by, updated_at)
 			VALUES ($1, 'manual', $2, $3, $4, $5, $6, $7, $8, $9,
-			        false, NULL, 'voice-v1', $10, 'ui', $11, $12)
+			        false, NULL, 'voice-v1', $10, 'manual', $11, $12)
 			ON CONFLICT (voice_profile_id, source_ref) DO UPDATE SET
 			  origin = 'manual',
 			  kind = EXCLUDED.kind,

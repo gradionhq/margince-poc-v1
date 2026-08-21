@@ -350,7 +350,7 @@ func (s *Store) UpdateSignal(ctx context.Context, id ids.SignalID, in UpdateSign
 				`INSERT INTO signal_resolution (id, signal_id, outcome, note, resolved_by, source, captured_by)
 				 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 				ids.NewV7(), id, *in.Status, in.Note,
-				storekit.UUIDOrNil(actor.UserID), "ui", actor.ID); err != nil {
+				storekit.UUIDOrNil(actor.UserID), "manual", actor.ID); err != nil {
 				return fmt.Errorf("append signal outcome: %w", err)
 			}
 		}
