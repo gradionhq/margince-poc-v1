@@ -228,7 +228,14 @@ func namespaceAtHead(ns dbmigrate.Namespace, recorded map[string]recordedRow) st
 		case row.name != m.Name:
 			return fmt.Sprintf("%s %s was applied as %q but this binary carries %q there — the version was renumbered", ns.Name, m.Version, row.name, m.Name)
 		case row.digest == "":
-			return fmt.Sprintf("%s %s_%s recorded no content digest, so what it applied cannot be compared with what this binary embeds", ns.Name, m.Version, m.Name)
+			// The refusal an upgrading operator ACTUALLY meets, and the reason
+			// the column-count branch above is not: trackingTable's
+			// ALTER TABLE ... ADD COLUMN IF NOT EXISTS runs on every migrate, and
+			// scripts/lib-testdb.sh ensure_template migrates the existing template
+			// before any package starts — so by the time this probe runs the
+			// column is there and only its rows are old. It carries the remedy for
+			// that reason.
+			return fmt.Sprintf("%s %s_%s recorded no content digest, so what it applied cannot be compared with what this binary embeds — this template predates the digest and rows are never back-filled; `make test-db-up` rebuilds it", ns.Name, m.Version, m.Name)
 		case row.digest != dbmigrate.Digest(m):
 			return fmt.Sprintf("%s %s_%s was applied from different content than this binary embeds — the migration was edited after this database was migrated", ns.Name, m.Version, m.Name)
 		}
@@ -275,7 +282,31 @@ func schemaEmpty(ctx context.Context, owner *pgx.Conn) (string, error) {
 	for i, table := range tables {
 		branches = append(branches, `SELECT `+strconv.Itoa(i)+` WHERE EXISTS (SELECT 1 FROM `+table+`)`)
 	}
-	rows, err := owner.Query(ctx, strings.Join(branches, " UNION ALL "))
+	// In a transaction with row_security off, for the reason resetWithin sets it:
+	// an ext_ table carries FORCE ROW LEVEL SECURITY with a deny-on-unset policy,
+	// and this connection sets no app.workspace_id GUC. A role without BYPASSRLS
+	// would then be shown zero rows in every one of them and this probe would
+	// answer "empty" over a populated schema — the one wrong answer it must never
+	// give, since EnsureSchema baselines table sizes on the strength of it.
+	// resetWithin fails LOUDLY in that situation (set_config is SUSET); a probe
+	// that merely reads would not, so it has to ask with the same visibility
+	// rather than trust that the two agree.
+	tx, err := owner.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("probing the clone for rows: %w", err)
+	}
+	// Read-only throughout, so the transaction is ended by rollback on every
+	// path: there is nothing here to commit. On the caller's context, like
+	// Reset's own rollback — a cancelled probe has no rollback worth waiting on.
+	defer func() {
+		//craft:ignore swallowed-errors a read-only probe transaction has nothing to lose on rollback, and the probe's own verdict is the error that matters
+		_ = tx.Rollback(ctx)
+	}()
+	if _, err := tx.Exec(ctx, `SELECT set_config('row_security', 'off', true)`); err != nil {
+		return "", fmt.Errorf("arming the emptiness probe: %w", err)
+	}
+
+	rows, err := tx.Query(ctx, strings.Join(branches, " UNION ALL "))
 	if err != nil {
 		return "", fmt.Errorf("probing the clone for rows: %w", err)
 	}

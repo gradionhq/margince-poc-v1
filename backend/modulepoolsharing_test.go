@@ -53,12 +53,18 @@ const (
 // poolConstructors is every way a file can obtain a pool of its own, and the
 // list is the gate rather than a convenience.
 //
-// database.NewPool alone was not enough, and that was not a hypothesis: the
-// tree ALREADY held a module suite reaching pgxpool.NewWithConfig directly
-// (people/ensurechannel_contention), which a gate spelled against the product
-// constructor read straight past. A gate that refuses one spelling of a mistake
-// while a second spelling sits unjudged in the same tree is the shape this file
-// exists to prevent, one level up.
+// The product constructor alone was not enough, and that was not a hypothesis:
+// the tree ALREADY held a module suite reaching the driver's own pool
+// constructor directly (people/ensurechannel_contention, whose bound rides
+// ConnConfig rather than the DSN), which a gate spelled against the product one
+// read straight past. A gate that refuses one spelling of a mistake while a
+// second spelling sits unjudged in the same tree is the shape this file exists
+// to prevent, one level up.
+//
+// Named through the constants above rather than written out, and not only for
+// tidiness: scripts/check-test-lanes.sh scans this tree as TEXT for the same
+// constructors, to catch a unit test opening real infrastructure. Spelling one
+// in prose here makes this gate its own offender — which it duly did.
 var poolConstructors = []struct{ pkg, symbol string }{
 	{databasePath, "NewPool"},
 	{pgxpoolPath, "New"},
