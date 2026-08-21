@@ -114,3 +114,43 @@ func TestSealedCredentialsSurviveADataReset(t *testing.T) {
 		t.Error("a data reset would delete the credential refs, stranding every sealed key in the vault")
 	}
 }
+
+// The sealer's provider list is DERIVED from cloudKeyEnv, and this is what
+// makes that claim true rather than a comment. A vendor added there must be
+// sealed the day it appears; one the derivation missed would keep its key in
+// the environment forever, and nothing else in the tree would say so.
+func TestEveryProviderWithAKeyIsOneTheSealerCoversAndNamesAVariable(t *testing.T) {
+	covered := map[string]bool{}
+	for _, provider := range CloudProvidersNeedingKeys() {
+		covered[provider] = true
+		if KeyEnvVarFor(provider) == "" {
+			t.Errorf("%s is sealed but names no environment variable, so nothing can supply its key", provider)
+		}
+	}
+	for provider := range cloudKeyEnv {
+		if !covered[provider] {
+			t.Errorf("%s takes an api key but the sealer does not cover it — its key stays in the environment", provider)
+		}
+	}
+	// And nothing local sneaks in: a provider that needs no key must not be
+	// asked for one, or an operator is told to set a variable that means
+	// nothing.
+	for _, provider := range CloudProvidersNeedingKeys() {
+		if localProviders[provider] {
+			t.Errorf("%s runs locally and needs no api key", provider)
+		}
+	}
+	if len(covered) == 0 {
+		t.Fatal("the sealer covers no provider at all; this gate would pass vacuously")
+	}
+}
+
+// A lookup built with no environment behind it answers empty rather than
+// panicking. It is the shape a role that resolved no config hands over, and a
+// nil dereference here would take the boot with it.
+func TestALookupWithNoEnvironmentAnswersEmpty(t *testing.T) {
+	got := SealedKeys(context.Background(), keyvault.NewMemory(), ids.From[ids.WorkspaceKind](ids.NewV7()), nil, nil)("GEMINI_API_KEY")
+	if got != "" {
+		t.Errorf("resolved %q with no environment and no vault entry, want empty", got)
+	}
+}
