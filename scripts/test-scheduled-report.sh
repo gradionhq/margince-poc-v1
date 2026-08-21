@@ -44,6 +44,10 @@ case "$1 ${2:-}" in
 "issue create")
 	for i in $(seq 1 $#); do
 		if [ "${!i}" = "--title" ]; then j=$((i + 1)); echo "create ${!j}" >>"$ACTION_LOG"; fi
+		# The body is recorded, not just the title: an arm that files the right
+		# issue with the wrong contents is indistinguishable from a working one
+		# unless something reads what it wrote.
+		if [ "${!i}" = "--body" ] && [ -n "${BODY_LOG:-}" ]; then j=$((i + 1)); printf '%s' "${!j}" >>"$BODY_LOG"; fi
 	done
 	;;
 *) echo "unexpected gh call: $*" >&2; exit 1 ;;
@@ -111,6 +115,57 @@ expect "duplicates already filed: the oldest keeps the discussion" \
 expect "a similar title is a different finding" \
 	"create $GATE_TITLE" \
 	"$(printf '55\tSonarCloud quality gate is not green on staging\n')"
+
+# --- main-health arms ----------------------------------------------------------
+#
+# The health check's whole value is the SUSPECT RANGE it carries: "main is red" was
+# already knowable from any other pull request going red. So the assertion is not
+# just that an issue is filed — it is that the range reaches the body. A reporter
+# that filed the issue and dropped MAIN_SUSPECTS would look identical from the
+# outside and be worth nothing.
+
+readonly HEALTH_TITLE="main is red: the integration lane fails on the tip"
+readonly SUSPECTS="- \`deadbeef\` Some Author — the commit that did it"
+
+# expect_health <name> <expected-actions> <suspects>
+expect_health() {
+	local name="$1" want="$2" suspects="$3" out status got body
+	export ACTION_LOG="$stub_dir/actions"
+	export BODY_LOG="$stub_dir/body"
+	: >"$ACTION_LOG"
+	: >"$BODY_LOG"
+	set +e
+	out="$(OPEN_TITLES="" GH_TOKEN=stub REPO=owner/repo RUN_URL=https://example.test/run/1 \
+		MAIN_INTEGRATION_RESULT=failure MAIN_SUSPECTS="$suspects" \
+		"$root/scripts/scheduled-report.sh" 2>&1)"
+	status=$?
+	set -e
+	got="$(paste -sd, - <"$ACTION_LOG")"
+	body="$(cat "$BODY_LOG" 2>/dev/null || true)"
+
+	if [ "$status" -ne 0 ] || [ "$got" != "$want" ]; then
+		echo "FAIL: $name"
+		echo "  exit    want 0 got $status"
+		echo "  actions want '$want' got '$got'"
+		printf '  output: %s\n' "$out" | head -5
+		failures=$((failures + 1))
+		return
+	fi
+	if [ -n "$suspects" ] && ! printf '%s' "$body" | grep -qF -- "deadbeef"; then
+		echo "FAIL: $name — the issue was filed but the suspect range never reached its body"
+		failures=$((failures + 1))
+		return
+	fi
+	echo "ok: $name"
+}
+
+expect_health "a red integration lane on main is filed with its suspect range" \
+	"create $HEALTH_TITLE" "$SUSPECTS"
+
+# No range computed is a degraded report, not a silent one: the issue still has to
+# exist, because "main is red" is worth filing even when the window is unknown.
+expect_health "a red lane with no range still files" \
+	"create $HEALTH_TITLE" ""
 
 if [ "$failures" -ne 0 ]; then
 	echo "FAIL: $failures case(s)" >&2

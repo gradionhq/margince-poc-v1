@@ -747,6 +747,7 @@ export function CompaniesScreen() {
 function EnrichCard({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
   const enrich = useMutation({
+    mutationKey: ["enrich", orgId],
     mutationFn: async () => {
       const { data, error } = await api.POST("/organizations/{id}/enrich", {
         params: { path: { id: orgId } },
@@ -1098,6 +1099,7 @@ function DeepReadCard({ orgId }: Readonly<{ orgId: string }>) {
   });
   const shownReadId = readId ?? latest.data?.read_id ?? null;
   const start = useMutation({
+    mutationKey: ["site-read", orgId],
     mutationFn: async () => {
       const { data, error, response } = await api.POST(
         "/organizations/{id}/deep-read",

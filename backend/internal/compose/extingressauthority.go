@@ -98,13 +98,9 @@ func declaredUserSecretKeys(unit string) []string {
 // credential is on deposit, and unsealing one to answer it would spend the
 // custodian and hand this path a secret it has no use for.
 //
-// The workspace predicate is WRITTEN, not inherited. Being on a
-// workspace-bound transaction sets the GUC and nothing more: ADR-0091 §8
-// retired row-level security across the whole schema, and §4 names this exact
-// cost — a query that leaves its scope to a policy now returns other rows
-// instead of no rows, and nothing fails to say so. It is the same predicate
-// extsecrets writes over the same table (its whereScope), which is where the
-// spelling comes from.
+// The read is the installation's: ADR-0091 §8 phase D took the tenant column
+// off extension_secret and then off app_user, and one installation serves one
+// organization (ADR-0061), so the deposit either exists or it does not.
 func extensionMemberConsented(ctx context.Context, pool *pgxpool.Pool, unit string, member ids.UUID) (bool, error) {
 	if pool == nil {
 		return false, errExtensionRuntimeUnwired
@@ -118,27 +114,17 @@ func extensionMemberConsented(ctx context.Context, pool *pgxpool.Pool, unit stri
 	}
 	var consented bool
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		// The join to app_user is the scope, and it is load-bearing rather than
-		// decorative. extension_secret carried a tenant until ADR-0091 §8 phase
-		// D and does not now, so without this the read answers about a member of
-		// SOME installation — a consent row saying "that person asked us to act
-		// for them" about somebody this installation cannot act for at all.
-		//
-		// The consequence is not a leak, because the authority read below still
-		// refuses: it is a WRONGLY CLASSIFIED refusal. Consent would answer yes,
-		// the ingest would walk on, and the unit would be handed "the core could
-		// not land this record" — an unclassified failure it can neither act on
-		// nor report — for a question that had a clean ErrForbidden two steps
-		// earlier. app_user is where the tenant still lives, so that is where
-		// the scope comes from.
+		// No join to app_user. It carried the scope until ADR-0091 §8 phase D
+		// took the tenant column off that table too, and extension_secret's
+		// user_id is a foreign key onto app_user(id) ON DELETE CASCADE — so a
+		// row that reaches this predicate cannot fail such a join, and one kept
+		// here would read as a check while eliminating nothing.
 		return tx.QueryRow(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM extension_secret s
-				  JOIN app_user u ON u.id = s.user_id
 				WHERE s.extension_name = $1
 				  AND s.user_id = $2
 				  AND s.key = ANY($3)
-				  AND u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			)`, unit, member, declared).Scan(&consented)
 	})
 	if err != nil {

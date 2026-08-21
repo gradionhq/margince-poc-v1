@@ -31,6 +31,11 @@ type Store struct {
 	// catalog is the fieldcatalog seam (custom-field columns); nil means
 	// no catalog is wired and every read/write runs core-columns-only.
 	catalog fieldcatalog.Reader
+	// geocodeEnqueue queues a coordinate lookup when an address is written.
+	// Nil is a real composition — a deployment with no geocoder writes the
+	// address and queues nothing; the coordinates are what an installation can
+	// offer, the address is what the caller asked for.
+	geocodeEnqueue GeocodeEnqueue
 	// consumerMail answers which domains can never name a company. The
 	// counterparty ensure needs the same answer capture's tier ladder does — the
 	// verdict engine and the review-queue accept enter the ensure without
@@ -81,6 +86,17 @@ func (s *Store) consumerMailMatcher(ctx context.Context, tx pgx.Tx) (*freemail.M
 // participate in person/organization reads and writes.
 func (s *Store) WithFieldCatalog(catalog fieldcatalog.Reader) *Store {
 	s.catalog = catalog
+	return s
+}
+
+// WithGeocodeEnqueue wires the coordinate lookup an address write queues.
+//
+// It is held on the STORE rather than passed per call, unlike SiteReadEnqueue,
+// because an address is written from inside the patch path — six columns deep
+// in a generic builder that has no room to carry a seam through it. Held here,
+// every writer gets it without any of them having to remember.
+func (s *Store) WithGeocodeEnqueue(enqueue GeocodeEnqueue) *Store {
+	s.geocodeEnqueue = enqueue
 	return s
 }
 

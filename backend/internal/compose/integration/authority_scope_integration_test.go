@@ -57,8 +57,13 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	foreignOrg := e.SeedOrg(t, "Their Org", &e.Rep3) // capture-private to Rep3
 	e.MakeCapturePrivate(t, "organization", foreignOrg, e.Rep3)
 	visibleOrg := e.SeedOrg(t, "Our Org", &e.Rep1) // rep1's own
+	// A partner the rep CAN see, for the admit case: naming a partner needs
+	// the target to be visible AND to actually be a partner, and this test is
+	// about the first of those.
+	visiblePartner := e.SeedPartnerOrg(t, "Our Partner", nil, &e.Rep1)
 	foreignOrgID := ids.From[ids.OrganizationKind](foreignOrg)
 	visibleOrgID := ids.From[ids.OrganizationKind](visibleOrg)
+	visiblePartnerID := ids.From[ids.OrganizationKind](visiblePartner)
 	myDeal := ids.From[ids.DealKind](e.SeedDeal(t, "Mine", pipeline, open, &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, repPermsWithOrg())
 
@@ -67,6 +72,14 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 		Name: "Sneaky", PipelineID: pipeline, StageID: open, OrganizationID: &foreignOrgID,
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("CreateDeal with out-of-scope organization → %v, want ErrNotFound", err)
+	}
+	// Naming a partner at birth is the same disclosure as naming one on an
+	// update, so it carries the same gate: a rep may not attribute a deal to a
+	// partner organization they cannot read.
+	if _, err := e.Deals.CreateDeal(rep, deals.CreateDealInput{
+		Name: "Sneaky Partner", PipelineID: pipeline, StageID: open, PartnerOrganizationID: &foreignOrgID,
+	}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("CreateDeal with out-of-scope partner → %v, want ErrNotFound", err)
 	}
 	if _, err := e.People.CreateOrganization(rep, people.CreateOrganizationInput{
 		DisplayName: "Sneaky Child", ParentOrgID: &foreignOrgID,
@@ -89,6 +102,11 @@ func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	// narrows scope, it does not break the feature.
 	if _, err := e.Deals.UpdateDeal(rep, myDeal, deals.UpdateDealInput{OrganizationID: &visibleOrgID}); err != nil {
 		t.Errorf("UpdateDeal attaching own-team organization → %v, want ok", err)
+	}
+	if _, err := e.Deals.CreateDeal(rep, deals.CreateDealInput{
+		Name: "Partner deal", PipelineID: pipeline, StageID: open, PartnerOrganizationID: &visiblePartnerID,
+	}); err != nil {
+		t.Errorf("CreateDeal naming a visible partner → %v, want ok", err)
 	}
 }
 

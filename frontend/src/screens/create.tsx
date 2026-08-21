@@ -89,7 +89,56 @@ export type CreateField = {
   toInput?: (raw: unknown) => string;
   // See SubField.step: a money field must declare its cents.
   step?: string;
+  /**
+   * Show this field only when the form's current values satisfy the predicate.
+   *
+   * For a field that is meaningless until another one is answered: what a
+   * partner did for a deal is a question about a partner, so asking it before
+   * one is named offers a choice with nothing to attach it to. A hidden field
+   * is also not required and not submitted — `visibleFields` is what both the
+   * render and the required check read, so the two cannot disagree and a form
+   * can never be blocked by a control nobody can see.
+   */
+  showWhen?: (values: Record<string, string>) => boolean;
 };
+
+/**
+ * The fields a form actually shows, given what has been filled in so far.
+ *
+ * One filter feeding both the render and the required check. A field hidden by
+ * `showWhen` is absent from the form in every sense a user can observe.
+ */
+export function visibleFields(
+  fields: CreateField[],
+  values: Record<string, string>,
+): CreateField[] {
+  return fields.filter((field) => field.showWhen?.(values) ?? true);
+}
+
+/**
+ * What the form sends: every value except those belonging to a field its own
+ * `showWhen` currently hides.
+ *
+ * A hidden field's value is blanked rather than carried. Answering a question
+ * and then withdrawing the one it depended on must not submit the orphaned
+ * answer — choosing a partner, saying what they did, then clearing the partner
+ * would otherwise send an attribution with nobody to attribute it to, which
+ * the server refuses. Blanked rather than dropped, because a scalar the form
+ * omits entirely leaves the stored value in place on an edit, and the reader
+ * asked for it to be gone.
+ */
+export function submittedValues(
+  fields: CreateField[],
+  values: Record<string, string>,
+): Record<string, string> {
+  const shown = new Set(visibleFields(fields, values).map((f) => f.key));
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    const declared = fields.some((f) => f.key === key);
+    out[key] = declared && !shown.has(key) ? "" : value;
+  }
+  return out;
+}
 
 // The label a top-level field shows: the literal labelText wins; otherwise the
 // i18n key. (Subfields are always core, so they keep using t(label) directly.)
@@ -137,6 +186,17 @@ function rowsRequirementMet(field: CreateField, rows: FormRow[]): boolean {
   );
 }
 
+// The agent rail's WROTE head for a create landing on this screen (agentrail-
+// copy.ts). Only the three record kinds a salesperson creates by hand carry
+// one; every other screen this hook also serves (products, offer templates,
+// pipeline stages, webhooks...) gets none, which is what leaves the ticker
+// silent for those.
+const CREATE_MUTATION_HEAD: Readonly<Partial<Record<Screen, string>>> = {
+  contacts: "contact-new",
+  companies: "company-new",
+  deals: "deal-new",
+};
+
 // The shared post-create choreography: refresh the list, close the modal,
 // open the fresh record's 360. Screens supply only their transport.
 export function useCreateRecord<Created extends { id: string }>({
@@ -145,6 +205,7 @@ export function useCreateRecord<Created extends { id: string }>({
   screen,
   onDone,
   stay = false,
+  aboutId,
 }: Readonly<{
   create: (values: Record<string, string>, rows?: FormRows) => Promise<Created>;
   invalidate: string;
@@ -156,9 +217,18 @@ export function useCreateRecord<Created extends { id: string }>({
   // rather than a record worth visiting. Without it those creates route to
   // `screen` with the new row's id, which is not an id that screen can load.
   stay?: boolean;
+  // The record this create is ABOUT, when it differs from the record being
+  // created: a deal opened from a company page is about that company, and
+  // the deal has no id yet to name it by. Absent means the created record
+  // has no name to offer either (a fresh contact/company/deal has none
+  // until the server answers), so the ticker falls back to its plain phrase.
+  aboutId?: string;
 }>) {
   const queryClient = useQueryClient();
+  const head = stay ? undefined : CREATE_MUTATION_HEAD[screen];
   return useMutation({
+    mutationKey:
+      head === undefined ? undefined : aboutId ? [head, aboutId] : [head],
     mutationFn: ({
       values,
       rows,
@@ -188,6 +258,7 @@ export function CreateAction<Created extends { id: string }>({
   startOpen = false,
   resolveExisting,
   stay = false,
+  aboutId,
 }: Readonly<{
   label: string;
   fields: CreateField[];
@@ -198,6 +269,9 @@ export function CreateAction<Created extends { id: string }>({
   // See useCreateRecord: keep the reader on this record when what was created
   // belongs TO it rather than being somewhere to go.
   stay?: boolean;
+  // See useCreateRecord: the record this create is about, when it is not the
+  // record being created.
+  aboutId?: string;
   // Duplicate (409) dedupe: given the problem's code + collided record id,
   // builds the route to that record. Absent screens simply never show the
   // "view existing" link.
@@ -210,6 +284,7 @@ export function CreateAction<Created extends { id: string }>({
     invalidate,
     screen,
     stay,
+    aboutId,
     onDone: () => setCreating(false),
   });
   const existing =
@@ -507,7 +582,17 @@ export function RecordFormBody({
   const t = useT();
   const formId = useId();
 
-  const requiredMissing = fields.some((field) => {
+  // A field hidden by its own showWhen is absent from the form in every sense:
+  // it neither renders nor holds Save hostage to a value nobody was asked for.
+  const shown = visibleFields(fields, values);
+  // Writing a value must not resurrect an answer to a question that was
+  // withdrawn in between. Naming a partner, saying what they did, clearing the
+  // partner and naming a DIFFERENT one would otherwise carry the first
+  // partner's claim onto the second — and "influenced" silently earns them
+  // nothing where the default would have paid.
+  const setVisibleValues = (next: Record<string, string>) =>
+    setValues(submittedValues(fields, next));
+  const requiredMissing = shown.some((field) => {
     if (field.type === "repeatable") {
       return !rowsRequirementMet(field, rows[field.key] ?? []);
     }
@@ -518,11 +603,11 @@ export function RecordFormBody({
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit(values, rows);
+        onSubmit(submittedValues(fields, values), rows);
       }}
       className="form-stack"
     >
-      {fields.map((field) => {
+      {shown.map((field) => {
         if (field.divider) {
           return (
             <p className="form-divider t-label" key={field.key}>
@@ -548,7 +633,9 @@ export function RecordFormBody({
               field={field}
               formId={formId}
               value={values[field.key] ?? ""}
-              setValue={(next) => setValues({ ...values, [field.key]: next })}
+              setValue={(next) =>
+                setVisibleValues({ ...values, [field.key]: next })
+              }
             />
           );
         }
@@ -563,7 +650,7 @@ export function RecordFormBody({
                 field,
                 control,
                 values[field.key] ?? "",
-                (next) => setValues({ ...values, [field.key]: next }),
+                (next) => setVisibleValues({ ...values, [field.key]: next }),
                 t,
               )
             }

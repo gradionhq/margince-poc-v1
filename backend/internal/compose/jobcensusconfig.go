@@ -29,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/integrations"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/geocode"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -90,6 +91,7 @@ func censusJobConfig() JobRunnerConfig {
 		VerdictBrain:           seam,
 		DeepReadBrain:          seam,
 		TranscriptProposeBrain: seam,
+		Geocoder:               censusGeocoder{},
 		DocumentExtractBrain:   censusDocumentSeam{},
 		VoiceBrain:             seam,
 		Embedder:               seam,
@@ -165,3 +167,13 @@ func (censusDocumentSeam) AttachmentMIMEs() []string { return nil }
 // that answered "" would leave two declared kinds looking unwired for a reason
 // no configuration field expresses.
 func (censusSeam) EmbedIdentity() (string, int) { return "census/embedder@1", 1 }
+
+// censusGeocoder stands in for a geocoding provider so the kind counts as
+// wired, and REFUSES every lookup — the census measures what is registered,
+// never what a provider would answer, and a stand-in that returned a point
+// would let a test pass on a coordinate nobody resolved.
+type censusGeocoder struct{}
+
+func (censusGeocoder) Resolve(context.Context, string) (geocode.Point, bool, error) {
+	return geocode.Point{}, false, errCensusSeam
+}

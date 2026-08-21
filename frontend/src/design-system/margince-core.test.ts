@@ -6,7 +6,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { BEHAVIOUR } from "./margince-core-motion";
-import { WINDOW_BLURRED_ATTRIBUTE } from "./window-focus";
 
 // The Core's material is a three-colour triple per state — --coreC1 (the light
 // end), --coreC2 (the body) and --coreC3 (the second dot tone) — and every other
@@ -42,11 +41,11 @@ describe("the Core's material", () => {
   it("has state rules to check, so the check cannot pass by finding nothing", () => {
     // The whole suite is vacuous if the pattern stops matching — a rename of the
     // attribute would otherwise turn every assertion below green.
-    expect(stateRules().length).toBeGreaterThanOrEqual(5);
+    expect(stateRules().length).toBeGreaterThanOrEqual(4);
   });
 
   it("gives every state its own complete triple", () => {
-    // A state setting one or two of the three inherits the rest from dormant,
+    // A state setting one or two of the three inherits the rest from idle,
     // which is how a half-themed state ends up with a red body and a green glow.
     for (const { selector, body } of stateRules()) {
       if (!/--coreC1\s*:/.test(body)) {
@@ -80,7 +79,7 @@ describe("the Core's material", () => {
   it("paints the same vocabulary the motion table moves", () => {
     // Two lists that must not drift: a state the stylesheet colours but the
     // motion table does not move is a state that does not exist, and one the
-    // table moves without a rule here silently wears dormant's colours.
+    // table moves without a rule here silently wears idle's colours.
     const painted = new Set(
       [...coreCss.matchAll(/\[data-core-state="([\w-]+)"\]/g)].map(
         (match) => match[1],
@@ -93,13 +92,18 @@ describe("the Core's material", () => {
 
   it("gives every state a movement of its own", () => {
     // The load-bearing one. Colour is allowed to carry state here BECAUSE motion
-    // carries it first: if two states shared an archetype they would be one state
+    // carries it first: if two states shared a signature they would be one state
     // wearing two hues, which is exactly what a colour-blind reader would see.
-    const motions = Object.values(BEHAVIOUR).map(
-      (behaviour) => behaviour.motion,
+    const signatures = Object.values(BEHAVIOUR).map((behaviour) =>
+      JSON.stringify([
+        behaviour.level,
+        behaviour.speed,
+        behaviour.pulse,
+        behaviour.ingest,
+      ]),
     );
 
-    expect(new Set(motions).size).toBe(motions.length);
+    expect(new Set(signatures).size).toBe(signatures.length);
   });
 
   it("keeps the status hues out of the sheet entirely", () => {
@@ -121,104 +125,30 @@ describe("the Core's material", () => {
 
 /*
  * The Core's stillness, derived from the sheet rather than from a list of class
- * names: both rules below are about EVERY animated part the file happens to
- * contain, so a part added later is covered by them without being added to a
- * list first.
+ * names.
  *
  * Comments are stripped because a selector is read as the text before a `{`, and
  * this file explains almost every rule it declares.
  */
 const sheet = coreCss.replace(/\/\*[\s\S]*?\*\//g, "");
 
-/** Every rule body in the sheet, paired with the selectors it applies to. */
-function rules(): ReadonlyArray<{ selectors: string[]; body: string }> {
-  return [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
-    selectors: match[1].split(",").map((one) => one.trim()),
-    body: match[2],
-  }));
-}
-
-/** The parts that START an animation — `animation: none` switches one off. */
-function animatedSelectors(): ReadonlyArray<string> {
-  const found = new Set<string>();
-  for (const { selectors, body } of rules()) {
-    const declared = /animation:\s*([^;]+);/.exec(body)?.[1]?.trim();
-    if (declared === undefined || declared.startsWith("none")) {
-      continue;
-    }
-    for (const selector of selectors) {
-      found.add(selector);
-    }
-  }
-  return [...found];
-}
-
-/** The parts held still while the window is blurred, without that condition. */
-function pausedSelectors(): ReadonlyArray<string> {
-  const prefix = `:root[${WINDOW_BLURRED_ATTRIBUTE}] `;
-  return rules()
-    .filter(({ body }) => /animation-play-state:\s*paused/.test(body))
-    .flatMap(({ selectors }) => selectors)
-    .filter((selector) => selector.startsWith(prefix))
-    .map((selector) => selector.slice(prefix.length));
-}
-
 describe("the Core's stillness", () => {
-  it("holds its position — no part of the Core travels vertically", () => {
-    // The sphere breathes in place. A slow vertical drift on top of the breath
-    // reads as the page moving rather than as the Core living, and next to copy
-    // it is a bug that moves. The feed's `translateX` is the motes arriving,
-    // which is the one thing here that travels on purpose.
+  it("declares no animation of its own, and no part travels vertically", () => {
+    // Everything that moves is drawn by the engine, which parks off the
+    // window-focus signal (window-focus.ts). A CSS animation declared here
+    // would keep running in a blurred window, since nothing in this sheet
+    // pauses one — so the sheet stays free of the property entirely, and the
+    // static dress it paints holds still rather than drifting under it.
     //
-    // Every spelling of vertical travel, not the one that was written here
-    // before: the named function, the 3D form, the `translate` property, and the
-    // two-argument shorthand whose SECOND argument is the y — `translate(0, 8px)`
-    // moves the Core exactly as far as `translateY(8px)` and would have passed a
-    // check that only knew the name.
-    // Two, and two is the whole set the STYLESHEET owns now: the sheen and the
-    // feed. The ball's own breath moved into the engine, which parks off the same
-    // signal this attribute comes from. The floor is here so a rename cannot make
-    // the two assertions below vacuous.
-    expect(animatedSelectors().length).toBeGreaterThanOrEqual(2);
+    // The vertical-travel check covers every spelling: the named function, the
+    // 3D form, the `translate` property, and the two-argument shorthand whose
+    // SECOND argument is the y — `translate(0, 8px)` moves a part exactly as
+    // far as `translateY(8px)` and would pass a check that only knew the name.
+    expect(sheet).not.toMatch(/animation(-name)?\s*:/);
     expect(sheet).not.toMatch(/translateY|translate3d|translate\s*:/);
     const offsets = [...sheet.matchAll(/\btranslate\(([^)]*)\)/g)].map(
       (match) => (match[1].split(",")[1] ?? "0").trim(),
     );
     expect(offsets.filter((y) => !/^0[a-z%]*$/.test(y))).toEqual([]);
-  });
-
-  it("pauses every rhythm it starts while the window has no focus", () => {
-    // Nobody is watching a window behind another window. The failure this guards
-    // is a part added later and left running there — one rhythm still moving
-    // while the rest of the Core is still is worse than all of them moving.
-    const paused = pausedSelectors();
-    for (const selector of animatedSelectors()) {
-      expect(paused, `${selector} must go still with the window`).toContain(
-        selector,
-      );
-    }
-  });
-
-  it("pauses them rather than removing them", () => {
-    // `animation: none` snaps the sphere to its unanimated size and brightness,
-    // so clicking away from the window would jump it. Paused holds the frame it
-    // reached, which is what coming back should look like.
-    expect(pausedSelectors().length).toBeGreaterThanOrEqual(2);
-    // And nothing in the same breath takes the animation away again. Counting the
-    // paused selectors alone cannot see that: a rule may declare BOTH, and the
-    // shorthand wins whichever order it is written in — the sphere would snap on
-    // every blur while this assertion still read green.
-    for (const { selectors, body } of rules()) {
-      const blurred = selectors.some((selector) =>
-        selector.startsWith(`:root[${WINDOW_BLURRED_ATTRIBUTE}]`),
-      );
-      if (!blurred) {
-        continue;
-      }
-      expect(
-        body,
-        `${selectors.join(", ")} must pause, not remove`,
-      ).not.toMatch(/animation(-name)?\s*:\s*none/);
-    }
   });
 });

@@ -161,9 +161,7 @@ func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 	memberID := ids.New[ids.UserKind]()
 	memberEmail := "member@" + slug + ".test"
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, password_hash, display_name)
-		 VALUES ($1, $2, $3, $4, 'Member')`,
-		memberID, admin.WorkspaceID, memberEmail, hash); err != nil {
+		`INSERT INTO app_user (id, email, password_hash, display_name) VALUES ($1, $2, $3, 'Member')`, memberID, memberEmail, hash); err != nil {
 		t.Fatal(err)
 	}
 

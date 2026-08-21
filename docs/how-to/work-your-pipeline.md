@@ -241,8 +241,8 @@ Stated plainly, so you don't hunt for them:
   though one recorded there cannot yet be tied to a specific deal (see *Close a deal*).
 - **Leads** — qualifying a lead can open a deal in the same step, seating the contact on it.
   See [set-up-a-partner-program.md](set-up-a-partner-program.md) for the partner side of a
-  deal, including what "Brought us the deal" versus "Helped a deal we had" means for
-  commission.
+  deal, including what "Brought us this deal" versus "Helped on a deal we already had"
+  means for commission.
 - **Offers** — priced from the deal's own currency, which is why **New offer** is refused
   until the deal has one.
 - **Agents** — an assistant can read deals and propose moves. A move to Won or Lost is staged

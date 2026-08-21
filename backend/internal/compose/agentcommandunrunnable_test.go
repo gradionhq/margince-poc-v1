@@ -153,6 +153,7 @@ var unrunnableCalls = map[string]unrunnableCall{
 	"archiveRelationship":  malformedRoutedID(http.MethodDelete, "/relationships"),
 	"archiveSavedView":     malformedRoutedID(http.MethodDelete, "/views"),
 
+	"approveImportRun":          malformedRoutedID(http.MethodPost, "/imports"),
 	"disqualifyLead":            malformedRoutedID(http.MethodDelete, "/leads"),
 	"retireCustomField":         malformedRoutedID(http.MethodPost, "/custom-fields"),
 	"updateCustomFieldOptions":  malformedRoutedID(http.MethodPatch, "/custom-fields"),

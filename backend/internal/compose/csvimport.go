@@ -92,47 +92,62 @@ func (h importHandlers) UploadImportSource(w http.ResponseWriter, r *http.Reques
 		httperr.Write(w, r, err)
 		return
 	}
-	profile, err := migration.ProfileCSV(bytes.NewReader(body), migration.ProfileRowLimit)
-	if err != nil {
-		httperr.Write(w, r, importProblem(err))
-		return
-	}
-	targets, err := importTargets(object)
+	out, err := h.profileAndStore(ctx, object, body)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
+	httperr.WriteJSON(w, http.StatusOK, out)
+}
 
+// profileAndStore is everything the upload does once it HAS the bytes: read the
+// header, propose a mapping, put the file where a run can find it.
+//
+// It is separate from the transport because two doors arrive at this point with
+// bytes in hand. The REST one reads a multipart file. The tool surface takes
+// CSV as text, since an assistant holding a spreadsheet's contents cannot
+// perform a file upload — and asking it to invent a multipart body would be a
+// worse door than none.
+func (h importHandlers) profileAndStore(
+	ctx context.Context, object string, body []byte,
+) (crmcontracts.ImportSourceProfile, error) {
+	profile, err := migration.ProfileCSV(bytes.NewReader(body), migration.ProfileRowLimit)
+	if err != nil {
+		return crmcontracts.ImportSourceProfile{}, importProblem(err)
+	}
+	targets, err := importTargets(object)
+	if err != nil {
+		return crmcontracts.ImportSourceProfile{}, err
+	}
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		httperr.Write(w, r, fmt.Errorf("no workspace is bound to this request: %w", apperrors.ErrPermissionDenied))
-		return
+		return crmcontracts.ImportSourceProfile{}, fmt.Errorf(
+			"no workspace is bound to this request: %w", apperrors.ErrPermissionDenied)
 	}
 	key := blobstore.WorkspaceKey(ids.From[ids.WorkspaceKind](ws), importBlobKind, ids.NewV7().String())
 	if err := h.blobs.Put(ctx, key, bytes.NewReader(body), int64(len(body)), "text/csv"); err != nil {
-		httperr.Write(w, r, fmt.Errorf("storing the import source: %w", err))
-		return
+		return crmcontracts.ImportSourceProfile{}, fmt.Errorf("storing the import source: %w", err)
 	}
-
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ImportSourceProfile{
+	return crmcontracts.ImportSourceProfile{
 		SourceRef:        key,
 		Object:           crmcontracts.ImportObject(object),
 		Columns:          toContractColumns(profile),
 		RowsProfiled:     profile.RowsProfiled,
 		SuggestedMapping: migration.SuggestMapping(profile, targets),
 		Targets:          targets,
-	})
+	}, nil
 }
 
 // CreateImportRun validates a mapped file against the estate and writes
 // nothing (IEM-WIRE-3, AC-M5). The run arrives at awaiting_approval carrying
 // the report a human reads.
+//
+// Open to an agent: this call writes NO domain rows, by construction (AC-M5),
+// so the worst an ungranted-but-authenticated caller could do is produce a
+// report. What commits is approveImportRun, which stays confirm-first on the
+// tool surface — a person sees the report and says yes.
 func (h importHandlers) CreateImportRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if err := auth.RequireHuman(ctx); err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
 	// The grant is taken BEFORE the body is read: an ungranted caller must not
 	// be able to tell a rejected mapping from an accepted one, which is what a
 	// 422 arriving ahead of the 403 would tell them.
@@ -148,15 +163,32 @@ func (h importHandlers) CreateImportRun(w http.ResponseWriter, r *http.Request) 
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	object := string(req.Object)
-	if err := h.ownsSource(ctx, req.SourceRef); err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-	mapping, err := mappingFrom(object, req)
+	staged, err := h.stageRun(ctx, req)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
+	}
+	httperr.WriteJSON(w, http.StatusAccepted, staged)
+}
+
+// stageRun is everything createImportRun does once it HAS the request: check
+// the source belongs to this workspace, validate the mapping, dry-run it, and
+// park the result for a human to approve.
+//
+// It is separate from the transport because the tool surface arrives here too,
+// and the dry run is the part that must be identical on both doors — G stays
+// product law, so nothing may commit an import that has not produced a report
+// through exactly this path.
+func (h importHandlers) stageRun(
+	ctx context.Context, req crmcontracts.CreateImportRunRequest,
+) (crmcontracts.ImportRun, error) {
+	object := string(req.Object)
+	if err := h.ownsSource(ctx, req.SourceRef); err != nil {
+		return crmcontracts.ImportRun{}, err
+	}
+	mapping, err := mappingFrom(object, req)
+	if err != nil {
+		return crmcontracts.ImportRun{}, err
 	}
 
 	runs := migration.NewRunStore(h.db)
@@ -167,8 +199,7 @@ func (h importHandlers) CreateImportRun(w http.ResponseWriter, r *http.Request) 
 		Mapping:   mapping,
 	})
 	if err != nil {
-		httperr.Write(w, r, err)
-		return
+		return crmcontracts.ImportRun{}, err
 	}
 
 	source := migration.NewCSVSource(h.blobs, req.SourceRef, object, mapping.Fields, mapping.SourceKey)
@@ -179,14 +210,12 @@ func (h importHandlers) CreateImportRun(w http.ResponseWriter, r *http.Request) 
 		// forever with nothing able to move it, so the failure is recorded on
 		// the run the caller was just handed rather than only in the response.
 		failValidation(ctx, runs, run.ID, err)
-		httperr.Write(w, r, importProblem(err))
-		return
+		return crmcontracts.ImportRun{}, importProblem(err)
 	}
 	report, err = refinePrediction(ctx, source, writers, object, report)
 	if err != nil {
 		failValidation(ctx, runs, run.ID, err)
-		httperr.Write(w, r, importProblem(err))
-		return
+		return crmcontracts.ImportRun{}, importProblem(err)
 	}
 	report = withSkippedLines(report, object, source.Skipped())
 	if err := runs.AwaitApproval(ctx, run.ID, report); err != nil {
@@ -194,16 +223,14 @@ func (h importHandlers) CreateImportRun(w http.ResponseWriter, r *http.Request) 
 		// parked for a human is a run in `validating` that neither approve nor
 		// resume will ever move.
 		failValidation(ctx, runs, run.ID, err)
-		httperr.Write(w, r, err)
-		return
+		return crmcontracts.ImportRun{}, err
 	}
 
 	staged, err := runs.GetStaged(ctx, run.ID)
 	if err != nil {
-		httperr.Write(w, r, err)
-		return
+		return crmcontracts.ImportRun{}, err
 	}
-	httperr.WriteJSON(w, http.StatusAccepted, toContractImportRun(staged))
+	return toContractImportRun(staged), nil
 }
 
 // GetImportRun reports the lifecycle (IEM-WIRE-6): a failed run carries its
@@ -234,26 +261,40 @@ func (h importHandlers) GetImportRunReport(w http.ResponseWriter, r *http.Reques
 
 // ApproveImportRun commits a validated run (IEM-WIRE-5).
 func (h importHandlers) ApproveImportRun(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
-	ctx := r.Context()
-	run, err := h.staged(r, id)
+	out, err := h.commitRun(r.Context(), id)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
+	httperr.WriteJSON(w, http.StatusAccepted, out)
+}
+
+// commitRun is the approval and the write, without the transport.
+//
+// Shared with the tool surface for the reason the whole import seam is shared:
+// this is the call that writes a customer's estate, and two paths that both
+// "commit an approved run" would be two chances to disagree about what an
+// approved run is.
+func (h importHandlers) commitRun(
+	ctx context.Context, id openapi_types.UUID,
+) (crmcontracts.ImportRun, error) {
+	run, err := h.stagedFor(ctx, id)
+	if err != nil {
+		return crmcontracts.ImportRun{}, err
+	}
 	if run.Mapping == nil {
-		httperr.Write(w, r, fmt.Errorf("import run %s carries no mapping, so it is not an approvable import: %w", run.ID, apperrors.ErrConflict))
-		return
+		return crmcontracts.ImportRun{}, fmt.Errorf(
+			"import run %s carries no mapping, so it is not an approvable import: %w",
+			run.ID, apperrors.ErrConflict)
 	}
 	if h.blobs == nil {
-		httperr.Write(w, r, errNoObjectStore)
-		return
+		return crmcontracts.ImportRun{}, errNoObjectStore
 	}
 
 	runs := migration.NewRunStore(h.db)
 	approved, err := h.startOrResume(ctx, runs, run)
 	if err != nil {
-		httperr.Write(w, r, err)
-		return
+		return crmcontracts.ImportRun{}, err
 	}
 
 	object := run.Mapping.Object
@@ -268,16 +309,14 @@ func (h importHandlers) ApproveImportRun(w http.ResponseWriter, r *http.Request,
 		// The engine has already recorded the failure and its checkpoint on the
 		// run; the caller is told which run to resume rather than being handed
 		// a bare 500.
-		httperr.Write(w, r, importProblem(err))
-		return
+		return crmcontracts.ImportRun{}, importProblem(err)
 	}
 
 	final, err := runs.GetStaged(commitCtx, approved.ID)
 	if err != nil {
-		httperr.Write(w, r, err)
-		return
+		return crmcontracts.ImportRun{}, err
 	}
-	httperr.WriteJSON(w, http.StatusAccepted, toContractImportRun(final))
+	return toContractImportRun(final), nil
 }
 
 // UndoImportRun reverses a completed csv run (IEM-WIRE-9). Mapping.Object is
@@ -328,14 +367,29 @@ func (h importHandlers) startOrResume(ctx context.Context, runs *migration.RunSt
 	return runs.Approve(ctx, run.ID)
 }
 
-// staged is the read every id-bearing operation starts from: human-only, then
-// the store's own gate, which answers not-found for a run outside the caller's
-// scope rather than disclosing that it exists.
+// staged is the read every id-bearing operation starts from: the store's own
+// gate answers not-found for a run outside the caller's scope rather than
+// disclosing that it exists.
 func (h importHandlers) staged(r *http.Request, id openapi_types.UUID) (migration.Run, error) {
-	ctx := r.Context()
-	if err := auth.RequireHuman(ctx); err != nil {
-		return migration.Run{}, err
-	}
+	return h.stagedFor(r.Context(), id)
+}
+
+// stagedFor is staged without a request, so the tool surface reaches the same
+// read the REST one does.
+//
+// THE HUMAN-ONLY CHECK THAT SAT HERE IS GONE, not moved. Reading an import run
+// and its report is open to an agent now — a migration an assistant is helping
+// with is unreadable to it otherwise, which was the whole gap. What bounds it
+// is the object grant, auth.Require(migration.ImportRunObject, …), taken by
+// every caller of this and unchanged: an agent with no import grant still gets
+// nothing, and the run store still answers not-found for another workspace's
+// run.
+//
+// Two operations keep RequireHuman, each for its own reason. uploadImportSource
+// is multipart and has no agent-shaped door at all. undoImportRun reverses a
+// committed estate-wide write, and reversing is not something a caller should
+// reach without a person present.
+func (h importHandlers) stagedFor(ctx context.Context, id openapi_types.UUID) (migration.Run, error) {
 	run, err := migration.NewRunStore(h.db).GetStaged(ctx, migration.RunID(id))
 	if err != nil {
 		return migration.Run{}, err

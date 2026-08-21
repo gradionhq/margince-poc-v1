@@ -52,9 +52,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 const (
@@ -229,7 +230,7 @@ func collectSQLCalls(fset *token.FileSet, fn *ast.FuncDecl) (probes, clears []sq
 		}
 		found := sqlCall{receiver: exprText(fset, selector.X), pos: call.Pos()}
 		for _, arg := range call.Args {
-			text, ok := literalText(arg)
+			text, ok := gatekit.LiteralText(arg)
 			if !ok {
 				continue
 			}
@@ -243,21 +244,6 @@ func collectSQLCalls(fset *token.FileSet, fn *ast.FuncDecl) (probes, clears []sq
 		return true
 	})
 	return probes, clears
-}
-
-// literalText returns a string literal's value.
-func literalText(node ast.Expr) (string, bool) {
-	lit, isLit := node.(*ast.BasicLit)
-	if !isLit || lit.Kind != token.STRING {
-		return "", false
-	}
-	value, err := strconv.Unquote(lit.Value)
-	if err != nil {
-		// A literal Go itself accepts and strconv does not is not a thing this
-		// gate should decide about; the raw form still matches either name.
-		return lit.Value, true
-	}
-	return value, true
 }
 
 // exprText renders a receiver expression back to source, so `e.Pool` and

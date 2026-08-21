@@ -108,6 +108,7 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		{"whoami", `{}`},
 		{"list_colleagues", `{}`},
 		{"list_colleagues", `{"q":"nothing here matches this"}`},
+
 		// An enumeration, narrowed and unnarrowed. The narrowed one is the
 		// answer worth holding to the shape: a filter that reached no SQL still
 		// returns a well-formed page, of the wrong rows.
@@ -226,6 +227,17 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 // listed here and then made reachable fails as loudly as one that was never
 // covered, so the list cannot quietly outlive its reason.
 var unreachableInThisLane = gatekit.Waive(map[string]string{
+	"preview_import": "needs an object store to put the source file in; this lane composes none, " +
+		"so the call would exercise the refusal rather than the handler",
+	"read_import_run": "needs a seat holding import_run.read, which this lane's seat does not " +
+		"carry — a migration run is an admin-scoped object, and granting it here would widen the " +
+		"authority every other tool in the sweep runs under",
+	"read_import_report": "needs a run that has been dry-run, which needs the object store above",
+	"commit_import":      "confirm-first, and needs the object store above to reach a committable run",
+	"apply_tag": "needs a seat holding tag.read, which this lane's seat does not carry — " +
+		"granting it here would widen the authority every other tool in the sweep runs under, " +
+		"and the answer shape it would prove is the one remove_tag already shares",
+	"remove_tag":           "same missing tag.read as apply_tag above",
 	"book_meeting":         "needs a live calendar provider",
 	"send_email":           "needs an outbound mail provider",
 	"send_account_email":   "needs an outbound mail provider, and a send-capable mailbox for its pre-flight",

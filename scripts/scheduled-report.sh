@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scheduled-report.sh — turn a failing scheduled check into a durable issue.
 #
-# Called only when something in .github/workflows/scheduled.yml failed. A red
+# Called when a check in scheduled.yml OR main-health.yml failed. A red
 # scheduled run notifies essentially nobody by default, which is the whole reason
 # these checks moved off the PR path in the first place: nothing was going to make
 # someone look. An issue is the artifact that survives until it is closed.
@@ -145,6 +145,28 @@ bisecting is the honest first move rather than assuming the newest commit."\
     || unreported=1
 fi
 
+if [ "${CLOCK_RESULT:-}" = "failure" ]; then
+  report "the frontend suite's verdict depends on the calendar" bug \
+"\`make fe-clock-drift\` failed on the scheduled run of \`main\`: $RUN_URL
+
+The suite passes today and fails 200 days from now, which means at least one test
+asserts against a fixture date the component compares to \`now\`. It will start
+failing on its own, on a commit that touches nothing near it — that is #1977, and
+it hid on \`main\` for a month, because the change classifier skips the frontend
+jobs for a commit touching no frontend path and a skipped required check is the
+same colour as a passing one.
+
+Fix it at the fixture, not at the clock. Pin the clock for the file
+(\`vi.setSystemTime\` in \`beforeEach\`, as \`connected-agents.test.tsx\` does) so the
+test asserts the state its fixture describes — or move the fixture date far enough
+out that it says \"effectively never\" and means it. A per-case stub is the third
+copy of a guard the file wants once.
+
+Reproduce locally with \`make fe-clock-drift\`, and read the failures as claims
+about the fixtures rather than about the components."\
+    || unreported=1
+fi
+
 if [ "${CACHE_RESULT:-}" = "failure" ]; then
   report "the Actions build-cache reaper is failing" bug \
 "\`scripts/reap-build-caches.sh\` failed on the scheduled run: $RUN_URL
@@ -164,6 +186,53 @@ the \`go-build-\` prefix changed, teach the script the new shape —
 \`scripts/test-reap-build-caches.sh\` covers both refusals.
 
 Inspect without deleting anything: \`DRY_RUN=1 scripts/reap-build-caches.sh\`."\
+    || unreported=1
+fi
+
+# --- main-health.yml -----------------------------------------------------------
+#
+# The two arms below are filed by the two-hourly health check rather than the daily
+# lane, and they are the ones that carry a SUSPECT RANGE. That is the whole reason
+# that workflow exists: a merge can land over a red `ci` here (a repository-role
+# bypass is deliberate), so the question is never "how do we stop it" but "how
+# quickly does somebody learn, and whose commit was it". Naming the window is what
+# turns a red lane on an unrelated pull request into a fixable finding.
+#
+# MAIN_SUSPECTS is an over-approximation — every commit since the health check was
+# last green. Printed as-is rather than narrowed: a guessed culprit sends the wrong
+# person looking, which is worse than a dozen candidates and a failing test name.
+
+if [ "${MAIN_GATES_RESULT:-}" = "failure" ]; then
+  report "main is red: the backend gate fails on the tip" bug \
+"\`make check-backend\` failed against \`main\` on the two-hourly health check:
+$RUN_URL
+
+This is the no-database half of the merge gate, re-run unconditionally. That
+matters: the classifier that makes a pull request cheap is exactly what let a
+docs-only commit report green over a broken tree, so \`main\`'s last-known-green
+is not evidence \`main\` is green.
+
+${MAIN_SUSPECTS:-_no suspect range was computed for this run._}
+
+Reproduce locally on \`main\` with \`make check-backend\`."\
+    || unreported=1
+fi
+
+if [ "${MAIN_INTEGRATION_RESULT:-}" = "failure" ]; then
+  report "main is red: the integration lane fails on the tip" bug \
+"The real-Postgres lane failed against \`main\` on the two-hourly health check:
+$RUN_URL
+
+Every schema fitness gate lives in this lane and nowhere else — an unratified
+DELETE trigger on a sweep target, a foreign key with no visibility decision — and
+that family is what has broken \`main\` repeatedly. The failing test names which
+one; the run above has the shard log.
+
+${MAIN_SUSPECTS:-_no suspect range was computed for this run._}
+
+Reproduce locally with \`make db-up && make test-integration\` on \`main\`. Until
+this is fixed, every other pull request inherits the failure through its merge
+commit and reads as red for a reason its author did not cause."\
     || unreported=1
 fi
 

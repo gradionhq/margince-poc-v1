@@ -58,7 +58,7 @@ func TestAConfirmFirstFactCallAgainstAnUnseeableOrganizationStagesNothing(t *tes
 	rep := ids.NewV7()
 	seedInWorkspace(t, e, wsA,
 		stmt(`UPDATE organization SET visibility = 'owner' WHERE id = $1`, orgID),
-		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'rep@example.com', 'Rep One')`, rep, wsA),
+		stmt(`INSERT INTO app_user (id, email, display_name) VALUES ($1, 'rep@example.com', 'Rep One')`, rep),
 		// Borrow the bootstrap admin's hash so the rep can actually sign in —
 		// the same reason TestRosterWithholdsRoleKeysFromANonAdmin does.
 		stmt(`UPDATE app_user SET password_hash = (SELECT password_hash FROM app_user WHERE email = 'ada@example.com') WHERE id = $1`, rep),

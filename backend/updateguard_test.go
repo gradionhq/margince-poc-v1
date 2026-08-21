@@ -97,6 +97,20 @@ var unguardedByIDUpdates = gatekit.Waive(map[string]string{
 	// archived_at unconditionally (no state derived from a pre-read),
 	// so concurrent archives converge on the same terminal row and the
 	// in-transaction visibility read supplies the NotFound.
+	// Both geocode writes are LAST-WRITER-WINS on purpose, and a version guard
+	// would make them worse rather than safer.
+	//
+	// RecordGeocode writes the answer for one address, identified by
+	// geocode_input_hash. Two workers racing on the same address write the same
+	// point; two racing on DIFFERENT addresses means the address changed
+	// mid-flight, and the later write is the one that matches the row — which
+	// is what last-writer-wins gives. A version guard would fail one of them and
+	// leave the company holding coordinates for an address it no longer has.
+	//
+	// invalidateGeocodeInTx only ever moves a status TOWARD stale, never away,
+	// and it runs inside the address writer's own transaction — the row is
+	// already locked by the patch that changed the address.
+	"internal/modules/people:recordGeocodeAfter":    "guarded by a re-read rather than a version: the transaction rebuilds the address hash from the live columns and writes nothing unless it still matches what was resolved (addressHashInTx). That is a stronger check than a version pin here — a version would refuse a write whose address is unchanged but whose row was touched for some unrelated reason, and accept one whose address moved without bumping it",
 	"internal/modules/automation:Archive":           "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the audit before-image",
 	"internal/modules/collections:ArchiveList":      "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/collections:ArchiveSavedView": "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",

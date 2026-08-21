@@ -1,3 +1,10 @@
+-- AMENDED (ADR-0091 §8 phase D): the app_user arm of this collapse is removed.
+-- `dbmigrate.Up` applies ALL of `core` before ANY of `custom`, so on a FRESH
+-- database this file runs against the FINAL core schema — where app_user has no
+-- workspace_id, and uq_app_user_ws_id fell with the column — and DROP
+-- CONSTRAINT fails, taking the install with it. A deployed database already ran
+-- the original and reached UNIQUE (id); the core drop leaves it at the same
+-- shape, so both paths agree.
 -- ADR-0091 §8 phase B, custom half — including the three tables keyed on the
 -- tenant ALONE. Those are one-row-per-workspace tables: one incumbent
 -- connection, one mirror halt, one sync state. Dropping the key would not
@@ -40,10 +47,6 @@ ALTER TABLE overlay_tombstone ADD CONSTRAINT overlay_tombstone_pkey PRIMARY KEY 
 
 ALTER TABLE overlay_write_ledger DROP CONSTRAINT overlay_write_ledger_pkey;
 ALTER TABLE overlay_write_ledger ADD CONSTRAINT overlay_write_ledger_pkey PRIMARY KEY (object_class, external_id, property, value_hash);
-
-
-ALTER TABLE app_user DROP CONSTRAINT uq_app_user_ws_id;
-ALTER TABLE app_user ADD CONSTRAINT uq_app_user_ws_id UNIQUE (id);
 
 ALTER TABLE incumbent_connection DROP CONSTRAINT incumbent_connection_workspace_id_key;
 CREATE UNIQUE INDEX incumbent_connection_singleton ON incumbent_connection ((true));

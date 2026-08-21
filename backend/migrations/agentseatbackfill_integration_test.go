@@ -38,6 +38,17 @@ func TestTheAgentSeatBackfillGivesEverySeatlessWorkspaceExactlyOneSeat(t *testin
 	resetSchema(t, admin)
 	migrator := asMigrator(t, admin)
 	migrateAll(t, migrator)
+	// Back to the era this backfill belongs to. It names app_user.workspace_id,
+	// which ADR-0091 §8 phase D removed; the migration is correct in its own
+	// position — core runs in order — and only unreplayable at head, which is
+	// what this suite does deliberately.
+	//
+	// The role drop is the anchor because it is the OLDER of the two phase D
+	// drops on these tables, so reverting to it takes the app_user one with it.
+	// That is an ordering fact, not a guarantee the helper makes, so the column
+	// this suite actually needs is asserted here rather than assumed.
+	rollBackThePhaseDDrop(t, admin)
+	assertColumnIsBack(t, admin, "app_user")
 	backfill := agentSeatBackfillSQL(t)
 
 	// Seeded AFTER the lane: an installation that existed before this migration
@@ -133,4 +144,20 @@ func agentSeatBackfillSQL(t *testing.T) string {
 	t.Fatal("the core namespace holds no agent_seat_backfill migration — it was renamed or removed, " +
 		"and this test would otherwise report an absent backfill as a working one")
 	return ""
+}
+
+// assertColumnIsBack fails where the reason is readable, rather than leaving the
+// replay below to fail on a column nobody said should be there.
+func assertColumnIsBack(t *testing.T, conn *pgx.Conn, table string) {
+	t.Helper()
+	var present bool
+	if err := conn.QueryRow(context.Background(), `
+		SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		                WHERE table_name = $1 AND column_name = 'workspace_id')`, table).Scan(&present); err != nil {
+		t.Fatalf("checking whether %s.workspace_id is back: %v", table, err)
+	}
+	if !present {
+		t.Fatalf("%s.workspace_id did not come back with the rollback — the phase D drops no longer sit in the "+
+			"order this suite depends on, so it is replaying the backfill in an era that cannot run it", table)
+	}
 }

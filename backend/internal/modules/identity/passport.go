@@ -366,7 +366,7 @@ const (
 // makes the liveness rule above impossible to have on one path and miss on
 // the other.
 func agentAuthQuery(predicate string) string {
-	return `SELECT p.id, u.workspace_id, p.on_behalf_of, p.scopes, u.seat_type
+	return `SELECT p.id, p.on_behalf_of, p.scopes, u.seat_type
 		FROM passport p
 		JOIN app_user u ON u.id = p.on_behalf_of` + agentLivenessJoins + `
 		WHERE ` + predicate + `
@@ -382,10 +382,17 @@ func agentAuthQuery(predicate string) string {
 //
 //craft:ignore naked-any a pgx query argument is untyped by the driver's own signature, and the two callers pass different column types
 func (s *Service) authenticateAgentWhere(ctx context.Context, tx pgx.Tx, predicate string, arg any) (AgentIdentity, error) {
-	var a AgentIdentity
+	// The workspace is the installation's, not a column on the granting human:
+	// ADR-0091 §8 phase D took the tenant column off app_user. Resolved before
+	// the row is read so a passport and a session mint the same value.
+	wsID, err := s.InstallationWorkspace(ctx)
+	if err != nil {
+		return AgentIdentity{}, err
+	}
+	a := AgentIdentity{WorkspaceID: wsID}
 	var scopes []string
-	err := tx.QueryRow(ctx, agentAuthQuery(predicate), arg).
-		Scan(&a.PassportID, &a.WorkspaceID, &a.OnBehalfOf, &scopes, &a.SeatType)
+	err = tx.QueryRow(ctx, agentAuthQuery(predicate), arg).
+		Scan(&a.PassportID, &a.OnBehalfOf, &scopes, &a.SeatType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return AgentIdentity{}, apperrors.ErrNotFound
 	}

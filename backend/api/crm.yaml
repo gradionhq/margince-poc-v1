@@ -11932,6 +11932,13 @@ paths:
 
         Every risk carries the ids behind it. A flag a human cannot drill into is a red
         dot nobody can act on.
+
+        **A seat is an edge.** Every stakeholder on this payload is a `deal_stakeholder`
+        relationship, and reading one discloses its endpoints as a pair — so this endpoint
+        needs `relationship:read` on top of the deal grant. Without it the three
+        edge-derived sections come back empty and named in `sections_omitted` rather than
+        the endpoint refusing: an operator who restricted the edge grant should be told the
+        coverage view was withheld, not that the deal passes every check.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -12850,8 +12857,16 @@ paths:
     post:
       tags: [Import]
       operationId: createImportRun
-      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
-      x-agent-access: human-only
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      # Open to an agent because this call writes NO domain rows (AC-M5): it
+      # validates a mapping against the estate and produces a report, which is
+      # exactly the work an assistant helping with a migration should do. What
+      # COMMITS is approveImportRun, and that stays confirm-first.
+      x-mcp-tool:
+        verb: preview_import
+        record_type: import_run
+        tier: auto_execute
+        scope: write
       summary: Create an import run from an uploaded source and a column mapping, and dry-run it.
       description: |
         IEM-WIRE-3. Takes the connector, the `source_ref` from
@@ -12888,8 +12903,14 @@ paths:
     get:
       tags: [Import]
       operationId: getImportRun
-      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
-      x-agent-access: human-only
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      # A read. An assistant that staged the run has to be able to see what
+      # became of it, or it is helping with a migration it cannot observe.
+      x-mcp-tool:
+        verb: read_import_run
+        record_type: import_run
+        tier: auto_execute
+        scope: read
       summary: Read one import run's lifecycle state.
       description: |
         IEM-WIRE-6. A run that stopped part-way reports `failed` **with its
@@ -12914,8 +12935,15 @@ paths:
     get:
       tags: [Import]
       operationId: getImportRunReport
-      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
-      x-agent-access: human-only
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      # The report is the whole point of a dry run. An assistant that cannot
+      # read it cannot tell a person what the import is about to do, which is
+      # the one thing worth asking an assistant about a migration.
+      x-mcp-tool:
+        verb: read_import_report
+        record_type: import_run
+        tier: auto_execute
+        scope: read
       summary: Read the run's report — what will happen, or what did.
       description: |
         IEM-WIRE-4. Available from `awaiting_approval` onward, and it is the
@@ -12942,8 +12970,16 @@ paths:
     post:
       tags: [Import]
       operationId: approveImportRun
-      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
-      x-agent-access: human-only
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      # CONFIRMATION_REQUIRED, and it is the reason the three above can be
+      # auto_execute. This is the call that writes the estate, so an agent may
+      # ask for it and a person must approve it — the approval carries the run
+      # id, so what gets committed is the run whose report the person read.
+      x-mcp-tool:
+        verb: commit_import
+        record_type: import_run
+        tier: confirmation_required
+        scope: write
       summary: Approve a validated import run and commit it.
       description: |
         IEM-WIRE-5, and one of the three audited gates. Valid **only** from
@@ -18466,12 +18502,32 @@ components:
 
     DealCoverage:
       type: object
-      required: [deal_id, stakeholders, our_side, risks]
+      required: [deal_id, stakeholders, our_side, risks, sections_omitted]
       properties:
         deal_id:      { type: string, format: uuid }
         stakeholders: { type: array, items: { $ref: '#/components/schemas/DealCoverageSeat' } }
         our_side:     { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
         risks:        { type: array, items: { $ref: '#/components/schemas/DealCoverageRisk' } }
+        sections_omitted:
+          type: array
+          description: |
+            The sections withheld for lack of the `relationship` grant — so a client can say
+            "you can't see this" instead of "there is none". Never returned absent, and empty
+            on the ordinary read: empty and forbidden are different answers, and a client that
+            had to infer the difference from an empty `risks` array would render a withheld
+            coverage view as a clean one.
+
+            All three sections go together or none does. Every seat on the deal is a
+            `deal_stakeholder` EDGE, `our_side` is derived from the seats, and every risk rule
+            but `going_cold` reads them — so there is no partial answer to give here.
+
+            A named section is EMPTY, never partial. `going_cold` needs no edge and could have
+            survived, but a `risks` array holding one finding while this array names it would
+            leave a client unable to say whether the list is complete. The deal's last touch is
+            on the deal record; only this card's copy of the finding is withheld.
+          items:
+            type: string
+            enum: [stakeholders, our_side, risks]
 
     EmailSignature:
       type: object
@@ -18862,7 +18918,7 @@ components:
         pipeline_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null pipeline FK. Overlay mode: NULL — an overlay-mirror deal has no native Margince pipeline row; the incumbent''s own pipeline id rides `raw` and the code-declared stage→semantic mapping drives tier resolution (overlay-augmentation OVA-MAP-6). A zero/placeholder UUID here is forbidden (dangling FK).' }
         stage_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null stage FK; must belong to pipeline_id. Overlay mode: NULL (see pipeline_id; the incumbent dealstage id rides `raw`, OVA-MAP-6).' }
         organization_id: { type: [string, 'null'], format: uuid, description: 'Primary org; never a raw lead. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
-        partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a live `partner` row — naming one that does not is refused 422 (`not_a_partner`), because commission prices from the margin tier on that row, and an attribution without one could never earn anything. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
         partner_attribution:
           type: [string, 'null']
           enum: [sourced, influenced, null]
@@ -18923,6 +18979,13 @@ components:
         pipeline_id: { type: string, format: uuid }
         stage_id: { type: string, format: uuid }
         organization_id: { type: [string, 'null'], format: uuid }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'The partner this deal is attributed to at birth. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it.' }
+        partner_attribution:
+          type: [string, 'null']
+          enum: [sourced, influenced, null]
+          description: >-
+            `sourced` or `influenced`. Naming a partner without this field attributes the
+            deal `sourced`; an attribution for a deal naming no partner is refused 422.
         project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this deal belongs to; must name the same company as the deal.' }
         owner_id: { type: [string, 'null'], format: uuid }
         expected_close_date: { type: [string, 'null'], format: date, description: 'Deals are born open, so a date before today is rejected 422 (INV-CLOSE-PAST, formulas §11).' }
@@ -18937,7 +19000,7 @@ components:
         amount_minor: { type: [integer, 'null'], format: int64 }
         currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
         organization_id: { type: [string, 'null'], format: uuid }
-        partner_org_id: { type: [string, 'null'], format: uuid }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'The partner who brought this deal. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it. Null clears the attribution.' }
         partner_attribution:
           type: [string, 'null']
           enum: [sourced, influenced, null]
@@ -22391,6 +22454,7 @@ components:
             - custom_field
             - data_subject_request
             - deal
+            - import_run
             - lead
             - list
             - offer

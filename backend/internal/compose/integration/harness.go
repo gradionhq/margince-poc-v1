@@ -39,6 +39,13 @@ type Env struct {
 	Rep1, Rep2, Rep3 ids.UUID
 	// AdminUser is the seat Admin() binds: a real app_user, because a manual
 	// create stamps the caller as owner and the owner column is a foreign key.
+	//
+	// It is also the seat in NO TEAM: the membership seeding below covers Rep1,
+	// Rep2 and Rep3 and deliberately not this one, which is what lets a suite own
+	// a record by a real-but-teamless seat. Putting it in a team breaks
+	// TestARecordWhoseOwnerIsInNoTeamIsCoveredByNoTeam, which asserts the gap
+	// rather than assuming it — so the failure names this decision instead of
+	// reading as a filter bug.
 	AdminUser    ids.UUID
 	Team1, Team2 ids.UUID
 }
@@ -86,8 +93,7 @@ func Setup(t *testing.T) *Env {
 	seedInstallationIdentity(ctx, t, owner)
 	for i, user := range []ids.UUID{e.Rep1, e.Rep2, e.Rep3, e.AdminUser} {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, $4)`,
-			user, e.WS, string(rune('a'+i))+"@authz.test", "Rep"); err != nil {
+			`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, $3)`, user, string(rune('a'+i))+"@authz.test", "Rep"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -265,6 +271,43 @@ func (e *Env) SeedOrg(t *testing.T, name string, owner *ids.UUID) ids.UUID {
 		t.Fatal(err)
 	}
 	return ids.UUID(org.Id)
+}
+
+// SeedPartnerOrg creates an organization and gives it a partner programme, so
+// a deal may name it.
+//
+// A deal's partner must BE a partner (the store refuses any other company,
+// because commission prices from the margin tier on that row). A fixture that
+// pointed a deal at a plain organization was writing a row the product itself
+// will not write, which is the shape of test that proves nothing.
+//
+// The tier is optional: a partner with none is a real and common state — the
+// arrangement exists, the rate has not been agreed — and accrual treats it as
+// earning nothing rather than as an error.
+func (e *Env) SeedPartnerOrg(t *testing.T, name string, tier *string, owner *ids.UUID) ids.UUID {
+	t.Helper()
+	org := e.SeedOrg(t, name, owner)
+	// The harness's AdminPerms deliberately carries no `partner` grant, so the
+	// seeding acts as a seat that has one. Borrowing the caller's context would
+	// make every suite that seeds a partner grow a permission it is not testing.
+	seeder := e.As(e.AdminUser, nil, principal.Permissions{
+		RoleKeys: []string{"admin"},
+		Objects: map[string]principal.ObjectGrant{
+			"partner": {Create: true, Read: true, Update: true},
+			// Becoming a partner also stamps the organization's relationship
+			// types, so the seat needs the company as well as the programme.
+			objOrg: {Read: true, Update: true},
+		},
+		RowScope: principal.RowScopeAll,
+	})
+	if _, err := e.People.UpsertPartner(seeder, people.UpsertPartnerInput{
+		OrganizationID: ids.From[ids.OrganizationKind](org),
+		PartnerRole:    "consulting",
+		MarginTier:     tier,
+	}); err != nil {
+		t.Fatalf("giving %s a partner programme: %v", name, err)
+	}
+	return org
 }
 
 // SeedOrgAs creates an ownerless organization in a SECOND workspace, under

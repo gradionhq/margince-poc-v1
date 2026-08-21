@@ -740,17 +740,6 @@
 .rail .railfoot:not(:has(*)) {
   display: none;
 }
-
-/* A rail showing a SECTION's entries drops the foot altogether.
- *
- * The reading is an installation-level fact and what it leads to is a settings
- * tab — so on a rail that IS the settings level it reports a place the reader is
- * already standing in, under a list of the tabs it would send them to. `.leveled`
- * rather than a settings check, because the panel is one shape and any section
- * that grows a level inherits the same reading. */
-.rail.leveled .railfoot {
-  display: none;
-}
 .rail .railfoot {
   /* As the head: the reading and its rule keep their height whether the panel
      scrolls or not. */

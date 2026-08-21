@@ -436,6 +436,12 @@ var existenceProbes = map[string]string{
 	targetOfferTemplate:       `SELECT EXISTS (SELECT 1 FROM offer_template WHERE id = $1 AND archived_at IS NULL)`,
 	targetWebhookSubscription: `SELECT EXISTS (SELECT 1 FROM webhook_subscription WHERE id = $1 AND archived_at IS NULL)`,
 	"custom_field":            `SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`,
+	// An import run is workspace-shared work over the estate, with no owner and
+	// no row scope of its own — so the row half is existence alone, and the
+	// authority is the object-read floor plus the decision grants. There is no
+	// archived_at on the table: a run's history is its own status, and a
+	// finished one is still the thing an approval named.
+	targetImportRun: `SELECT EXISTS (SELECT 1 FROM import_run WHERE id = $1)`,
 }
 
 func targetExists(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {

@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 47 |
+| Tools | 51 |
 | Resources | 8 |
-| Tool catalog | 128.4 KB |
+| Tool catalog | 136.6 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 33635 |
+| Approx. wire tokens | 35752 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 56.8 KB | 44% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 32.8 KB | 25% | Yes, every step |
-| Input schemas | 28.7 KB | 22% | Yes, every step |
-| _Names, annotations, punctuation_ | 10.0 KB | 7% | Partly |
-| **Description + input schema** | **61.5 KB** | **47%** | **the recurring cost** |
+| Output schemas | 62.1 KB | 45% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 33.8 KB | 24% | Yes, every step |
+| Input schemas | 29.9 KB | 21% | Yes, every step |
+| _Names, annotations, punctuation_ | 10.7 KB | 7% | Partly |
+| **Description + input schema** | **63.8 KB** | **46%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -55,19 +55,20 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (47)
+### Tools (51)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
-| [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.6 KB |
+| [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.7 KB |
 | [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.3 KB |
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
 | [`apply_tag`](#apply_tag) | Apply a tag to a record |  |  | 2.0 KB |
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
-| [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
+| [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.5 KB |
 | [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.9 KB |
 | [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.7 KB |
 | [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.2 KB |
+| [`commit_import`](#commit_import) | Commit an import |  |  | 1.8 KB |
 | [`create_record`](#create_record) | Create a record |  |  | 2.6 KB |
 | [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 3.0 KB |
 | [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 3.0 KB |
@@ -85,12 +86,15 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.0 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
+| [`preview_import`](#preview_import) | Preview an import |  |  | 2.3 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
 | [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.5 KB |
 | [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.4 KB |
 | [`query_workspace`](#query_workspace) | Query the workspace | yes |  | 3.6 KB |
 | [`read_approval`](#read_approval) | Read one staged action in full | yes |  | 2.4 KB |
 | [`read_brief`](#read_brief) | Read the morning brief | yes | [`ui://margince/account-brief.html`](#account_brief_view) | 2.8 KB |
+| [`read_import_report`](#read_import_report) | Read an import report | yes |  | 2.5 KB |
+| [`read_import_run`](#read_import_run) | Read an import run | yes |  | 1.4 KB |
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.3 KB |
 | [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
@@ -372,6 +376,12 @@ Answer "is this deal covered?": which roles on the account we have a relationshi
           },
           "type": "array"
         },
+        "sections_omitted": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "stakeholders": {
           "items": {
             "properties": {
@@ -400,6 +410,7 @@ Answer "is this deal covered?": which roles on the account we have a relationshi
         "deal_id",
         "our_side",
         "risks",
+        "sections_omitted",
         "stakeholders"
       ],
       "type": "object"
@@ -1158,6 +1169,9 @@ Answer "where are our relationships thin?": across the caller's OPEN deals, the 
   "properties": {
     "data": {
       "properties": {
+        "coverage_withheld": {
+          "type": "boolean"
+        },
         "deals": {
           "items": {
             "properties": {
@@ -1221,6 +1235,7 @@ Answer "where are our relationships thin?": across the caller's OPEN deals, the 
         }
       },
       "required": [
+        "coverage_withheld",
         "deals",
         "deals_scanned",
         "truncated"
@@ -1779,6 +1794,155 @@ Find when a host is free, so a time can be proposed to someone. It reads free/bu
       "required": [
         "slots",
         "truncated"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### commit_import
+
+**Commit an import**
+
+Write a checked import into the workspace, once a person approves. Only from awaiting_approval. Undoing one needs the web app. read_import_report first; nobody should approve what they have not read. (Governance: a person approves every call before it runs; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "approval_id": {
+      "description": "Set on retry after approval",
+      "format": "uuid",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "checkpoint": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint",
+        "object",
+        "run_id",
+        "state"
       ],
       "type": "object"
     },
@@ -5041,6 +5205,193 @@ Renders its result in [`ui://margince/handoff.html`](#handoff_view), visible to 
 
 </details>
 
+### preview_import
+
+**Preview an import**
+
+Bring a spreadsheet in: send the CSV as text and this checks every row against the workspace and reports what importing it would do. Writes nothing. People arrive as leads, so `object` is lead or organization. create_record for one record you already know. run_id. (Governance: runs immediately; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "csv": {
+      "description": "The file's contents, header row first.",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "mapping": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Source column name → field name. Omit to accept the proposal this call would make.",
+      "type": "object"
+    },
+    "object": {
+      "enum": [
+        "organization",
+        "lead"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "object",
+    "csv"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mapping": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "run": {
+          "properties": {
+            "checkpoint": {
+              "type": "integer"
+            },
+            "error": {
+              "type": "string"
+            },
+            "object": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "checkpoint",
+            "object",
+            "run_id",
+            "state"
+          ],
+          "type": "object"
+        },
+        "unmapped": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "columns",
+        "mapping",
+        "run"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ### progress_deal
 
 **Progress a deal with a note**
@@ -6106,6 +6457,403 @@ Renders its result in [`ui://margince/account-brief.html`](#account_brief_view),
         "candidate_count",
         "generated_at",
         "items"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### read_import_report
+
+**Read an import report**
+
+What an import will do, or did: rows created, updated, failed, unusable. These counts are what a person approves. Same shape before and after. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "report": {
+          "properties": {
+            "disposition": {
+              "properties": {
+                "created": {
+                  "type": "integer"
+                },
+                "skipped": {
+                  "type": "integer"
+                },
+                "unchanged": {
+                  "type": "integer"
+                },
+                "updated": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "created",
+                "skipped",
+                "unchanged",
+                "updated"
+              ],
+              "type": "object"
+            },
+            "estimated_duration_seconds": {
+              "type": "integer"
+            },
+            "issues": {
+              "items": {
+                "properties": {
+                  "column": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "line",
+                  "reason"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "rows_read": {
+              "type": "integer"
+            },
+            "run_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "source_key_used": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "undo": {
+              "properties": {
+                "errored": {
+                  "items": {
+                    "properties": {
+                      "id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "object": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "object",
+                      "reason"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "kept": {
+                  "items": {
+                    "properties": {
+                      "id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "object": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "object"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "reversed_count": {
+                  "type": "integer"
+                },
+                "run_id": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "errored",
+                "kept",
+                "reversed_count",
+                "run_id",
+                "status"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "disposition",
+            "issues",
+            "rows_read",
+            "run_id",
+            "source_key_used",
+            "status"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "report"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### read_import_run
+
+**Read an import run**
+
+Where one import got to: awaiting approval, running, done, or stopped. A stopped run names the row it stopped at and can resume there. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "checkpoint": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint",
+        "object",
+        "run_id",
+        "state"
       ],
       "type": "object"
     },

@@ -94,6 +94,11 @@ var companyFields = []companyField{
 	{name: fieldOfferSummary, update: `UPDATE organization SET description = $2 WHERE id = $1
 		AND description IS NULL AND $2::text IS NOT NULL AND length($2) <= 500`},
 	{name: fieldLegalName, update: `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS DISTINCT FROM $2`},
+	// Nothing about geocoding here: a trigger marks the coordinates stale on
+	// any address column that changes (the organization_geocode migration), so
+	// this writer neither can nor has to remember. An earlier version did it in
+	// this statement — correct, and something the next address writer would not
+	// have known to copy.
 	{name: fieldRegisteredAddress, update: `UPDATE organization SET address_line1 = $2 WHERE id = $1 AND address_line1 IS DISTINCT FROM $2`},
 	{name: fieldRegisterVat},
 	{name: fieldIndustry, update: `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS DISTINCT FROM $2`},

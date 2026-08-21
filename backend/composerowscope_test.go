@@ -87,8 +87,6 @@ var unscopedReferenceReads = gatekit.Waive(map[string]string{
 
 	"internal/compose:employerOf": "the person auto-enrich consumer's employer resolution, under the PrincipalSystem actor its own systemContext binds before the pass (compose/personautoenrich.go): it answers which company's published site may describe this person, and the id is spent inside the same transaction choosing that site — a caller never sees it",
 
-	"internal/compose/briefs:briefEvidenceRows": "the ranking's stakeholder gather, whose person ids never leave Rank: they are consumed only by resolveWarmth, which routes each one through the injected people-strength seam and floors the warmth factor on ErrNotFound/ErrPermissionDenied, so a stakeholder outside the caller's scope contributes nothing and is never named. The evidence the run PERSISTS is the deal and its activity rows (TestBriefEvidenceIsTheDealThenItsActivityRows holds that), not these",
-
 	"internal/compose/network:readDealFacts": "the coverage view's deal row: the organization id it reads is spent one function later on readDeparted's employment test and is absent from DealCoverage, so it reaches no caller. The DEAL is gated where the reference enters — network.Reads.GetDealCoverage takes auth.Require plus auth.EnsureVisibleLive on it before opening this assembly",
 })
 
@@ -109,6 +107,19 @@ var rowScopeSpellings = map[string]bool{
 	"EnsureActivityContentVisible": true, "EnsureActivityContentVisibleLive": true,
 	"SignalScopeClause": true, "EnsureSignalVisible": true, "EnsureSignalVisibleLive": true,
 	"RelationshipEndpointScope": true, "EnsureRelationshipVisible": true,
+	// EdgeReadScope RETURNS RelationshipEndpointScope's clause — it is that
+	// conjunction with the object gate in front of it — so a read reaching it
+	// applies the endpoint bound as surely as one calling the conjunction
+	// directly. Its absence here was a gap rather than a policy: the first
+	// compose read whose ONLY row bound came through it reported as unscoped,
+	// and the fix a reader would reach for from that message is a SECOND scope
+	// call over a column the conjunction already covers.
+	//
+	// Adding it does not weaken the census. The two halves are unbundled in
+	// exactly one direction: this list accepts the pair because the pair
+	// includes the row half, while backend/edgereaders_test.go refuses the row
+	// half alone. Neither gate accepts the object half on its own.
+	"EdgeReadScope": true,
 }
 
 // referenceSite is one SQL select list in the compose tier that names a
@@ -235,6 +246,16 @@ func collectMapKeys(t *testing.T, expr ast.Expr, into map[string]bool) {
 	}
 }
 
+// stringConst is gatekit.LiteralText's question with the opposite answer for one
+// case, and the difference is deliberate: a literal strconv cannot unquote is
+// DROPPED here, where gatekit keeps its raw form.
+//
+// Each is right for its own gate. gatekit's censuses ask "does this text name a
+// table" — a raw form still answers that, and dropping it would leave a read
+// nobody judged. This gate parses SQL structurally, and a literal it cannot
+// unquote is text it cannot locate a projection inside; treating the quoted form
+// as SQL would make it find columns at the wrong offsets and report a bound as
+// missing.
 func stringConst(expr ast.Expr) (string, bool) {
 	lit, ok := expr.(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {

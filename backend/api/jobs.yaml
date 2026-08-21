@@ -98,6 +98,15 @@ queues:
     reason: >-
       Deep reads run on their own bounded pool so long crawls cannot evict the
       short maintenance jobs from the default queue.
+  geocode:
+    max_workers: 1
+    reason: >-
+      ONE worker, and it is the usage policy rather than a performance choice.
+      Nominatim holds a client that runs on a schedule to four requests a
+      minute, single-threaded, against one service — so a second worker would
+      be a second requester however carefully each paced itself. The pacer in
+      platform/geocode enforces the interval; this bound enforces the
+      single thread.
   rate_refresh:
     max_workers: 2
     reason: >-
@@ -1116,6 +1125,22 @@ kinds:
       staging and dossier writes — floored so a tightened cap never squeezes the
       terminal writes. Not knowable here: it is computed from CrawlCaps at
       registration.
+
+  geocode_organization:
+    role: worker
+    go_type: GeocodeOrganizationArgs
+    queue: geocode
+    timeout: 1m
+    opts_owner: caller
+    registration: {when: [Geocoder], absent: registers_anyway}
+    args:
+      Workspace: id
+      OrganizationID: id
+    reason: >-
+      One address, one lookup, plus the write. A minute is generous for a single
+      HTTP call and deliberately so: the pacer may hold this job for up to the
+      policy interval before the request even starts, and a timeout that fired
+      during the wait would retry into the same queue and make the rate worse.
 
   transcript_propose:
     role: worker

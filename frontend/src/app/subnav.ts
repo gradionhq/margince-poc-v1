@@ -18,8 +18,9 @@ import { isScreen, type Route, routeHash } from "./router";
 // shell stays ignorant of grants and this module stays free of any screen.
 
 export type NavLevelEntry = {
-  // The route segment this entry addresses at its own depth: `#/settings/privacy`
-  // is the `privacy` entry of the section the `settings` screen publishes.
+  // The route segment this entry addresses at its own depth: `#/settings/admin/privacy`
+  // is the `privacy` entry of the section the `settings` screen publishes, one
+  // segment deeper than the personal entries — see `prefix` below.
   id: string;
   // Route segments between the level's own path and this entry's `id`. Absent
   // for every entry that sits directly under its level, which is most of them.

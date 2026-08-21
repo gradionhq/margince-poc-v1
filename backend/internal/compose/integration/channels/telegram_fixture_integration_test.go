@@ -245,7 +245,7 @@ func (c *telegramEnv) resolveActors(t *testing.T) {
 	t.Helper()
 	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT workspace_id, id FROM app_user WHERE email = $1`, telegramAdminEmail).Scan(&c.ws, &c.admin)
+			`SELECT (SELECT id FROM workspace ORDER BY created_at LIMIT 1), id FROM app_user WHERE email = $1`, telegramAdminEmail).Scan(&c.ws, &c.admin)
 	}); err != nil {
 		t.Fatalf("resolving the acting admin: %v", err)
 	}

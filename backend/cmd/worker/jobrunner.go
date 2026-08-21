@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/config"
+	"github.com/gradionhq/margince/backend/internal/platform/geocode"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -147,6 +148,11 @@ func newJobRunner(pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, cap
 		// capture writes them to; without it a message carrying files fails at
 		// the read rather than going out without them.
 		SendBlob: lanes.blob,
+		// The geocoder, when this deployment has one. Empty leaves it nil, the
+		// worker records that it cannot resolve, and radius queries stay
+		// unavailable — which is honest for an installation that geocodes
+		// nothing, and better than answering from an empty table.
+		Geocoder: geocoderFor(cfg.geocodeBaseURL),
 		// The registry that resolves a staged delivery's mailbox: the SAME
 		// sweep registry the capture polls use, so the connector set that
 		// syncs a mailbox is the one that transmits from it.
@@ -227,4 +233,23 @@ func newJobRunner(pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, cap
 		// posture as DeepReadBrain above.
 		Embedder: modelPath.Embedder,
 	})
+}
+
+// geocoderFor builds the provider a base URL names, or nil for none.
+//
+// "public" is spelled out rather than defaulted, so choosing OpenStreetMap's
+// free service is a decision somebody made rather than what happens when a
+// variable is unset. Its terms hold a recurring client to four requests a
+// minute; an installation with real volume points this at its own instance.
+//
+//nolint:ireturn // the PORT is the return type: nil means this deployment geocodes nothing, which a concrete type cannot express.
+func geocoderFor(baseURL string) geocode.Client {
+	switch baseURL {
+	case "":
+		return nil
+	case "public":
+		return geocode.NewNominatim(geocode.PublicBaseURL, nil)
+	default:
+		return geocode.NewNominatim(baseURL, nil)
+	}
 }

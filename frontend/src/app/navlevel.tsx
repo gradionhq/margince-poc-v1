@@ -54,7 +54,7 @@ const HOME: Route = { screen: "home" };
 // holds this and hands it down; a rail rendered without one — a story, the
 // component workbench — has only its own lifetime, and walks out to home.
 type NavWalk = {
-  // The last route that showed no level at all. Nothing about `#/settings/privacy`
+  // The last route that showed no level at all. Nothing about `#/settings/admin/privacy`
   // says which screen was open before it, so it is remembered as the reader
   // passes rather than reconstructed.
   origin: Route;

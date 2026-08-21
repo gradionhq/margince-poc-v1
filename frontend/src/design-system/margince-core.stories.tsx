@@ -6,30 +6,33 @@ import { MarginceCoreScene } from "./margince-core";
 import { BEHAVIOUR } from "./margince-core-motion";
 
 /**
- * WDS-CORE-2 says the state vocabulary is closed. A catalog showing four of the
- * eight is how a closed vocabulary quietly becomes an open one, so every state
- * gets a story — including the three nobody demos: `flagged`, `disconnected` and
- * `error`, the states a reviewer never asks to see and a user meets on a bad day.
+ * WDS-CORE-2 says the state vocabulary is closed. A catalog showing three of
+ * the five is how a closed vocabulary quietly becomes an open one, so every
+ * state gets a story, including the two nobody demos: `warning` and `error`,
+ * the states a reviewer never asks to see and a user meets on a bad day.
  *
- * **The vocabulary is the agent's work lifecycle**, in order: dormant →
- * ingesting → reasoning → drafting → applied, plus the three ways a run stops. There is no `listening`: Margince's agent works overnight over captured
- * activity and stages proposals a human confirms — it never holds a conversation,
- * and a state naming one would be the product claiming something it does not do.
+ * **The vocabulary is the agent's work lifecycle**, in order: idle → ingest →
+ * working, and back to idle when a run settles, plus the two ways it stops.
+ * There is no `listening`: Margince's agent works overnight over captured
+ * activity and stages proposals a human confirms — it never holds a
+ * conversation, and a state naming one would be the product claiming
+ * something it does not do.
  *
- * **State is motion first and colour second.** Each state owns one movement
- * archetype (`margince-core-motion.ts`) and one colour triple
- * (`margince-core.css`). Two consequences worth knowing before reading the eight:
+ * **State is motion first and colour second.** Each state owns one distinct
+ * `level` / `speed` / `pulse` / `ingest` signature (`margince-core-motion.ts`),
+ * driven straight into the shader, before it owns a colour triple
+ * (`margince-core.css`). Two consequences worth knowing before reading the five:
  *
- *  - A still frame is not the story. `ingesting` and `reasoning` sit in
- *    neighbouring greens and are told apart by what the mass DOES — one docks
- *    satellites and swells, the other fuses and spins — so a state story has to
- *    be watched. `margince-core-motion.test.ts` pins the formations, which is
- *    where a movement can be asserted instead of eyeballed.
+ *  - A still frame is not the story. `ingest` and `working` sit in
+ *    neighbouring greens and are told apart by how the ribbons move: one turns
+ *    material inward, the other runs hot and fast. `margince-core-motion.test.ts`
+ *    pins the signature, which is where a movement can be asserted instead of
+ *    eyeballed.
  *  - The condition a user acts on is never the orb. Every surface that shows a
  *    Core also states its condition in words beside it, which is what makes the
  *    orb safe to be `aria-hidden`.
  *
- * `Ladder` at the end of this file shows all eight at once, which is the view that
+ * `Ladder` at the end of this file shows all five at once, which is the view that
  * catches two states having drifted into looking alike.
  */
 const meta = {
@@ -43,40 +46,25 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * Rest, and where the Core spends nearly all of its life: nothing staged,
- * nothing running. One body, one slow rotation, no dot breaking rank — a
- * formation that reorganises while idle reads as an agent working, which is a
- * claim an idle CRM must not make.
+ * nothing running. Low energy, slow phase, a shallow breath — an idle state
+ * with more going on than that reads as work nobody asked for. A finished run
+ * settles back here rather than into a state of its own.
  */
-export const Dormant: Story = { args: { state: "dormant" } };
+export const Idle: Story = { args: { state: "idle" } };
 
 /**
- * Captured calls, mail and meetings arriving. Satellites dock into the mass one
- * at a time and it swells with each, so intake reads as volume taken on rather
- * than as a pulse.
+ * Captured calls, mail and meetings arriving. `ingest` sits at its ceiling here
+ * and nowhere else, the whirlpool that reads as material moving from the glass
+ * to the centre rather than the object simply being busy.
  */
-export const Ingesting: Story = { args: { state: "ingesting" } };
+export const Ingesting: Story = { args: { state: "ingest" } };
 
 /**
- * Traversing the context graph, matching records against evidence. The four fuse
- * into one working mass and spiral — the only state that spins, and the fastest
- * thing the Core ever does.
+ * Traversing the context graph, matching records against evidence, composing
+ * staged proposals. The fastest phase of the five and the shallowest breath —
+ * thought reads as speed, not as a pulse.
  */
-export const Reasoning: Story = { args: { state: "reasoning" } };
-
-/**
- * Composing staged proposals, one at a time: the mass pinches off a piece, sends
- * it out on a long arc and closes again, recoiling each time one leaves. The
- * recoil is what gives the body mass — a piece leaving something that does not
- * react is just a dot moving.
- */
-export const Drafting: Story = { args: { state: "drafting" } };
-
-/**
- * A human confirmed. The dots leave the goo filter behind and draw a check mark,
- * short stroke then long — the only state that draws a symbol, and the only one
- * that should feel finished.
- */
-export const Applied: Story = { args: { state: "applied" } };
+export const Working: Story = { args: { state: "working" } };
 
 /**
  * The ring is the optional half of WDS-CORE-2, and a ring rather than a bar
@@ -87,29 +75,22 @@ export const Applied: Story = { args: { state: "applied" } };
  * and no ring say different things — one is a job that has not moved, the other
  * is a job with no measurable length.
  */
-export const IngestingWithProgress: Story = {
-  args: { state: "ingesting", progress: 0.58 },
+export const IngestWithProgress: Story = {
+  args: { state: "ingest", progress: 0.58 },
 };
 
 /**
- * A record contradicts reality, or an action needs permission it does not have.
- * Held apart under tension, shivering, never orbiting: fast and deliberately
- * going nowhere, which is what separates a problem from progress.
+ * Stopped and waiting for a person: a record contradicts reality, an action
+ * needs permission it does not have, a source it cannot reach, a licence it
+ * does not carry. Amber, slow, and breathing hard enough to be caught out of
+ * the corner of an eye — the orb only ever reports that a person is needed,
+ * never which of these it is; the surface around it says that in words.
  */
-export const Flagged: Story = { args: { state: "flagged" } };
+export const Warning: Story = { args: { state: "warning" } };
 
 /**
- * A source the agent cannot reach — the mailbox, the calendar, an MCP connection.
- * The mass splits and keeps reaching across; the thread stretches, thins and
- * snaps. Desaturated on purpose: nothing is wrong with the data, the agent simply
- * cannot get to it.
- */
-export const Disconnected: Story = { args: { state: "disconnected" } };
-
-/**
- * The run failed. All four collapse into one red mass with a slow heartbeat. Red
- * is the one colour outside the product's palette, which is exactly why it works
- * here — nothing else in Margince looks like this.
+ * The run failed. Red, the one colour outside the product's palette, and the
+ * hardest breath of the five.
  */
 export const Errored: Story = { args: { state: "error" } };
 
@@ -119,10 +100,9 @@ export const Errored: Story = { args: { state: "error" } };
  *
  * The glass thins as the ball shrinks: the rim darkening and the edge are fixed
  * weights, so on a small disc they cover a far bigger share of it and turn the
- * orb grey — and the dots grow, because a dot that is proportionally right at
- * 230px is a hairline at 34px. Those rungs are container queries on the Core's
- * own box, so a layout that sizes one through `--coreGlass` gets the right
- * treatment without knowing they exist.
+ * orb grey. Those rungs are container queries on the Core's own box, so a layout
+ * that sizes one through `--coreGlass` gets the right treatment without knowing
+ * they exist.
  *
  * Review this one at a desktop width: below 900px the stylesheet takes the hero
  * down to the md geometry, and then the two are the same ball twice.
@@ -136,8 +116,33 @@ export const Sizes: Story = {
         gap: "var(--space-6)",
       }}
     >
-      <MarginceCoreScene state="reasoning" />
-      <MarginceCoreScene state="reasoning" size="md" />
+      <MarginceCoreScene state="working" />
+      <MarginceCoreScene state="working" size="md" />
+    </div>
+  ),
+};
+
+/**
+ * The two ways a Core is dressed. On a dark surface it is emissive: it adds its
+ * own light and the ribbons are the object. On paper it goes opaque and dark,
+ * with the ribbons glowing inside it — an emissive ball on white is a smudge, so
+ * `surface="dark"` exists for hosts that are dark in both themes, like the
+ * workspace rail, and never follows the page's own theme the way `auto` does.
+ */
+export const Surfaces: Story = {
+  render: () => (
+    <div
+      style={{
+        display: "flex",
+        gap: "var(--space-6)",
+      }}
+    >
+      <div style={{ padding: "var(--space-6)", background: "var(--bgPage)" }}>
+        <MarginceCoreScene state="working" size="md" surface="auto" />
+      </div>
+      <div style={{ padding: "var(--space-6)", background: "var(--bgRail)" }}>
+        <MarginceCoreScene state="working" size="md" surface="dark" />
+      </div>
     </div>
   ),
 };
@@ -147,7 +152,7 @@ export const Sizes: Story = {
  *
  * This is the review a per-state story cannot give: two states drifting into the
  * same movement is invisible when they sit on separate pages and obvious here.
- * Read across the rows — each formation should be nameable without its caption.
+ * Read across the rows — each state should be nameable without its caption.
  */
 export const Ladder: Story = {
   render: () => (
@@ -191,16 +196,13 @@ export const Ladder: Story = {
 };
 
 /**
- * The feed off, which is the honest setting wherever nothing is arriving: the
- * motes are context reaching the Core, so a Core that is merely present must not
- * draw them.
+ * The feed off, which is the honest setting wherever nothing is arriving: `feed`
+ * raises the intake floor the shader draws with, so a Core that is merely
+ * present must not carry it.
  *
- * It is also what a Core sitting next to copy needs. The workbench header and the
- * dock both run `feed={false}` for exactly that reason — a mote crossing a
- * paragraph is not atmosphere, it is a bug that moves. Where the layout wants
- * motes but a shorter throw, `--coreFeedReach` pulls the field in instead of
- * switching it off.
+ * It is also what a Core sitting next to copy needs. The workbench header and
+ * the dock both run `feed={false}` for exactly that reason.
  */
 export const WithoutFeed: Story = {
-  args: { state: "dormant", feed: false },
+  args: { state: "idle", feed: false },
 };

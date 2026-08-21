@@ -78,8 +78,8 @@ it, so a `?utm=…` never leaks into a screen name.
   `topbar.tsx` (the session strip: collapse control, breadcrumb, search,
   account), `pagemeta.ts` (what both of them know about a page before it
   renders), `nav.ts` (the canonical destination list), `router.tsx` (hash
-  routing), `palette.tsx` (⌘K), `agentdock.tsx` (the floating agent, which also
-  carries the record-scoped Ask panel), `theme.ts`, `capability.ts`, and the
+  routing), `palette.tsx` (⌘K), `agentrail.tsx` (the agent, at the foot of the
+  rail), `theme.ts`, `capability.ts`, and the
   shell-level
   advisories (`economybanner.tsx`, `embedreindexbanner.tsx`,
   `resumeconnectbanner.tsx`).
@@ -279,24 +279,25 @@ workbench. Four things about it are load-bearing rather than stylistic:
 - **One implementation.** A caller passes `state` and never restyles. Sizing
   through the documented `--coreSize` / `--coreGlass` custom properties is
   configuration; anything beyond that is a caller restyling a shared primitive.
-- **The state list is closed** — exactly eight: `dormant`, `ingesting`,
-  `reasoning`, `drafting`, `applied`, `flagged`, `disconnected`, `error`. Callers
-  use the Core
-  as a *status channel* (a sign-in in flight, a server that cannot be reached),
-  and a status channel with an open vocabulary is one nobody can test and no
-  second caller can reuse. `progress` is optional and draws the ring only when
-  passed.
-- **Rendering is a fallback ladder, not a technology.** The shader is preferred
-  and a non-GPU CSS rendering of *every* state is required
-  (`margince-core-liquid.tsx`).
+- **The state list is closed** — exactly five: `idle`, `ingest`, `working`,
+  `warning`, `error`. Callers use the Core as a *status channel* (a sign-in in
+  flight, a server that cannot be reached), and a status channel with an open
+  vocabulary is one nobody can test and no second caller can reuse. Red means
+  NOT CONNECTED and nothing else; amber is the fault that can wait. `progress`
+  is optional and draws the ring only when passed.
+- **Rendering is a fallback ladder, not a technology.** The WebGL2 shader is
+  preferred (`margince-core-shader.ts`), and a host without it gets a static CSS
+  dress carrying the same `data-core-state`, so nothing reading the Core's state
+  off the DOM can tell the two apart.
 - **It is `aria-hidden`.** Every state it shows is also stated in text by the
   surface around it, which is what makes it safe to be this decorative.
 
-The agent dock's orb **is** the Core (`MarginceCoreScene`, `state="dormant"`,
-feed off), not a lookalike: there is one orb in the product, and a CSS
-approximation in permanent chrome would be a second one for a reader to tell
-apart from the real thing. `agentdock.css` says the same next to the rule that
-sizes it.
+The agent section's orb **is** the Core (`MarginceCoreScene`), not a lookalike:
+there is one orb in the product, and a CSS approximation in permanent chrome
+would be a second one for a reader to tell apart from the real thing. It is the
+only one on screen at a time for the same reason, which is why the panel it
+opens carries none. `agentrail.css` says the same next to the rule that sizes
+it.
 
 ## The gates
 
@@ -337,7 +338,7 @@ frontend lane is separate from the Go merge gate and needs node + pnpm. Run
 | copy | `src/i18n/en.ts` **and** `src/i18n/de.ts` — key parity is compile-time |
 | money, dates, durations, zones | `src/format/format.ts` — except which calendar day an instant falls on, and the instant a picked day ends, which are `src/format/calendarday.ts` |
 | an API call | `src/api/client.ts` is the seam; regenerate types with `pnpm gen:api` |
-| the Core's appearance or states | `src/design-system/margince-core.tsx` + `margince-core-liquid.tsx` |
+| the Core's appearance or states | `src/design-system/margince-core.tsx` + `margince-core-shader.ts` + `margince-core-motion.ts` |
 
 ## Where the code lives
 
@@ -350,7 +351,7 @@ frontend lane is separate from the Go merge gate and needs node + pnpm. Run
 | Top bar: breadcrumb, search, account | `frontend/src/app/{topbar.tsx,topbar.css,account.tsx}` |
 | The canonical nav, badges, mobile set, rail-less set | `frontend/src/app/nav.ts` |
 | Hash router | `frontend/src/app/router.tsx` |
-| ⌘K palette, the floating agent | `frontend/src/app/{palette.tsx,agentdock.tsx}` |
+| ⌘K palette, the agent in the rail | `frontend/src/app/{palette.tsx,agentrail.tsx}` |
 | Theme resolution and persistence | `frontend/src/app/theme.ts` |
 | Tokens (canonical) / derived roles / base controls | `frontend/src/design-system/{tokens.css,brand.css,base.css}` |
 | Atoms, trust vocabulary, composed surfaces | `frontend/src/design-system/{atoms,trust,composed}.tsx` |

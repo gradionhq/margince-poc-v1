@@ -112,8 +112,8 @@ func (s *Service) liveUserTx(ctx context.Context, workspaceID, humanID ids.UUID,
 		var seatType string
 		err := tx.QueryRow(ctx,
 			`SELECT seat_type FROM app_user
-			 WHERE id = $1 AND workspace_id = $2 AND status = 'active' AND archived_at IS NULL`,
-			humanID, workspaceID).Scan(&seatType)
+			 WHERE id = $1 AND status = 'active' AND archived_at IS NULL`,
+			humanID).Scan(&seatType)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}

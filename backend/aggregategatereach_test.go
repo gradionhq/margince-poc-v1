@@ -31,6 +31,7 @@ package backendarch
 // does not is a design question a reviewer can see.
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -128,4 +129,87 @@ func TestEveryAggregatedJobCanRunOnTheMergeQueue(t *testing.T) {
 // wrapped in the workflow.
 func normalizeCondition(cond string) string {
 	return strings.Join(strings.Fields(cond), " ")
+}
+
+// callerConcerns are the things a LANE must never decide for itself: which
+// scope the diff touched, and which event fired. Both belong to the call site.
+var callerConcerns = []string{
+	"needs.changes",
+	"github.event_name",
+	"github.event.pull_request",
+}
+
+// TestNoLaneWorkflowDecidesItsOwnScope holds the property that makes a lane's
+// result readable.
+//
+// `ci` refuses any result other than success on `merge_group`, and admits
+// `skipped` on a pull request. That only works because a lane is all-or-nothing:
+// `needs.<lane>.result == 'skipped'` has to mean "the caller skipped this lane",
+// full stop. Put a scope or event conditional on a job INSIDE a lane and the lane
+// can report `success` while a job in it never ran — the skip-as-pass hole the
+// aggregate exists to close, reopened one level down and invisible from the
+// caller, which sees only the lane's rolled-up result.
+//
+// WHAT THIS CATCHES: a lane job conditioned on the change classifier or on the
+// event, and a lane that is triggerable by anything other than `workflow_call`
+// (a lane with its own `pull_request` trigger would run outside the aggregate
+// entirely, reporting checks nothing gates on).
+//
+// WHAT THIS ALLOWS, deliberately: `if: always()` and step-level conditions. Those
+// are about upstream RESULTS inside the lane, not about whether the lane applies —
+// the fan-ins need `always()` precisely so a failed sibling cannot skip them into
+// a green.
+func TestNoLaneWorkflowDecidesItsOwnScope(t *testing.T) {
+	lanes, err := filepath.Glob(filepath.Join(workflowDir, "_lane-*.yml"))
+	if err != nil {
+		t.Fatalf("listing lane workflows: %v", err)
+	}
+	if len(lanes) == 0 {
+		t.Fatalf("no _lane-*.yml under %s; either the lanes were renamed — in which case the "+
+			"classifier glob in ci.yml needs the new spelling too — or this gate is checking nothing",
+			workflowDir)
+	}
+
+	for _, path := range lanes {
+		raw, err := os.ReadFile(path) // #nosec G304 -- a repo-relative path from the glob above
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		var wf struct {
+			// `on` is a YAML 1.1 boolean, which is why the workflow key decodes
+			// under `true` for some parsers; yaml.v3 keeps it a string.
+			On   map[string]yaml.Node `yaml:"on"`
+			Jobs map[string]struct {
+				If string `yaml:"if"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(raw, &wf); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		name := filepath.Base(path)
+
+		if len(wf.Jobs) == 0 {
+			t.Errorf("%s declares no jobs; this gate cannot see them, so it was about to pass "+
+				"without judging anything", name)
+			continue
+		}
+		for trigger := range wf.On {
+			if trigger != "workflow_call" {
+				t.Errorf("%s is triggered by %q as well as workflow_call — a lane that runs on its "+
+					"own reports checks the ci aggregate does not read", name, trigger)
+			}
+		}
+		for _, job := range slices.Sorted(maps.Keys(wf.Jobs)) {
+			cond := normalizeCondition(wf.Jobs[job].If)
+			for _, concern := range callerConcerns {
+				if strings.Contains(cond, concern) {
+					t.Errorf("%s: job %q conditions on %s — that is the CALL SITE's decision. "+
+						"A lane must be all-or-nothing, or needs.<lane>.result == 'skipped' stops "+
+						"meaning \"the caller skipped it\" and the aggregate can read a green lane "+
+						"that never ran a job. Move the condition to the `uses:` job in ci.yml.",
+						name, job, concern)
+				}
+			}
+		}
+	}
 }

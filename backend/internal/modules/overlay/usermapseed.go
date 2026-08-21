@@ -216,12 +216,9 @@ func (s *MirrorStore) revokeEmailMappingsForOwners(ctx context.Context, incumben
 // sticky against the sweep automation it exists to escape, so seeding
 // never clobbers it (upsertUserMapSQL's ON CONFLICT would otherwise
 // overwrite incumbent_user_id AND match_source unconditionally). It runs
-// under a workspace-scoped tx and states that bound in its OWN predicate,
-// so the match reaches only the connected workspace's users; a directory
-// owner whose email belongs to a user in some OTHER tenant can never leak
-// a cross-workspace mapping. The predicate is the whole guarantee — core
-// 0217 retired the policy that used to supply it, and an address is not
-// unique across tenants.
+// matches on the address alone: ADR-0091 §8 phase D took the tenant column
+// off app_user, so the installation's users ARE the candidate set, and
+// uq_app_user_email makes an address name at most one of them.
 //
 // Agent and archived seats are excluded for the same reason the admin
 // surface refuses them: an agent seat is a passport identity with no
@@ -237,7 +234,6 @@ func (s *MirrorStore) usersMatchingEmail(ctx context.Context, email, incumbent s
 		rows, err := tx.Query(ctx, `
 			SELECT u.id FROM app_user u
 			WHERE lower(trim(u.email)) = lower(trim($1))
-			  AND u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			  AND NOT u.is_agent
 			  AND u.archived_at IS NULL
 			  AND NOT EXISTS (

@@ -728,6 +728,7 @@ function LeadLifecycle({
   const readOnly = Boolean(lead.archived_at);
 
   const patch = useMutation({
+    mutationKey: ["lead-edit", id],
     mutationFn: async (body: UpdateLeadRequest) => {
       // The last word on a terminal lead, and deliberately not a per-control
       // check: the server refuses every one of these writes, and a control

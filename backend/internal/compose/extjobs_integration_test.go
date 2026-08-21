@@ -146,8 +146,7 @@ func seedAgentSeat(t *testing.T, ws ids.UUID) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := integration.OwnerConn(t).Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name, is_agent)
-		 VALUES ($1, $2, $3, 'Agent', true)`, id, ws, id.String()+"@agent.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name, is_agent) VALUES ($1, $2, 'Agent', true)`, id, id.String()+"@agent.test"); err != nil {
 		t.Fatalf("seeding agent seat: %v", err)
 	}
 	return id
@@ -205,65 +204,49 @@ func TestDispatcherEnqueuesOneChildPerWorkspace(t *testing.T) {
 	}
 }
 
-// TestASeatlessWorkspaceIsSkippedAndCounted is the archived-seat case, and it
-// is about what an OPERATOR sees rather than about a row count.
+// TestASeatlessInstallationIsSkippedAndCounted pins the skip an operator can
+// still cause. extensionJobActor's own doc says it: bootstrap writes every new
+// installation its agent seat, so a seatless read means an operator has since
+// archived or deactivated it, which is a posture they are entitled to hold.
 //
-// Bootstrap gives a workspace its agent seat, so a seatless one is a workspace
-// whose operator archived or deactivated it — and a composed unit ships enabled
-// at its declared cadence (notes's is 60s). The dispatcher used to enqueue a
-// child anyway, with a zero principal, so the tick failed at deriveAuthority;
-// with MaxAttempts 3 that is three discarded rows a minute per workspace,
-// forever, for a condition that is not a fault.
-//
-// So the assertion has three parts: the seatless tenant gets NO child, the
-// seated tenants still get theirs (the skip is not a shutdown), and the
-// condition is REPORTED as a gauge — because skipping without reporting would
-// trade a log storm for a silently dead capability, which is the objection the
-// original posture was written to answer.
-func TestASeatlessWorkspaceIsSkippedAndCounted(t *testing.T) {
+// The fixture reached that state by seeding a second, seatless workspace until
+// ADR-0091 §8 phase D took the tenant column off app_user. It archives the seat
+// instead — the state the code actually names, and the same move the seat-budget
+// floor uses. What must hold is unchanged: no child row of ANY state, no failure
+// moved rather than avoided, and the condition reported on the gauge, because a
+// silent skip is the objection the enqueue-anyway posture was written to answer.
+func TestASeatlessInstallationIsSkippedAndCounted(t *testing.T) {
 	e := integration.Setup(t)
 	integration.ApplyRiverSchema(t)
-	seated := seedWorkspaces(t, e, 1)
 
-	// The fresh-install tenant: a live workspace with no agent seat at all.
-	seatless := ids.NewV7()
 	if _, err := integration.OwnerConn(t).Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, 'no-seat')`,
-		seatless); err != nil {
-		t.Fatalf("seeding the seatless workspace: %v", err)
+		`UPDATE app_user SET archived_at = now() WHERE is_agent`); err != nil {
+		t.Fatalf("archiving the agent seat: %v", err)
 	}
 
 	decl := testJobDecl()
 	composeJob(t, decl, func(context.Context, extension.Runtime) error { return nil })
 	startRunner(t, e.Pool)
 
-	// The seated tenants still fan out. awaitRows returns as soon as it sees at
-	// least this many, so the "and no more" arm is checked separately below.
-	if got := awaitRows(t, e.Pool, decl.ChildKind(), len(seated)); got != len(seated) {
-		t.Fatalf("child rows: got %d, want exactly one per SEATED workspace (%d)", got, len(seated))
-	}
+	// The gauge is what says the skip happened, so it is what this waits on —
+	// there is no child row to await, which is the whole point.
+	awaitSeatlessGauge(t, 1)
 
-	// The seatless tenant has no row of any state — not a failed one, not a
-	// discarded one, not a retrying one. This is the assertion the finding is
-	// about: an error stream is made of rows, and there are none.
+	// No row of any state — not a failed one, not a discarded one, not a
+	// retrying one. An error stream is made of rows, and there are none.
 	var rows int
 	if err := e.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM river_job WHERE kind = $1 AND args ->> 'workspace_id' = $2`,
-		decl.ChildKind(), seatless.String()).Scan(&rows); err != nil {
-		t.Fatalf("counting the seatless workspace's rows: %v", err)
+		`SELECT count(*) FROM river_job WHERE kind = $1`, decl.ChildKind()).Scan(&rows); err != nil {
+		t.Fatalf("counting the child rows: %v", err)
 	}
 	if rows != 0 {
-		t.Fatalf("the seatless workspace has %d child row(s) — every one of them fails at the authority derivation, three times per cadence interval, forever", rows)
+		t.Fatalf("a seatless installation has %d child row(s) — every one of them fails at the authority derivation, three times per cadence interval, forever", rows)
 	}
-	// And the skip did not merely MOVE the failure: neither this dispatcher's
-	// own kind nor the child it fans out to holds a failed or retrying row.
-	//
-	// Scoped to those two kinds rather than to river_job as a whole. The table
-	// is shared with every other test in the package, and which of them run
-	// beside this one is decided by the shard slicing — so an unscoped count
-	// reports another test's expected failure as this one's regression, which
-	// is exactly how this assertion started failing per-shard rather than
-	// per-change (#1015).
+
+	// And the skip did not merely MOVE the failure. Scoped to these two kinds
+	// rather than to river_job as a whole: the table is shared with every other
+	// test in the package, so an unscoped count reports another test's expected
+	// failure as this one's regression (#1015).
 	var failed int
 	if err := e.Pool.QueryRow(context.Background(), `
 		SELECT count(*) FROM river_job
@@ -273,20 +256,35 @@ func TestASeatlessWorkspaceIsSkippedAndCounted(t *testing.T) {
 		t.Fatalf("counting failed rows: %v", err)
 	}
 	if failed != 0 {
-		t.Fatalf("the dispatcher and its child hold %d failed/retrying row(s); a fresh install must dispatch cleanly", failed)
+		t.Fatalf("the dispatcher and its child hold %d failed/retrying row(s); the skip must be clean, not quiet", failed)
 	}
 
-	// The condition is reported. Without this the skip would be silent, which
-	// is the objection the enqueue-anyway posture was written to answer.
-	if got := SeatlessWorkspaces(); got != 1 {
-		t.Fatalf("the seatless gauge reads %d, want 1 — the skipped tenant is invisible to an operator", got)
-	}
 	var exposition bytes.Buffer
 	if err := WriteSeatlessWorkspacesGauge(&exposition); err != nil {
 		t.Fatalf("rendering the gauge: %v", err)
 	}
 	if !strings.Contains(exposition.String(), "margince_extension_job_seatless_workspaces 1") {
 		t.Fatalf("the gauge is not in the exposition:\n%s", exposition.String())
+	}
+}
+
+// awaitSeatlessGauge waits on the gauge rather than on a clock, in the shape
+// awaitRows above uses: there is no child row to wait for here — that absence is
+// the assertion — so the report is the only signal the dispatcher has run.
+func awaitSeatlessGauge(t *testing.T, want int64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), awaitBudget)
+	defer cancel()
+	for {
+		if got := SeatlessWorkspaces(); got == want {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("the seatless gauge reads %d, want %d — the skipped installation is invisible to an operator",
+				SeatlessWorkspaces(), want)
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 }
 

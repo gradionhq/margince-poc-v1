@@ -168,6 +168,11 @@ func jobEnqueueOptions(pool *pgxpool.Pool, logger *slog.Logger, modelPath *compo
 		deepRead, compose.WithVoiceBuildEnqueue(inserter), compose.WithRateRefresh(inserter),
 		compose.WithTranscriptRead(inserter),
 		compose.WithDocumentRead(inserter),
+		// An address that lands queues a coordinate lookup. The api role only
+		// ENQUEUES — the provider lives on the worker (JobRunnerConfig.Geocoder)
+		// — and that split is what keeps the single-requester rule enforceable:
+		// several api replicas may queue, exactly one worker asks.
+		compose.WithGeocoding(inserter),
 	}, nil
 }
 

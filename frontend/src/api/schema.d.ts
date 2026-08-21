@@ -7662,6 +7662,13 @@ export interface paths {
          *
          *     Every risk carries the ids behind it. A flag a human cannot drill into is a red
          *     dot nobody can act on.
+         *
+         *     **A seat is an edge.** Every stakeholder on this payload is a `deal_stakeholder`
+         *     relationship, and reading one discloses its endpoints as a pair — so this endpoint
+         *     needs `relationship:read` on top of the deal grant. Without it the three
+         *     edge-derived sections come back empty and named in `sections_omitted` rather than
+         *     the endpoint refusing: an operator who restricted the edge grant should be told the
+         *     coverage view was withheld, not that the deal passes every check.
          */
         get: operations["getDealCoverage"];
         put?: never;
@@ -12743,6 +12750,23 @@ export interface components {
             stakeholders: components["schemas"]["DealCoverageSeat"][];
             our_side: components["schemas"]["PersonNetworkColleague"][];
             risks: components["schemas"]["DealCoverageRisk"][];
+            /**
+             * @description The sections withheld for lack of the `relationship` grant — so a client can say
+             *     "you can't see this" instead of "there is none". Never returned absent, and empty
+             *     on the ordinary read: empty and forbidden are different answers, and a client that
+             *     had to infer the difference from an empty `risks` array would render a withheld
+             *     coverage view as a clean one.
+             *
+             *     All three sections go together or none does. Every seat on the deal is a
+             *     `deal_stakeholder` EDGE, `our_side` is derived from the seats, and every risk rule
+             *     but `going_cold` reads them — so there is no partial answer to give here.
+             *
+             *     A named section is EMPTY, never partial. `going_cold` needs no edge and could have
+             *     survived, but a `risks` array holding one finding while this array names it would
+             *     leave a client unable to say whether the list is complete. The deal's last touch is
+             *     on the deal record; only this card's copy of the finding is withheld.
+             */
+            sections_omitted: ("stakeholders" | "our_side" | "risks")[];
         };
         EmailSignature: {
             /**
@@ -13137,7 +13161,7 @@ export interface components {
             organization_id?: string | null;
             /**
              * Format: uuid
-             * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.
+             * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a live `partner` row — naming one that does not is refused 422 (`not_a_partner`), because commission prices from the margin tier on that row, and an attribution without one could never earn anything. Null when the caller may not read that organization, in which case `masked_fields` names it.
              */
             partner_org_id?: string | null;
             /**
@@ -13218,6 +13242,16 @@ export interface components {
             organization_id?: string | null;
             /**
              * Format: uuid
+             * @description The partner this deal is attributed to at birth. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it.
+             */
+            partner_org_id?: string | null;
+            /**
+             * @description `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+             * @enum {string|null}
+             */
+            partner_attribution?: "sourced" | "influenced" | null;
+            /**
+             * Format: uuid
              * @description The body of work this deal belongs to; must name the same company as the deal.
              */
             project_id?: string | null;
@@ -13239,7 +13273,10 @@ export interface components {
             currency?: string | null;
             /** Format: uuid */
             organization_id?: string | null;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The partner who brought this deal. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it. Null clears the attribution.
+             */
             partner_org_id?: string | null;
             /**
              * @description `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
@@ -16353,7 +16390,7 @@ export interface components {
              * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
              * @enum {string}
              */
-            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
             /**
              * @description The autonomy tier, identical on REST and MCP (ADR-0055).
              * @enum {string}

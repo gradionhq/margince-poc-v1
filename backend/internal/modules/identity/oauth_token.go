@@ -232,20 +232,25 @@ func (h Handlers) consumeAuthCode(r *http.Request, tx pgx.Tx, code, verifier str
 	// a refresh chain and a passport under it. A dead client makes the row
 	// vanish, so the answer is the same invalid_grant a spent code gets — the
 	// endpoint stays silent about which of the two it was.
-	err := tx.QueryRow(r.Context(), `
-		SELECT a.user_id, u.workspace_id, a.scopes, a.code_challenge, a.client_id, a.redirect_uri, a.resource,
+	// The workspace the minted principal carries. It came off the code row until
+	// ADR-0091 §8 phase D took the tenant column off oauth_authorization_code,
+	// then off the human the code was issued to until phase D reached app_user.
+	// It is the installation's now — the same value each time, and the only one
+	// a single-organization installation has.
+	wsID, err := h.svc.InstallationWorkspace(r.Context())
+	if err != nil {
+		return redeemedCode{}, err
+	}
+	out.WorkspaceID = wsID
+	err = tx.QueryRow(r.Context(), `
+		SELECT a.user_id, a.scopes, a.code_challenge, a.client_id, a.redirect_uri, a.resource,
 		       a.lent_passport_id
 		FROM oauth_authorization_code a
 		JOIN oauth_client c ON c.client_id = a.client_id
-		-- The workspace the minted principal carries. It used to come off the
-		-- code row; since ADR-0091 §8 phase D the code carries no tenant, so it
-		-- comes from the human the code was issued to — the same value, and the
-		-- subject the credential was always about.
-		JOIN app_user u ON u.id = a.user_id
 		WHERE a.code_hash = $1 AND a.consumed_at IS NULL AND a.expires_at > now()
 		  AND `+liveClientPredicate,
 		hashOAuthCode(code)).
-		Scan(&out.UserID, &out.WorkspaceID, &out.Scopes, &challenge, &out.ClientID, &redirectURI,
+		Scan(&out.UserID, &out.Scopes, &challenge, &out.ClientID, &redirectURI,
 			&out.Resource, &out.LentPassportID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return redeemedCode{}, errCodeSpent

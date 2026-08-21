@@ -20,6 +20,13 @@ name: scheduled
 #                        classifier scope, so every gate skips and the run reports
 #                        green. main's last-known-green is therefore not evidence
 #                        main is green. This re-runs the lane unconditionally.
+#   fe clock drift     — the frontend suite, run as if it were 200 days from now.
+#                        Three tests began failing on a date nobody edited
+#                        anything on (#1977): a fixture carried an absolute expiry
+#                        and the component compares it to now. No PR gate can
+#                        catch that, because the change that breaks it is the
+#                        CALENDAR rather than a diff — and it sat red on main for
+#                        a month behind the classifier skipping the frontend jobs.
 #   perf budgets       — PERF-3/PERF-7 rode the integration lane at the SMB tier
 #                        until it stopped being worth 37.9s of every merge gate
 #                        for a claim it could not make: the SLO binds at
@@ -281,6 +288,38 @@ jobs:
           fi
           exit 1
 
+  # The suite's verdict must not depend on the calendar.
+  #
+  # A fixture date only becomes a bomb when the COMPONENT compares it to now to
+  # decide a state, and no static rule separates those from the dates a component
+  # merely formats — "an absolute date in a file that never pins the clock"
+  # matches most of the suite's fixtures, nearly all of them harmless. So the
+  # gate is a second RUN rather than a pattern: shift the clock, require the same
+  # verdict. A test that pins its own clock is unaffected, which is correct — it
+  # is already immune to what this lane looks for.
+  fe-clock-drift:
+    name: fe clock drift (main, +200 days)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: make fe-clock-drift
+
   # Delete the build caches nothing can restore. The go-build key ends in the
   # commit sha and falls back through restore-keys to the newest entry sharing
   # its deps hash, so within one deps hash only the newest is ever read — and one
@@ -326,12 +365,13 @@ jobs:
   # fails, so it is guarded on !cancelled() rather than needs alone.
   report:
     name: report
-    needs: [vuln, quality-gate, backend-lane, perf-budgets, reap-caches]
+    needs: [vuln, quality-gate, backend-lane, fe-clock-drift, perf-budgets, reap-caches]
     if: >-
       !cancelled()
       && (needs.vuln.result == 'failure'
         || needs.quality-gate.result == 'failure'
         || needs.backend-lane.result == 'failure'
+        || needs['fe-clock-drift'].result == 'failure'
         || needs.perf-budgets.result == 'failure'
         || needs.reap-caches.result == 'failure')
     runs-on: ubuntu-latest
@@ -361,6 +401,7 @@ jobs:
           GATE_RESULT: ${{ needs.quality-gate.result }}
           GATE_STATUS: ${{ needs.quality-gate.outputs.status }}
           LANE_RESULT: ${{ needs.backend-lane.result }}
+          CLOCK_RESULT: ${{ needs['fe-clock-drift'].result }}
           PERF_RESULT: ${{ needs.perf-budgets.result }}
           PERF_OUTCOME: ${{ needs.perf-budgets.outputs.outcome }}
           CACHE_RESULT: ${{ needs.reap-caches.result }}

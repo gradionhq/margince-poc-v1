@@ -261,12 +261,33 @@ qualifying interaction inside a 90-day window (`deals.EngagementWindowDays`). A 
 target is not engaged however many messages we sent them. (The engagement test walks the deal's
 stakeholders' linked activities directly; it does not read the interaction projection.)
 
-Coverage answers this with `deals.EngagedStakeholders`. The deal-health composite asks the same
-question, but with **its own inline copy** of the query (`healthActivityEvidence` in
-`deals/health.go`) rather than by calling that helper. So the two screens agree about a deal because
-the window and the two-way test currently match, not because one definition serves both — a
-reconcilable flag deserves the shared definition it does not yet have, and a change to either side
-has to be made to the other by hand.
+Coverage answers this with `deals.EngagedStakeholders`, and the deal-health composite
+(`healthActivityEvidence` in `deals/health.go`) now calls the same helper rather than carrying its own
+copy of the query. The two screens agree about a deal because one definition serves both, not because
+two windows and two two-way tests happen to match.
+
+### The coverage view needs the edge grant, and says when it did not get it
+
+Every seat on a deal is a `deal_stakeholder` **edge**, so reading one needs `relationship:read` on top
+of the deal grant: knowing a deal does not license learning who is on it. `CoverageFor` takes that
+admission **first, before any statement**, and a caller refused it gets a payload naming
+`stakeholders`, `our_side` and `risks` in `sections_omitted` — not a 403, and not an empty risk list.
+
+All three sections together, because they stand or fall as one: `our_side` is derived from the seats,
+and every risk rule but `going_cold` reads them. A named section is **empty, never partial** —
+`going_cold` needs no edge and could have survived, but a findings list holding one item under a name
+that says it was withheld leaves a client unable to say whether the list is complete.
+
+That channel is why the gate could be taken at all. Without it a restricted caller sees an empty
+`risks` array, which every surface renders as *"Nothing flagged — this deal passes every coverage
+check"*: a **wrong verdict on deal risk**, which is worse than the pair it stopped disclosing. The
+same obligation reaches the agent surface — `account_coverage` raises a `section_withheld` warning,
+and the at-risk sweep sets `coverage_withheld` on a report whose absences would otherwise read as
+clean deals.
+
+The health composite has no such channel and needs none: its engagement factor is a count of edges
+over a norm, so a refused caller gets **no score** rather than a lower one. A number that is wrong is
+worse than one that is missing.
 
 Every rule is a **pipeline** rule: a coverage view whose deal is not `open` folds to no findings at
 all. Telling a rep their delivered business is single-threaded is how a flag stops being read.

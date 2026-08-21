@@ -65,7 +65,7 @@ vi.mock("@composition/extensions", () => ({
 // bar and a section's entries as a second level — is rail.test.tsx's. The TOP
 // BAR's own trail, search affordance and collapse toggle are topbar.test.tsx's,
 // and the account menu and the agent dock are proved where they live
-// (account.test.tsx, agentdock.test.tsx). What is asserted here is that the
+// (account.test.tsx, agentrail.test.tsx). What is asserted here is that the
 // shell MOUNTS them in the places it promises, and feeds them the counts it
 // already has.
 
@@ -557,18 +557,24 @@ describe("Shell", () => {
     expect(screen.queryByRole("button", { name: "Expand sidebar" })).toBeNull();
   });
 
-  // The agent floats at the foot of the content column on every railed screen —
-  // ONE floating affordance, positioned against `.main` so it centres on the
-  // column it belongs to rather than on the viewport. Its own claims are
-  // agentdock.test.tsx's; that it is mounted here, once, is the shell's.
-  it("mounts the agent dock once, as the last thing in the content column", () => {
+  // The agent lives in the CHROME, at the foot of the rail, on every railed
+  // screen. Once, and inside the nav rather than the content column: a second
+  // one anywhere is two things claiming to be the same agent. Its own claims are
+  // agentrail.test.tsx's; that it is mounted here, once, and where, is the
+  // shell's.
+  it("mounts the agent once, at the foot of the rail", () => {
     window.location.hash = "#/contacts";
     const { container } = render(
       <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
     );
-    const docks = container.querySelectorAll(".agentdock");
-    expect(docks).toHaveLength(1);
-    expect(container.querySelector("main")?.lastElementChild).toBe(docks[0]);
+    const agents = container.querySelectorAll(".arblock");
+    expect(agents).toHaveLength(1);
+    expect(
+      container.querySelector(".rail .railfoot")?.contains(agents[0]),
+    ).toBe(true);
+    expect(
+      container.querySelector("main")?.querySelector(".arblock"),
+    ).toBeNull();
   });
 
   it("renders rail-less for the documented exceptions (AC-shell layout exception)", () => {
@@ -578,8 +584,8 @@ describe("Shell", () => {
   });
 
   // A rail-less surface carries its own chrome, so the shell contributes none of
-  // its own there: no bar, no heading, and no agent either — a floating dock on
-  // the consent screen would be the app reaching into a page a human is reading
+  // its own there: no bar, no heading, and no agent either — the agent on the
+  // consent screen would be the app reaching into a page a human is reading
   // apart from the app.
   it("contributes no chrome at all to a rail-less surface", () => {
     window.location.hash = "#/book";
@@ -588,7 +594,7 @@ describe("Shell", () => {
     );
     expect(container.querySelector(".topbar")).toBeNull();
     expect(container.querySelector(".pagetitle")).toBeNull();
-    expect(container.querySelector(".agentdock")).toBeNull();
+    expect(container.querySelector(".arblock")).toBeNull();
   });
 
   // The consent screen is where a human hands an agent their own authority —
@@ -600,12 +606,13 @@ describe("Shell", () => {
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 
-  // One number, two surfaces: the rail badges what is waiting and the agent at
-  // the foot of the column reports the same thing. Both read the counts the
-  // shell was given, so a dock that is not handed them leaves the two
-  // disagreeing. The approvals count specifically — tasks sits first in the same
-  // record and carries a different number, so a dock reading any count shows 9.
-  it("gives the agent dock the count the rail badges", () => {
+  // The agent reads its OWN counts and takes none from the shell. That is what
+  // lets it be absent rather than zero while a read has not answered
+  // (agentrail.test.tsx), and a prop handed down from here would take that back:
+  // the shell's number is always present, so the section would print one before
+  // anybody had counted. Handing the shell counts must therefore put no number
+  // in the agent at all, however loudly the rail badges them.
+  it("hands the agent no counts, so it reports only what it read itself", () => {
     window.location.hash = "#/contacts";
     const { container } = render(
       <Shell counts={{ tasks: 9, inbox: 7 }} onOpenSearch={ignoreSearch}>
@@ -617,9 +624,9 @@ describe("Shell", () => {
         (badge) => badge.textContent,
       ),
     ).toEqual(["9", "7"]);
-    const dock = container.querySelector(".agentdock");
-    expect(dock?.textContent).toContain("7");
-    expect(dock?.textContent).not.toContain("9");
+    const agent = container.querySelector(".arblock");
+    expect(agent?.textContent).not.toContain("7");
+    expect(agent?.textContent).not.toContain("9");
   });
 
   it("renders the rail on core screens", () => {

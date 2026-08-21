@@ -50,7 +50,7 @@ func seatsInUse(t *testing.T, e *revocationEnv) int {
 	t.Helper()
 	var used int
 	if err := e.owner.QueryRow(context.Background(),
-		fullSeatsInUseQuery+` AND workspace_id = $1`, e.ws).Scan(&used); err != nil {
+		fullSeatsInUseQuery).Scan(&used); err != nil {
 		t.Fatalf("counting full seats in use: %v", err)
 	}
 	return used

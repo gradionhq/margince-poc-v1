@@ -205,7 +205,7 @@ func (s *Store) ListStages(ctx context.Context, pipelineID *ids.PipelineID, arch
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
-		where := "true"
+		where := predicateAlways
 		if pipelineID != nil {
 			where = storekit.SQLf("pipeline_id = $%d", arg(*pipelineID))
 		}

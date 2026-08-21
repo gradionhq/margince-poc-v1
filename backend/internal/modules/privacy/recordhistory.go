@@ -152,15 +152,14 @@ const auditActorNameJoins = `
 // was not a delegated write. Every one of those falls back to the generic
 // "via an agent", which is why this is a LEFT JOIN chain and not a filter.
 //
-// The client name is not a workspace-scoped lookup by accident: oauth_client
-// is keyed (workspace_id, client_id), so the join carries the grant's own
-// workspace rather than the caller's — the row says which grant wrote it, and
-// that grant belongs to exactly one workspace.
+// The join is on client_id ALONE. oauth_client used to be keyed
+// (workspace_id, client_id) and this join said so; migration 1787109970 dropped
+// the workspace column from every credential table, so client_id is the key
+// now and naming the old one made every record-history read a 500.
 const agentClientNameJoin = `
 		LEFT JOIN passport p ON p.id = a.passport_id
 		LEFT JOIN oauth_grant g ON g.id = p.oauth_grant_id
-		LEFT JOIN oauth_client oc
-		  ON oc.workspace_id = g.workspace_id AND oc.client_id = g.client_id`
+		LEFT JOIN oauth_client oc ON oc.client_id = g.client_id`
 
 // RecordHistoryFilter carries the validated query surface of
 // (GET /records/{entity_type}/{id}/history).

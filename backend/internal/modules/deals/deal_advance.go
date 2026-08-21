@@ -154,6 +154,28 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 			if err := s.stampCorrespondence(ctx, tx, id, BasisDealWon); err != nil {
 				return fmt.Errorf("stamp won deal's correspondence: %w", err)
 			}
+			// And a deal that BECOMES won starts the delivery it was sold for,
+			// in the same transaction, so a won deal and a project still
+			// reading as "pursuing" can never be observed together. See
+			// project_delivery.go for which projects this moves and which it
+			// deliberately leaves alone.
+			//
+			// Gated on the transition, not on the resulting status, and that
+			// is a security boundary rather than an optimization. The stamp
+			// above may re-run freely because it is monotonic; this is not. A
+			// caller who re-asserts the won stage on an already-won deal must
+			// not thereby drive the project — which they may have no authority
+			// to see, let alone write — back to `delivering` after somebody
+			// deliberately moved it elsewhere.
+			//
+			// The patch is what says whether the status actually moved:
+			// stageTransitionPatch sets the column only when it differs from
+			// what the deal already had, so its presence IS the transition.
+			if _, becameWon := p.After()["status"]; becameWon {
+				if err := startDeliveryForWonDeal(ctx, tx, id, by); err != nil {
+					return fmt.Errorf("start delivery on the won deal's project: %w", err)
+				}
+			}
 		}
 		if out, err = readDealForCaller(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read advanced deal: %w", err)

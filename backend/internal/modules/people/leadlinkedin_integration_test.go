@@ -70,8 +70,7 @@ func setupLeadLinkedIn(t *testing.T) *linkedinEnv {
 	}
 	for i, user := range []ids.UUID{e.rep1, e.rep2} {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
-			user, e.ws, "rep"+string(rune('1'+i))+"-"+user.String()+"@li.test"); err != nil {
+			`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep')`, user, "rep"+string(rune('1'+i))+"-"+user.String()+"@li.test"); err != nil {
 			t.Fatal(err)
 		}
 	}

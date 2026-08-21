@@ -89,6 +89,13 @@ func TestStageRefusalNamesTheTargetAndSuppliesNoClientPin(t *testing.T) {
 // whether a column is live is a claim these rationales make and a reader must be
 // able to check.
 var unpinnableConfirmFirstTypes = gatekit.Waive(map[agentRecordType]string{
+	"import_run": "import_run has NO version column at all (migrations/custom/20260730120000_flip_and_import_run), and adding one " +
+		"would pin the wrong thing: what a person approves is the run's REPORT, and the report is " +
+		"written once by the dry run and never edited — a run whose report changed would have had to " +
+		"re-run the validation pass, which moves it out of awaiting_approval and makes the commit " +
+		"refuse on state before any pin could speak. The residue is the diff_hash identical-call " +
+		"binding, and it is narrower here than elsewhere: the only argument is the run id, so a " +
+		"drifted call is a different run and fails the hash.",
 	"custom_field": "custom_field HAS a version column (migrations/core/0063) but nothing maintains it: " +
 		"the catalog's own writers (customfields' rename, options and retire paths) issue bare UPDATEs " +
 		"rather than storekit's guarded patch, so the column never leaves 1 and never takes an If-Match. " +

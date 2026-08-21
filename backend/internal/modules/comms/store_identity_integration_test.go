@@ -30,8 +30,7 @@ func TestStageTxStampsUserIDFromTheAuthenticatedPrincipalNeverFromInput(t *testi
 	e := setupStore(t)
 	user2 := ids.New[ids.UserKind]()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep2')`,
-		user2, e.ws, "rep2-"+user2.String()+"@comms.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep2')`, user2, "rep2-"+user2.String()+"@comms.test"); err != nil {
 		t.Fatal(err)
 	}
 	ctx2 := actorCtx(e.ws, user2)

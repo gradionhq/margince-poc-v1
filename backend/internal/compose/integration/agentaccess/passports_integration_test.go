@@ -65,8 +65,7 @@ func setupPassports(t *testing.T) *passportsEnv {
 	}
 	for i, user := range []ids.UUID{e.alice, e.bob} {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'User')`,
-			user, e.WS, string(rune('a'+i))+"@passports.test"); err != nil {
+			`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'User')`, user, string(rune('a'+i))+"@passports.test"); err != nil {
 			t.Fatal(err)
 		}
 	}

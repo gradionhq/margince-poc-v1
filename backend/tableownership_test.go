@@ -13,8 +13,17 @@ package backendarch
 // ingest materialization); each one is ratified below with a self-contained
 // rationale — an entry without a rationale is a finding, not a pass, and a
 // waiver that matches no remaining write is stale and fails too. SELECTs are
-// out of scope: reads are governed by each statement's own workspace
-// predicate and the platform/auth row-scope clauses, not by ownership.
+// out of scope: reads are governed by each statement's own workspace predicate
+// and the platform/auth row-scope clauses, not by ownership.
+//
+// That last sentence names two of the three halves of a read's admission and
+// stops. The OBJECT half — may this caller read this KIND of record at all — is
+// enforced at module store entry points by rbacgate_test.go and, in the compose
+// tier, by no gate at all for any core object except `relationship`
+// (backend/edgereaders_test.go). Nine compose reads of one table drifted inside
+// that gap while a correct implementation sat one directory away, so it is
+// written here rather than left to be re-derived: a sentence that lists the
+// guards a read has is read as the list of guards a read needs.
 
 import (
 	"bufio"
@@ -106,6 +115,8 @@ var tableOwners = map[string]string{
 	// every night.
 	"person_signature_enrich_state": "internal/modules/people",
 	"organization_fact":             "internal/modules/people",
+	"organization_geocode_state":    "internal/modules/people",
+	"geocode_cache":                 "internal/modules/people",
 	// What a mail domain is allowed to create. It governs ORGANIZATION
 	// creation, which people owns, so the verdict lives with the records it
 	// authorizes rather than with the capture path that asks the question.

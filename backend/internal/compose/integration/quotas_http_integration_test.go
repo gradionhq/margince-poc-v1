@@ -101,7 +101,7 @@ func demoteToRep(t *testing.T, e *apptest.AppEnv) {
 	// same created_at and "first by created_at" is a coin flip between them.
 	var userID, repRoleID string
 	if err := tx.QueryRow(ctx,
-		`SELECT id FROM app_user WHERE workspace_id = $1 AND is_agent = false ORDER BY created_at LIMIT 1`, wsID).Scan(&userID); err != nil {
+		`SELECT id FROM app_user WHERE is_agent = false ORDER BY created_at LIMIT 1`).Scan(&userID); err != nil {
 		t.Fatalf("admin lookup: %v", err)
 	}
 	if err := tx.QueryRow(ctx,

@@ -146,6 +146,12 @@ export function DealCoverageCard({ id }: Readonly<{ id: string }>) {
     enabled: !overlay,
   });
   const risks = query.data?.risks ?? [];
+  // Withheld is checked BEFORE the empty case, and the order is the whole
+  // point: a caller without the relationship grant is served no findings, so
+  // testing the risk list first would render "this deal passes every coverage
+  // check" over a check that never ran. The server says which of the two
+  // happened; the card must not decide for itself.
+  const withheld = (query.data?.sections_omitted ?? []).includes("risks");
 
   return (
     <Card className="net-card" title={t("coverage.title")}>
@@ -154,10 +160,13 @@ export function DealCoverageCard({ id }: Readonly<{ id: string }>) {
       {!overlay && query.isError && (
         <EmptyState>{problemMessageOf(query.error, t)}</EmptyState>
       )}
+      {!overlay && query.isSuccess && withheld && (
+        <EmptyState>{t("coverage.withheld")}</EmptyState>
+      )}
       {/* No findings is a RESULT, not an empty state. A deal that passes every
           coverage rule has earned a sentence saying so — a blank card reads as
           a card that failed to load. */}
-      {!overlay && query.isSuccess && risks.length === 0 && (
+      {!overlay && query.isSuccess && !withheld && risks.length === 0 && (
         <p className="t-caption">{t("coverage.clear")}</p>
       )}
       {!overlay && risks.length > 0 && (

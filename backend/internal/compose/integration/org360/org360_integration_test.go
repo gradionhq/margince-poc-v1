@@ -539,9 +539,7 @@ func TestOrganization360ContactRoutesNameThreeAndCountTheRest(t *testing.T) {
 	const colleagues = 8
 	for i := range colleagues {
 		user := ids.NewV7()
-		e.WsExec(t, `INSERT INTO app_user (id, workspace_id, email, display_name, status)
-			VALUES ($1, $2, $3, $4, 'active')`,
-			user, e.WS, fmt.Sprintf("colleague%d@acme.test", i), fmt.Sprintf("Colleague %d", i))
+		e.WsExec(t, `INSERT INTO app_user (id, email, display_name, status) VALUES ($1, $2, $3, 'active')`, user, fmt.Sprintf("colleague%d@acme.test", i), fmt.Sprintf("Colleague %d", i))
 		e.WsExec(t, `INSERT INTO graph_interaction_edge
 				(user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
 			VALUES ($1, $2, $3, $4, $5, $5)`,

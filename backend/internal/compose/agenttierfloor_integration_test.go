@@ -143,7 +143,7 @@ func TestAnOrdinaryOrganizationPatchStillRunsUnattended(t *testing.T) {
 // production supplies it.
 func composedRegistry(e *integration.Env) *agents.Registry {
 	return registryWithGate(e.DB(), auth.NewGate(adminSeat{}), nil, nil,
-		SendPath{}, companyEnricher{}, nil, nil, nil)
+		SendPath{}, companyEnricher{}, nil, nil, nil, nil)
 }
 
 // stagedRow is what a staged approval must look like for the operation that

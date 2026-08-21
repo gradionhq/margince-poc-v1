@@ -99,12 +99,12 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 		return jobs.FaultContext(ctx, err)
 	}
 	// The actor is resolved BEFORE the insert, per workspace, inside that
-	// workspace's own GUC — the sanctioned shape for a fleet pass that needs
-	// tenant rows: enumerate the workspace table (which carries no tenant
-	// scope), then enter each tenant to read anything of theirs. Every app_user
-	// read carries a workspace predicate against the bound GUC, so a single
-	// fleet-wide read of it would need a new rls-exempt site, and a job seam is
-	// not a place to widen that list.
+	// workspace's own GUC. ADR-0091 §8 phase D took the tenant column off
+	// app_user, so the read is the installation's and every iteration now
+	// resolves the SAME seat — an installation serves one organization
+	// (ADR-0061), so there is one iteration in practice. The per-workspace
+	// shape stays until the fan-out itself is collapsed, because moving the
+	// resolution out is that change, not this one.
 	//
 	// It costs one round trip per live workspace, serially, inside the
 	// dispatcher's DECLARED wall clock — so that number is a fleet-size
@@ -192,15 +192,13 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 func extensionJobActor(ctx context.Context, pool *pgxpool.Pool, ws ids.UUID) (ids.UUID, error) {
 	var actor ids.UUID
 	err := database.WithWorkspaceTx(principal.WithWorkspaceID(ctx, ws), pool, func(tx pgx.Tx) error {
-		// The workspace predicate is the lookup's own. Tenant isolation used to
-		// bound it, so a workspace with no agent seat read zero rows and was
-		// skipped; without it the FIRST installation's seat answers for every
-		// workspace, and a seatless tenant is dispatched work nothing can run
-		// (ADR-0091 §8 phase A).
+		// The installation's agent seat, not a workspace's: ADR-0091 §8 phase D
+		// took the tenant column off app_user. Zero rows still means the same
+		// thing the skip is built on — bootstrap writes every installation its
+		// seat, so an empty answer says an operator archived or deactivated it.
 		return tx.QueryRow(ctx,
 			`SELECT id FROM app_user
 			  WHERE is_agent AND status = 'active' AND archived_at IS NULL
-			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			  ORDER BY created_at LIMIT 1`).Scan(&actor)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -20,11 +20,9 @@ import (
 
 func TestWireUser(t *testing.T) {
 	id := ids.NewV7()
-	ws := ids.NewV7()
 	created := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	got := wireUser(userRow{
 		ID:          id,
-		WorkspaceID: ws,
 		Email:       "ada@example.com",
 		DisplayName: "Ada Admin",
 		Status:      "active",
@@ -65,7 +63,6 @@ func TestWireUser(t *testing.T) {
 func TestWireUserWithholdsRoleKeys(t *testing.T) {
 	got := wireUser(userRow{
 		ID:          ids.NewV7(),
-		WorkspaceID: ids.NewV7(),
 		Email:       "ada@example.com",
 		DisplayName: "Ada Admin",
 		Status:      "active",
@@ -81,7 +78,6 @@ func TestWireUserWithholdsRoleKeys(t *testing.T) {
 func TestWireUserWithRolesCarriesTheRoleKeys(t *testing.T) {
 	row := userRow{
 		ID:          ids.NewV7(),
-		WorkspaceID: ids.NewV7(),
 		Email:       "ada@example.com",
 		DisplayName: "Ada Admin",
 		Status:      "active",
@@ -107,7 +103,6 @@ func TestWireUserWithRolesCarriesTheRoleKeys(t *testing.T) {
 func TestWireUserWithRolesKeepsAnUnassignedSeatDistinctFromAWithheldOne(t *testing.T) {
 	got := wireUserWithRoles(userRow{
 		ID:          ids.NewV7(),
-		WorkspaceID: ids.NewV7(),
 		Email:       "nora@example.com",
 		DisplayName: "Nora None",
 		Status:      "active",
@@ -128,7 +123,6 @@ func TestWireUserWithRolesKeepsAnUnassignedSeatDistinctFromAWithheldOne(t *testi
 func TestRosterUserMappingDisclosesRoleKeysOnlyToAnAdmin(t *testing.T) {
 	row := userRow{
 		ID:          ids.NewV7(),
-		WorkspaceID: ids.NewV7(),
 		Email:       "ada@example.com",
 		DisplayName: "Ada Admin",
 		Status:      "active",
@@ -150,7 +144,6 @@ func TestRosterUserMappingDisclosesRoleKeysOnlyToAnAdmin(t *testing.T) {
 func TestWireUserWithRolesOmitsTheFieldWhenTheReadDidNotAskForIt(t *testing.T) {
 	got := wireUserWithRoles(userRow{
 		ID:          ids.NewV7(),
-		WorkspaceID: ids.NewV7(),
 		Email:       "ada@example.com",
 		DisplayName: "Ada Admin",
 		Status:      "active",

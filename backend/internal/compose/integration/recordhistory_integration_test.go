@@ -66,8 +66,7 @@ func seedWorkspaceUser(t *testing.T, e *Env, displayName string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := OwnerConn(t).Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, $4)`,
-		id, e.WS, id.String()+"@recordhistory.test", displayName); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, $3)`, id, id.String()+"@recordhistory.test", displayName); err != nil {
 		t.Fatalf("seed app_user %q: %v", displayName, err)
 	}
 	return id

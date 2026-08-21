@@ -262,35 +262,6 @@ test("AC-shell-7: the top bar's search opens the palette", async ({ page }) => {
   await expect(page.locator("nav.rail .navlevel a.navitem")).toHaveCount(10);
 });
 
-// The scoped ask lives in the agent dock now — the "Ask about this" FAB was
-// absorbed into it, so that there is ONE floating AI affordance rather than two
-// in opposite corners. The dock itself stands on every core screen including
-// the AI surface; what the AI surface must not carry is the scoped COMPOSER,
-// which would offer to ask about the page the reader is already asking on.
-test("AC-shell-8: the agent dock offers a scoped ask on core screens, never on the AI surface", async ({
-  page,
-}) => {
-  // The panel is a disclosure that outlives a route change — a hash navigation
-  // does not reload the document and the dock is the same component either side
-  // of it — so this ENSURES it is open rather than toggling: a second click on an
-  // already-expanded trigger closes it, which is what a plain click did here.
-  const openDock = async (hash: string) => {
-    await page.goto(hash);
-    const trigger = page.locator(".agentdocktrigger");
-    if ((await trigger.getAttribute("aria-expanded")) !== "true") {
-      await trigger.click();
-    }
-    await expect(page.locator(".agentpanel")).toBeVisible();
-  };
-
-  await openDock("/#/contacts");
-  await expect(page.locator(".agentask")).toBeVisible();
-  await openDock("/#/deals");
-  await expect(page.locator(".agentask")).toBeVisible();
-  await openDock("/#/ai");
-  await expect(page.locator(".agentask")).toHaveCount(0);
-});
-
 // The account menu carries what belongs to the PERSON rather than to the page:
 // the one door into Settings, the appearance they read in, and the way out. It
 // is the product's only settings door now — the sidebar carries destinations and
@@ -754,9 +725,13 @@ test.describe("B-EP09.23: overlay mode", () => {
     await expect(name).toHaveValue("Fleet retrofit");
     await name.fill("Fleet retrofit — expanded scope");
     await page.getByRole("button", { name: "Speichern" }).click();
-    await expect(
-      page.getByText("Fleet retrofit — expanded scope"),
-    ).toBeVisible();
+    // The record's own heading, not any text on the page carrying the name: the
+    // agent line in the rail names what it is reading, so a bare text match
+    // finds the saved name twice and cannot say which one is the 360 rendering
+    // the write.
+    await expect(page.locator(".record-head h1")).toHaveText(
+      "Fleet retrofit — expanded scope",
+    );
   });
 
   test("AC-overlay-4: an unsupported verb explains itself rather than failing", async ({

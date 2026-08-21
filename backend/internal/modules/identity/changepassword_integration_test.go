@@ -350,7 +350,7 @@ func mustChangeFor(t *testing.T, svc *Service, userID ids.UserID) bool {
 func TestAConfiguredBootstrapForcesTheAdminToChoosePassword(t *testing.T) {
 	svc := newSetupService(t)
 	ctx := context.Background()
-	wsID, created, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
+	_, created, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
 		return claimInput("configuredforce"), nil
 	}, nil)
 	if err != nil || !created {
@@ -359,7 +359,7 @@ func TestAConfiguredBootstrapForcesTheAdminToChoosePassword(t *testing.T) {
 	var adminID ids.UserID
 	if err := database.WithInfraTx(ctx, svc.db.Pool(), func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT id FROM app_user WHERE workspace_id = $1 AND is_agent = false`, wsID).Scan(&adminID)
+			`SELECT id FROM app_user WHERE is_agent = false`).Scan(&adminID)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -378,14 +378,14 @@ func TestAClaimDoesNotForceTheAdminToChooseAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wsID, _, err := svc.ClaimInstallation(ctx, token, claimInput("claimedforce"), nil)
+	_, _, err = svc.ClaimInstallation(ctx, token, claimInput("claimedforce"), nil)
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 	var adminID ids.UserID
 	if err := database.WithInfraTx(ctx, svc.db.Pool(), func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT id FROM app_user WHERE workspace_id = $1 AND is_agent = false`, wsID).Scan(&adminID)
+			`SELECT id FROM app_user WHERE is_agent = false`).Scan(&adminID)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -529,8 +529,7 @@ func TestAnOperatorResetRefusesTheAgentSeat(t *testing.T) {
 	var agentEmail string
 	if err := database.WithInfraTx(context.Background(), e.svc.db.Pool(), func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT email FROM app_user WHERE workspace_id = $1 AND is_agent = true`,
-			e.ws).Scan(&agentEmail)
+			`SELECT email FROM app_user WHERE is_agent = true`).Scan(&agentEmail)
 	}); err != nil {
 		t.Fatal(err)
 	}

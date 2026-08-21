@@ -597,8 +597,18 @@
  */
 .auth-identity-col .core {
   justify-self: center;
-  --coreSize: 150px;
-  --coreGlass: calc(var(--coreSize) * 0.748);
+  /* The sign-in screen is the one place the Core is the SUBJECT rather than a
+     status light: there is no work on this page, and the ball is what the page is
+     about. So it takes the room, bounded by the column's width and by the height
+     of the window rather than by a fixed number. */
+  /* One length, and never a percentage: the Core is a ball, and a size that
+     resolves against the column's width in one axis and the viewport in the
+     other gives it two different diameters. */
+  --coreSize: clamp(170px, 26vh, 320px);
+  /* Nearly all of the box is glass here. The wide band the smaller sizes leave
+     for the halo is air a hero does not need, and it is what made a 150px Core
+     read as a small ball in a large empty circle. */
+  --coreGlass: calc(var(--coreSize) * 0.94);
 }
 /* The region itself: words only. It keeps its own grid so the copy and the
    server-read line stay one cluster wherever the column puts them. */

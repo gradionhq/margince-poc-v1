@@ -33,6 +33,6 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	s.toolRegistry = registryWithGate(InstallationDB(pool),
 		auth.NewGate(identity.NewService(pool), auth.WithQuota(s.quotaMeter)),
 		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s},
-		s.retrievalEmbedder, s.transcriptOnLanding, s.log,
+		s.retrievalEmbedder, s.transcriptOnLanding, importsFor(s), s.log,
 		agents.WithQuotaCharger(s.quotaMeter), agents.WithCostShare(s.quotaMeter))
 }

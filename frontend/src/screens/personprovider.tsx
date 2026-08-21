@@ -212,6 +212,7 @@ function EnrichNow({
   const queryClient = useQueryClient();
 
   const enrich = useMutation({
+    mutationKey: ["enrich", personId],
     mutationFn: async () => {
       const { data, error } = await api.POST("/people/{id}/enrichment-runs", {
         params: { path: { id: personId } },

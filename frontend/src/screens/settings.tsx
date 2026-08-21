@@ -76,6 +76,7 @@ import {
 import { formatDate, formatDateTime } from "../format/format";
 import { LOCALES, type Locale, localeNameKey, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { AiRoutingCard } from "./ai-routing";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
@@ -871,6 +872,9 @@ export function SettingsScreen({ route }: Readonly<{ route: Route }>) {
 function AiSettingsTab() {
   return (
     <>
+      {/* Which vendor the installation's text is sent to, first: it is the
+          decision the three cards under it report against. */}
+      <AiRoutingCard />
       <AutomationsAdmin />
       <AiUsageCard />
       <ModelCostsCard />

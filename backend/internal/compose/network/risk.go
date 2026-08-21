@@ -19,13 +19,17 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
@@ -108,6 +112,37 @@ type DealCoverage struct {
 	// stakeholders, warmest first.
 	OurSide []ColleagueEdge
 	Risks   []Risk
+	// SectionsOmitted names the sections withheld for lack of the edge grant.
+	// Nil on the ordinary read.
+	//
+	// It exists because the alternative is a wrong answer rather than a missing
+	// one. Every seat on a deal is a deal_stakeholder EDGE, so a caller without
+	// relationship:read can be served no seats, nobody on our side and no
+	// findings — and an empty risk list is rendered as "this deal passes every
+	// coverage check". A withheld coverage view that reads as a clean one is
+	// worse than the disclosure it replaced.
+	SectionsOmitted []string
+}
+
+// The sections of a coverage view that stand or fall with the edge grant. All
+// three together: OurSide is derived from the seats, and every risk rule but
+// going-cold reads them, so there is no partial answer to give.
+//
+// Derived from the contract's own enum rather than respelled beside it. These
+// strings go out on the wire under a closed enum, so a rename in crm.yaml must
+// be a compile error here — spelled by hand it would be a schema rejection on a
+// restricted caller's request, which is the one request nobody makes by hand.
+const (
+	SectionStakeholders = string(crmcontracts.DealCoverageSectionsOmittedStakeholders)
+	SectionOurSide      = string(crmcontracts.DealCoverageSectionsOmittedOurSide)
+	SectionRisks        = string(crmcontracts.DealCoverageSectionsOmittedRisks)
+)
+
+// edgeWithheldSections is the whole withheld set, in the contract's own order.
+// Built by a function rather than held as a package var so no caller can append
+// to the answer another caller is about to read.
+func edgeWithheldSections() []string {
+	return []string{SectionStakeholders, SectionOurSide, SectionRisks}
 }
 
 // ColleagueEdge is one of our people's relationship with one contact, scored.
@@ -125,6 +160,27 @@ type ColleagueEdge struct {
 // single-threaded while listing three engaged contacts.
 func CoverageFor(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Time) (DealCoverage, error) {
 	out := DealCoverage{DealID: dealID.UUID}
+
+	// The edge admission FIRST, before any statement, and the ONE place a
+	// denial becomes an omission.
+	//
+	// First because the alternative discloses through the remainder: a version
+	// that assembled the payload and filtered afterwards would have counted
+	// rows it was not allowed to read. And once, rather than at each of the
+	// three reads below, because they all answer the same question — every seat
+	// is an edge, our side is derived from the seats, and every risk rule but
+	// going-cold reads them. Three catch points would be three chances to
+	// convert one of them into a wrong number instead of a named absence.
+	//
+	// The three reads still carry their own gate, so this is not what makes
+	// them safe. This is what makes the refusal SAYABLE.
+	if err := auth.EdgeReadAdmitted(ctx); err != nil {
+		if errors.Is(err, apperrors.ErrPermissionDenied) {
+			out.SectionsOmitted = edgeWithheldSections()
+			return out, nil
+		}
+		return out, err
+	}
 
 	facts, err := readDealFacts(ctx, tx, dealID)
 	if err != nil {

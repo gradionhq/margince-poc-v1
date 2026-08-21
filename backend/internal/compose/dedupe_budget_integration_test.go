@@ -105,20 +105,23 @@ func TestSeatDerivedBudget(t *testing.T) {
 	if budget != seats*perSeatBaseTokens*budgetSafetyFactor {
 		t.Fatalf("%d-seat budget = %d, want %d", seats, budget, seats*perSeatBaseTokens*budgetSafetyFactor)
 	}
-	// An empty workspace floors at one seat rather than refusing. The
-	// workspace table sits outside RLS and is owner-seeded, so the seed
-	// goes through the owner connection like every other fixture.
-	empty := ids.New[ids.WorkspaceKind]()
+	// An installation with no live full seat floors at one rather than
+	// refusing. Reached by deactivating the seats, which is how it actually
+	// happens: the case this floor exists for is an onboarding flow calling the
+	// model before the first seat settles. It used to be reached by pointing
+	// the budget at a second, empty workspace — ADR-0091 §8 phase D took the
+	// tenant column off app_user, so a seat count is the installation's and
+	// there is no empty workspace to ask about.
 	owner := integration.OwnerConn(t)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, 'empty-budget')`, empty); err != nil {
-		t.Fatalf("workspace insert: %v", err)
+		`UPDATE app_user SET status = 'deactivated' WHERE seat_type = 'full'`); err != nil {
+		t.Fatalf("deactivating the full seats: %v", err)
 	}
-	budget, err = NewSeatBudget(e.Pool).MonthlyTokenBudget(context.Background(), empty)
+	budget, err = NewSeatBudget(e.Pool).MonthlyTokenBudget(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if budget != perSeatBaseTokens*budgetSafetyFactor {
-		t.Fatalf("empty-workspace budget = %d, want the single-seat floor", budget)
+		t.Fatalf("seatless-installation budget = %d, want the single-seat floor", budget)
 	}
 }
