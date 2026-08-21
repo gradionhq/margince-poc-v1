@@ -39,6 +39,13 @@ type Env struct {
 	Rep1, Rep2, Rep3 ids.UUID
 	// AdminUser is the seat Admin() binds: a real app_user, because a manual
 	// create stamps the caller as owner and the owner column is a foreign key.
+	//
+	// It is also the seat in NO TEAM: the membership seeding below covers Rep1,
+	// Rep2 and Rep3 and deliberately not this one, which is what lets a suite own
+	// a record by a real-but-teamless seat. Putting it in a team breaks
+	// TestARecordWhoseOwnerIsInNoTeamIsCoveredByNoTeam, which asserts the gap
+	// rather than assuming it — so the failure names this decision instead of
+	// reading as a filter bug.
 	AdminUser    ids.UUID
 	Team1, Team2 ids.UUID
 }

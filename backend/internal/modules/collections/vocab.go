@@ -103,9 +103,20 @@ const ownerTeamIDField = "owner_team_id"
 // `owner_id` with `exists: false`. A reader looking for it here should not
 // conclude it is missing.
 //
-// This is a FILTER, not a scope. The executor ANDs it with the caller's
-// row-scope clause, so naming a team the caller cannot see answers their own
-// visible rows filtered to nothing — never that team's rows.
+// This is a FILTER, not a scope, and the guarantee that follows is SUBTRACTION
+// rather than containment: predicateWhere ANDs it onto the caller's visibility
+// predicate, so it can only ever narrow what that predicate already admits.
+//
+// What that means for another team's rows depends on the table, and the loose
+// reading is wrong. On the identity engines — person, organization, lead, deal —
+// customer identity is workspace-readable and auth renders the own/team arm as
+// TRUE (platform/auth: identityTables), so naming a team the caller is not in is
+// an honest selection of that team's records, which is the product's intent
+// rather than a leak. Only `project` keeps the own/team/all predicate, and there
+// the same clause answers nothing.
+//
+// So a new surface reaching this leaf inherits its table's visibility predicate
+// and nothing more. It must not be read as a fence.
 var ownerTeamField = storekit.Field{
 	Expr:       "tm.team_id",
 	Type:       storekit.FieldID,
