@@ -97,6 +97,12 @@ func Deterministic(in Input) []Section {
 func headerSection(in Input) []Sentence {
 	self := []Evidence{{EntityType: citeActivity, EntityID: in.ActivityID}}
 	out := []Sentence{{Text: meetingLine(in), Evidence: self}}
+	// Which engagement, before which deal: on an account running two bodies of
+	// work the project is what tells the reader they are in the right room, and
+	// a deal line alone leaves that to be inferred from the deal's name.
+	if in.Project != nil {
+		out = append(out, Sentence{Text: projectHeaderLine(*in.Project), Evidence: self})
+	}
 	if in.Deal != nil {
 		out = append(out, Sentence{
 			Text:     dealHeaderLine(*in.Deal),
@@ -105,18 +111,6 @@ func headerSection(in Input) []Sentence {
 	}
 	out = append(out, Sentence{Text: lastTouchLine(in), Evidence: self})
 	return out
-}
-
-func meetingLine(in Input) string {
-	subject := in.Subject
-	if subject == "" {
-		subject = "Meeting"
-	}
-	when := in.StartsAt.Format("Mon 2 Jan 15:04 MST")
-	if in.Company == "" {
-		return fmt.Sprintf("%s, %s.", subject, when)
-	}
-	return fmt.Sprintf("%s with %s, %s.", subject, in.Company, when)
 }
 
 // dealHeaderLine states the commercial stake in one line: what is on the table,
@@ -174,14 +168,30 @@ func goalSection(in Input) []Sentence {
 			Evidence: []Evidence{{EntityType: citeActivity, EntityID: ours.SourceID}},
 		}}
 	}
-	if in.Deal == nil {
-		return nil
+	if in.Deal != nil {
+		return []Sentence{{
+			Text:     fmt.Sprintf("Move %s on from %s.", in.Deal.Name, stageOrUnnamed(in.Deal.Stage)),
+			Nature:   natureRecommendation,
+			Evidence: []Evidence{{EntityType: citeDeal, EntityID: in.Deal.ID}},
+		}}
 	}
-	return []Sentence{{
-		Text:     fmt.Sprintf("Move %s on from %s.", in.Deal.Name, stageOrUnnamed(in.Deal.Stage)),
-		Nature:   natureRecommendation,
-		Evidence: []Evidence{{EntityType: citeDeal, EntityID: in.Deal.ID}},
-	}}
+	// A delivery meeting months after close-won usually has no open deal, and
+	// this section went silent exactly there — on the engagement the meeting is
+	// about. The project's own next step is the ask the record supports.
+	//
+	// Cited to the MEETING, not the project: the evidence vocabulary the brief
+	// shares with the account brief has no `project` kind, and a citation the
+	// reader cannot resolve is dropped whole rather than shown. The meeting is
+	// the record that carries the project link, so it is the honest source for
+	// a claim about which engagement this room is here to move.
+	if in.Project != nil {
+		return []Sentence{{
+			Text:     projectGoalLine(*in.Project),
+			Nature:   natureRecommendation,
+			Evidence: []Evidence{{EntityType: citeActivity, EntityID: in.ActivityID}},
+		}}
+	}
+	return nil
 }
 
 func stageOrUnnamed(stage string) string {
