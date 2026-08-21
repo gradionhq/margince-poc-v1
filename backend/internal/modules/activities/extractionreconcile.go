@@ -32,7 +32,8 @@ const ExtractionActivityReconcileWindow = 24 * time.Hour
 // TWO ARMS rather than one OR, and that is what makes it indexable: a predicate
 // of `status IN ('queued','running') OR finished_at > $1` can use neither
 // partial index, so every pass would scan the whole reading history and sort
-// it. Each arm here matches one of the indexes 1787320005 adds.
+// it. Each arm here matches one of the two partial indexes attachment_extraction
+// carries for exactly this pass.
 //
 // Ordered by activity_announced_at, oldest first, NULLS FIRST — the pass's
 // ROTATION KEY, and the reason a bounded batch makes progress at all. Ordering
