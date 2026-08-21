@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/accountdraft"
+	"github.com/gradionhq/margince/backend/internal/compose/agentactivity"
 	"github.com/gradionhq/margince/backend/internal/compose/meetingbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
@@ -75,6 +76,7 @@ type (
 	accountDraftHandlers   = accountdraft.Handlers
 	personDraftHandlers    = persondraft.Handlers
 	financeHandlers        = finance.Handlers
+	agentActivityHandlers  = agentactivity.Handlers
 )
 
 // wirePerson360 binds the person record page — the organization page's
