@@ -491,11 +491,15 @@ func TestARecordsTermsAreRestatedOnlyByACallerWhoCouldChangeIt(t *testing.T) {
 // The two arms that make the rule's REACH visible, and neither is about the
 // share's beneficiary — which every other case in this file is.
 //
-// A grant assertion needs no prior relationship to the record. It needs the
-// object grant (the default rep role holds it on every type here) and the row
-// probe, and on deal and lead that probe degrades to "does this row exist":
-// those tables are read by every seat, so the scope clause renders empty. The
-// caller therefore never had to be given anything.
+// REACHING the assertion needs no prior relationship to the record: the object
+// grant (the default rep role holds it on every type here) and the VISIBILITY
+// probe, which on deal and lead degrades to "does this row exist" because those
+// tables are read by every seat and the scope clause renders empty.
+//
+// What refuses is the separate write-authority probe inside EnsureCanGrant, and
+// that one does NOT degrade — its predicate is owner-or-live-write-grant on
+// every table. The distinction is the whole rule: a caller can always reach the
+// door, and is turned away at it.
 func TestAStrangerToTheRecordCannotRestateItsGrants(t *testing.T) {
 	e := SetupSearch(t)
 	svc := identity.NewService(e.Pool)

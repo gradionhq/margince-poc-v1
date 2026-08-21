@@ -22067,13 +22067,15 @@ components:
           description: |
             The record image before the change. For an `activity` row this read
             REDACTS content the caller's audience does not admit. What survives
-            is what the activity READ surface answers on a withheld row — its
-            markers (kind, direction, occurred_at, source_system) and the record
-            of the mutation itself (the audience and its member count, a
-            relink's target, a task's due date or assignee). What does not
-            survive is its content: subject, body text, and the provider message
-            id. Every non-surviving key is REMOVED ENTIRELY, not emptied or
-            renamed, and
+            is what the activity READ surface answers on a withheld row — the
+            record's markers (`kind`, `direction`, `occurred_at`,
+            `source_system`) and the record of the mutation itself (`audience`,
+            `member_count`, a relink's `entity_type`/`entity_id`/`replaced`, a
+            merge's `merged_into_id`, and a task's `due_at`, `remind_at`,
+            `assignee_id`, `is_done`). `body` survives only as the presence flag
+            its writer records, never as text. What does not survive is content:
+            `subject`, body text, and the provider message id. Every
+            non-surviving key is REMOVED ENTIRELY, not emptied or renamed, and
             `content_state: withheld` is added to say something was removed.
             So a change that touched only withheld content answers as
             `{"content_state": "withheld"}` alone: a client cannot infer which

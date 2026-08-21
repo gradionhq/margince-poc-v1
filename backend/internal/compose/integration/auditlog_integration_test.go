@@ -269,7 +269,7 @@ func TestAuditLogWithholdsALimitedActivitysImageFromOutsideItsAudience(t *testin
 	// Before the limit, the admin's compliance read carries the subject — which
 	// is correct, and is what makes the assertion after the limit about the
 	// AUDIENCE rather than about the image never being there.
-	if !auditImageMentions(t, e, activityID, subject) {
+	if !auditImageMentions(t, e, "activity", activityID, subject) {
 		t.Fatal("the audit image does not carry the subject before the limit; " +
 			"the assertions below would pass whatever the audience arm did")
 	}
@@ -279,14 +279,14 @@ func TestAuditLogWithholdsALimitedActivitysImageFromOutsideItsAudience(t *testin
 		t.Fatalf("author limiting: %v", err)
 	}
 
-	if auditImageMentions(t, e, activityID, subject) {
+	if auditImageMentions(t, e, "activity", activityID, subject) {
 		t.Error("the admin reads a limited activity's subject through GET /audit-log — " +
 			"the audience limit is exactly the disclosure this prevents")
 	}
 
 	// The row is withheld, not dropped, and everything the audience has no
 	// claim over still answers.
-	entries := auditEntriesFor(t, e, activityID)
+	entries := auditEntriesFor(t, e, "activity", activityID)
 	if len(entries) == 0 {
 		t.Fatal("the limited activity's audit rows vanished from the trail; " +
 			"withholding the image must not put a hole in the ledger")
@@ -328,7 +328,7 @@ func TestAuditLogKeepsTheImageForAReaderInsideTheAudience(t *testing.T) {
 		t.Fatalf("author limiting to a selected audience: %v", err)
 	}
 
-	if !auditImageMentions(t, e, activityID, subject) {
+	if !auditImageMentions(t, e, "activity", activityID, subject) {
 		t.Error("an admin NAMED in the audience cannot read the image — the arm " +
 			"withholds from readers the limit admits, which breaks the compliance read")
 	}
@@ -342,7 +342,7 @@ func TestAuditLogLeavesANonActivityImageAlone(t *testing.T) {
 	e := Setup(t)
 	person := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 
-	entries := auditEntriesFor(t, e, person)
+	entries := auditEntriesFor(t, e, "person", person)
 	if len(entries) == 0 {
 		t.Fatal("seeding a person wrote no audit row; this test would assert nothing")
 	}
@@ -359,13 +359,13 @@ func TestAuditLogLeavesANonActivityImageAlone(t *testing.T) {
 	}
 }
 
-// auditEntriesFor is the admin's compliance read narrowed to one record.
-func auditEntriesFor(t *testing.T, e *Env, entity ids.UUID) []privacy.AuditEntry {
+// auditEntriesFor is the admin's compliance read narrowed to one record. The
+// caller names the entity type rather than the helper guessing it: guessing
+// makes the SUBJECT of the assertion depend on a database probe, so a seeding
+// change could silently move a test from the redacted path to the untouched one
+// and it would still pass.
+func auditEntriesFor(t *testing.T, e *Env, entityType string, entity ids.UUID) []privacy.AuditEntry {
 	t.Helper()
-	entityType := "activity"
-	if n := e.WsCount(t, `SELECT count(*) FROM activity WHERE id = $1`, entity); n == 0 {
-		entityType = "person"
-	}
 	page, err := privacy.ListAuditLog(e.Admin(), e.DB(), privacy.AuditFilter{
 		EntityType: &entityType, EntityID: &entity,
 	})
@@ -377,9 +377,9 @@ func auditEntriesFor(t *testing.T, e *Env, entity ids.UUID) []privacy.AuditEntry
 
 // auditImageMentions reports whether the admin's compliance read hands back the
 // given text in either record image.
-func auditImageMentions(t *testing.T, e *Env, entity ids.UUID, text string) bool {
+func auditImageMentions(t *testing.T, e *Env, entityType string, entity ids.UUID, text string) bool {
 	t.Helper()
-	for _, entry := range auditEntriesFor(t, e, entity) {
+	for _, entry := range auditEntriesFor(t, e, entityType, entity) {
 		if strings.Contains(string(entry.Before), text) || strings.Contains(string(entry.After), text) {
 			return true
 		}

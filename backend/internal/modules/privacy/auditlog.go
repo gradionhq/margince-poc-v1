@@ -123,16 +123,12 @@ const auditActivityJoin = `
 // here is dropped, so a new writer that starts recording content into an audit
 // image cannot leak it by default.
 //
-// ⚠️ SCOPE, and it is narrower than "the audience is honoured on this endpoint":
-// this map is only ever consulted for an audit row whose entity_type is
-// `activity`. Other entity types that hang off an activity — `attachment`
-// (whose image carries the user-supplied filename), `attachment_extraction`,
-// `transcript_read`, `scheduled_send` — are NOT joined to their activity and
-// are NOT redacted, so a reader outside the audience still receives those
-// images whole. That is a live gap, tracked separately; it is named here rather
-// than left to be inferred, because the key that used to hint at it
-// (`category`, which only an attachment image carries) was removed from this
-// map as dead surface and removing it erased the only fingerprint.
+// ⚠️ SCOPE, narrower than "the audience is honoured on this endpoint": this map
+// is consulted only for an audit row whose entity_type is `activity`. Other
+// entity types that hang off an activity — `attachment`, whose image carries
+// the user-supplied filename, plus `attachment_extraction`, `transcript_read`
+// and `scheduled_send` — are not joined to their activity and are not
+// redacted, so a reader outside the audience receives those images whole.
 //
 // Each entry carries a predicate on the VALUE, because a key alone is not a
 // safety property. `body` is the case that forced it: the writer reduces it to a
@@ -141,14 +137,11 @@ const auditActivityJoin = `
 // have handed an out-of-audience admin the confidential text of a limited
 // conversation through this endpoint, passing every gate in the tree.
 //
-// Be precise about what that buys, because the mechanism invites overclaiming:
-// `body` is the ONLY entry actually constrained. The other fourteen are
-// anyValue, so the same "a writer starts nesting content under this key"
-// scenario applies unchanged to `kind`, `source_system` or a timestamp. Those
-// are judged safe by what the activity read surface already answers for them,
-// which is a claim about TODAY'S writers rather than a guard — the same kind of
-// claim `body` had before it was gated. Tightening them is a one-line predicate
-// each if a writer ever earns it.
+// `body` is the only entry actually constrained. The rest are anyValue, so the
+// "a writer starts nesting content under this key" scenario applies unchanged
+// to `kind`, `source_system` or a timestamp: those are judged safe by what the
+// activity read surface answers for them, which is a claim about today's
+// writers rather than a guard. Tightening one is a one-line predicate.
 //
 // TestRedactionKeepsGovernanceAndDropsContent pins both directions, including
 // a `body` carrying something other than a boolean.
@@ -177,10 +170,9 @@ func anyValue(json.RawMessage) bool { return true }
 // isJSONBool admits only a literal JSON `true` or `false`.
 //
 // The null check is not redundant: json.Unmarshal into a bool accepts JSON null
-// and leaves the bool at its zero value, so a bare Unmarshal would admit
-// `"body": null` — the one shape where a non-boolean body survives redaction,
-// and worse, survives it with no marker to say anything was examined. No writer
-// emits it today; the point is that the guard must not depend on that.
+// and leaves the bool at its zero value, so a bare Unmarshal admits
+// `"body": null` — the one shape where a non-boolean body would survive
+// redaction, and survive it with no marker to say anything was examined.
 func isJSONBool(raw json.RawMessage) bool {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return false
@@ -215,10 +207,9 @@ func withholdAuditImage(e *AuditEntry) {
 //
 // An ABSENT image is returned unchanged: there is nothing to redact, and
 // inventing a marker for a row that carried no image would answer a question the
-// ledger never asked. An UNREADABLE one is a different case and is withheld
-// whole — it cannot be redacted key by key, and passing it through would be the
-// disclosure. Saying "unchanged" of both, as this comment once did, invites
-// exactly the simplification that opens the hole.
+// ledger never asked. An UNREADABLE one is withheld whole — it cannot be
+// redacted key by key, and passing it through would be the disclosure. The two
+// are different answers and must not be collapsed into one word.
 func redactAuditImage(raw []byte) []byte {
 	if len(raw) == 0 {
 		return raw
