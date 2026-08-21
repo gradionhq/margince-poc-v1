@@ -154,6 +154,14 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 			if err := s.stampCorrespondence(ctx, tx, id, BasisDealWon); err != nil {
 				return fmt.Errorf("stamp won deal's correspondence: %w", err)
 			}
+			// And it starts the delivery it was sold for. In the same
+			// transaction so a won deal and a project still reading as
+			// "pursuing" can never be observed together — see
+			// project_delivery.go for which projects this moves and which it
+			// deliberately leaves alone.
+			if err := startDeliveryForWonDeal(ctx, tx, current.ProjectId, by); err != nil {
+				return fmt.Errorf("start delivery on the won deal's project: %w", err)
+			}
 		}
 		if out, err = readDealForCaller(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read advanced deal: %w", err)
