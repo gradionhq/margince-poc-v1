@@ -113,7 +113,7 @@ func (s *Server) mcpHandler(pool *pgxpool.Pool, auth *identity.Service, log *slo
 		// vocabulary above, and the interactive views the tool surface serves. The
 		// views come second, so a URI collision resolves to the vocabulary — see
 		// composeResources for why the order is stated rather than incidental, and
-		// TestTheProductionProvidersPublishDisjointSchemes for the gate that makes
+		// TestTheProductionProvidersClaimDisjointURIs for the gate that makes
 		// it moot — which is the one that reaches BOTH of these, unlike the
 		// duplicate sweep, which only sees the view catalogue.
 		agents.WithResourceProvider(composeResources(

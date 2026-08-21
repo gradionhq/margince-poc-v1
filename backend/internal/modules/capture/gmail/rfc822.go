@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // buildRFC822 renders the provider-neutral message as the wire format Gmail
@@ -132,16 +133,19 @@ func writeMixed(b *strings.Builder, msg connector.EmailMessage) {
 // which also quotes a name carrying a quote instead of ending the parameter
 // early.
 func writeAttachment(b *strings.Builder, boundary string, file connector.OutboundFile) {
-	contentType := file.ContentType
-	if contentType == "" {
-		// The type nobody can misread as something else. A part with no type
-		// is guessed at, and a client that guesses wrong renders a PDF as
-		// gibberish in the message body.
-		contentType = "application/octet-stream"
+	// extension.SendableContentType is the ONE answer to which declared types
+	// survive a send, shared with the channel upload that assembles the same
+	// header by hand. Formatting the stored value directly — which this did —
+	// answers EMPTY for any type carrying a parameter, so a `text/plain;
+	// charset=utf-8` part went out with a BLANK Content-Type; parsing first keeps
+	// the parameter and refuses only what cannot be represented at all.
+	mediaType, params := extension.SendableContentType(file.ContentType)
+	if params == nil {
+		params = map[string]string{}
 	}
+	params["name"] = file.Filename
 	b.WriteString("--" + boundary + "\r\n")
-	writeHeader(b, "Content-Type", mime.FormatMediaType(contentType,
-		map[string]string{"name": file.Filename}))
+	writeHeader(b, "Content-Type", mime.FormatMediaType(mediaType, params))
 	writeHeader(b, "Content-Disposition", mime.FormatMediaType("attachment",
 		map[string]string{"filename": file.Filename}))
 	writeHeader(b, "Content-Transfer-Encoding", "base64")

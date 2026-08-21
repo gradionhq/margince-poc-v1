@@ -115,6 +115,10 @@ func (f *telegramPollFakeAPI) SendMessage(context.Context, string, telegram.Outb
 	panic("telegramPollFakeAPI: the ingress suites never send")
 }
 
+func (f *telegramPollFakeAPI) SendFiles(context.Context, string, telegram.OutboundChannelMessage) (int64, error) {
+	panic("telegramPollFakeAPI: the ingress suites never send")
+}
+
 // polls reports how many times getUpdates was asked, and from which offsets.
 func (f *telegramPollFakeAPI) polls() []int64 {
 	f.mu.Lock()

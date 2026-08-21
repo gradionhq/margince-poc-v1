@@ -5,12 +5,12 @@ package backendarch
 
 // The attachment-per-message cap as a fitness function.
 //
-// The number appears in four places and NOTHING makes them agree: `maxItems` on
+// The number appears in five places and NOTHING makes them agree: `maxItems` on
 // three request schemas in the contract, prose in the channel directory's
 // `max_files` description, the Go bound the send actually enforces
-// (activities.maxAttachmentsPerSend), and the carriage a mail connector declares
-// (gmail's maxSendableFiles). The contract's is the authority; the other two are
-// checked against it here.
+// (activities.maxAttachmentsPerSend), and the carriage each sending connector
+// declares (gmail's and telegram's maxSendableFiles). The contract's is the
+// authority; the others are checked against it here.
 //
 // It is worth a gate rather than a comment because the two failure directions are
 // both silent and both wrong in a way a reader would not suspect. A Go bound
@@ -30,7 +30,7 @@ import (
 
 // goAttachmentCaps are the Go statements of the cap, each read out of its own
 // source rather than restated here: a gate that carried its own copy of the
-// number would be a fifth place to update.
+// number would be one more place to update.
 var goAttachmentCaps = map[string]struct {
 	file    string
 	pattern *regexp.Regexp
@@ -42,6 +42,13 @@ var goAttachmentCaps = map[string]struct {
 	"gmail.maxSendableFiles": {
 		file:    "internal/modules/capture/gmail/send.go",
 		pattern: regexp.MustCompile(`(?m)^const maxSendableFiles = (\d+)$`),
+	},
+	// Telegram states its bound inside a grouped const, beside the two other
+	// numbers the same upload enforces, so the pattern is anchored on the name
+	// rather than on `const`.
+	"telegram.maxSendableFiles": {
+		file:    "internal/modules/capture/telegram/sendfiles.go",
+		pattern: regexp.MustCompile(`(?m)^\tmaxSendableFiles\s+= (\d+)$`),
 	},
 }
 

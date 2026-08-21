@@ -109,7 +109,7 @@ func everyDeclaredView() map[string]string { return apps.DeclaredViews() }
 // path every assertion below is about.
 //
 // What that leaves unmeasured is a URI collision BETWEEN the production
-// providers. TestTheProductionProvidersPublishDisjointSchemes covers it from the
+// providers. TestTheProductionProvidersClaimDisjointURIs covers it from the
 // other side, structurally, because it can be answered without a pool — and it
 // reads mcpResourceProviders, so a provider added to the transport enters it
 // automatically rather than being a list somebody has to remember.

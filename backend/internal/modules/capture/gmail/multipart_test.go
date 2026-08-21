@@ -445,6 +445,43 @@ func TestAFileWithNoTypeGetsOctetStream(t *testing.T) {
 	}
 }
 
+// A declared type carrying a PARAMETER survives, and a type carrying a line
+// break does not.
+//
+// Both used to fail the same way, and silently: the raw stored value went
+// straight into mime.FormatMediaType, which takes a bare type/subtype and
+// answers the empty string for anything with a parameter — so a
+// `text/plain; charset=utf-8` part, which is what a mail-captured text
+// attachment routinely stores, went out with a BLANK Content-Type value. The
+// question now goes through extension.SendableContentType, which parses before
+// it re-renders: the parameter is kept, and only what cannot be represented at
+// all falls back.
+func TestADeclaredTypesParametersSurviveButItsLineBreaksDoNot(t *testing.T) {
+	for _, tc := range []struct{ name, declared, want string }{
+		{"a parameter is kept", "text/plain; charset=utf-8", "text/plain; charset=utf-8"},
+		{"a bare type is unchanged", "application/pdf", "application/pdf"},
+		{"a type that would write its own header falls back", "text/plain\r\nX-Injected: yes", "application/octet-stream"},
+		{"no declared type at all", "", "application/octet-stream"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := plainMessage()
+			msg.Files = []connector.OutboundFile{
+				{Filename: "notes.txt", ContentType: tc.declared, Body: []byte("x")},
+			}
+
+			raw := buildRFC822("rep@gradion.test", msg)
+			if !strings.Contains(raw, "Content-Type: "+tc.want) {
+				t.Errorf("the attachment part does not declare %q:\n%s", tc.want, raw)
+			}
+			// The injected header must not appear as a header of its own, under any
+			// spelling — the part builds its own header block by hand.
+			if strings.Contains(raw, "X-Injected") {
+				t.Errorf("a declared content type wrote its own header:\n%s", raw)
+			}
+		})
+	}
+}
+
 // A filename that could break the parameter it sits in must not. A quote ends
 // the value early, and a client then shows a truncated name or none at all.
 func TestAFilenameWithAQuoteStaysOneParameter(t *testing.T) {

@@ -172,6 +172,39 @@ func TestDispatchParksNamingTheRecipientWhenTheProviderRefusesToDeliverToThem(t 
 	}
 }
 
+// An adapter that refuses the file set it was handed parks at once, and this is
+// the one park class that is a DECISION of ours rather than a provider condition
+// — so a retry produces it again, identically, every time.
+//
+// The carriage gate refuses this case earlier from the capability a connector
+// DECLARES. This is the other half: a connector whose declaration and whose send
+// path disagree, which no gate above it can see. Left on the retry ladder it
+// would re-read every file from the blobstore once per rung and then park under
+// "the retry ladder is exhausted", which names no cause at all.
+func TestDispatchParksWhenTheAdapterRefusesToCarryTheFiles(t *testing.T) {
+	sender := &fakeSender{err: connector.ErrFilesNotCarried}
+	store := &fakeStore{delivery: liveDelivery()}
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
+
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	if got != OutcomeParked {
+		t.Fatalf("outcome = %v, want OutcomeParked — no retry makes an unsendable file set sendable", got)
+	}
+	if !strings.Contains(store.parked, "files") || !strings.Contains(store.parked, "Retrying changes nothing") {
+		t.Errorf("park reason %q does not tell the operator that the files are the cause and that a retry is wasted", store.parked)
+	}
+	// Neither of the two parks an operator would otherwise confuse this with.
+	if strings.Contains(store.parked, "reconnect it to resume sending") || strings.Contains(store.parked, "recipient") {
+		t.Errorf("park reason %q reuses the credential or recipient wording, which misdirects the operator", store.parked)
+	}
+	// The adapter refused before any provider I/O, so nothing was transmitted and
+	// the marker that would make the next attempt park as an unknown outcome has
+	// to be retracted.
+	if store.cleared != 1 {
+		t.Errorf("the in-flight marker was cleared %d time(s), want 1 — nothing reached the provider", store.cleared)
+	}
+}
+
 func TestDispatchRetriesWhenTheProviderIsUnreachable(t *testing.T) {
 	sender := &fakeSender{err: connector.ErrUnreachable}
 	store := &fakeStore{delivery: liveDelivery()}

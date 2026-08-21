@@ -245,24 +245,149 @@ func TestSendMessageRefusesAnUnaddressableMessageWithoutCallingTheProvider(t *te
 	}
 }
 
-// A message handed files this connector cannot build a part for is REFUSED, and
-// nothing reaches the provider.
+// Carriage is what the shared gate measures a staged message against and what
+// the channel directory publishes to the composer, so a wrong number here is
+// either a message refused for no reason or one that parks at transmission
+// after the human was told it would go.
 //
-// The carriage gate stops this earlier by reading what the connector declares —
-// and this is the case that gate cannot cover: a declaration added before the
-// part-building would let the covering text go out alone, which is a message
-// that lies about what it contains. The connector is the last place that can
-// refuse its own mistake.
-func TestSendMessageRefusesFilesItCannotBuildAPartFor(t *testing.T) {
-	api, rec := serve(t, 200, `{"ok":true,"result":{"message_id":9911}}`)
-	c := New(api)
-
-	msg := reply()
-	msg.Files = []connector.OutboundFile{{AttachmentID: "a-1", Filename: "quote.pdf", Body: []byte("bytes")}}
-	if _, err := c.SendMessage(context.Background(), connector.Auth("1:secret"), msg); !errors.Is(err, connector.ErrFilesNotCarried) {
-		t.Fatalf("SendMessage with files → %v, want ErrFilesNotCarried", err)
+// Every value is measured against a live bot: the album is atomic on validation
+// (so 10, not 1), the per-file cap is deliberately the INBOUND getFile cap
+// rather than the higher send limit, and the caption bound is exact — 1024
+// accepted, 1025 refused.
+func TestTelegramDeclaresTheCarriageItWasMeasuredAt(t *testing.T) {
+	want := connector.Carriage{
+		Carries:          true,
+		MaxBytesPerFile:  20 << 20,
+		MaxFiles:         10,
+		MaxBodyWithFiles: 1024,
 	}
-	if rec.calls() != 0 {
-		t.Errorf("the connector called the provider %d time(s) for a message it cannot carry whole", rec.calls())
+	if got := New(nil).Carriage(); got != want {
+		t.Errorf("Carriage() = %+v, want %+v", got, want)
+	}
+}
+
+// The message a rep sends with documents attached, end to end through the
+// connector: the album reaches the provider whole and the receipt carries the id
+// a reply threads under.
+func TestSendMessageTransmitsTheFilesItWasStagedWith(t *testing.T) {
+	api, rec := serve(t, 200, `{"ok":true,"result":[{"message_id":9911},{"message_id":9912}]}`)
+	msg := reply()
+	msg.Files = []connector.OutboundFile{
+		{AttachmentID: "a-1", Filename: "quote.pdf", ContentType: "application/pdf", Body: []byte("quote bytes")},
+		{AttachmentID: "a-2", Filename: "terms.pdf", ContentType: "application/pdf", Body: []byte("terms bytes")},
+	}
+
+	receipt, err := New(api).SendMessage(context.Background(), connector.Auth("1:secret"), msg)
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if receipt.ProviderMessageID != "9911" {
+		t.Errorf("provider message id = %q, want the album anchor \"9911\"", receipt.ProviderMessageID)
+	}
+	if got := rec.lastPath(t); !strings.HasSuffix(got, "/"+methodSendMediaGroup) {
+		t.Errorf("the message went to %q, want the %s method", got, methodSendMediaGroup)
+	}
+	_, files := formOf(t, rec)
+	if len(files) != 2 {
+		t.Fatalf("%d file parts reached the provider, want both", len(files))
+	}
+	for i, want := range []string{"quote bytes", "terms bytes"} {
+		if files[i].body != want {
+			t.Errorf("file part %d carries %q, want %q", i, files[i].body, want)
+		}
+	}
+}
+
+// The regression that matters now the outbound path branches: a message with
+// nothing attached must still take the text method, not an empty album.
+func TestSendMessageStillTakesTheTextMethodWithNoFiles(t *testing.T) {
+	api, rec := serve(t, 200, `{"ok":true,"result":{"message_id":9911}}`)
+
+	if _, err := New(api).SendMessage(context.Background(), connector.Auth("1:secret"), reply()); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if got := rec.lastPath(t); !strings.HasSuffix(got, "/sendMessage") {
+		t.Errorf("a message with no files went to %q, want sendMessage", got)
+	}
+}
+
+// A message this connector declared it cannot carry is refused, and nothing
+// reaches the provider.
+//
+// The shared carriage gate stops this earlier by reading Carriage() — and this
+// is the case that gate cannot cover, because it measures against what the
+// connector CLAIMS. The connector is the last place that can refuse a claim its
+// own send path cannot honour, which is why the bounds are checked here too
+// rather than trusted from above.
+//
+// The class matters as much as the refusal: ErrFilesNotCarried is what the
+// dispatcher parks on, and none of these refusals can come out differently on a
+// retry — left retryable they would spend the whole ladder re-reading the files
+// and then park under a reason naming no cause.
+func TestSendMessageRefusesWhatItDeclaredItCannotCarry(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		build func(m *connector.ChannelMessage)
+	}{
+		{"more files than the album takes", func(m *connector.ChannelMessage) {
+			for range New(nil).Carriage().MaxFiles + 1 {
+				m.Files = append(m.Files, connector.OutboundFile{
+					AttachmentID: "a-1", Filename: "quote.pdf", ContentType: "application/pdf", Body: []byte("bytes"),
+				})
+			}
+		}},
+		{"a body longer than a caption holds", func(m *connector.ChannelMessage) {
+			m.Body = strings.Repeat("x", New(nil).Carriage().MaxBodyWithFiles+1)
+			m.Files = []connector.OutboundFile{
+				{AttachmentID: "a-1", Filename: "quote.pdf", ContentType: "application/pdf", Body: []byte("bytes")},
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, rec := serve(t, 200, `{"ok":true,"result":{"message_id":9911}}`)
+			msg := reply()
+			tc.build(&msg)
+
+			if _, err := New(api).SendMessage(context.Background(), connector.Auth("1:secret"), msg); !errors.Is(err, connector.ErrFilesNotCarried) {
+				t.Fatalf("SendMessage → %v, want ErrFilesNotCarried", err)
+			}
+			if rec.calls() != 0 {
+				t.Errorf("the connector called the provider %d time(s) for a message it cannot carry whole", rec.calls())
+			}
+		})
+	}
+}
+
+// The recipient and anchor guards run on the FILE path too. A second route
+// through this seam that skipped them would send the rep's words — and the
+// documents — to a guessed chat, or detached from the conversation they answer,
+// for exactly the messages that carry the most.
+func TestSendMessageWithFilesKeepsTheGuardsTheTextPathHas(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		spoil func(m *connector.ChannelMessage)
+	}{
+		{"a chat id that is not a private chat", func(m *connector.ChannelMessage) {
+			m.Recipient.ChannelUserID = "-1001234567890"
+		}},
+		{"an anchor that is not a provider message id", func(m *connector.ChannelMessage) {
+			m.ReplyTo = "0"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			api, rec := serve(t, 200, `{"ok":true,"result":{"message_id":9911}}`)
+			msg := reply()
+			msg.Files = []connector.OutboundFile{
+				{AttachmentID: "a-1", Filename: "quote.pdf", ContentType: "application/pdf", Body: []byte("bytes")},
+			}
+			tc.spoil(&msg)
+
+			if _, err := New(api).SendMessage(context.Background(), connector.Auth("1:secret"), msg); !errors.Is(err, ErrRequestRejected) {
+				t.Fatalf("SendMessage → %v, want ErrRequestRejected", err)
+			}
+			if rec.calls() != 0 {
+				t.Errorf("the provider was called %d time(s) for a message that could not be addressed", rec.calls())
+			}
+		})
 	}
 }

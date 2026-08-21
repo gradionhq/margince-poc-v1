@@ -162,6 +162,25 @@ const unreachableRecipientReason = "the messaging provider will not deliver to t
 	"they blocked the sender, or their account no longer exists. " +
 	"Retrying and reconnecting the channel both change nothing — reach them another way"
 
+// filesNotCarriedReason is what a delivery refused BELOW the carriage gate
+// records — the connector honouring its own bounds when its declaration and its
+// send path disagree, or the read seam refusing an aggregate no declared bound
+// describes (#2047).
+//
+// It says what does not help, for the same reason the recipient reason does: the
+// refusal is deterministic, so every retry produces it again, and the ladder
+// would spend its whole length re-reading the files before saying anything.
+//
+// It deliberately does NOT prescribe a remedy, and that is a correction rather
+// than vagueness. The gate above names one per case — the file, the limit, the
+// character count — because it knows which bound was missed. Down here the cause
+// could be a total nobody published or a file with no bytes at all, and "send
+// fewer or smaller files" is advice nobody can follow for a file that is already
+// as small as it gets. The cause is logged where the reason cannot carry it.
+const filesNotCarriedReason = "this channel refused to carry the files this message was staged with, " +
+	"and it was not sent: sending the text without them would misrepresent what it contains. " +
+	"Retrying changes nothing — check the files against what this channel accepts, or share them another way"
+
 // guardAtMostOnce protects the seams whose retries cannot detect a prior send,
 // and returns outcomeUndecided for the ones that can — mail resolves through
 // here untouched.

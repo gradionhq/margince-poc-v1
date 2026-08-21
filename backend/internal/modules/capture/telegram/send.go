@@ -45,8 +45,9 @@ type Connector struct{ api API }
 func New(api API) *Connector { return &Connector{api: api} }
 
 var (
-	_ connector.Connector     = (*Connector)(nil)
-	_ connector.MessageSender = (*Connector)(nil)
+	_ connector.Connector         = (*Connector)(nil)
+	_ connector.MessageSender     = (*Connector)(nil)
+	_ connector.AttachmentCarrier = (*Connector)(nil)
 )
 
 // Descriptor is the registry's static metadata. The tier and scope describe the
@@ -113,13 +114,6 @@ func (c *Connector) SendMessage(ctx context.Context, auth connector.Auth, msg co
 	if err := msg.Validate(); err != nil {
 		return connector.SendReceipt{}, err
 	}
-	// Telegram carries files (sendPhoto/sendDocument/sendMediaGroup) and this
-	// connector does not build them yet, so it refuses rather than transmitting
-	// the caption alone — see connector.ErrFilesNotCarried. Remove this in the
-	// change that adds the part-building, not before.
-	if len(msg.Files) > 0 {
-		return connector.SendReceipt{}, connector.ErrFilesNotCarried
-	}
 	chatID, err := chatIDOf(msg.Recipient)
 	if err != nil {
 		return connector.SendReceipt{}, err
@@ -128,10 +122,24 @@ func (c *Connector) SendMessage(ctx context.Context, auth connector.Auth, msg co
 	if err != nil {
 		return connector.SendReceipt{}, err
 	}
-	id, err := c.api.SendMessage(ctx, string(auth), OutboundChannelMessage{
+	// Every refusal above runs on BOTH paths. A second route through this seam
+	// that skipped the recipient or anchor guards would send the rep's words to
+	// a guessed chat, or detached from the conversation they answer, for exactly
+	// the messages that also carry documents.
+	//
+	// The two methods share a signature, so which one transmits is the only
+	// difference between a message with files and one without — there is no
+	// second receipt shape, no second error mapping, and no message that takes
+	// both.
+	transmit := c.api.SendMessage
+	if len(msg.Files) > 0 {
+		transmit = c.api.SendFiles
+	}
+	id, err := transmit(ctx, string(auth), OutboundChannelMessage{
 		ChatID:           chatID,
 		Text:             msg.Body,
 		ReplyToMessageID: replyTo,
+		Files:            msg.Files,
 	})
 	if err != nil {
 		return connector.SendReceipt{}, sendOutcome(err)
@@ -141,6 +149,29 @@ func (c *Connector) SendMessage(ctx context.Context, auth connector.Auth, msg co
 	// channel message has no mail identity for a timeline row to be re-keyed
 	// onto.
 	return connector.SendReceipt{ProviderMessageID: strconv.FormatInt(id, 10)}, nil
+}
+
+// Carriage declares what this connector transmits
+// (connector.AttachmentCarrier), in the numbers sendfiles.go enforces.
+//
+// There is no default for this and that is the design: a message with files
+// staged against a connector that does not declare the capability PARKS rather
+// than going out stripped, because a recipient seeing fewer files than the
+// timeline records is a wrong record nobody is told about.
+//
+// MaxBodyWithFiles is the one bound mail has no equivalent for. A Telegram
+// message that carries files carries its text as the album's CAPTION, and a
+// caption holds far less than a message body — so the same words that send fine
+// alone park when a document is attached. The bound is published on the channel
+// directory precisely so the composer can say so before a human presses send.
+// It counts CHARACTERS, because a caption cap is a provider's rune count.
+func (c *Connector) Carriage() connector.Carriage {
+	return connector.Carriage{
+		Carries:          true,
+		MaxBytesPerFile:  maxSendableBytesPerFile,
+		MaxFiles:         maxSendableFiles,
+		MaxBodyWithFiles: maxCaptionRunes,
+	}
 }
 
 // chatIDOf reads the recipient's chat from their channel identity. A private
@@ -195,6 +226,12 @@ func sendOutcome(err error) error {
 		// passes through untouched: wrapping it in another class here would
 		// leave the caller honouring a backoff of its own invention instead of
 		// the interval Telegram stated.
+		return err
+	case errors.Is(err, connector.ErrFilesNotCarried):
+		// Already in the shared vocabulary and already permanent, so it passes
+		// through untouched: this connector refusing its own file set cannot come
+		// out differently on a later attempt, and every other class here is a
+		// statement about Telegram rather than about the message.
 		return err
 	case errors.Is(err, ErrTokenRejected):
 		// The bot token is refused. No retry repairs it, and the caller parks

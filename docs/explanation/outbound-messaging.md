@@ -131,6 +131,40 @@ descriptor is published per transport on `GET /v1/channel-providers` as `attachm
 gate's argument only holds if the composer can warn **before** a human presses send: a mismatch
 discovered at transmission is correct but late.
 
+#### What each core transport declares
+
+| Transport | `MaxFiles` | `MaxBytesPerFile` | `MaxBodyWithFiles` |
+|---|---|---|---|
+| Gmail | 10 | 25 MiB | 0 — mail carries the body as the body |
+| Telegram | 10 | 20 MiB | 1024 characters |
+
+Telegram's three numbers are **measured against a live bot**, not read off the documentation, and two
+of them are deliberately lower than the provider's own ceiling. `MaxFiles` is 10 because
+`sendMediaGroup` proved atomic on validation — a group holding one bad item is rejected whole, so
+there is no partial album to reason about. `MaxBytesPerFile` is the *inbound* download cap rather than
+the higher 50 MB send limit, because a file this installation cannot receive is a strange thing to
+promise to send, and because a full album at that size uploads well inside the send job's timeout.
+`MaxBodyWithFiles` is exact: 1024 characters accepted, 1025 refused.
+
+**Neither row is the whole ceiling, and the gap is a known defect (#2047).** The descriptor has no
+aggregate field, while the send path caps a message's files at **20 MiB in total** when it reads their
+bodies — one tenth of what either row promises. So read the rows as per-file limits, not as a budget:
+a message inside both published bounds can still be over the total.
+
+What happens then is at least honest. The read seam answers `ErrFilesNotCarried`, so the delivery
+**parks on the first attempt** with a reason naming the 20 MiB total, rather than spending the retry
+ladder re-reading the same objects once per rung and parking under "the retry ladder is exhausted".
+What is still wrong is WHEN the sender hears it: the bound is invisible to the directory, so the
+composer cannot warn before the send, and the park is the first anybody learns of it. Closing that is
+what #2047 tracks — the refusal is already in the right place, the number just is not published.
+
+Telegram sends **every file as a document, an image included.** Telegram refuses an album that mixes
+documents and photos outright, so grouping by type would decide per message whether one message
+becomes two provider calls — the partial send this gate exists to prevent. It also preserves the
+bytes: a `photo` is recompressed, and a re-encoded contract scan is a worse record than the file the
+rep attached. The visible cost, taken deliberately: an image arrives in the chat as a downloadable
+file rather than an inline picture.
+
 ### The seat — this installation's answer about the human
 
 `SeatAuthority.ActiveSeat` re-reads the **staging human's live seat at transmit time**. Deactivating a

@@ -121,6 +121,43 @@ func SniffContentType(content []byte) string {
 	return full
 }
 
+// sendableFallback is the type nobody can misread as something else. A part with
+// no usable type is guessed at, and a client that guesses wrong renders a PDF as
+// gibberish in the message body.
+const sendableFallback = "application/octet-stream"
+
+// SendableContentType is the media type a part may DECLARE on the wire, with its
+// parameters, ready for mime.FormatMediaType.
+//
+// PUBLISHED for the reason SniffContentType is: every producer that renders a
+// file onto a wire has to answer this question the same way, and there are two
+// of them already — the mail renderer building an RFC822 part and the channel
+// upload building a multipart one. Both write the answer into a HEADER they
+// assemble themselves, so both need the same two properties, and neither is
+// obvious enough to be re-derived per call site.
+//
+// It PARSES before it re-renders, which is the whole point. The stored value is
+// whatever an upload declared — nothing on the write path validates it — so it
+// has to be refused when it cannot be represented, and a value carrying CR/LF
+// would otherwise end its header line early and let the rest be read as headers
+// of its own. But formatting the raw string is not the same as parsing it:
+// mime.FormatMediaType takes a bare type/subtype and answers EMPTY for anything
+// carrying a parameter, so `text/plain; charset=utf-8` — which is what a
+// mail-captured text part routinely stores — would be discarded exactly like a
+// hostile value. Parsing first keeps the parameters and refuses only what is
+// genuinely unrepresentable.
+//
+// The fallback is deliberate rather than an error return: a file whose declared
+// type cannot be honoured still has to be SENT, and arriving as a download
+// rather than a preview is a smaller loss than not arriving.
+func SendableContentType(declared string) (string, map[string]string) {
+	mediaType, params, err := mime.ParseMediaType(declared)
+	if err != nil || mime.FormatMediaType(mediaType, params) == "" {
+		return sendableFallback, nil
+	}
+	return mediaType, params
+}
+
 // DeclaredTypeDisagreement returns the declared type only when it differs from
 // what the bytes say. Storing an agreeing claim would fill the column on every
 // row and make the interesting case invisible.
