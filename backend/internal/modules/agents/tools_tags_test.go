@@ -4,6 +4,7 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,15 @@ import (
 type stubTags struct {
 	applied, removed *taggingArgs
 	ensured          *string
+	vocabulary       []Tag
+	listedArchived   *bool
+}
+
+func (s stubTags) ListTags(_ context.Context, includeArchived bool) ([]Tag, error) {
+	if s.listedArchived != nil {
+		*s.listedArchived = includeArchived
+	}
+	return s.vocabulary, nil
 }
 
 func (stubTags) EnsureTaggable(context.Context, string, ids.UUID) error { return nil }
@@ -162,4 +172,78 @@ type noSuchTag struct{ stubTags }
 
 func (noSuchTag) FindTag(context.Context, string) (ids.UUID, bool, error) {
 	return ids.UUID{}, false, nil
+}
+
+// The vocabulary had no door. apply_tag's own copy says to prefer a tag_id
+// "you already hold", and nothing on the surface could produce one: create was
+// human-only and the listing was declared by nobody. So the only reachable way
+// to tag was to pass a NAME, which creates the word when the workspace has no
+// such spelling — and a caller who cannot see the existing words guesses.
+// "K5 Conference" beside "K5 Conference 2026" is not two tags, it is a
+// vocabulary that has stopped being one.
+func TestTheVocabularyCanBeReadBeforeAWordIsCoined(t *testing.T) {
+	marketing, retired := ids.NewV7(), ids.NewV7()
+	var askedForArchived bool
+	tool := listTags{tags: stubTags{
+		vocabulary: []Tag{
+			{TagID: marketing, Name: "K5 Conference 2026", Color: "#3366ff"},
+			{TagID: retired, Name: "Q1 Push", Archived: true},
+		},
+		listedArchived: &askedForArchived,
+	}}
+
+	raw, err := tool.Handle(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("listing answered %v", err)
+	}
+	var got ListTagsResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("the answer does not decode: %v", err)
+	}
+	if len(got.Tags) != 2 {
+		t.Fatalf("listed %+v, want both words", got.Tags)
+	}
+	// The id is the whole point: it is what apply_tag takes, and a name-only
+	// answer would leave the caller guessing exactly as before.
+	if got.Tags[0].TagID != marketing || got.Tags[0].Name != "K5 Conference 2026" {
+		t.Errorf("the first word reads %+v, want the id apply_tag takes beside its name", got.Tags[0])
+	}
+	// Archived rides the row because apply_tag will NOT reuse a retired word —
+	// EnsureTag treats it as a conflict — so a caller shown one without the
+	// flag would read that refusal as a bug.
+	if !got.Tags[1].Archived {
+		t.Errorf("the retired word reads %+v, want it marked archived", got.Tags[1])
+	}
+	if askedForArchived {
+		t.Error("the default asked the store for archived words; retired words are opt-in")
+	}
+}
+
+// Opt-in, and it reaches the store rather than being filtered here: the store
+// is where `archived_at IS NULL` lives, and a second spelling of that rule in
+// this module is a second place for it to drift.
+func TestAskingForRetiredWordsReachesTheStore(t *testing.T) {
+	var askedForArchived bool
+	tool := listTags{tags: stubTags{listedArchived: &askedForArchived}}
+	if _, err := tool.Handle(context.Background(),
+		json.RawMessage(`{"include_archived":true}`)); err != nil {
+		t.Fatalf("listing answered %v", err)
+	}
+	if !askedForArchived {
+		t.Error("include_archived did not reach the store, so the argument is decoration")
+	}
+}
+
+// An empty workspace is an ANSWER, not an error, and it must decode as `[]`
+// rather than `null`: a caller handed null reads it as a failed read and says
+// the vocabulary could not be listed, when the truth is that nobody has coined
+// a word yet.
+func TestAnEmptyVocabularyAnswersAsAList(t *testing.T) {
+	raw, err := (listTags{tags: stubTags{}}).Handle(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("listing answered %v", err)
+	}
+	if !bytes.Contains(raw, []byte(`"tags":[]`)) {
+		t.Errorf("an empty workspace answered %s, want an empty list", raw)
+	}
 }

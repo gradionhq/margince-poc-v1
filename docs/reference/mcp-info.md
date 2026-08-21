@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 51 |
+| Tools | 52 |
 | Resources | 8 |
-| Tool catalog | 136.6 KB |
+| Tool catalog | 138.1 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 35756 |
+| Approx. wire tokens | 36140 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 62.1 KB | 45% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 33.8 KB | 24% | Yes, every step |
-| Input schemas | 29.9 KB | 21% | Yes, every step |
-| _Names, annotations, punctuation_ | 10.7 KB | 7% | Partly |
-| **Description + input schema** | **63.8 KB** | **46%** | **the recurring cost** |
+| Output schemas | 63.2 KB | 45% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 34.0 KB | 24% | Yes, every step |
+| Input schemas | 30.1 KB | 21% | Yes, every step |
+| _Names, annotations, punctuation_ | 10.9 KB | 7% | Partly |
+| **Description + input schema** | **64.1 KB** | **46%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -55,7 +55,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (51)
+### Tools (52)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
@@ -82,6 +82,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`list_colleagues`](#list_colleagues) | List colleagues | yes |  | 1.9 KB |
 | [`list_pipelines`](#list_pipelines) | List pipelines and their stages | yes |  | 2.3 KB |
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
+| [`list_tags`](#list_tags) | List tags | yes |  | 1.5 KB |
 | [`log_activity`](#log_activity) | Log an activity |  |  | 3.2 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.0 KB |
@@ -831,7 +832,7 @@ Move a project to another phase — initiative, pursuing, delivering, closed. Th
 
 **Apply a tag to a record**
 
-Tag a person, company, deal or lead — by tag_id, or by tag_name, which reuses the workspace's word or adds it. Applying the same tag twice is refused as a conflict. A name matches case-insensitively; a near-miss makes a NEW word, so prefer a tag_id you already hold. (Governance: runs immediately; requires passport scope "write".)
+Tag a person, company, deal or lead by tag_id, or by tag_name, which reuses the workspace's word or coins it. Prefer a tag_id from list_tags: a name matches case-insensitively, and a near-miss makes a NEW word. The same tag twice is a conflict. (Governance: runs immediately; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 
@@ -4208,6 +4209,149 @@ Enumerate the people, organizations, deals, leads or projects that meet exact co
       },
       "required": [
         "records"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### list_tags
+
+**List tags**
+
+The workspace's words for grouping records, with the tag_id apply_tag takes. Archived words come only on request and cannot be applied. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "include_archived": {
+      "description": "Also list retired words; they cannot be applied",
+      "type": "boolean"
+    }
+  },
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "tags": {
+          "items": {
+            "properties": {
+              "archived": {
+                "type": "boolean"
+              },
+              "color": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "tag_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "tag_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tags"
       ],
       "type": "object"
     },

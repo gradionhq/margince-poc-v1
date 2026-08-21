@@ -37,6 +37,16 @@ type ListColleaguesResult struct {
 	Truncated bool `json:"truncated,omitempty"`
 }
 
+// ListTagsResult is the workspace's tag vocabulary. Empty is a real answer —
+// a workspace that has coined no words yet — never an error.
+//
+// No `truncated` twin to ListColleaguesResult: the store caps its read at
+// 1000 words and a workspace vocabulary that long has a different problem
+// than a missing flag.
+type ListTagsResult struct {
+	Tags []Tag `json:"tags"`
+}
+
 // TagAppliedResult reports one tagging. `applied` is false for a removal,
 // which is the same shape rather than a second one: a caller that acted on a
 // record wants the record back either way.

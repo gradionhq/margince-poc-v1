@@ -29,8 +29,23 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
+// Tag is one word in the workspace's vocabulary.
+type Tag struct {
+	TagID ids.UUID `json:"tag_id"`
+	Name  string   `json:"name"`
+	Color string   `json:"color,omitempty"`
+	// Archived says the word was retired. apply_tag will NOT reuse it — a
+	// name whose only holder is archived is a conflict, not a match — so a
+	// caller that cannot see this would read a refusal as a bug.
+	Archived bool `json:"archived,omitempty"`
+}
+
 // Tags is the seam onto the collections module's tag paths.
 type Tags interface {
+	// ListTags answers the workspace's vocabulary, newest spelling rules and
+	// all. Read before applying: apply_tag creates the word it is given, so a
+	// caller who cannot see the existing ones coins near-duplicates.
+	ListTags(ctx context.Context, includeArchived bool) ([]Tag, error)
 	// EnsureTaggable refuses a record the caller cannot tag, before a tag is
 	// created for it. Same check ApplyTag makes at the end of its own
 	// transaction; asked earlier so a failed apply leaves nothing behind.
@@ -53,6 +68,7 @@ func RegisterTagTools(r *Registry, tags Tags) {
 	if tags == nil {
 		return
 	}
+	r.Register(listTags{tags: tags})
 	r.Register(applyTag{tags: tags})
 	r.Register(removeTag{tags: tags})
 }
@@ -68,6 +84,44 @@ const taggingSchema = `{"type":"object","required":["record_type","record_id"],"
 	"tag_name":{"type":"string","maxLength":120,"description":"Instead of tag_id: the tag is created if the workspace has no such word"},
 	"record_type":{"type":"string","enum":` + tagTargetEnum + `},
 	"record_id":{"type":"string","format":"uuid"}},"additionalProperties":false}`
+
+// --- list_tags (🟢 read) ---
+
+type listTags struct{ tags Tags }
+
+func (t listTags) Spec() mcp.ToolSpec {
+	return mcp.ToolSpec{
+		Name: "list_tags", Title: "List tags", Version: toolVersionV1,
+		Description:   listTagsCopy.render(),
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
+		OpenAPIOp: "listTags",
+		InputSchema: schema(`{"type":"object","properties":{
+			"include_archived":{"type":"boolean","description":"Also list retired words; they cannot be applied"}},
+			"additionalProperties":false}`),
+		OutputSchema: schemaFor[ListTagsResult](),
+	}
+}
+
+func (t listTags) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
+	var args struct {
+		IncludeArchived bool `json:"include_archived"`
+	}
+	if err := decodeArgs(in, &args); err != nil {
+		return nil, err
+	}
+	tags, err := t.tags.ListTags(ctx, args.IncludeArchived)
+	if err != nil {
+		return nil, err
+	}
+	// No noteEvidence, for the reason list_colleagues gives: a tag is
+	// vocabulary, not a record the answer rests on. Stamping one would put
+	// every word in the workspace into the evidence list of a call that only
+	// asked what the words are.
+	if tags == nil {
+		tags = []Tag{}
+	}
+	return json.Marshal(ListTagsResult{Tags: tags})
+}
 
 // --- apply_tag / remove_tag (🟢 write) ---
 

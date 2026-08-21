@@ -3876,7 +3876,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List tags. */
+        /**
+         * List tags.
+         * @description The workspace's tag vocabulary. Read it before applying one: apply_tag takes a tag_name and
+         *     creates the word when there is none, so a caller who cannot see the existing words invents a
+         *     near-duplicate — "K5 Conference" beside "K5 Conference 2026" — and the vocabulary stops being one.
+         */
         get: operations["listTags"];
         put?: never;
         /** Create a tag. */
