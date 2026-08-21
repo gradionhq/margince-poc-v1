@@ -2427,6 +2427,7 @@ export const en = {
   "audit.unknownMember": "Unknown member",
   "audit.viaAgent": "via an agent",
   "audit.viaConnector": "via a connector",
+  "audit.viaNamed": "via {client}",
   "audit.noHumanAuthority": "No human authority recorded",
   "settings.auditSub": "every action, attributed — human, agent, or connector",
   "settings.auditAdminOnly":

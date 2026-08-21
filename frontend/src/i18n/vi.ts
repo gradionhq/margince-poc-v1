@@ -2397,6 +2397,7 @@ export const vi = {
   "audit.unknownMember": "Thành viên không xác định",
   "audit.viaAgent": "qua một agent",
   "audit.viaConnector": "qua một connector",
+  "audit.viaNamed": "qua {client}",
   "audit.noHumanAuthority": "Không ghi nhận người uỷ quyền",
   "settings.auditSub":
     "mọi hành động đều được quy trách — người, Agent hay connector",

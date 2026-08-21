@@ -22,6 +22,7 @@ func TestComposeRecordSummary(t *testing.T) {
 		onBehalfOfName   *string
 		action           string
 		passportBacked   bool
+		agentClientName  *string
 		want             string
 	}{
 		{
@@ -133,11 +134,49 @@ func TestComposeRecordSummary(t *testing.T) {
 			action:           "frobnicate",
 			want:             "Alice frobnicate the record",
 		},
+		{
+			// The point of the whole join: a rep reading a company's history
+			// learns WHICH tool made the change, not merely that one did.
+			name:             "a delegated write names the client it came through",
+			actorType:        "agent",
+			actorDisplayName: "agent:01a0-…",
+			onBehalfOfName:   strPtr("Demo Admin"),
+			action:           "create",
+			passportBacked:   true,
+			agentClientName:  strPtr("Claude"),
+			want:             "Demo Admin, via Claude, created the record",
+		},
+		{
+			// A passport minted by hand in Settings has no OAuth grant behind
+			// it, so there is no registered client to name. The generic
+			// qualifier is the honest answer, not a defect.
+			name:             "a hand-minted passport keeps the generic qualifier",
+			actorType:        "agent",
+			actorDisplayName: "agent:01a0-…",
+			onBehalfOfName:   strPtr("Demo Admin"),
+			action:           "create",
+			passportBacked:   true,
+			want:             "Demo Admin, via an agent, created the record",
+		},
+		{
+			// An empty client_name must not produce "via , created": the join
+			// can only ever yield NULL or a NOT NULL column, but the renderer
+			// is pure and reachable, and a blank name is a worse line than the
+			// generic one.
+			name:             "a blank client name falls back rather than rendering an empty phrase",
+			actorType:        "agent",
+			actorDisplayName: "agent:01a0-…",
+			onBehalfOfName:   strPtr("Demo Admin"),
+			action:           "update",
+			passportBacked:   true,
+			agentClientName:  strPtr(""),
+			want:             "Demo Admin, via an agent, updated the record",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := composeRecordSummary(tt.actorType, tt.actorDisplayName, tt.onBehalfOfName,
-				tt.action, tt.passportBacked)
+				tt.action, tt.passportBacked, tt.agentClientName)
 			if got != tt.want {
 				t.Errorf("composeRecordSummary(%q, %q, %v, %q, passport=%v) = %q, want %q",
 					tt.actorType, tt.actorDisplayName, tt.onBehalfOfName, tt.action,

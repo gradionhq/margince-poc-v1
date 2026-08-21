@@ -142,6 +142,26 @@ const auditActorNameJoins = `
 		  ON a.actor_type = 'human' AND a.actor_id = 'human:' || actor_user.id::text
 		LEFT JOIN app_user obo ON obo.id = a.on_behalf_of`
 
+// agentClientNameJoin resolves the NAME of the tool a delegated change was
+// typed through — "Claude", "Cursor" — from the passport the row recorded.
+//
+// Three hops, all of them nullable, and each null means something different:
+// a passport minted by hand in Settings has no oauth_grant_id (a person made
+// it for themselves, and its own label is whatever they typed); a grant whose
+// client row was deleted resolves nothing; and a row with no passport at all
+// was not a delegated write. Every one of those falls back to the generic
+// "via an agent", which is why this is a LEFT JOIN chain and not a filter.
+//
+// The client name is not a workspace-scoped lookup by accident: oauth_client
+// is keyed (workspace_id, client_id), so the join carries the grant's own
+// workspace rather than the caller's — the row says which grant wrote it, and
+// that grant belongs to exactly one workspace.
+const agentClientNameJoin = `
+		LEFT JOIN passport p ON p.id = a.passport_id
+		LEFT JOIN oauth_grant g ON g.id = p.oauth_grant_id
+		LEFT JOIN oauth_client oc
+		  ON oc.workspace_id = g.workspace_id AND oc.client_id = g.client_id`
+
 // RecordHistoryFilter carries the validated query surface of
 // (GET /records/{entity_type}/{id}/history).
 type RecordHistoryFilter struct {
@@ -172,6 +192,11 @@ type RecordHistoryEntry struct {
 	Before            map[string]any
 	After             map[string]any
 	Summary           string
+	// AgentClient is the tool's registered name when the write came through an
+	// OAuth grant. Nil for a hand-minted passport and for anything undelegated;
+	// the Summary line already reads correctly either way, and this is here so
+	// a client rendering its own sentence does not have to parse one.
+	AgentClient *string
 }
 
 // RecordHistoryPage is one keyset window of the timeline, chronological
@@ -198,6 +223,10 @@ type recordAuditRow struct {
 	passportID        *ids.UUID
 	actorDisplayName  *string
 	onBehalfOfName    *string
+	// agentClientName is the tool's own name, when the passport behind the row
+	// came from an OAuth grant. Nil for a hand-minted passport, for a deleted
+	// client, and for every write that was not delegated.
+	agentClientName *string
 }
 
 // recordHistoryEntry renders one audit row as a history entry: mask both
@@ -213,6 +242,7 @@ func recordHistoryEntry(row recordAuditRow, mask entityFieldMask) RecordHistoryE
 		display = *row.actorDisplayName
 	}
 	return RecordHistoryEntry{
+		AgentClient:       row.agentClientName,
 		ID:                row.id,
 		ActorType:         row.actorType,
 		ActorID:           row.actorID,
@@ -225,7 +255,7 @@ func recordHistoryEntry(row recordAuditRow, mask entityFieldMask) RecordHistoryE
 		Before:            applyFieldMask(row.before, mask),
 		After:             applyFieldMask(row.after, mask),
 		Summary: composeRecordSummary(row.actorType, display, row.onBehalfOfName,
-			row.action, row.passportID != nil),
+			row.action, row.passportID != nil, row.agentClientName),
 	}
 }
 
@@ -347,8 +377,8 @@ func queryRecordHistoryWindow(ctx context.Context, tx pgx.Tx, f RecordHistoryFil
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT a.id, a.actor_type, a.actor_id, a.on_behalf_of, a.action, a.occurred_at,
 		       a.authorization_rule, a.before, a.after, a.passport_id,
-		       actor_user.display_name, obo.display_name
-		FROM audit_log a`+auditActorNameJoins+`
+		       actor_user.display_name, obo.display_name, oc.client_name
+		FROM audit_log a`+auditActorNameJoins+agentClientNameJoin+`
 		WHERE %s
 		ORDER BY a.occurred_at ASC, a.id ASC
 		LIMIT $%d`, strings.Join(conds, " AND "), len(args)), args...)
@@ -363,7 +393,7 @@ func queryRecordHistoryWindow(ctx context.Context, tx pgx.Tx, f RecordHistoryFil
 		var beforeJSON, afterJSON []byte
 		if err := rows.Scan(&r.id, &r.actorType, &r.actorID, &r.onBehalfOf, &r.action, &r.occurredAt,
 			&r.authorizationRule, &beforeJSON, &afterJSON, &r.passportID,
-			&r.actorDisplayName, &r.onBehalfOfName); err != nil {
+			&r.actorDisplayName, &r.onBehalfOfName, &r.agentClientName); err != nil {
 			return nil, err
 		}
 		if err := unmarshalJSONBMap(beforeJSON, &r.before); err != nil {
@@ -379,10 +409,19 @@ func queryRecordHistoryWindow(ctx context.Context, tx pgx.Tx, f RecordHistoryFil
 
 // machineQualifier names the tool a delegated change was typed through, as
 // the phrase that qualifies the PERSON who authorized it — "via an agent",
-// not "an agent". The generic word is deliberate: the passport's own label
-// ("Claude Desktop", "Cursor") would name the tool precisely, but a revoked
-// passport's label outliving the grant on every audit row it ever wrote is a
-// separate decision from this one.
+// not "an agent".
+//
+// It is the FALLBACK now. When the passport came from an OAuth grant the line
+// names the client instead — "Demo Admin, via Claude, created the record" —
+// because "via an agent" on every row of a company's history tells a rep
+// nothing they did not already know, and the question they actually have is
+// which tool did it.
+//
+// The name comes from oauth_client.client_name, not from passport.label. The
+// concern the generic word was protecting against — a revoked passport's label
+// outliving the grant on every row it ever wrote — does not apply: client_name
+// is the registered identity of the tool, it does not change when a grant is
+// revoked, and a client row that is gone falls back to this map.
 var machineQualifier = map[string]string{
 	actorTypeAgent:     "via an agent",
 	actorTypeConnector: "via a connector",
@@ -404,13 +443,16 @@ var machineQualifier = map[string]string{
 // party to anything — a line whose subject is the tool lets every human in
 // the chain disclaim it.
 func composeRecordSummary(actorType, actorDisplayName string, onBehalfOfName *string,
-	action string, passportBacked bool,
+	action string, passportBacked bool, agentClientName *string,
 ) string {
 	verb := recordHistoryVerbs[action]
 	if verb == "" {
 		verb = action
 	}
 	if qualifier, delegated := machineQualifier[actorType]; delegated && onBehalfOfName != nil && *onBehalfOfName != "" {
+		if agentClientName != nil && *agentClientName != "" {
+			qualifier = "via " + *agentClientName
+		}
 		return fmt.Sprintf("%s, %s, %s the record", *onBehalfOfName, qualifier, verb)
 	}
 	switch {
