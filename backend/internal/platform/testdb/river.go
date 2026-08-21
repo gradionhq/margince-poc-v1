@@ -15,17 +15,31 @@ import (
 // EnsureRiverSchema layers River's own schema onto the already-migrated test
 // database, at most once per database.
 //
-// Call it AFTER EnsureSchema. EnsureSchema opens the first integration test in a
-// process with DROP SCHEMA public CASCADE, which takes River's tables with it, so
-// a call that ran first would have its work destroyed.
+// Call it AFTER EnsureSchema. When EnsureSchema rebuilds, it opens with DROP
+// SCHEMA public CASCADE, which takes River's tables with it — so a call that
+// ran first would have its work destroyed.
 //
-// The guard is river_migration's existence rather than a once-per-process flag,
-// because neither of the two things that can invalidate the schema is visible to
-// a flag: EnsureSchema drops the tables outright, and Reset empties
-// river_migration's applied-version ledger while leaving the tables standing.
-// The migrator is itself idempotent, but River reads that emptied ledger and
-// would replay its first migration against tables that still exist, failing on
-// SQLSTATE 42P07 — so the table, not the ledger, is what must be probed.
+// The guard is river_migration's EXISTENCE rather than a once-per-process flag,
+// because what a process finds here depends on something no flag records:
+// EnsureSchema drops River's tables when it rebuilds, and leaves them standing
+// when it reuses an already-migrated clone. Probing the table answers both
+// cases without either caller having to say which one it is.
+//
+// Presence is not currency, and on the reuse path this does not establish it —
+// it inherits it. A reused clone is a file copy of margince_test, and the lane
+// brings that template to head with THIS binary before any package starts:
+// scripts/lib-testdb.sh migrate_template shells out to cmd/migrate up, which
+// applies River's migrations alongside core and custom. So the tables this
+// finds are as current as the template, and the template is as current as the
+// run. A database reached any other way takes the rebuild instead, where the
+// drop leaves nothing for the probe to find.
+//
+// The ledger cannot stand in for the table, and it is worth saying why the two
+// can be trusted to agree now. Reset used to EMPTY river_migration while the
+// tables stood: River read that as "unmigrated", replayed its first migration
+// onto tables that already existed, and failed on SQLSTATE 42P07. resetTables
+// excludes it now, for the reason it excludes schema_migrations_*. The table is
+// still what to probe, because the table is what River collides with.
 //
 // The check-then-migrate window needs no lock because nothing else can be in it.
 // Each package worker owns a private clone database for its whole run, and within

@@ -56,6 +56,15 @@
 #                           600s; the budget column parses this). Resolved in
 #                           scripts/lib-testdb.sh, shared with the one-package lane
 #   MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN   owner + app DSNs (Makefile defaults)
+#
+# This lane also EXPORTS one variable to each package process, per slot rather
+# than for the run: MARGINCE_TEST_CLONE_DB names the throwaway clone that slot
+# just created. It is what lets testdb.EnsureSchema skip re-migrating a database
+# this script copied from an already-migrated template — see testdb's CloneDBEnv
+# for the four things it proves before taking the copy at its word, and why the
+# variable carries the NAME rather than a flag. The serial lane deliberately
+# does not set it: it runs on the template itself, where the rebuild is what
+# keeps one package's residue out of every later clone.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -433,6 +442,7 @@ run_one() {
     local st=0
     ( cd "$d" \
         && MARGINCE_ENV=dev \
+           MARGINCE_TEST_CLONE_DB="$db" \
            MARGINCE_TEST_DSN="$(owner_clone_dsn "$db")" \
            MARGINCE_TEST_APP_DSN="$(app_clone_dsn "$db")" \
            MARGINCE_TEST_BLOBSTORE_BUCKET="$bucket" \

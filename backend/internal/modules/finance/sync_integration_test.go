@@ -25,6 +25,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -56,6 +57,13 @@ func setupFinance(t *testing.T) *financeEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+	// To head before anything else touches this database: testdb.Pool refuses
+	// until EnsureSchema has run, and EnsureSchema still REBUILDS whenever it
+	// cannot prove the database is a fresh lane clone — so a seed written
+	// before it would be dropped rather than reset.
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
 
 	e := &financeEnv{
 		ws:       ids.NewV7(),
@@ -90,11 +98,15 @@ func setupFinance(t *testing.T) *financeEnv {
 		t.Fatal(err)
 	}
 
-	pool, err := database.NewPool(ctx, appDSN)
+	pool, err := testdb.Pool(ctx, appDSN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(pool.Close)
+	// Registered where the pool is handed out, before the test adds any cleanup
+	// of its own, so it runs last and sees a package that has genuinely stopped.
+	// The pool outlives the test now, so a goroutine still holding a connection
+	// would go on writing into the database the NEXT test just reset.
+	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	// The mirror's base currency is a fixed input here, not a thing under
 	// test: this suite is about the sync pass — the hash discipline, the
 	// derived status, the credit-note placement. Injecting the literal keeps
