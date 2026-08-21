@@ -9311,14 +9311,18 @@ paths:
       summary: Share one record with a user or team (human-only).
       description: |
         Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
-        scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
-        policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
+        scope. Enforced by the application visibility WHERE clause: the grant arm is rendered into the
+        row-scope predicate and into the write-authority arm, and the tenant predicate is bound by the
+        `WithWorkspaceTx` GUC contract. There is no row-level-security backstop — core RLS was retired
+        and `record_grant` carries no policy — so the application predicate is the whole of the
+        enforcement. Idempotent on `(record_type, record_id, subject_type, subject_id)` —
         a re-assert RESTATES the grant rather than amending it: `access`, `expires_at`, `reason` and
         `granted_by` all take the values of the new request, so a field the caller omits is cleared and
         accountability moves to the re-asserting principal. `id` and `created_at` do not move — it is the
-        same share, not a new one. A grant can never exceed the granting principal's own access
-        (scope-intersection, ADR-0039: a granter can never share wider than they hold — a caller
-        holding only `read` on the record may pass `read` on and is refused `write`).
+        same share, not a new one. Because a re-assert restates the whole grant — its TERM as well as its
+        width — asserting one requires authority to change the RECORD, at every access level: a caller
+        whose only claim on the record is a grant may neither pass it on nor restate it
+        (scope-intersection, ADR-0039: a granter can never share wider than they hold).
         Audited (`action: record_share`). Bounded:
         flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
 

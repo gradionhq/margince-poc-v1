@@ -487,3 +487,97 @@ func TestARecordsTermsAreRestatedOnlyByACallerWhoCouldChangeIt(t *testing.T) {
 		})
 	}
 }
+
+// The two arms that make the rule's REACH visible, and neither is about the
+// share's beneficiary — which every other case in this file is.
+//
+// A grant assertion needs no prior relationship to the record. It needs the
+// object grant (the default rep role holds it on every type here) and the row
+// probe, and on deal and lead that probe degrades to "does this row exist":
+// those tables are read by every seat, so the scope clause renders empty. The
+// caller therefore never had to be given anything.
+func TestAStrangerToTheRecordCannotRestateItsGrants(t *testing.T) {
+	e := SetupSearch(t)
+	svc := identity.NewService(e.Pool)
+
+	pipeline := e.SeedID(t, `INSERT INTO pipeline (id, name) VALUES ($1, 'Stranger')`)
+	stage := e.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position) VALUES ($1, $2, 'Open', 1)`, pipeline)
+	deal := e.SeedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, owner_id, source, captured_by)
+	                     VALUES ($1, 'Stranger Deal', $2, $3, $4, 'manual', 'human:x')`, pipeline, stage, e.Rep3)
+	beneficiary := e.SeedID(t, `INSERT INTO app_user (id, email, display_name) VALUES ($1, 'beneficiary@search.test', 'Beneficiary')`)
+	worker := e.SeedID(t, `INSERT INTO app_user (id, email, display_name, seat_type) VALUES ($1, 'worker@search.test', 'Worker', 'full')`)
+
+	seat := func(user ids.UUID, scope principal.RowScope, teams []ids.UUID) context.Context {
+		ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+		return principal.WithActor(ctx, principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
+			TeamIDs: teams,
+			Permissions: principal.Permissions{
+				Objects:  map[string]principal.ObjectGrant{"deal": {Read: true, Update: true}},
+				RowScope: scope,
+			},
+		})
+	}
+	owner := seat(e.Rep3, principal.RowScopeOwn, nil)
+	// Rep1 holds NO grant on this deal and never did. The only thing they have
+	// is the object permission every rep seat carries.
+	stranger := seat(e.Rep1, principal.RowScopeTeam, []ids.UUID{e.Team1})
+
+	share := func(as context.Context, subject ids.UUID, access string, expires *time.Time) error {
+		_, err := svc.CreateRecordGrant(as, identity.CreateGrantInput{
+			RecordType: "deal", RecordID: deal,
+			SubjectType: "user", SubjectID: subject, Access: access,
+			ExpiresAt: expires,
+		})
+		return err
+	}
+	readBack := func(t *testing.T, subject ids.UUID) (string, *time.Time) {
+		t.Helper()
+		var access string
+		var expires *time.Time
+		if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(),
+				`SELECT access, expires_at FROM record_grant
+				  WHERE record_type = 'deal' AND record_id = $1 AND subject_id = $2`,
+				deal, subject).Scan(&access, &expires)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return access, expires
+	}
+
+	until := time.Now().Add(time.Hour).UTC()
+	if err := share(owner, beneficiary, "read", &until); err != nil {
+		t.Fatalf("owner shares read with a deadline → %v", err)
+	}
+
+	t.Run("a stranger cannot clear somebody else's deadline", func(t *testing.T) {
+		if err := share(stranger, beneficiary, "read", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Errorf("a caller holding no grant on this deal restated one → %v, want permission-denied", err)
+		}
+		if _, expires := readBack(t, beneficiary); expires == nil {
+			t.Error("the deadline was cleared by a caller with no relationship to the record")
+		}
+	})
+
+	t.Run("a stranger cannot downgrade a colleague's write grant", func(t *testing.T) {
+		// The mirror of what mayRevoke already refuses. Its own comment gives
+		// the reason: "anyone the record was ever shared with — read-only —
+		// could delete a colleague's write grant on it, which is not an
+		// escalation but is a way to take work away from people who are doing
+		// it." Revoking was gated. Re-asserting `read` over a stored `write`
+		// reaches the same end through SET access = EXCLUDED.access, and was
+		// not — the write-seat check returns early for a non-write assert, and
+		// so did the authority probe.
+		if err := share(owner, worker, "write", nil); err != nil {
+			t.Fatalf("owner shares write with a colleague → %v", err)
+		}
+		if err := share(stranger, worker, "read", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Errorf("a stranger downgraded a colleague's write grant → %v, want permission-denied", err)
+		}
+		if access, _ := readBack(t, worker); access != "write" {
+			t.Errorf("the colleague's grant reads %q — their write authority was taken "+
+				"by a caller who cannot change the record", access)
+		}
+	})
+}
