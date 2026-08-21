@@ -169,7 +169,22 @@ func destination(from Point, distanceKM, bearingDegrees float64) Point {
 	lon2 := lon1 + math.Atan2(
 		math.Sin(bearing)*math.Sin(angular)*math.Cos(lat1),
 		math.Cos(angular)-math.Sin(lat1)*math.Sin(lat2))
-	return Point{Lat: lat2 * 180 / math.Pi, Lon: lon2 * 180 / math.Pi}
+	// NORMALISED into [-180, 180], because that is the only form a stored
+	// coordinate takes — a geocoder answers -179.9, never 180.1. Without this
+	// the test asks the box to contain longitudes no row can hold, and reports
+	// a failure the database could never produce.
+	return Point{Lat: lat2 * 180 / math.Pi, Lon: normalizeLon(lon2 * 180 / math.Pi)}
+}
+
+// normalizeLon wraps a longitude into [-180, 180].
+func normalizeLon(lon float64) float64 {
+	for lon > 180 {
+		lon -= 360
+	}
+	for lon < -180 {
+		lon += 360
+	}
+	return lon
 }
 
 // The SQL a radius compiles to must read geocode_status, not the coordinates
@@ -267,5 +282,67 @@ func TestARadiusInsideATraversalRefusesRatherThanBeingDropped(t *testing.T) {
 	if len(fragments) != 0 || len(refusals) != 0 {
 		t.Errorf("the root radius produced fragments %v and refusals %v; radius() renders it",
 			fragments, refusals)
+	}
+}
+
+// A circle spanning the antimeridian, a pole, or the whole earth must not lose
+// rows to the bounding box.
+//
+// The box is a pre-filter and the haversine decides membership — but a row the
+// box excludes never reaches the haversine. My first version walked the circle
+// only around Stuttgart, which is nowhere near an edge, so none of these were
+// covered until a review named them.
+func TestTheBoundingBoxDoesNotLoseRowsAtTheEdgesOfTheEarth(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		center Point
+		km     float64
+	}{
+		{"just west of the antimeridian", Point{Lat: 0, Lon: 179.9}, 50},
+		{"just east of the antimeridian", Point{Lat: 0, Lon: -179.9}, 50},
+		{"near the north pole", Point{Lat: 89.5, Lon: 100}, 200},
+		{"near the south pole", Point{Lat: -89.5, Lon: -100}, 200},
+		{"larger than the earth", Point{Lat: 48.7758, Lon: 9.1829}, 50000},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			minLat, maxLat, minLon, maxLon := boundingBox(c.center, c.km)
+			for degrees := 0; degrees < 360; degrees += 5 {
+				edge := destination(c.center, c.km, float64(degrees))
+				if edge.Lat < minLat || edge.Lat > maxLat {
+					t.Errorf("bearing %d°: latitude %v outside [%v, %v]",
+						degrees, edge.Lat, minLat, maxLat)
+				}
+				if edge.Lon < minLon || edge.Lon > maxLon {
+					t.Errorf("bearing %d°: longitude %v outside [%v, %v] — a company inside the "+
+						"circle is excluded before the haversine ever sees it",
+						degrees, edge.Lon, minLon, maxLon)
+				}
+			}
+		})
+	}
+}
+
+// A second radius refuses rather than being ignored.
+//
+// The clauses are ANDed, so ignoring one widens the answer without changing its
+// shape: "near Stuttgart and near Munich" would return everything near
+// Stuttgart, reported as a complete exact answer.
+func TestASecondRadiusRefusesRatherThanWideningTheAnswer(t *testing.T) {
+	km := 50.0
+	operand, err := json.Marshal(radiusOperand{Center: "Stuttgart", RadiusKM: &km})
+	if err != nil {
+		t.Fatalf("building the operand: %v", err)
+	}
+	one := Predicate{Field: "address", Op: OpWithinRadius, Value: operand}
+
+	if at, found := secondRadius([]Predicate{one}); found {
+		t.Errorf("a single radius was reported as a second one, at %q", at)
+	}
+	at, found := secondRadius([]Predicate{one, one})
+	if !found {
+		t.Fatal("two radius clauses were accepted; the answer would be every company inside the FIRST circle")
+	}
+	if at != "where[1]" {
+		t.Errorf("the refusal points at %q rather than the second clause", at)
 	}
 }

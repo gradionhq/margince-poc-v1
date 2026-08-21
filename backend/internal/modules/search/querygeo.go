@@ -20,7 +20,7 @@ package search
 // told the same thing, for a reason that is now true.
 //
 // NO EGRESS FROM HERE. A center given as a place NAME is resolved against the
-// workspace's own cache and nothing else. query_workspace is declared
+// installation's place cache and nothing else. query_workspace is declared
 // workspace-local and Scope.Egresses() is derived from that declaration
 // precisely so a tool cannot quietly reach the internet; asking a geocoder here
 // would make the declaration a lie. A name the cache does not hold answers a
@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 )
 
 // geoColumns is the coordinate pair a radius predicate measures from, plus the
@@ -85,8 +86,16 @@ type geoBinding struct {
 // Point is a place on the earth.
 type Point struct{ Lat, Lon float64 }
 
-// PlaceResolver answers where a named place is, from what this workspace has
+// PlaceResolver answers where a named place is, from what this INSTALLATION has
 // already looked up.
+//
+// Installation-wide rather than per workspace, and deliberately: a place is a
+// place whoever asks, so keying it by tenant would multiply every lookup by the
+// number of them against a provider that holds this installation to four
+// requests a minute. It is safe here because one active workspace per
+// installation is an enforced invariant (identity.ErrMultipleWorkspaces) — a
+// deployment that ever relaxed that would have to revisit this, since a cache
+// hit and a miss are distinguishable from the outside.
 //
 // LOOKUP ONLY — there is deliberately no method that would resolve a name the
 // cache does not hold. The seam has no door to the internet because the tool
@@ -189,8 +198,22 @@ func boundingBox(center Point, radiusKM float64) (minLat, maxLat, minLon, maxLon
 	// company missing from the answer; a few extra candidates cost one
 	// comparison each.
 	const slack = 1e-9
-	return minLat - slack, maxLat + slack,
-		center.Lon - lonDelta - slack, center.Lon + lonDelta + slack
+	minLon, maxLon = center.Lon-lonDelta-slack, center.Lon+lonDelta+slack
+
+	// THE BOX MUST NOT WRAP. A circle near the antimeridian spans longitudes on
+	// both sides of ±180 — centre 179.9 with a 50km radius reaches -179.9 — and
+	// a plain `BETWEEN 179.45 AND 180.35` excludes every one of them. The same
+	// happens near a pole, where lonDelta is clamped to 180 and the box runs
+	// from -80 to 280: valid rows below -80 fall outside it.
+	//
+	// Rather than emit a wrapped OR-pair for a case this product may never see,
+	// the box widens to the whole globe whenever it would cross the edge. The
+	// haversine still decides membership exactly; all that is lost is the
+	// index's help, on the few queries that ask about the ends of the earth.
+	if minLon < -180 || maxLon > 180 {
+		minLon, maxLon = -180, 180
+	}
+	return minLat - slack, maxLat + slack, minLon, maxLon
 }
 
 // distanceSQL renders the great-circle distance in kilometres between a row's
@@ -236,10 +259,14 @@ func distanceSQL(alias string, columns geoColumns, centerLat, centerLon string) 
 // bindGeoPredicate finds the plan's radius predicate, if it has one, and binds
 // it against this deployment.
 //
-// ONE radius per plan, on the root target. A second would mean an intersection
-// of two circles, which nobody has asked for and which the ordering below
-// could not express — so the first is bound and this is the place to widen if
-// that ever changes.
+// ONE radius per plan, and a SECOND IS REFUSED rather than ignored.
+//
+// Two circles would mean an intersection, which the ordering cannot express —
+// "nearest first" has no meaning when there are two centres. The first cut
+// bound the first clause and let the compiler skip the rest, so a plan asking
+// for companies near Stuttgart AND near Munich answered with everything near
+// Stuttgart, in the shape of a correct answer. A wider answer that looks right
+// is the worst failure available here, so the second clause refuses.
 //
 // A radius inside a TRAVERSAL is deliberately not bound here: filtering a hop
 // by distance is a WHERE term the compiler already handles through the shared
@@ -248,6 +275,9 @@ func distanceSQL(alias string, columns geoColumns, centerLat, centerLon string) 
 func (e *QueryExecutor) bindGeoPredicate(
 	ctx context.Context, plan ValidatedPlan,
 ) (*geoBinding, *Unavailable, error) {
+	if at, found := secondRadius(plan.Plan.Where); found {
+		return nil, &Unavailable{Path: at, Code: CodeDistanceRankingUnavailable}, nil
+	}
 	for i, clause := range plan.Plan.Where {
 		if clause.Op != OpWithinRadius {
 			continue
@@ -309,4 +339,24 @@ func (c *planCompiler) radius(alias string, geo geoBinding) (distance string, wh
 			c.arg(minLon), c.arg(maxLon)),
 		fmt.Sprintf("%s <= $%d", distance, c.arg(geo.RadiusKM)),
 	}
+}
+
+// secondRadius finds a second radius predicate, and where it is.
+//
+// Reported rather than silently dropped: the clauses are ANDed, so a dropped
+// one widens the answer without changing its shape — every company near
+// Stuttgart returned for a question that asked for those ALSO near Munich, and
+// nothing in the response saying so.
+func secondRadius(clauses []Predicate) (string, bool) {
+	seen := false
+	for i, clause := range clauses {
+		if clause.Op != OpWithinRadius {
+			continue
+		}
+		if seen {
+			return "where[" + strconv.Itoa(i) + "]", true
+		}
+		seen = true
+	}
+	return "", false
 }

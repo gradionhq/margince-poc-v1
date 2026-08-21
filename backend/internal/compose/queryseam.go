@@ -116,8 +116,11 @@ func queryAnswerOf(result search.QueryResult) agents.QueryAnswer {
 // declared workspace-local, Scope.Egresses() is derived from that declaration,
 // and a resolver able to reach a geocoder would make the declaration
 // unenforceable by construction rather than by discipline. A place this
-// workspace has never resolved answers an honest note; the enrich-scoped door
-// is where a caller goes to have one looked up.
+// INSTALLATION has never resolved answers an honest note; the enrich-scoped
+// door is where a caller goes to have one looked up.
+//
+// The cache is installation-wide, not per workspace — see PlaceResolver for
+// why that is safe here and what would have to change if it stopped being.
 type placeCache struct{ people *people.Store }
 
 func (p placeCache) LookupPlace(ctx context.Context, query string) (search.Point, bool, error) {
