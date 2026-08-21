@@ -20,6 +20,7 @@ import {
 } from "../design-system/margince-core";
 import { formatMoney, INTL_LOCALE } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { useOrganization360 } from "../screens/company360";
 import { useConnectors } from "../screens/connectors";
 import { useDedupeQueue } from "../screens/dedupe";
@@ -510,7 +511,7 @@ function RuntimeRows({
 type ActivityItem = components["schemas"]["ActivityItem"];
 
 /**
- * What the overnight runner is doing right now, in the reader's words.
+ * One list of scheduled runs, in the reader's words, under its own heading.
  *
  * A kind or state the copy map has no line for draws NOTHING — not a fallback
  * sentence, not the message key. `lineFor` returning null is the map saying it
@@ -523,13 +524,14 @@ type ActivityItem = components["schemas"]["ActivityItem"];
  * internal token in a localized sentence is the defect, whichever sentence it
  * is.
  */
-function RunningNow({
-  running,
-}: Readonly<{ running: readonly ActivityItem[] }>) {
+function RunSection({
+  heading,
+  items,
+}: Readonly<{ heading: MessageKey; items: readonly ActivityItem[] }>) {
   const t = useT();
   // flatMap rather than map+filter: the empty array drops the run AND narrows
   // the line to a string, where a filtered predicate would only have claimed it.
-  const said = running.flatMap((item) => {
+  const said = items.flatMap((item) => {
     const line = lineFor(item, t);
     return line === null ? [] : [{ item, line }];
   });
@@ -538,7 +540,7 @@ function RunningNow({
   }
   return (
     <div className="arsect">
-      <h4>{t(PANEL_HEADING.running)}</h4>
+      <h4>{t(heading)}</h4>
       <ul className="arruns">
         {said.map(({ item, line }) => (
           <li className="arrun" key={item.id}>
@@ -564,6 +566,7 @@ function AgentPanel({
   setState,
   line,
   running,
+  recent,
   signals,
   model,
   spend,
@@ -577,6 +580,8 @@ function AgentPanel({
   line: string;
   /** The scheduled runs the server reports as live. */
   running: readonly ActivityItem[];
+  /** The runs that settled since local midnight, newest first. */
+  recent: readonly ActivityItem[];
   signals: Signals;
   model: Readonly<{ allowed: boolean; calls: readonly AiCall[] }>;
   spend: Readonly<{
@@ -626,8 +631,13 @@ function AgentPanel({
       </header>
 
       {/* Above the counts: a run happening this second outranks a queue that has
-          been waiting since yesterday. */}
-      <RunningNow running={running} />
+          been waiting since yesterday, and what finished overnight outranks it
+          too — it is the work the reader slept through. Settled runs are read
+          HERE and nowhere else: the terminal states, and with them every
+          `degrade_reason` and `summary`, exist only on a run that has finished.
+          Either section is absent when its list is, rather than drawn empty. */}
+      <RunSection heading={PANEL_HEADING.running} items={running} />
+      <RunSection heading={PANEL_HEADING.settled} items={recent} />
 
       {/* The counts, as tiles rather than rows: they are the two numbers somebody
           opens this panel to act on, and a number in a list of rows reads as one
@@ -880,8 +890,15 @@ function idleLines(
   spend: Readonly<{ allowed: boolean; minor: number | undefined }>,
   money: string,
   devLine: string,
+  /** The newest run that settled today, or null when there is none to name. */
+  settledLine: string | null,
 ): readonly string[] {
   const said: Partial<Record<IdleKind, string>> = {
+    // What the scheduled runner finished while nobody was looking. It rotates
+    // rather than pinning the bar: `recent` is bounded to today, so a line
+    // pinned to it would still be announcing this morning's brief at six in the
+    // evening. In the rotation it is one true thing among the others.
+    finished: settledLine ?? undefined,
     waiting:
       signals.waiting !== undefined && signals.waiting > 0
         ? `${signals.waiting} ${LABELS.waiting}`
@@ -1032,8 +1049,11 @@ export function AgentRail({ route }: Readonly<{ route: Route }>) {
       : formatMoney(spend.minor, spend.currency, locale);
   // Above the early return with every other hook: a screen this section draws
   // nothing on is still a render it has to make the same calls in.
+  // The newest settled run, for the rotation; the newest live one, for the bar.
+  // The bar keeps the live run because that is what is true this second.
+  const settledLine = server.recent[0] ? lineFor(server.recent[0], t) : null;
   const resting = useIdleLine(
-    idleLines(signals, spend, money, t("auth.coreDevelopment")),
+    idleLines(signals, spend, money, t("auth.coreDevelopment"), settledLine),
   );
 
   // The one screen it absents itself from, and the reason is not layout: the Ask
@@ -1085,6 +1105,7 @@ export function AgentRail({ route }: Readonly<{ route: Route }>) {
               demo={demo}
               line={line}
               running={server.running}
+              recent={server.recent}
               spend={spend}
             />
           </div>,

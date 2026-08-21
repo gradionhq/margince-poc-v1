@@ -2249,6 +2249,7 @@ export const vi = {
   "agent.activity.riskSweep.failed":
     "Tôi không hoàn thành được đợt kiểm tra rủi ro ban đêm.",
   "agent.panel.runningNow": "Đang chạy",
+  "agent.panel.finishedToday": "Đã xong hôm nay",
   "agent.panel.stoppedEarly": "Vì sao nó dừng",
 
   "agents.connected": "Agent đã kết nối",

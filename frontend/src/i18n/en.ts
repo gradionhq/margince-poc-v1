@@ -2274,6 +2274,7 @@ export const en = {
   "agent.activity.riskSweep.failed":
     "I couldn't finish the overnight risk sweep.",
   "agent.panel.runningNow": "Running now",
+  "agent.panel.finishedToday": "Finished today",
   "agent.panel.stoppedEarly": "Why it stopped",
 
   "agents.connected": "Connected agents",

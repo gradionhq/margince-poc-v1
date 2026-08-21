@@ -47,11 +47,18 @@ export const ACTIVITY_LINE: Readonly<
  * They live beside the lines rather than in them: the map above is the (kind,
  * state) table its test holds to exactly, and a heading in it would be a key no
  * state could reach.
+ *
+ * `settled` names the section the terminal states are read under. It is not
+ * decoration: `done`, `degraded` and `failed` — and with them every
+ * `degrade_reason` and `summary`, both written only alongside a terminal status
+ * — reach a reader through that section and nowhere else, because the read puts
+ * a settled run in `recent` and never in `running`.
  */
 export const PANEL_HEADING: Readonly<
-  Record<"running" | "stopped", MessageKey>
+  Record<"running" | "settled" | "stopped", MessageKey>
 > = {
   running: "agent.panel.runningNow",
+  settled: "agent.panel.finishedToday",
   stopped: "agent.panel.stoppedEarly",
 };
 

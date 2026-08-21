@@ -181,6 +181,12 @@ export const RUNNING: ReadonlySet<MarginceCoreState> = new Set([
 export const IDLE_ORDER = [
   "waiting",
   "duplicates",
+  // Third: after the two things a person has to answer for, before the small
+  // print. What the scheduled runner finished overnight is news rather than a
+  // task, so it does not push a queue down the rotation — and it sits above the
+  // cost and the runtime lines because it is about this morning, while those are
+  // standing facts that read the same on any day.
+  "finished",
   "spend",
   "model",
   "licence",

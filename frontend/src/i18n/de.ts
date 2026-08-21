@@ -2271,6 +2271,7 @@ export const de = {
   "agent.activity.riskSweep.failed":
     "Ich konnte die nächtliche Risikoprüfung nicht abschließen.",
   "agent.panel.runningNow": "Läuft jetzt",
+  "agent.panel.finishedToday": "Heute abgeschlossen",
   "agent.panel.stoppedEarly": "Warum es gestoppt hat",
 
   "agents.connected": "Verbundene Agenten",

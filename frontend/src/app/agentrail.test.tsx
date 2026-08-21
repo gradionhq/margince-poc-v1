@@ -808,6 +808,15 @@ describe("AgentRail", () => {
       agentActivity: () => jsonResponse({ running, recent: [] }),
     });
 
+  /** A run that has SETTLED. The read puts these in `recent` and never in
+   *  `running` (compose/agentactivity `recentSQL` vs `runningSQL`), and
+   *  `degrade_reason` and `summary` are written alongside the terminal status —
+   *  so this is the only shape those two fields ever arrive in. */
+  const withSettled = (...recent: readonly unknown[]) =>
+    stubAgentRailApi({
+      agentActivity: () => jsonResponse({ running: [], recent }),
+    });
+
   const BRIEF_RUNNING = "I'm putting your morning brief together.";
 
   const runLines = () =>
@@ -849,12 +858,13 @@ describe("AgentRail", () => {
   // as panel detail it is the operator's answer to "why".
   it("shows the degrade reason as panel detail, never in the line", async () => {
     const reason = "brief_partial: crm_read_timeout";
-    withRuns(RUN({ degrade_reason: reason }));
+    const stopped = "I got partway through your morning brief and stopped.";
+    withSettled(RUN({ state: "degraded", degrade_reason: reason }));
     const user = userEvent.setup();
     const { container } = render(ROUTE);
-    await settlesOnLine(container, BRIEF_RUNNING);
+    await settlesOnLine(container, stopped);
     await openPanel(user, container);
-    await waitFor(() => expect(runLines()).toEqual([BRIEF_RUNNING]));
+    await waitFor(() => expect(runLines()).toEqual([stopped]));
     expect(runDetails()).toEqual([`Why it stopped${reason}`]);
     // The card's line and the panel head restate each other, so both are held
     // to the same rule.
@@ -887,11 +897,12 @@ describe("AgentRail", () => {
   // that it exists — so a run without one draws no detail row at all rather
   // than an empty one.
   it("shows the run's summary when there is one, and nothing when there is not", async () => {
-    withRuns(
-      RUN({ summary: "Three deals need a nudge." }),
+    withSettled(
+      RUN({ state: "done", summary: "Three deals need a nudge." }),
       RUN({
         id: "019f7e65-fbf7-7114-b114-40af4af63a02",
         kind: "overnight_at_risk_sweep",
+        state: "done",
       }),
     );
     const user = userEvent.setup();
@@ -899,10 +910,35 @@ describe("AgentRail", () => {
     await openPanel(user, container);
     await waitFor(() =>
       expect(runLines()).toEqual([
-        BRIEF_RUNNING,
-        "I'm checking your deals for risk.",
+        "Your morning brief is ready.",
+        "Done. I checked your deals for risk overnight.",
       ]),
     );
     expect(runDetails()).toEqual(["Three deals need a nudge."]);
+  });
+
+  // The regression this section exists for: `done`, `degraded` and `failed` only
+  // ever arrive in `recent`, so a panel that drew `running` alone could never
+  // show any of them, and six of the ten written lines were unreachable. The
+  // bar keeps its live-run rule — a settled run joins the RESTING ROTATION,
+  // because `recent` is bounded to today and a pinned "ready" would still be
+  // announcing this morning at six in the evening.
+  it("reads a run that finished today, in the panel and in the resting line", async () => {
+    withSettled(RUN({ state: "done" }));
+    const user = userEvent.setup();
+    const { container } = render(ROUTE);
+    // Nothing is live, so the orb rests — and the line is the settled run,
+    // which is the only true thing this installation has to say.
+    await settlesOnLine(container, "Your morning brief is ready.");
+    expect(block(container).getAttribute("data-core-state")).toBe("idle");
+    await openPanel(user, container);
+    await waitFor(() =>
+      expect(runLines()).toEqual(["Your morning brief is ready."]),
+    );
+    const headings = [...panel().querySelectorAll(".arsect h4")].map(
+      (el) => el.textContent,
+    );
+    expect(headings[0]).toBe("Finished today");
+    expect(panel().textContent).not.toContain("Running now");
   });
 });
