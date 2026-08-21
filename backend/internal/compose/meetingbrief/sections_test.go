@@ -278,8 +278,20 @@ func TestAProjectWithNoTargetDateClaimsNoDeadline(t *testing.T) {
 func TestAMeetingWithNoProjectSaysNothingAboutOne(t *testing.T) {
 	// Most meetings belong to no project, and a brief that mentioned one
 	// anyway would be describing a body of work nobody filed it under.
-	header := sectionOf(t, Deterministic(fullInput()), crmcontracts.MeetingBriefSectionKindHeader)
-	for _, sentence := range header.Sentences {
+	// Counted, not string-matched. An assertion that only rejects the fixture's
+	// own project name would pass against an unconditional zero-value line —
+	// a bare "." in the header — or a project fabricated under another name.
+	unprojected := sectionOf(t, Deterministic(fullInput()), crmcontracts.MeetingBriefSectionKindHeader)
+	projected := sectionOf(t, Deterministic(deliveryInput()), crmcontracts.MeetingBriefSectionKindHeader)
+	// The delivery fixture drops the deal and adds a project, so the two
+	// headers carry the same number of lines: meeting, one record line, last
+	// touch. Any EXTRA line on the unprojected one is a project line it should
+	// not have.
+	if len(unprojected.Sentences) != len(projected.Sentences) {
+		t.Fatalf("header lines: unprojected %d, projected %d — want the same shape",
+			len(unprojected.Sentences), len(projected.Sentences))
+	}
+	for _, sentence := range unprojected.Sentences {
 		if strings.Contains(sentence.Text, "ERP") {
 			t.Errorf("unprojected meeting header mentions a project: %q", sentence.Text)
 		}

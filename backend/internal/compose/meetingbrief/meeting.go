@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // attendeeCap bounds who is named. This is "who is in the room" for prep, not
@@ -107,10 +108,7 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 	if err != nil {
 		return meeting{}, err
 	}
-	// The project the meeting is filed under decides which deal the header
-	// names and narrows the attendees' last touch, so it is read under the
-	// caller's own project scope like every other record on this page.
-	projectScope, err := scopeFor(ctx, "project", "prj", arg)
+	projectScope, err := projectJoinPredicate(ctx, "prj", arg)
 	if err != nil {
 		return meeting{}, err
 	}
@@ -276,6 +274,30 @@ func seatJoinPredicate(ctx context.Context, alias string, arg func(any) int) (st
 // scopeFor renders one object's row-scope clause, substituting the
 // narrows-nothing predicate for the helper's empty string. An empty clause
 // means the caller is unbounded for that object, never that the gate is skipped.
+// projectJoinPredicate admits the meeting's engagement, or matches it away.
+//
+// TWO GATES, not one, and conflating them is what this function exists to
+// prevent. Row scope (scopeFor below) decides WHICH projects a caller may see;
+// the OBJECT grant decides whether they may see projects at all. Since projects
+// became workspace-readable, row scope returns an unrestricted clause to
+// everyone — so a caller holding no project grant would have read the
+// engagement's name, key, phase and target date straight off a meeting they
+// could otherwise open.
+//
+// A refusal becomes a never-match rather than an error, the way the seat edge
+// beside it does: the project decorates a brief it does not select, so a caller
+// without the grant gets the brief with no project line — the same shape as a
+// meeting filed under nothing — rather than losing a brief they may read.
+func projectJoinPredicate(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	if err := auth.Require(ctx, "project", principal.ActionRead); err != nil {
+		if errors.Is(err, apperrors.ErrPermissionDenied) {
+			return "FALSE", nil
+		}
+		return "", err
+	}
+	return scopeFor(ctx, "project", alias, arg)
+}
+
 func scopeFor(ctx context.Context, object, alias string, arg func(any) int) (string, error) {
 	clause, err := auth.ScopeClauseFor(ctx, object, alias, arg)
 	if err != nil {

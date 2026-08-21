@@ -179,3 +179,166 @@ func seatInRoom(t *testing.T, owner *pgx.Conn, ws, activity, person ids.UUID) {
 		t.Fatalf("seating a participant: %v", err)
 	}
 }
+
+// roomPermsWithProject is the bounded rep plus the project grant. A brief that
+// names an engagement is TWO reads, and the project half needs its own object
+// grant — roomPerms deliberately carries none, which is what
+// TestMeetingBriefWithholdsTheEngagementFromACallerWithNoProjectGrant proves.
+func roomPermsWithProject() principal.Permissions {
+	perms := roomPerms
+	perms.Objects = map[string]principal.ObjectGrant{"project": {Read: true}}
+	for object, grant := range roomPerms.Objects {
+		perms.Objects[object] = grant
+	}
+	return perms
+}
+
+// The brief's project lines are rendered from a lateral join and a correlated
+// sub-select, and both reference an alias declared elsewhere in the same FROM
+// clause. Unit tests over the section writers cannot see any of that: they are
+// handed an Input that already holds a project. Only a real query proves the
+// SQL puts one there.
+func TestMeetingBriefNamesTheEngagementItIsFiledUnder(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	org := e.SeedOrg(t, "Northwind", &e.Rep1)
+	attendee := e.SeedPerson(t, "Ana Roth", &e.Rep1)
+
+	project := SeedIDRow(t, owner, `INSERT INTO project (id, owner_id, name, key, phase, organization_id, source, captured_by)
+		VALUES ($1, $2, 'ERP rollout', 'ERP-27', 'delivering', $3, 'manual', 'human:x')`, e.Rep1, org)
+
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Cutover review', $2, 'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", attendee)
+	seatInRoom(t, owner, e.WS, meeting, attendee)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id)
+		VALUES ($1, 'project', $2)`, meeting, project)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	brief, err := meetingBriefService(e).Get(rep, meeting)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	var header, goal string
+	for _, section := range brief.Sections {
+		for _, sentence := range section.Sentences {
+			switch section.Kind {
+			case "header":
+				header += sentence.Text + "\n"
+			case "goal":
+				goal += sentence.Text + "\n"
+			}
+		}
+	}
+	if !strings.Contains(header, "ERP rollout") || !strings.Contains(header, "ERP-27") {
+		t.Errorf("header = %q, want the engagement and its key", header)
+	}
+	// The room has no deal and no open promise, so before the project arm the
+	// goal section was absent entirely — which is the failure this fixes.
+	if !strings.Contains(goal, "ERP rollout") {
+		t.Errorf("goal = %q, want the engagement's own next step", goal)
+	}
+}
+
+// A meeting filed under one engagement must not report a last touch measured
+// against another. This is the number a reader trusts most, and scoping the
+// deal while leaving the attendee sub-select alone is the predicted mistake.
+func TestMeetingBriefCountsNoLastTouchFromAnotherEngagement(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	org := e.SeedOrg(t, "Northwind", &e.Rep1)
+	attendee := e.SeedPerson(t, "Ana Roth", &e.Rep1)
+
+	newProject := func(name, key string) ids.UUID {
+		return SeedIDRow(t, owner, `INSERT INTO project (id, owner_id, name, key, organization_id, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, 'manual', 'human:x')`, e.Rep1, name, key, org)
+	}
+	erp := newProject("ERP rollout", "ERP-27")
+	migration := newProject("Datacentre migration", "DC-4")
+
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Cutover review', $2, 'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", attendee)
+	seatInRoom(t, owner, e.WS, meeting, attendee)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id)
+		VALUES ($1, 'project', $2)`, meeting, erp)
+
+	// The ONLY prior conversation with this attendee belongs to the other
+	// engagement, so within this room's scope they have never been spoken to.
+	other := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'Rack decommissioning', $2, 'manual', 'human:x')`, roomAgo(3*24*time.Hour))
+	LinkActivity(t, owner, other, "person", attendee)
+	seatInRoom(t, owner, e.WS, other, attendee)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id)
+		VALUES ($1, 'project', $2)`, other, migration)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	brief, err := meetingBriefService(e).Get(rep, meeting)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	var attendees string
+	for _, section := range brief.Sections {
+		if section.Kind != "attendees" {
+			continue
+		}
+		for _, sentence := range section.Sentences {
+			attendees += sentence.Text + "\n"
+		}
+	}
+	if attendees == "" {
+		t.Fatal("the brief rendered no attendees section, so this proves nothing")
+	}
+	if !strings.Contains(attendees, "first") {
+		t.Errorf("attendees = %q; want Ana Roth flagged first-time — her only prior conversation belongs to the other engagement", attendees)
+	}
+}
+
+// The project is a SECOND gate, and the two are different questions: row scope
+// decides which projects a caller may see, the object grant decides whether
+// they may see projects at all. Since projects became workspace-readable the
+// row clause admits everyone, so without the grant check a caller who may open
+// the meeting reads the engagement's name, key, phase and target date off it.
+func TestMeetingBriefWithholdsTheEngagementFromACallerWithNoProjectGrant(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	org := e.SeedOrg(t, "Northwind", &e.Rep1)
+	attendee := e.SeedPerson(t, "Ana Roth", &e.Rep1)
+	project := SeedIDRow(t, owner, `INSERT INTO project (id, owner_id, name, key, phase, organization_id, source, captured_by)
+		VALUES ($1, $2, 'ERP rollout', 'ERP-27', 'delivering', $3, 'manual', 'human:x')`, e.Rep1, org)
+
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Cutover review', $2, 'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", attendee)
+	seatInRoom(t, owner, e.WS, meeting, attendee)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id)
+		VALUES ($1, 'project', $2)`, meeting, project)
+
+	read := func(perms principal.Permissions) string {
+		t.Helper()
+		brief, err := meetingBriefService(e).Get(e.As(e.Rep1, []ids.UUID{e.Team1}, perms), meeting)
+		if err != nil {
+			t.Fatalf("Get: %v", err)
+		}
+		var prose string
+		for _, section := range brief.Sections {
+			for _, sentence := range section.Sentences {
+				prose += sentence.Text + "\n"
+			}
+		}
+		return prose
+	}
+
+	// The admit case first. Three security tests in this repo once passed
+	// against an authority that refused everyone, so a refusal test proves
+	// nothing until the same fixture is shown to admit.
+	if !strings.Contains(read(roomPermsWithProject()), "ERP rollout") {
+		t.Fatal("a caller WITH the project grant cannot see the engagement, so the refusal below proves nothing")
+	}
+
+	// roomPerms itself carries no project grant.
+	if prose := read(roomPerms); strings.Contains(prose, "ERP") {
+		t.Errorf("the brief disclosed the engagement to a caller with no project grant: %q", prose)
+	}
+}
