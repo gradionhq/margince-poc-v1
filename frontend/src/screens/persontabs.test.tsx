@@ -184,6 +184,37 @@ describe("the meetings tab", () => {
     expect(briefed.length).toBe(1);
   });
 
+  it("offers no brief for a meeting the reader may find but not read", () => {
+    // The timeline carries discoverable-but-withheld rows on purpose, so the
+    // reader knows a conversation happened. The brief endpoint applies the
+    // stricter content gate, so a verb here would promise what their own grant
+    // refuses — and answer 404 when they took it up.
+    const withWithheld: Person360 = {
+      ...view,
+      activities: {
+        data: [
+          activity({
+            id: "a-secret",
+            kind: "meeting",
+            subject: "Board session",
+            occurred_at: "2026-08-10T08:00:00Z",
+            content_state: "withheld",
+          }),
+        ],
+        page: { has_more: false },
+      },
+      next_meeting: undefined,
+    };
+    withProviders(
+      <PersonMeetingsTab view={withWithheld} onBriefMeeting={() => {}} />,
+    );
+    // The row is DRAWN — the reader learns a meeting happened — and carries no
+    // verb. Asserting the subject would be wrong: a withheld row redacts it,
+    // which is the whole point of the state.
+    expect(screen.queryByText(/Nothing logged/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Brief me" })).toBeNull();
+  });
+
   it("offers no brief when the surface cannot open one", () => {
     // Without the callback the verb would be a button that does nothing, which
     // teaches a reader the feature is broken rather than absent.

@@ -82,10 +82,7 @@ export function PersonTimelineTab({
         entityId={personId}
         personId={personId}
         extra={(row) => (
-          <MeetingBriefAction
-            activityId={row.kind === "meeting" ? row.id : null}
-            onBriefMeeting={onBriefMeeting}
-          />
+          <MeetingBriefAction activity={row} onBriefMeeting={onBriefMeeting} />
         )}
       />
     ),
@@ -225,20 +222,32 @@ export function PersonDealsTab({
 // assembles a brief for any meeting activity, and reading one afterwards is
 // how a reader recovers what a room agreed.
 //
-// It narrows the id in one place, where the caller's optional prop and the
-// record's nullable field can both be checked: absent when either is missing,
-// which is the same "no brief to open" answer arriving from two directions.
+// Every reason NOT to offer it is decided here rather than at each call site,
+// because a third caller that forgets one of them ships a button that fails:
+//
+//   - no id, or a surface with no drawer to open — nothing to ask for.
+//   - a row that is not a meeting — the endpoint answers 404 for any other
+//     kind, by design.
+//   - a meeting the reader may DISCOVER but not READ. The timeline carries
+//     those deliberately, as `content_state: "withheld"`, so the reader knows
+//     a conversation happened without seeing it. The brief endpoint applies
+//     the stricter content gate, so offering the verb here would promise a
+//     reader something their own grant refuses.
 function MeetingBriefAction({
-  activityId,
+  activity,
   onBriefMeeting,
 }: Readonly<{
-  activityId: string | null | undefined;
+  activity: Pick<Activity, "id" | "kind" | "content_state"> | undefined;
   onBriefMeeting?: (activityId: string) => void;
 }>) {
   const t = useT();
-  if (!activityId || !onBriefMeeting) {
+  if (!activity?.id || !onBriefMeeting) {
     return null;
   }
+  if (activity.kind !== "meeting" || activity.content_state === "withheld") {
+    return null;
+  }
+  const activityId = activity.id;
   return (
     <Button small onClick={() => onBriefMeeting(activityId)}>
       {t("person.meeting.brief")}
@@ -264,8 +273,15 @@ export function PersonMeetingsTab({
   const t = useT();
   const { locale } = useLocale();
   const viewerId = useViewerId();
+  // The booked meeting is drawn above, from the server's own next-meeting
+  // read. It is also an activity, so an unfiltered list draws it a second time
+  // under "already held" — which was merely untidy while the rows were inert
+  // and becomes two identical brief buttons for one room now that they carry a
+  // verb.
+  const booked = view?.next_meeting?.activity_id;
   const met = (view?.activities?.data ?? []).filter(
-    (activity: Activity) => activity.kind === "meeting",
+    (activity: Activity) =>
+      activity.kind === "meeting" && activity.id !== booked,
   );
   const hasMore = view?.activities?.page.has_more ?? false;
   const past = sectionState(
@@ -298,8 +314,13 @@ export function PersonMeetingsTab({
                 <p className="pe-brief-line">
                   {formatDateTime(next.starts_at, locale, RECORD_ZONE)}
                 </p>
+                {/* next_meeting carries no content_state because the 360
+                    withholds the whole section rather than a redacted row, so
+                    a booked meeting the reader can see here is one they can
+                    read. The kind is stated for the same reason: this section
+                    IS the meeting. */}
                 <MeetingBriefAction
-                  activityId={next.activity_id}
+                  activity={{ id: next.activity_id, kind: "meeting" }}
                   onBriefMeeting={onBriefMeeting}
                 />
                 {next.participants && next.participants.length > 0 && (
@@ -336,7 +357,7 @@ export function PersonMeetingsTab({
               groups={groupChronology(
                 activityTimeline(met, viewerId, (activity) => (
                   <MeetingBriefAction
-                    activityId={activity.id}
+                    activity={activity}
                     onBriefMeeting={onBriefMeeting}
                   />
                 )),
