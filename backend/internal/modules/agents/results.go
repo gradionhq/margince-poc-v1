@@ -86,6 +86,11 @@ type QueryWorkspaceRow struct {
 	// Score is the similarity rank score, absent on a plan that asked for no
 	// ranking — an exact answer has no order to justify.
 	Score float64 `json:"score,omitempty"`
+	// DistanceKM is how far this record is from the centre a `within_radius`
+	// predicate named, in kilometres. Absent when the plan asked about no
+	// radius, which is nearly every plan — a POINTER, so "not asked" and "at
+	// the centre" stay different answers rather than both reading as zero.
+	DistanceKM *float64 `json:"distance_km,omitempty"`
 	// Evidence is the related record that admitted this row, when the plan took
 	// a traversal. It is what makes a hop legible as a reason rather than as an
 	// invisible filter, and it is never null for the same reason Notes is not.

@@ -31,24 +31,27 @@ func readSchema(ctx context.Context, t *testing.T, resource *QuerySchemaResource
 	return doc
 }
 
-// SEARCH-AC-17's other half: the operator is DECLARED in the published
-// vocabulary, with the code it answers. Omitting it would send a caller to a
-// text match on a city name, which quietly returns a different answer.
-func TestThePublishedVocabularyDeclaresWithinRadiusAsUnavailable(t *testing.T) {
+// within_radius is published as an operator that WORKS on a company.
+//
+// It was declared permanently unavailable while no record carried coordinates.
+// Companies carry them now, and leaving the declaration would send a caller to
+// a text match on a city name instead — which quietly answers a different
+// question, and is the exact failure the declaration originally prevented in
+// the other direction.
+func TestThePublishedVocabularyOffersWithinRadiusOnACompany(t *testing.T) {
 	doc := readSchema(readerFor("organization"), t, NewQuerySchemaResource(NewVocabularyResolver()))
 
-	i := slices.IndexFunc(doc.Unavailable, func(u querySchemaUnavailable) bool { return u.Op == OpWithinRadius })
-	if i < 0 {
-		t.Fatalf("%q is not declared unavailable; a caller cannot tell it apart from an operator that works", OpWithinRadius)
-	}
-	if doc.Unavailable[i].Answers != CodeDistanceRankingUnavailable {
-		t.Errorf("the declaration says it answers %q; want %q", doc.Unavailable[i].Answers, CodeDistanceRankingUnavailable)
+	if i := slices.IndexFunc(doc.Unavailable, func(u querySchemaUnavailable) bool {
+		return u.Op == OpWithinRadius
+	}); i >= 0 {
+		t.Errorf("%q is still declared unavailable, so a caller is told not to ask for something "+
+			"this deployment can now answer", OpWithinRadius)
 	}
 
 	org := targetIn(t, doc, "organization")
 	place := slices.IndexFunc(org.Fields, func(f querySchemaField) bool { return f.Name == "address" })
 	if place < 0 || !slices.Contains(org.Fields[place].Ops, OpWithinRadius) {
-		t.Error("the operator is declared unavailable but no field publishes it, so it can never be reached")
+		t.Error("no field publishes the operator, so it can never be reached")
 	}
 	city := slices.IndexFunc(org.Fields, func(f querySchemaField) bool { return f.Name == "address.city" })
 	if city < 0 || !slices.Contains(org.Fields[city].Ops, OpEq) {

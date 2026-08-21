@@ -79,6 +79,11 @@ type QueryRow struct {
 	// Score is the similarity rank score, and zero on a plan that asked for
 	// no ranking — an exact answer has no order to justify.
 	Score float64
+	// DistanceKM is how far this record is from a radius predicate's center,
+	// in kilometres. A POINTER, so a caller can tell "no radius was asked
+	// about" from "this one is at the centre" — the zero value is a real
+	// distance and would answer the wrong question.
+	DistanceKM *float64
 	// Evidence is the hop record that admitted this row, when the plan took a
 	// traversal. It is what makes a hop legible as a reason rather than as an
 	// invisible filter.
@@ -108,6 +113,20 @@ type QueryExecutor struct {
 	embedder Embedder
 	columns  ColumnReader
 	budget   time.Duration
+	// places turns a place NAME into a point, from what this workspace has
+	// already looked up. Nil is a real composition — a deployment that has
+	// geocoded nothing, or one wired before this seam existed — and a radius
+	// predicate naming a place then answers the honest unavailable note.
+	//
+	// It cannot reach a geocoder, by construction: see PlaceResolver.
+	places PlaceResolver
+}
+
+// WithPlaces wires the place cache a radius predicate resolves its center
+// against. Without it, only a center given as explicit coordinates can bind.
+func (e *QueryExecutor) WithPlaces(places PlaceResolver) *QueryExecutor {
+	e.places = places
+	return e
 }
 
 // NewQueryExecutor builds the executor over this module's own store, its
@@ -141,6 +160,25 @@ func (e *QueryExecutor) Execute(ctx context.Context, plan ValidatedPlan) (QueryR
 	if err != nil {
 		return QueryResult{}, err
 	}
+	// The center is resolved HERE rather than at validation, because whether
+	// "Stuttgart" is a place this workspace knows depends on what it has looked
+	// up — a per-call fact, not a property of the plan. A name nothing has
+	// resolved answers the same honest note a plan carrying no coordinates
+	// always did.
+	geo, geoNote, err := e.bindGeoPredicate(ctx, plan)
+	if err != nil {
+		return QueryResult{}, err
+	}
+	if geoNote != nil {
+		result.Coverage = CoveragePartialDegraded
+		result.Notes = []QueryNote{{
+			Code:   geoNote.Code,
+			Path:   geoNote.Path,
+			Detail: unavailableDetail(geoNote.Code),
+		}}
+		return result, nil
+	}
+	binding.geo = geo
 	ranked, degraded, err := e.rankCandidates(ctx, plan)
 	if err != nil {
 		if budgetSpent(ctx, err) {
@@ -261,9 +299,16 @@ func scanPlanRows(queried pgx.Rows, plan ValidatedPlan, binding planBinding) ([]
 		row := QueryRow{Type: plan.Target.Target}
 		var title, hopTitle *string
 		var hopID *ids.UUID
+		var distance *float64
 		targets := []any{&row.ID, &title}
 		if binding.hop != nil {
 			targets = append(targets, &hopID, &hopTitle)
+		}
+		// Appended in the SAME order compileStatement adds it to the
+		// projection — after the hop columns. The two lists are positional and
+		// nothing but this pairing keeps them aligned, which is why both say so.
+		if binding.geo != nil {
+			targets = append(targets, &distance)
 		}
 		if err := queried.Scan(targets...); err != nil {
 			return nil, fmt.Errorf("search: reading the query plan's answer: %w", err)
@@ -271,6 +316,7 @@ func scanPlanRows(queried pgx.Rows, plan ValidatedPlan, binding planBinding) ([]
 		if title != nil {
 			row.Title = *title
 		}
+		row.DistanceKM = distance
 		if hopID != nil {
 			evidence := QueryEvidence{Relation: binding.hop.relation.Name, Type: binding.hop.relation.Target, ID: *hopID}
 			if hopTitle != nil {
@@ -329,6 +375,29 @@ func rankedIDs(ranked []Hit) []ids.UUID {
 // orderByRank puts the answer in the ranking's order and scores each row with
 // the rank it came back with. An exact answer is already in the statement's
 // order and keeps it.
+// scoreOnly attaches similarity scores WITHOUT reordering.
+//
+// It exists for the one plan that asks for both a radius and a similarity: the
+// rows come back nearest-first from SQL, and that is the order the answer keeps
+// — but a caller reading a score still deserves the real one rather than a
+// zero. Splitting this out of orderByRank keeps the two decisions separate:
+// what the order IS, and what the scores ARE.
+func scoreOnly(rows []QueryRow, ranked []Hit, limit int) []QueryRow {
+	if len(ranked) > 0 {
+		score := make(map[ids.UUID]float64, len(ranked))
+		for _, hit := range ranked {
+			score[hit.ID] = hit.Score
+		}
+		for i := range rows {
+			rows[i].Score = score[rows[i].ID]
+		}
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
+}
+
 func orderByRank(rows []QueryRow, ranked []Hit, limit int) []QueryRow {
 	if len(ranked) == 0 {
 		return rows

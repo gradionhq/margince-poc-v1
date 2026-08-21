@@ -4105,6 +4105,9 @@
             "items": {
               "type": "object",
               "properties": {
+                "distance_km": {
+                  "type": "number"
+                },
                 "evidence": {
                   "type": "array",
                   "items": {

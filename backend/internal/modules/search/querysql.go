@@ -79,6 +79,13 @@ type planBinding struct {
 	// fetch is the row ceiling for the exact lane: the limit plus one, so a
 	// truncated answer is detectable rather than merely suspected.
 	fetch int
+	// geo is the bound radius predicate on the ROOT target, when the plan
+	// carries one this deployment can answer. It is on the binding rather than
+	// read from the plan because binding it needs the place cache and the
+	// deployment's own columns — the same reason `columns` is here.
+	//
+	// Nil for every plan without a radius, which is nearly all of them.
+	geo *geoBinding
 }
 
 // planCompiler accumulates the statement's bound arguments.
@@ -112,6 +119,16 @@ func (c *planCompiler) compileStatement(ctx context.Context, plan ValidatedPlan,
 	predicates, refusals := c.predicates("t", binding.columns, plan.Target, "where", plan.Plan.Where)
 	where = append(where, predicates...)
 
+	// The radius, when the plan carries one this deployment can answer. The
+	// clause path above skips it — a place has no expression to compare — so it
+	// is rendered here, where the bound center and columns are in hand.
+	distance := ""
+	if binding.geo != nil {
+		var geoWhere []string
+		distance, geoWhere = c.radius("t", *binding.geo)
+		where = append(where, geoWhere...)
+	}
+
 	join, hopSelect, hopRefusals, hopAdmitted, err := c.lateralHop(ctx, plan, binding)
 	if err != nil || !hopAdmitted {
 		return "", false, err
@@ -124,8 +141,28 @@ func (c *planCompiler) compileStatement(ctx context.Context, plan ValidatedPlan,
 		where = append(where, c.idsIn("t.id", binding.candidates))
 	}
 
-	sql := fmt.Sprintf("SELECT t.id, %s AS title%s FROM %s t%s WHERE %s",
-		binding.branch.title, hopSelect, binding.branch.table, join, strings.Join(where, " AND "))
+	// The distance rides the projection so the answer can say how far, and so
+	// the ORDER BY below can name it without computing it twice. It is appended
+	// AFTER the hop columns, which keeps the scan targets in
+	// scanPlanRows appending in the same order they are added here.
+	distanceSelect := ""
+	if distance != "" {
+		distanceSelect = ", " + distance + " AS distance_km"
+	}
+	sql := fmt.Sprintf("SELECT t.id, %s AS title%s%s FROM %s t%s WHERE %s",
+		binding.branch.title, hopSelect, distanceSelect, binding.branch.table, join,
+		strings.Join(where, " AND "))
+
+	// THE THIRD LANE. A radius orders by distance, nearest first, in BOTH the
+	// exact and the similarity lanes — asking "within 50km" is asking about
+	// nearness, so distance orders the answer and similarity only decides who
+	// qualifies for it (Lars, 2026-08-21). This is the one case where the
+	// similarity lane takes a SQL ORDER BY, which is why orderByRank has to
+	// leave a distance-ordered answer alone.
+	if distance != "" {
+		return sql + fmt.Sprintf(" ORDER BY distance_km ASC, t.id DESC LIMIT $%d",
+			c.arg(binding.fetch)), true, nil
+	}
 	if len(binding.candidates) > 0 {
 		// The similarity lane is already bounded by the ranked candidate set,
 		// and its order is the retriever's rather than the table's, so it is

@@ -18,9 +18,16 @@ import (
 // question in a shape indistinguishable from the right one — and the row count
 // would leak the size of an answer the caller cannot have.
 func TestAnUnavailablePredicateAnswersWithNotesAndNoRows(t *testing.T) {
-	ctx := readerFor(entityOrganization)
+	// A radius on a PERSON. A person has an address — so the field exists and
+	// the operator is admitted — but this product does not geocode where people
+	// live, so there are no coordinates to measure from and there never were.
+	// The validator settles that from the record type alone.
+	//
+	// A COMPANY's radius is no longer settled here: whether it can be answered
+	// depends on what this deployment holds, so it is decided at binding.
+	ctx := readerFor(entityPerson)
 	plan := validatedPlanDoc(ctx, t, `{
-		"version": "v1", "target": "organization",
+		"version": "v1", "target": "person",
 		"where": [{"field": "address", "op": "within_radius",
 		           "value": {"center": "Stuttgart", "radius_km": 50}}]}`)
 	if len(plan.Unavailable) != 1 {
