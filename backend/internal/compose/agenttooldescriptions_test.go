@@ -15,6 +15,7 @@ package compose
 // against a defect it cannot actually detect looks exactly like a passing one.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -359,4 +360,39 @@ func toolsListDescriptions(t *testing.T, registry *agents.Registry) map[string]s
 		out[tool.Name] = tool.Description
 	}
 	return out
+}
+
+// Every served schema is valid JSON and arrives compacted.
+//
+// schema() compacts what it is given because each InputSchema is rendered
+// verbatim into the listing that rides every run, and the literals are written
+// indented for the reader of the source. A source-level check cannot see the
+// thirteen schemas built by concatenation — they are only a schema once the
+// constants are joined — so this asserts on the SERVED specs, where both kinds
+// have become the same thing.
+//
+// The valid-JSON half matters because schema() passes a malformed literal
+// through untouched rather than failing: that keeps the mistake visible, and
+// this is the test it is visible to.
+func TestEverySchemaIsValidJSONAndArrivesCompacted(t *testing.T) {
+	for _, spec := range servedSurface(t).Specs() {
+		var shape any
+		if err := json.Unmarshal(spec.InputSchema, &shape); err != nil {
+			t.Errorf("%s: the input schema is not valid JSON: %v", spec.Name, err)
+			continue
+		}
+		// Compared against json.Compact rather than a re-marshal: Marshal also
+		// re-escapes (< > & become \u003c and friends), which changes the
+		// length without changing the whitespace this is about.
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, spec.InputSchema); err != nil {
+			t.Errorf("%s: the input schema does not compact: %v", spec.Name, err)
+			continue
+		}
+		if len(spec.InputSchema) != compact.Len() {
+			t.Errorf("%s: the served schema is %d bytes where its compact form is %d — "+
+				"the difference is whitespace, and it rides every prompt",
+				spec.Name, len(spec.InputSchema), compact.Len())
+		}
+	}
 }

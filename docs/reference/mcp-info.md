@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 52 |
 | Resources | 8 |
-| Tool catalog | 138.1 KB |
+| Tool catalog | 138.2 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 36140 |
+| Approx. wire tokens | 36168 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -29,10 +29,10 @@ budget in `agenttooldescriptions_test.go`.
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
 | Output schemas | 63.2 KB | 45% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 34.0 KB | 24% | Yes, every step |
+| Descriptions (incl. governance clause) | 34.1 KB | 24% | Yes, every step |
 | Input schemas | 30.1 KB | 21% | Yes, every step |
 | _Names, annotations, punctuation_ | 10.9 KB | 7% | Partly |
-| **Description + input schema** | **64.1 KB** | **46%** | **the recurring cost** |
+| **Description + input schema** | **64.2 KB** | **46%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -82,7 +82,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`list_colleagues`](#list_colleagues) | List colleagues | yes |  | 1.9 KB |
 | [`list_pipelines`](#list_pipelines) | List pipelines and their stages | yes |  | 2.3 KB |
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
-| [`list_tags`](#list_tags) | List tags | yes |  | 1.5 KB |
+| [`list_tags`](#list_tags) | List tags | yes |  | 1.6 KB |
 | [`log_activity`](#log_activity) | Log an activity |  |  | 3.2 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.0 KB |
@@ -4298,7 +4298,7 @@ Enumerate the people, organizations, deals, leads or projects that meet exact co
 
 **List tags**
 
-The workspace's words for grouping records, with the tag_id apply_tag takes. Archived words come only on request and cannot be applied. (Governance: runs immediately; requires passport scope "read".)
+The workspace's words for grouping records, with the tag_id apply_tag takes. Archived words come only on request and cannot be applied. `truncated` means the list was cut, so a word missing from it may still exist. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -4348,6 +4348,9 @@ The workspace's words for grouping records, with the tag_id apply_tag takes. Arc
             "type": "object"
           },
           "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
         }
       },
       "required": [

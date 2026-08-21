@@ -309,20 +309,27 @@ func tagSummary(t tagRow) TagSummary {
 }
 
 // TagVocabulary lists the workspace's tags for a caller outside this module.
-func (s *Store) TagVocabulary(ctx context.Context, includeArchived bool) ([]TagSummary, error) {
+//
+// It reports TRUNCATION, because the read is capped at catalogCap and the
+// caller's whole reason for asking is to find out whether a word already
+// exists. A capped list handed over as if it were the vocabulary answers "no
+// such tag" for every word past the cap — the exact false negative that makes
+// a caller coin a duplicate, which is what reading the vocabulary was meant to
+// prevent.
+func (s *Store) TagVocabulary(ctx context.Context, includeArchived bool) ([]TagSummary, bool, error) {
 	filter := storekit.LiveOnly
 	if includeArchived {
 		filter = storekit.IncludeArchived
 	}
-	rows, _, err := s.ListTags(ctx, filter)
+	rows, truncated, err := s.ListTags(ctx, filter)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	out := make([]TagSummary, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, tagSummary(r))
 	}
-	return out, nil
+	return out, truncated, nil
 }
 
 // NewTag creates one and answers it in the cross-module shape.

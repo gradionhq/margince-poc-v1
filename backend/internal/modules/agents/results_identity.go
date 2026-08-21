@@ -40,11 +40,14 @@ type ListColleaguesResult struct {
 // ListTagsResult is the workspace's tag vocabulary. Empty is a real answer —
 // a workspace that has coined no words yet — never an error.
 //
-// No `truncated` twin to ListColleaguesResult: the store caps its read at
-// 1000 words and a workspace vocabulary that long has a different problem
-// than a missing flag.
+// `truncated` is not optional decoration. The store caps its read, and the
+// caller's reason for reading is to find out whether a word already exists —
+// so a capped list presented as the whole vocabulary answers "no such tag" for
+// every word past the cap, and the caller coins the duplicate that reading the
+// vocabulary was meant to prevent.
 type ListTagsResult struct {
-	Tags []Tag `json:"tags"`
+	Tags      []Tag `json:"tags"`
+	Truncated bool  `json:"truncated,omitempty"`
 }
 
 // TagAppliedResult reports one tagging. `applied` is false for a removal,

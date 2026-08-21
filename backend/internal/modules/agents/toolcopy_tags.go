@@ -7,7 +7,8 @@ package agents
 // vocabulary is the simplest thing on this surface.
 var listTagsCopy = toolCopy{
 	Purpose: "The workspace's words for grouping records, with the tag_id apply_tag takes.",
-	Limits:  "Archived words come only on request and cannot be applied.",
+	Limits: "Archived words come only on request and cannot be applied. `truncated` means the " +
+		"list was cut, so a word missing from it may still exist.",
 }
 
 var applyTagCopy = toolCopy{

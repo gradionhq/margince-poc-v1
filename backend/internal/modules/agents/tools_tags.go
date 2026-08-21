@@ -45,7 +45,7 @@ type Tags interface {
 	// ListTags answers the workspace's vocabulary, newest spelling rules and
 	// all. Read before applying: apply_tag creates the word it is given, so a
 	// caller who cannot see the existing ones coins near-duplicates.
-	ListTags(ctx context.Context, includeArchived bool) ([]Tag, error)
+	ListTags(ctx context.Context, includeArchived bool) (tags []Tag, truncated bool, err error)
 	// EnsureTaggable refuses a record the caller cannot tag, before a tag is
 	// created for it. Same check ApplyTag makes at the end of its own
 	// transaction; asked earlier so a failed apply leaves nothing behind.
@@ -109,7 +109,7 @@ func (t listTags) Handle(ctx context.Context, in json.RawMessage) (json.RawMessa
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	tags, err := t.tags.ListTags(ctx, args.IncludeArchived)
+	tags, truncated, err := t.tags.ListTags(ctx, args.IncludeArchived)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (t listTags) Handle(ctx context.Context, in json.RawMessage) (json.RawMessa
 	if tags == nil {
 		tags = []Tag{}
 	}
-	return json.Marshal(ListTagsResult{Tags: tags})
+	return json.Marshal(ListTagsResult{Tags: tags, Truncated: truncated})
 }
 
 // --- apply_tag / remove_tag (🟢 write) ---

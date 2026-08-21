@@ -19,13 +19,14 @@ type stubTags struct {
 	ensured          *string
 	vocabulary       []Tag
 	listedArchived   *bool
+	capped           bool
 }
 
-func (s stubTags) ListTags(_ context.Context, includeArchived bool) ([]Tag, error) {
+func (s stubTags) ListTags(_ context.Context, includeArchived bool) ([]Tag, bool, error) {
 	if s.listedArchived != nil {
 		*s.listedArchived = includeArchived
 	}
-	return s.vocabulary, nil
+	return s.vocabulary, s.capped, nil
 }
 
 func (stubTags) EnsureTaggable(context.Context, string, ids.UUID) error { return nil }
@@ -182,13 +183,10 @@ func (noSuchTag) FindTag(context.Context, string) (ids.UUID, bool, error) {
 // "K5 Conference" beside "K5 Conference 2026" is not two tags, it is a
 // vocabulary that has stopped being one.
 func TestTheVocabularyCanBeReadBeforeAWordIsCoined(t *testing.T) {
-	marketing, retired := ids.NewV7(), ids.NewV7()
+	marketing := ids.NewV7()
 	var askedForArchived bool
 	tool := listTags{tags: stubTags{
-		vocabulary: []Tag{
-			{TagID: marketing, Name: "K5 Conference 2026", Color: "#3366ff"},
-			{TagID: retired, Name: "Q1 Push", Archived: true},
-		},
+		vocabulary:     []Tag{{TagID: marketing, Name: "K5 Conference 2026", Color: "#3366ff"}},
 		listedArchived: &askedForArchived,
 	}}
 
@@ -200,19 +198,13 @@ func TestTheVocabularyCanBeReadBeforeAWordIsCoined(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("the answer does not decode: %v", err)
 	}
-	if len(got.Tags) != 2 {
-		t.Fatalf("listed %+v, want both words", got.Tags)
+	if len(got.Tags) != 1 {
+		t.Fatalf("listed %+v, want the workspace's word", got.Tags)
 	}
 	// The id is the whole point: it is what apply_tag takes, and a name-only
 	// answer would leave the caller guessing exactly as before.
 	if got.Tags[0].TagID != marketing || got.Tags[0].Name != "K5 Conference 2026" {
-		t.Errorf("the first word reads %+v, want the id apply_tag takes beside its name", got.Tags[0])
-	}
-	// Archived rides the row because apply_tag will NOT reuse a retired word —
-	// EnsureTag treats it as a conflict — so a caller shown one without the
-	// flag would read that refusal as a bug.
-	if !got.Tags[1].Archived {
-		t.Errorf("the retired word reads %+v, want it marked archived", got.Tags[1])
+		t.Errorf("the word reads %+v, want the id apply_tag takes beside its name", got.Tags[0])
 	}
 	if askedForArchived {
 		t.Error("the default asked the store for archived words; retired words are opt-in")
@@ -245,5 +237,68 @@ func TestAnEmptyVocabularyAnswersAsAList(t *testing.T) {
 	}
 	if !bytes.Contains(raw, []byte(`"tags":[]`)) {
 		t.Errorf("an empty workspace answered %s, want an empty list", raw)
+	}
+}
+
+// A retired word rides back MARKED. apply_tag will not reuse one — EnsureTag
+// treats a name whose only holder is archived as a conflict, deliberately, so
+// that retiring a word is not undone by a coincidence of spelling — and a
+// caller shown the word without the flag would read that refusal as a bug.
+func TestARetiredWordSaysSo(t *testing.T) {
+	retired := ids.NewV7()
+	tool := listTags{tags: stubTags{
+		vocabulary: []Tag{{TagID: retired, Name: "Q1 Push", Archived: true}},
+	}}
+	raw, err := tool.Handle(context.Background(), json.RawMessage(`{"include_archived":true}`))
+	if err != nil {
+		t.Fatalf("listing answered %v", err)
+	}
+	var got ListTagsResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("the answer does not decode: %v", err)
+	}
+	if len(got.Tags) != 1 || !got.Tags[0].Archived {
+		t.Errorf("listed %+v, want the retired word marked archived", got.Tags)
+	}
+}
+
+// A capped read SAYS it was capped, and this is the finding that makes the
+// tool honest rather than merely present.
+//
+// The store caps the vocabulary read, and the caller's whole reason for asking
+// is to learn whether a word already exists. A capped list handed over as the
+// vocabulary answers "no such tag" for everything past the cap — so the caller
+// coins the duplicate that reading the vocabulary was meant to prevent, and
+// nothing anywhere says why.
+func TestACappedVocabularySaysItIsCapped(t *testing.T) {
+	tool := listTags{tags: stubTags{
+		vocabulary: []Tag{{TagID: ids.NewV7(), Name: "Key Account"}},
+		capped:     true,
+	}}
+	raw, err := tool.Handle(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("listing answered %v", err)
+	}
+	var got ListTagsResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("the answer does not decode: %v", err)
+	}
+	if !got.Truncated {
+		t.Error("a capped read answered as the whole vocabulary; a caller past the cap " +
+			"is told a word does not exist when it does")
+	}
+}
+
+// The flag is absent when nothing was cut, so `truncated` means something when
+// it appears rather than riding every answer as noise.
+func TestAWholeVocabularyDoesNotClaimToBeCut(t *testing.T) {
+	raw, err := (listTags{tags: stubTags{
+		vocabulary: []Tag{{TagID: ids.NewV7(), Name: "Inbound"}},
+	}}).Handle(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("listing answered %v", err)
+	}
+	if bytes.Contains(raw, []byte(`"truncated"`)) {
+		t.Errorf("a complete vocabulary answered %s, want no truncation flag", raw)
 	}
 }

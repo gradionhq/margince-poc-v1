@@ -2929,6 +2929,9 @@
                 "tag_id"
               ]
             }
+          },
+          "truncated": {
+            "type": "boolean"
           }
         },
         "required": [
