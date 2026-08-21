@@ -160,3 +160,45 @@ func TestTheContentGateIsTheDiscoverGateNarrowedByAudience(t *testing.T) {
 		t.Errorf("system content gate = %q, want the availability test alone", systemContent)
 	}
 }
+
+// The row-scope vocabulary's two arithmetic claims, pinned so they cannot rot
+// into assertions nobody checks.
+func TestTheOwnerScopedSetIsNotEveryOwnedTable(t *testing.T) {
+	// Every shareable table must be row-scoped, or EnsureCanGrant answers
+	// "not a row-scoped table" — a 500 — for a record type the product
+	// deliberately allows sharing. The two sets are edited in different places
+	// and nothing else notices when they drift apart.
+	for table := range shareableTables {
+		if !ownerScopedTables[table] {
+			t.Errorf("%s is shareable but not row-scoped: EnsureCanGrant would fail it "+
+				"as an unknown table rather than judging the caller's authority", table)
+		}
+	}
+
+	// ownerScopedTables is deliberately SMALLER than "every table with an
+	// owner_id". The comment on it states the numbers; this is what stops them
+	// becoming folklore. attributionOnlyOwners are the tables whose owner_id
+	// names the measured or attributed subject rather than an access owner —
+	// quota's doc.go carries the ruling for the case that matters.
+	attributionOnlyOwners := []string{
+		"quota", "webhook_subscription", "capture_pending_counterparty",
+		"organization_domain_disposition", "signal", "email_signature",
+	}
+	for _, table := range attributionOnlyOwners {
+		if ownerScopedTables[table] {
+			t.Errorf("%s carries owner_id as an ATTRIBUTION, not an access owner, and has "+
+				"entered the row-scope vocabulary — on quota that silently narrows the "+
+				"leaderboard read every seat is supposed to get", table)
+		}
+	}
+	if got, want := len(ownerScopedTables), 9; got != want {
+		t.Errorf("ownerScopedTables holds %d tables, want %d — if that is a deliberate "+
+			"change, the count in its own comment moves with it", got, want)
+	}
+	if got, want := len(attributionOnlyOwners)+len(ownerScopedTables), 15; got != want {
+		t.Errorf("the row-scoped set (%d) plus the attribution-only owners (%d) is %d, "+
+			"want the 15 tables that carry owner_id — a new owner_id column belongs in "+
+			"exactly one of the two, and choosing is the point",
+			len(ownerScopedTables), len(attributionOnlyOwners), got)
+	}
+}

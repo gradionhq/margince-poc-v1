@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // seatEmployee plants one person employed by org, optionally with an email.
@@ -194,5 +195,117 @@ func TestApplySitePersonFieldsNeverTouchesAHumansAnswer(t *testing.T) {
 	}
 	if got := seatedTitle(t, e, person); got == nil || *got != "Handwritten Title" {
 		t.Fatalf("title = %v — the human's answer was touched", got)
+	}
+}
+
+// seatEmployeeOwnedBy plants an employee whose row-scope OWNER is chosen, which
+// is what the two tests below turn on. seatEmployee leaves owner_id NULL, and an
+// unowned row is shared with everyone — so a probe against it passes for every
+// seat and would prove nothing about scope.
+func seatEmployeeOwnedBy(t *testing.T, e *integration.Env, org, owner ids.UUID, fullName string) ids.UUID {
+	t.Helper()
+	person := seatEmployee(t, e, org, fullName, "")
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE person SET owner_id = $2 WHERE id = $1`, person, owner)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return person
+}
+
+// sitePersonRepPerms is a team-scoped rep who may read the company and update a
+// person. RepPerms itself is NOT usable here: it carries no `organization`
+// grant, so the organization gate would refuse before the person probe is ever
+// reached and the test would pass for the wrong reason.
+var sitePersonRepPerms = principal.Permissions{
+	RoleKeys: []string{"rep"},
+	Objects: map[string]principal.ObjectGrant{
+		"person":                {Create: true, Read: true, Update: true},
+		"organization":          {Create: true, Read: true, Update: true},
+		"relationship":          {Create: true, Read: true, Update: true},
+		"installation_settings": {Read: true},
+	},
+	RowScope: principal.RowScopeTeam,
+}
+
+// The fill writes a person resolved from the ORGANIZATION's employment edges,
+// so the organization gate says nothing about it. A caller who may read the
+// company but may not write that employee must not change them.
+//
+// It has to be driven directly rather than through either production caller:
+// both are PrincipalSystem, for whom every row-scope probe is inert by
+// construction, so a test routed through them would be green whether or not the
+// probe existed. The four tests above all use e.Admin() for the same reason and
+// are equally unable to see this.
+func TestApplySitePersonFieldsWillNotWriteAnEmployeeTheCallerCannotChange(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.DB())
+	// The company is the other team's, shared with nobody — but every seat
+	// reads an organization, so the org gate passes and the PERSON probe is
+	// what the assertion turns on.
+	org := e.SeedOrg(t, "Acme", &e.Rep3)
+	theirs := seatEmployeeOwnedBy(t, e, org, e.Rep3, "Bob Builder")
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, sitePersonRepPerms)
+
+	matched, err := store.ApplySitePersonFields(rep, ids.From[ids.OrganizationKind](org),
+		people.SitePersonFields{
+			Name: "Bob Builder", Role: "Head of Delivery",
+			EvidenceSnippet: "Bob Builder — Head of Delivery",
+			SourceURL:       "https://acme.example/team",
+		})
+	if err != nil {
+		t.Fatalf("ApplySitePersonFields: %v", err)
+	}
+	// Skip, not refuse: an employee this caller cannot write is the same case
+	// as one the page did not identify, and the lead stages exactly as before.
+	// Refusing would abort a whole company's confirmation over one row.
+	if matched {
+		t.Error("reported a match on an employee outside the caller's write authority — " +
+			"the caller now learns the person exists by watching the write succeed")
+	}
+	if got := seatedTitle(t, e, theirs); got != nil {
+		t.Errorf("title = %q on a person the caller may not change; want it untouched", *got)
+	}
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM person_profile_field
+		 WHERE person_id = $1 AND source = 'site_read'`, theirs); n != 0 {
+		t.Errorf("%d site_read evidence rows written for an unwritable person, want 0", n)
+	}
+	// The audit and the bus event hang off the same path, so a leak there is
+	// the same disclosure by another door.
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM audit_log WHERE entity_type = 'person' AND entity_id = $1`,
+		theirs); n != 0 {
+		t.Errorf("%d audit rows for a write that must not have happened, want 0", n)
+	}
+}
+
+// The mirror, and the reason it is here: a probe that refused EVERYTHING would
+// pass the test above while breaking the feature, and nothing else in this file
+// runs under a bounded seat to catch it.
+func TestApplySitePersonFieldsStillFillsAnEmployeeTheCallerMayChange(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.DB())
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	mine := seatEmployeeOwnedBy(t, e, org, e.Rep1, "Bob Builder")
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, sitePersonRepPerms)
+
+	matched, err := store.ApplySitePersonFields(rep, ids.From[ids.OrganizationKind](org),
+		people.SitePersonFields{
+			Name: "Bob Builder", Role: "Head of Delivery",
+			EvidenceSnippet: "Bob Builder — Head of Delivery",
+			SourceURL:       "https://acme.example/team",
+		})
+	if err != nil {
+		t.Fatalf("ApplySitePersonFields: %v", err)
+	}
+	if !matched {
+		t.Fatal("the caller owns this employee and may change them; the fill was refused anyway")
+	}
+	if got := seatedTitle(t, e, mine); got == nil || *got != "Head of Delivery" {
+		t.Fatalf("title = %v, want the role the site published", got)
 	}
 }

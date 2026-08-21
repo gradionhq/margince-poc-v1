@@ -6126,14 +6126,19 @@ export interface paths {
         /**
          * Share one record with a user or team (human-only).
          * @description Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
-         *     scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
-         *     policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
+         *     scope. Enforced by the application visibility WHERE clause: the grant arm is rendered into the
+         *     row-scope predicate and into the write-authority arm, and the tenant predicate is bound by the
+         *     `WithWorkspaceTx` GUC contract. There is no row-level-security backstop — core RLS was retired
+         *     and `record_grant` carries no policy — so the application predicate is the whole of the
+         *     enforcement. Idempotent on `(record_type, record_id, subject_type, subject_id)` —
          *     a re-assert RESTATES the grant rather than amending it: `access`, `expires_at`, `reason` and
          *     `granted_by` all take the values of the new request, so a field the caller omits is cleared and
          *     accountability moves to the re-asserting principal. `id` and `created_at` do not move — it is the
-         *     same share, not a new one. A grant can never exceed the granting principal's own access
-         *     (scope-intersection, ADR-0039: a granter can never share wider than they hold — a caller
-         *     holding only `read` on the record may pass `read` on and is refused `write`).
+         *     same share, not a new one. Because a re-assert restates the whole grant — its TERM as well as its
+         *     width — asserting one requires authority to CHANGE the record, at every access level: own/team
+         *     scope, an unbounded scope, or a live `write` grant. A caller whose only claim is a `read` share
+         *     may therefore neither pass it on nor restate its terms, while a `write` share carries both
+         *     (scope-intersection, ADR-0039: a granter can never share wider than they hold).
          *     Audited (`action: record_share`). Bounded:
          *     flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
          *
@@ -16057,9 +16062,31 @@ export interface components {
              * @description Every audit_log row names the record it mutated (NOT NULL since 0075).
              */
             entity_id: string;
+            /**
+             * @description The record image before the change. For an `activity` row this read
+             *     REDACTS content the caller's audience does not admit. What survives
+             *     is what the activity READ surface answers on a withheld row — the
+             *     record's markers (`kind`, `direction`, `occurred_at`,
+             *     `source_system`) and the record of the mutation itself (`audience`,
+             *     `member_count`, a relink's `entity_type`/`entity_id`/`replaced`, a
+             *     merge's `merged_into_id`, and a task's `due_at`, `remind_at`,
+             *     `assignee_id`, `is_done`). `body` survives only as the presence flag
+             *     its writer records, never as text. What does not survive is content:
+             *     `subject`, body text, and the provider message id. Every
+             *     non-surviving key is REMOVED ENTIRELY, not emptied or renamed, and
+             *     `content_state: withheld` is added to say something was removed.
+             *     So a change that touched only withheld content answers as
+             *     `{"content_state": "withheld"}` alone: a client cannot infer which
+             *     field moved, and must not present the absence as "nothing changed".
+             *     An image needing no redaction is answered unchanged and carries no
+             *     such key. The row itself is always present — actor, action, entity
+             *     and timestamp are never withheld — because a compliance trail with
+             *     holes in it is its own defect.
+             */
             before?: {
                 [key: string]: unknown;
             } | null;
+            /** @description The record image after the change, redacted on the same terms as `before`. */
             after?: {
                 [key: string]: unknown;
             } | null;

@@ -12393,13 +12393,35 @@ type AuditLogEntry struct {
 	// a machine, and their human authority is `on_behalf_of_name`. Null
 	// when no user row resolves — a deactivated or deleted member still has
 	// audit rows, and an honest identifier is better than an invented name.
-	ActorName *string                 `json:"actor_name,omitempty"`
-	ActorType AuditLogEntryActorType  `json:"actor_type"`
-	After     *map[string]interface{} `json:"after,omitempty"`
+	ActorName *string                `json:"actor_name,omitempty"`
+	ActorType AuditLogEntryActorType `json:"actor_type"`
+
+	// After The record image after the change, redacted on the same terms as `before`.
+	After *map[string]interface{} `json:"after,omitempty"`
 
 	// AuthorizationRule Which RBAC/scope rule allowed it.
-	AuthorizationRule *string                 `json:"authorization_rule,omitempty"`
-	Before            *map[string]interface{} `json:"before,omitempty"`
+	AuthorizationRule *string `json:"authorization_rule,omitempty"`
+
+	// Before The record image before the change. For an `activity` row this read
+	// REDACTS content the caller's audience does not admit. What survives
+	// is what the activity READ surface answers on a withheld row — the
+	// record's markers (`kind`, `direction`, `occurred_at`,
+	// `source_system`) and the record of the mutation itself (`audience`,
+	// `member_count`, a relink's `entity_type`/`entity_id`/`replaced`, a
+	// merge's `merged_into_id`, and a task's `due_at`, `remind_at`,
+	// `assignee_id`, `is_done`). `body` survives only as the presence flag
+	// its writer records, never as text. What does not survive is content:
+	// `subject`, body text, and the provider message id. Every
+	// non-surviving key is REMOVED ENTIRELY, not emptied or renamed, and
+	// `content_state: withheld` is added to say something was removed.
+	// So a change that touched only withheld content answers as
+	// `{"content_state": "withheld"}` alone: a client cannot infer which
+	// field moved, and must not present the absence as "nothing changed".
+	// An image needing no redaction is answered unchanged and carries no
+	// such key. The row itself is always present — actor, action, entity
+	// and timestamp are never withheld — because a compliance trail with
+	// holes in it is its own defect.
+	Before *map[string]interface{} `json:"before,omitempty"`
 
 	// EntityId Every audit_log row names the record it mutated (NOT NULL since 0075).
 	EntityId   openapi_types.UUID `json:"entity_id"`

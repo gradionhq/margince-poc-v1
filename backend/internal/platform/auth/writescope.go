@@ -104,24 +104,33 @@ func WritableBy(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) (bool
 	}
 }
 
-// EnsureCanGrant holds ADR-0039's scope-intersection rule: "a granter can
-// never share wider than they hold." Only `write` can be wider than something,
-// so `read` needs no probe — EnsureLinkTarget has already proven the caller can
-// see the record, and passing on sight they hold is what UC-E11-08 F1's screen
-// state ("Can't grant write — you only have read here") describes as allowed.
+// EnsureCanGrant holds ADR-0039's scope-intersection rule — "a granter can never
+// share wider than they hold" — and asks it at EVERY access level, because a
+// grant is not only a width. It is also a TERM.
 //
-// For `write` the question is the one this file exists to answer, and it is
-// answered by the same primitive every mutation now rides: a caller who could
-// not change the row themselves cannot hand that authority to somebody else.
-func EnsureCanGrant(ctx context.Context, tx pgx.Tx, table string, id ids.UUID, access string) error {
+// A grant assertion is an upsert on
+// (record_type, record_id, subject_type, subject_id) and it restates the whole
+// grant: access, expiry, reason and granted_by all take the new request's
+// values, which is deliberate and is what the contract documents. So a caller
+// admitted at `read` does not merely pass on sight they hold — on an existing
+// grant they rewrite its terms, including terms somebody else set. The width of
+// the access column is the smaller half of what an assertion decides.
+//
+// The question is answered by the primitive every mutation rides: a caller who
+// could not change the row themselves cannot hand that authority to somebody
+// else, nor restate the terms on which somebody else handed it on.
+//
+// This is deliberately NOT "the caller has SOME claim on the row". On the tables
+// every seat reads whole a read claim is universal and would admit everyone;
+// write authority is owner- or grant-scoped even there, which is what makes the
+// rule bite uniformly across the shareable set rather than only on the tables
+// that happen to be row-scoped for reads.
+func EnsureCanGrant(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
 	// The primitive rejects an unknown name itself, like every sibling here:
 	// the record type reaching this comes from a request body, and its caller's
 	// own allowlist is a second line rather than the only one.
 	if !shareableTables[table] {
 		return fmt.Errorf("auth: %q is not a shareable table", table)
-	}
-	if access != grantAccessWrite {
-		return nil
 	}
 	return ensureWriteAuthority(ctx, tx, table, id)
 }
