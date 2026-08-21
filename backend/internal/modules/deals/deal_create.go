@@ -211,11 +211,17 @@ func ensureBirthLinksVisible(ctx context.Context, tx pgx.Tx, in CreateDealInput)
 	if in.PartnerOrganizationID != nil {
 		links = append(links, recordLink{linkEntityOrganization, in.PartnerOrganizationID.UUID})
 	}
-	if in.ProjectID != nil {
-		links = append(links, recordLink{linkEntityProject, in.ProjectID.UUID})
-	}
 	for _, link := range links {
 		if err := auth.EnsureLinkTarget(ctx, tx, link.entity, link.id); err != nil {
+			return err
+		}
+	}
+	// The project pointer is held to a higher bar than the rest: winning this
+	// deal advances the project's phase without re-checking the caller's
+	// authority over it, so attaching is where that authority is proven.
+	// ensureProjectAttachable says the whole reasoning.
+	if in.ProjectID != nil {
+		if err := ensureProjectAttachable(ctx, tx, in.ProjectID.UUID); err != nil {
 			return err
 		}
 	}

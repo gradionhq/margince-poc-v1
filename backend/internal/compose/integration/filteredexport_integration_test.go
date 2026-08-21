@@ -79,36 +79,36 @@ func commitDeals() storekit.Predicate {
 }
 
 // TestFilteredExportIsScopedAndFiltered is the pinned intersection: a
-// team-scoped caller's filtered export contains exactly the rows that are
-// both visible to them and match the predicate — excluding invisible rows
-// AND non-matching rows. The specimen is a project: a deal is readable by
-// every seat, while a project keeps the own/team/all row scope, so only a
-// project can show the scope half of the intersection.
+// caller's filtered export contains exactly the rows that are both visible to
+// them and match the predicate — excluding invisible rows AND non-matching
+// rows. The specimen is an organization: every shareable record type is read
+// by every seat (platform/auth tableclass.go), so capture privacy is the one
+// narrowing left that can show the visibility half of the intersection, and
+// an unpromoted capture belongs to its own owner alone.
 func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 	e := SetupSearch(t)
-	org := e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by)
-		VALUES ($1, 'Project Org', 'manual', 'human:x')`)
-	project := func(owner ids.UUID, name, phase string) ids.UUID {
-		return e.SeedID(t, `INSERT INTO project (id, name, organization_id, owner_id, phase, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, 'manual', 'human:x')`, name, org, owner, phase)
+	company := func(owner ids.UUID, name, industry, visibility string) ids.UUID {
+		return e.SeedID(t, `INSERT INTO organization (id, display_name, owner_id, industry, visibility, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, 'manual', 'human:x')`, name, owner, industry, visibility)
 	}
-	matchOwn := project(e.Rep1, "Match Own", "pursuing")     // visible AND matches
-	missOwn := project(e.Rep1, "Miss Own", "initiative")     // visible but does not match
-	matchOther := project(e.Rep3, "Match Other", "pursuing") // matches but invisible to rep1
+	matchOwn := company(e.Rep1, "Match Own", "pharma", "workspace")  // visible AND matches
+	missOwn := company(e.Rep1, "Miss Own", "logistics", "workspace") // visible but does not match
+	// Matches, but it is an unpromoted capture of Rep3's: only Rep3 reads it.
+	matchOther := company(e.Rep3, "Match Other", "pharma", "owner")
 
-	ctx := e.projectReader(&e.Rep1, &e.Team1, principal.RowScopeTeam)
-	engine, ok, err := compose.NewCollectionsStore(e.Pool).SegmentEngine(ctx, "project")
+	ctx := e.orgReader(&e.Rep1, &e.Team1, principal.RowScopeTeam)
+	engine, ok, err := compose.NewCollectionsStore(e.Pool).SegmentEngine(ctx, "organization")
 	if err != nil || !ok {
-		t.Fatalf("resolve project engine: ok=%v err=%v", ok, err)
+		t.Fatalf("resolve organization engine: ok=%v err=%v", ok, err)
 	}
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
-		ctx, engine, storekit.Predicate{Field: "phase", Op: "eq", Value: "pursuing"}, "csv",
+		ctx, engine, storekit.Predicate{Field: "industry", Op: "eq", Value: "pharma"}, "csv",
 	)
 	if err != nil {
 		t.Fatalf("filtered export: %v", err)
 	}
 	if result.RowCount != 1 {
-		t.Fatalf("row count = %d, want 1 (only the visible matching project)", result.RowCount)
+		t.Fatalf("row count = %d, want 1 (only the visible matching company)", result.RowCount)
 	}
 
 	gotIDs := CSVColumn(t, result.Body, "id")
@@ -117,13 +117,13 @@ func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 		set[id] = true
 	}
 	if !set[matchOwn.String()] {
-		t.Fatalf("export dropped the caller's own matching project %s: got %v", matchOwn, gotIDs)
+		t.Fatalf("export dropped the caller's own matching company %s: got %v", matchOwn, gotIDs)
 	}
 	if set[missOwn.String()] {
-		t.Fatalf("export LEAKED a non-matching project %s (predicate not applied): got %v", missOwn, gotIDs)
+		t.Fatalf("export LEAKED a non-matching company %s (predicate not applied): got %v", missOwn, gotIDs)
 	}
 	if set[matchOther.String()] {
-		t.Fatalf("export LEAKED an invisible project %s (row scope not applied): got %v", matchOther, gotIDs)
+		t.Fatalf("export LEAKED a capture-private company %s (visibility not applied): got %v", matchOther, gotIDs)
 	}
 }
 

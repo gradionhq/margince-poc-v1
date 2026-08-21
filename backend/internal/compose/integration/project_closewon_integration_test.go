@@ -21,6 +21,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -554,5 +556,119 @@ func TestTheDeliveryTransitionRecordsWhatActuallyAuthorizedIt(t *testing.T) {
 		    AND after->>'phase' = $2 AND evidence->'authorized_by' IS NOT NULL`,
 		f.project, deals.PhaseClosed); n != 0 {
 		t.Errorf("human-driven advances carrying the cross-scope marker = %d, want 0", n)
+	}
+}
+
+// The escalation the "authority to win authorizes the consequence" reasoning
+// rests on, and the reason attaching a project needs WRITE authority.
+//
+// Winning a deal advances its project without re-checking the caller's
+// authority over that project — deliberately, so a rep is never blocked from
+// closing their own deal by another team's delivery record. That is only safe
+// while the deal could not have come to name the project in the first place
+// without someone who could change it. A project is readable across the whole
+// workspace, so a visibility-only gate at attach time would compose into: pick
+// any project, hang your own deal off it, win the deal, and force a phase
+// transition plus a history row onto a record you cannot otherwise touch.
+func TestARepCannotAttachAProjectTheyCannotWrite(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	org := e.SeedOrg(t, "BAER Pharma", nil)
+	// The project belongs to Rep1; the caller below is Rep3 in the other team,
+	// so neither own nor team scope reaches it — only the read class does.
+	owner := e.Rep1
+	theirProject := seedProject(e.Admin(), t, e, "Another team's delivery", nil, org, &owner)
+
+	orgID := orgIDOf(org)
+	rep := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"deal":         {Read: true, Create: true, Update: true},
+			"project":      {Read: true, Update: true},
+			"organization": {Read: true},
+			"pipeline":     {Read: true},
+		},
+		RowScope: principal.RowScopeOwn,
+	})
+
+	// The rep can READ the project — that is the whole point of the read class,
+	// and it is what makes the refusal below about write authority rather than
+	// about the record being out of reach.
+	if _, err := e.Deals.GetProject(rep, theirProject.ID, storekit.LiveOnly); err != nil {
+		t.Fatalf("the rep cannot read the project, so this case is not testing what it claims: %v", err)
+	}
+
+	// Attaching at CREATE is refused.
+	_, err := e.Deals.CreateDeal(rep, deals.CreateDealInput{
+		Name: "Piggyback", PipelineID: pipeline, StageID: open,
+		OrganizationID: &orgID, ProjectID: &theirProject.ID, Source: "manual",
+	})
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("creating a deal on a project the caller cannot write → %v, want "+
+			"ErrPermissionDenied — winning it would force that project into delivering", err)
+	}
+
+	// And so is attaching by PATCH to a deal the rep does own, which is the
+	// same escalation through the other door.
+	ownDeal, err := e.Deals.CreateDeal(rep, deals.CreateDealInput{
+		Name: "Mine", PipelineID: pipeline, StageID: open,
+		OrganizationID: &orgID, Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create the rep's own deal: %v", err)
+	}
+	_, err = e.Deals.UpdateDeal(rep, ids.From[ids.DealKind](ids.UUID(ownDeal.Id)),
+		deals.UpdateDealInput{ProjectID: &theirProject.ID})
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("pointing an owned deal at a project the caller cannot write → %v, want "+
+			"ErrPermissionDenied", err)
+	}
+
+	// Nothing was attached, so nothing can later be won into a phase change.
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM deal WHERE project_id = $1`, theirProject.ID); n != 0 {
+		t.Errorf("deals attached to the unwritable project = %d, want 0", n)
+	}
+	if phaseOf(t, e, theirProject.ID) != deals.PhaseInitiative {
+		t.Errorf("the project moved phase = %s, want it untouched at %s",
+			phaseOf(t, e, theirProject.ID), deals.PhaseInitiative)
+	}
+}
+
+// The other half: a rep who CAN write the project attaches and wins normally.
+// Without this, the refusal above would pass against an implementation that
+// refused everyone.
+func TestTheProjectsOwnerStillAttachesAndWins(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, won := DealFixture(t, e)
+	org := e.SeedOrg(t, "BAER Pharma", nil)
+	owner := e.Rep1
+	mine := seedProject(e.Admin(), t, e, "My delivery", nil, org, &owner)
+
+	orgID := orgIDOf(org)
+	rep := e.As(owner, []ids.UUID{e.Team1}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"deal":         {Read: true, Create: true, Update: true},
+			"project":      {Read: true, Update: true},
+			"organization": {Read: true},
+			"pipeline":     {Read: true},
+		},
+		RowScope: principal.RowScopeOwn,
+	})
+
+	d, err := e.Deals.CreateDeal(rep, deals.CreateDealInput{
+		Name: "Phase one", PipelineID: pipeline, StageID: open,
+		OrganizationID: &orgID, ProjectID: &mine.ID, Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("the project's own owner cannot attach a deal to it: %v", err)
+	}
+	if _, err := e.Deals.AdvanceDeal(rep, ids.From[ids.DealKind](ids.UUID(d.Id)),
+		wonInput(won)); err != nil {
+		t.Fatalf("winning the deal: %v", err)
+	}
+	if got := phaseOf(t, e, mine.ID); got != deals.PhaseDelivering {
+		t.Errorf("phase after the win = %s, want %s", got, deals.PhaseDelivering)
 	}
 }

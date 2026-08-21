@@ -87,10 +87,12 @@ func (s *Store) AdvanceProjectPhase(ctx context.Context, id ids.ProjectID, in Ad
 				return err
 			}
 		}
-		if out, err = readProject(ctx, tx, id, storekit.LiveOnly, active); err != nil {
+		advanced, err := readProject(ctx, tx, id, storekit.LiveOnly, active)
+		if err != nil {
 			return fmt.Errorf("read advanced project: %w", err)
 		}
-		return nil
+		out, err = maskProjectForCaller(ctx, tx, advanced)
+		return err
 	})
 	return out, err
 }

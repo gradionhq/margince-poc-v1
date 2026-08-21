@@ -224,39 +224,45 @@ func TestQueryPlanAnswersExactPredicatesCompletely(t *testing.T) {
 // subset of the admin's, and nothing in the rep's answer — not the rows, not
 // the count, not the coverage verdict — is computed over a row they cannot see.
 //
-// The target is `project`, the record type that still carries the own/team/all
-// row scope: a deal is readable by every seat holding the deal grant, so two
-// principals asking about deals would get the same answer by design.
+// The target is `organization`, the record type that still narrows a reader:
+// every shareable record type is read by every seat holding the object grant
+// (platform/auth tableclass.go), so capture privacy is the one narrowing left
+// and two principals asking about anything else get the same answer by design.
 func TestQueryPlanAnswersTwoPrincipalsFromOneCorpusWithoutLeaking(t *testing.T) {
 	q := setupQuery(t)
-	f := q.seedFixture(t)
-	rep3Project := q.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
-		VALUES ($1, $2, 'Rollout', $3, 'manual', 'human:x')`, q.Rep3, f.rep3Org)
-	// An ownerless project is workspace-shared and visible at every tier — the
-	// control that keeps "the rep sees fewer rows" from being read as "the rep
-	// sees only their own".
-	sharedProject := q.SeedID(t, `INSERT INTO project (id, name, organization_id, source, captured_by)
-		VALUES ($1, 'Rollout', $2, 'manual', 'human:x')`, f.rep1Org)
-	const plan = `{"version": "v1", "target": "project",
-		"where": [{"field": "name", "op": "eq", "value": "Rollout"}]}`
+	// Rep1's unpromoted capture: theirs alone until a human promotes it, and
+	// capture privacy does not yield to row_scope=all — so the two principals
+	// compared here are the capture's OWNER and a colleague, not an admin and
+	// a rep.
+	rep1Capture := q.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, visibility, source, captured_by)
+		VALUES ($1, $2, 'Rollout', 'owner', 'manual', 'human:x')`, q.Rep1)
+	// An ownerless workspace-visible company is visible at every tier — the
+	// control that keeps "the colleague sees fewer rows" from being read as
+	// "the colleague sees nothing".
+	sharedOrg := q.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Rollout', 'manual', 'human:x')`)
+	rep3Org := q.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)
+		VALUES ($1, $2, 'Rollout', 'manual', 'human:x')`, q.Rep3)
+	const plan = `{"version": "v1", "target": "organization",
+		"where": [{"field": "display_name", "op": "eq", "value": "Rollout"}]}`
 
-	admin := idSet(q.run(q.admin(), t, plan))
-	rep := idSet(q.run(q.teamRep(q.Rep1, q.Team1), t, plan))
+	owner := idSet(q.run(q.teamRep(q.Rep1, q.Team1), t, plan))
+	colleague := idSet(q.run(q.teamRep(q.Rep3, q.Team2), t, plan))
 
-	if len(admin) != 3 {
-		t.Fatalf("the admin sees %d of 3 projects", len(admin))
+	if len(owner) != 3 {
+		t.Fatalf("the capture's owner sees %d of 3 companies — the corpus is not what the "+
+			"narrowed arm is measured against", len(owner))
 	}
-	// Their own, plus the ownerless workspace-shared row — and not the other
-	// team's.
-	if !rep[f.project] || !rep[sharedProject] {
-		t.Fatalf("the rep cannot see their own rows: %v", rep)
+	// A workspace-visible company is read by every seat, whoever owns it.
+	if !colleague[sharedOrg] || !colleague[rep3Org] {
+		t.Fatalf("the colleague cannot see the rows they are entitled to: %v", colleague)
 	}
-	if rep[rep3Project] {
-		t.Fatal("the rep sees another team's project")
+	if colleague[rep1Capture] {
+		t.Fatal("the colleague sees another rep's unpromoted capture")
 	}
-	for id := range rep {
-		if !admin[id] {
-			t.Fatalf("the rep sees a row the unbounded reader does not: %s", id)
+	for id := range colleague {
+		if !owner[id] {
+			t.Fatalf("the colleague sees a row the wider reader does not: %s", id)
 		}
 	}
 }

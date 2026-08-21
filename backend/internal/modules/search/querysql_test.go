@@ -269,11 +269,13 @@ func TestAnInverseTraversalJoinsOnTheReferringColumn(t *testing.T) {
 // A hop is a READ of the record it lands on. A caller who cannot see the
 // Stuttgart organization must not be able to select deals through it either.
 func TestTheHopCarriesItsOwnRowScopeUnderItsOwnAlias(t *testing.T) {
-	// A project is the one traversable target a team reader still reads
-	// under its own row scope; the organization it hops to carries capture
-	// privacy, so both aliases render an owner arm to tell apart.
-	sql, _ := compilePlanDoc(teamReaderFor(entityProject, entityOrganization), t, `{
-		"version": "v1", "target": "project",
+	// organization is the traversable record that still narrows a team reader:
+	// it carries capture privacy, so an unpromoted capture answers to its owner
+	// alone. Every other target here is read by every seat (platform/auth
+	// tableclass.go) and renders no owner arm at all — which is what makes the
+	// deal target the witness that the arm lands on the HOP and nowhere else.
+	sql, _ := compilePlanDoc(teamReaderFor(entityDeal, entityOrganization), t, `{
+		"version": "v1", "target": "deal",
 		"traverse": {"relation": "organization"}}`)
 	lateral, outer, found := strings.Cut(sql, ") hop ON true")
 	if !found {
@@ -288,8 +290,10 @@ func TestTheHopCarriesItsOwnRowScopeUnderItsOwnAlias(t *testing.T) {
 	if strings.Contains(lateral, "t.owner_id") {
 		t.Fatalf("the hop's row scope filters the outer table: %s", lateral)
 	}
-	if !strings.Contains(outer, "t.owner_id") {
-		t.Fatalf("the target carries no row scope: %s", outer)
+	// The deal itself is workspace-read, so no owner arm belongs on the outer
+	// table. An arm appearing here is the hop's rule having escaped its alias.
+	if strings.Contains(outer, "t.owner_id") {
+		t.Fatalf("the workspace-read target picked up an owner arm: %s", outer)
 	}
 }
 

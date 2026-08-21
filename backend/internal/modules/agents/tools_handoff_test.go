@@ -28,13 +28,14 @@ import (
 // Every test below removes exactly one of those.
 func wholeHandoff() HandoffFacts {
 	owner := ids.NewV7()
+	anchor := ids.NewV7()
 	target := sweptAt().Add(90 * 24 * time.Hour)
 	amount := int64(250_000)
 	return HandoffFacts{
 		AsOf: sweptAt(),
 		Project: HandoffProject{
 			ProjectID: ids.NewV7(), Name: "Acme ERP rollout", Key: "ERP", Phase: "delivering",
-			OrganizationID: ids.NewV7(), OwnerID: &owner, TargetEndDate: &target,
+			OrganizationID: &anchor, OwnerID: &owner, TargetEndDate: &target,
 		},
 		Deals: []HandoffDeal{{
 			DealID: ids.NewV7(), Name: "Acme ERP licence", Status: "won", AmountMinor: &amount,
@@ -209,12 +210,16 @@ func TestASingleGapReadsAsASentence(t *testing.T) {
 // brief cannot mistake "none" for "unknown".
 func TestAnEmptyHandoverAnswersEmptyListsNotNulls(t *testing.T) {
 	owner := ids.NewV7()
+	// Every project has an anchor company; a nil one means the caller may not
+	// read it, which is its own gap and not what this case is about.
+	anchor := ids.NewV7()
 	target := sweptAt()
 	amount := int64(1)
 	raw, err := json.Marshal(assembleHandoff(HandoffFacts{
 		AsOf: sweptAt(),
 		Project: HandoffProject{
-			ProjectID: ids.NewV7(), Name: "Bare", OwnerID: &owner, TargetEndDate: &target,
+			ProjectID: ids.NewV7(), Name: "Bare", OrganizationID: &anchor,
+			OwnerID: &owner, TargetEndDate: &target,
 		},
 		Deals:        []HandoffDeal{{DealID: ids.NewV7(), Status: "won", AmountMinor: &amount}},
 		Stakeholders: []HandoffStakeholder{{PersonID: ids.NewV7(), Role: "Sponsor"}},

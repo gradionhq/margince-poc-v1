@@ -302,14 +302,21 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 // reached this activity through one link cut another — dropping a team's sight
 // of a record by rewriting an association they were never shown.
 //
-// A link outside the caller's scope survives instead. For `project` that
-// leaves a residual worth naming rather than glossing: at most one project
-// link may exist, so the insert then hits the partial index and refuses, and
-// the difference between that refusal and a success tells the caller a project
-// link they cannot see is there. One bit escapes, and it cannot be closed from
-// here — hiding the link's existence and enforcing one-per-activity are the
-// same question asked twice. Its CONTENT stays hidden, which is what the scope
-// is for, and losing the link outright would be worse.
+// A link outside the caller's scope survives instead, and for `project` that
+// used to leave a residual: at most one project link may exist, so the insert
+// then hit the partial index and refused, and the difference between that
+// refusal and a success told the caller a project link they could not see was
+// there. One bit escaped, and hiding a link's existence while enforcing
+// one-per-activity looked like the same question asked twice.
+//
+// It is closed, and closed on both halves rather than narrowed. A project
+// carries no own/team arm (platform/auth tableclass.go) and no capture privacy
+// either — migration 1787320003 narrowed its visibility CHECK to 'workspace',
+// because nothing auto-creates a project and an owner-private one was a state
+// no writer could reach. So no project link can be invisible to a caller
+// holding the object grant: the delete reaches every one, and the move
+// succeeds. The 23505 path below still stands for the caller who asks to
+// associate rather than move.
 func deleteVisibleLinksOfType(ctx context.Context, tx pgx.Tx, id ids.ActivityID, entityType, column string) ([]ids.UUID, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }

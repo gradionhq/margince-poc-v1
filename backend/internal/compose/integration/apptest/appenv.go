@@ -353,11 +353,19 @@ func (e *AppEnv) DB() *database.DB {
 // endpoint creates on its own — a run record a background worker would normally
 // fill in.
 //
-// The grant is narrow on purpose, and it is not a copy of the lower harness's
-// admin fixture: a seeding context that granted everything would let a suite
-// set up a state the authority under test could never have reached, and the
-// wire assertions after it would then be measuring a situation production
+// The OBJECT grant is narrow on purpose, and it is not a copy of the lower
+// harness's admin fixture: a seeding context that granted everything would let
+// a suite set up a state the authority under test could never have reached, and
+// the wire assertions after it would then be measuring a situation production
 // cannot produce. Everything a client can do goes through Call.
+//
+// Row scope is `all`, and that is not a widening of the same kind. The user id
+// below is synthetic — it owns nothing and belongs to no team — so under own
+// scope this context could not write ANY deal, including the ones the suite
+// just created over HTTP as the bootstrap admin. It would then pass or fail on
+// whether a given store path happens to take the write-authority probe, which
+// is the authority under test, not the seed. Scoping the seed to rows it
+// cannot own makes it a second, weaker authority masquerading as a writer.
 func (e *AppEnv) DealWriterContext(t *testing.T) context.Context {
 	t.Helper()
 	var wsID ids.UUID
@@ -374,6 +382,7 @@ func (e *AppEnv) DealWriterContext(t *testing.T) context.Context {
 			Objects: map[string]principal.ObjectGrant{
 				"deal": {Read: true, Update: true},
 			},
+			RowScope: principal.RowScopeAll,
 		},
 	})
 }

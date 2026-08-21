@@ -62,6 +62,14 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 	if err := auth.Require(ctx, projectObjectName, principal.ActionUpdate); err != nil {
 		return relationshipRow{}, err
 	}
+	// The role grant above says this seat may change projects in general; this
+	// says they may change THIS one. Both are needed, and the row half used to
+	// be redundant only because a project a rep could reach was a project they
+	// owned. A project is now readable across the workspace, so without this
+	// any seat could staff any team's project.
+	if err := s.ensureProjectWritable(ctx, in.ProjectID); err != nil {
+		return relationshipRow{}, err
+	}
 
 	existingID, found, err := s.projectStakeholderEdge(ctx, in.ProjectID, in.PersonID)
 	if err != nil {
@@ -109,6 +117,18 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 //
 // Absent is not an error: on the way in it means "attach", and on the race
 // path it means the winner was archived under us. Only a broken read is.
+// ensureProjectWritable is the ROW half of the anchor gate both stakeholder
+// verbs spell: the role grant says this seat may change projects, this says
+// they may change the one being staffed. A project is readable across the
+// workspace, so without it any seat holding `project.update` could rewrite any
+// team's roster. Out of the caller's reach reads as ErrNotFound; a project they
+// can see but not change answers ErrPermissionDenied.
+func (s *Store) ensureProjectWritable(ctx context.Context, projectID ids.ProjectID) error {
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		return auth.EnsureWritableLive(ctx, tx, projectObjectName, projectID.UUID)
+	})
+}
+
 func (s *Store) projectStakeholderEdge(ctx context.Context, projectID ids.ProjectID, personID ids.PersonID) (ids.UUID, bool, error) {
 	var edge ids.UUID
 	found := false
@@ -140,6 +160,9 @@ func (s *Store) RemoveProjectStakeholder(ctx context.Context, projectID ids.Proj
 	// who the project says is involved, so a principal that cannot write the
 	// project cannot rewrite its roster from the edge side either.
 	if err := auth.Require(ctx, projectObjectName, principal.ActionUpdate); err != nil {
+		return err
+	}
+	if err := s.ensureProjectWritable(ctx, projectID); err != nil {
 		return err
 	}
 	var edgeID ids.UUID

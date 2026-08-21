@@ -356,18 +356,20 @@ func refuseWhenBothCarryProjects(ctx context.Context, tx pgx.Tx, sourceID, targe
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	sourcePos, targetPos := arg(sourceID), arg(targetID)
-	scope, err := auth.ScopeClauseFor(ctx, projectObjectName, "", arg)
-	if err != nil {
-		return err
-	}
-	visible := "true"
-	if scope != "" {
-		visible = scope
-	}
+	// Naming a project is a read of it, and every seat holding the object
+	// grant reads every project: no own/team arm (platform/auth
+	// tableclass.go) and no capture privacy, since migration 1787320003
+	// narrowed project.visibility to 'workspace'. So the refusal names both
+	// sides in full. It used to carry a per-row visibility flag and withhold
+	// the names it answered false for; that branch could no longer fire, and a
+	// withholding arm that never withholds reads as a protection while proving
+	// nothing. If a project ever becomes scoped again, the arm comes back
+	// WITH the scope — TestEveryTableThatCanHoldAnOwnerRowIsOwnerPrivate is
+	// what refuses the half-change.
 	rows, err := tx.Query(ctx, storekit.SQLf(`
-		SELECT organization_id, name, (%s) AS visible FROM project
+		SELECT organization_id, name FROM project
 		WHERE organization_id IN ($%d, $%d) AND archived_at IS NULL
-		ORDER BY organization_id, name`, visible, sourcePos, targetPos), args...)
+		ORDER BY organization_id, name`, sourcePos, targetPos), args...)
 	if err != nil {
 		return fmt.Errorf("read projects on both merge endpoints: %w", err)
 	}
@@ -377,8 +379,7 @@ func refuseWhenBothCarryProjects(ctx context.Context, tx pgx.Tx, sourceID, targe
 	for rows.Next() {
 		var org ids.UUID
 		var name string
-		var canSee bool
-		if err := rows.Scan(&org, &name, &canSee); err != nil {
+		if err := rows.Scan(&org, &name); err != nil {
 			return err
 		}
 		side, names := &refusal.TargetCount, &refusal.Target
@@ -386,9 +387,7 @@ func refuseWhenBothCarryProjects(ctx context.Context, tx pgx.Tx, sourceID, targe
 			side, names = &refusal.SourceCount, &refusal.Source
 		}
 		*side++
-		if canSee {
-			*names = append(*names, name)
-		}
+		*names = append(*names, name)
 	}
 	if err := rows.Err(); err != nil {
 		return err

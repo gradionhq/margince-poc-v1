@@ -10,15 +10,15 @@
   "totals": {
     "tools": 51,
     "resources": 8,
-    "tool_catalog_bytes": 139935,
+    "tool_catalog_bytes": 139917,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 35760,
+    "approx_wire_tokens_total": 35756,
     "largest_tool_bytes": 4709,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
       "description_bytes": 34645,
       "input_schema_bytes": 30637,
-      "output_schema_bytes": 63658,
+      "output_schema_bytes": 63640,
       "description_plus_input_schema_bytes": 65282
     }
   },
@@ -4614,7 +4614,6 @@
                 "gaps",
                 "name",
                 "open_commitments",
-                "organization_id",
                 "phase",
                 "project_id",
                 "stakeholders"
