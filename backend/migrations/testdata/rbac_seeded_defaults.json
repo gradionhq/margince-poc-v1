@@ -73,6 +73,12 @@
         "read": true,
         "update": true
       },
+      "deal_room": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
       "embedding_reindex": {
         "create": false,
         "delete": false,
@@ -301,6 +307,12 @@
         "update": false
       },
       "deal": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "deal_room": {
         "create": true,
         "delete": true,
         "read": true,
@@ -539,6 +551,12 @@
         "read": true,
         "update": true
       },
+      "deal_room": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
       "embedding_reindex": {
         "create": false,
         "delete": false,
@@ -767,6 +785,12 @@
         "update": true
       },
       "deal": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "deal_room": {
         "create": true,
         "delete": true,
         "read": true,
@@ -1005,6 +1029,12 @@
         "read": true,
         "update": false
       },
+      "deal_room": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
       "embedding_reindex": {
         "create": false,
         "delete": false,
@@ -1233,6 +1263,12 @@
         "update": false
       },
       "deal": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "deal_room": {
         "create": true,
         "delete": false,
         "read": true,

@@ -131,6 +131,15 @@ var tableOwners = map[string]string{
 	"pipeline":           "internal/modules/deals",
 	"stage":              "internal/modules/deals",
 	"deal_stage_history": "internal/modules/deals",
+	// The Deal Room is its own capability rather than a corner of deals: it
+	// owns an external audience, its own credentials and an immutable
+	// publication history, none of which the deal spine has a place for.
+	"deal_room":             "internal/modules/dealrooms",
+	"deal_room_release":     "internal/modules/dealrooms",
+	"deal_room_participant": "internal/modules/dealrooms",
+	"deal_room_invitation":  "internal/modules/dealrooms",
+	"deal_room_session":     "internal/modules/dealrooms",
+	"deal_room_task":        "internal/modules/dealrooms",
 	// Kept apart from deal_stage_history rather than folded into it: readers
 	// outside this module count that table's rows as stage movements.
 	"deal_forecast_history": "internal/modules/deals",

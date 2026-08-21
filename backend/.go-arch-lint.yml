@@ -83,6 +83,7 @@ components:
   people:      { in: internal/modules/people }
   privacy:     { in: internal/modules/privacy }
   deals:       { in: internal/modules/deals }
+  dealrooms:   { in: internal/modules/dealrooms }
   finance:     { in: internal/modules/finance }
   integrations: { in: [internal/modules/integrations, internal/modules/integrations/**] }
   activities:  { in: internal/modules/activities }
@@ -163,6 +164,9 @@ deps:
   # other module: contracts + platform, never a sibling — the domain edges
   # (claim writes, the subject fence) are injected by compose as func types.
   integrations:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
+  dealrooms:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
   deals:
