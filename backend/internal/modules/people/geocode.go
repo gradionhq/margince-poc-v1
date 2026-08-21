@@ -112,8 +112,7 @@ func (s *Store) AddressForGeocode(ctx context.Context, orgID ids.OrganizationID)
 			       coalesce(g.attempts, 0), g.next_attempt_at
 			  FROM organization o
 			  LEFT JOIN organization_geocode_state g ON g.organization_id = o.id
-			 WHERE o.id = $1 AND o.archived_at IS NULL
-			   AND o.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, orgID).
+			 WHERE o.id = $1 AND o.archived_at IS NULL`, orgID).
 			Scan(&line1, &line2, &city, &region, &postal, &country, &currentHash, &status,
 				&attempts, &nextAttempt)
 	})
@@ -223,8 +222,7 @@ func addressHashInTx(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (
 		SELECT address_line1, address_line2, address_city, address_region,
 		       address_postal_code, address_country
 		  FROM organization
-		 WHERE id = $1 AND archived_at IS NULL
-		   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, orgID).
+		 WHERE id = $1 AND archived_at IS NULL`, orgID).
 		Scan(&line1, &line2, &city, &region, &postal, &country); err != nil {
 		return "", fmt.Errorf("re-reading the address before recording its point: %w", err)
 	}
@@ -298,8 +296,7 @@ func (s *Store) recordGeocodeAfter(
 			UPDATE organization
 			   SET geocode_lat = $2, geocode_lon = $3, geocode_status = $4,
 			       geocode_provider = $5, geocode_input_hash = $6, geocoded_at = now()
-			 WHERE id = $1
-			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+			 WHERE id = $1`,
 			orgID, lat, lon, status, provider, inputHash); err != nil {
 			return fmt.Errorf("recording the geocode: %w", err)
 		}
