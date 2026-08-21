@@ -115,9 +115,16 @@ func ResolveRouting(ctx context.Context, pool *pgxpool.Pool, routingPath string,
 // An installation with no vault configured gets the environment unchanged,
 // which is where every installation was before this existed.
 func sealedKeys(ctx context.Context, pool *pgxpool.Pool, ws ids.UUID, env config.Lookup, log *slog.Logger) config.Lookup {
-	vault, configured, err := keyvault.FromEnv(pool, env)
+	vault, configured, err := keyvault.FromEnv(ctx, pool, env)
 	if err != nil || !configured {
 		if err != nil {
+			// Not fatal HERE, deliberately. FromEnv refuses a boot that finds
+			// sealed ciphertext with no root key, so by the time this runs the
+			// serving roles have already had their say on whether the vault is
+			// survivable. What is left for this path is a vault that cannot be
+			// built at all, and provider keys still resolve from the
+			// environment — which is where every installation kept them before
+			// the vault existed.
 			log.WarnContext(ctx, "the key vault is configured but unusable; provider credentials resolve from the environment this boot", "error", err)
 		}
 		return env
