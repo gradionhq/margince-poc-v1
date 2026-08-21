@@ -16132,6 +16132,15 @@ export interface components {
             on_behalf_of?: string | null;
             /** @description Resolved display name for on_behalf_of. */
             on_behalf_of_name?: string | null;
+            /**
+             * @description The NAME of the tool a delegated change was typed through — "Claude",
+             *     "Cursor" — resolved from the OAuth client behind the row's passport.
+             *     Null when the passport was minted by hand in Settings (there is no
+             *     registered client to name), when the client row is gone, and for
+             *     every write that was not delegated. A reader that has it should say
+             *     "via {agent_client}" where it would otherwise say "via an agent".
+             */
+            agent_client?: string | null;
             action: string;
             /** Format: date-time */
             occurred_at: string;

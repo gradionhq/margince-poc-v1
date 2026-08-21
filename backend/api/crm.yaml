@@ -22104,6 +22104,15 @@ components:
         actor_name: { type: [string, 'null'], description: "Resolved display name for a human actor_id; null for machine actors and for a member whose user row no longer resolves." }
         on_behalf_of: { type: [string, 'null'], format: uuid, description: Granting human's user id for agent actions. }
         on_behalf_of_name: { type: [string, 'null'], description: Resolved display name for on_behalf_of. }
+        agent_client:
+          type: [string, 'null']
+          description: |
+            The NAME of the tool a delegated change was typed through — "Claude",
+            "Cursor" — resolved from the OAuth client behind the row's passport.
+            Null when the passport was minted by hand in Settings (there is no
+            registered client to name), when the client row is gone, and for
+            every write that was not delegated. A reader that has it should say
+            "via {agent_client}" where it would otherwise say "via an agent".
         action: { type: string }
         occurred_at: { type: string, format: date-time }
         authorization_rule: { type: [string, 'null'] }

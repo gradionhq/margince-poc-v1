@@ -12213,13 +12213,21 @@ type AuditHistoryEntry struct {
 	ActorId string `json:"actor_id"`
 
 	// ActorName Resolved display name for a human actor_id; null for machine actors and for a member whose user row no longer resolves.
-	ActorName         *string                    `json:"actor_name,omitempty"`
-	ActorType         AuditHistoryEntryActorType `json:"actor_type"`
-	After             *map[string]interface{}    `json:"after,omitempty"`
-	AuthorizationRule *string                    `json:"authorization_rule,omitempty"`
-	Before            *map[string]interface{}    `json:"before,omitempty"`
-	Id                openapi_types.UUID         `json:"id"`
-	OccurredAt        time.Time                  `json:"occurred_at"`
+	ActorName *string                    `json:"actor_name,omitempty"`
+	ActorType AuditHistoryEntryActorType `json:"actor_type"`
+	After     *map[string]interface{}    `json:"after,omitempty"`
+
+	// AgentClient The NAME of the tool a delegated change was typed through — "Claude",
+	// "Cursor" — resolved from the OAuth client behind the row's passport.
+	// Null when the passport was minted by hand in Settings (there is no
+	// registered client to name), when the client row is gone, and for
+	// every write that was not delegated. A reader that has it should say
+	// "via {agent_client}" where it would otherwise say "via an agent".
+	AgentClient       *string                 `json:"agent_client,omitempty"`
+	AuthorizationRule *string                 `json:"authorization_rule,omitempty"`
+	Before            *map[string]interface{} `json:"before,omitempty"`
+	Id                openapi_types.UUID      `json:"id"`
+	OccurredAt        time.Time               `json:"occurred_at"`
 
 	// OnBehalfOf Granting human's user id for agent actions.
 	OnBehalfOf *openapi_types.UUID `json:"on_behalf_of,omitempty"`
