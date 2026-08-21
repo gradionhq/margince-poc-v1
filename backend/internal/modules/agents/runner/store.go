@@ -102,6 +102,9 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 			  trace = trace || $4::jsonb,
 			  pending = $5,
 			  approval_id = $6,
+			  -- Result.DegradeReason, never DegradeDetail: this column is read by
+			  -- the human the run acted for, and the cause is theirs to be
+			  -- spared and the operator log's to keep.
 			  degrade_reason = NULLIF($7, ''),
 			  steps_used = $8,
 			  output_tokens = $9,

@@ -45,10 +45,14 @@ func TestADegradeReasonNeverCarriesTheCauseItDegradedOn(t *testing.T) {
 		brain      Brain
 		cancelled  bool
 		wantReason string
+		wantCause  string
 	}{
-		{name: "the provider refused the call", brain: failingBrain{}, wantReason: "model call failed"},
-		{name: "the model could not produce a step", brain: leakingOutput{}, wantReason: "failed validation"},
-		{name: "the run ran out of wall clock", brain: failingBrain{}, cancelled: true, wantReason: "wall clock exceeded"},
+		{name: "the provider refused the call", brain: failingBrain{},
+			wantReason: "model call failed", wantCause: providerLeak},
+		{name: "the model could not produce a step", brain: leakingOutput{},
+			wantReason: "failed validation", wantCause: providerLeak},
+		{name: "the run ran out of wall clock", brain: failingBrain{}, cancelled: true,
+			wantReason: "wall clock exceeded", wantCause: "context canceled"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
@@ -65,6 +69,14 @@ func TestADegradeReasonNeverCarriesTheCauseItDegradedOn(t *testing.T) {
 			}
 			if !strings.Contains(res.DegradeReason, tc.wantReason) {
 				t.Errorf("the reason must name what stopped the run; want %q in %q", tc.wantReason, res.DegradeReason)
+			}
+			// The other half of the trade: the cause is kept for an operator
+			// surface, on a field nothing persists or serializes.
+			if !strings.Contains(res.DegradeCause, tc.wantCause) {
+				t.Errorf("the cause must survive for an operator; want %q in %q", tc.wantCause, res.DegradeCause)
+			}
+			if !strings.Contains(res.DegradeDetail(), res.DegradeReason) {
+				t.Errorf("the operator's detail must still name the reason, got %q", res.DegradeDetail())
 			}
 			// The partial result carries the same reason and reaches the same
 			// reader, so it is held to the same rule.

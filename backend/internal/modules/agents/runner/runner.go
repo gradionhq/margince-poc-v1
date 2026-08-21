@@ -72,10 +72,16 @@ type Result struct {
 	Outcome       Outcome
 	Final         json.RawMessage
 	DegradeReason string
-	Pending       *Pending
-	Steps         []Step
-	StepsUsed     int
-	OutputTokens  int
+	// DegradeCause is the underlying error behind DegradeReason, and it is for
+	// an OPERATOR surface only: it carries the model provider's own message and
+	// the parser's, so it is never persisted to agent_run.degrade_reason and
+	// never serialized to a client. Empty when the runner authored the whole
+	// reason — a budget guarantee has no cause but itself.
+	DegradeCause string
+	Pending      *Pending
+	Steps        []Step
+	StepsUsed    int
+	OutputTokens int
 }
 
 // Step is one trace entry: proposal → admission outcome → observation,
@@ -413,7 +419,19 @@ func suspend(acc Result, approvalID ids.ApprovalID, step modelStep, win *window,
 // would leave a degraded overnight run with nothing to diagnose it from.
 func (r *Runner) degradeFromCause(acc Result, job Job, reason string, cause error) Result {
 	slog.Warn("agent run degraded", "trigger_ref", job.TriggerRef, "reason", reason, "cause", cause)
-	return r.degrade(acc, reason)
+	degraded := r.degrade(acc, reason)
+	degraded.DegradeCause = cause.Error()
+	return degraded
+}
+
+// DegradeDetail is the fullest account of why a run stopped, for an operator
+// surface — the certification report, a diagnostic. Anything a PERSON reads
+// takes DegradeReason instead: the cause is what must not reach a browser.
+func (r Result) DegradeDetail() string {
+	if r.DegradeCause == "" {
+		return r.DegradeReason
+	}
+	return r.DegradeReason + ": " + r.DegradeCause
 }
 
 func (r *Runner) degrade(acc Result, reason string) Result {
