@@ -156,6 +156,13 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"conversation_claim.task_activity_id":   "PENDING WRITER: no code writes this table yet. The task an extracted commitment creates is written through the tasks substrate's own gated path, and this entry is replaced with that gate when the routing edge lands",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
+	"organization_geocode_state.organization_id": "child row: the sidecar for an organization's own coordinate lookup, and no caller ever names the organization it keys on. " +
+		"The row is created by enqueueGeocode inside UpdateOrganization's transaction, for the id that write was already addressing (people/organization.go), " +
+		"and touched afterwards only by AddressForGeocode and recordGeocodeAfter, which open with auth.Require on organization read and update. " +
+		"What decides the TENANT is not those gates: the worker runs under the SYSTEM principal, which passes row scope, so every query on this path " +
+		"carries an explicit app.workspace_id predicate rather than trusting the job args — geocode.go states the attack that closes, a job carrying " +
+		"workspace A with an organization id from workspace B. That predicate is the exception's whole cost: drop it from one query here and the FK " +
+		"becomes a cross-tenant read with nothing else in the way.",
 	"activity_link.activity_id":  "child row: written only inside LogActivity for the new activity",
 	"lead_score_history.lead_id": "child row: one point in a lead's own score series, appended only from inside the lead's gated write paths — CreateLead/CreateLeadTx (lead:create), UpdateLead (lead:update) and RecomputeLeadScore (lead:update), each of which has already admitted the caller before the append runs in its transaction",
 	// comms_outbound is delivery machinery for one activity, not a
