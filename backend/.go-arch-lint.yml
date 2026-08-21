@@ -86,6 +86,7 @@ components:
   finance:     { in: internal/modules/finance }
   integrations: { in: [internal/modules/integrations, internal/modules/integrations/**] }
   activities:  { in: internal/modules/activities }
+  aiactivity:  { in: internal/modules/aiactivity }
   approvals:   { in: internal/modules/approvals }
   customfields: { in: internal/modules/customfields }
   quotas:      { in: internal/modules/quotas }
@@ -170,6 +171,9 @@ deps:
     # T4, OFFER-AC-12): pure-Go, no cgo, a runtime render path — belongs
     # in the product module, not tools.
     canUse: [pgx, oapi, fpdf]
+  aiactivity:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
   activities:
     # xnet: the html parser behind the outbound markup allowlist. A mail body a
     # caller supplies is filtered by PARSING it and re-emitting only what the
@@ -214,7 +218,7 @@ deps:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
   compose:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, aiactivity, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, platform, migrations]
     # xtext: the evidence gate normalizes page text to NFC before matching
     # (evidencematch.go) — Unicode normal forms need golang.org/x/text.
     # yaml: aicert's corpus loader parses scenario files directly — the
@@ -252,9 +256,13 @@ deps:
     # check a document it does not own. It reads the engine through
     # storekit's own Field type rather than restating "picklist" as a bare
     # string, which is the platform edge below.
+    # aitaskparity_test.go reads activities.ExtractionAITask: the ai_task
+    # names an emitter writes into the AI-activity projection are held to the
+    # generated task set here because a module may not import a sibling to
+    # assert that about itself.
     # Root carries test files only, so this grants no production edge.
-    mayDependOn: [contracts, compose, ai, collections, platform]
+    mayDependOn: [contracts, compose, ai, collections, platform, activities]
     canUse: [yaml, jsonschema]
   cmd:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, aiactivity, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, platform, migrations]
     canUse: [pgx, redis, xterm, composition]

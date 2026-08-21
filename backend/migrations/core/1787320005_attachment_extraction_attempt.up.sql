@@ -12,5 +12,12 @@
 -- identical without it. It lives HERE, on the source, rather than as a counter
 -- the projection keeps, because a claim's identity is the source's fact — a
 -- second truth about which claim is current is the thing that goes wrong.
+-- ACCESS EXCLUSIVE on a table this migration did not create. The change itself
+-- is instant — no row is rewritten — but the lock still queues behind every
+-- open transaction on the table, and an unbounded wait turns one long-running
+-- reader into a total write stall. Three seconds, so a migration that cannot
+-- get in fails the deploy loudly instead of holding the door.
+SET LOCAL lock_timeout = '3s';
+
 ALTER TABLE attachment_extraction
   ADD COLUMN attempt integer NOT NULL DEFAULT 1 CHECK (attempt >= 1);

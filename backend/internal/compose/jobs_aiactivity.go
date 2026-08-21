@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-//nolint:dupl // per-kind River wiring; see jobs_agenttask.go for why the shape cannot be factored out
 package compose
 
 // River wiring for the AI-activity projection's two maintenance passes: the
