@@ -36,7 +36,7 @@ const (
 
 // Migration is one reversible schema step: <version>_name.up.sql + .down.sql.
 type Migration struct {
-	Version string // "1787000000" (core, unix seconds), "0001" (core, the closed sequence) or "20260620143000" (custom)
+	Version string // "1787000000" (core, unix seconds), "0001" (core, the closed baseline) or "20260620143000" (custom)
 	Name    string
 	UpSQL   string
 	DownSQL string

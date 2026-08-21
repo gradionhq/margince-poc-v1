@@ -1,1 +1,0 @@
-ALTER TABLE deal_stage_history DROP COLUMN win_probability_at_change;

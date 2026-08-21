@@ -18,11 +18,15 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // projectMigration is the table's own definition — the source of truth for
-// which CHECK constraints exist.
-const projectMigration = "../../../migrations/core/0131_project.up.sql"
+// which CHECK constraints exist. core opens with one baseline file holding every
+// table; a later migration that adds a CHECK adds a file of its own, and this
+// reads the declaration rather than the amendments.
+const projectMigration = "../../../migrations/core/0001_baseline.up.sql"
 
 // namedCheckPattern finds the constraints the migration names explicitly.
 // An inline unnamed CHECK gets a generated name and is covered by the
@@ -45,11 +49,34 @@ func projectCheckConstraints(t *testing.T) []string {
 	return names
 }
 
+// unreachableChecks are the table's CHECKs no request can violate, so a bespoke
+// message for one would be a branch no caller can execute.
+//
+// A WAIVER, not a fixture: it exempts its subjects from this file's obligation,
+// and gatekit.Waive is what makes that exemption say its cost, hold a floor on
+// the reason's length, and fail once an entry stops matching live code.
+//
+// The bar for an entry is that NO WRITER CAN REACH IT — verified against the
+// store, not inferred from the contract. The contract declaring `phase` an enum
+// is NOT such a reason: httperr.Decode does not validate enums and this
+// installation runs no request-validator middleware, so an unknown phase reaches
+// the CHECK. That constraint has a real message now (ProjectPhaseError).
+var unreachableChecks = gatekit.Waive(map[string]string{
+	"project_visibility_check": "no writer names the visibility column — head " +
+		"narrowed the CHECK to visibility = 'workspace', the contract exposes no " +
+		"project visibility field, and nothing in the store sets one, so no " +
+		"request can produce a row that violates it",
+})
+
 // Every rule the table names must have a message of its own. Falling through
 // to the generic arm is not a failure of correctness — it still answers 422 —
 // but it means the caller is told a constraint name instead of what to fix.
 func TestEveryNamedProjectCheckHasItsOwnRefusal(t *testing.T) {
+	defer unreachableChecks.AssertAllMatched(t)
 	for _, constraint := range projectCheckConstraints(t) {
+		if unreachableChecks.Waived(t, constraint) {
+			continue
+		}
 		t.Run(constraint, func(t *testing.T) {
 			err := projectCheckError(constraint, "")
 			var generic *ProjectConstraintError
@@ -127,10 +154,11 @@ func TestProjectRefusalsKeepSchemaNamesOffTheWire(t *testing.T) {
 		&ProjectKeyTakenError{Key: key},
 		&ProjectKeyShapeError{},
 		&ClosedReasonRequiredError{},
+		&ProjectPhaseError{},
 		&ProjectDateRangeError{},
 		&DealProjectOrgMismatchError{},
 	} {
-		for _, leak := range []string{"uq_", "project_key_shape", "project_closed_reason", "project_dates", "SQLSTATE"} {
+		for _, leak := range []string{"uq_", "project_key_shape", "project_closed_reason", "project_dates", "project_phase_check", "SQLSTATE"} {
 			if strings.Contains(err.Error(), leak) {
 				t.Errorf("%T leaks %q to the caller: %q", err, leak, err.Error())
 			}

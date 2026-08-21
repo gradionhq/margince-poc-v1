@@ -27,18 +27,60 @@ import (
 
 // geocodeMigrationFile finds where the rule lives.
 //
-// Found rather than named: a migration is renumbered whenever main takes the
-// number first, which happens on any branch that lives longer than an
-// afternoon, and a test pinned to the old filename fails for a reason that has
-// nothing to do with what it checks.
-func geocodeMigrationFile(t *testing.T) string {
+// geocodeStalenessSQL is the trigger's declaration together with the body of the
+// function it executes.
+//
+// Assembled from whichever core migrations hold them rather than read out of one
+// file, because the two are not in one file and need not be: core opens with a
+// baseline that puts every function ahead of every trigger, and a later
+// migration may replace either half on its own. Scoped to the two objects rather
+// than the whole namespace for the reason the column loop below needs — every
+// address column also appears in `CREATE TABLE organization`, so a check against
+// all of core would pass whether or not the trigger watches anything.
+func geocodeStalenessSQL(t *testing.T) string {
 	t.Helper()
-	matches, err := filepath.Glob(filepath.Join("migrations", "core", "*_organization_geocode.up.sql"))
-	if err != nil || len(matches) != 1 {
-		t.Fatalf("looking for the organization_geocode migration found %v (err %v); "+
-			"want exactly one", matches, err)
+	trigger := lastStatement(t, `CREATE (?:OR REPLACE )?TRIGGER trg_organization_geocode_stale\b.*?;`)
+	fn := triggerFunction.FindStringSubmatch(trigger)
+	if fn == nil {
+		t.Fatalf("the staleness trigger names no function to execute:\n%s", trigger)
 	}
-	return matches[0]
+	body := lastStatement(t, `CREATE (?:OR REPLACE )?FUNCTION `+regexp.QuoteMeta(fn[1])+`\(\).*?\$\$;`)
+	return trigger + "\n" + body
+}
+
+var triggerFunction = regexp.MustCompile(`EXECUTE FUNCTION ([a-z_0-9]+)\(\)`)
+
+// lastStatement returns the LAST statement in core/ matching pattern, and fails
+// when there is none.
+//
+// Found rather than named: a test pinned to a filename fails for a reason that
+// has nothing to do with what it checks. Core opens with one baseline file, and
+// a later migration is a separate file sorting after it.
+//
+// The last match, not the only one, because revising a trigger body means
+// shipping `CREATE OR REPLACE FUNCTION` in a new migration — leaving two
+// definitions in the glob, of which the live one is the later. Requiring exactly
+// one would keep asserting against the baseline copy while the database ran
+// something else, which is the failure this helper exists to prevent.
+func lastStatement(t *testing.T, pattern string) string {
+	t.Helper()
+	re := regexp.MustCompile(`(?s)` + pattern)
+	files, err := filepath.Glob(filepath.Join("migrations", "core", "*.up.sql"))
+	if err != nil {
+		t.Fatalf("listing core migrations: %v", err)
+	}
+	var found []string
+	for _, file := range files {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("reading %s: %v", file, err)
+		}
+		found = append(found, re.FindAllString(string(body), -1)...)
+	}
+	if len(found) == 0 {
+		t.Fatalf("no statement in core/ matches %s", pattern)
+	}
+	return found[len(found)-1]
 }
 
 // addressColumns is every column the trigger must watch. A column added to the
@@ -50,18 +92,12 @@ var addressColumns = []string{
 }
 
 func TestTheSchemaMarksCoordinatesStaleWhenAnAddressMoves(t *testing.T) {
-	migration := geocodeMigrationFile(t)
-	body, err := os.ReadFile(migration)
-	if err != nil {
-		t.Fatalf("reading %s: %v", migration, err)
-	}
-	src := string(body)
+	// Missing entirely is lastStatement's own failure: without the trigger every
+	// address writer has to remember to invalidate, and the one that forgets
+	// produces a company answering radius queries from an address it no longer
+	// has, reporting success.
+	src := geocodeStalenessSQL(t)
 
-	if !strings.Contains(src, "CREATE TRIGGER trg_organization_geocode_stale") {
-		t.Fatal("the staleness trigger is gone. Without it, every address writer has to remember to " +
-			"invalidate — and the one that forgets produces a company answering radius queries from " +
-			"an address it no longer has, reporting success.")
-	}
 	for _, column := range addressColumns {
 		if !strings.Contains(src, column) {
 			t.Errorf("the trigger does not watch %s, so a write to that column alone leaves the "+
@@ -82,15 +118,9 @@ func TestTheSchemaMarksCoordinatesStaleWhenAnAddressMoves(t *testing.T) {
 // own would answer from the previous address however diligently the trigger
 // fired.
 func TestOnlyResolvedCoordinatesAreQueryable(t *testing.T) {
-	migration := geocodeMigrationFile(t)
-	body, err := os.ReadFile(migration)
-	if err != nil {
-		t.Fatalf("reading %s: %v", migration, err)
-	}
-	index := regexp.MustCompile(`(?s)CREATE INDEX idx_organization_geocoded.*?;`).FindString(string(body))
-	if index == "" {
-		t.Fatal("the geocoded index is gone; a radius query has nothing to select through")
-	}
+	// A missing index is lastStatement's own failure: a radius query would then
+	// have nothing to select through.
+	index := lastStatement(t, `CREATE INDEX idx_organization_geocoded\b.*?;`)
 	if !strings.Contains(index, "geocode_status = 'ok'") {
 		t.Errorf("the index does not restrict to resolved rows:\n%s\n\nA stale or failed row reachable "+
 			"through it answers a distance from an address the company no longer has.", index)

@@ -79,31 +79,28 @@ var (
 )
 
 // lockTimeoutBaseline is where this obligation starts: migrations sorting at or
-// after it must comply, earlier ones are a backlog this gate cannot clear.
+// after it must comply.
 //
-// Arming from a baseline rather than retroactively is how this repo already does
-// it — CLAUDE.md describes clearing the tree before arming craft-static's bar.
-// Here the tree cannot be cleared: ~100 migrations take a blocking lock on a
-// pre-existing table without a timeout, most long applied everywhere, and adding
-// timeouts to versions that will never re-run is churn with no effect on any
-// deployed database.
+// THIS GATE CURRENTLY EXAMINES NOTHING, and saying so is the point. The pin was
+// armed above main to spare a backlog — roughly a hundred migrations taking a
+// blocking lock on a pre-existing table without a timeout, most long applied
+// everywhere, where adding timeouts to versions that will never re-run is churn
+// with no effect on any deployed database. The baseline consolidation deleted
+// every one of them, and what core opens with now sorts BELOW this pin. So the
+// count of files this gate reads is zero, and it passes over an empty set.
 //
-// THE BASELINE SITS ABOVE MAIN AT THE TIME THIS WAS ARMED, and that is a
-// deliberate choice about blast radius rather than a way to duck findings. Phase
-// D (ADR-0091 §8) is landing a migration every few hours, each one an
-// `ALTER TABLE … DROP COLUMN` on a live table, and each would fail this gate. A
-// rule introduced in a PR about employment currency should not start by demanding
-// edits to other people's already-merged work, in a tree several sessions are
-// writing to at once. Those migrations are a real instance of the hazard and they
-// are FILED, not waived — #1844.
+// It is DORMANT, not broken, and it arms itself: a new core migration is named
+// for the unix second it was written, which is above this value, so the very
+// next migration is examined. That is why the pin stays where it is rather than
+// dropping to reach the baseline — the baseline CREATES its tables, so there is
+// nothing to contend with and no lock to bound, and demanding a timeout from
+// statements that cannot block would teach the next reader that the timeout is a
+// ritual rather than a lock budget.
 //
-// What this does bind is everything written from here, which is the miss that can
-// still be prevented. core/1787111736 — the migration that prompted the rule —
-// sits below the baseline and carries the timeout anyway; it is correct because
-// this change fixed it, not because the gate demands it.
+// assertExaminedSomethingOnceArmed below is what keeps that claim honest: the
+// moment any migration sorts above the pin, this gate has to have read it.
 // gatekit:fixture the oldest version this gate binds in each namespace — data,
-// not a cost: a namespace's entry names where the rule starts applying, and the
-// migrations below it are tracked in #1844 rather than excused here.
+// not a cost: a namespace's entry names where the rule starts applying.
 var lockTimeoutBaseline = map[string]string{
 	"core":   "1787128083",
 	"custom": "20260817110001",
@@ -149,6 +146,7 @@ func TestEveryMigrationTakingABlockingLockBoundsHowLongItWaits(t *testing.T) {
 // without having bounded the wait first.
 func checkLockTimeouts(t *testing.T, namespace string, dir fs.FS) {
 	t.Helper()
+	var examined, skipped int
 	err := fs.WalkDir(dir, ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".sql") {
 			return err
@@ -158,18 +156,30 @@ func checkLockTimeouts(t *testing.T, namespace string, dir fs.FS) {
 			return readErr
 		}
 		if version(path) < lockTimeoutBaseline[namespace] {
+			skipped++
 			return nil
 		}
+		examined++
 		if reason := unboundedLock(string(body)); reason != "" {
-			t.Errorf("%s/%s %s.\nAdd `SET LOCAL lock_timeout = '3s';` before it, as core/0139 does "+
-				"and explains: without it one open transaction stalls every write to that table for "+
-				"as long as this migration is willing to queue, which is forever.", namespace, path, reason)
+			t.Errorf("%s/%s %s.\nAdd `SET LOCAL lock_timeout = '3s';` before it: without one, an open "+
+				"transaction holding a conflicting lock stalls every write to that table for as long "+
+				"as this migration is willing to queue, which is forever.", namespace, path, reason)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("reading the migration files: %v", err)
 	}
+	// Zero examined is EXPECTED while the whole namespace is the baseline, and a
+	// lie the moment it is not. Reporting the split is what stops a pin that has
+	// drifted above real work from reading as a clean run: the numbers say which
+	// of the two situations produced the pass.
+	if examined == 0 && skipped == 0 {
+		t.Errorf("%s: no .sql files at all — the embedded namespace is empty, so this gate "+
+			"read nothing and passed", namespace)
+	}
+	t.Logf("%s: examined %d file(s), %d below the %s pin",
+		namespace, examined, skipped, lockTimeoutBaseline[namespace])
 }
 
 // unboundedLock names what is wrong with one file, or returns "" when the file
