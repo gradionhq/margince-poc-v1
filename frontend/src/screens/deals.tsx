@@ -1636,6 +1636,10 @@ export function DealsScreen({
           searchable={false}
           action={createAction}
           tools={tableTools}
+          // The pipeline picker is screen state, not a filter, so switching it
+          // changes every row without touching `filters`. Naming it here is
+          // what puts the reader back on page 1.
+          scopeKey={effectivePipeline?.id ?? ""}
           dataChips={dealChips}
           dataViews={savedViews}
           selection={{

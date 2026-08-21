@@ -206,6 +206,7 @@ export function ListTable<Row>({
   showArchivedToggle = true,
   tools,
   emptyNote,
+  scopeKey,
   body,
   bodyOwnsPaging = false,
   selection,
@@ -262,6 +263,14 @@ export function ListTable<Row>({
    * way back to everything. Overlay's own note wins when both apply.
    */
   emptyNote?: ReactNode;
+  /**
+   * What this list is reading, when the screen narrows it by something that is
+   * neither a chip nor a filter — passed straight to the surface, which resets
+   * the reader to page 1 when it changes. Deals is the case: its pipeline
+   * picker is screen state, so switching pipelines leaves `filters` untouched
+   * while the result set changes entirely.
+   */
+  scopeKey?: string;
 }>): ReactNode {
   const t = useT();
   // Overlay reads a mirror that cannot sort or filter (the server 422s those
@@ -434,6 +443,7 @@ export function ListTable<Row>({
           : [...views.map((spec) => translateView(spec, t)), ...dataViews]
       }
       activeView={view}
+      scopeKey={scopeKey}
       onViewChange={setPicked}
       archived={
         showArchivedToggle

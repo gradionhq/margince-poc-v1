@@ -117,6 +117,7 @@ function ListTableHarness({
   views,
   dataViews,
   dataChips,
+  scopeKey,
 }: Readonly<{
   fetchPage: (
     query: ListQuery,
@@ -127,6 +128,7 @@ function ListTableHarness({
   views?: readonly ViewSpec[];
   dataViews?: readonly ListView[];
   dataChips?: readonly ListChip[];
+  scopeKey?: string;
 }>) {
   const state = useListQuery<Row>({
     key: "list-table-harness",
@@ -151,6 +153,7 @@ function ListTableHarness({
       views={views}
       dataViews={dataViews}
       action={action}
+      scopeKey={scopeKey}
     />
   );
 }
@@ -711,5 +714,44 @@ describe("a chip whose options arrive late", () => {
     await user.click(screen.getByRole("button", { name: "roster answers" }));
     await waitFor(() => expect(screen.getByText("Row 25")).toBeTruthy());
     expect(screen.queryByText("Row 0")).toBeNull();
+  });
+});
+
+describe("a scope the chips cannot see", () => {
+  it("puts the reader back on page 1 when it changes", async () => {
+    const user = userEvent.setup();
+    const page = (from: number) => ({
+      data: Array.from({ length: 25 }, (_, i) => ({
+        id: `r-${from + i}`,
+        name: `Row ${from + i}`,
+      })),
+      page: { next_cursor: `c-${from + 25}`, has_more: true },
+    });
+    let served = 0;
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      page(25 * served++),
+    );
+    // Deals stands behind this: its pipeline picker is screen state, so
+    // switching pipelines leaves `filters` and every chip exactly as they
+    // were while the rows change completely. Page 2 of one pipeline is not
+    // page 2 of another, so the reader must not be left standing on it.
+    function ScopedList() {
+      const [pipeline, setPipeline] = useState("p-1");
+      return (
+        <>
+          <button type="button" onClick={() => setPipeline("p-2")}>
+            other pipeline
+          </button>
+          <ListTableHarness fetchPage={fetchPage} scopeKey={pipeline} />
+        </>
+      );
+    }
+    render(<ScopedList />);
+    await waitFor(() => expect(screen.getByText("Row 0")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: /Next/ }));
+    await waitFor(() => expect(screen.getByText("Row 25")).toBeTruthy());
+
+    await user.click(screen.getByRole("button", { name: "other pipeline" }));
+    await waitFor(() => expect(screen.getByText("Row 0")).toBeTruthy());
   });
 });
