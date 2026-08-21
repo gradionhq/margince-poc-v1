@@ -8,6 +8,7 @@ import { formatMoney, INTL_LOCALE } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { QueryGate, throwProblem } from "./common";
+import { EntityRef } from "./entityref";
 
 // What a partner has earned, on the partner's own company page.
 //
@@ -115,6 +116,15 @@ function CommissionLedger({
         rows={entries}
         rowKey={(entry) => entry.id}
         columns={[
+          {
+            // The deal leads: an entry's first question is "on what?", and a
+            // ledger of bare figures cannot be reconciled against anything.
+            // EntityRef resolves the name and links to the record, so a
+            // partner's earnings are traceable to the deals that produced them.
+            key: "deal",
+            header: t("commission.column.deal"),
+            render: (entry) => <EntityRef kind="deal" id={entry.deal_id} />,
+          },
           {
             key: "amount",
             header: t("commission.column.amount"),

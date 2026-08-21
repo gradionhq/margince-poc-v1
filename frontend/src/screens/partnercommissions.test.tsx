@@ -1,6 +1,11 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render as rtlRender, screen } from "@testing-library/react";
+import {
+  cleanup,
+  render as rtlRender,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
@@ -81,11 +86,40 @@ describe("the commission panel", () => {
 
     // 20% of a €1,000 deal, read per cell: asserting the row as one string
     // would pass just as happily with the earned and basis figures swapped.
-    expect(cells[0]).toBe("€200.00");
+    // The deal leads, because an entry's first question is "on what?".
+    expect(cells[1]).toBe("€200.00");
     // The rate is the tier a human agreed to, not the basis points stored.
-    expect(cells[1]).toBe("20%");
-    expect(cells[2]).toBe("€1,000.00");
-    expect(cells[3]).toContain("Accrued");
+    expect(cells[2]).toBe("20%");
+    expect(cells[3]).toBe("€1,000.00");
+    expect(cells[4]).toContain("Accrued");
+  });
+
+  // A ledger of bare figures cannot be reconciled against anything: the entry
+  // has to say which deal produced it, and let a reader open that deal.
+  it("names the deal an entry was earned on, and links to it", async () => {
+    // EntityRef resolves the deal's own name, so the stub has to answer that
+    // read too — a reference it cannot name is deliberately not a link.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const body = request.url.includes("/deals/")
+          ? { id: "d-1", name: "Northgate rollout" }
+          : { data: [accrued], page: { has_more: false } };
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    render(<PartnerCommissions organizationId="o-1" />);
+    const ledger = await screen.findByTestId("commission-ledger");
+
+    // The control the design system routes with is a button, not an anchor.
+    const link = await within(ledger).findByRole("button", {
+      name: "Northgate rollout",
+    });
+    expect(link).toBeTruthy();
   });
 
   // A reversal keeps its own row rather than being folded into the entry it

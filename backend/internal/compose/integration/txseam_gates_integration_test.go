@@ -251,4 +251,26 @@ func TestBothDealCreatesRefuseTheSameThings(t *testing.T) {
 	if probe.rows != 0 {
 		t.Errorf("deal rows inside the refusing transaction = %d, want 0 — the validation ran after the write", probe.rows)
 	}
+
+	// Half the partner pair. Attribution and partner are one fact in two
+	// columns, and the caller is owed "you left out the partner" rather than the
+	// pairing CHECK surfacing as an opaque database error.
+	sourced := "sourced"
+	unpairedInput := deals.CreateDealInput{
+		Name: "Difference Engine", PipelineID: f.pipeline, StageID: f.stage, Source: "ui",
+		PartnerAttribution: &sourced,
+	}
+	_, storeOpened = f.deals.CreateDeal(f.granted, unpairedInput)
+	probe = f.refusedInTx(f.granted, t, "deal", func(tx pgx.Tx) error {
+		_, err := f.deals.CreateDealTx(f.granted, tx, unpairedInput)
+		return err
+	})
+	assertSameRefusal(t, storeOpened, probe.err)
+	var unpaired *deals.PartnerAttributionUnpairedError
+	if !errors.As(probe.err, &unpaired) {
+		t.Errorf("the caller-opened create refused with %v, want the partner-pair fault", probe.err)
+	}
+	if probe.rows != 0 {
+		t.Errorf("deal rows inside the refusing transaction = %d, want 0 — the validation ran after the write", probe.rows)
+	}
 }

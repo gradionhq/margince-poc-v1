@@ -19,6 +19,7 @@ import {
   buildStageTotals,
   DealScreen,
   DealsScreen,
+  mapDealCreate,
   mapDealUpdate,
 } from "./deals";
 
@@ -532,6 +533,49 @@ describe("mapDealUpdate", () => {
     expect(body.forecast_category).toBe("commit");
     expect(body.expected_close_date).toBe("2026-09-01");
     expect(body.wait_until).toBeNull();
+  });
+});
+
+describe("mapDealCreate", () => {
+  // A deal names its partner at birth. The create body once carried neither
+  // partner field, and the API accepted the request and stored neither, so the
+  // caller was told a write had succeeded with the partner gone.
+  it("carries the partner and what they did into the birth body", () => {
+    const body = mapDealCreate(
+      {
+        name: "Northgate rollout",
+        stage_id: "s-1",
+        amount: "480",
+        currency: "EUR",
+        organization_id: "cust-1",
+        partner_org_id: "partner-1",
+        partner_attribution: "influenced",
+      },
+      "p-1",
+    );
+    expect(body.partner_org_id).toBe("partner-1");
+    expect(body.partner_attribution).toBe("influenced");
+    expect(body.organization_id).toBe("cust-1");
+    expect(body.pipeline_id).toBe("p-1");
+    expect(body.amount_minor).toBe(48_000);
+  });
+
+  // Leaving the attribution on its empty option is the caller making no claim.
+  // The server reads a named partner as "sourced", which is what that option
+  // says it does — the form must not invent a different claim here.
+  it("sends no attribution when the caller made no claim", () => {
+    const body = mapDealCreate(
+      { name: "x", stage_id: "s-1", partner_org_id: "partner-1" },
+      "p-1",
+    );
+    expect(body.partner_org_id).toBe("partner-1");
+    expect(body.partner_attribution).toBeNull();
+  });
+
+  it("names no partner when none was picked", () => {
+    const body = mapDealCreate({ name: "x", stage_id: "s-1" }, "p-1");
+    expect(body.partner_org_id).toBeNull();
+    expect(body.partner_attribution).toBeNull();
   });
 });
 
@@ -1462,6 +1506,94 @@ describe("DealScreen — edit, archive, FX line (A3)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(patches.length).toBe(1));
     expect(patches[0].ifMatch).toBe("4");
+  });
+
+  // The partner was editable in the form and rendered nowhere, so a deal a
+  // partner brought looked identical to one we won alone — while being the
+  // fact a commission is computed from.
+  it("names the partner that brought the deal, and links to it", async () => {
+    const d = deal({
+      id: "x",
+      organization_id: "o1",
+      partner_org_id: "p1",
+      partner_attribution: "sourced",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const url = request.url;
+        // EntityRef resolves each reference by its own id read; a reference it
+        // cannot name is deliberately not a link.
+        if (url.includes("/organizations/p1")) {
+          return jsonResponse({ id: "p1", display_name: "VietnamPartner JSC" });
+        }
+        return stubBackend([d], { single: d })(request);
+      }),
+    );
+
+    render(<DealScreen id="x" />);
+
+    expect(
+      await screen.findByRole("button", { name: "VietnamPartner JSC" }),
+    ).toBeTruthy();
+    expect(screen.getByText("via")).toBeTruthy();
+  });
+
+  // The facts run together without a separator: three adjacent spans in a
+  // plain text line rendered "€48,000.00Acme Corpvia Northgate", which is why
+  // the partner looked missing on screen while every assertion about it passed.
+  it("separates the subtitle's facts so they do not run together", async () => {
+    const d = deal({
+      id: "x",
+      amount_minor: 4_800_000,
+      currency: "EUR",
+      organization_id: "o1",
+      partner_org_id: "p1",
+      partner_attribution: "sourced",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const url = request.url;
+        if (url.includes("/organizations/p1")) {
+          return jsonResponse({ id: "p1", display_name: "Northgate" });
+        }
+        if (url.includes("/organizations/o1")) {
+          return jsonResponse({ id: "o1", display_name: "Acme Corp" });
+        }
+        return stubBackend([d], { single: d })(request);
+      }),
+    );
+
+    render(<DealScreen id="x" />);
+    await screen.findByRole("button", { name: "Northgate" });
+    const line = document.querySelector(".record-sub")?.textContent ?? "";
+
+    expect(line).toContain("·");
+    expect(line).not.toContain("€48,000.00Acme");
+  });
+
+  // Sourced and influenced are paid differently, so the line has to say which.
+  it("says a partner only helped when the deal was influenced, not sourced", async () => {
+    const d = deal({
+      id: "x",
+      partner_org_id: "p1",
+      partner_attribution: "influenced",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/organizations/p1")) {
+          return jsonResponse({ id: "p1", display_name: "Xentral" });
+        }
+        return stubBackend([d], { single: d })(request);
+      }),
+    );
+
+    render(<DealScreen id="x" />);
+
+    expect(await screen.findByText("helped by")).toBeTruthy();
+    expect(screen.queryByText("via")).toBeNull();
   });
 
   it("shows the FX base line only when fx_rate_to_base is set", async () => {

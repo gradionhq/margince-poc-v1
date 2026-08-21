@@ -76,6 +76,7 @@ import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { DealBulkBar } from "./dealbulk";
 import { EditAction } from "./edit";
+import { EntityRef } from "./entityref";
 import { RecordHistoryTab } from "./history";
 import { usePendingApprovals } from "./inbox.queries";
 import {
@@ -373,6 +374,7 @@ function toBoardDeal(deal: Deal, orgs?: OrgMarks): BoardDeal {
 }
 
 type UpdateDealRequest = components["schemas"]["UpdateDealRequest"];
+type CreateDealRequest = components["schemas"]["CreateDealRequest"];
 
 // One deal as the edit form's initial values. Extracted from the badge row
 // that renders the form: mapping a record onto form fields is its own job, and
@@ -458,6 +460,41 @@ export function mapDealUpdate(
     forecast_category: forecastCategory(forecast),
     expected_close_date: str(values.expected_close_date) || null,
     wait_until: str(values.wait_until) || null,
+  };
+}
+
+/**
+ * The create form's values as the deal-birth body.
+ *
+ * A deal names its partner at birth rather than only through a later edit: the
+ * win that pays the partner can land before anybody revisits the record, and
+ * commission accrues on a `sourced` attribution alone. Both partner fields
+ * travel here for the same reason the update body carries them — a create that
+ * quietly dropped them told the caller its write had succeeded while the
+ * partner was gone.
+ */
+export function mapDealCreate(
+  values: Record<string, unknown>,
+  pipelineId: string,
+): CreateDealRequest {
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const amount = str(values.amount);
+  return {
+    name: str(values.name),
+    pipeline_id: pipelineId,
+    stage_id: str(values.stage_id),
+    // The UI takes major units; the wire is minor units.
+    amount_minor: amount ? Math.round(Number(amount) * 100) : null,
+    currency: str(values.currency) || "EUR",
+    organization_id: str(values.organization_id) || null,
+    partner_org_id: str(values.partner_org_id) || null,
+    // The empty option means the caller made no claim, and null is how that
+    // travels: the server then reads a named partner as `sourced`, which is
+    // what the option says it does. An attribution naming no partner is
+    // refused 422 rather than defaulted — there would be nobody to credit.
+    partner_attribution: partnerAttribution(str(values.partner_attribution)),
+    expected_close_date: str(values.expected_close_date) || null,
+    source: "manual",
   };
 }
 
@@ -677,6 +714,25 @@ function dealColumns(
       header: t("people.name"),
       cell: (deal) => deal.name,
       fixed: true,
+    },
+    {
+      // Which partner brought the deal, when one did. Optional: a workspace
+      // that runs no partner programme has an empty column, and hiding it
+      // per-row is worse in a list than an empty cell — a column that comes
+      // and goes cannot be scanned down.
+      //
+      // It carries no `sort`, because the API's sortable vocabulary is a fixed
+      // five-field set that does not include it. That limitation is not this
+      // column's to fix (see the sorting issue), and a header that looked
+      // sortable and refused would be worse than one that never offered.
+      key: "partner",
+      header: t("deal.partnerOrg"),
+      cell: (deal) =>
+        deal.partner_org_id ? (
+          <EntityRef kind="organization" id={deal.partner_org_id} asText />
+        ) : (
+          ""
+        ),
     },
     {
       key: "stage",
@@ -909,7 +965,10 @@ function useAdvanceDeal(toast: Toast) {
 }
 
 // Won reads success, lost reads danger, an open deal carries no status tone.
-function dealStatusTone(
+// Exported so the partner page's sourced-deals panel reads a deal's status the
+// same way the board and the deal record do — a second mapping is how the same
+// status came to render in two colours on two screens.
+export function dealStatusTone(
   status: Deal["status"],
 ): "success" | "danger" | undefined {
   if (status === "won") {
@@ -1158,20 +1217,8 @@ export function DealsScreen({
     if (!pipeline) {
       throwProblem(null);
     }
-    const amount = values.amount?.trim();
     const { data, error } = await api.POST("/deals", {
-      body: {
-        name: values.name.trim(),
-        pipeline_id: pipeline.id,
-        stage_id: values.stage_id,
-        // The UI takes major units; the wire is minor units.
-        amount_minor: amount ? Math.round(Number(amount) * 100) : null,
-        currency: values.currency || "EUR",
-        organization_id: values.organization_id || null,
-        expected_close_date: values.expected_close_date || null,
-        source: "manual",
-        ...cf.toBody(values),
-      },
+      body: { ...mapDealCreate(values, pipeline.id), ...cf.toBody(values) },
     });
     if (error) {
       throwProblem(error, t);
@@ -1279,6 +1326,27 @@ export function DealsScreen({
           options: (orgsQuery.data?.data ?? []).map((org) => ({
             value: org.id,
             label: org.display_name,
+          })),
+        },
+        // A deal brought by a partner is attributed at birth, not by editing
+        // it afterwards: the win that pays them can come before anybody thinks
+        // to revisit the record, and commission accrues on "sourced" only.
+        {
+          key: "partner_org_id",
+          label: "deal.partnerOrg",
+          type: "select",
+          options: (orgsQuery.data?.data ?? []).map((org) => ({
+            value: org.id,
+            label: org.display_name,
+          })),
+        },
+        {
+          key: "partner_attribution",
+          label: "deal.partnerAttribution",
+          type: "select",
+          options: ATTRIBUTION_OPTIONS.map((o) => ({
+            value: o.value,
+            label: t(o.label),
           })),
         },
         {
@@ -2325,6 +2393,67 @@ type Relationship = components["schemas"]["Relationship"];
 // doesn't push the render-prop closure over the cognitive-complexity budget.
 // Every prop here is a value already resolved by DealScreen — no new
 // fetches, no behavior change from the pre-tab layout.
+/**
+ * The one line of joined facts under a deal's name: what it is worth, whose
+ * deal it is, and — when one brought it — which partner.
+ *
+ * The partner was editable in the form and rendered nowhere, so a deal that a
+ * partner sourced looked identical to one we won alone. That is the fact the
+ * commission is computed from, and a figure a partner is paid on has to be
+ * visible on the record it came from.
+ *
+ * Each reference goes through EntityRef, which resolves the name and links to
+ * the record — and withholds both when the reader may not open it, which is
+ * why the ids are not printed as a fallback.
+ */
+function DealSubtitle({
+  deal,
+  locale,
+}: Readonly<{ deal: Deal; locale: Locale }>) {
+  const t = useT();
+  // Joined with a visible separator rather than left as bare adjacent spans:
+  // record-sub is a plain text line with no gap of its own, so three spans
+  // render as one run-on string ("€48,000.00Acme Corpvia Northgate"). The
+  // facts are assembled first so only the ones that exist are separated —
+  // a leading or doubled "·" is how an absent company announces itself.
+  const facts: ReactNode[] = [];
+  if (deal.amount_minor != null && deal.currency) {
+    facts.push(formatMoney(deal.amount_minor, deal.currency, locale));
+  }
+  if (deal.organization_id) {
+    facts.push(<EntityRef kind="organization" id={deal.organization_id} />);
+  }
+  if (deal.partner_org_id) {
+    facts.push(
+      <>
+        {/* Sourced and influenced are paid differently, so the line says
+            which one rather than a neutral "partner: X" that hides the
+            distinction the commission turns on. */}
+        {t(
+          deal.partner_attribution === "influenced"
+            ? "deal.partnerInfluenced"
+            : "deal.partnerSourced",
+        )}{" "}
+        <EntityRef kind="organization" id={deal.partner_org_id} />
+      </>,
+    );
+  }
+  return (
+    <>
+      {facts.map((fact, i) => (
+        // The index is the identity here: these are positional facts about one
+        // deal, not a reorderable list, and two of them can render the same
+        // company when a partner sells to itself.
+        // biome-ignore lint/suspicious/noArrayIndexKey: positional facts, never reordered
+        <span key={i}>
+          {i > 0 && <span aria-hidden="true"> · </span>}
+          {fact}
+        </span>
+      ))}
+    </>
+  );
+}
+
 function DealOverviewPane({
   deal,
   stages,
@@ -2615,11 +2744,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
           return (
             <RecordView
               name={deal.name}
-              subtitle={
-                deal.amount_minor != null && deal.currency
-                  ? formatMoney(deal.amount_minor, deal.currency, locale)
-                  : undefined
-              }
+              subtitle={<DealSubtitle deal={deal} locale={locale} />}
               zone="Europe/Berlin"
               badges={
                 <DealBadges
