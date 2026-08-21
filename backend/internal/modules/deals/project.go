@@ -161,12 +161,25 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 	return out, nil
 }
 
+// RefuseArchiveProject answers every authority refusal ArchiveProject would
+// answer with, and writes nothing. Its sibling on deal says why.
+func (s *Store) RefuseArchiveProject(ctx context.Context, id ids.ProjectID) error {
+	if err := auth.Require(ctx, projectObject, principal.ActionDelete); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		return auth.EnsureWritable(ctx, tx, projectObject, id.UUID)
+	})
+}
+
 // ArchiveProject soft-deletes a project and the grouping it provided. It
 // deliberately does NOT touch the activities or deals it grouped: the
 // grouping dies, the history does not. The deal's project_id is cleared by
 // the FK's ON DELETE SET NULL only on a hard delete, so an archived
 // project keeps its rollup readable — which is what "the history does not
 // die" means in practice.
+//
+// ifVersion pins the row where the caller's authority named a version.
 func (s *Store) ArchiveProject(ctx context.Context, id ids.ProjectID, ifVersion *int64) (crmcontracts.Project, error) {
 	if err := auth.Require(ctx, projectObject, principal.ActionDelete); err != nil {
 		return crmcontracts.Project{}, err

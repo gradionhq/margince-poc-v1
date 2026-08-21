@@ -25,9 +25,36 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// RefuseArchiveOrganization answers every refusal ArchiveOrganization would
+// answer with, and writes nothing. Its sibling on person says why.
+//
+// The anchor refusal runs here TOO, and it is not an authority question. It
+// belongs because it can never come out the other way while a human decides:
+// `is_anchor` is stamped at bootstrap (migration 0083), no verb moves it, and
+// 0193 adds a CHECK that keeps an anchor from being archived or merged at all.
+// So an archive staged against the installation's own company is refused by
+// the store every single time — leaving it out would spend a human's approval
+// on the one target that can never succeed.
+func (s *Store) RefuseArchiveOrganization(ctx context.Context, id ids.OrganizationID) error {
+	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		if err := auth.EnsureWritable(ctx, tx, "organization", id.UUID); err != nil {
+			return err
+		}
+		return refuseIfAnchor(ctx, tx, id, "id",
+			"it cannot be archived. Archive a different company, or edit this one on the company page")
+	})
+}
+
 // ArchiveOrganization retires the account and its cascade in ONE transaction,
 // then answers the archived record.
-func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) (crmcontracts.Organization, error) {
+//
+// ArchiveOrganization retires one company and everything that answers a list on
+// its behalf, conditioned on ifVersion wherever the caller's authority named a
+// version.
+func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID, ifVersion *int64) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
 		return crmcontracts.Organization{}, err
 	}
@@ -47,14 +74,22 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 			return err
 		}
 
+		now := time.Now().UTC()
+		// The COMPANY row rides the guarded patch, so an archive a human
+		// released against version 4 lands on version 4 or answers skew.
+		p := storekit.NewPatch()
+		p.Set("archived_at", nil, now)
+		if err := p.ApplyGuarded(ctx, tx, "organization", id.UUID, ifVersion); err != nil {
+			return fmt.Errorf("archive the account: %w", err)
+		}
 		// Everything that answers a list on the account's behalf retires with
 		// it. Every statement here covers a row somebody would otherwise still
 		// find: a live child under an archived parent keeps feeding the list
 		// its own table serves, which is how an archived account goes on
-		// appearing as a partner.
-		now := time.Now().UTC()
+		// appearing as a partner. They stay plain statements because each is a
+		// cascade off the row above rather than a second decision, and that
+		// row's guard serializes all of them.
 		for _, stmt := range []string{
-			`UPDATE organization SET archived_at = $2 WHERE id = $1 AND archived_at IS NULL`,
 			`UPDATE organization_domain SET archived_at = $2 WHERE organization_id = $1 AND archived_at IS NULL`,
 			// ADR-0079's partner invariant runs over LIVE type rows, so the
 			// types retire with their parent.

@@ -125,7 +125,7 @@ func TestProjectLastActivity_MovesOnEveryWriteThatChangesTheTimeline(t *testing.
 
 	// Archiving the newest activity moves the clock back to the next-newest:
 	// the column is a recompute from the live timeline, never a high-water mark.
-	if _, err := e.Activities.ArchiveActivity(e.Admin(), ids.From[ids.ActivityKind](newestNote)); err != nil {
+	if _, err := e.Activities.ArchiveActivity(e.Admin(), ids.From[ids.ActivityKind](newestNote), nil); err != nil {
 		t.Fatalf("archiving the newest note: %v", err)
 	}
 	if got := projectClock(e.Admin(), t, e, crm.ID); got != nil {

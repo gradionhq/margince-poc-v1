@@ -881,7 +881,7 @@ func TestArchivingTheCustomerLeavesItsDealsInTheIndustryFilter(t *testing.T) {
 	}
 	assertSoleMember(t, f, list.ID, deal)
 
-	if _, err := f.people.ArchiveOrganization(f.ctx, org); err != nil {
+	if _, err := f.people.ArchiveOrganization(f.ctx, org, nil); err != nil {
 		t.Fatalf("archive organization: %v", err)
 	}
 	assertSoleMember(t, f, list.ID, deal)

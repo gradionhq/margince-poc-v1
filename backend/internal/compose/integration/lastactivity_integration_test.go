@@ -130,7 +130,7 @@ func TestLastActivity_MovesThePersonAndEveryAccountItReaches(t *testing.T) {
 	// Archiving the newest note moves the clocks BACK to the next-newest: the
 	// column is a recompute from the live timeline, never a monotone high-water
 	// mark that outlives what it counted.
-	if _, err := e.Activities.ArchiveActivity(e.Admin(), ids.From[ids.ActivityKind](newestNote)); err != nil {
+	if _, err := e.Activities.ArchiveActivity(e.Admin(), ids.From[ids.ActivityKind](newestNote), nil); err != nil {
 		t.Fatal(err)
 	}
 	person, err = e.People.GetPerson(e.Admin(), personID, storekit.LiveOnly)

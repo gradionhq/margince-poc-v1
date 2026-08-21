@@ -205,7 +205,7 @@ func TestEveryDealMutationResponseWithholdsTheSameReferences(t *testing.T) {
 			return e.Deals.AdvanceDeal(rep, fx.hiddenRefs, deals.AdvanceDealInput{ToStageID: fx.wonStage, WonWithoutContractReason: &wonWithout})
 		}},
 		{"archiving the deal", func() (crmcontracts.Deal, error) {
-			return e.Deals.ArchiveDeal(rep, fx.hiddenRefs)
+			return e.Deals.ArchiveDeal(rep, fx.hiddenRefs, nil)
 		}},
 	}
 	for _, tc := range cases {

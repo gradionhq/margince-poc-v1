@@ -175,6 +175,29 @@ func TestAnArchiveOfARowOutsideTheAgentsScopeStagesNothing(t *testing.T) {
 	}
 }
 
+// archiveRepPerms is RepPerms plus the one grant an archive needs.
+//
+// RepPerms carries person create/read/update and NO delete, which made every
+// archive under it refusable for a reason none of these tests is about. That
+// was invisible while staging asked only whether the target could be READ:
+// the row was staged, a human could answer it, and the store refused the
+// released retry on the missing grant. It is visible now that staging asks the
+// executor, and the fixture has to say which refusal it means — the row-scope
+// test above states the requirement in its own words: the hiding must be done
+// by the row scope, "not a missing grant".
+var archiveRepPerms = func() principal.Permissions {
+	perms := integration.RepPerms
+	objects := make(map[string]principal.ObjectGrant, len(perms.Objects))
+	for object, grant := range perms.Objects {
+		objects[object] = grant
+	}
+	person := objects["person"]
+	person.Delete = true
+	objects["person"] = person
+	perms.Objects = objects
+	return perms
+}()
+
 // scopedArchiveAgent is an agent acting for Rep1 with Rep1's team scope — the
 // authority a real passport carries, which is the granting human's.
 //
@@ -190,7 +213,7 @@ func scopedArchiveAgent(t *testing.T, e *integration.Env) context.Context {
 		OnBehalfOf: e.Rep1, UserID: e.Rep1, TeamIDs: []ids.UUID{e.Team1},
 		PassportID:  e.SeedPassport(t, integration.OwnerConn(t), "scoped archive probe"),
 		Scopes:      principal.NewScopeSet(principal.ScopeRead, principal.ScopeWrite),
-		Permissions: integration.RepPerms,
+		Permissions: archiveRepPerms,
 	})
 }
 

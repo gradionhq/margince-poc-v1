@@ -356,7 +356,35 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 	return out, err
 }
 
-func (s *Store) ArchiveRelationship(ctx context.Context, id ids.UUID) (relationshipRow, error) {
+// RefuseArchiveRelationship answers every authority refusal
+// ArchiveRelationship would answer with, and writes nothing — the stage-time
+// half, so a staged approval is never spent on an edge the store was always
+// going to refuse. It runs BOTH of the archive's probes, because an edge's
+// authority is two questions: the edge must be visible through its endpoints,
+// and removing it is editing its anchor.
+func (s *Store) RefuseArchiveRelationship(ctx context.Context, id ids.UUID) error {
+	if err := auth.Require(ctx, "relationship", principal.ActionDelete); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		current, err := s.visibleRelationship(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		anchorObject, _ := relationshipAnchor(current.Kind)
+		return auth.Require(ctx, anchorObject, principal.ActionUpdate)
+	})
+}
+
+// ArchiveRelationship retires one edge, conditioned on ifVersion wherever the
+// caller's authority named a version.
+//
+// The write moved off `UPDATE … RETURNING` and onto the guarded patch, so the
+// row is read back rather than returned by the statement. That costs one SELECT
+// and buys the version clause — and IncludeArchived is required on the read
+// back for the reason the statement's RETURNING never had to think about: the
+// row this reads is the one just archived.
+func (s *Store) ArchiveRelationship(ctx context.Context, id ids.UUID, ifVersion *int64) (relationshipRow, error) {
 	if err := auth.Require(ctx, "relationship", principal.ActionDelete); err != nil {
 		return relationshipRow{}, err
 	}
@@ -371,8 +399,12 @@ func (s *Store) ArchiveRelationship(ctx context.Context, id ids.UUID) (relations
 		if err := auth.Require(ctx, anchorObject, principal.ActionUpdate); err != nil {
 			return err
 		}
-		row := tx.QueryRow(ctx,
-			`UPDATE relationship SET archived_at = now() WHERE id = $1 AND archived_at IS NULL RETURNING `+relationshipColumns, id)
+		p := storekit.NewPatch()
+		p.Set("archived_at", nil, time.Now().UTC())
+		if err := p.ApplyGuarded(ctx, tx, "relationship", id, ifVersion); err != nil {
+			return err
+		}
+		row := tx.QueryRow(ctx, `SELECT `+relationshipColumns+` FROM relationship WHERE id = $1`, id)
 		if out, err = scanRelationship(row); errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		} else if err != nil {

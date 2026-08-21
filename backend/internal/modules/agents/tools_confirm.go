@@ -43,8 +43,41 @@ var archivableRecordTypes = []string{
 	string(datasource.EntityRelationship), string(datasource.EntityActivity),
 }
 
-func archivableByTheRecordSeam(recordType string) bool {
-	return slices.Contains(archivableRecordTypes, recordType)
+// archivableHere answers what the ROUTED executor archives, falling back to the
+// native list above when the provider cannot say.
+//
+// The list above is what the NATIVE provider archives, and for an installation
+// running in overlay mode that is three types too wide: overlay archives
+// person, organization and deal, and refuses project, relationship and
+// activity. A stage-time check reading the native list therefore admitted an
+// archive the executor was always going to refuse — the one failure this
+// tool's confirm-first shape exists to prevent, and the failure the comment on
+// archivableRecordTypes describes happening to `activity` once already.
+//
+// The fallback is not a shrug: a provider that does not answer
+// RecordArchiverV2 is a fork's own adapter, and the native set is the only
+// honest guess about it. What it must NOT do is pretend to be an answer — so
+// it is the same list the caller would have used anyway, and nothing
+// downstream reads it as a fact about the executor.
+func archivableHere(ctx context.Context, p datasource.SystemOfRecordProvider) ([]string, error) {
+	archiver, ok := p.(datasource.RecordArchiverV2)
+	if !ok {
+		return archivableRecordTypes, nil
+	}
+	types, err := archiver.ArchivableTypes(ctx)
+	if err != nil {
+		// Surfaced, never absorbed. The answer turns on which mode this
+		// installation runs in, and a failed read of that is not a reason to
+		// fall back to the WIDER set: doing so would admit the three types
+		// this check was added to refuse, and leave the safety resting on a
+		// second read of the same value succeeding later.
+		return nil, err
+	}
+	out := make([]string, 0, len(types))
+	for _, t := range types {
+		out = append(out, string(t))
+	}
+	return out, nil
 }
 
 type archiveArgs struct {
@@ -105,10 +138,14 @@ func (t archiveRecord) StageInfo(ctx context.Context, in json.RawMessage) (Stage
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	if !archivableByTheRecordSeam(args.RecordType) {
+	archivable, err := archivableHere(ctx, t.p)
+	if err != nil {
+		return StageInfo{}, err
+	}
+	if !slices.Contains(archivable, args.RecordType) {
 		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
 			"this verb does not archive %q records, so no approval of it could ever be carried out; it archives %s",
-			args.RecordType, strings.Join(archivableRecordTypes, ", "))}
+			args.RecordType, strings.Join(archivable, ", "))}
 	}
 	return StageSubject(ctx, NewArchiveCall(t.p, ArchiveCommand(args)))
 }
@@ -118,7 +155,7 @@ func (t archiveRecord) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	ref, err := t.p.Archive(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
+	ref, err := archiveAt(ctx, t.p, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
 	if err != nil {
 		return nil, err
 	}

@@ -245,18 +245,46 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 }
 
 func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
+	return p.ArchiveAt(ctx, datasource.ArchiveInput{Ref: r})
+}
+
+// ArchivableTypes is datasource.RecordArchiverV2's: the three this module's
+// switch below actually serves.
+func (p *Provider) ArchivableTypes(context.Context) ([]datasource.EntityType, error) {
+	return []datasource.EntityType{
+		datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityRelationship,
+	}, nil
+}
+
+// RefuseArchive is datasource.RecordArchiverV2's stage-time half: each store's
+// own authority probes, run without the write.
+func (p *Provider) RefuseArchive(ctx context.Context, r datasource.EntityRef) error {
 	switch r.Type {
 	case datasource.EntityPerson:
-		v, err := p.store.ArchivePerson(ctx, ids.From[ids.PersonKind](r.ID))
+		return p.store.RefuseArchivePerson(ctx, ids.From[ids.PersonKind](r.ID))
+	case datasource.EntityOrganization:
+		return p.store.RefuseArchiveOrganization(ctx, ids.From[ids.OrganizationKind](r.ID))
+	case datasource.EntityRelationship:
+		return p.store.RefuseArchiveRelationship(ctx, r.ID)
+	default:
+		return &datasource.UnsupportedEntityError{Type: string(r.Type)}
+	}
+}
+
+// ArchiveAt is Archive carrying the version the caller's authority named.
+func (p *Provider) ArchiveAt(ctx context.Context, in datasource.ArchiveInput) (datasource.EntityRef, error) {
+	switch in.Ref.Type {
+	case datasource.EntityPerson:
+		v, err := p.store.ArchivePerson(ctx, ids.From[ids.PersonKind](in.Ref.ID), in.IfVersion)
 		return ref(datasource.EntityPerson, v.Id), err
 	case datasource.EntityOrganization:
-		v, err := p.store.ArchiveOrganization(ctx, ids.From[ids.OrganizationKind](r.ID))
+		v, err := p.store.ArchiveOrganization(ctx, ids.From[ids.OrganizationKind](in.Ref.ID), in.IfVersion)
 		return ref(datasource.EntityOrganization, v.Id), err
 	case datasource.EntityRelationship:
-		row, err := p.store.ArchiveRelationship(ctx, r.ID)
+		row, err := p.store.ArchiveRelationship(ctx, in.Ref.ID, in.IfVersion)
 		return edgeRef(row.ID), err
 	default:
-		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
+		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
 	}
 }
 
