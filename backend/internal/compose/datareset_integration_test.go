@@ -302,6 +302,17 @@ func TestDropResetCustomFieldColumns(t *testing.T) {
 // was written for AND every DELETE trigger added to that table afterwards,
 // including one that really does block. Each trigger earns its own line.
 var deleteGuardedSweepTargets = gatekit.Waive(map[string]string{
+	// Not a guard at all, which is a THIRD shape the catalog cannot show: this
+	// one is AFTER ... RETURN NULL, so it refuses nothing and cannot fail a
+	// DELETE. It recomputes project.last_activity_at from the live timeline when
+	// a link is written, moved or removed (core 1787320000).
+	//
+	// The sweep owes it nothing. project is a sweep target too, so a reset
+	// clears both tables and the clock it maintains has no row left to be wrong
+	// on. It is classified here rather than preserved because preserving
+	// activity_link would leave every activity's filing behind on a reset whose
+	// whole purpose is to clear them.
+	"activity_link activity_link_project_last_activity": "an AFTER trigger that returns NULL: it recomputes project.last_activity_at and refuses no delete, and project is swept alongside activity_link so the clock has nothing left to be wrong on",
 	// Not a protected table: the guard refuses a DELETE only while a row carries
 	// `restricted_at`, which is a statutory hold on that one record. Preserving
 	// `activity` would leave every conversation behind on a reset whose whole
