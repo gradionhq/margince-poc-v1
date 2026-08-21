@@ -37,9 +37,6 @@ coverage.out
 !/extensions/de
 !/extensions/yogi
 !/extensions/relay-probe
-!/extensions/dispact-connector
-!/extensions/zalo-oa
-!/extensions/zalo-personal
 # A unit's installed frontend dependencies. Its package.json and the workspace
 # lockfile are what ship; node_modules is what pnpm makes from them, and it is
 # per-member now that a unit's frontend layer is a workspace package.
