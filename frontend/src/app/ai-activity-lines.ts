@@ -95,11 +95,20 @@ export const RUN_DETAIL_LABEL: Readonly<Record<"stopped", MessageKey>> = {
  * The existence check is not optional and `t()` cannot do it: translate() falls
  * back to THE KEY STRING, so a missing entry would put
  * `agent.activity.foo.running` in front of a reader.
+ *
+ * It takes RAW strings rather than the contract's unions, and that widening is
+ * the point: the map is total over the contract, so the only way to miss is a
+ * value the contract does not carry — which is exactly what an older tab gets
+ * from a newer server that has added a kind or a state. Typed narrowly, that
+ * case could only be written with a cast, and a test that casts is asserting
+ * against its own escape hatch instead of against the function.
  */
 export function lineFor(
-  item: Readonly<{ kind: ActivityKind; state: ActivityState }>,
+  item: Readonly<{ kind: string; state: string }>,
   t: (key: MessageKey) => string,
 ): string | null {
-  const key = ACTIVITY_LINE[item.kind]?.[item.state];
+  const byState: Readonly<Partial<Record<string, MessageKey>>> | undefined =
+    ACTIVITY_LINE[item.kind as ActivityKind];
+  const key = byState?.[item.state];
   return key === undefined ? null : t(key);
 }

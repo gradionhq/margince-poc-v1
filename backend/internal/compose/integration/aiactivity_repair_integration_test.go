@@ -285,3 +285,44 @@ func explain(ctx context.Context, t *testing.T, f *readingFixture, query string)
 	}
 	return plan.String()
 }
+
+// A backlog of LIVE readings must not starve the settled arm.
+//
+// Each arm of the reconcile union carries its own budget for exactly this: with
+// one shared budget, Postgres fills it from the live arm first — UNION ALL is
+// evaluated in order — so an installation holding a full batch of live readings
+// would never re-announce a settled one. That is the arm repairing the worst
+// display there is: a reading whose closing event was lost renders as running
+// forever, and nothing else will ever correct it.
+func TestALiveBacklogDoesNotStarveTheSettledArmOfTheReconcilePass(t *testing.T) {
+	f := newReadingFixture(t)
+
+	// The settled reading whose closing event was lost.
+	claim, err := f.store.BeginExtractionRead(f.ctx, f.readID, activities.ExtractionReadLease)
+	if err != nil {
+		t.Fatalf("BeginExtractionRead: %v", err)
+	}
+	if err := f.store.FinishExtractionRead(f.ctx, f.readID, activities.ExtractionReadOutcome{
+		Status: activities.ExtractionReadDone, ClaimedAt: *claim.StartedAt,
+		Detail: "the document states none of the four fields",
+	}); err != nil {
+		t.Fatalf("FinishExtractionRead: %v", err)
+	}
+	f.drain(t)
+	f.deleteProjection(t)
+
+	// Enough live readings to fill a whole pass on their own.
+	const budget = 4
+	for range budget {
+		f.secondReading(t)
+	}
+
+	if _, err := f.store.ReconcileExtractionActivity(f.reconcileCtx(), budget, time.Now()); err != nil {
+		t.Fatalf("ReconcileExtractionActivity: %v", err)
+	}
+	f.drain(t)
+
+	if got := f.projection(t); got.State != "done" {
+		t.Fatalf("the settled reading reconciled as %q; a live backlog starved the arm that repairs it", got.State)
+	}
+}

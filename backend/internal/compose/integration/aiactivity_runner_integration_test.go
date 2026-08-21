@@ -29,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // runnerFixture is the runner store plus the consumer that projects what it
@@ -101,11 +102,17 @@ func (f *runnerFixture) drain(t *testing.T) {
 	}
 }
 
+// feed reads the passport owner's own view, as that person, with the day
+// boundary taken from the database that stamped the rows.
 func (f *runnerFixture) feed(t *testing.T) (live, settled []aiactivity.Item) {
 	t.Helper()
-	now := time.Now()
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	live, settled, err := aiactivity.NewStore(f.env.DB()).Mine(context.Background(), f.owner, midnight)
+	var midnight time.Time
+	if err := f.env.Pool.QueryRow(context.Background(),
+		`SELECT date_trunc('day', now())`).Scan(&midnight); err != nil {
+		t.Fatalf("reading the database's idea of today: %v", err)
+	}
+	live, settled, err := aiactivity.NewStore(f.env.DB()).
+		Mine(f.env.As(f.owner, nil, principal.Permissions{}), midnight)
 	if err != nil {
 		t.Fatalf("Mine: %v", err)
 	}

@@ -27,10 +27,18 @@ type stubReader struct {
 	called        bool
 }
 
-func (s *stubReader) Mine(_ context.Context, userID ids.UUID, startOfToday time.Time) ([]Item, []Item, error) {
-	s.called, s.gotUser, s.gotStartOfDay = true, userID, startOfToday
+func (s *stubReader) Mine(ctx context.Context, startOfToday time.Time) ([]Item, []Item, error) {
+	actor, _ := principal.Actor(ctx)
+	s.called, s.gotUser, s.gotStartOfDay = true, actor.UserID, startOfToday
 	return s.live, s.settled, nil
 }
+
+// fixedNow is the suite's clock. Stated rather than read, because "today" is
+// derived from it and a test that took the wall clock would compute a different
+// day for the few minutes either side of midnight.
+var fixedNow = time.Date(2026, 8, 21, 12, 30, 0, 0, time.FixedZone("CET", 2*60*60))
+
+func clock() func() time.Time { return func() time.Time { return fixedNow } }
 
 func request(ctx context.Context) *http.Request {
 	return httptest.NewRequest(http.MethodGet, "/v1/me/ai-activity", nil).WithContext(ctx)
@@ -58,7 +66,7 @@ func TestACallerWithNoUserIdentityIsRefusedRatherThanServedEmpty(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			reader := &stubReader{}
 			rec := httptest.NewRecorder()
-			NewHandlers(reader, time.Now).GetMyAiActivity(rec, request(tc.ctx))
+			NewHandlers(reader, clock()).GetMyAiActivity(rec, request(tc.ctx))
 			if rec.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d, want 401 (body %s)", rec.Code, rec.Body.String())
 			}
@@ -75,7 +83,7 @@ func TestACallerWithNoUserIdentityIsRefusedRatherThanServedEmpty(t *testing.T) {
 func TestAnEmptyFeedIsArraysAndNotNulls(t *testing.T) {
 	user := ids.NewV7()
 	rec := httptest.NewRecorder()
-	NewHandlers(&stubReader{}, time.Now).GetMyAiActivity(rec, request(asHuman(user)))
+	NewHandlers(&stubReader{}, clock()).GetMyAiActivity(rec, request(asHuman(user)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
@@ -95,12 +103,11 @@ func TestAnEmptyFeedIsArraysAndNotNulls(t *testing.T) {
 // that moved between them.
 func TestTodayIsMidnightInTheServersOwnLocation(t *testing.T) {
 	user := ids.NewV7()
-	noon := time.Date(2026, 8, 21, 12, 30, 0, 0, time.FixedZone("CET", 2*60*60))
 	reader := &stubReader{}
 	rec := httptest.NewRecorder()
-	NewHandlers(reader, func() time.Time { return noon }).GetMyAiActivity(rec, request(asHuman(user)))
+	NewHandlers(reader, clock()).GetMyAiActivity(rec, request(asHuman(user)))
 
-	want := time.Date(2026, 8, 21, 0, 0, 0, 0, noon.Location())
+	want := time.Date(2026, 8, 21, 0, 0, 0, 0, fixedNow.Location())
 	if !reader.gotStartOfDay.Equal(want) {
 		t.Fatalf("start of day = %s, want %s", reader.gotStartOfDay, want)
 	}
@@ -115,7 +122,7 @@ func TestTheFeedIsAlwaysReadForTheAuthenticatedCaller(t *testing.T) {
 	me, someoneElse := ids.NewV7(), ids.NewV7()
 	reader := &stubReader{live: []Item{{ID: ids.NewV7(), Kind: "document_extract", State: "running"}}}
 	rec := httptest.NewRecorder()
-	NewHandlers(reader, time.Now).GetMyAiActivity(rec, request(asHuman(me)))
+	NewHandlers(reader, clock()).GetMyAiActivity(rec, request(asHuman(me)))
 	if reader.gotUser == someoneElse || reader.gotUser != me {
 		t.Fatalf("read for %s, want %s", reader.gotUser, me)
 	}

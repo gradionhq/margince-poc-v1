@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // recentBound caps what settled today. An unbounded per-person history is the
@@ -68,115 +69,95 @@ type Item struct {
 // what stops a worker which died mid-run from being displayed as working.
 const StateStalled = "stalled"
 
-// liveSQL reads what is still expected to move for one person.
+// feedSQL reads both halves of the feed in ONE statement, and that is what
+// makes "one occurrence, one line" true rather than asserted.
 //
-// queued IS live — an occurrence waiting for a worker is work in progress to
-// the person who asked — and ai_task_run_live indexes exactly this predicate.
+// The transaction is READ COMMITTED — platform/database opens it with a bare
+// pool.Begin and nothing sets an isolation level — so two statements would take
+// two snapshots, and an occurrence that settled between them would appear in
+// both: the rail would say "reading your document" and "I've read your
+// document" about one reading at once. One statement is one snapshot, so the
+// window does not exist to be closed.
 //
-// The stalled decision is made in SQL against the DATABASE clock, not in Go
-// against the caller's: stale_after was computed from timestamps the database
-// stamped, and comparing them to a reader's host clock would answer a different
-// question on every machine.
-const liveSQL = `
-  SELECT id, kind,
+// Two arms rather than one predicate, because each needs its own ordering and
+// its own bound, and because each matches one of the table's partial indexes:
+//
+//	live     queued IS live — an occurrence waiting for a worker is work in
+//	         progress to the person who asked — and ai_task_run_live indexes
+//	         exactly this predicate. `stalled` is decided here, in SQL, against
+//	         the DATABASE clock: stale_after was computed from timestamps the
+//	         database stamped, and comparing them to a reader's host clock
+//	         would answer a different question on every machine.
+//
+//	settled  bounded by finished_at, because "what the AI finished for me
+//	         today" is a question about when it finished. An occurrence that
+//	         started at 23:50 and finished at 00:10 belongs in today's feed;
+//	         keyed on its start it would fall out of settled AND have already
+//	         left live, so it would vanish from the rail entirely.
+const feedSQL = `
+(
+  SELECT true AS live, id, kind,
          CASE WHEN stale_after IS NOT NULL AND stale_after < now() THEN 'stalled' ELSE state END,
          COALESCE(started_at, queued_at), finished_at,
-         left(degrade_reason, $2), left(summary, $3)
+         left(degrade_reason, $4), left(summary, $5)
     FROM ai_task_run
    WHERE actor_user_id = $1
      AND state IN ('queued','running')
    ORDER BY queued_at DESC, id DESC
-   LIMIT $4`
-
-// settledSQL reads what finished for this person today, newest first.
-//
-// The bound is finished_at because "what the AI finished for me today" is a
-// question about when it finished. An occurrence that started at 23:50 and
-// finished at 00:10 belongs in today's feed; keyed on its start it would fall
-// out of settled AND have already left live, so the occurrence would vanish
-// from the rail entirely.
-const settledSQL = `
-  SELECT id, kind, state, COALESCE(started_at, queued_at), finished_at,
+   LIMIT $6
+)
+UNION ALL
+(
+  SELECT false AS live, id, kind, state,
+         COALESCE(started_at, queued_at), finished_at,
          left(degrade_reason, $4), left(summary, $5)
     FROM ai_task_run
    WHERE actor_user_id = $1
      AND state IN ('done','degraded','failed')
      AND finished_at >= $2
    ORDER BY finished_at DESC, id DESC
-   LIMIT $3`
+   LIMIT $3
+)`
 
-// Mine is what the AI is doing for this person now, and what it finished for
+// Mine is what the AI is doing for THE CALLER now, and what it finished for
 // them today.
 //
-// ONE OCCURRENCE, ONE LINE, and an occurrence that settles mid-read is reported
-// as settled. The two statements share a transaction, but that transaction is
-// READ COMMITTED — platform/database opens it with a bare pool.Begin and nothing
-// sets an isolation level — so each takes its OWN snapshot. Running the LIVE
-// read first means an occurrence that settles between them is caught by the
-// later one and cannot fall through the gap; it also means that same occurrence
-// is in BOTH results, which would render the rail saying "reading your document"
-// and "I've read your document" about one reading at once. So the overlap is
-// removed here rather than assumed away — disjoint predicates are not disjoint
-// snapshots.
-func (s *Store) Mine(ctx context.Context, userID ids.UUID, startOfToday time.Time) (live, settled []Item, err error) {
-	if userID.IsZero() {
-		return nil, nil, fmt.Errorf("aiactivity: a personal read needs a person")
+// The person is taken from the bound principal and is NOT a parameter, which is
+// the whole of the authorization. A store method that accepted a user id would
+// let any in-process caller ask for somebody else's feed, and the only thing
+// standing between that and a leak would be every caller remembering to pass
+// its own — the shape this repo gates against everywhere else. Here there is
+// nothing to remember: another person's feed cannot be expressed.
+func (s *Store) Mine(ctx context.Context, startOfToday time.Time) (live, settled []Item, err error) {
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.UserID.IsZero() {
+		return nil, nil, fmt.Errorf("aiactivity: a personal read needs an authenticated person")
 	}
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
-		var txErr error
-		if live, txErr = collect(ctx, tx, liveSQL, userID, DegradeReasonBound, SummaryBound, liveBound); txErr != nil {
-			return fmt.Errorf("read what is live: %w", txErr)
+		rows, txErr := tx.Query(ctx, feedSQL,
+			actor.UserID, startOfToday, recentBound, DegradeReasonBound, SummaryBound, liveBound)
+		if txErr != nil {
+			return txErr
 		}
-		if settled, txErr = collect(ctx, tx, settledSQL,
-			userID, startOfToday, recentBound, DegradeReasonBound, SummaryBound); txErr != nil {
-			return fmt.Errorf("read what settled today: %w", txErr)
+		defer rows.Close()
+		live, settled = []Item{}, []Item{}
+		for rows.Next() {
+			var item Item
+			var isLive bool
+			if scanErr := rows.Scan(&isLive, &item.ID, &item.Kind, &item.State,
+				&item.StartedAt, &item.FinishedAt, &item.DegradeReason, &item.Summary); scanErr != nil {
+				return scanErr
+			}
+			if isLive {
+				live = append(live, item)
+				continue
+			}
+			settled = append(settled, item)
 		}
-		live = withoutSettled(live, settled)
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("aiactivity: %w", err)
 	}
 	return live, settled, nil
-}
-
-// withoutSettled drops from the live list anything the settled read also
-// returned — one occurrence that moved between the two snapshots.
-//
-// The settled row is the one kept: it is the later of the two readings, and a
-// finished occurrence reported as still running is the more misleading half.
-func withoutSettled(live, settled []Item) []Item {
-	if len(live) == 0 || len(settled) == 0 {
-		return live
-	}
-	done := make(map[ids.UUID]struct{}, len(settled))
-	for _, item := range settled {
-		done[item.ID] = struct{}{}
-	}
-	out := make([]Item, 0, len(live))
-	for _, item := range live {
-		if _, moved := done[item.ID]; !moved {
-			out = append(out, item)
-		}
-	}
-	return out
-}
-
-// collect runs one of the two statements and scans its rows.
-func collect(ctx context.Context, tx pgx.Tx, query string, args ...any) ([]Item, error) {
-	rows, err := tx.Query(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Item{}
-	for rows.Next() {
-		var item Item
-		if err := rows.Scan(&item.ID, &item.Kind, &item.State,
-			&item.StartedAt, &item.FinishedAt, &item.DegradeReason, &item.Summary); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
 }

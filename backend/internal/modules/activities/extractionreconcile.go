@@ -35,6 +35,13 @@ const ExtractionActivityReconcileWindow = 24 * time.Hour
 // it. Each arm here matches one of the two partial indexes attachment_extraction
 // carries for exactly this pass.
 //
+// Each arm carries its OWN budget, and the union is not re-limited. A single
+// outer LIMIT would be filled from the live arm first — Postgres evaluates
+// UNION ALL in order — so on an installation holding a full batch of live
+// readings the settled arm would never be reached, and the settled arm is the
+// one that repairs the worst display there is: a reading whose closing event
+// was lost renders as running forever.
+//
 // Ordered by activity_announced_at, oldest first, NULLS FIRST — the pass's
 // ROTATION KEY, and the reason a bounded batch makes progress at all. Ordering
 // by anything an announce does not change selects the same rows every tick
@@ -57,9 +64,8 @@ UNION ALL
    WHERE status IN ('done','failed')
      AND finished_at > $1
    ORDER BY activity_announced_at ASC NULLS FIRST
-   LIMIT $2
-)
-LIMIT $2`
+   LIMIT $3
+)`
 
 // markExtractionAnnouncedSQL advances the rotation key for the batch just
 // announced. In the same transaction as the announcements, so a pass that rolls
@@ -144,7 +150,10 @@ func reannounceCtx(ctx context.Context, read ExtractionRead) context.Context {
 // announced: the announce writes to the same connection, and a partly-consumed
 // pgx.Rows cannot share it.
 func selectExtractionReads(ctx context.Context, tx pgx.Tx, since time.Time, limit int) ([]ExtractionRead, error) {
-	rows, err := tx.Query(ctx, reconcileExtractionSQL, since, limit)
+	// Split evenly, and never to zero: the two arms repair different failures
+	// and a pass that could only ever reach one of them is half a repair.
+	perArm := max(limit/2, 1)
+	rows, err := tx.Query(ctx, reconcileExtractionSQL, since, perArm, perArm)
 	if err != nil {
 		return nil, fmt.Errorf("select extraction readings to reconcile: %w", err)
 	}

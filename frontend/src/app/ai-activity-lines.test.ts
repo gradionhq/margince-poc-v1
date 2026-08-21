@@ -106,11 +106,6 @@ describe("lineFor", () => {
     ["an unknown state", { kind: "morning_brief", state: "hibernating" }],
     ["an unknown kind", { kind: "weekly_digest", state: "running" }],
   ])("renders nothing at all for %s", (_name, item) => {
-    expect(
-      lineFor(
-        item as Parameters<typeof lineFor>[0],
-        (key) => en[key] as string,
-      ),
-    ).toBeNull();
+    expect(lineFor(item, (key) => en[key])).toBeNull();
   });
 });

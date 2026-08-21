@@ -20,18 +20,34 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// feed reads the caller's own view, with "today" stated rather than raced.
+// feed reads one person's own view.
+//
+// The person comes from the BOUND PRINCIPAL, because that is the only way the
+// read can be asked at all — another person's feed is not expressible. "Today"
+// comes from the database clock, so the boundary is the one the rows were
+// stamped against rather than the test host's idea of the date.
 func (f *readingFixture) feed(t *testing.T, user ids.UUID) (live, settled []aiactivity.Item) {
 	t.Helper()
-	now := time.Now()
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	live, settled, err := aiactivity.NewStore(f.env.DB()).Mine(context.Background(), user, midnight)
+	live, settled, err := aiactivity.NewStore(f.env.DB()).
+		Mine(f.env.As(user, nil, principal.Permissions{}), f.midnight(t))
 	if err != nil {
 		t.Fatalf("Mine: %v", err)
 	}
 	return live, settled
+}
+
+// midnight is the start of the database's today, read from the database.
+func (f *readingFixture) midnight(t *testing.T) time.Time {
+	t.Helper()
+	var midnight time.Time
+	if err := f.env.Pool.QueryRow(context.Background(),
+		`SELECT date_trunc('day', now())`).Scan(&midnight); err != nil {
+		t.Fatalf("reading the database's idea of today: %v", err)
+	}
+	return midnight
 }
 
 // A queued reading is LIVE for the person who asked for it — queued is work in
@@ -119,11 +135,12 @@ func TestASettledOccurrenceIsNeverStalled(t *testing.T) {
 	}
 }
 
-// A read with no person is refused rather than answered with everybody's work.
+// A read with nobody bound is refused rather than answered with everybody's
+// work. There is no id to pass, so this is the ONLY way to ask wrongly.
 func TestAFeedWithNoPersonIsRefused(t *testing.T) {
 	f := newReadingFixture(t)
 	if _, _, err := aiactivity.NewStore(f.env.DB()).
-		Mine(context.Background(), ids.Nil, time.Now()); err == nil {
-		t.Fatal("a personal read with no person must be refused, not answered")
+		Mine(context.Background(), f.midnight(t)); err == nil {
+		t.Fatal("a personal read with nobody bound must be refused, not answered")
 	}
 }

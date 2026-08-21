@@ -17,7 +17,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -26,7 +25,7 @@ import (
 // rather than in SQL — can be pinned without a database. *Store is the
 // production implementation.
 type Reader interface {
-	Mine(ctx context.Context, userID ids.UUID, startOfToday time.Time) (live, settled []Item, err error)
+	Mine(ctx context.Context, startOfToday time.Time) (live, settled []Item, err error)
 }
 
 // Handlers serves one person's view of the AI's work.
@@ -51,13 +50,17 @@ func NewHandlers(store Reader, now func() time.Time) Handlers {
 // unidentified caller would report "nothing is running" about a person the
 // server never resolved.
 func (h Handlers) GetMyAiActivity(w http.ResponseWriter, r *http.Request) {
+	// Refused HERE as well as in the store, and the duplication is deliberate:
+	// this one turns an unidentified caller into a 401 the client understands,
+	// where the store's turns it into a 500. The store's is the one that makes
+	// it impossible; this one makes it legible.
 	p, ok := principal.Actor(r.Context())
 	if !ok || p.UserID.IsZero() {
 		httperr.Unauthorized(w, r, "reading your AI activity needs an authenticated caller")
 		return
 	}
 	now := h.now()
-	live, settled, err := h.store.Mine(r.Context(), p.UserID, startOfDay(now))
+	live, settled, err := h.store.Mine(r.Context(), startOfDay(now))
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
