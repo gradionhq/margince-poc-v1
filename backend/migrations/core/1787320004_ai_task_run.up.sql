@@ -121,3 +121,23 @@ CREATE INDEX ai_task_run_cursor ON ai_task_run (actor_user_id, seq DESC);
 
 CREATE TRIGGER trg_ai_task_run_updated BEFORE UPDATE ON ai_task_run
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- The app role needs the SEQUENCE explicitly, and this is the only table in
+-- core that does.
+--
+-- Every other monotonic column in the tree — event_outbox.seq among them — is a
+-- GENERATED AS IDENTITY column, and Postgres checks an identity column's
+-- privilege on the TABLE, never on the implicit sequence behind it. This one
+-- cannot be an identity column: the projection BUMPS seq inside an ON CONFLICT
+-- DO UPDATE, which is an ordinary nextval() call and needs USAGE like any
+-- other. 0015's ALTER DEFAULT PRIVILEGES covers TABLES only, so without this
+-- grant the app role inserts the row and is refused the sequence.
+--
+-- Conditional for the same reason 0015's block is: a throwaway test database
+-- runs everything as the owner and has no margince_app role at all.
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'margince_app') THEN
+    GRANT USAGE, SELECT ON SEQUENCE ai_task_run_seq TO margince_app;
+  END IF;
+END $$;
