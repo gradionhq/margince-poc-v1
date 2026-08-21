@@ -143,7 +143,7 @@ const stuckRunGrace = 2 * RunWallClock
 // changes what they do next: the run's tools write as they execute, and trace is
 // only persisted at SaveOutcome, so a swept row is empty and yet its writes may
 // well have landed.
-const abandonedRunReason = "abandoned: still running past twice the run wall clock, so no process is " +
+const abandonedRunReason runner.FailureReason = "abandoned: still running past twice the run wall clock, so no process is " +
 	"coming back for it. Its tools may already have written — check the audit log for this run id " +
 	"before assuming nothing landed."
 
@@ -227,7 +227,7 @@ func (s *RunnerService) executeJob(ctx context.Context, job runner.QueuedJob) {
 		Tools:      spec.Tools,
 		Grounding:  grounding,
 	})
-	s.landOutcome(runCtx, runID, res, err)
+	s.landOutcome(runCtx, runID, job.TriggerRef, res, err)
 	s.finishJob(ctx, job.ID, &runID, "")
 }
 
@@ -275,7 +275,7 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	// exactly that — the originally staged args no longer redeem.
 	if payload.Verdict == "approved" && payload.Edited {
 		if len(payload.EditedChange) == 0 {
-			return s.store.MarkFailed(ctx, suspended.RunID, "approval was edited but the decision event carries no edited_change")
+			return s.store.MarkFailed(ctx, suspended.RunID, runner.FailureEditedApprovalCarriedNoChange)
 		}
 		suspended.Pending.Args = payload.EditedChange
 	}
@@ -283,8 +283,12 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	agentIdentity, err := s.identity.AuthenticateAgentByID(ctx, suspended.PassportID)
 	if err != nil {
 		// The passport died while the run was parked (revoked, expired,
-		// human deactivated). The run cannot act anymore — close it.
-		return s.store.MarkFailed(ctx, suspended.RunID, "passport no longer valid at resume: "+err.Error())
+		// human deactivated). The run cannot act anymore — close it. WHICH of
+		// those happened is the identity module's own message, so it goes to the
+		// operator and not to the column the person reads.
+		s.log.Warn("runner: a suspended run's authority died before it could resume",
+			"trigger_ref", suspended.TriggerRef, "run", suspended.RunID, "cause", err)
+		return s.store.MarkFailed(ctx, suspended.RunID, runner.FailurePassportNoLongerValid)
 	}
 	// The resumed leg is the SAME logical run but a new causal moment;
 	// it groups its writes under a fresh correlation id.
@@ -293,7 +297,9 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 
 	spec, known := s.specByName(suspended.SpecName)
 	if !known {
-		return s.store.MarkFailed(ctx, suspended.RunID, fmt.Sprintf("agent spec %q left the catalog while suspended", suspended.SpecName))
+		s.log.Warn("runner: a suspended run's agent left the catalog",
+			"trigger_ref", suspended.TriggerRef, "run", suspended.RunID, "spec", suspended.SpecName)
+		return s.store.MarkFailed(ctx, suspended.RunID, runner.FailureSpecLeftTheCatalog)
 	}
 
 	bounded, cancel := context.WithTimeout(runCtx, RunWallClock)
@@ -310,13 +316,19 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 		Pending:  suspended.Pending,
 		Approved: payload.Verdict == "approved",
 	})
-	s.landOutcome(runCtx, suspended.RunID, res, err)
+	s.landOutcome(runCtx, suspended.RunID, suspended.TriggerRef, res, err)
 	return nil
 }
 
-func (s *RunnerService) landOutcome(ctx context.Context, runID ids.UUID, res runner.Result, runErr error) {
+// landOutcome persists how a run ended. triggerRef names the occurrence for the
+// operator log, which is where a fault's cause goes: the run's own error is a
+// wrapped internal one, and agent_run.degrade_reason is read by the human the run
+// acted for.
+func (s *RunnerService) landOutcome(ctx context.Context, runID ids.UUID, triggerRef string, res runner.Result, runErr error) {
 	if runErr != nil {
-		if err := s.store.MarkFailed(ctx, runID, runErr.Error()); err != nil {
+		s.log.Error("runner: a run faulted outside its own degrade path",
+			"trigger_ref", triggerRef, "run", runID, "cause", runErr)
+		if err := s.store.MarkFailed(ctx, runID, runner.FailureRunFaulted); err != nil {
 			s.log.Error("runner: marking run failed", "run", runID, "err", err)
 		}
 		return

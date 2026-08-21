@@ -7,6 +7,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"log/slog"
 	"strings"
 	"testing"
@@ -99,14 +102,17 @@ func TestADegradeReasonNeverCarriesTheCauseItDegradedOn(t *testing.T) {
 	}
 }
 
-// Every reason the loop can write is spelled in this package and owes the reader
-// an action, which is what stops the next author reaching for the cause's own
-// text to make a reason informative.
+// Every reason ANY writer of agent_run.degrade_reason can put there is spelled in
+// this package and owes the reader an action, which is what stops the next author
+// reaching for the cause's own text to make a reason informative. The loop's own
+// arms and the out-of-loop closes are one list because they are one column.
 func TestEveryClosedReasonSaysWhatStoppedTheRun(t *testing.T) {
 	for _, reason := range []string{
 		reasonWallClockExceeded, reasonModelCallFailed,
 		reasonStepBudgetExhausted, reasonOutputTokenBudgetExhausted,
 		invalidOutputReason(consecutiveInvalidLimit),
+		string(FailureEditedApprovalCarriedNoChange), string(FailurePassportNoLongerValid),
+		string(FailureSpecLeftTheCatalog), string(FailureRunFaulted),
 	} {
 		if strings.TrimSpace(reason) == "" {
 			t.Error("a degrade with no reason tells the reader only that something went wrong")
@@ -152,4 +158,54 @@ func captureRunnerLog(t *testing.T) *bytes.Buffer {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 	return &buf
+}
+
+// The list above is a list, and a list drifts: a FailureReason added without a
+// line in it would go uncovered while the suite still read as complete. So the
+// declared vocabulary is read off this package's own source and matched against
+// what the test actually exercises.
+func TestNoFailureReasonIsDeclaredWithoutBeingCovered(t *testing.T) {
+	const file = "degrade.go"
+	fset := token.NewFileSet()
+	parsed, err := parser.ParseFile(fset, file, nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse %s: %v", file, err)
+	}
+
+	covered := map[string]bool{
+		"FailureEditedApprovalCarriedNoChange": true,
+		"FailurePassportNoLongerValid":         true,
+		"FailureSpecLeftTheCatalog":            true,
+		"FailureRunFaulted":                    true,
+	}
+	declared := 0
+	for _, decl := range parsed.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || !isFailureReason(value.Type) {
+				continue
+			}
+			for _, name := range value.Names {
+				declared++
+				if !covered[name.Name] {
+					t.Errorf("%s declares FailureReason %s, which no test exercises — add it to "+
+						"TestEveryClosedReasonSaysWhatStoppedTheRun and to the map here, so a reason "+
+						"cannot reach a reader's screen unmeasured", file, name.Name)
+				}
+			}
+		}
+	}
+	if declared != len(covered) {
+		t.Errorf("%s declares %d FailureReason constants but this gate expects %d — a removed one "+
+			"leaves a stale claim behind", file, declared, len(covered))
+	}
+}
+
+func isFailureReason(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == "FailureReason"
 }

@@ -71,3 +71,27 @@ func (r *Runner) degrade(acc Result, reason string) Result {
 	acc.Final = partial
 	return acc
 }
+
+// FailureReason closes a run from OUTSIDE the loop — a resume whose authority
+// died, a fault the loop never saw, an abandoned row a sweep found. It lands in
+// the SAME agent_run.degrade_reason the loop writes, so it is bound by the same
+// rule, and the named type is what makes that rule hold at compile time:
+// err.Error() is a typed string and does not convert implicitly, so the two ways
+// a cause reached this column — the bare error text and a prefix concatenated
+// onto it — no longer build. A caller with a cause logs it and picks a reason.
+type FailureReason string
+
+// The closed vocabulary for those closes. Each says what ended the run and what
+// the reader can do about it; none is derived from a cause, and none names an
+// internal identifier a reader cannot act on.
+const (
+	FailureEditedApprovalCarriedNoChange FailureReason = "the approval was edited but the decision " +
+		"carries no edited version of the action, so there was nothing safe to re-present; ask for the action again"
+	FailurePassportNoLongerValid FailureReason = "the authority this run was acting under is no longer " +
+		"valid — the passport was revoked or expired, or the person it acts for was deactivated; " +
+		"grant it again and the next occurrence will run"
+	FailureSpecLeftTheCatalog FailureReason = "this scheduled agent was removed while the run waited " +
+		"for an answer, so there is no goal left to resume; nothing further is needed"
+	FailureRunFaulted FailureReason = "the run stopped on a fault before it could finish — " +
+		"the server log carries the cause; the next scheduled occurrence starts clean"
+)

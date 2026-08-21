@@ -124,12 +124,14 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 }
 
 // MarkFailed closes a run that crashed outside the loop's own degrade
-// path (e.g. the brain adapter failed to construct).
-func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason string) error {
+// path (e.g. the brain adapter failed to construct). The reason is a
+// FailureReason, never a cause: this column is read by the human the run acted
+// for, and the cause belongs in the operator log.
+func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason FailureReason) error {
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE agent_run SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
-			WHERE id = $1`, runID, reason)
+			WHERE id = $1`, runID, string(reason))
 		return err
 	})
 }
@@ -150,7 +152,7 @@ func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason string) e
 // cutoff computed on a worker host whose time had run ahead would compare two
 // unrelated clocks and fail runs that were still executing. Only 'running' is
 // swept: 'awaiting_approval' waits on a human and may wait indefinitely.
-func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason string) ([]ids.UUID, error) {
+func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason FailureReason) ([]ids.UUID, error) {
 	// A grace of zero means "fail every running run", which is one character away
 	// from a plausible edit to the caller's constant. The check is on the
 	// MICROSECONDS the statement will actually use, not on the duration: an
@@ -168,7 +170,7 @@ func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason s
 			   SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
 			 WHERE status = 'running'
 			   AND updated_at < now() - ($1 * interval '1 microsecond')
-			RETURNING id`, graceMicros, reason)
+			RETURNING id`, graceMicros, string(reason))
 		if err != nil {
 			return err
 		}
