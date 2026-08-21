@@ -46,10 +46,23 @@ as **Applied**; move them to **Certified** once they pass, and to **Suspended** 
 certification is revoked. This is a statement about certification only — suspending a partner
 does not archive the company or stop anything else.
 
-**Margin tier** — the commercial tier that sets their margin: **Tier 1 (15%)**,
-**Tier 2 (20%)**, or **Tier 3 (25%)**. Leave it **Not set** until a tier has actually been
-agreed; the field is deliberately optional so the record never claims a deal term that doesn't
-exist yet.
+**Margin tier** — how deeply this partner is involved in selling, and the share of a deal's
+value they earn on the ones they source. It is a standing property of the *partner*, not of a
+deal: every deal they bring earns at their current tier.
+
+| Tier | You are here when… |
+|---|---|
+| **Intro (15%)** | they make introductions and hand the opportunity over. |
+| **Active Collab (20%)** | they work the opportunity alongside you. |
+| **Partner closed (25%)** | they run the sale and close it themselves. |
+
+Leave it **Not set** until a tier has actually been agreed; the field is deliberately optional
+so the record never claims a deal term that doesn't exist yet. A partner with no tier accrues
+no commission — a won deal attributed to them records a skip rather than a zero-value entry,
+so the gap is visible instead of looking like a settled nothing.
+
+The tier is **frozen onto each commission entry at the moment it accrues**, so re-tiering a
+partner changes what their future deals earn and never rewrites what a past one already did.
 
 **Relationship stage** — where the *relationship* is, independent of certification. The stages
 read as a funnel:
