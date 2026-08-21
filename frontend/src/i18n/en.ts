@@ -4843,6 +4843,24 @@ export const en = {
   "installationSettings.readOnly":
     "Only an admin or ops can change these settings.",
   "installationSettings.save": "Save",
+  // Which vendor this installation's text is sent to. Admin/ops only, on both
+  // verbs â see the ai_routing RBAC object.
+  "aiRouting.title": "Model routing",
+  "aiRouting.sub":
+    "Which model serves each tier. Changes take effect without a restart, and every process picks them up within a minute.",
+  "aiRouting.unbound":
+    "This installation has no models bound, so its AI features are off. A deployment declares its first binding under seeds.ai_routing in margince.yaml.",
+  "aiRouting.profile.label": "Location",
+  "aiRouting.profile.help":
+    "Where inference runs. Sovereign means zero egress: only models on your own hosts, refused at save time rather than at the first call.",
+  "aiRouting.profile.eu_hosted": "EU-hosted",
+  "aiRouting.profile.sovereign": "Sovereign (no egress)",
+  "aiRouting.profile.cloud_frontier": "Cloud frontier",
+  "aiRouting.model.label": "Model",
+  "aiRouting.save": "Save routing",
+  "aiRouting.saving": "Saving the binding…",
+  "aiRouting.saved": "Routing saved. Every process is now serving it.",
+  "aiRouting.adminOnly": "Only an admin or ops can change model routing.",
   "captureSettings.title": "Enrichment",
   "captureSettings.sub":
     "How captured companies and contacts are enriched after they are created.",

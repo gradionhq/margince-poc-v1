@@ -4801,6 +4801,22 @@ export const vi = {
   "installationSettings.readOnly":
     "Chỉ quản trị viên hoặc ops mới có thể thay đổi các thiết lập này.",
   "installationSettings.save": "Lưu",
+  "aiRouting.title": "Định tuyến mô hình",
+  "aiRouting.sub":
+    "Mô hình nào phục vụ từng bậc. Thay đổi có hiệu lực mà không cần khởi động lại; mọi tiến trình sẽ nhận trong vòng một phút.",
+  "aiRouting.unbound":
+    "Cài đặt này chưa ràng buộc mô hình nào nên các tính năng AI đang tắt. Bản triển khai khai báo ràng buộc đầu tiên tại seeds.ai_routing trong margince.yaml.",
+  "aiRouting.profile.label": "Vị trí",
+  "aiRouting.profile.help":
+    "Nơi chạy suy luận. Sovereign nghĩa là không có dữ liệu ra ngoài: chỉ mô hình trên máy chủ của bạn, bị từ chối khi lưu chứ không phải ở lần gọi đầu tiên.",
+  "aiRouting.profile.eu_hosted": "Đặt tại EU",
+  "aiRouting.profile.sovereign": "Sovereign (không ra ngoài)",
+  "aiRouting.profile.cloud_frontier": "Cloud frontier (đám mây cao cấp)",
+  "aiRouting.model.label": "Mô hình",
+  "aiRouting.save": "Lưu định tuyến",
+  "aiRouting.saving": "Đang lưu ràng buộc…",
+  "aiRouting.saved": "Đã lưu định tuyến. Mọi tiến trình đang phục vụ theo nó.",
+  "aiRouting.adminOnly": "Chỉ admin hoặc ops mới đổi được định tuyến mô hình.",
   "captureSettings.title": "Bổ sung thông tin",
   "captureSettings.sub":
     "Cách các công ty và contact đã thu thập được bổ sung thông tin sau khi tạo.",
