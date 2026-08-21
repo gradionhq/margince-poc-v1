@@ -69,33 +69,37 @@ Moving to a **Won** or **Lost** stage never happens on the drop. A dialog asks f
 lights up. If you cancel — or press Escape, or click outside — anything you typed is cleared,
 so the next deal you close never inherits the last one's reason.
 
-**Won needs evidence, and this is the part that surprises people.** A deal can only be marked
-won when the deal has a **contract** attached that is:
+**Won asks what is behind the win.** Margince accepts a won deal two ways, and both are
+legitimate — it just refuses to record a win that says nothing at all.
 
-- past **draft**,
-- with a **Signed** date filled in,
-- carrying an attached file categorised **contract** or **legal**,
-- in a **current** or **final** document state.
+The first way is a **signed contract on the deal**. Press **Confirm** and, if one is there, the
+deal closes immediately with no further questions.
 
-**Today you cannot satisfy that from the UI, so a deal cannot be marked won here at all.**
-This is a defect, not something you are missing —
-[#2088](https://github.com/gradionhq/margince-poc-v1/issues/2088) — and until it is fixed,
-pressing **Won** leaves the deal open and prints a message naming values that appear nowhere in
-the interface.
+The second way is **saying there is no contract**. When there is none, the dialog does not give
+up — it stays open and asks:
 
-Two links in the chain are missing. The contract form (Company → **Documents** →
-**Add a contract**) has no field that names a **deal**, so a contract recorded there belongs to
-the company but not to the opportunity. And a contract is created in **draft** with no control
-anywhere to move it out, which the evidence rule also rejects. Recording the agreement and
-attaching the signed PDF both work; the two links that would make it count do not exist yet.
+> **How was it won?**
+> This deal has no signed contract attached, so tell us how it was won. The answer is kept on
+> the deal and counted in reports.
 
-The API can express all of it — including a short reason why there is no contract at all (an
-import, a purchase order, a verbal agreement, a renewal by email) — so anyone driving Margince
-through the API or an agent can close a won deal today. It is the screens that are missing.
+Pick one of five: **On a purchase order**, **Verbally, in person or by phone**, **Renewed by
+email**, **Imported from another system**, or **Something else**. Choosing *Something else*
+opens a **What was it?** box that must say something before **Confirm** lights up — the other
+four explain themselves, that one does not.
 
-Until then, a deal you have actually won stays open in Margince, and the honest workaround is to
-say so where a human will read it: put the outcome in a note on the deal, so the record does not
-silently claim the deal is still live.
+You are only asked when there is nothing to point at, so a deal with paper behind it is still
+one click. The answer is stored on the deal, which is what lets a report later count how many
+won deals had no agreement and why.
+
+Two things to know about the contract path, because you cannot complete it from the UI yet: the
+contract form (Company → **Documents** → **Add a contract**) has no field naming a **deal**, and
+a contract is created in **draft** with no control to move it out. Both links are missing, so in
+practice today every win goes through the reason. Recording the agreement and attaching the
+signed PDF still work and are still worth doing — they just do not yet count as the evidence.
+
+**The reason is not shown back on the deal afterwards**
+([#2105](https://github.com/gradionhq/margince-poc-v1/issues/2105)). It is recorded and reports
+can read it; the record page does not display it yet.
 
 **Closing is one deal at a time, on purpose.** The bulk bar offers open stages only: a lost
 reason is specific to one deal, and one reason standing for a dozen would be a lie in the
@@ -224,9 +228,11 @@ Stated plainly, so you don't hunt for them:
   ([#2034](https://github.com/gradionhq/margince-poc-v1/issues/2034))
 - **The board cannot be dragged on touch devices.** Use the deal page's stage stepper.
 - **There is no text search within the deals list.** Use global search.
-- **A deal cannot be marked won from the UI at all.** The evidence rule needs a contract linked
-  to the deal and out of draft, and no screen does either. See *Close a deal* above.
+- **A contract cannot be tied to a deal, or moved out of draft.** So a win always goes through
+  the reason rather than the paperwork. See *Close a deal* above.
   ([#2088](https://github.com/gradionhq/margince-poc-v1/issues/2088))
+- **A won deal does not show why it had no contract.** The answer is recorded, just not
+  displayed. ([#2105](https://github.com/gradionhq/margince-poc-v1/issues/2105))
 
 ## Where deals meet the rest of Margince
 

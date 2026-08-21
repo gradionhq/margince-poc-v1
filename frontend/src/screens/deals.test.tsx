@@ -34,6 +34,19 @@ afterEach(() => {
   localStorage.clear();
 });
 
+// Drops deal d1 on a stage column the way the board's drag does. jsdom carries
+// no drag-and-drop, so the drop handler is dispatched directly — the click path
+// the reader takes on touch is the stepper, which its own tests cover.
+function dropOnStage(stageId: string, dealId = "d1") {
+  const column = document.querySelector(
+    `[data-stage="${stageId}"]`,
+  ) as HTMLElement;
+  const dataTransfer = { getData: () => dealId, setData: () => {} };
+  const dropEvent = new Event("drop", { bubbles: true });
+  Object.assign(dropEvent, { dataTransfer });
+  column.dispatchEvent(dropEvent);
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -321,6 +334,14 @@ function stubBackend(
   deals: Deal[],
   opts: {
     onAdvance?: (body: unknown, ifMatch: string | null) => void;
+    // Makes the stub enforce the server's win-evidence rule: a win naming
+    // neither a contract nor a reason is refused 422 the way the real one
+    // refuses it. Off by default, so every existing test keeps the deal that
+    // wins on the first confirm.
+    //
+    // `true` refuses every deal; a list of ids refuses only those, which is how
+    // a test says "this deal has a contract and that one does not".
+    demandsWinEvidence?: boolean | readonly string[];
     single?: Deal;
     onPatch?: (body: unknown, ifMatch: string | null) => void;
     onDelete?: () => void;
@@ -407,6 +428,32 @@ function stubBackend(
         ? await request.json()
         : JSON.parse(String(init?.body));
       opts.onAdvance?.(body, request?.headers.get("If-Match") ?? null);
+      const advancedId = url.split("/deals/")[1]?.split("/")[0] ?? "";
+      const demands = Array.isArray(opts.demandsWinEvidence)
+        ? opts.demandsWinEvidence.includes(advancedId)
+        : Boolean(opts.demandsWinEvidence);
+      if (
+        demands &&
+        body.status === "won" &&
+        !body.won_without_contract_reason
+      ) {
+        return jsonResponse(
+          {
+            code: "validation_error",
+            details: {
+              errors: [
+                {
+                  field: "won_without_contract_reason",
+                  code: "win_evidence_required",
+                  message:
+                    "a won deal needs a signed contract with its paper attached, or a reason why there is none",
+                },
+              ],
+            },
+          },
+          422,
+        );
+      }
       return jsonResponse(deal({ stage_id: body.to_stage_id }));
     }
     if (method === "GET" && /\/deals\/[^/?]+(\?.*)?$/.test(url)) {
@@ -879,6 +926,243 @@ describe("DealsScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(advances).toHaveLength(1));
     expect(advances[0]).toEqual([{ to_stage_id: "s3", status: "won" }, "4"]);
+  });
+
+  // A deal genuinely won on a purchase order or a phone call has no contract to
+  // point at, and before this the confirm dialog offered no way to say so: the
+  // win was refused, the reason the server wanted appeared in no field, and the
+  // deal stayed open. The dialog now asks the question the refusal implies.
+  it("a win the server refuses for want of evidence asks how it was won, and sends the answer", async () => {
+    const advances: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        demandsWinEvidence: true,
+        onAdvance: (body) => advances.push(body),
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    dropOnStage("s3");
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+
+    // The first confirm asks for nothing: a deal WITH a contract wins here, and
+    // only the server knows which this is.
+    expect(screen.queryByText("How was it won?")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    // Refused — the dialog stays open and grows the question rather than
+    // dropping the reader back on a board that has snapped the card home.
+    await waitFor(() =>
+      expect(screen.getByText("How was it won?")).toBeTruthy(),
+    );
+    expect(screen.getByText("Move to Won?")).toBeTruthy();
+    expect(advances).toHaveLength(1);
+
+    // Confirm stays refused until the question is answered.
+    expect(
+      screen.getByRole("button", { name: "Confirm" }).hasAttribute("disabled"),
+    ).toBe(true);
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "How was it won?" }),
+      "On a purchase order",
+    );
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(advances).toHaveLength(2));
+    expect(advances[1]).toEqual({
+      to_stage_id: "s3",
+      status: "won",
+      won_without_contract_reason: "purchase_order",
+    });
+  });
+
+  // "Something else" is the one member that explains nothing on its own, so the
+  // server demands a detail after it. Sending the reason without one would be a
+  // refusal the reader could have been spared.
+  it('picking "Something else" holds Confirm until the detail says what it was', async () => {
+    const advances: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        demandsWinEvidence: true,
+        onAdvance: (body) => advances.push(body),
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    dropOnStage("s3");
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(screen.getByText("How was it won?")).toBeTruthy(),
+    );
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "How was it won?" }),
+      "Something else",
+    );
+
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    expect(confirm.hasAttribute("disabled")).toBe(true);
+
+    await user.type(screen.getByLabelText("What was it?"), "a barter deal");
+    expect(confirm.hasAttribute("disabled")).toBe(false);
+    await user.click(confirm);
+
+    await waitFor(() => expect(advances).toHaveLength(2));
+    expect(advances[1]).toEqual({
+      to_stage_id: "s3",
+      status: "won",
+      won_without_contract_reason: "other",
+      won_without_contract_detail: "a barter deal",
+    });
+  });
+
+  // The refusal belongs to the deal that earned it. Read off the shared
+  // mutation's error instead, it outlives that deal: cancel, open Won on a
+  // deal that DOES have a contract, and the reason picker greets it — and the
+  // server takes a stated reason at its word without looking for a contract,
+  // so that deal is recorded as won-without-paper when it was not.
+  it("a refusal on one deal does not ask the next deal how it was won", async () => {
+    const withoutPaper = deal({ id: "d1", name: "No contract" });
+    const withPaper = deal({ id: "d2", name: "Has contract" });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([withoutPaper, withPaper], {
+        // Only d1 lacks evidence. d2 wins on the first confirm.
+        demandsWinEvidence: ["d1"],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await waitFor(() => expect(screen.getByText("No contract")).toBeTruthy());
+
+    dropOnStage("s3");
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(screen.getByText("How was it won?")).toBeTruthy(),
+    );
+
+    // Walk away from that deal without answering.
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByText("Move to Won?")).toBeNull());
+
+    dropOnStage("s3", "d2");
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+    expect(screen.queryByText("How was it won?")).toBeNull();
+  });
+
+  // A win that succeeds on the first confirm has nothing left to ask, so the
+  // dialog must close. Left open, its Confirm stays live over a version the
+  // write just replaced.
+  it("a win that needs no reason closes the dialog on success", async () => {
+    vi.stubGlobal("fetch", stubBackend([deal({})]));
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    dropOnStage("s3");
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(screen.queryByText("Move to Won?")).toBeNull());
+  });
+
+  // The detail belongs to "Something else" alone. Carried across a change of
+  // reason it would be stored anyway — the server writes both columns as given
+  // — leaving text on the deal behind a field the reader can no longer see.
+  it('changing away from "Something else" does not send the detail', async () => {
+    const advances: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        demandsWinEvidence: true,
+        onAdvance: (body) => advances.push(body),
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    dropOnStage("s3");
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(screen.getByText("How was it won?")).toBeTruthy(),
+    );
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "How was it won?" }),
+      "Something else",
+    );
+    await user.type(screen.getByLabelText("What was it?"), "a barter deal");
+
+    // Change your mind: the detail field disappears, and so must its text.
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "How was it won?" }),
+      "On a purchase order",
+    );
+    expect(screen.queryByLabelText("What was it?")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(advances).toHaveLength(2));
+    expect(advances[1]).toEqual({
+      to_stage_id: "s3",
+      status: "won",
+      won_without_contract_reason: "purchase_order",
+    });
+  });
+
+  // The server rejects a detail of format-only characters (`saysSomething` in
+  // win_evidence.go). Enabling Confirm on one earns a second refusal for the
+  // omission the reader was already asked about.
+  it('a zero-width detail does not satisfy "Something else"', async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], { demandsWinEvidence: true }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    dropOnStage("s3");
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(screen.getByText("How was it won?")).toBeTruthy(),
+    );
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "How was it won?" }),
+      "Something else",
+    );
+    await user.type(screen.getByLabelText("What was it?"), "​​");
+
+    expect(
+      screen.getByRole("button", { name: "Confirm" }).hasAttribute("disabled"),
+    ).toBe(true);
   });
 
   it("the advance-confirm dot reads the live catalog tier, not a hardcode", async () => {

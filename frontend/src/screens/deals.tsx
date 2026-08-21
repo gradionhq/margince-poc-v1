@@ -57,6 +57,7 @@ import { ArchiveAction } from "./archive";
 import {
   LoadMoreButton,
   OverlayUnavailable,
+  problemFieldErrorsOf,
   problemMessageOf,
   provenanceOf,
   QueryGate,
@@ -746,6 +747,71 @@ function dealColumns(
   ];
 }
 
+/**
+ * The closed vocabulary for winning a deal with no contract behind it.
+ *
+ * The type comes from the generated contract, and the labels are a Record over
+ * it, so adding a member to `crm.yaml` stops this file compiling until the new
+ * member has a label — rather than leaving a choice the server accepts and no
+ * screen offers.
+ */
+type WonReason = NonNullable<
+  NonNullable<
+    components["schemas"]["AdvanceDealRequest"]["won_without_contract_reason"]
+  >
+>;
+
+const WON_REASON_LABELS: Record<WonReason, MessageKey> = {
+  purchase_order: "deals.winReasonPurchaseOrder",
+  verbal: "deals.winReasonVerbal",
+  renewal_by_email: "deals.winReasonRenewalByEmail",
+  imported: "deals.winReasonImported",
+  other: "deals.winReasonOther",
+};
+
+// Display order — deliberately not the contract's, which is a storage list.
+// This one puts the answers a rep reaches for first. The Record above is what
+// guarantees the set is complete; this only decides the sequence.
+const WON_REASONS: readonly WonReason[] = [
+  "purchase_order",
+  "verbal",
+  "renewal_by_email",
+  "imported",
+  "other",
+];
+
+// Narrows the Select's plain string back to the vocabulary. The control is
+// built from WON_REASONS, so this never rejects in practice — but a cast would
+// make that an assumption instead of a check, and the value goes on to be
+// stored as an assertion about how a deal closed.
+function asWonReason(value: string): WonReason | "" {
+  const known = WON_REASONS.find((reason) => reason === value);
+  return known ?? "";
+}
+
+/**
+ * Whether a detail carries any visible character, matching the rule the server
+ * applies (`saysSomething` in win_evidence.go).
+ *
+ * `trim()` alone is not the same test. A zero-width space is not whitespace to
+ * either language, so a detail of "​" would pass a trim check here, enable
+ * Confirm, and then be refused by the server — the reader having explained
+ * precisely nothing, which is the state the vocabulary exists to prevent.
+ */
+function saysSomething(text: string): boolean {
+  return /\P{White_Space}/u.test(text.replace(/\p{Cf}/gu, ""));
+}
+
+// The one member that explains nothing on its own, so the server demands a
+// detail after it (`WonReasonDetailRequiredError`).
+const WON_REASON_NEEDING_DETAIL: WonReason = "other";
+
+// The server's refusal when a win names neither a contract nor a reason. The
+// dialog keys on THIS rather than on the 422 status: an advance can be refused
+// for reasons that have nothing to do with evidence, and asking "how was it
+// won?" after a version conflict would be nonsense.
+const WIN_EVIDENCE_REQUIRED = "win_evidence_required";
+
 type PendingAdvance = {
   dealId: string;
   // Carried through the confirm rather than looked up when it closes: the write
@@ -760,6 +826,12 @@ type AdvanceInput = {
   version: number | undefined;
   toStage: Stage;
   lostReason?: string;
+  // Why this win has no signed contract behind it. Absent on the ordinary win,
+  // where the contract IS the answer — the server distinguishes the two, and
+  // that distinction is what makes "how many won deals have no paper" a
+  // question reports can answer.
+  wonWithoutContractReason?: WonReason;
+  wonWithoutContractDetail?: string;
 };
 
 /**
@@ -776,6 +848,28 @@ type AdvanceInput = {
  * instance minted here would be a second one the caller's `ToastRegion` never
  * renders, and every confirmation would be shown to nobody.
  */
+/**
+ * What a terminal advance says about HOW the deal closed, on top of the stage
+ * and status every advance carries.
+ *
+ * A lost deal states its reason. A won deal states one only when there is no
+ * signed contract to point at — the server looks for the contract first, and a
+ * win that has one says nothing here, which is what keeps "won with paper" and
+ * "won without it" distinguishable in reports.
+ */
+function closingFields(input: AdvanceInput) {
+  if (input.toStage.semantic === "lost") {
+    return { lost_reason: input.lostReason };
+  }
+  if (input.toStage.semantic === "won" && input.wonWithoutContractReason) {
+    return {
+      won_without_contract_reason: input.wonWithoutContractReason,
+      won_without_contract_detail: input.wonWithoutContractDetail,
+    };
+  }
+  return {};
+}
+
 function useAdvanceDeal(toast: Toast) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -790,9 +884,7 @@ function useAdvanceDeal(toast: Toast) {
         body: {
           to_stage_id: input.toStage.id,
           ...(terminal ? { status: input.toStage.semantic } : {}),
-          ...(input.toStage.semantic === "lost"
-            ? { lost_reason: input.lostReason }
-            : {}),
+          ...closingFields(input),
         },
       });
       if (error) {
@@ -1425,7 +1517,15 @@ export function DealsScreen({
       <ConfirmAdvanceModal
         pending={pending}
         onClose={() => setPending(null)}
-        onConfirm={(input) => advance.mutate(input)}
+        onConfirm={(input) =>
+          // mutateAsync REJECTS on failure; this dialog wants the outcome, and
+          // an unhandled rejection in a click handler is not one. onError still
+          // runs, so the screen's own error surface is unaffected.
+          advance.mutateAsync(input).then(
+            () => null,
+            (error: unknown) => error,
+          )
+        }
       />
     </div>
   );
@@ -1447,20 +1547,51 @@ function ConfirmAdvanceModal({
 }: Readonly<{
   pending: PendingAdvance | null;
   onClose: () => void;
-  onConfirm: (input: AdvanceInput) => void;
+  // Resolves when the advance settles, so this dialog acts on the outcome of
+  // THIS attempt. It returns the error rather than throwing it: the caller's
+  // own error surface still reports the failure, and a rejection here would be
+  // an unhandled one in an event handler.
+  onConfirm: (input: AdvanceInput) => Promise<unknown>;
 }>) {
   const t = useT();
   const tierMap = useAgentTierMap();
   const [lostReason, setLostReason] = useState("");
+  const [wonReason, setWonReason] = useState<WonReason | "">("");
+  const [wonDetail, setWonDetail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  // The deal this dialog has been told has no contract behind it, pinned to the
+  // exact attempt that was refused.
+  //
+  // Read off the shared mutation's `error` instead, the refusal outlives the
+  // deal that earned it: cancel here, open Won on a DIFFERENT deal, and the
+  // reason panel greets a deal that may well have a contract — and the server
+  // takes a stated reason at its word without looking for one, so that deal is
+  // recorded as won-without-paper when it was not. That falsifies the exact
+  // count the reason vocabulary exists to make truthful.
+  const [refusedDealId, setRefusedDealId] = useState<string | null>(null);
 
-  // EVERY way out of this dialog clears the reason — the buttons, Escape, and
-  // the backdrop alike. The component stays mounted between openings, so a
+  // EVERY way out of this dialog clears what was typed — the buttons, Escape,
+  // and the backdrop alike. The component stays mounted between openings, so a
   // reason typed and then abandoned would otherwise still be sitting there the
   // next time a deal is closed, and it would describe a different deal.
   const dismiss = () => {
     setLostReason("");
+    setWonReason("");
+    setWonDetail("");
+    setRefusedDealId(null);
     onClose();
   };
+
+  const needsLostReason = pending?.toStage.semantic === "lost";
+  // The reason panel appears only once the server has asked for it, and only
+  // for the deal it asked about. A win with a signed contract is one click,
+  // exactly as before: making every rep justify a win the paperwork already
+  // explains is how a required field becomes a field everyone fills with the
+  // same lie.
+  const needsWonReason =
+    pending?.toStage.semantic === "won" && refusedDealId === pending.dealId;
+  const detailMissing =
+    wonReason === WON_REASON_NEEDING_DETAIL && !saysSomething(wonDetail);
 
   return (
     <Modal open={pending !== null} onClose={dismiss} labelledBy="advance-title">
@@ -1473,7 +1604,7 @@ function ConfirmAdvanceModal({
           <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
             {t("deals.confirmTerminal", { status: pending.toStage.semantic })}
           </p>
-          {pending.toStage.semantic === "lost" && (
+          {needsLostReason && (
             <div className="field" style={{ marginTop: "var(--space-2)" }}>
               <span className="t-label" id="lost-reason-label">
                 {t("deals.lostReason")}
@@ -1485,20 +1616,53 @@ function ConfirmAdvanceModal({
               />
             </div>
           )}
+          {needsWonReason && (
+            <WonReasonFields
+              reason={wonReason}
+              detail={wonDetail}
+              onReason={(next) => {
+                setWonReason(next);
+                // The detail belongs to "Something else" alone. Kept across a
+                // change of reason it would sit invisibly behind a field the
+                // reader can no longer see, which is not a state they can
+                // correct.
+                if (next !== WON_REASON_NEEDING_DETAIL) {
+                  setWonDetail("");
+                }
+              }}
+              onDetail={setWonDetail}
+            />
+          )}
           <div className="actions">
             <Button onClick={dismiss}>{t("deals.cancel")}</Button>
             <Button
               variant="primary"
               disabled={
-                pending.toStage.semantic === "lost" && lostReason.trim() === ""
+                submitting ||
+                (needsLostReason && lostReason.trim() === "") ||
+                (needsWonReason && (wonReason === "" || detailMissing))
               }
-              onClick={() => {
-                onConfirm({
+              onClick={async () => {
+                setSubmitting(true);
+                const error = await onConfirm({
                   dealId: pending.dealId,
                   version: pending.version,
                   toStage: pending.toStage,
                   lostReason: lostReason.trim() || undefined,
+                  ...wonAnswer(needsWonReason, wonReason, wonDetail),
                 });
+                setSubmitting(false);
+                // ONE refusal keeps this dialog open: the server saying this
+                // win names no evidence, because the answer to that is a field
+                // the reader can fill in right here. Every other outcome closes
+                // it — a success has nothing left to ask, and a 403 or a 409
+                // has no answer this dialog can offer, so holding it open would
+                // trap the reader behind a modal whose error text renders on
+                // the screen underneath it.
+                if (error && winEvidenceRefused(error)) {
+                  setRefusedDealId(pending.dealId);
+                  return;
+                }
                 dismiss();
               }}
             >
@@ -1508,6 +1672,86 @@ function ConfirmAdvanceModal({
         </>
       )}
     </Modal>
+  );
+}
+
+/**
+ * The won-without-contract answer as the advance should carry it, or nothing.
+ *
+ * The detail rides ONLY with the reason that needs one. Sent alongside any
+ * other reason it would be stored anyway — the server writes both columns as
+ * given — so a reader who typed a detail under "Something else" and then chose
+ * "On a purchase order" would leave text on the deal, and in its audit trail,
+ * that they had every reason to believe they had discarded when the field
+ * disappeared.
+ */
+function wonAnswer(active: boolean, reason: WonReason | "", detail: string) {
+  if (!active || reason === "") {
+    return {};
+  }
+  const explained = reason === WON_REASON_NEEDING_DETAIL;
+  return {
+    wonWithoutContractReason: reason,
+    wonWithoutContractDetail: explained ? detail.trim() : undefined,
+  };
+}
+
+// Whether a failed advance is the server asking how a contract-less deal was
+// won. Keyed on the field code, not the 422: an advance is refused for several
+// reasons, and only this one has an answer the reader can give here.
+function winEvidenceRefused(error: unknown): boolean {
+  return problemFieldErrorsOf(error).some(
+    (fault) => fault.code === WIN_EVIDENCE_REQUIRED,
+  );
+}
+
+// The reason a deal was won with no paper behind it: a closed vocabulary, plus
+// the free-text detail the one open-ended member needs.
+function WonReasonFields({
+  reason,
+  detail,
+  onReason,
+  onDetail,
+}: Readonly<{
+  reason: WonReason | "";
+  detail: string;
+  onReason: (value: WonReason | "") => void;
+  onDetail: (value: string) => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
+        {t("deals.winNoEvidence")}
+      </p>
+      <div className="field" style={{ marginTop: "var(--space-2)" }}>
+        <span className="t-label" id="won-reason-label">
+          {t("deals.winReason")}
+        </span>
+        <Select
+          aria-labelledby="won-reason-label"
+          placeholder={t("deals.winReasonPick")}
+          value={reason}
+          onChange={(value) => onReason(asWonReason(value))}
+          options={WON_REASONS.map((option) => ({
+            value: option,
+            label: t(WON_REASON_LABELS[option]),
+          }))}
+        />
+      </div>
+      {reason === WON_REASON_NEEDING_DETAIL && (
+        <div className="field" style={{ marginTop: "var(--space-2)" }}>
+          <span className="t-label" id="won-detail-label">
+            {t("deals.winReasonDetail")}
+          </span>
+          <TextInput
+            aria-labelledby="won-detail-label"
+            value={detail}
+            onChange={(event) => onDetail(event.target.value)}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -2482,7 +2726,12 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               <ConfirmAdvanceModal
                 pending={pending}
                 onClose={() => setPending(null)}
-                onConfirm={(input) => advance.mutate(input)}
+                onConfirm={(input) =>
+                  advance.mutateAsync(input).then(
+                    () => null,
+                    (error: unknown) => error,
+                  )
+                }
               />
               <ToastRegion toast={toast} />
             </RecordView>
