@@ -148,9 +148,15 @@ promise to send, and because a full album at that size uploads well inside the s
 
 **Neither row is the whole ceiling, and the gap is a known defect (#2047).** The descriptor has no
 aggregate field, while the send path caps a message's files at **20 MiB in total** when it reads their
-bodies — one tenth of what either row promises. A message inside both published bounds but over that
-total is refused late, retried, and finally parked under a reason that names no cause. Read the rows
-as per-file limits, not as a budget.
+bodies — one tenth of what either row promises. So read the rows as per-file limits, not as a budget:
+a message inside both published bounds can still be over the total.
+
+What happens then is at least honest. The read seam answers `ErrFilesNotCarried`, so the delivery
+**parks on the first attempt** with a reason naming the 20 MiB total, rather than spending the retry
+ladder re-reading the same objects once per rung and parking under "the retry ladder is exhausted".
+What is still wrong is WHEN the sender hears it: the bound is invisible to the directory, so the
+composer cannot warn before the send, and the park is the first anybody learns of it. Closing that is
+what #2047 tracks — the refusal is already in the right place, the number just is not published.
 
 Telegram sends **every file as a document, an image included.** Telegram refuses an album that mixes
 documents and photos outright, so grouping by type would decide per message whether one message
