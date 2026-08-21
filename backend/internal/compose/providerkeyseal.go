@@ -21,12 +21,10 @@ import (
 	"log/slog"
 	"maps"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/config"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -78,9 +76,17 @@ func SealProviderKeys(ctx context.Context, pool *pgxpool.Pool, vault keyvault.Va
 		return stored
 	}
 
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		return settings.SeedValue(ctx, tx, ai.ProviderKeys, next)
-	}); err != nil {
+	// Set, not SeedValue. Seeding is insert-only by design — it exists so a
+	// restart never overwrites a value a human changed — and that is exactly
+	// wrong here: the refs accumulate. An installation that sealed gemini last
+	// boot and adds anthropic this one has a row already, so a seed would store
+	// nothing, the new ref would never be recorded, and its blob would be
+	// stranded in the vault while the environment silently kept answering.
+	//
+	// Overwriting is safe because this map is only ever GROWN: an existing
+	// provider's ref is carried forward untouched a few lines above, so a Set
+	// can add a key and can never drop or repoint one.
+	if err := settings.Set(ctx, NewSettingsStore(pool), ai.ProviderKeys, next); err != nil {
 		// The blobs are sealed and nothing references them — inert, encrypted
 		// at rest, and collected by nobody. The installation keeps running on
 		// the environment and the next boot tries again, which will strand

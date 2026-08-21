@@ -94,3 +94,47 @@ func TestWithNoVaultNothingIsSealed(t *testing.T) {
 		t.Errorf("sealed %v without a vault to seal into", refs)
 	}
 }
+
+// A provider added AFTER the first seal must be recorded too.
+//
+// The refs accumulate in one row, so an insert-only write stores nothing once
+// that row exists: the second vendor's blob would be sealed, its ref dropped on
+// the floor, and the environment would keep answering while a stranded secret
+// sat in the vault. Nothing about the installation would look wrong.
+func TestAProviderAddedAfterTheFirstSealIsRecorded(t *testing.T) {
+	e := SetupSearch(t)
+	ctx := e.adminRoutingCtx()
+	vault := keyvault.NewMemory()
+	ws := ids.From[ids.WorkspaceKind](e.WS)
+	log := slog.New(slog.DiscardHandler)
+
+	first := compose.SealProviderKeys(ctx, e.Pool, vault, ws,
+		config.Static(map[string]string{"GEMINI_API_KEY": "a-gemini-key"}), log)
+	if _, ok := first["gemini"]; !ok {
+		t.Fatalf("the first seal recorded nothing: %v", first)
+	}
+	if _, ok := first["anthropic"]; ok {
+		t.Fatal("anthropic was sealed before its key existed")
+	}
+
+	// A second vendor arrives. The row already exists.
+	second := compose.SealProviderKeys(ctx, e.Pool, vault, ws, sealingEnv(), log)
+
+	if _, ok := second["anthropic"]; !ok {
+		t.Errorf("anthropic was not recorded: %v — its key stays in the environment and its blob is stranded", second)
+	}
+	if second["gemini"] != first["gemini"] {
+		t.Errorf("gemini was repointed: %q then %q; the map is only ever grown", first["gemini"], second["gemini"])
+	}
+
+	// And it survives the process: what the next boot reads must hold both.
+	stored, err := settings.Get(ctx, compose.NewSettingsStore(e.Pool), ai.ProviderKeys)
+	if err != nil {
+		t.Fatalf("reading the recorded refs: %v", err)
+	}
+	for _, provider := range []string{"gemini", "anthropic"} {
+		if stored[provider] != second[provider] {
+			t.Errorf("%s recorded as %q, want %q", provider, stored[provider], second[provider])
+		}
+	}
+}
