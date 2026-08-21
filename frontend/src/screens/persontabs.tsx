@@ -1,7 +1,7 @@
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import { activityTimeline } from "../design-system/activitytimeline";
-import { Avatar } from "../design-system/atoms";
+import { Avatar, Button } from "../design-system/atoms";
 import { GroupedTimelineList } from "../design-system/composed";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
@@ -14,6 +14,7 @@ import { formatDateTime } from "../format/format";
 import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { useViewerId } from "./common";
+import { TimelineActions } from "./compose";
 import { PersonCommercialCard, readableRole } from "./personcards";
 import {
   CHRONOLOGY_EMPTY_KEYS,
@@ -55,7 +56,15 @@ export function PersonTimelineTab({
   personId,
   view,
   loading = false,
-}: Readonly<{ personId: string; view?: Person360; loading?: boolean }>) {
+  onBriefMeeting,
+}: Readonly<{
+  personId: string;
+  view?: Person360;
+  loading?: boolean;
+  // Opens the pre-meeting brief for one meeting row. The drawer lives on the
+  // page, so the tab asks rather than renders it.
+  onBriefMeeting?: (activityId: string) => void;
+}>) {
   const t = useT();
   const [filter, setFilter] = useChronologyFilter(personId);
   const logged = view?.activities?.data ?? [];
@@ -66,6 +75,20 @@ export function PersonTimelineTab({
     filter,
     activities: logged,
     activitiesHaveMore: hasMore,
+    renderActions: (activity) => (
+      <TimelineActions
+        activity={activity}
+        entityType="person"
+        entityId={personId}
+        personId={personId}
+        extra={(row) => (
+          <MeetingBriefAction
+            activityId={row.kind === "meeting" ? row.id : null}
+            onBriefMeeting={onBriefMeeting}
+          />
+        )}
+      />
+    ),
   });
   return (
     <Panel
@@ -198,6 +221,31 @@ export function PersonDealsTab({
 
 // --- Meetings ---------------------------------------------------------------
 
+// The brief verb for one meeting, booked or already held — the backend
+// assembles a brief for any meeting activity, and reading one afterwards is
+// how a reader recovers what a room agreed.
+//
+// It narrows the id in one place, where the caller's optional prop and the
+// record's nullable field can both be checked: absent when either is missing,
+// which is the same "no brief to open" answer arriving from two directions.
+function MeetingBriefAction({
+  activityId,
+  onBriefMeeting,
+}: Readonly<{
+  activityId: string | null | undefined;
+  onBriefMeeting?: (activityId: string) => void;
+}>) {
+  const t = useT();
+  if (!activityId || !onBriefMeeting) {
+    return null;
+  }
+  return (
+    <Button small onClick={() => onBriefMeeting(activityId)}>
+      {t("person.meeting.brief")}
+    </Button>
+  );
+}
+
 /**
  * PersonMeetingsTab puts the meeting that has not happened yet above the ones
  * that have. The booked meeting is the server's own next-meeting read, taken
@@ -207,7 +255,12 @@ export function PersonDealsTab({
 export function PersonMeetingsTab({
   view,
   loading = false,
-}: Readonly<{ view?: Person360; loading?: boolean }>) {
+  onBriefMeeting,
+}: Readonly<{
+  view?: Person360;
+  loading?: boolean;
+  onBriefMeeting?: (activityId: string) => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
   const viewerId = useViewerId();
@@ -245,6 +298,10 @@ export function PersonMeetingsTab({
                 <p className="pe-brief-line">
                   {formatDateTime(next.starts_at, locale, RECORD_ZONE)}
                 </p>
+                <MeetingBriefAction
+                  activityId={next.activity_id}
+                  onBriefMeeting={onBriefMeeting}
+                />
                 {next.participants && next.participants.length > 0 && (
                   <>
                     <Eyebrow as="h3">
@@ -276,7 +333,15 @@ export function PersonMeetingsTab({
             emptyLabel={t("person.meetings.noneLogged")}
           >
             <GroupedTimelineList
-              groups={groupChronology(activityTimeline(met, viewerId), hasMore)}
+              groups={groupChronology(
+                activityTimeline(met, viewerId, (activity) => (
+                  <MeetingBriefAction
+                    activityId={activity.id}
+                    onBriefMeeting={onBriefMeeting}
+                  />
+                )),
+                hasMore,
+              )}
               zone={RECORD_ZONE}
             />
           </SurfaceState>

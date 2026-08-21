@@ -516,7 +516,7 @@ describe("the context line, and which record each reading picks", () => {
   // The MOVES half of the merged brief: a booked meeting's own verb renders
   // as a full-bleed row alongside whatever advice the account has, rather
   // than as a sidebar button beside the context tiles.
-  it("offers to prepare a booked meeting as a move row", () => {
+  it("offers to write to the room of a booked meeting as a move row", () => {
     const prepared = vi.fn();
     show(
       {
@@ -530,7 +530,11 @@ describe("the context line, and which record each reading picks", () => {
       },
       { onPrepareMeeting: prepared },
     );
-    fireEvent.click(screen.getByRole("button", { name: "Prepare meeting" }));
+    // The verb names what the button does. It opens the COMPOSER anchored on
+    // the meeting, and there is no meeting brief on the account page to open —
+    // a button reading "Prepare meeting" promised one and delivered a mail
+    // form.
+    fireEvent.click(screen.getByRole("button", { name: "Write to the room" }));
     expect(prepared).toHaveBeenCalledWith("a-1");
   });
 

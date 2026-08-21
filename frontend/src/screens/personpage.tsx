@@ -108,14 +108,26 @@ function PersonTabPanel({
   tab,
   personId,
   view,
-}: Readonly<{ tab: PersonTab; personId: string; view: Person360 }>) {
+  onBriefMeeting,
+}: Readonly<{
+  tab: PersonTab;
+  personId: string;
+  view: Person360;
+  onBriefMeeting: (activityId: string) => void;
+}>) {
   switch (tab) {
     case "timeline":
-      return <PersonTimelineTab personId={personId} view={view} />;
+      return (
+        <PersonTimelineTab
+          personId={personId}
+          view={view}
+          onBriefMeeting={onBriefMeeting}
+        />
+      );
     case "deals":
       return <PersonDealsTab view={view} />;
     case "meetings":
-      return <PersonMeetingsTab view={view} />;
+      return <PersonMeetingsTab view={view} onBriefMeeting={onBriefMeeting} />;
     case "research":
       return <PersonResearchTab view={view} />;
     case "documents":
@@ -250,7 +262,15 @@ export function PersonPageV2({
         setDrawer("research");
         return;
       case "meeting_brief":
-        setDrawer("meeting");
+        // The prep moment is raised off the next meeting, so that is the one
+        // it briefs. An action naming its own activity is honoured over the
+        // page's, because a moment about a different meeting must not open a
+        // brief about this one.
+        setDrawer(
+          meetingDrawer(
+            destination.entity_id ?? view.data.next_meeting?.activity_id,
+          ),
+        );
         return;
       case "record":
         if (destination.entity_id) {
@@ -348,7 +368,12 @@ export function PersonPageV2({
           </div>
         )}
 
-        <PersonTabPanel tab={tab} personId={id} view={view.data} />
+        <PersonTabPanel
+          tab={tab}
+          personId={id}
+          view={view.data}
+          onBriefMeeting={(activityId) => setDrawer(meetingDrawer(activityId))}
+        />
         <PersonComposer
           personId={id}
           view={view.data}
@@ -365,8 +390,8 @@ export function PersonPageV2({
           onClose={() => setDrawer(null)}
         />
         <PersonMeetingBrief
-          activityId={view.data.next_meeting?.activity_id ?? null}
-          open={drawer === "meeting"}
+          activityId={briefingMeeting(drawer)}
+          open={briefingMeeting(drawer) !== null}
           onClose={() => setDrawer(null)}
         />
       </RecordView>
@@ -376,7 +401,30 @@ export function PersonPageV2({
 
 // Which drawer is open. Null is the ordinary state — the page is the thing the
 // reader is looking at, and a drawer is a detour from it.
-type Drawer = "composer" | "research" | "meeting" | null;
+//
+// The meeting brief names the meeting it is briefing. It used to be a bare
+// "meeting" that always read `next_meeting`, which made a working feature
+// reachable only for the soonest meeting and only while the prep moment was
+// live — every other meeting on the record had a brief the backend would
+// happily assemble and no way to ask for it.
+type Drawer =
+  | "composer"
+  | "research"
+  | { kind: "meeting"; activityId: string }
+  | null;
+
+// The brief the prep moment opens is the one for the next meeting; a timeline
+// row names its own. Both go through here so the drawer has one shape.
+function meetingDrawer(activityId: string | null | undefined): Drawer {
+  return activityId ? { kind: "meeting", activityId } : null;
+}
+
+// Which meeting the open drawer is briefing, or null when it is not the brief.
+function briefingMeeting(drawer: Drawer): string | null {
+  return typeof drawer === "object" && drawer?.kind === "meeting"
+    ? drawer.activityId
+    : null;
+}
 
 // The header's second line: what this person does, and where. The company is a
 // link because it is a record of its own, not a label.

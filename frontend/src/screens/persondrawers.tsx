@@ -10,12 +10,15 @@ import {
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { ENTITY, isEntityKind } from "../app/entity";
+import { navigate } from "../app/router";
 import { Badge, Button, Modal, TextInput } from "../design-system/atoms";
 import { RichText } from "../design-system/richtext";
 import { Select } from "../design-system/select";
 import { webUrl } from "../format/weburl";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
+import { SentenceList } from "./company360";
 import { refusalOf, SendRefusal, scheduleFields } from "./compose";
 import { useConsentPurposes } from "./consent";
 import { PersonProviderSection } from "./personprovider";
@@ -973,6 +976,16 @@ export function PersonResearchDrawer({
 
 // --- The meeting brief -----------------------------------------------------
 
+// A cited deal or contact goes to its own screen. The brief's other citation
+// kind is the meeting activity itself, which has no screen and is rendered
+// flat by the shared Citations — so this is only ever called for the two that
+// route, and an unroutable kind is left where it is rather than guessed at.
+function openCitedRecord(entityType: string, entityId: string) {
+  if (isEntityKind(entityType)) {
+    navigate(ENTITY[entityType].route(entityId));
+  }
+}
+
 export function PersonMeetingBrief({
   activityId,
   open,
@@ -1017,6 +1030,16 @@ export function PersonMeetingBrief({
         {brief.isLoading && (
           <p className="pe-prose">{t("person.meeting.loading")}</p>
         )}
+        {/* A failed read says so here rather than throwing the whole page to
+            the error boundary: the reader is minutes from a room, and losing
+            the record behind the drawer costs them the context they opened it
+            for. */}
+        {brief.isError && (
+          <p className="pe-prose">{problemMessageOf(brief.error, t)}</p>
+        )}
+        {brief.isSuccess && brief.data.sections.length === 0 && (
+          <p className="pe-prose">{t("person.meeting.empty")}</p>
+        )}
         {brief.data?.sections.map((section) => (
           <section className="pe-brief-section" key={section.kind}>
             {/* h3 for the same reason as the composer's own section above: the
@@ -1024,11 +1047,14 @@ export function PersonMeetingBrief({
             <h3 className="pe-section-title">
               {t(`person.meeting.${section.kind}` as never)}
             </h3>
-            {section.sentences.map((sentence) => (
-              <p className="pe-prose" key={sentence.text}>
-                {sentence.text}
-              </p>
-            ))}
+            {/* The account brief's own renderer. The meeting brief carries the
+                same sentence shape — text, nature, evidence — and rendering it
+                a second way here is how one product grows two spellings of a
+                citation. */}
+            <SentenceList
+              sentences={section.sentences}
+              onOpenRecord={openCitedRecord}
+            />
           </section>
         ))}
       </div>

@@ -1918,7 +1918,7 @@ export const vi = {
   "today.source.nextSteps": "công việc đang mở",
   "today.source.nextMeeting": "lịch",
   "today.source.deals": "deal",
-  "today.meeting.prepare": "Chuẩn bị cuộc họp",
+  "today.meeting.prepare": "Viết cho người tham dự",
   "today.source.people": "các liên hệ",
   "today.source.standing": "phía nào cần hành động và các tín hiệu",
   "today.source.activities": "những gì đã trao đổi",
@@ -5413,6 +5413,8 @@ export const vi = {
   "person.research.evidenceOrOmit":
     "Có hỗ trợ AI · có bằng chứng hoặc bỏ qua · chỉ thông tin công khai",
   "person.meeting.title": "Tóm tắt cuộc họp",
+  "person.meeting.brief": "Xem tóm tắt",
+  "person.meeting.empty": "Chưa có gì được ghi lại cho cuộc họp này.",
   "person.meeting.loading": "Đang tổng hợp bản tóm tắt…",
   "person.meeting.assembledNow": "Vừa được tổng hợp từ dữ liệu mới nhất",
   "person.meeting.header": "Tổng quan",

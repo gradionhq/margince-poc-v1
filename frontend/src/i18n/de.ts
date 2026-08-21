@@ -1935,7 +1935,7 @@ export const de = {
   "today.source.nextSteps": "offene Aufgaben",
   "today.source.nextMeeting": "der Kalender",
   "today.source.deals": "Deals",
-  "today.meeting.prepare": "Termin vorbereiten",
+  "today.meeting.prepare": "An die Teilnehmer schreiben",
   "today.source.people": "die Kontakte",
   "today.source.standing": "wer am Zug ist und die Signale",
   "today.source.activities": "was gesprochen wurde",
@@ -5462,6 +5462,8 @@ export const de = {
   "person.research.evidenceOrOmit":
     "KI-unterstützt · nur mit Beleg · ausschließlich öffentliche Informationen",
   "person.meeting.title": "Meeting-Briefing",
+  "person.meeting.brief": "Briefing öffnen",
+  "person.meeting.empty": "Zu diesem Meeting ist noch nichts erfasst.",
   "person.meeting.loading": "Briefing wird zusammengestellt…",
   "person.meeting.assembledNow":
     "Soeben aus den aktuellen Daten zusammengestellt",
