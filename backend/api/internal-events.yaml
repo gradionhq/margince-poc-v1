@@ -115,9 +115,13 @@ components:
           type: string
           maxLength: 200
           description: >-
-            OPERATOR VOCABULARY: a typed constant, never a provider message and
-            never err.Error(). A provider's own text can embed echoed key
-            material, and this column reaches an ordinary rep.
+            SERVER-AUTHORED prose, never a provider message and never
+            err.Error(). That is the property that matters rather than the
+            spelling: a provider's own text can echo key material or a prompt
+            injection's payload, and this column reaches an ordinary rep. The
+            emitters satisfy it with fixed literals today; what a reviewer has
+            to check of a new one is where the string came from, not what shape
+            it is.
         summary:
           type: string
           maxLength: 2000

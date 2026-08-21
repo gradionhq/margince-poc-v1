@@ -84,9 +84,10 @@ CREATE TABLE ai_task_run (
   quantity_unit  text NULL CHECK (quantity_unit IS NULL OR
                    quantity_unit IN ('messages','records','people','documents')),
 
-  -- OPERATOR VOCABULARY: a typed constant, never a provider message. A
-  -- provider's own text can embed echoed key material, and this column reaches
-  -- an ordinary rep.
+  -- SERVER-AUTHORED prose, never a provider message and never err.Error(): a
+  -- provider's own text can echo key material or a prompt injection's payload,
+  -- and this column reaches an ordinary rep. The property is about where the
+  -- string CAME FROM, not what shape it is.
   degrade_reason text NULL,
   summary        text NULL,
 

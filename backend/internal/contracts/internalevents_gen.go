@@ -16,7 +16,7 @@ type InternalEventAiTaskStateChanged struct {
 	// Attempt Which attempt this state belongs to. The lifecycle is NOT monotonic — a claimed run can be released and re-claimed — so state alone cannot order two events.
 	Attempt int `json:"attempt"`
 
-	// DegradeReason OPERATOR VOCABULARY: a typed constant, never a provider message and never err.Error(). A provider's own text can embed echoed key material, and this column reaches an ordinary rep.
+	// DegradeReason SERVER-AUTHORED prose, never a provider message and never err.Error(). That is the property that matters rather than the spelling: a provider's own text can echo key material or a prompt injection's payload, and this column reaches an ordinary rep. The emitters satisfy it with fixed literals today; what a reviewer has to check of a new one is where the string came from, not what shape it is.
 	DegradeReason *string `json:"degrade_reason,omitempty"`
 
 	// FinishedAt When this attempt settled. Present exactly for a settled state.
