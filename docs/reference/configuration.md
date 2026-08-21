@@ -468,6 +468,48 @@ silent fallback.
 |---|---|---|
 | `MARGINCE_KEYVAULT_ROOT_KEY` | — | base64 (std) of 32 bytes; set to enable the vault. Generate: `openssl rand -base64 32` |
 
+### The vault also holds the two deployment credentials
+
+Connector credentials were the vault's first tenants; two more moved in and
+they arrive by a different route. The **outbound-relay password**
+(`email.smtp.password`) and the **license token** (`license.token`) are still
+DECLARED by the deployment, but on the first boot that sees one the value is
+sealed into the vault and the installation records where it went. Nothing is
+required of the operator to make that happen, and the boot log says when it
+has:
+
+```
+sealed a deployment credential into the key vault; the deployment configuration
+that carried it can be removed  credential_name="the license token" declared_at=license.token
+```
+
+Once that line appears the declaration may be deleted — the variable dropped
+from the orchestrator, the file unmounted — and the installation keeps booting
+on the sealed copy. Nothing here can delete it for you: a process cannot edit
+its own deployment.
+
+**Rotation moves into the vault only for reading, never for writing.** There is
+no product surface that changes either credential, and no seeded role holds the
+grant to write one, so the sealed copy is only ever a mirror of what the
+deployment declares. That is why the DECLARATION still wins when both exist: to
+rotate, put the new value back where it used to be — the variable or the file —
+and the next boot re-seals it and destroys the superseded blob. This is the
+opposite precedence to a BYOK provider key, which the vault wins because the
+routing surface can change one.
+
+**A vault that cannot be opened says so.** These two are the only credentials
+whose absence used to read as a posture — "unlicensed", "unauthenticated relay"
+— and once the declaration is gone the vault holds the only copy. So a process
+that finds a sealed reference it cannot open refuses to boot naming the vault
+and the root key, rather than reporting an installation that has a license as
+having none. Restore `MARGINCE_KEYVAULT_ROOT_KEY` to the value the installation
+sealed with, or re-declare the credential where it used to be.
+
+One consequence for the **worker**: its license check now runs after its
+database pool, because a sealed token lives in a table. It still happens before
+the worker does any work, so an operator mistake never leaves a worker running
+on a license the api refuses to boot on.
+
 ## Custom-field schema pool (api) — runtime DDL
 
 `--schema-dsn`/`MARGINCE_SCHEMA_DSN` is the api-only owner-role DSN behind
@@ -823,7 +865,8 @@ that stops matching its recorded digest fails `make check`.
 
 | field | default | effect |
 |---|---|---|
-| `token_file` | *(none)* | Path to a file holding the license token. A **file reference, never an inline value**: it is a credential, and this file gets read, copied and pasted into support threads. Overridden by `MARGINCE_LICENSE` when that variable is set to a non-empty value — the same variable name the validation module itself reads, so a container that already exports the license needs no `license:` block at all. |
+| `token` | *(none)* | The token as a reference — `${file:/run/secrets/margince-license}` or `${env:SOME_VAR}`. The preferred spelling, and the one a refusal recommends. An inline value is refused at decode time. |
+| `token_file` | *(none)* | The original spelling, still honoured so an existing deployment boots unchanged. Path to a file holding the license token. A **file reference, never an inline value**: it is a credential, and this file gets read, copied and pasted into support threads. Overridden by `MARGINCE_LICENSE` when that variable is set to a non-empty value — the same variable name the validation module itself reads, so a container that already exports the license needs no `license:` block at all. |
 
 Three postures, and what each one does at boot:
 
@@ -832,6 +875,12 @@ Three postures, and what each one does at boot:
 | **no token configured** | **refuses to boot in production**; boots with a warning when `MARGINCE_ENV` is `dev` or `test` | `margince_license_posture{state="absent"} 1` |
 | **token verified** | boots | `margince_license_posture{state="valid"} 1`, plus `margince_license_seats` when the license grants a seat count |
 | **token refused** | **refuses to boot** (api and worker alike), naming the module's own reason and the setting to correct | — |
+
+On the first boot that resolves a token it is sealed into the key vault, after
+which the declaration above may be removed — see
+[the vault also holds the two deployment credentials](#the-vault-also-holds-the-two-deployment-credentials)
+for what that changes about rotation, and for the boot refusal an unreachable
+vault produces instead of an "absent" posture.
 
 **A production installation serves on a license or it does not serve.** The
 posture decides it, and `MARGINCE_ENV` is fail-closed, so an installation that

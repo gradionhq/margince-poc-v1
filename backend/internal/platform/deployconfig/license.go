@@ -112,6 +112,12 @@ func (l License) TokenSource(lookup config.Lookup) func() (string, error) {
 	return func() (string, error) { return l.Token(lookup) }
 }
 
+// TokenOriginNone is what TokenOrigin answers when the deployment names no
+// token at all. Named because a caller has to compare against it — the answer
+// "nowhere in this file" is the one a caller may need to override with a source
+// this package has never heard of — and two spellings of it would drift.
+const TokenOriginNone = "none"
+
 // TokenOrigin names where Token would take a token from, for the boot log.
 //
 // Which of the two won is worth saying out loud: the environment outranks the
@@ -128,7 +134,7 @@ func (l License) TokenOrigin(lookup config.Lookup) string {
 	if l.TokenFile != "" {
 		return "license.token_file"
 	}
-	return "none"
+	return TokenOriginNone
 }
 
 // ConfigItems declares the two variables that belong to the DEPLOYMENT rather

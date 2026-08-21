@@ -107,9 +107,16 @@ func ResolveRouting(ctx context.Context, pool *pgxpool.Pool, routingPath string,
 // how the worker's sweeps read their settings too — the alternative would be an
 // ungated read, and `setting` has no RLS beneath that gate.
 func routingCtx(ctx context.Context, ws ids.UUID) context.Context {
+	return bootCtx(ctx, ws, routingSeedActor)
+}
+
+// bootCtx is that same binding for any boot-time settings read: the workspace,
+// a named system actor, and a correlation id, so a settings write made before
+// any request exists is still attributable to the thing that made it.
+func bootCtx(ctx context.Context, ws ids.UUID, actor string) context.Context {
 	ctx = principal.WithWorkspaceID(ctx, ws)
 	ctx = principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalSystem, ID: routingSeedActor,
+		Type: principal.PrincipalSystem, ID: actor,
 	})
 	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
