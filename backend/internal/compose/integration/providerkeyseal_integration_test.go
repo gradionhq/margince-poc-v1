@@ -14,7 +14,9 @@ package integration
 // copy of the same secret in the vault.
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"os"
@@ -219,5 +221,52 @@ func TestAnUnreadableSettingRowFallsBackToTheEnvironment(t *testing.T) {
 
 	if refs != nil {
 		t.Errorf("returned %v from a database that cannot be read; the caller would treat those as sealed", refs)
+	}
+}
+
+// The seal is reached from routing resolution, not merely reachable.
+//
+// ResolveRouting → sealedKeys → SealProviderKeys is the chain a booting role
+// actually walks, and every case above enters it one function too late by
+// calling SealProviderKeys itself. That proves the seal works and proves
+// nothing about whether routing asks for it — and an unasked seal fails OPEN:
+// the router comes up, resolves every key from the environment exactly as
+// before, and the credentials never move. Nothing looks wrong.
+//
+// So this one sets the root key the way a deployment does and starts at
+// ResolveRouting.
+func TestRoutingResolutionSealsTheKeysItResolvesWith(t *testing.T) {
+	e := SetupSearch(t)
+	ctx := e.adminRoutingCtx()
+	// The root key rides the SAME lookup as the provider keys, because that is
+	// how sealedKeys reads it — in production both come from config.FromOS. A
+	// t.Setenv here would set the process environment and leave the static
+	// lookup this call actually consults without a vault, which is a green
+	// test that exercises nothing.
+	env := config.Static(map[string]string{
+		"GEMINI_API_KEY":    "a-gemini-key",
+		"ANTHROPIC_API_KEY": "an-anthropic-key",
+		keyvault.EnvRootKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32)),
+	})
+
+	// A stored binding, because sealedKeys is reached on the LAST line of
+	// ResolveRouting — an installation with nothing bound returns before it,
+	// and a test without this would pass while proving nothing.
+	if err := settings.Set(ctx, compose.NewSettingsStore(e.Pool), ai.Routing, parsedRouting(t, "resolver-model")); err != nil {
+		t.Fatalf("storing the binding to resolve: %v", err)
+	}
+
+	if _, err := compose.ResolveRouting(ctx, e.Pool, "", env, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatalf("resolving routing with a vault configured: %v", err)
+	}
+
+	// The keys the environment carried are now sealed and recorded, which only
+	// happens if routing resolution called the seal.
+	stored, err := settings.Get(ctx, compose.NewSettingsStore(e.Pool), ai.ProviderKeys)
+	if err != nil {
+		t.Fatalf("reading the recorded refs: %v", err)
+	}
+	if len(stored) == 0 {
+		t.Fatal("routing resolved with a vault configured and sealed nothing; the seal is not wired into the boot that was supposed to call it")
 	}
 }
