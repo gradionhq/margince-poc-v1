@@ -34,12 +34,35 @@ func rbacActor(ctx context.Context) (principal.Principal, error) {
 	return p, nil
 }
 
+// refuseBuyer turns away the one principal kind that holds no CRM authority at
+// all. It is applied at every gate in this package rather than left to the
+// permission check below each one, because those gates answer from
+// `Permissions` — so a buyer would be admitted by exactly the accident that it
+// is minted carrying none. That is not a guarantee; it is a coincidence one
+// careless constructor would end, and the caller admitted by it would be an
+// external person with a room link.
+//
+// A buyer's authority is its Deal Room session, and the Deal Room's own store
+// methods carry the room predicate that grants it. Nothing in platform/auth
+// admits a buyer, and the refusal is stated once here so a gate added later
+// inherits it by calling the same helper.
+func refuseBuyer(p principal.Principal, what string) error {
+	if p.Type != principal.PrincipalBuyer {
+		return nil
+	}
+	return fmt.Errorf("%s: a Deal Room participant holds no CRM authority: %w",
+		what, apperrors.ErrPermissionDenied)
+}
+
 // Require is the object-level admission gate: the actor's merged role
 // policy must grant the action on the object type. The system principal
 // (workspace provisioning) is trusted by construction and has no role.
 func Require(ctx context.Context, object string, action principal.Action) error {
 	p, err := rbacActor(ctx)
 	if err != nil {
+		return err
+	}
+	if err := refuseBuyer(p, object+"."+string(action)); err != nil {
 		return err
 	}
 	if p.Type == principal.PrincipalSystem {
@@ -60,6 +83,9 @@ func Require(ctx context.Context, object string, action principal.Action) error 
 func RequireAny(ctx context.Context, object string, actions ...principal.Action) error {
 	p, err := rbacActor(ctx)
 	if err != nil {
+		return err
+	}
+	if err := refuseBuyer(p, object); err != nil {
 		return err
 	}
 	if p.Type == principal.PrincipalSystem {
@@ -93,10 +119,15 @@ func UpsertAction(replacing bool) principal.Action {
 // cannot cover: reads. The gate only inspects mutating methods, so a
 // human-only GET (an admin-only sheet) must reject an agent principal here,
 // or an admin-minted read-scoped passport would satisfy the object grant and
-// see it. The connector and system principals are not agents and pass.
+// see it. A buyer is refused too, by the shared helper: "human" here means a
+// seated member, and an external Deal Room participant is not one. The
+// connector and system principals are, and pass.
 func RequireHuman(ctx context.Context) error {
 	p, err := rbacActor(ctx)
 	if err != nil {
+		return err
+	}
+	if err := refuseBuyer(p, "human-only operation"); err != nil {
 		return err
 	}
 	if p.Type == principal.PrincipalAgent {
@@ -179,12 +210,23 @@ func AuthzRule(p principal.Principal, entityType string, auditAction string) str
 		(p.Type == principal.PrincipalConnector && p.OnBehalfOf == ids.Nil) {
 		return "system"
 	}
+	// A buyer's authority is the room session, and rendering the policy for one
+	// would write `role[] deal.update row_scope=` — the very string this
+	// function exists to avoid, claiming a role and a row scope the actor never
+	// held. Name what actually admitted the call instead.
+	if p.Type == principal.PrincipalBuyer {
+		return ruleDealRoomSession
+	}
 	action, ok := auditActionGrant[auditAction]
 	if !ok {
 		return ""
 	}
 	return p.Permissions.Rule(entityType, action)
 }
+
+// ruleDealRoomSession is the authorization_rule a buyer's write records: the
+// room session admitted it, and no role policy was consulted.
+const ruleDealRoomSession = "deal_room_session"
 
 const roleAdmin = "admin"
 
@@ -197,6 +239,9 @@ func RequireAdmin(ctx context.Context) error {
 	p, ok := principal.Actor(ctx)
 	if !ok {
 		return fmt.Errorf("no principal in context: %w", apperrors.ErrPermissionDenied)
+	}
+	if err := refuseBuyer(p, "admin-only operation"); err != nil {
+		return err
 	}
 	if p.Type == principal.PrincipalSystem {
 		return nil

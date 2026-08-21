@@ -16,8 +16,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// PrincipalType distinguishes the four actor classes the audit log and
-// event envelope know (data-model §11, events.md §2).
+// PrincipalType distinguishes the actor classes the audit log and event
+// envelope know (data-model §11, events.md §2).
 type PrincipalType string
 
 const (
@@ -25,6 +25,15 @@ const (
 	PrincipalAgent     PrincipalType = "agent"
 	PrincipalConnector PrincipalType = "connector"
 	PrincipalSystem    PrincipalType = "system"
+	// PrincipalBuyer is an external person acting inside ONE Deal Room: no
+	// seat, no RBAC grant, no row scope. Their authority is the room session
+	// and nothing else, so every gate in platform/auth refuses them and the
+	// Deal Room's own store methods carry the room predicate that admits
+	// them. The kind exists so the audit log can attribute their action to
+	// THEM — `human` would send a reader to a member directory they will
+	// never appear in, and `system` would put the installation's name on a
+	// person's decision in an append-only ledger.
+	PrincipalBuyer PrincipalType = "buyer"
 )
 
 // Scope is a Passport-grantable verb class a tool may require

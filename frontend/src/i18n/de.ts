@@ -2487,9 +2487,11 @@ export const de = {
 
   "audit.you": "Du",
   "audit.system": "System",
+  "audit.unknownBuyer": "Teilnehmer im Deal Room",
   "audit.unknownMember": "Unbekanntes Mitglied",
   "audit.viaAgent": "über einen Agenten",
   "audit.viaConnector": "über einen Connector",
+  "audit.viaDealRoom": "im Deal Room",
   "audit.viaNamed": "über {client}",
   "audit.noHumanAuthority": "Keine menschliche Autorisierung erfasst",
   "settings.auditSub": "jede Aktion, zugeordnet — Mensch, Agent oder Connector",

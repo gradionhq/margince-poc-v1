@@ -26,6 +26,13 @@ import (
 // Unbounded reports whether the actor sees every row of a permitted
 // object: the system principal, or row_scope=all.
 func Unbounded(p principal.Principal) bool {
+	// A buyer is bounded by its Deal Room, which nothing in Permissions can
+	// describe — so RowScopeAll on one is a claim the row-scope vocabulary
+	// cannot honour, and reading it as "every row" would hand an external
+	// visitor the estate.
+	if p.Type == principal.PrincipalBuyer {
+		return false
+	}
 	return p.Type == principal.PrincipalSystem || p.Permissions.RowScope == principal.RowScopeAll
 }
 

@@ -1,4 +1,11 @@
-import { Bot, CircleUser, Cog, type LucideIcon, Plug } from "lucide-react";
+import {
+  Bot,
+  CircleUser,
+  Cog,
+  type LucideIcon,
+  Plug,
+  UserRoundCheck,
+} from "lucide-react";
 import type { components } from "../api/schema";
 import { Badge } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
@@ -42,6 +49,10 @@ const ACTOR_ICON: Record<AuditLogEntry["actor_type"], LucideIcon> = {
   agent: Bot,
   system: Cog,
   connector: Plug,
+  // A person, not a machine: a buyer decided this. The icon differs from a
+  // member's so a reader can tell at a glance that the actor sits outside the
+  // organization and will not be found in the member directory.
+  buyer: UserRoundCheck,
 };
 
 // The phrase that says a machine did the typing, qualifying the person who
@@ -93,6 +104,17 @@ function actorAttribution(
   }
   if (entry.actor_type === "system") {
     return { labelKey: "audit.system" };
+  }
+  // A Deal Room participant. The read path resolves actor_name from app_user
+  // for humans only, and a buyer holds no seat, so no name arrives today and
+  // this renders the kind rather than inventing one. Naming the participant
+  // means resolving actor_id against deal_room_participant on the read path —
+  // when that lands, the name replaces the label here.
+  if (entry.actor_type === "buyer") {
+    return {
+      labelKey: "audit.unknownBuyer",
+      qualifierKey: "audit.viaDealRoom",
+    };
   }
 
   const qualifierKey = MACHINE_QUALIFIER[entry.actor_type];

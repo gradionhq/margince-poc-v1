@@ -616,7 +616,7 @@ public.audit_log.actor_id text NOT NULL gen=- def=-
 public.audit_log.actor_type text NOT NULL gen=- def=-
 public.audit_log.after jsonb gen=- def=-
 public.audit_log.audit_log_action_check CHECK ((action = ANY (ARRAY['create'::text, 'update'::text, 'archive'::text, 'merge'::text, 'promote'::text, 'restore'::text, 'export'::text, 'erase'::text, 'assign'::text, 'advance_stage'::text, 'advance_phase'::text, 'approve'::text, 'reject'::text, 'consent_grant'::text, 'consent_withdraw'::text, 'activity_relink'::text, 'record_share'::text, 'record_unshare'::text, 'resolve'::text, 'demote'::text, 'import'::text, 'import_undo'::text, 'disqualify'::text, 'anonymize'::text, 'send_email'::text, 'reset_data'::text, 'password_link_issued'::text, 'connect'::text, 'disconnect'::text, 'schedule'::text, 'reschedule'::text, 'cancel'::text, 'release'::text, 'hold'::text, 'expire'::text, 'restrict'::text, 'pin'::text, 'accrue'::text, 'pay'::text])))
-public.audit_log.audit_log_actor_type_check CHECK ((actor_type = ANY (ARRAY['human'::text, 'agent'::text, 'connector'::text, 'system'::text])))
+public.audit_log.audit_log_actor_type_check CHECK ((actor_type = ANY (ARRAY['human'::text, 'agent'::text, 'connector'::text, 'system'::text, 'buyer'::text])))
 public.audit_log.audit_log_on_behalf_of_fkey FOREIGN KEY (on_behalf_of) REFERENCES app_user(id) ON DELETE SET NULL (on_behalf_of)
 public.audit_log.audit_log_pkey PRIMARY KEY (id)
 public.audit_log.authorization_rule text gen=- def=-
@@ -3740,7 +3740,7 @@ public.system_log.id uuid NOT NULL gen=- def=uuidv7()
 public.system_log.occurred_at timestamp with time zone NOT NULL gen=- def=now()
 public.system_log.on_behalf_of uuid gen=- def=-
 public.system_log.passport_id uuid gen=- def=-
-public.system_log.system_log_actor_type_check CHECK ((actor_type = ANY (ARRAY['human'::text, 'agent'::text, 'connector'::text, 'system'::text])))
+public.system_log.system_log_actor_type_check CHECK ((actor_type = ANY (ARRAY['human'::text, 'agent'::text, 'connector'::text, 'system'::text, 'buyer'::text])))
 public.system_log.system_log_on_behalf_of_fkey FOREIGN KEY (on_behalf_of) REFERENCES app_user(id) ON DELETE SET NULL (on_behalf_of)
 public.system_log.system_log_pkey PRIMARY KEY (id)
 public.system_log.trg_system_log_no_mutate CREATE TRIGGER trg_system_log_no_mutate BEFORE DELETE OR UPDATE ON public.system_log FOR EACH ROW EXECUTE FUNCTION system_log_immutable()

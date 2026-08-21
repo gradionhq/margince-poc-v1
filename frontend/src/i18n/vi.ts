@@ -2462,9 +2462,11 @@ export const vi = {
 
   "audit.you": "Bạn",
   "audit.system": "Hệ thống",
+  "audit.unknownBuyer": "Người tham gia Deal Room",
   "audit.unknownMember": "Thành viên không xác định",
   "audit.viaAgent": "qua một agent",
   "audit.viaConnector": "qua một connector",
+  "audit.viaDealRoom": "trong Deal Room",
   "audit.viaNamed": "qua {client}",
   "audit.noHumanAuthority": "Không ghi nhận người uỷ quyền",
   "settings.auditSub":
