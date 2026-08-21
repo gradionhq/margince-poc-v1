@@ -190,16 +190,22 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		native()
 		return
 	}
-	// The caller's precondition travels with the write, exactly as it does on
-	// the native side. Reading the header and not forwarding it is the worse
-	// of the two answers available here: an overlay mirror carries no version
-	// column, so this installation cannot honour the condition — and a request
-	// that asks for one and is archived anyway has been told something false.
-	// Forwarding it lets the overlay provider refuse in its own words instead.
-	ifVersion, ok := httperr.IfMatchVersion(w, r)
-	if !ok {
-		return
-	}
+	// If-Match is accepted and discarded here, exactly as overlayUpdate's own
+	// doc says it is twenty lines above, and for the same reason: a mirror row
+	// carries no version to compare against.
+	//
+	// Forwarding it was tried and reverted. The pin reaches
+	// overlay.Provider.ArchiveAt, which refuses a version it cannot honour —
+	// correct on the seam, wrong through this door. It made one REST client
+	// carrying `If-Match` on every write get 200-and-ignored from
+	// PATCH /people/{id} and 422 from DELETE /people/{id}, on the same record
+	// in the same installation, for a request that archived successfully
+	// before. Two doors of one shadow may not answer a header two ways.
+	//
+	// The gap both verbs share — an overlay caller has no optimistic
+	// concurrency and gets no signal saying so — is one question, filed once,
+	// and closing it needs a version the caller can pin rather than a refusal
+	// on one verb.
 	ref := datasource.EntityRef{Type: et, ID: ids.UUID(id)}
 	rec, err := s.sorDispatch.Read(r.Context(), ref)
 	if err != nil {
@@ -207,7 +213,7 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if _, err := s.sorDispatch.archiveInMode(r.Context(), bool(ov),
-		datasource.ArchiveInput{Ref: ref, IfVersion: ifVersion}); err != nil {
+		datasource.ArchiveInput{Ref: ref}); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
