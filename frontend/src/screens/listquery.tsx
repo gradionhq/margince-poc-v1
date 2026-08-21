@@ -4,7 +4,6 @@ import {
   type ReactNode,
   type SetStateAction,
   useEffect,
-  useMemo,
   useState,
 } from "react";
 import { FIRST_PAGE } from "../api/client";
@@ -206,6 +205,7 @@ export function ListTable<Row>({
   showArchivedToggle = true,
   tools,
   emptyNote,
+  scopeKey,
   body,
   bodyOwnsPaging = false,
   selection,
@@ -262,6 +262,14 @@ export function ListTable<Row>({
    * way back to everything. Overlay's own note wins when both apply.
    */
   emptyNote?: ReactNode;
+  /**
+   * What this list is reading, when the screen narrows it by something that is
+   * neither a chip nor a filter — passed straight to the surface, which resets
+   * the reader to page 1 when it changes. Deals is the case: its pipeline
+   * picker is screen state, so switching pipelines leaves `filters` untouched
+   * while the result set changes entirely.
+   */
+  scopeKey?: string;
 }>): ReactNode {
   const t = useT();
   // Overlay reads a mirror that cannot sort or filter (the server 422s those
@@ -304,20 +312,35 @@ export function ListTable<Row>({
     ...chips.map((chip) => translateChip(chip, t)),
     ...dataChips,
   ];
-  // Carries the chip KEYS and the grouping, not just a flat list of values:
-  // chosenFor reads both, so two different chip sets that happen to share the
-  // same values must not produce the same key. JSON, rather than a join on a
-  // separator — any separator can appear inside a value, and then ["a","b"]
-  // and ["a<sep>b"] are indistinguishable.
-  const chipOptionKey = JSON.stringify(
-    allChips.map((chip) => [chip.key, chip.options.map((o) => o.value)]),
+  // Keyed on the FILTERS, which are what the list actually reads. The table
+  // treats a new `chosen` identity as the reader narrowing the list and resets
+  // to page 1, so this identity must change only when the answer changes.
+  //
+  // Keying on the chip options made the roster do it: the owner dial names the
+  // viewer's teams, which arrive on their own query, so a chip gained an option
+  // seconds after the list rendered and threw the reader from page 2 back to
+  // page 1 — for a reason they could not see, having touched nothing.
+  //
+  // Keying on chosenFor's RESULT is not enough either, and the saved views are
+  // why. A restored view sets `owner_team_id=t-9` before the roster answers, so
+  // the filter is already there when the matching option arrives; chosenFor
+  // then adds the chip's own key and the result changes shape while the query,
+  // and every row, stays exactly as it was.
+  //
+  // The filters are the honest signal: the fetch reads them and nothing else,
+  // so an identity that follows them resets when the rows change and never
+  // otherwise. What a dial OFFERS is presentation, and presentation must not
+  // move the reader.
+  // Sorted, so re-picking the same value cannot reorder the object and read as
+  // a change: setFilter deletes a composite param and re-adds it, which moves
+  // its insertion order without moving what it selects.
+  const narrowKey = JSON.stringify(
+    Object.entries(query.filters).sort(([a], [b]) => a.localeCompare(b)),
   );
-  const filterKey = JSON.stringify(query.filters);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the values the arrays carry, which is what makes the identity stable
-  const chosen = useMemo(
-    () => chosenFor(allChips, query.filters),
-    [chipOptionKey, filterKey],
-  );
+  // Rebuilt every render, on purpose: a dial must show what is chosen the
+  // moment its options arrive. Nothing resets on this — `narrowKey` is the
+  // trigger — so a fresh object here costs nothing.
+  const chosen = chosenFor(allChips, query.filters);
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived change
@@ -435,6 +458,8 @@ export function ListTable<Row>({
           : [...views.map((spec) => translateView(spec, t)), ...dataViews]
       }
       activeView={view}
+      narrowKey={narrowKey}
+      scopeKey={scopeKey}
       onViewChange={setPicked}
       archived={
         showArchivedToggle
