@@ -791,6 +791,10 @@ func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
 }
 
+func (stubs) GetMyAgentActivity(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetMyAgentActivity")
+}
+
 func (stubs) GetMyEmailSignature(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetMyEmailSignature")
 }

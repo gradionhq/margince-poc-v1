@@ -624,16 +624,23 @@
   display: flex;
   gap: var(--space-2);
 }
+/* The panel's box, spelled ONCE. A count tile and a run row are different
+   things — one is a link with a figure in it, the other a stack of sentences —
+   but they are the same object on the page, and a second byte-identical copy of
+   these four declarations is how a surface ends up with two spellings of one
+   card that drift apart on the next tone change. */
+.arbox {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgHover);
+}
 .artile {
   display: flex;
   flex: 1 1 0;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  background: var(--bgHover);
   color: var(--textMeta);
   font-size: 12px;
   line-height: 1.15;
@@ -853,4 +860,46 @@
 .archip:focus-visible {
   outline: var(--focus-ring-forced);
   box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+/* ── Running now ─────────────────────────────────────────────────────────────
+   The scheduled runner's own work, which nothing in this tab started. One row
+   per run: the sentence a reader gets, and under it the detail — the operator's
+   reason and whatever the run itself wrote. The detail is set smaller and
+   dimmer than the line on purpose: it is the answer to a question the line
+   already raised, not a second claim of equal weight. */
+.arruns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.arrun {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.arrunline {
+  color: var(--textPrimary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.arrundetail {
+  color: var(--textMeta);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+/* The label the operator's reason arrives under. Upright, because the reason
+   beside it is a machine token and italics on both would make the two one
+   string. */
+.arrundetail i {
+  margin-right: var(--space-2);
+  font-style: normal;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 9.5px;
+  color: var(--textMeta);
 }

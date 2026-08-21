@@ -118,6 +118,11 @@ type Server struct {
 	accountDraftHandlers
 	financeHandlers
 	integrationsHandlers
+	// The personal agent-activity read: what the scheduled agent is doing for
+	// the caller now, and what it settled for them today. It lives in compose
+	// because it reads the agents module's run tables without importing a
+	// sibling of its own.
+	agentActivityHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
 	// webhook.go), injected by WithGmailPush only when a subscription token

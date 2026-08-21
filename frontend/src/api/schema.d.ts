@@ -7818,6 +7818,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/agent-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the agent is doing for THIS person, right now and lately.
+         * @description The scheduled agent runs this account authorized, as facts rather than sentences:
+         *     the kind, the state, and when. The client renders the sentence in the reader's own
+         *     locale, so this never returns prose.
+         *
+         *     Personal by construction: a run is this caller's when the passport it executes under
+         *     is bound to them (`passport.on_behalf_of`). A run whose passport was deleted is
+         *     nobody's and is absent — never attributed to whoever asks. No RBAC object gates it,
+         *     because there is no wider set to withhold.
+         *
+         *     `recent` is BOUNDED (since local midnight, at most 10). An unbounded per-person run
+         *     history is a per-person activity ledger, which this installation does not keep.
+         *
+         *     Read-only; no audit or event row (EVT-NOEVT-3).
+         */
+        get: operations["getMyAgentActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/contracts": {
         parameters: {
             query?: never;
@@ -16337,6 +16369,53 @@ export interface components {
         ContextResponse: {
             anchor: components["schemas"]["ContextEntityRef"];
             sections: components["schemas"]["ContextSection"][];
+        };
+        AgentActivity: {
+            /**
+             * Format: date-time
+             * @description When the server read this.
+             */
+            as_of: string;
+            /** @description Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read. */
+            running: components["schemas"]["ActivityItem"][];
+            /** @description Runs that FINISHED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-finished first, at most 10. */
+            recent: components["schemas"]["ActivityItem"][];
+        };
+        ActivityItem: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
+             * @enum {string}
+             */
+            kind: "morning_brief" | "overnight_at_risk_sweep";
+            /**
+             * @description `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
+             *     state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
+             *     exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
+             *     auto-execute only) and is declared for the states the runner itself can reach.
+             * @enum {string}
+             */
+            state: "queued" | "running" | "awaiting_approval" | "done" | "degraded" | "failed";
+            /**
+             * Format: date-time
+             * @description When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.
+             */
+            started_at: string;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /**
+             * @description One of the runner's own closed reasons for stopping early, shown in the panel detail and
+             *     never interpolated into a reader-facing line. It is NEVER a model provider's or a parser's
+             *     own message: those carry vendor text and can echo credential material, and this field
+             *     reaches an ordinary rep. The underlying cause goes to the operator log instead.
+             */
+            degrade_reason?: string | null;
+            /**
+             * @description The run's own final summary when it produced one. OPTIONAL — the runner never validates
+             *     that `final` carries it. Model-authored, so it is truncated to `maxLength` on the way out.
+             */
+            summary?: string | null;
         };
         AgentTool: {
             /** @description The tool name (tools/list identity). */
@@ -33164,6 +33243,27 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getMyAgentActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's own agent activity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentActivity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     listOrganizationContracts: {

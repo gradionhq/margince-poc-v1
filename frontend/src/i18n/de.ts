@@ -2264,6 +2264,30 @@ export const de = {
     "Mindestens eins auswählen. Ein Agent darf nie mehr als Sie selbst.",
   "settings.passportScopesRequired":
     "Wählen Sie mindestens eine Sache aus, die dieser Agent tun darf.",
+  // Was der geplante Agent gerade für diese Leserin tut. "Morgenbriefing" ist
+  // dasselbe Wort wie auf der Startseite; ein abgebrochener Lauf darf nie
+  // klingen, als wäre er fertig.
+  "agent.activity.morningBrief.queued": "Dein Morgenbriefing ist eingereiht.",
+  "agent.activity.morningBrief.running":
+    "Ich stelle dein Morgenbriefing zusammen.",
+  "agent.activity.morningBrief.done": "Dein Morgenbriefing ist fertig.",
+  "agent.activity.morningBrief.degraded":
+    "Ich bin bei deinem Morgenbriefing nur zum Teil gekommen und habe gestoppt.",
+  "agent.activity.morningBrief.failed":
+    "Ich konnte dein Morgenbriefing nicht abschließen.",
+  "agent.activity.riskSweep.queued":
+    "Die nächtliche Risikoprüfung ist eingereiht.",
+  "agent.activity.riskSweep.running": "Ich prüfe deine Deals auf Risiken.",
+  "agent.activity.riskSweep.done":
+    "Fertig. Ich habe deine Deals nachts auf Risiken geprüft.",
+  "agent.activity.riskSweep.degraded":
+    "Ich bin bei der Risikoprüfung nur zum Teil gekommen und habe gestoppt.",
+  "agent.activity.riskSweep.failed":
+    "Ich konnte die nächtliche Risikoprüfung nicht abschließen.",
+  "agent.panel.runningNow": "Läuft jetzt",
+  "agent.panel.finishedToday": "Heute abgeschlossen",
+  "agent.panel.stoppedEarly": "Warum es gestoppt hat",
+
   "agents.connected": "Verbundene Agenten",
   "agents.connectedSub":
     "MCP-Clients mit eigenem Credential, abgeleitet aus einem Passport, den du verliehen hast",

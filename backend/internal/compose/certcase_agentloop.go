@@ -419,7 +419,10 @@ func (c *agentLoopCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 		// arguments it was called with.
 		return c.gradeStep(res.Pending.Tool, res.Pending.Args)
 	default:
-		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: res.DegradeReason}
+		// The report is an operator artifact whose whole subject is what the
+		// step protocol refused, so it takes the detail rather than the reason a
+		// person's panel gets.
+		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: res.DegradeDetail()}
 	}
 }
 

@@ -168,6 +168,7 @@ type FetchRoutes = {
   me?: () => Response | Promise<Response>;
   profile?: () => Response | Promise<Response>;
   license?: () => Response | Promise<Response>;
+  agentActivity?: () => Response | Promise<Response>;
 };
 
 // Routes every hook the section depends on by pathname, the way
@@ -208,6 +209,11 @@ function stubAgentRailApi(routes: FetchRoutes = {}) {
     }
     if (pathname.endsWith("/ai/usage")) {
       return routes.aiUsage ? routes.aiUsage() : jsonResponse(EMPTY_USAGE);
+    }
+    if (pathname.endsWith("/me/agent-activity")) {
+      return routes.agentActivity
+        ? routes.agentActivity()
+        : jsonResponse({ running: [], recent: [] });
     }
     if (pathname.endsWith("/me")) {
       return routes.me
@@ -778,5 +784,160 @@ describe("AgentRail", () => {
       if (documentedDefaults.has(state)) continue;
       expect(css).toContain(`data-core-state="${state}"`);
     }
+  });
+
+  // Work THIS TAB DID NOT START. Everything above moves the Core because a
+  // query in this browser fetched; these cases cover the overnight runner,
+  // reported through /me/agent-activity, plus the two invariants that must
+  // hold alongside it: operator vocabulary stays out of the reader's line, and
+  // the surface never invents a sentence for a kind it has no copy for.
+
+  /** One run as the WIRE spells it — a JSON body, not a typed literal, because
+   *  a kind that is off the contract is exactly what one of these cases sends. */
+  const RUN = (over: Readonly<Record<string, unknown>> = {}) => ({
+    id: "019f7e65-fbf7-7114-b114-40af4af63a01",
+    kind: "morning_brief",
+    state: "running",
+    started_at: "2026-08-21T05:00:00Z",
+    ...over,
+  });
+
+  const withRuns = (...running: readonly unknown[]) =>
+    stubAgentRailApi({
+      agentActivity: () => jsonResponse({ running, recent: [] }),
+    });
+
+  /** A run that has SETTLED. The read puts these in `recent` and never in
+   *  `running` (compose/agentactivity `recentSQL` vs `runningSQL`), and
+   *  `degrade_reason` and `summary` are written alongside the terminal status —
+   *  so this is the only shape those two fields ever arrive in. */
+  const withSettled = (...recent: readonly unknown[]) =>
+    stubAgentRailApi({
+      agentActivity: () => jsonResponse({ running: [], recent }),
+    });
+
+  const BRIEF_RUNNING = "I'm putting your morning brief together.";
+
+  const runLines = () =>
+    [...panel().querySelectorAll(".arrunline")].map((el) => el.textContent);
+  const runDetails = () =>
+    [...panel().querySelectorAll(".arrundetail")].map((el) => el.textContent);
+
+  it("moves the Core to working when a server run is live and this tab is idle", async () => {
+    withRuns(RUN());
+    const { container } = render(ROUTE);
+    await waitFor(() =>
+      expect(block(container).getAttribute("data-core-state")).toBe("working"),
+    );
+  });
+
+  it("names the run in the rail line", async () => {
+    withRuns(RUN());
+    const { container } = render(ROUTE);
+    await settlesOnLine(container, BRIEF_RUNNING);
+  });
+
+  // Above the counts, because a run happening right now outranks a queue that
+  // has been waiting since yesterday.
+  it("lists running work in the panel under its own heading", async () => {
+    withRuns(RUN());
+    const user = userEvent.setup();
+    const { container } = render(ROUTE);
+    await openPanel(user, container);
+    await waitFor(() => expect(runLines()).toEqual([BRIEF_RUNNING]));
+    const headings = [...panel().querySelectorAll(".arsect h4")].map(
+      (el) => el.textContent,
+    );
+    expect(headings[0]).toBe("Running now");
+    expect(headings).toContain(LABELS.acrossWorkspace);
+  });
+
+  // `degrade_reason` is server-authored operator vocabulary and untranslated.
+  // In a localized line it would be a raw internal token printed at a reader;
+  // as panel detail it is the operator's answer to "why".
+  it("shows the degrade reason as panel detail, never in the line", async () => {
+    const reason = "brief_partial: crm_read_timeout";
+    const stopped = "I got partway through your morning brief and stopped.";
+    withSettled(RUN({ state: "degraded", degrade_reason: reason }));
+    const user = userEvent.setup();
+    const { container } = render(ROUTE);
+    await settlesOnLine(container, stopped);
+    await openPanel(user, container);
+    await waitFor(() => expect(runLines()).toEqual([stopped]));
+    expect(runDetails()).toEqual([`Why it stopped${reason}`]);
+    // The card's line and the panel head restate each other, so both are held
+    // to the same rule.
+    expect(container.querySelector(".arline")?.textContent).not.toContain(
+      reason,
+    );
+    expect(panel().querySelector(".arptitle")?.textContent).not.toContain(
+      reason,
+    );
+  });
+
+  // A kind the copy map has never heard of produces NOTHING: no fallback
+  // sentence, no raw message key, no de-underscored token. The run is still
+  // real, so the orb still moves — only the words are missing.
+  it("renders no line for a kind it has no copy for", async () => {
+    withRuns(RUN({ kind: "telepathic_prospecting" }));
+    const user = userEvent.setup();
+    const { container } = render(ROUTE);
+    await waitFor(() =>
+      expect(block(container).getAttribute("data-core-state")).toBe("working"),
+    );
+    await openPanel(user, container);
+    expect(runLines()).toEqual([]);
+    expect(panel().textContent).not.toContain("Running now");
+    expect(panel().textContent).not.toContain("agent.activity");
+    expect(panel().textContent).not.toContain("telepathic_prospecting");
+  });
+
+  // The summary is what the run itself wrote, and the runner never validates
+  // that it exists — so a run without one draws no detail row at all rather
+  // than an empty one.
+  it("shows the run's summary when there is one, and nothing when there is not", async () => {
+    withSettled(
+      RUN({ state: "done", summary: "Three deals need a nudge." }),
+      RUN({
+        id: "019f7e65-fbf7-7114-b114-40af4af63a02",
+        kind: "overnight_at_risk_sweep",
+        state: "done",
+      }),
+    );
+    const user = userEvent.setup();
+    const { container } = render(ROUTE);
+    await openPanel(user, container);
+    await waitFor(() =>
+      expect(runLines()).toEqual([
+        "Your morning brief is ready.",
+        "Done. I checked your deals for risk overnight.",
+      ]),
+    );
+    expect(runDetails()).toEqual(["Three deals need a nudge."]);
+  });
+
+  // The terminal states — `done`, `degraded` and `failed` — and with them
+  // `degrade_reason` and `summary`, arrive only in `recent`, never in
+  // `running`, so the panel must read both lists to show any of them. The bar
+  // keeps its live-run rule — a settled run joins the RESTING ROTATION,
+  // because `recent` is bounded to today and a pinned "ready" would still be
+  // announcing this morning at six in the evening.
+  it("reads a run that finished today, in the panel and in the resting line", async () => {
+    withSettled(RUN({ state: "done" }));
+    const user = userEvent.setup();
+    const { container } = render(ROUTE);
+    // Nothing is live, so the orb rests — and the line is the settled run,
+    // which is the only true thing this installation has to say.
+    await settlesOnLine(container, "Your morning brief is ready.");
+    expect(block(container).getAttribute("data-core-state")).toBe("idle");
+    await openPanel(user, container);
+    await waitFor(() =>
+      expect(runLines()).toEqual(["Your morning brief is ready."]),
+    );
+    const headings = [...panel().querySelectorAll(".arsect h4")].map(
+      (el) => el.textContent,
+    );
+    expect(headings[0]).toBe("Finished today");
+    expect(panel().textContent).not.toContain("Running now");
   });
 });

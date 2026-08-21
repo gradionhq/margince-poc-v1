@@ -71,10 +71,16 @@ type Result struct {
 	Outcome       Outcome
 	Final         json.RawMessage
 	DegradeReason string
-	Pending       *Pending
-	Steps         []Step
-	StepsUsed     int
-	OutputTokens  int
+	// DegradeCause is the underlying error behind DegradeReason, and it is for
+	// an OPERATOR surface only: it carries the model provider's own message and
+	// the parser's, so it is never persisted to agent_run.degrade_reason and
+	// never serialized to a client. Empty when the runner authored the whole
+	// reason — a budget guarantee has no cause but itself.
+	DegradeCause string
+	Pending      *Pending
+	Steps        []Step
+	StepsUsed    int
+	OutputTokens int
 }
 
 // Step is one trace entry: proposal → admission outcome → observation,
@@ -275,19 +281,19 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 		if err := ctx.Err(); err != nil {
 			// Wall clock is the third guarantee (§4): the scheduler cancels
 			// the context and the loop unwinds here.
-			return r.degrade(acc, "wall clock exceeded: "+err.Error()), nil
+			return r.degradeFromCause(acc, job, reasonWallClockExceeded, err), nil
 		}
 		if acc.StepsUsed >= budget.MaxSteps {
-			return r.degrade(acc, "step budget exhausted"), nil
+			return r.degrade(acc, reasonStepBudgetExhausted), nil
 		}
 		if acc.OutputTokens >= budget.MaxOutputTokens {
-			return r.degrade(acc, "output token budget exhausted"), nil
+			return r.degrade(acc, reasonOutputTokenBudgetExhausted), nil
 		}
 		acc.StepsUsed++
 
 		resp, meta, err := r.brain.Complete(ctx, win.asRequest(budget.MaxOutputTokens-acc.OutputTokens))
 		if err != nil {
-			return r.degrade(acc, "model call failed: "+err.Error()), nil
+			return r.degradeFromCause(acc, job, reasonModelCallFailed, err), nil
 		}
 		acc.OutputTokens += resp.OutputTokens
 
@@ -295,7 +301,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 		if parseErr != nil {
 			invalidStreak++
 			if invalidStreak >= consecutiveInvalidLimit {
-				return r.degrade(acc, "model output failed validation "+fmt.Sprint(invalidStreak)+" times: "+parseErr.Error()), nil
+				return r.degradeFromCause(acc, job, invalidOutputReason(invalidStreak), parseErr), nil
 			}
 			win.observeThen(outputValidatorSource, "your previous output failed validation: "+parseErr.Error(), "Return ONLY the step JSON.")
 			continue
@@ -373,21 +379,6 @@ func suspend(acc Result, approvalID ids.ApprovalID, step modelStep, win *window,
 		StepsUsed:         acc.StepsUsed,
 		OutputTokens:      acc.OutputTokens,
 	}
-	return acc
-}
-
-// degrade produces the best partial result reached so far — the B32
-// graceful-degrade contract. Anything 🟡 the run wanted is already
-// staged (it was staged at proposal time), so nothing is silently lost.
-func (r *Runner) degrade(acc Result, reason string) Result {
-	acc.Outcome = OutcomeDegraded
-	acc.DegradeReason = reason
-	partial, _ := json.Marshal(map[string]any{
-		"partial":         true,
-		"reason":          reason,
-		"steps_completed": len(acc.Steps),
-	})
-	acc.Final = partial
 	return acc
 }
 

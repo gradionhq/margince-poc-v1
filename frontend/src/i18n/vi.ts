@@ -2240,6 +2240,32 @@ export const vi = {
     "Chọn ít nhất một mục. Tác nhân không bao giờ được làm nhiều hơn bạn.",
   "settings.passportScopesRequired":
     "Hãy chọn ít nhất một việc tác nhân này được phép làm.",
+  // Tác nhân theo lịch đang làm gì cho người đọc này. "Tóm tắt buổi sáng" là
+  // đúng cách gọi ở trang chủ; một lượt chạy dừng giữa đường không bao giờ
+  // được nghe như đã hoàn tất.
+  "agent.activity.morningBrief.queued":
+    "Bản tóm tắt buổi sáng của bạn đã xếp hàng.",
+  "agent.activity.morningBrief.running":
+    "Tôi đang soạn bản tóm tắt buổi sáng cho bạn.",
+  "agent.activity.morningBrief.done":
+    "Bản tóm tắt buổi sáng của bạn đã sẵn sàng.",
+  "agent.activity.morningBrief.degraded":
+    "Tôi mới làm được một phần bản tóm tắt buổi sáng rồi dừng lại.",
+  "agent.activity.morningBrief.failed":
+    "Tôi không hoàn thành được bản tóm tắt buổi sáng của bạn.",
+  "agent.activity.riskSweep.queued": "Đợt kiểm tra rủi ro ban đêm đã xếp hàng.",
+  "agent.activity.riskSweep.running":
+    "Tôi đang kiểm tra rủi ro trong các deal của bạn.",
+  "agent.activity.riskSweep.done":
+    "Xong. Tôi đã kiểm tra rủi ro trong các deal của bạn qua đêm.",
+  "agent.activity.riskSweep.degraded":
+    "Tôi mới kiểm tra được một phần rủi ro rồi dừng lại.",
+  "agent.activity.riskSweep.failed":
+    "Tôi không hoàn thành được đợt kiểm tra rủi ro ban đêm.",
+  "agent.panel.runningNow": "Đang chạy",
+  "agent.panel.finishedToday": "Đã xong hôm nay",
+  "agent.panel.stoppedEarly": "Vì sao nó dừng",
+
   "agents.connected": "Agent đã kết nối",
   "agents.connectedSub":
     "Các client MCP giữ thông tin xác thực của riêng mình, sinh ra từ một passport bạn cho mượn",

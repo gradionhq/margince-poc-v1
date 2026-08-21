@@ -360,6 +360,54 @@ func (e ActivityAudience) Valid() bool {
 	}
 }
 
+// Defines values for ActivityItemKind.
+const (
+	ActivityItemKindMorningBrief         ActivityItemKind = "morning_brief"
+	ActivityItemKindOvernightAtRiskSweep ActivityItemKind = "overnight_at_risk_sweep"
+)
+
+// Valid indicates whether the value is a known member of the ActivityItemKind enum.
+func (e ActivityItemKind) Valid() bool {
+	switch e {
+	case ActivityItemKindMorningBrief:
+		return true
+	case ActivityItemKindOvernightAtRiskSweep:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ActivityItemState.
+const (
+	ActivityItemStateAwaitingApproval ActivityItemState = "awaiting_approval"
+	ActivityItemStateDegraded         ActivityItemState = "degraded"
+	ActivityItemStateDone             ActivityItemState = "done"
+	ActivityItemStateFailed           ActivityItemState = "failed"
+	ActivityItemStateQueued           ActivityItemState = "queued"
+	ActivityItemStateRunning          ActivityItemState = "running"
+)
+
+// Valid indicates whether the value is a known member of the ActivityItemState enum.
+func (e ActivityItemState) Valid() bool {
+	switch e {
+	case ActivityItemStateAwaitingApproval:
+		return true
+	case ActivityItemStateDegraded:
+		return true
+	case ActivityItemStateDone:
+		return true
+	case ActivityItemStateFailed:
+		return true
+	case ActivityItemStateQueued:
+		return true
+	case ActivityItemStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ActivityLinkEntityType.
 const (
 	ActivityLinkEntityTypeDeal         ActivityLinkEntityType = "deal"
@@ -11520,6 +11568,42 @@ type ActivityMeetingStatus string
 // ActivityAudience Who may read an activity's content — see Activity.audience.
 type ActivityAudience string
 
+// ActivityItem defines model for ActivityItem.
+type ActivityItem struct {
+	// DegradeReason One of the runner's own closed reasons for stopping early, shown in the panel detail and
+	// never interpolated into a reader-facing line. It is NEVER a model provider's or a parser's
+	// own message: those carry vendor text and can echo credential material, and this field
+	// reaches an ordinary rep. The underlying cause goes to the operator log instead.
+	DegradeReason *string            `json:"degrade_reason,omitempty"`
+	FinishedAt    *time.Time         `json:"finished_at,omitempty"`
+	Id            openapi_types.UUID `json:"id"`
+
+	// Kind The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
+	Kind ActivityItemKind `json:"kind"`
+
+	// StartedAt When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.
+	StartedAt time.Time `json:"started_at"`
+
+	// State `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
+	// state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
+	// exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
+	// auto-execute only) and is declared for the states the runner itself can reach.
+	State ActivityItemState `json:"state"`
+
+	// Summary The run's own final summary when it produced one. OPTIONAL — the runner never validates
+	// that `final` carries it. Model-authored, so it is truncated to `maxLength` on the way out.
+	Summary *string `json:"summary,omitempty"`
+}
+
+// ActivityItemKind The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
+type ActivityItemKind string
+
+// ActivityItemState `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
+// state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
+// exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
+// auto-execute only) and is declared for the states the runner itself can reach.
+type ActivityItemState string
+
 // ActivityLink defines model for ActivityLink.
 type ActivityLink struct {
 	ActivityId *openapi_types.UUID    `json:"activity_id,omitempty"`
@@ -11612,6 +11696,18 @@ type AdvanceProjectPhaseRequest struct {
 
 // AdvanceProjectPhaseRequestToPhase defines model for AdvanceProjectPhaseRequest.ToPhase.
 type AdvanceProjectPhaseRequestToPhase string
+
+// AgentActivity defines model for AgentActivity.
+type AgentActivity struct {
+	// AsOf When the server read this.
+	AsOf time.Time `json:"as_of"`
+
+	// Recent Runs that FINISHED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-finished first, at most 10.
+	Recent []ActivityItem `json:"recent"`
+
+	// Running Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read.
+	Running []ActivityItem `json:"running"`
+}
 
 // AgentTool defines model for AgentTool.
 type AgentTool struct {
@@ -33083,6 +33179,9 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// What the agent is doing for THIS person, right now and lately.
+	// (GET /me/agent-activity)
+	GetMyAgentActivity(w http.ResponseWriter, r *http.Request)
 	// The sign-off appended to mail you send.
 	// (GET /me/email-signature)
 	GetMyEmailSignature(w http.ResponseWriter, r *http.Request)
@@ -34937,6 +35036,12 @@ func (_ Unimplemented) AddListMember(w http.ResponseWriter, r *http.Request, id 
 // Get the current authenticated principal (user or agent).
 // (GET /me)
 func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What the agent is doing for THIS person, right now and lately.
+// (GET /me/agent-activity)
+func (_ Unimplemented) GetMyAgentActivity(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -44385,6 +44490,26 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentPrincipal(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyAgentActivity operation middleware
+func (siw *ServerInterfaceWrapper) GetMyAgentActivity(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyAgentActivity(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -56266,6 +56391,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/agent-activity", wrapper.GetMyAgentActivity)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me/email-signature", wrapper.GetMyEmailSignature)
