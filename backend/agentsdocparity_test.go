@@ -9,14 +9,14 @@ package backendarch
 // the long form, AGENTS.md the digest other agent harnesses read. Most sections
 // differ on purpose and must not be synced.
 //
-// Three sections are the exception. They state binding invariants — the write
-// shape, the license header, and the rules the review loop produced — and both
-// files carry them in full because both are read in isolation: CLAUDE.md by
-// Claude Code, AGENTS.md by `cli/craft`, which feeds the whole nearest
-// AGENTS.md into the gate prompt. A pointer in one of them would leave whoever
-// reads the other without the rule.
+// Four sections are the exception. They state binding invariants — the write
+// shape, the reuse rule, the license header, and the rules the review loop
+// produced — and both files carry them in full because both are read in
+// isolation: CLAUDE.md by Claude Code, AGENTS.md by `cli/craft`, which feeds
+// the whole nearest AGENTS.md into the gate prompt. A pointer in one of them
+// would leave whoever reads the other without the rule.
 //
-// Full copies in two files drift. This asserts they have not: the three
+// Full copies in two files drift. This asserts they have not: the four
 // sections must be byte-identical, so changing an invariant in one file fails
 // here until it is changed in both.
 
@@ -30,6 +30,7 @@ import (
 // Each entry is matched as a prefix, so a heading may carry a parenthetical.
 var sharedSections = []string{
 	"## The write shape",
+	"## Reuse before you build",
 	"## License headers",
 	"## Rules learned from the review loop",
 }
