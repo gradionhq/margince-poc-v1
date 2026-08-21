@@ -27,6 +27,7 @@ needs the whole file to start a session.
 
   **Four things worth carrying.** (1) **A gate's exception is where it reads green over its own class.** Every plant I wrote for the log gate attacked the matcher; both holes reviewers found were in the sanctioned-fallback escape hatch — a non-error guard laundered a credential logged on every SUCCESSFUL token refresh, and the fix for "can't tell a key from a value" reproduced that same confusion one level down. Write the mutation matrix over the EXCEPTION, and include a near-miss with the right syntax and wrong semantics. (2) **A green local gate can describe a branch that does not exist**: `git add` was handed paths a `git mv` had moved, the error went to `2>/dev/null`, and the worktree-column marker `git status --short` prints for an UNSTAGED modification reads at a glance like the index-column one that means staged — the commit was a bare rename and would have merged claiming a Windows DACL that was still in the working tree. (3) **#863's scenario is no longer reachable**: `0225_collapse_composite_keys` made role keys unique installation-wide, so a second bootstrap dies on `SQLSTATE 23505` before the identity discard matters. The goal file verified the CODE and not the SCENARIO; writing the issue's own test as a test is what found it. (4) **SonarCloud counts a signature change as new code** — widening a return re-marked ten untouched error paths as new and uncovered; an out-parameter was the smaller diff and the honest one.
 
+- Shipped 2026-08-21: **ADR-0091 §8 phase D is DONE — no table carries `workspace_id`** ([#1975](https://github.com/gradionhq/margince-poc-v1/pull/1975), [#1995](https://github.com/gradionhq/margince-poc-v1/pull/1995), [#2012](https://github.com/gradionhq/margince-poc-v1/pull/2012), [#2193](https://github.com/gradionhq/margince-poc-v1/pull/2193); closed #1826, #1931, #1937). The last eight tables, each of which was waiting on something rather than missed. **Three of the four slices found the plan for them was wrong.** #1826 called `role` a test problem and named three custom migrations; it was a fresh-INSTALL breakage and a grep of the whole namespace found FIVE, because two named the CONSTRAINT rather than the column — `custom` runs after ALL of `core`, so it is the only namespace that meets the final schema. #1766's blocking decision already had an answer in the tree: identity's middleware calls `InstallationWorkspace` on every request BEFORE any user is looked up, so `app_user.workspace_id` was a second source for a value already established. **The ledgers' down half backfilled with `UPDATE`, which their own immutability trigger refuses** — the property that makes them evidence is what broke the rollback, and it read green because the reversal test reverses an EMPTY schema and a FOR EACH ROW trigger never fires on zero rows; it seeds a row in each ledger now. **One predicate turned out load-bearing for a reason unrelated to why it was written**: the finance audit counts carried a workspace predicate that was keeping one test's rows out of another's in a shared database, and removing it made the assertions depend on test order (320 rows where 40 were expected) — they take an `audit_log` watermark now. Nine cross-tenant suites were retired by decision where their subject was gone; three came back after review showed they never needed a second workspace. **§5 is unblocked**: `storekit`'s `Audit` and `Emit` were the last ledger writes reading the GUC. **Left open, both filed**: [#2026](https://github.com/gradionhq/margince-poc-v1/issues/2026) (an archived-workspace merge now folds live credentials and RBAC grants, and the gate guarding it is one-shot) and [#2196](https://github.com/gradionhq/margince-poc-v1/issues/2196) (a worker can refuse to start against an archived predecessor's release row). [#2198](https://github.com/gradionhq/margince-poc-v1/issues/2198) is adjacent: the setup token's lifecycle writes no ledger row, and this arc removed the schema fact its exemption cited.
 - Shipped 2026-08-20: **two red mains, neither caught by CI** (PRs [#2027](https://github.com/gradionhq/margince-poc-v1/pull/2027), [#2055](https://github.com/gradionhq/margince-poc-v1/pull/2055); closes [#2024](https://github.com/gradionhq/margince-poc-v1/issues/2024), [#2046](https://github.com/gradionhq/margince-poc-v1/issues/2046)). The RBAC repair suite rolled core back by a **count of one** and assumed that step was the phase D drop; a later migration landed on top and every repair replayed in the era the helper exists to avoid. It derives the distance now. Separately, [#2019](https://github.com/gradionhq/margince-poc-v1/pull/2019) **merged with five failing checks** and broke two fitness functions in two packages; #2046 named one, and the sibling was found by running the lane. **The sweep gate looked its waiver up by TABLE while reporting a (table, trigger) PAIR**, so adding an entry would have exempted `organization` from that gate permanently — a planted trigger that raises on every delete passed under the old key and is refused under the new one. Fixing the reported bug would have widened the hole. **Neither red main was visible**: every recent `main` run was `cancelled`, which reads like a pass everywhere. Also filed: [#2072](https://github.com/gradionhq/margince-poc-v1/issues/2072), the scheduled cache-warm job lints without installing golangci-lint and makes `main` read red for a third, unrelated reason.
 
 - Shipped 2026-08-20 (batman): **the partner program pays** — four PRs ([#2019](https://github.com/gradionhq/margince-poc-v1/pull/2019), [#2039](https://github.com/gradionhq/margince-poc-v1/pull/2039), [#2048](https://github.com/gradionhq/margince-poc-v1/pull/2048), [#2052](https://github.com/gradionhq/margince-poc-v1/pull/2052); closes [#2046](https://github.com/gradionhq/margince-poc-v1/issues/2046)). You could mark a company a partner and pick a margin tier, and **nothing ever multiplied it by anything** — no commission code in the repo, no way to say what a partner did for a deal, no report that could group revenue by partner. **#2019**: `deal.partner_attribution` (`sourced`/`influenced`) paired with `partner_org_id` by a CHECK, plus a `commissions` module owning `commission_entry`. It is a LEDGER — a clawback is a reversal row plus a void, never an edit, because recomputing would rewrite what a partner was already told they earned. Accrual is event-driven on `deal.stage_changed`, and **the payload had to grow**: reopening a deal CLEARS its frozen FX, so a consumer reading the deal back cannot recover what the win was priced at. Replay is stopped by a persisted unique `trigger_event_id`, not by `events.Dedupe`, which is a 96-hour cache that marks AFTER the effect. **#2039** makes `partner_org_id` a report dimension. **#2048** is the panel and the deal-form field. **Three security defects, all found by review, none by a gate.** (1) The attribution list filter was an **existence oracle** for a field the deal read masks — a caller could ask `partner_attribution=sourced` and learn from a row's presence what their own read withholds. (2) **Deciding a commission entry took no write probe**, so a `read` share of a deal carried authority over its partner's money. (3) Grouping a report by a reference column **named records the caller cannot open** — and `organization_id` on `open-deals-per-company` and `win-loss` had the same hole already, pre-dating this work; `reportSpec.referenceScopes` now declares the obligation and a fitness function derives it from the catalog. **#2052 unbroke main**, which #2019 had left red: `commission_entry`'s FKs are gated in `accrueTx` but carried no classification, and the lane that checks that (`backend/migrations`) is not the one `make check-backend` runs — the commission work's own integration runs were scoped to the packages it touched. **Verified on a live cold-install stack**: partner on tier2_20 → €1,000 deal attributed `sourced` by default → won → €200 accrued with tier and rate frozen → reopened → voided plus reversal, nothing deleted → re-won → fresh accrual, one live entry, three rows of history. **Not built**: partner as a real agent `record_type` ([#2041](https://github.com/gradionhq/margince-poc-v1/issues/2041)), blocked on [#2040](https://github.com/gradionhq/margince-poc-v1/issues/2040) — **the tool listing has 18 bytes of headroom** against its token ceiling and the enums need ~45. Three times this session a legitimate field was paid for by trimming unrelated prose, and a `partner-performance` report was dropped rather than fight it; that budget needs a deliberate decision, not more attrition. `relationship.kind = 'referred_by'` remains unconnected — whether a referral edge should also record who brought an account is a product ruling nobody has made.
@@ -918,7 +919,7 @@ webhooks, agents, privacy. Configuration and machinery rather than records,
 which is why the stakes were low, but low is not none and a reader should not
 have to infer it from migration numbers.
 
-### Where phase D stands: 8 tables, and every one of them is gated
+### Phase D is DONE: 103 tables → 0
 
 Merged: briefs (#1486), capture (#1491), overlay (#1510, fork-owned so it lands
 in `migrations/custom/`), ai + migration (#1525, split across both namespaces
@@ -926,8 +927,15 @@ because the importer is fork-owned), deals quoting & delivery (#1543), activity
 satellites (#1547), deal spine (#1635), activity spine (#1655), organization
 cluster (#1701), person cluster (#1720), lead/relationship/partner cluster
 (#1723), credentials (#1771), authz satellites (#1825), singletons (#1834).
-**103 → 8**, counted from the migrated schema rather than from this
-list — `make test-db-up`, then:
+Then the eight that were left, each waiting on something rather than missed:
+the derived corpus (#1975), role and role_assignment (#1995), app_user and
+session (#2012), and the append-only ledgers (#2193).
+
+**103 → 0**, counted from the migrated schema rather than from this list. The
+committed catalog is the fastest check — `grep 'workspace_id'
+backend/migrations/testdata/head_catalog.txt` returns only CONSTRAINT NAMES
+left over from phase C's composite-FK rewrite, never a column. Against a live
+database — `make test-db-up`, then:
 
 ```sql
 SELECT c.relname FROM pg_class c
@@ -938,16 +946,35 @@ SELECT c.relname FROM pg_class c
  ORDER BY 1;
 ```
 
-Every record-bearing table is done, and the mechanical part of phase D is over.
-**The eight that remain are not a backlog to work through — each is waiting on
-something else**, which is why they were left rather than missed:
+The four remaining slices landed in one session, and three of the four turned
+up something the plan for them did not predict:
 
-| tables | waiting on |
-|---|---|
-| `role`, `role_assignment` | **#1826.** Three SHIPPED CUSTOM migrations name `role.workspace_id`, and `dbmigrate.Up` applies all of `core` before any of `custom` — so on a fresh database a custom migration runs against the FINAL core schema. Dropping the column breaks the install, not just a test. Needs a ruling on guarding versus editing those three. |
-| `app_user`, `session` | **#1766 and §5.** `app_user.workspace_id` is what `MustWorkspace` resolves through, and `Identity.WorkspaceID` backs the JWS `"ws"` claim §1 retires separately. The claim goes first, or the value needs a new source. |
-| `embedding`, `graph_interaction_edge` | nothing, as of #1941 — the re-embed run-lifecycle collapse landed, so these two are the next column drops to write rather than work waiting on a decision. |
-| `audit_log`, `system_log` | the append-only ledgers, last by the decision recorded above. |
+- **`role`** — #1826 called it a test problem and named three custom migrations.
+  It was a fresh-INSTALL breakage, and a grep of the whole namespace found
+  FIVE, because two named the CONSTRAINT rather than the column. The CORE
+  repair migration needed no amendment at all: core runs in order, so it
+  executes while the column is still there — only `custom` runs against the
+  final core schema.
+- **`app_user`** — the decision #1766 was blocked on already had an answer in
+  the tree. `identity/middleware.go` calls `InstallationWorkspace` on every
+  request BEFORE any user is looked up, so the column was a second source for a
+  value already established. Nine suites were retired with it; three of those
+  turned out not to need a second workspace at all and came back.
+- **The ledgers** — the down half backfilled with `UPDATE`, which their own
+  immutability trigger refuses. The property that makes them evidence is what
+  broke the rollback, and it was green because the reversal test reverses an
+  EMPTY schema and a FOR EACH ROW trigger never fires on zero rows. It seeds a
+  row in each ledger now.
+
+**What phase D leaves open**, both filed rather than fixed: an archived-workspace
+merge now folds live credentials and RBAC grants, and the gate that guards it is
+one-shot (#2026); and a worker can refuse to start against an archived
+predecessor's release row, because the read that told them apart lost its
+predicate (#2196).
+
+**§5 is unblocked.** `storekit`'s `Audit` and `Emit` were the last ledger writes
+reading `app.workspace_id`; only the advisory-lock key in `LockWriteIdentity`
+still reads it, and that is a lock key rather than a column.
 
 **The ordering finding is the one to carry forward.** `custom` always runs after
 all of `core`, so any custom migration naming a core column must survive that
