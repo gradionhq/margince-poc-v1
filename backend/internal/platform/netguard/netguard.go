@@ -103,3 +103,12 @@ func RefusePrivate(_, address string, _ syscall.RawConn) error {
 	}
 	return nil
 }
+
+// ReservedNetsForTest exposes the guard's own parsed denylist so the module's
+// parity test can hold it equal to the published pkg/extension list. Two lists
+// exist because a unit may import only pkg/**, and the guard must not depend on
+// the surface it is guarding traffic for; what stops them drifting is that test.
+//
+// Test-only by name and by contract: nothing in the tree calls it outside
+// netguardparity_test.go, and PublicIP is the API for deciding about an address.
+func ReservedNetsForTest() []*net.IPNet { return reservedNets }

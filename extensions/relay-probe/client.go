@@ -195,35 +195,6 @@ func refusePrivate(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
-// reservedCIDRs are the non-public ranges the stdlib predicates miss: the
-// this-network block, CGNAT, benchmark, documentation, protocol-assignment,
-// broadcast and discard space, plus the IPv6 ranges that carry an IPv4 address
-// inside them — both NAT64 prefixes, 6to4 and its relay anycast, IPv4-compatible
-// and IPv4-translated — which To4()/IsPrivate() do not catch, and which are
-// therefore how an internal address is named without looking like one. Naming
-// them IS the guard, so they are literals.
-//
-// This list is the core's netguard.reservedNets, and the two are the same list
-// or this unit is the way around the core's guard. Only the core module can see
-// both files, so the comparison lives there
-// (TestTheExtensionCopyOfTheEgressDenylistMatchesTheCore); when it fails, the
-// answer is to copy the core's list here, never to relax the test.
-//
-// They stay TEXT and are parsed per dial rather than once at import, because a
-// unit's root package may hold no initializer that calls anything (see the
-// error constants above). A parse per CIDR on a call that is about to cross a
-// network is not a cost worth engineering around.
-var reservedCIDRs = []string{
-	// These literal reserved ranges ARE the guard: the denylist must name them
-	// explicitly. NOSONAR: hardcoding them is the point.
-	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", // NOSONAR
-	"192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", // NOSONAR
-	"203.0.113.0/24", "240.0.0.0/4", // NOSONAR
-	"100::/64", "100:0:0:1::/64", "2001::/23", "2001:db8::/32", "2002::/16",
-	"3fff::/20", "5f00::/16", "64:ff9b::/96", "64:ff9b:1::/48", "fec0::/10",
-	"::ffff:0:0:0/96", "::/96",
-}
-
 // publicIP reports whether ip is a globally routable unicast address.
 //
 // A CIDR this package cannot parse is treated as MATCHING, which is the safe
@@ -233,9 +204,12 @@ func publicIP(ip net.IP) bool {
 		ip.IsMulticast() || ip.IsUnspecified() {
 		return false
 	}
-	for _, cidr := range reservedCIDRs {
-		_, reserved, err := net.ParseCIDR(cidr)
-		if err != nil || reserved.Contains(ip) {
+	// The core's own denylist, read from the published surface rather than
+	// restated here. A hand-copy drifts, and a range the core refuses while this
+	// unit admits it is a member-supplied host reaching an internal address —
+	// which is why the surface publishes it and why nothing below is a literal.
+	for _, reserved := range extension.ReservedNets() {
+		if reserved.Contains(ip) {
 			return false
 		}
 	}
