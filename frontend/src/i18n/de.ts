@@ -5474,7 +5474,7 @@ export const de = {
   "person.meeting.deal_state": "Stand des Deals",
   "person.meeting.risks": "Risiken und Warnsignale",
   "person.meeting.talking_points": "Vorgeschlagene Gesprächspunkte",
-  "person.meeting.company_context": "Unternehmenskontext",
+  "person.meeting.company_context": "Letztes Treffen",
 
   "co.strip.healthSummary": "Zustand",
   "co.strip.healthSummary.failingOf": "{failing} von {rated} gefährdet",

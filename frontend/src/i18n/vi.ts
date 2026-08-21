@@ -5424,7 +5424,7 @@ export const vi = {
   "person.meeting.deal_state": "Tình trạng thương vụ",
   "person.meeting.risks": "Rủi ro và điểm cần lưu ý",
   "person.meeting.talking_points": "Gợi ý nội dung trao đổi",
-  "person.meeting.company_context": "Bối cảnh công ty",
+  "person.meeting.company_context": "Lần gặp gần nhất",
 
   "co.strip.healthSummary": "Tình hình",
   "co.strip.healthSummary.failingOf": "{failing}/{rated} đang gặp rủi ro",

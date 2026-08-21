@@ -12,6 +12,7 @@ package meetingbrief
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // projectHeaderLine names the engagement and where it stands. The key rides
@@ -60,4 +61,26 @@ func phaseOrUnnamed(phase string) string {
 		return "its current phase"
 	}
 	return phase
+}
+
+// priorMeetingLine says when this room last met and what it was called.
+//
+// Days ago, not a date, for the same reason the last-touch line is: the reader
+// is placing it against today, and a date makes them do the arithmetic. The
+// subject rides along because "three weeks ago" alone does not tell them which
+// conversation they are being reminded of.
+func priorMeetingLine(prior PriorMeetingIn, now time.Time) string {
+	subject := prior.Subject
+	if subject == "" {
+		subject = "A meeting"
+	}
+	days := int(now.Sub(prior.StartsAt).Hours() / 24)
+	switch {
+	case days <= 0:
+		return fmt.Sprintf("You met earlier today: %s.", subject)
+	case days == 1:
+		return fmt.Sprintf("You met yesterday: %s.", subject)
+	default:
+		return fmt.Sprintf("You met %d days ago: %s.", days, subject)
+	}
 }

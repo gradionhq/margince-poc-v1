@@ -116,6 +116,7 @@ func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.Me
 func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input, error) {
 	var room meeting
 	var perAttendee map[ids.UUID][]crmcontracts.ConversationClaim
+	var earlier []priorMeeting
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		loaded, err := s.readMeeting(ctx, tx, activityID)
 		if err != nil {
@@ -123,6 +124,10 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 		}
 		room = loaded
 		perAttendee, err = s.claimsPerAttendee(ctx, tx, loaded)
+		if err != nil {
+			return err
+		}
+		earlier, err = s.readPriorMeetings(ctx, tx, loaded, s.now().UTC())
 		return err
 	})
 	if err != nil {
@@ -130,6 +135,7 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 	}
 
 	in := FromMeeting(room, perAttendee, s.now().UTC())
+	in.PriorMeetings = foldPriorMeetings(earlier)
 	if len(room.Attendees) == 0 {
 		// Nobody in the room this caller may see. The header still stands, and
 		// assembling a 360 for a person nobody named would be a read of a
