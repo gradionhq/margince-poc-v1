@@ -104,6 +104,17 @@ func (f *runnerFixture) drain(t *testing.T) {
 
 // feed reads the passport owner's own view, as that person, with the day
 // boundary taken from the database that stamped the rows.
+// dbNow is the clock this suite measures and schedules against — the same one
+// that stamps the rows it asserts about.
+func (f *runnerFixture) dbNow(t *testing.T) time.Time {
+	t.Helper()
+	var now time.Time
+	if err := f.env.Pool.QueryRow(context.Background(), `SELECT now()`).Scan(&now); err != nil {
+		t.Fatalf("reading the database clock: %v", err)
+	}
+	return now
+}
+
 func (f *runnerFixture) feed(t *testing.T) (live, settled []aiactivity.Item) {
 	t.Helper()
 	var midnight time.Time
@@ -125,7 +136,7 @@ func TestAScheduledRunReachesTheFeedAsItsOwnPersonsWork(t *testing.T) {
 	f := newRunnerFixture(t)
 	ctx := f.env.AgentCtxWithPassport(f.passport.UUID)
 
-	if err := f.runs.EnqueueJob(ctx, f.spec.Name, f.trigger, &f.passport, time.Now()); err != nil {
+	if err := f.runs.EnqueueJob(ctx, f.spec.Name, f.trigger, &f.passport, f.dbNow(t)); err != nil {
 		t.Fatalf("EnqueueJob: %v", err)
 	}
 	f.drain(t)
@@ -145,7 +156,7 @@ func TestAJobAndTheRunThatClaimsItAreOneOccurrence(t *testing.T) {
 	f := newRunnerFixture(t)
 	ctx := f.env.AgentCtxWithPassport(f.passport.UUID)
 
-	if err := f.runs.EnqueueJob(ctx, f.spec.Name, f.trigger, &f.passport, time.Now()); err != nil {
+	if err := f.runs.EnqueueJob(ctx, f.spec.Name, f.trigger, &f.passport, f.dbNow(t)); err != nil {
 		t.Fatalf("EnqueueJob: %v", err)
 	}
 	if _, created, err := f.runs.StartRun(ctx, f.spec, f.trigger, f.passport); err != nil || !created {

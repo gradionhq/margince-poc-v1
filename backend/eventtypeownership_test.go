@@ -162,12 +162,14 @@ func assertEveryInternalTypeWasDerived(t *testing.T, out map[string]string) {
 // contract itself, which is the only place that set is written down.
 func internalContractEventTypes(t *testing.T) []string {
 	t.Helper()
-	// Decoded loosely rather than into a tagged struct: the key is an OpenAPI
-	// extension, `x-event-type`, and a yaml tag naming it fails the repo's
-	// snake_case tag rule — a rule about OUR wire shapes, which this is not.
+	// `x-event-type` is an OpenAPI extension, so the tag cannot be snake_case:
+	// the repo's tag rule is about the shapes WE publish, and this decodes a
+	// document whose key names are not ours to choose.
 	var doc struct {
 		Components struct {
-			Schemas map[string]map[string]any `yaml:"schemas"`
+			Schemas map[string]struct {
+				EventType string `yaml:"x-event-type"` //nolint:tagliatelle // OpenAPI's extension key, not ours to rename
+			} `yaml:"schemas"`
 		} `yaml:"components"`
 	}
 	raw, err := os.ReadFile("api/internal-events.yaml")
@@ -179,8 +181,8 @@ func internalContractEventTypes(t *testing.T) []string {
 	}
 	out := make([]string, 0, len(doc.Components.Schemas))
 	for _, schema := range doc.Components.Schemas {
-		if eventType, ok := schema["x-event-type"].(string); ok && eventType != "" {
-			out = append(out, eventType)
+		if schema.EventType != "" {
+			out = append(out, schema.EventType)
 		}
 	}
 	return out

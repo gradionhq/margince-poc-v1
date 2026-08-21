@@ -92,7 +92,7 @@ func TestALeaseExpiryReclaimIsANewAttemptTheProjectionCanSee(t *testing.T) {
 	if got.StartedAt == nil || !got.StartedAt.After(*first.StartedAt) {
 		t.Fatalf("started_at = %v, want later than the dead claim's %v", got.StartedAt, first.StartedAt)
 	}
-	if got.StaleAfter == nil || !got.StaleAfter.After(time.Now()) {
+	if got.StaleAfter == nil || !got.StaleAfter.After(f.dbNow(t)) {
 		t.Fatalf("stale_after = %v, want a future instant — a live retry must not render as stalled", got.StaleAfter)
 	}
 }
@@ -122,7 +122,7 @@ func TestAReQueuedAttemptGetsALeaseThatHasNotAlreadyExpired(t *testing.T) {
 	if got.State != "queued" || got.Attempt != 2 {
 		t.Fatalf("state/attempt = %s/%d, want queued/2", got.State, got.Attempt)
 	}
-	if got.StaleAfter == nil || !got.StaleAfter.After(time.Now()) {
+	if got.StaleAfter == nil || !got.StaleAfter.After(f.dbNow(t)) {
 		t.Fatalf("stale_after = %v, want a future instant — a freshly re-queued reading has not gone stale", got.StaleAfter)
 	}
 }
@@ -145,7 +145,7 @@ func TestTheRepairKeepsTheReadingWithThePersonWhoAskedForIt(t *testing.T) {
 	}
 	f.deleteProjection(t)
 
-	if _, err := f.store.ReconcileExtractionActivity(f.reconcileCtx(), 100, time.Now()); err != nil {
+	if _, err := f.store.ReconcileExtractionActivity(f.reconcileCtx(), 100, f.dbNow(t)); err != nil {
 		t.Fatalf("ReconcileExtractionActivity: %v", err)
 	}
 	f.drain(t)
@@ -179,7 +179,7 @@ func TestABoundedReconcilePassRotatesRatherThanReselectingTheSameReading(t *test
 
 	seen := map[string]bool{}
 	for pass := range 2 {
-		announced, err := first.store.ReconcileExtractionActivity(first.reconcileCtx(), 1, time.Now())
+		announced, err := first.store.ReconcileExtractionActivity(first.reconcileCtx(), 1, first.dbNow(t))
 		if err != nil {
 			t.Fatalf("pass %d: %v", pass, err)
 		}
@@ -317,7 +317,7 @@ func TestALiveBacklogDoesNotStarveTheSettledArmOfTheReconcilePass(t *testing.T) 
 		f.secondReading(t)
 	}
 
-	if _, err := f.store.ReconcileExtractionActivity(f.reconcileCtx(), budget, time.Now()); err != nil {
+	if _, err := f.store.ReconcileExtractionActivity(f.reconcileCtx(), budget, f.dbNow(t)); err != nil {
 		t.Fatalf("ReconcileExtractionActivity: %v", err)
 	}
 	f.drain(t)

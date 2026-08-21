@@ -107,8 +107,22 @@ export function lineFor(
   item: Readonly<{ kind: string; state: string }>,
   t: (key: MessageKey) => string,
 ): string | null {
-  const byState: Readonly<Partial<Record<string, MessageKey>>> | undefined =
-    ACTIVITY_LINE[item.kind as ActivityKind];
-  const key = byState?.[item.state];
+  if (!isActivityKind(item.kind)) {
+    return null;
+  }
+  const byState: Readonly<Partial<Record<string, MessageKey>>> =
+    ACTIVITY_LINE[item.kind];
+  const key = byState[item.state];
   return key === undefined ? null : t(key);
+}
+
+/**
+ * Whether a raw string is a kind this build knows.
+ *
+ * An own-key check rather than a cast, so the narrowing is something the
+ * runtime actually did: a newer server's kind is not in the map, and saying so
+ * is the whole answer lineFor gives for it.
+ */
+function isActivityKind(kind: string): kind is ActivityKind {
+  return Object.hasOwn(ACTIVITY_LINE, kind);
 }

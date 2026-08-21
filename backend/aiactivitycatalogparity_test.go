@@ -31,27 +31,39 @@ import (
 // job is to notice when the two sets stop agreeing.
 const documentReadingKind = "document_extract"
 
-func TestEveryScheduledSpecIsAKindTheContractCanExpress(t *testing.T) {
+func TestEveryKindSomethingProducesIsOneTheContractCanExpress(t *testing.T) {
 	declared := crmYAMLEnum(t, "AiActivityItem", "kind")
 	if len(declared) == 0 {
 		t.Fatal("AiActivityItem declares no kind enum; this gate would pass vacuously")
 	}
-	for _, spec := range runner.Catalog() {
-		if !slices.Contains(declared, spec.Name) {
-			t.Errorf("runner.Catalog() ships %q and the contract's kind enum does not carry it — the "+
-				"runner would announce a kind the wire cannot express, and the rail would render nothing "+
-				"for an agent that really ran. Add it to the enum and ship its copy in en/de/vi", spec.Name)
+	for _, kind := range producedKinds() {
+		if !slices.Contains(declared, kind) {
+			t.Errorf("something announces kind %q and the contract's enum does not carry it — the wire "+
+				"cannot express it, and the rail would render nothing for AI work that really happened. "+
+				"Add it to the enum and ship its copy in en/de/vi", kind)
 		}
 	}
+}
+
+// producedKinds is every kind an emitter can announce: the scheduled specs, and
+// the document reading a human asks for.
+//
+// Both directions of this parity are checked against THIS list, which is why it
+// is one function rather than two inline slices — a producer named in only one
+// direction is a producer half-gated, and the half that is missing is whichever
+// one nobody thought about.
+func producedKinds() []string {
+	out := []string{documentReadingKind}
+	for _, spec := range runner.Catalog() {
+		out = append(out, spec.Name)
+	}
+	return out
 }
 
 // The reverse: a kind nothing can produce is copy three locales carry, a line
 // no reader will see, and a promise the server cannot keep.
 func TestEveryContractKindHasSomethingThatProducesIt(t *testing.T) {
-	produced := []string{documentReadingKind}
-	for _, spec := range runner.Catalog() {
-		produced = append(produced, spec.Name)
-	}
+	produced := producedKinds()
 	for _, kind := range crmYAMLEnum(t, "AiActivityItem", "kind") {
 		if !slices.Contains(produced, kind) {
 			t.Errorf("the contract declares kind %q and nothing announces it — either an emitter was "+
@@ -82,13 +94,16 @@ func TestTheReadsTextCapsAreTheOnesTheContractPublishes(t *testing.T) {
 // crmYAMLMaxLength reads one property's maxLength out of the contract.
 func crmYAMLMaxLength(t *testing.T, schema, property string) int {
 	t.Helper()
-	// Decoded loosely rather than into a tagged struct: `maxLength` is
-	// OpenAPI's spelling, and a yaml tag naming it fails the repo's snake_case
-	// tag rule — a rule about OUR wire shapes, which this is not.
+	// `maxLength` is OpenAPI's own spelling, so the tag cannot be snake_case:
+	// the repo's tag rule is about the shapes WE publish, and this decodes a
+	// document whose key names are not ours to choose. Typed rather than a bare
+	// map so an absent field stays a distinguishable nil.
 	var doc struct {
 		Components struct {
 			Schemas map[string]struct {
-				Properties map[string]map[string]any `yaml:"properties"`
+				Properties map[string]struct {
+					MaxLength *int `yaml:"maxLength"` //nolint:tagliatelle // OpenAPI's key, not ours to rename
+				} `yaml:"properties"`
 			} `yaml:"schemas"`
 		} `yaml:"components"`
 	}
@@ -100,14 +115,10 @@ func crmYAMLMaxLength(t *testing.T, schema, property string) int {
 		t.Fatalf("parsing the contract: %v", err)
 	}
 	prop, ok := doc.Components.Schemas[schema].Properties[property]
-	if !ok {
-		t.Fatalf("%s declares no %s property", schema, property)
-	}
-	published, ok := prop["maxLength"].(int)
-	if !ok {
+	if !ok || prop.MaxLength == nil {
 		t.Fatalf("%s.%s publishes no maxLength, so the read's cap is unheld", schema, property)
 	}
-	return published
+	return *prop.MaxLength
 }
 
 // A spec name that is not a legal message-key segment cannot have copy keyed on

@@ -99,6 +99,21 @@ func newReadingFixture(t *testing.T) *readingFixture {
 	}
 }
 
+// dbNow is the clock every one of these suites measures against.
+//
+// The database's, not the test host's: stale_after, finished_at and the
+// reconcile window are all computed from timestamps the database stamped, so a
+// cutoff taken from the host answers a different question by the size of the
+// drift between them — and on a date boundary, a different question entirely.
+func (f *readingFixture) dbNow(t *testing.T) time.Time {
+	t.Helper()
+	var now time.Time
+	if err := f.env.Pool.QueryRow(context.Background(), `SELECT now()`).Scan(&now); err != nil {
+		t.Fatalf("reading the database clock: %v", err)
+	}
+	return now
+}
+
 // drain hands the consumer every ai_task.state_changed this reading staged,
 // oldest first — what a subscriber that is keeping up receives.
 func (f *readingFixture) drain(t *testing.T) {

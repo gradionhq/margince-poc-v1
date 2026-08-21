@@ -17,7 +17,6 @@ package integration
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 )
@@ -50,7 +49,7 @@ func TestTheReconcilerRestoresAReadingTheProjectionNeverHeardAbout(t *testing.T)
 	f.drain(t)
 	f.deleteProjection(t)
 
-	announced, err := f.store.ReconcileExtractionActivity(f.ctx, 100, time.Now())
+	announced, err := f.store.ReconcileExtractionActivity(f.ctx, 100, f.dbNow(t))
 	if err != nil {
 		t.Fatalf("ReconcileExtractionActivity: %v", err)
 	}
@@ -86,7 +85,7 @@ func TestTheReconcilerRestoresASettledReadingInsideItsWindow(t *testing.T) {
 	f.drain(t)
 	f.deleteProjection(t)
 
-	if _, err := f.store.ReconcileExtractionActivity(f.ctx, 100, time.Now()); err != nil {
+	if _, err := f.store.ReconcileExtractionActivity(f.ctx, 100, f.dbNow(t)); err != nil {
 		t.Fatalf("ReconcileExtractionActivity: %v", err)
 	}
 	f.drain(t)
@@ -116,7 +115,7 @@ func TestTheReconcilerLeavesAReadingPastItsWindowAlone(t *testing.T) {
 
 	// The pass's clock is a PARAMETER, so this states the instant it means
 	// rather than ageing a row and racing the wall clock to read it back.
-	future := time.Now().Add(2 * activities.ExtractionActivityReconcileWindow)
+	future := f.dbNow(t).Add(2 * activities.ExtractionActivityReconcileWindow)
 	announced, err := f.store.ReconcileExtractionActivity(f.ctx, 100, future)
 	if err != nil {
 		t.Fatalf("ReconcileExtractionActivity: %v", err)
