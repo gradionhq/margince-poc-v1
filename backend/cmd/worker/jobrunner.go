@@ -59,7 +59,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	// resolved once, shared; when it is not configured, configuredVault is nil
 	// so an unconfigured deployment never fails worker boot over pollers it has
 	// no connected workspace to run anyway.
-	vault, vaultConfigured, verr := keyvault.FromEnv(pool, config.FromOS)
+	vault, vaultConfigured, verr := keyvault.FromEnv(ctx, pool, config.FromOS)
 	if verr != nil {
 		return nil, fmt.Errorf("worker: keyvault: %w", verr)
 	}

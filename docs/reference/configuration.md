@@ -455,18 +455,96 @@ line (argv is world-readable) or in any log or error. A connector credential
 is sealed with AES-256-GCM under this key and stored as ciphertext in the
 operational `vault_secret` table; the `connector_connection` row carries only
 an opaque, workspace-scoped `credential_ref`, never the credential bytes.
-Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset and the vault is absent: every
+Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset **on an installation that has sealed
+nothing** and the vault is absent: every
 connector's connect path (gmail, gcal, graph, imap all connect through the
 same operation, sealing to the vault) refuses loudly rather than store a
 credential in the clear. Set it and the api gains the
 `/readyz` keyvault probe and the vault-backed path, and the worker migrates
 any legacy `auth`-bytea rows onto the vault at boot (idempotent). A key that
 is SET but not exactly 32 bytes (base64-decoded) is a boot error — never a
-silent fallback.
+silent fallback — and so is leaving it unset on an installation that already
+holds sealed ciphertext, which is the redeploy-dropped-the-variable case and is
+refused rather than degraded (see below).
 
 | Env | Default | Meaning |
 |---|---|---|
 | `MARGINCE_KEYVAULT_ROOT_KEY` | — | base64 (std) of 32 bytes; set to enable the vault. Generate: `openssl rand -base64 32` |
+
+### The vault also holds the two deployment credentials
+
+Connector credentials were the vault's first tenants; two more moved in and
+they arrive by a different route. The **outbound-relay password**
+(`email.smtp.password`) and the **license token** (`license.token`) are still
+DECLARED by the deployment, but on the first boot that sees one the value is
+sealed into the vault and the installation records where it went. Nothing is
+required of the operator to make that happen, and the boot log says when it
+has:
+
+```
+sealed a deployment credential into the key vault; the deployment configuration
+that declared it can be deleted  credential_name="the license token" declared_at=license.token
+```
+
+Once that line appears the declaration may be deleted and the installation keeps
+booting on the sealed copy. Nothing here can delete it for you: a process cannot
+edit its own deployment.
+
+**Delete the declaration, not just what it points at.** Dropping the variable or
+unmounting the file while the `license:` block or the `password:` line is still
+in `margince.yaml` fails the boot in `deployconfig`, before the vault is ever
+consulted — a `${file:…}` that is gone cannot be read, and a `${env:…}` that is
+unset is a named source that yielded nothing, which has always been an error
+rather than an absence. Remove the whole `license:` block, or the `password:`
+line from `email.smtp`. Then the variable or the file can go too.
+
+**There is no unseal.** Rotating works; *removing* does not. Deleting
+`email.smtp.password` used to switch the installation back to an unauthenticated
+relay, and it no longer does — the sealed copy keeps answering, because "declared
+nothing" and "declared nothing on purpose" are the same input to the resolver.
+Nothing in the product deletes either ref today. If you need a relay that takes
+no credential, say so on
+[issue #2162](https://github.com/gradionhq/margince-poc-v1/issues/2162), which
+tracks the supported way to do it. The license is unaffected in practice: an
+installation removing its license is one that has stopped paying, and a
+production boot refuses an absent license regardless.
+
+**Rotation moves into the vault only for reading, never for writing.** There is
+no product surface that changes either credential, and no seeded role holds the
+grant to write one, so the sealed copy is only ever a mirror of what the
+deployment declares. That is why the DECLARATION still wins when both exist: to
+rotate, put the new value back where it used to be — the variable or the file —
+and the next boot re-seals it. The superseded ciphertext is deliberately left
+in place rather than destroyed: a re-seal is triggered by the declaration alone,
+which is exactly what a stale variable or a botched pipeline gets wrong, and
+destroying what it supersedes would let one bad boot irreversibly take out the
+only copy of a credential nobody meant to replace. What it costs is one
+unreferenced blob per rotation — encrypted at rest, reachable by nobody. This is
+the
+opposite precedence to a BYOK provider key, which the vault wins because the
+routing surface can change one.
+
+**A vault that cannot be opened says so**, in two places, because there are two
+ways to lose it and they need different sentences.
+
+*The root key is gone.* An installation holding sealed ciphertext with
+`MARGINCE_KEYVAULT_ROOT_KEY` unset **refuses to boot**, naming the variable.
+This is asked once, where the vault is built, rather than by each reader —
+because the loss is not the license's or the relay's, it is every credential the
+installation holds at once, connector tokens included. An installation that has
+sealed nothing is unaffected and boots with no vault exactly as before. The key
+is not recoverable from the ciphertext, or from us: restore the one this
+installation sealed with.
+
+*The root key is wrong.* A sealed reference that will not open refuses the boot
+naming the vault and the root key, rather than reporting an installation that
+has a license as having none — which is what "absent" used to mean on that path,
+and a completely different problem for whoever is paged.
+
+One consequence for the **worker**: its license check now runs after its
+database pool, because a sealed token lives in a table. It still happens before
+the worker does any work, so an operator mistake never leaves a worker running
+on a license the api refuses to boot on.
 
 ## Custom-field schema pool (api) — runtime DDL
 
@@ -823,7 +901,8 @@ that stops matching its recorded digest fails `make check`.
 
 | field | default | effect |
 |---|---|---|
-| `token_file` | *(none)* | Path to a file holding the license token. A **file reference, never an inline value**: it is a credential, and this file gets read, copied and pasted into support threads. Overridden by `MARGINCE_LICENSE` when that variable is set to a non-empty value — the same variable name the validation module itself reads, so a container that already exports the license needs no `license:` block at all. |
+| `token` | *(none)* | The token as a reference — `${file:/run/secrets/margince-license}` or `${env:SOME_VAR}`. The preferred spelling, and the one a refusal recommends. An inline value is refused at decode time. |
+| `token_file` | *(none)* | The original spelling, still honoured so an existing deployment boots unchanged. Path to a file holding the license token. A **file reference, never an inline value**: it is a credential, and this file gets read, copied and pasted into support threads. Overridden by `MARGINCE_LICENSE` when that variable is set to a non-empty value — the same variable name the validation module itself reads, so a container that already exports the license needs no `license:` block at all. |
 
 Three postures, and what each one does at boot:
 
@@ -832,6 +911,12 @@ Three postures, and what each one does at boot:
 | **no token configured** | **refuses to boot in production**; boots with a warning when `MARGINCE_ENV` is `dev` or `test` | `margince_license_posture{state="absent"} 1` |
 | **token verified** | boots | `margince_license_posture{state="valid"} 1`, plus `margince_license_seats` when the license grants a seat count |
 | **token refused** | **refuses to boot** (api and worker alike), naming the module's own reason and the setting to correct | — |
+
+On the first boot that resolves a token it is sealed into the key vault, after
+which the declaration above may be removed — see
+[the vault also holds the two deployment credentials](#the-vault-also-holds-the-two-deployment-credentials)
+for what that changes about rotation, and for the boot refusal an unreachable
+vault produces instead of an "absent" posture.
 
 **A production installation serves on a license or it does not serve.** The
 posture decides it, and `MARGINCE_ENV` is fail-closed, so an installation that

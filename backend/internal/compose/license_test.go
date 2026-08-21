@@ -24,12 +24,19 @@ import (
 // token is read through that lookup, so an engineer or CI lane exporting a real
 // MARGINCE_LICENSE cannot turn an absent posture into a valid one, or make a
 // case that names a token FILE read a variable instead.
+//
+// The nil pool and nil vault are the point of a second property rather than a
+// convenience: with no vault configured there is nothing sealed to open, so the
+// declaration is the whole answer and resolving it must touch no database. A
+// change that made the license question need one would fail every case here by
+// dereferencing the pool — which is the failure to want, because a worker
+// resolves its entitlement before it will serve anything.
 
 // A production installation serves on a license or it does not serve. The whole
 // point of the gate is that this is the DEFAULT: MARGINCE_ENV is fail-closed, so
 // an installation that names no posture is held to a license.
 func TestEnsureLicenseRefusesAProductionBootWithNoLicense(t *testing.T) {
-	_, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), deployconfig.Config{},
+	_, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), nil, nil, deployconfig.Config{},
 		runtimeenv.Parse(""), config.Static(nil))
 	if err == nil {
 		t.Fatal("EnsureLicense booted a production installation that configured no license")
@@ -53,7 +60,7 @@ func TestEnsureLicenseBootsUnlicensedInNonProductionAndSaysSo(t *testing.T) {
 	var log bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	watcher, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Development, config.Static(nil))
+	watcher, err := EnsureLicense(context.Background(), logger, nil, nil, deployconfig.Config{}, runtimeenv.Development, config.Static(nil))
 	if err != nil {
 		t.Fatalf("EnsureLicense refused an unlicensed development installation: %v", err)
 	}
@@ -82,7 +89,7 @@ func TestEnsureLicenseRefusesTheBootOnALicenseTheModuleWillNotHonor(t *testing.T
 	cfg := deployconfig.Config{License: deployconfig.License{TokenFile: path}}
 
 	for _, env := range []runtimeenv.Environment{runtimeenv.Production, runtimeenv.Development} {
-		_, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg, env, config.Static(nil))
+		_, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), nil, nil, cfg, env, config.Static(nil))
 		if err == nil {
 			t.Fatalf("EnsureLicense booted a %s installation on a license the bundled module refuses", env)
 		}
@@ -104,7 +111,7 @@ func TestEnsureLicenseRefusesTheBootOnALicenseTheModuleWillNotHonor(t *testing.T
 // unlicensed installation, which is the same posture to everything downstream.
 func TestEnsureLicenseRefusesAnUnreadableTokenFile(t *testing.T) {
 	cfg := deployconfig.Config{License: deployconfig.License{TokenFile: filepath.Join(t.TempDir(), "typo")}}
-	if _, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg, runtimeenv.Production, config.Static(nil)); err == nil {
+	if _, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), nil, nil, cfg, runtimeenv.Production, config.Static(nil)); err == nil {
 		t.Fatal("EnsureLicense booted with a token_file that does not exist")
 	}
 }
@@ -217,10 +224,37 @@ func TestAssembledMetricsSectionsOmitTheLicenseWhenNoneWasWired(t *testing.T) {
 func TestEnsureLicenseBootLineNamesTheTokenSource(t *testing.T) {
 	var log bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if _, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Development, config.Static(nil)); err != nil {
+	if _, err := EnsureLicense(context.Background(), logger, nil, nil, deployconfig.Config{}, runtimeenv.Development, config.Static(nil)); err != nil {
 		t.Fatalf("EnsureLicense: %v", err)
 	}
 	if !strings.Contains(log.String(), "token_from=none") {
 		t.Errorf("the boot line does not name the token's source: %q", log.String())
+	}
+}
+
+// Where the token came from is half the boot line's value, and deployconfig can
+// only speak for the file and the environment. Once a token can be sealed in
+// the vault, an installation running on one would be recorded as running on
+// "none" — which reads as unlicensed to whoever greps for it.
+func TestTheTokenOriginNamesTheVaultOnlyWhenAVaultAnsweredIt(t *testing.T) {
+	declared, err := deployconfig.Parse([]byte("version: 1\nlicense:\n  token: ${env:MARGINCE_LICENSE_TOKEN}\n"))
+	if err != nil {
+		t.Fatalf("parsing the deployment file: %v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		cfg     deployconfig.Config
+		posture licensecheck.Posture
+		want    string
+	}{
+		{"a declared token names the declaration", declared, licensecheck.Posture{State: licensecheck.StateValid}, "license.token"},
+		{"nothing declared and nothing sealed is none", deployconfig.Config{}, licensecheck.Posture{State: licensecheck.StateAbsent}, "none"},
+		{"nothing declared but a token in hand came from the vault", deployconfig.Config{}, licensecheck.Posture{State: licensecheck.StateValid}, "keyvault"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := licenseTokenOrigin(tc.cfg, config.Static(nil), tc.posture); got != tc.want {
+				t.Errorf("origin %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

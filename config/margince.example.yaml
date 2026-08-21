@@ -90,8 +90,16 @@ bootstrap_admin:
 #
 # What the license grants is also enforced: once every licensed full seat is in
 # use, inviting a member is refused. Nobody already working loses anything.
+#
+# Sealed on the first boot that resolves it: the token goes into the key vault
+# and the installation records where. The boot log says so, and from then on
+# this whole block can be DELETED and the vault answers instead — deleting only
+# the file it points at, and leaving the block, fails the boot instead.
+# To rotate, put the new token back here — the declaration still wins, and the
+# next boot re-seals it. docs/reference/configuration.md, "the vault also holds
+# the two deployment credentials".
 # license:
-#   token_file: config/margince-license
+#   token: ${file:config/margince-license}
 
 # AI runtime posture (optional). Uncomment to turn on Layer-3 AI payload capture
 # (ai_call_payload) — OFF by default because it stores special-category-adjacent
