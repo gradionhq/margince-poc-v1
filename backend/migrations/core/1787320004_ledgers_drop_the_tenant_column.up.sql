@@ -1,11 +1,13 @@
 -- ADR-0091 §8 phase D, the last slice: the append-only ledgers drop the tenant
 -- column. No table in this schema carries workspace_id after this.
 --
--- These two were held to the end deliberately, and 0272 says why it exempted
--- them: their immutability trigger forbids DELETE, so an installation cannot
--- clear residue from them even when it wants to, and demanding it would demand
--- the impossible. That exemption ends here — 0272 also said their attribution
--- "goes with audit_log's own column at the end of phase D", and this is it.
+-- These two were held to the end deliberately. The archived-tenant residue gate
+-- exempted them BY NAME, because their immutability trigger forbids DELETE: an
+-- installation cannot clear residue from them even when it wants to, and
+-- demanding it would demand the impossible. That gate said their attribution
+-- would go with audit_log's own column at the end of phase D, and this is it.
+-- (The gate is in the 0001 baseline now, along with the rest of core's
+-- history — it is a schema fact rather than a file to cite.)
 --
 -- What that costs, stated rather than left to be found: on an installation that
 -- ever held more than one workspace, these rows carried the only surviving

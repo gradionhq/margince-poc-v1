@@ -14,7 +14,7 @@ SET LOCAL lock_timeout = '3s';
 
 -- ADD COLUMN ... DEFAULT, never ADD then UPDATE. These two tables carry a
 -- BEFORE UPDATE OR DELETE ... FOR EACH ROW trigger that raises unconditionally
--- (trg_audit_no_mutate, core 0012; trg_system_log_no_mutate, core 0074), so an
+-- (trg_audit_no_mutate and trg_system_log_no_mutate, both in the baseline), so an
 -- UPDATE backfill aborts on the first existing row and takes the ADD COLUMN
 -- with it — dbmigrate runs each file in one transaction, so the rollback would
 -- restore NOTHING and pin the operator at head. ADD COLUMN with a DEFAULT
