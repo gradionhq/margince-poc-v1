@@ -4,7 +4,6 @@ import {
   type ReactNode,
   type SetStateAction,
   useEffect,
-  useMemo,
   useState,
 } from "react";
 import { FIRST_PAGE } from "../api/client";
@@ -20,7 +19,7 @@ import {
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, useMe, useSorMode } from "./common";
-import { useRoster } from "./entityref";
+import { rosterReading, useRoster, useRosterPartial } from "./entityref";
 
 // The shared list foundation (P-14): every list screen sends the rich
 // q/sort/cursor/include_archived/filter vocabulary instead of a flat
@@ -102,12 +101,54 @@ export type FilterSpec = {
   options: FilterOption[];
 };
 
-/** A saved view: a named sort + filter preset, shown as a tab. */
+/** A screen's own preset: a named sort + filter preset, shown as a tab. */
 export type ViewSpec = {
   label: MessageKey;
   sort?: string;
   filters?: Record<string, string>;
 };
+
+/**
+ * The reader's own saved view, as a tab: the WHOLE list state it claims, plus
+ * the id that says which view it is.
+ *
+ * Both halves are load-bearing. A tab carrying only the sort and the filters
+ * restores a view saved with "Show archived" on as a view with it off — and
+ * then the tab does not even match itself, because the archived toggle is part
+ * of what a view claims about the list. The search is here for the same reason:
+ * it narrows the list exactly as a filter does, so a tab that omitted it would
+ * light while a search nobody saved was narrowing the rows underneath it. And
+ * the id is what survives a rename or a newly created view: `/views` answers
+ * ordered by name, so a position is a different view as soon as one is inserted
+ * ahead of it.
+ *
+ * `perPage` is optional because a stored blob need not claim one: a view that
+ * saved a page size asks for it, and a view that saved none leaves the reader's
+ * own choice alone.
+ */
+export type SavedViewTab = Readonly<{
+  id: string;
+  label: string;
+  q: string;
+  sort: string;
+  filters: Readonly<Record<string, string>>;
+  includeArchived: boolean;
+  perPage?: number;
+}>;
+
+/**
+ * One tab on the rail, whichever kind it came from: a screen's preset or a
+ * reader's saved view. `perPage` is optional because neither kind need claim a
+ * page size — a preset never does, and a saved view only when its stored blob
+ * carried one.
+ */
+type RailView = ListView &
+  Readonly<{
+    id: string;
+    q: string;
+    includeArchived: boolean;
+    perPage?: number;
+  }>;
 
 export function useListQuery<Row>({
   key,
@@ -206,6 +247,7 @@ export function ListTable<Row>({
   showArchivedToggle = true,
   tools,
   emptyNote,
+  scopeKey,
   body,
   bodyOwnsPaging = false,
   selection,
@@ -244,7 +286,7 @@ export function ListTable<Row>({
    * reader's own saved views. Rendered after the screen's built-in presets, so
    * All/Mine/A-Z keep their positions as a saved view is added or removed.
    */
-  dataViews?: readonly ListView[];
+  dataViews?: readonly SavedViewTab[];
   action?: ReactNode;
   /** What this list is, for the lists that need saying. Never the screen name. */
   caption?: MessageKey;
@@ -262,6 +304,14 @@ export function ListTable<Row>({
    * way back to everything. Overlay's own note wins when both apply.
    */
   emptyNote?: ReactNode;
+  /**
+   * What this list is reading, when the screen narrows it by something that is
+   * neither a chip nor a filter — passed straight to the surface, which resets
+   * the reader to page 1 when it changes. Deals is the case: its pipeline
+   * picker is screen state, so switching pipelines leaves `filters` untouched
+   * while the result set changes entirely.
+   */
+  scopeKey?: string;
 }>): ReactNode {
   const t = useT();
   // Overlay reads a mirror that cannot sort or filter (the server 422s those
@@ -276,15 +326,33 @@ export function ListTable<Row>({
   // filter or a sort is no longer looking at that preset. Stored, the highlight
   // would keep claiming a view the query had already left; derived, it simply
   // stops matching, and comes back by itself if the reader undoes the edit.
-  const allViews: readonly ListView[] = [
-    ...views.map((spec) => ({
-      label: spec.label,
-      sort: spec.sort,
-      filters: spec.filters,
-    })),
-    ...dataViews,
-  ];
-  const [view, setPicked] = useActiveView(allViews, query);
+  //
+  // ONE rail, built once: the tabs the surface renders and the tabs the
+  // highlight is matched against have to be the same list, or an index reported
+  // by a press names a different view than the one that was pressed. A view tab
+  // whose preset the mirror would refuse is a tab that lights up and does
+  // nothing, so overlay mode has no rail at all — the same reason its chips and
+  // its sort are withheld.
+  const railViews: readonly RailView[] = overlay
+    ? []
+    : [
+        ...views.map((spec) => ({
+          ...translateView(spec, t),
+          // A preset is identified by its message key: the screen wrote the set,
+          // so the key is unique within it, and it stays the same string when
+          // the label is translated or the rail is reordered. `preset:` keeps
+          // it out of the uuid namespace a saved view's id lives in.
+          id: `preset:${spec.label}`,
+          // A preset is a sort and a set of filters over the whole live list:
+          // it asks for no search and no archive, and the tab has to say so or
+          // it would keep claiming the list while the reader has a search typed
+          // or the archive switched on.
+          q: "",
+          includeArchived: false,
+        })),
+        ...dataViews,
+      ];
+  const [view, pickView] = useActiveView(railViews, query);
   // Keyed on the VALUES, not on the arrays that carry them. The table treats a
   // new `chosen` object as the reader narrowing the list and resets to page 1,
   // so an object rebuilt every render resets on every render: pressing Next
@@ -304,20 +372,35 @@ export function ListTable<Row>({
     ...chips.map((chip) => translateChip(chip, t)),
     ...dataChips,
   ];
-  // Carries the chip KEYS and the grouping, not just a flat list of values:
-  // chosenFor reads both, so two different chip sets that happen to share the
-  // same values must not produce the same key. JSON, rather than a join on a
-  // separator — any separator can appear inside a value, and then ["a","b"]
-  // and ["a<sep>b"] are indistinguishable.
-  const chipOptionKey = JSON.stringify(
-    allChips.map((chip) => [chip.key, chip.options.map((o) => o.value)]),
+  // Keyed on the FILTERS, which are what the list actually reads. The table
+  // treats a new `chosen` identity as the reader narrowing the list and resets
+  // to page 1, so this identity must change only when the answer changes.
+  //
+  // Keying on the chip options made the roster do it: the owner dial names the
+  // viewer's teams, which arrive on their own query, so a chip gained an option
+  // seconds after the list rendered and threw the reader from page 2 back to
+  // page 1 — for a reason they could not see, having touched nothing.
+  //
+  // Keying on chosenFor's RESULT is not enough either, and the saved views are
+  // why. A restored view sets `owner_team_id=t-9` before the roster answers, so
+  // the filter is already there when the matching option arrives; chosenFor
+  // then adds the chip's own key and the result changes shape while the query,
+  // and every row, stays exactly as it was.
+  //
+  // The filters are the honest signal: the fetch reads them and nothing else,
+  // so an identity that follows them resets when the rows change and never
+  // otherwise. What a dial OFFERS is presentation, and presentation must not
+  // move the reader.
+  // Sorted, so re-picking the same value cannot reorder the object and read as
+  // a change: setFilter deletes a composite param and re-adds it, which moves
+  // its insertion order without moving what it selects.
+  const narrowKey = JSON.stringify(
+    Object.entries(query.filters).sort(([a], [b]) => a.localeCompare(b)),
   );
-  const filterKey = JSON.stringify(query.filters);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the values the arrays carry, which is what makes the identity stable
-  const chosen = useMemo(
-    () => chosenFor(allChips, query.filters),
-    [chipOptionKey, filterKey],
-  );
+  // Rebuilt every render, on purpose: a dial must show what is chosen the
+  // moment its options arrive. Nothing resets on this — `narrowKey` is the
+  // trigger — so a fresh object here costs nothing.
+  const chosen = chosenFor(allChips, query.filters);
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived change
@@ -354,6 +437,30 @@ export function ListTable<Row>({
       </Button>
     </>
   ) : undefined;
+
+  // Pressing a tab pins it AND restores the list state it holds. The surface
+  // rewrites the sort and the filters itself; the archived toggle and the page
+  // size are this layer's, because they are part of the ListQuery the fetchers
+  // read and the surface knows nothing about a saved view's stored state.
+  //
+  // The toggle is rewritten unconditionally, exactly as the filters are: a view
+  // describes the WHOLE list, so an archived toggle left on from the previous
+  // tab both widens the view the reader just picked and stops that tab matching
+  // itself. Page size is the one dial a tab may make no claim about — a preset
+  // never claims one, and a saved view only where its stored blob carried one —
+  // so the reader's own choice survives a tab that carries none.
+  const applyViewState = (index: number) => {
+    pickView(index);
+    const picked = railViews[index];
+    if (!picked) {
+      return;
+    }
+    setQuery((prev) => ({
+      ...prev,
+      includeArchived: picked.includeArchived,
+      perPage: picked.perPage ?? prev.perPage,
+    }));
+  };
 
   const setFilter = (key: string, value: string) =>
     setQuery((prev) => {
@@ -426,16 +533,11 @@ export function ListTable<Row>({
       chips={overlay ? [] : allChips}
       chosen={chosen}
       onChipChange={setFilter}
-      // A view tab whose preset the mirror would refuse is a tab that lights up
-      // and does nothing, so overlay mode shows none — the same reason its
-      // chips and its sort are withheld.
-      views={
-        overlay
-          ? []
-          : [...views.map((spec) => translateView(spec, t)), ...dataViews]
-      }
+      views={railViews}
       activeView={view}
-      onViewChange={setPicked}
+      narrowKey={narrowKey}
+      scopeKey={scopeKey}
+      onViewChange={applyViewState}
       archived={
         showArchivedToggle
           ? {
@@ -496,30 +598,63 @@ function translateView(spec: ViewSpec, t: Translate): ListView {
  * The pressed tab therefore wins, but only while it still describes the list.
  * The moment the query moves away it stops matching and the highlight falls
  * back to whatever the query now describes.
+ *
+ * What is pinned is the view's ID, never its position. `/views` answers ordered
+ * by name, so creating or renaming a view re-orders the rail under the reader:
+ * a stored index then points at whichever view moved into that slot, and the
+ * highlight silently claims a view nobody picked.
  */
 function useActiveView(
-  views: readonly ListView[],
+  views: readonly RailView[],
   query: ListQuery,
 ): [number, (index: number) => void] {
-  const [picked, setPicked] = useState<number | null>(null);
+  const [pickedId, setPickedId] = useState<string | null>(null);
   const matched = views.findIndex((spec) => matchesView(spec, query));
-  const pinned = picked !== null && views[picked];
-  const view = pinned && matchesView(views[picked], query) ? picked : matched;
-  return [view, setPicked];
+  const pinned = views.findIndex((spec) => spec.id === pickedId);
+  const view =
+    pinned >= 0 && matchesView(views[pinned], query) ? pinned : matched;
+  // The press reports an index into the rail just rendered, which is where the
+  // id it names comes from. A press on nothing (the surface's own "clear
+  // everything" reports index 0 against an empty rail) unpins rather than
+  // pinning a view that is not there.
+  return [view, (index: number) => setPickedId(views[index]?.id ?? null)];
 }
 
 /**
  * Is the list showing exactly what this view asks for, nothing added or left?
  *
- * Takes the sort and filters alone, so it reads a screen's built-in preset and
- * a reader's saved view the same way — the two differ only in where the label
- * came from, and the highlight is about the query, not the name.
+ * Takes the state a view describes rather than its name, so it reads a screen's
+ * built-in preset and a reader's saved view the same way — the two differ only
+ * in where the label came from, and the highlight is about the query.
+ *
+ * Every dial that decides WHICH rows the list holds counts, and the two that
+ * are easy to leave out are the reason this is spelled out. The archived toggle
+ * widens the list exactly as a filter narrows it, so a view saved with "Show
+ * archived" on is a DIFFERENT view from the default one. The search narrows it
+ * the same way: a view saved over "acme" describes the acme rows, and a tab that
+ * ignored the box would light over the whole list and name it acme.
+ *
+ * The invariant, then: a tab is lit only while the list on screen is the one it
+ * names, down to the search box. Page size is the exception it is allowed to be,
+ * because it changes how many of those rows are drawn at once and not which rows
+ * they are.
  */
 function matchesView(
-  spec: Readonly<{ sort?: string; filters?: Readonly<Record<string, string>> }>,
+  spec: Readonly<{
+    q?: string;
+    sort?: string;
+    filters?: Readonly<Record<string, string>>;
+    includeArchived?: boolean;
+  }>,
   query: ListQuery,
 ): boolean {
+  if (query.q !== (spec.q ?? "")) {
+    return false;
+  }
   if (query.sort !== (spec.sort ?? "")) {
+    return false;
+  }
+  if (query.includeArchived !== (spec.includeArchived ?? false)) {
     return false;
   }
   const wanted = Object.entries(spec.filters ?? {});
@@ -543,25 +678,19 @@ function matchesView(
  * as "clear this filter" to the table, so a half-built dial would quietly
  * narrow nothing while looking armed.
  *
- * "My team" is the union of the viewer's teams when they belong to exactly one,
- * which is the ordinary case. With several, the dial is withheld rather than
- * guessing which one the reader meant — the wire takes one team id, and picking
- * for them would answer a question they did not ask.
+ * The wire takes ONE team id, so a viewer on several teams gets one dial per
+ * team rather than a guess about which of them was meant; `viewerTeamOptions`
+ * builds those.
  */
 export function useOwnerChips(): readonly ListChip[] {
   const t = useT();
   const me = useMe();
   const viewerId = me.data?.user.id;
   const teams = useRoster("team", Boolean(viewerId));
+  const teamsPartial = useRosterPartial("team", Boolean(viewerId));
   if (!viewerId) {
     return [];
   }
-  // Named, not counted. The viewer may sit in several teams, and a dial that
-  // withheld itself past the first one left everyone on two teams unable to
-  // ask a question the API answers. Each team is its own option, so picking one
-  // is picking a team rather than accepting a guess about which was meant.
-  const mine = new Set(me.data?.teams ?? []);
-  const named = (teams.data ?? []).filter((entry) => mine.has(entry.id));
   return [
     {
       key: "owner",
@@ -569,14 +698,66 @@ export function useOwnerChips(): readonly ListChip[] {
       allLabel: t("list.filterOwnerAll"),
       options: [
         { value: `owner_id:${viewerId}`, label: t("list.filterOwnerMe") },
-        ...named.map((team) => ({
-          value: `owner_team_id:${team.id}`,
-          label: "display_name" in team ? team.display_name : team.name,
-        })),
+        ...viewerTeamOptions(me.data?.teams ?? [], teams, teamsPartial, t),
         { value: "unassigned:true", label: t("list.filterOwnerUnassigned") },
       ],
     },
   ];
+}
+
+/**
+ * One dial per team the viewer belongs to, named off the roster.
+ *
+ * Named, not counted. The viewer may sit in several teams, and a dial that
+ * withheld itself past the first one left everyone on two teams unable to ask a
+ * question the API answers. Each team is its own option, so picking one is
+ * picking a team rather than accepting a guess about which was meant.
+ *
+ * The IDS come from /me and only the LABELS come from the roster, so the two
+ * reads can disagree about which teams there are. Filtering the roster BY the
+ * membership made the label's absence decide the dial's: a team the walk never
+ * reached yielded no option at all, and the viewer silently lost a filter the
+ * API would still have answered. So every membership gets its option, and a name
+ * the roster could not supply is reported as missing rather than taken as proof
+ * the team is.
+ */
+function viewerTeamOptions(
+  memberships: readonly string[],
+  roster: ReturnType<typeof useRoster>,
+  partial: boolean,
+  t: ReturnType<typeof useT>,
+): { value: string; label: string }[] {
+  const named = new Map(
+    (roster.data ?? []).map((entry) => [
+      entry.id,
+      // The team roster: every entry carries a name. The user roster is the
+      // other kind this hook serves, and it is never asked for here.
+      "display_name" in entry ? entry.display_name : entry.name,
+    ]),
+  );
+  const reading = rosterReading(roster, partial);
+  return memberships.flatMap((teamId) => {
+    const value = `owner_team_id:${teamId}`;
+    const name = named.get(teamId);
+    if (name) {
+      return [{ value, label: name }];
+    }
+    // A roster walked to the END has answered about this team: it is not one
+    // this reader may list — `/teams` excludes archived teams — and an option
+    // whose only honest label is a uuid is worse than one dial fewer. The other
+    // two readings have answered nothing about it, so the dial stays and says
+    // which of the two it is waiting on.
+    if (reading === "unnamed") {
+      return [];
+    }
+    return [
+      {
+        value,
+        label:
+          reading === "pending" ? t("common.loading") : t("ref.nameLoadFailed"),
+      },
+    ];
+  });
 }
 
 /**

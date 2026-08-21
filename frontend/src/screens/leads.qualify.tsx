@@ -14,6 +14,7 @@ import {
 import { Callout } from "../design-system/callout";
 import { Select } from "../design-system/select";
 import { formatDate } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import { EntityRef } from "./entityref";
@@ -148,7 +149,7 @@ export function QualifyDialog({
 }>) {
   const t = useT();
   const { locale } = useLocale();
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   const headingId = useId();
   const queryClient = useQueryClient();
   const preview = usePromotePreview(lead.id, open);

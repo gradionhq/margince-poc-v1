@@ -144,8 +144,8 @@ function Header({
 // The three stories below all render the quiet line's FALLBACK provenance,
 // "typed by a person": the fixture's `captured_by` names `u1`, which is nobody
 // the roster answers with, and an author the roster cannot resolve is not named
-// with the raw uuid. That is the state a record whose author sits outside the
-// roster's single page lands in, and it stays covered here.
+// with the raw uuid. That is the state a record lands in when its author is
+// somebody the roster does not carry, and it stays covered here.
 export const WithWayIn: Story = { render: () => <Header view={withWayIn} /> };
 
 export const NoWayIn: Story = { render: () => <Header view={noWayIn} /> };

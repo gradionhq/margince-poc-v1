@@ -6,6 +6,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Card, EmptyState, Skeleton } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import "./network.css";
 import {
@@ -125,7 +126,7 @@ export function PersonNetworkCard({ id }: Readonly<{ id: string }>) {
               )}
               <span className="t-caption">
                 {colleague.last_at
-                  ? formatDateTime(colleague.last_at, locale, "Europe/Berlin")
+                  ? formatDateTime(colleague.last_at, locale, RECORD_ZONE)
                   : t("network.neverSpoken")}
               </span>
             </li>

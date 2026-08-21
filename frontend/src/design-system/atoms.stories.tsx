@@ -26,6 +26,7 @@ import {
 } from "./atoms";
 import { AvatarStack } from "./avatarstack";
 import { usePasswordReveal } from "./passwordreveal";
+import { ProviderMark } from "./provider-mark";
 import { Select } from "./select";
 
 // Stories are the render surface the change-scoped fe-uat capture gate drives
@@ -229,6 +230,36 @@ export const Buttons: Story = {
           </Button>
           <Button variant="primary" pending reason="Connect an inbox first.">
             Send
+          </Button>
+        </div>
+      </div>
+      {/* The federated variant, in the column it is shaped for: full width is
+          the whole point of it, and a wrapping row of them would hide that. All
+          three states the sign-in surface draws, one under the other, because
+          the pair of dims is only legible as a comparison — a live door, one
+          dimmed while the password form beside it is writing and coming back,
+          and one the installation advertises with nothing behind it yet.
+
+          Each mark keeps its own company's colours. That is the one place in
+          this product where a colour is not a token, and it is also why neither
+          dim state grayscales anything: fading a control is ours to do,
+          recolouring somebody else's logo is not. */}
+      <div style={stack}>
+        <span className="t-label">
+          Federated sign-in — offered, in flight, unavailable
+        </span>
+        <div style={{ ...stack, gap: "0.5rem", maxInlineSize: "20rem" }}>
+          <Button variant="federated">
+            <ProviderMark providerKey="google" />
+            Continue with Google
+          </Button>
+          <Button variant="federated" disabled>
+            <ProviderMark providerKey="google" />
+            Continue with Google
+          </Button>
+          <Button variant="federated" unavailable>
+            <ProviderMark providerKey="microsoft" />
+            Continue with Microsoft
           </Button>
         </div>
       </div>

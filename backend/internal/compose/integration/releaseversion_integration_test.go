@@ -13,6 +13,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // TestReleaseGuardStopsATornSetAndLetsAnUpgradeThrough walks the whole life of
@@ -146,5 +147,50 @@ func TestReleaseGuardIsInertOnAnUnbootstrappedInstallation(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("a pre-bootstrap boot wrote %d release observations, want 0", rows)
+	}
+}
+
+// TestReleaseGuardIgnoresAPredecessorsRelease is the property a workspace
+// predicate used to give and the installation marker gives now.
+//
+// An installation that merged an archived predecessor still holds that
+// predecessor's release rows: the ledgers are exempt from the archived-residue
+// gate BY NAME, because their immutability trigger makes clearing them
+// impossible. So the rows are there, they can be newer than ours by occurred_at,
+// and before the marker the guard read one of them as this installation's — a
+// worker would refuse to start against a release nobody here is running.
+func TestReleaseGuardIgnoresAPredecessorsRelease(t *testing.T) {
+	env := Setup(t)
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if err := compose.RecordInstallationRelease(ctx, env.Pool, logger, "1970.42"); err != nil {
+		t.Fatalf("recording this installation's release: %v", err)
+	}
+
+	// The predecessor's row, written directly because no live code can produce
+	// one any more — an installation records only under its own marker. Stamped
+	// an hour AHEAD so it wins every ordering the read could use, which is what
+	// makes this about the marker rather than about occurred_at.
+	if _, err := OwnerConn(t).Exec(ctx, `
+		INSERT INTO system_log (actor_type, actor_id, action, detail, occurred_at)
+		VALUES ('system', 'system:release-version', 'release.version_observed',
+		        jsonb_build_object('release_version', '1970.99', 'installation', $1::text),
+		        now() + interval '1 hour')`, ids.NewV7()); err != nil {
+		t.Fatalf("seeding the predecessor's release row: %v", err)
+	}
+
+	// A role at THIS installation's release still starts.
+	if err := compose.AssertInstallationRelease(ctx, env.Pool, logger, "1970.42"); err != nil {
+		t.Fatalf("a role at this installation's release refused to start, so a predecessor's row was read as ours: %v", err)
+	}
+	// The guard is still armed rather than reading nothing at all.
+	if err := compose.AssertInstallationRelease(ctx, env.Pool, logger, "1970.41"); err == nil {
+		t.Fatal("a role at the wrong release started; the marked read must still find our own row")
+	}
+	// And the predecessor's release is not ours even though it is the newest
+	// row in the ledger — which is what proves the marker rather than the order.
+	if err := compose.AssertInstallationRelease(ctx, env.Pool, logger, "1970.99"); err == nil {
+		t.Fatal("a role matched the PREDECESSOR's release; that row is not this installation's")
 	}
 }

@@ -4,9 +4,9 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, TextInput } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { throwProblem } from "./common";
-import { RECORD_ZONE } from "./company360";
 
 // A human's verdict on a machine's claim: agree with it, or correct it.
 //

@@ -17,6 +17,9 @@ import {
 // B-EP09.3b acceptance: the composed surfaces consume the 3a primitives and
 // the staged / real / human-typed three-way distinction carries through.
 
+/** What `FieldGuard mode="masked"` announces itself as (`rbac.masked`). */
+const MASK = "Masked value";
+
 afterEach(cleanup);
 
 const render = (ui: ReactNode) =>
@@ -75,6 +78,34 @@ describe("DealCard + PipelineBoard", () => {
     expect(screen.getByText("€48,000.00")).toBeTruthy();
     expect(screen.getByText("stalled")).toBeTruthy();
     expect(screen.getByRole("button").className).toContain("stalled");
+  });
+
+  // A company has three readings on a card and only one of them is blank. The
+  // named one carries its monogram, the withheld one carries the mask every
+  // other surface draws over a withheld value, and a deal that names no company
+  // draws nothing — the one case where an empty slot states the truth.
+  it("names a company it was given, with the monogram beside it", () => {
+    render(<DealCard deal={deal} />);
+    expect(screen.getByText("Brandt Automotive")).toBeTruthy();
+    expect(screen.getByText("BA")).toBeTruthy();
+    expect(screen.queryByLabelText(MASK)).toBeNull();
+  });
+
+  it("draws the mask over a withheld company, never words for it", () => {
+    const { container } = render(
+      <DealCard deal={{ ...deal, org: "", orgWithheld: true }} />,
+    );
+    expect(screen.getByLabelText(MASK)).toBeTruthy();
+    // No name and no mark beside it: a monogram cut from the word for
+    // "withheld" would be a mark no company has.
+    expect(container.querySelector(".deal-org-name")).toBeNull();
+    expect(container.querySelector(".avatar")).toBeNull();
+  });
+
+  it("draws no company slot at all for a deal that names none", () => {
+    const { container } = render(<DealCard deal={{ ...deal, org: "" }} />);
+    expect(screen.queryByLabelText(MASK)).toBeNull();
+    expect(container.querySelector(".deal-org")).toBeNull();
   });
 
   it("a staged deal renders visibly distinct from a real one", () => {

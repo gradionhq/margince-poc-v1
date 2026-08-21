@@ -13,6 +13,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ErrSetupTokenMismatch means a claim presented a token that is not the
@@ -75,25 +76,28 @@ const (
 	replaceOutstanding outstandingPolicy = true
 )
 
-// No audit_log or event_outbox row accompanies these writes, which is the one
-// place in this package the standard write shape does not reach.
+// The lifecycle writes a system_log row for every act: minting a token,
+// retiring an outstanding one, and — through the claim — spending it. It writes
+// no audit_log or event_outbox row, and that half IS still a schema-shaped
+// exemption: audit_log is the record-mutation spine (P12) and a setup token
+// mutates no record, while an outbox envelope is a domain event nobody
+// subscribes to before the installation exists.
 //
-// The reason was a schema fact — both ledgers carried a NOT NULL tenant column
-// and a setup token exists BEFORE the organization it authorizes creating — and
-// that fact is gone: ADR-0091 §8 phase D took the column off both. What still
-// stands in the way is the ACTOR: a setup token is minted with no authenticated
-// principal, and storekit.Audit and LogSystem both refuse a caller without one
-// before any SQL runs.
+// It used to write nothing at all, on the stated grounds that both ledgers
+// carried a NOT NULL tenant column and a setup token exists BEFORE the
+// organization it authorizes creating. ADR-0091 §8 phase D removed that column,
+// so the impediment was gone and the gap was left. What actually stood in the
+// way was the ACTOR: storekit.LogSystem refuses a caller with no principal
+// bound, deliberately, because an unattributed ledger row is worse than none.
 //
-// So this is now a gap with a reachable fix rather than a schema consequence,
-// and it is tracked as #2198 rather than argued away here: minting, rotating
-// and retiring the credential that lets any bearer claim an unprovisioned
-// installation as admin leaves no ledger row. What the lifecycle does leave
-// behind is the boot log line announcing the mint — which names the token file
-// rather than repeating what it holds — and the system_log row the resulting
-// claim writes inside the same transaction as the organization, naming the
-// human who presented the token.
+// So the lifecycle binds one. `system:setup-token` is the same shape a
+// background pass uses when no human is present, and it is honest about what
+// happened: nobody was authenticated, because nobody can be yet.
 //
+// What the row must NOT carry is the token, or its hash. The hash is the
+// credential's stored form and a ledger is readable by every admin the
+// installation will ever have.
+
 // issueSetupToken is the whole rule both public entry points apply: under the
 // installation advisory lock, refuse a provisioned installation, settle what to
 // do about an outstanding credential, and record only the hash of a new one.
@@ -108,6 +112,7 @@ func (s *Service) issueSetupToken(ctx context.Context, policy outstandingPolicy)
 	if err != nil {
 		return "", fmt.Errorf("identity: minting the setup token: %w", err)
 	}
+	ctx = setupTokenActor(ctx)
 	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
 			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
@@ -142,6 +147,11 @@ func (s *Service) issueSetupToken(ctx context.Context, policy outstandingPolicy)
 				return ErrSetupTokenExists
 			}
 			return fmt.Errorf("identity: recording the setup token: %w", err)
+		}
+		if _, err := storekit.LogSystem(ctx, tx, actionInstallationClaimOpened, map[string]any{
+			"replaced_outstanding": policy == replaceOutstanding,
+		}); err != nil {
+			return fmt.Errorf("identity: recording that a setup token was issued: %w", err)
 		}
 		return nil
 	})
@@ -178,11 +188,63 @@ func consumeSetupToken(ctx context.Context, tx pgx.Tx, presented string) error {
 // holds an organization has nothing left to claim, so a token that survives it
 // is a live credential with no legitimate use.
 func retireSetupTokens(ctx context.Context, tx pgx.Tx) error {
-	if _, err := tx.Exec(ctx,
-		`UPDATE setup_token SET consumed_at = now() WHERE consumed_at IS NULL`); err != nil {
+	tag, err := tx.Exec(ctx,
+		`UPDATE setup_token SET consumed_at = now() WHERE consumed_at IS NULL`)
+	if err != nil {
 		return fmt.Errorf("identity: retiring outstanding setup tokens: %w", err)
 	}
+	// Only when one was actually retired. A rotation that found nothing
+	// outstanding invalidated nobody's credential, and a row saying otherwise
+	// would send an operator looking for a token that never existed.
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	// The bootstrap paths reach here BEFORE they bind the actor that created
+	// the organization, and that is the right order: the comment at the call
+	// site says the ORGANIZATION retires the token, not whichever path made it.
+	// So the retirement is a system act unless a caller has already said
+	// otherwise, which the mint path has.
+	ctx = ensureSetupTokenActor(ctx)
+	if _, err := storekit.LogSystem(ctx, tx, actionInstallationClaimClosed, map[string]any{
+		"retired": tag.RowsAffected(),
+	}); err != nil {
+		return fmt.Errorf("identity: recording that a setup token was retired: %w", err)
+	}
 	return nil
+}
+
+// The two actions the token's own lifecycle records. Named constants because
+// each is also the string a reader greps the ledger for.
+//
+// They name the ACT — the installation became claimable, and stopped being —
+// rather than the secret that carries it. Partly because that is the better
+// vocabulary for an operator reading the ledger, and partly because gosec reads
+// any identifier pairing `token` or `credential` with a string literal as a
+// hardcoded secret. It is not wrong to look: a constant beside this code is
+// exactly where a leaked one would sit.
+const (
+	actionInstallationClaimOpened = "installation_claim_opened"
+	actionInstallationClaimClosed = "installation_claim_closed"
+)
+
+// setupTokenActor binds the principal the token's lifecycle acts under. Nobody
+// is authenticated before an installation exists, so the ledger says so rather
+// than borrowing an identity that was not there.
+func setupTokenActor(ctx context.Context) context.Context {
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "system:setup-token",
+	})
+}
+
+// ensureSetupTokenActor is setupTokenActor for a path that MAY already have a
+// principal. It never overwrites one: a caller that knows who acted is always a
+// better answer than "the system did it".
+func ensureSetupTokenActor(ctx context.Context) context.Context {
+	if _, err := storekit.Actor(ctx); err == nil {
+		return ctx
+	}
+	return setupTokenActor(ctx)
 }
 
 // ErrAlreadyProvisioned means a claim arrived at an installation that already
@@ -215,6 +277,7 @@ func (s *Service) ClaimInstallation(ctx context.Context, token string, in Instal
 	if cached := s.installation.Load(); cached != nil {
 		return ids.WorkspaceID{}, nil, ErrAlreadyProvisioned
 	}
+	ctx = setupTokenActor(ctx)
 	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
 			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)

@@ -16,6 +16,7 @@ import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
+import { RosterPartialNote, useRoster, useRosterPartial } from "./entityref";
 import "./users-access.css";
 
 // What a seat will see, said by the server. The invite form asks before the
@@ -25,7 +26,6 @@ import "./users-access.css";
 
 type AccessPreview = components["schemas"]["AccessPreview"];
 type Role = components["schemas"]["AccessPreviewRequest"]["role"];
-type Team = components["schemas"]["Team"];
 
 // The objects worth a line in the preview: the record kinds a rep works.
 const PREVIEW_OBJECTS = [
@@ -115,23 +115,15 @@ function AccessSummary({ access }: Readonly<{ access: AccessPreview }>) {
 // Membership is what resolves who may EDIT whose records now that customer
 // identity is readable by every seat, so this is where that is administered.
 
-function useTeams() {
-  return useQuery({
-    queryKey: ["teams"],
-    queryFn: async (): Promise<Team[]> => {
-      const { data, error } = await api.GET("/teams", {
-        params: { query: { limit: 200 } },
-      });
-      if (error) throwProblem(error);
-      return data.data;
-    },
-  });
-}
-
 export function TeamsCard() {
   const t = useT();
   const qc = useQueryClient();
-  const teams = useTeams();
+  // The shared roster read, not a second query of this card's own. Both spell
+  // the same list under the same cache key, so whichever mounted first decided
+  // what the other one read back — and only one of the two follows the
+  // endpoint's cursor to the end.
+  const teams = useRoster("team", true);
+  const teamsPartial = useRosterPartial("team", true);
   const archive = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await api.PATCH("/teams/{id}", {
@@ -161,8 +153,14 @@ export function TeamsCard() {
           </Callout>
         )}
         <QueryGate query={teams}>
-          {(list) =>
-            list.length === 0 ? (
+          {(list) => {
+            // The roster hook serves users and teams alike, so narrow to the
+            // entries that actually carry a team's name rather than asserting
+            // the shape.
+            const rows = list.flatMap((entry) =>
+              "name" in entry ? [entry] : [],
+            );
+            return rows.length === 0 && !teamsPartial ? (
               <EmptyState>
                 <p className="t-small">{t("users.noTeamsYet")}</p>
               </EmptyState>
@@ -171,7 +169,7 @@ export function TeamsCard() {
               // left, the verb that archives it on the right, at the one x every
               // answer in settings sits at.
               <SettingList>
-                {list.map((team) => (
+                {rows.map((team) => (
                   <SettingRow
                     key={team.id}
                     label={team.name}
@@ -198,9 +196,12 @@ export function TeamsCard() {
                   />
                 ))}
               </SettingList>
-            )
-          }
+            );
+          }}
         </QueryGate>
+        {/* The card lists what there is, so a list that stopped short of the
+            end says so under the rows rather than reading as all of them. */}
+        <RosterPartialNote partial={teamsPartial} />
       </PanelBody>
     </Panel>
   );

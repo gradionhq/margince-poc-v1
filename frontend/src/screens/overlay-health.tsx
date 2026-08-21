@@ -9,6 +9,7 @@ import { PanelPlate } from "../design-system/panel";
 import { Meter } from "../design-system/readings";
 import { SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { type Locale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, type QueryLike } from "./common";
@@ -153,7 +154,7 @@ function SyncStatusPanel({
                         at: formatDateTime(
                           o.lastSyncedAt,
                           locale,
-                          "Europe/Berlin",
+                          viewerZone(),
                         ),
                       })
                     : t("overlay.neverSynced")}

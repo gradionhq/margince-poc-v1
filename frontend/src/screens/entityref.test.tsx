@@ -11,13 +11,14 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { EntityRef } from "./entityref";
+import { SetTargetAction } from "./quotas.forms";
 
 // EntityRef (P-4 UUID-legibility): a cross-record reference resolves the
 // target's id to its display name and backlinks to its 360.
 //
 // A reference with no name has three readings and they are different facts. A
-// read still in flight is going to answer; an id the roster's one page cannot
-// name (#1247), or one the API answers 404 for, never will; a read that came
+// read still in flight is going to answer; an id a roster read to its end does
+// not carry, or one the API answers 404 for, never will; a read that came
 // back 403 or 500 answered nothing at all. Painting the id for all three made
 // every page load show a uuid for a moment — which a reader takes for corrupt
 // data rather than for a page still loading — and made a refused read look
@@ -367,5 +368,165 @@ describe("EntityRef", () => {
     render(<EntityRef kind="user" id="u-1" name=" " />);
 
     expect(await screen.findByText("Priya Shah")).toBeTruthy();
+  });
+});
+
+// The roster walk: `/users` and `/teams` are keyset-paged, so ONE page is not
+// the roster. Every consumer of `useRoster` inherits what the walk sees — a
+// name resolution, an owner column, a subject picker — which is why the walk
+// carries whether it reached the end. Three facts are asserted here: the walk
+// follows the cursor it was given, it stops at a bound rather than trusting a
+// cursor forever, and neither the stop nor a failed page is allowed to read as
+// a complete roster.
+
+// Pages of a workspace roster, served the way the contract serves them: each
+// response hands back the cursor of the NEXT page, and the last hands back
+// none. The cursor is the page's index, so a request that forgot to echo it
+// would read page one forever and the walk would never terminate.
+function stubPagedRoster(
+  pages: ReadonlyArray<ReadonlyArray<{ id: string; display_name: string }>>,
+) {
+  const cursors: Array<string | null> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (request: Request) => {
+      const url = new URL(request.url);
+      if (!url.pathname.endsWith("/users")) {
+        // The teams roster answers as an empty workspace: a 404 here would put
+        // a failed read on the surface under test for a list it never asked
+        // about.
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      const cursor = url.searchParams.get("cursor");
+      cursors.push(cursor);
+      const index = cursor ? Number(cursor) : 0;
+      const last = index === pages.length - 1;
+      return jsonResponse({
+        data: pages[index],
+        page: {
+          next_cursor: last ? null : String(index + 1),
+          has_more: !last,
+        },
+      });
+    }),
+  );
+  return cursors;
+}
+
+// A server that never stops offering another page — the shape the bound exists
+// for. Each page carries one member, named after the page it came from.
+function stubEndlessRoster() {
+  const cursors: Array<string | null> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (request: Request) => {
+      const url = new URL(request.url);
+      if (!url.pathname.endsWith("/users")) {
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      const cursor = url.searchParams.get("cursor");
+      cursors.push(cursor);
+      const index = cursor ? Number(cursor) : 0;
+      return jsonResponse({
+        data: [{ id: `u-${index}`, display_name: `Member ${index}` }],
+        page: { next_cursor: String(index + 1), has_more: true },
+      });
+    }),
+  );
+  return cursors;
+}
+
+describe("the roster walk", () => {
+  it("follows the cursor to the last page, so a user beyond the first still resolves to a name", async () => {
+    const cursors = stubPagedRoster([
+      [{ id: "u-1", display_name: "Priya Shah" }],
+      [{ id: "u-2", display_name: "Mor Adler" }],
+      [{ id: "u-3", display_name: "Dana Fischer" }],
+    ]);
+    render(<EntityRef kind="user" id="u-3" />);
+
+    // The reference the reader is looking at is on the third page. Read one
+    // page deep it rendered a raw uuid — the same non-answer the id fallback
+    // exists to avoid handing anyone.
+    expect(await screen.findByText("Dana Fischer")).toBeTruthy();
+    // Each page asked with the cursor the previous one minted, first page with
+    // none.
+    expect(cursors).toEqual([null, "1", "2"]);
+  });
+
+  it("offers a picker candidate who sits on the second page", async () => {
+    stubPagedRoster([
+      [{ id: "u-1", display_name: "Priya Shah" }],
+      [{ id: "u-2", display_name: "Mor Adler" }],
+    ]);
+    const user = userEvent.setup();
+    render(<SetTargetAction label="Set target" />);
+
+    await user.click(screen.getByTestId("quota-create"));
+    await user.click(await screen.findByRole("combobox"));
+
+    // A quota is written against ONE subject, so a subject the picker never
+    // offers is a quota nobody can create.
+    expect(
+      await screen.findByRole("option", { name: "Mor Adler" }),
+    ).toBeTruthy();
+  });
+
+  it("surfaces a page that fails mid-walk as a failed read rather than a roster that ends there", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get("cursor") === "1") {
+          return jsonResponse({ title: "Server error" }, 500);
+        }
+        return jsonResponse({
+          data: [{ id: "u-1", display_name: "Priya Shah" }],
+          page: { next_cursor: "1", has_more: true },
+        });
+      }),
+    );
+    render(<EntityRef kind="user" id="u-2" />);
+
+    // The first page arrived and the second did not. Kept as the entries that
+    // did load, this reads as a roster that simply does not carry `u-2` — and
+    // the id would be printed as the settled answer for a read that never
+    // finished.
+    expect(await screen.findByText("Name didn't load")).toBeTruthy();
+    expect(screen.queryByText("u-2")).toBeNull();
+  });
+
+  it("stops at its page budget and tells a picker the list is only part of one", async () => {
+    const cursors = stubEndlessRoster();
+    const user = userEvent.setup();
+    render(<SetTargetAction label="Set target" />);
+
+    await user.click(screen.getByTestId("quota-create"));
+
+    // The bound is what makes an unstoppable cursor a short list instead of a
+    // page that never paints — and the picker states the shortfall rather than
+    // presenting what it read as the whole workspace.
+    expect(await screen.findByText("Showing part of the list")).toBeTruthy();
+    // Ten pages, once: the entries and the truncation flag are two readings of
+    // ONE cache entry, so a surface asking for both does not walk twice.
+    expect(cursors).toHaveLength(10);
+  });
+
+  it("says a name did not load, rather than printing the id, when the roster it stopped short of might hold it", async () => {
+    stubEndlessRoster();
+    render(<EntityRef kind="user" id="u-far" />);
+
+    // A roster walked to its end answers about this id: nobody the reader may
+    // list holds it, and the id is what is left to trace. A roster that ran out
+    // of pages has answered nothing about it, and printing the id would state
+    // that non-answer as settled fact.
+    expect(await screen.findByText("Name didn't load")).toBeTruthy();
+    expect(screen.queryByText("u-far")).toBeNull();
   });
 });

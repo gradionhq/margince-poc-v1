@@ -20,6 +20,7 @@ import {
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
 import { Select, type SelectOption } from "../design-system/select";
+import { viewerZone } from "../format/timezone";
 import { useT } from "../i18n";
 import {
   isConsentNotGranted,
@@ -355,6 +356,51 @@ function useAccountGrounding(
     reasoning,
     setReasoning,
   };
+}
+
+// What a sent message files under: the page it was written from, and every
+// record the rep named while writing it.
+//
+// The anchor alone is not enough. A rep who picks "Related to → Acme Renewal"
+// has said what the message is about, and a send that files only under the
+// organization loses that: the deal's own timeline never sees the message, and
+// nothing downstream can attribute the correspondence to the work it belongs
+// to. The grounding choices ARE the attribution — they are the same statement,
+// so they travel together.
+//
+// Duplicates are dropped rather than sent twice: on a person page the anchor
+// and the recipient are the same record, and the link table treats a repeat as
+// a conflict rather than a no-op. A link is identified by BOTH of its fields,
+// the way the server identifies it — matching on the id alone would drop a
+// legitimate second link whenever two records of different kinds happened to
+// share a uuid, and the message would then be missing from that record's
+// timeline with nothing to say why.
+//
+// `chosen` is null on a reply, whose links are the thread's own business: the
+// rep picked nothing, and the recipient is already a participant on the
+// activity being answered.
+function composedLinks(
+  anchor: { entityType: RelinkKind; entityId: string },
+  chosen: { recipientId: string; dealId: string } | null,
+): { entity_type: RelinkKind; entity_id: string }[] {
+  const links: { entity_type: RelinkKind; entity_id: string }[] = [
+    { entity_type: anchor.entityType, entity_id: anchor.entityId },
+  ];
+  if (!chosen) {
+    return links;
+  }
+  const add = (kind: RelinkKind, id: string) => {
+    const already = links.some(
+      (l) => l.entity_type === kind && l.entity_id === id,
+    );
+    if (!id || already) {
+      return;
+    }
+    links.push({ entity_type: kind, entity_id: id });
+  };
+  add("person", chosen.recipientId);
+  add("deal", chosen.dealId);
+  return links;
 }
 
 // A freeform email-chip input: typed address + Enter/comma (or blur) adds a
@@ -879,7 +925,7 @@ export function scheduleFields(local: string): {
   if (Number.isNaN(at.getTime())) return {};
   return {
     scheduled_at: at.toISOString(),
-    scheduled_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    scheduled_tz: viewerZone(),
   };
 }
 
@@ -1244,7 +1290,12 @@ export function ComposeModal({
         isChannelReply,
         mail,
         channelBody: { body, consent_purpose: purpose },
-        links: [{ entity_type: entityType, entity_id: entityId }],
+        links: composedLinks(
+          { entityType, entityId },
+          groundable
+            ? { recipientId: account.recipientId, dealId: account.dealId }
+            : null,
+        ),
       });
       if (response.status === 501) return { sent: false as const };
       // Only a real 202 is a send. openapi-fetch returns a falsy `error` for a

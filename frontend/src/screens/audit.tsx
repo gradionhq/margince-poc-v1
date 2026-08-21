@@ -2,6 +2,7 @@ import { Bot, CircleUser, Cog, type LucideIcon, Plug } from "lucide-react";
 import type { components } from "../api/schema";
 import { Badge } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import "./audit.css";
@@ -188,16 +189,20 @@ export function AuditEntryLine({
   meUserId,
 }: Readonly<{ entry: AuditLogEntry; meUserId?: string }>) {
   const { locale } = useLocale();
-  // Audit times read in the viewer's own timezone, not a fixed one — an
-  // investigator in any region sees the moment in their local wall-clock.
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return (
     <div className="audit-line">
       <ActorTag entry={entry} meUserId={meUserId} />
       <Badge tone="accent">{humanizeToken(entry.action)}</Badge>
       <span className="audit-entity">{humanizeToken(entry.entity_type)}</span>
+      {/* An audit entry is a fact in the organization's book, like the change
+          history beside it, so it reads on the organization's clock. On the
+          viewer's clock an entry at 18:00Z is 21 August to a reader in Berlin
+          and 22 August to one in Ho Chi Minh City: two investigators quoting
+          the same line quote different days, which is the failure a shared
+          record clock exists to prevent. `dateTime` carries the unambiguous
+          instant for anyone who has to convert. */}
       <time className="audit-when" dateTime={entry.occurred_at}>
-        {formatDateTime(entry.occurred_at, locale, zone)}
+        {formatDateTime(entry.occurred_at, locale, RECORD_ZONE)}
       </time>
     </div>
   );

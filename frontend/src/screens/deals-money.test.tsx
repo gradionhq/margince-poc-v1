@@ -6,7 +6,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { components } from "../api/schema";
 import { MONEY_ABSENT } from "../format/format";
 import { LocaleProvider } from "../i18n";
-import { buildColumns, buildStageTotals, FxLine, OffersPanel } from "./deals";
+import {
+  buildColumns,
+  buildStageTotals,
+  type CompanyNaming,
+  FxLine,
+  OffersPanel,
+} from "./deals";
 
 // The board's money, and the two ways it can be absent.
 //
@@ -32,6 +38,10 @@ const stages: Stage[] = [
     win_probability: 20,
   },
 ];
+
+// No company resolved and no company withheld: these cases are about money, so
+// every card here draws no company row at all.
+const noCompany: CompanyNaming = { marks: new Map(), unreadable: new Set() };
 
 function deal(overrides: Partial<Deal>): Deal {
   return {
@@ -120,7 +130,7 @@ describe("buildColumns with money the deal does not carry", () => {
     const totals = buildStageTotals([
       { stage_id: "s1", currency: null, deals: 2, raw_minor: null },
     ]);
-    const columns = buildColumns(stages, [], totals);
+    const columns = buildColumns(stages, [], totals, noCompany);
     expect(columns[0].rawMinor).toBeNull();
     expect(columns[0].weightedMinor).toBeNull();
     expect(columns[0].currency).toBeNull();
@@ -134,6 +144,7 @@ describe("buildColumns with money the deal does not carry", () => {
       stages,
       [deal({ amount_minor: null, currency: null })],
       new Map(),
+      noCompany,
     );
     expect(columns[0].deals[0].valueMinor).toBeNull();
     expect(columns[0].deals[0].currency).toBeNull();
@@ -144,6 +155,7 @@ describe("buildColumns with money the deal does not carry", () => {
       stages,
       [deal({ amount_minor: 4_800_000, currency: null })],
       new Map(),
+      noCompany,
     );
     expect(columns[0].deals[0].valueMinor).toBe(4_800_000);
     expect(columns[0].deals[0].currency).toBeNull();

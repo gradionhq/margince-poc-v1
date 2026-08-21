@@ -1,11 +1,27 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { ActorTag, AuditEntryLine, humanizeToken } from "./audit";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // Restored per case, so one test pretending to be elsewhere never decides
+  // what the next one reads.
+  vi.restoreAllMocks();
+});
+
+// The viewer's zone as a screen asks for it. The formatters take their zone as
+// an argument and never consult resolvedOptions, so this redirects only a
+// screen's own lookup — which is exactly what a test of the zone CHOICE needs.
+function pretendViewerZone(timeZone: string): void {
+  const real = Intl.DateTimeFormat().resolvedOptions();
+  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+    ...real,
+    timeZone,
+  });
+}
 
 type AuditLogEntry = components["schemas"]["AuditLogEntry"];
 
@@ -225,5 +241,34 @@ describe("AuditEntryLine", () => {
     // the opaque uuids never reach the reader
     expect(screen.queryByText(/cf-1/)).toBeNull();
     expect(screen.queryByText(new RegExp(ME))).toBeNull();
+  });
+
+  it("dates an entry on the organization's clock, not the reader's", () => {
+    // 18:00Z on 21 August is 20:00 the same day in Berlin and 01:00 the NEXT
+    // day in Ho Chi Minh City. An audit line is a fact in the shared book, so
+    // two investigators must be able to quote it by the same day: reading it on
+    // the viewer's clock is how one of them ends up quoting 22 August.
+    pretendViewerZone("Asia/Ho_Chi_Minh");
+    wrap(
+      <AuditEntryLine
+        entry={entry({ occurred_at: "2026-08-21T18:00:00Z" })}
+        meUserId={ME}
+      />,
+    );
+    // en-GB renders DD/MM/YYYY (format.ts INTL_LOCALE), so the day is the first
+    // field and the assertion is about which calendar day is claimed.
+    expect(screen.getByText(/^21\/08\/2026/)).toBeTruthy();
+    expect(screen.queryByText(/22\/08\/2026/)).toBeNull();
+  });
+
+  it("keeps the machine-readable instant on the line it dates", () => {
+    // The rendered day is one zone's reading of the entry; anyone who needs
+    // another zone's reading needs the instant itself, and a shared clock is
+    // only defensible while that instant is still on the page.
+    const occurredAt = "2026-08-21T18:00:00Z";
+    wrap(<AuditEntryLine entry={entry({ occurred_at: occurredAt })} />);
+    expect(screen.getByText(/21\/08\/2026/).getAttribute("datetime")).toBe(
+      occurredAt,
+    );
   });
 });

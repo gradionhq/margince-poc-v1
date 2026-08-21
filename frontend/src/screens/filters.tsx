@@ -20,11 +20,13 @@ import {
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { QueryStates } from "./common";
 import { FilterBuilder } from "./filterbuilder";
 import {
   type FilterResource,
   useFilterPreview,
   useFilterVocabulary,
+  type VocabularyField,
 } from "./filterdata";
 import { ExportFilterMenu } from "./filterexport";
 import { SaveFilterListAction } from "./filterlist";
@@ -111,24 +113,23 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
 
   return (
     <div className="filters-screen arrive-stack">
-      <SectionHeader
-        level={1}
-        title={t("filters.title")}
-        sub={t("filters.subtitle")}
-        actions={
-          <SegmentedControl
-            options={OBJECT_TABS}
-            value={tab}
-            onChange={switchTab}
-            labels={{
-              contacts: t(TAB_LABEL.contacts),
-              companies: t(TAB_LABEL.companies),
-              deals: t(TAB_LABEL.deals),
-            }}
-            label={t("filters.objectLabel")}
-          />
-        }
-      />
+      {/* The object control alone. The page's name and its subtitle belong to
+          the shell's page head, which names every rail destination — a screen
+          that printed them again would put two page titles in one document, and
+          a reader navigating by heading could not tell which was the page. */}
+      <div className="filters-object-row">
+        <SegmentedControl
+          options={OBJECT_TABS}
+          value={tab}
+          onChange={switchTab}
+          labels={{
+            contacts: t(TAB_LABEL.contacts),
+            companies: t(TAB_LABEL.companies),
+            deals: t(TAB_LABEL.deals),
+          }}
+          label={t("filters.objectLabel")}
+        />
+      </div>
 
       <Card>
         <SectionHeader
@@ -140,6 +141,7 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
                 tab={tab}
                 count={preview.data?.match_count}
                 stale={preview.isFetching}
+                failed={preview.isError}
               />
               {/* AC-1's live badge: what this filter IS, not what it is doing.
                   A dynamic list recomputes on every event, and that is the
@@ -180,45 +182,108 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
         </div>
       </Card>
 
-      {/* Only once something has been asked. An empty table under an unasked
-          filter would say "no records match this filter" about a filter nobody
-          wrote — the same falsehood the count avoids by showing no number, and
-          the reason both read from the same `data === undefined`. */}
-      {preview.data !== undefined && (
-        <Card>
-          <SectionHeader level={2} title={t("filters.resultsTitle")} />
-          <FilterResults
-            preview={preview.data}
-            fields={vocabulary.data?.fields ?? []}
-            named={fieldsNamed(tree)}
-            unit={t(UNIT_LABEL[tab])}
-            // Per object, so switching tabs does not hand a deal's table the
-            // widths a reader dragged for a contact's columns.
-            widthsKey={`filter-preview-${tab}`}
-            pending={preview.isFetching}
-          />
-        </Card>
-      )}
+      <PreviewSection
+        preview={preview}
+        tab={tab}
+        fields={vocabulary.data?.fields ?? []}
+        named={fieldsNamed(tree)}
+      />
     </div>
+  );
+}
+
+/**
+ * The rows behind the count, the reason there are none, or nothing at all.
+ *
+ * Three outcomes and they are three different statements, which is why the
+ * absent one cannot stand in for the other two. Nothing at all, while no
+ * complete clause has been written: an empty table there would say "no records
+ * match this filter" about a filter nobody wrote. The rows, once the server has
+ * answered. And a failure with its reason and a retry, when the preview was
+ * refused — a read seat is refused every `POST /filters/preview` before RBAC is
+ * consulted, so a reader who may read the vocabulary and build a clause can
+ * still never get a count, and the reason is the only thing that tells them so.
+ * The header row beside the count has no width for a sentence, so it lands here.
+ */
+function PreviewSection({
+  preview,
+  tab,
+  fields,
+  named,
+}: Readonly<{
+  preview: ReturnType<typeof useFilterPreview>;
+  tab: ObjectTab;
+  fields: readonly VocabularyField[];
+  named: readonly string[];
+}>) {
+  const t = useT();
+  if (preview.isError) {
+    return (
+      <Card>
+        <SectionHeader level={2} title={t("filters.resultsTitle")} />
+        {/* The house spelling of a failed read: the headline and the server's
+            own cause in one live region, with the retry beside it. */}
+        <QueryStates query={preview}>{null}</QueryStates>
+      </Card>
+    );
+  }
+  if (preview.data === undefined) {
+    return null;
+  }
+  return (
+    <Card>
+      <SectionHeader level={2} title={t("filters.resultsTitle")} />
+      <FilterResults
+        preview={preview.data}
+        fields={fields}
+        named={named}
+        unit={t(UNIT_LABEL[tab])}
+        // Per object, so switching tabs does not hand a deal's table the
+        // widths a reader dragged for a contact's columns.
+        widthsKey={`filter-preview-${tab}`}
+        pending={preview.isFetching}
+      />
+    </Card>
   );
 }
 
 /**
  * The count, and whether it is behind.
  *
- * Three readings, and keeping them apart is the point. A count the server has
+ * Four readings, and keeping them apart is the point. A count the server has
  * answered reads plainly. A count being recomputed reads as the LAST answer,
  * marked stale — not as a spinner, because a number that vanishes on every
- * keystroke is harder to read than one that lags a moment. And a tree with no
+ * keystroke is harder to read than one that lags a moment. A tree with no
  * complete clause has no count at all, which is different from a count of zero:
- * zero means "nothing matches", and this means "you have not asked yet".
+ * zero means "nothing matches", and this means "you have not asked yet". And a
+ * count the server was asked for and refused says exactly that.
+ *
+ * The refusal outranks the other three. It is read first because the previous
+ * answer survives a failed refetch, so a stale number would otherwise be
+ * presented as current, and because "you have not asked yet" over a finished
+ * clause blames the reader for the server's refusal.
  */
 function MatchCount({
   tab,
   count,
   stale,
-}: Readonly<{ tab: ObjectTab; count: number | undefined; stale: boolean }>) {
+  failed,
+}: Readonly<{
+  tab: ObjectTab;
+  count: number | undefined;
+  stale: boolean;
+  failed: boolean;
+}>) {
   const t = useT();
+  if (failed) {
+    // Silent: the results card below carries the reason in an assertive live
+    // region, and announcing the same failure twice fragments it.
+    return (
+      <span className="filters-count filters-count-failed">
+        {t("filters.countUnavailable")}
+      </span>
+    );
+  }
   if (count === undefined) {
     return (
       <span className="filters-count filters-count-unasked">

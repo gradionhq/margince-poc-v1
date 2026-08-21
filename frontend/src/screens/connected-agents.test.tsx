@@ -36,8 +36,20 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   globalThis.localStorage.clear();
 });
+
+// The zone the viewer's browser reports, as `viewerZone()` asks for it.
+// Restored by the afterEach above, so a case pretending to sit elsewhere never
+// decides what the next one renders.
+function pretendViewerZone(timeZone: string): void {
+  const real = Intl.DateTimeFormat().resolvedOptions();
+  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+    ...real,
+    timeZone,
+  });
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -183,6 +195,41 @@ describe("ConnectedAgentsCard", () => {
     // The grant's age, not the current credential's: the passport was minted
     // on the 20th, the connection made on the 2nd.
     expect(screen.getByText(/connected 02\/07\/2026/)).toBeTruthy();
+  });
+
+  it("dates the grant on the record's calendar and the deadline on the viewer's", async () => {
+    // One row carries both purposes, so one render proves both halves of the
+    // zone-by-purpose rule — and both instants below fall on a DIFFERENT
+    // calendar day in Berlin than on the US west coast, so picking the wrong
+    // zone for either cannot pass by coincidence:
+    //   connected_at 00:30 UTC  → 2 July in RECORD_ZONE, 1 July in Los Angeles
+    //   expires_at   00:00 UTC  → 31 Dec in RECORD_ZONE, 30 Dec in Los Angeles
+    pretendViewerZone("America/Los_Angeles");
+    vi.stubGlobal(
+      "fetch",
+      backend({
+        passports: [
+          {
+            ...CONNECTED,
+            expires_at: "2026-12-31T00:00:00Z",
+            connection: {
+              ...CONNECTED.connection,
+              connected_at: "2026-07-02T00:30:00Z",
+            },
+          },
+        ],
+      }),
+    );
+    render(<ConnectedAgentsCard />);
+    // When the grant was made is a record fact — every colleague reading this
+    // installation must be able to quote the same day for it.
+    expect(await screen.findByText(/connected 02\/07\/2026/)).toBeTruthy();
+    expect(screen.queryByText(/connected 01\/07\/2026/)).toBeNull();
+    // When the credential runs out is this human's deadline, on this human's
+    // calendar: a fixed zone would promise them a day that, where they are,
+    // has not arrived.
+    expect(screen.getByText(/credential renews by 30\/12\/2026/)).toBeTruthy();
+    expect(screen.queryByText(/credential renews by 31\/12\/2026/)).toBeNull();
   });
 
   it("leaves a minted passport out, however its label is spelled", async () => {

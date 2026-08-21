@@ -16,6 +16,7 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime, formatNumber } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
 import { QueryGate, QueryStates, throwProblem, useMe } from "./common";
@@ -134,7 +135,7 @@ export function AiCallsCard() {
   // automation:update, a write verb guarding a GET, so the seat ceiling stays out
   // of the question (capability.ts) — a read seat may still read it.
   const canSee = useCan("automation", "update");
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   const [task, setTask] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const query = useInfiniteQuery({

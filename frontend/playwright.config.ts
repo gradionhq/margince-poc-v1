@@ -39,6 +39,15 @@ export default defineConfig({
     // browser's language, so pin it — otherwise the suite only passes on a
     // machine whose system locale happens to be German.
     locale: "de-DE",
+    // And pin the ZONE for the same reason, which only became visible once the
+    // screens stopped hard-coding one. A surface that renders a moment on the
+    // reader's own clock now reads it from the browser, so an unpinned zone made
+    // every clock-time assertion in this suite depend on where the runner sits —
+    // AC-book-public-409 asserts a 12:00 slot, and it passed in Berlin and
+    // failed in Asia/Ho_Chi_Minh. Europe/Berlin because that is also RECORD_ZONE,
+    // so the record-clock and viewer-clock surfaces agree here and a test that
+    // means to tell them apart has to say so itself.
+    timezoneId: "Europe/Berlin",
     // the SW would compete with the network-edge seed mocks
     serviceWorkers: "block",
   },

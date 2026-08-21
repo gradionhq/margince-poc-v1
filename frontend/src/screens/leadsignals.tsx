@@ -11,6 +11,7 @@ import {
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
@@ -91,7 +92,7 @@ export function LeadManualSignals({
 }: Readonly<{ id: string; readOnlyReason?: string }>) {
   const t = useT();
   const { locale } = useLocale();
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   const queryClient = useQueryClient();
   const signals = useQuery({
     queryKey: ["lead", id, "manual-signals"],

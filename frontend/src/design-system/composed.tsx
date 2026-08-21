@@ -19,6 +19,7 @@ import {
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { Avatar, Badge, Button, Card } from "./atoms";
+import { FieldGuard } from "./rbac";
 import { useTruncationTooltip } from "./tooltip";
 import {
   AutonomyDot,
@@ -86,10 +87,38 @@ export type BoardRecord = {
 };
 
 export type BoardDeal = BoardRecord & {
+  /**
+   * The company this deal is with, as a name a reader recognises. Empty for a
+   * deal that names no company, which is the one reading that draws nothing.
+   */
   org: string;
   /** The company's resolved mark. Absent leaves the monogram, which is the
    *  floor rather than a fallback. */
   orgLogoUrl?: string | null;
+  /**
+   * The company is not this reader's to read: the wire sent no id and named the
+   * field in `masked_fields`, so the slot carries the MASK rather than a name.
+   *
+   * A flag rather than a node in `org`, for the reason `TimelineEntry.withheld`
+   * is one: the withheld reading is this tier's to spell, and a caller handing
+   * in its own words for it is how one reading ends up with two spellings. It
+   * also keeps the mark honest — a monogram cut from the word for "withheld"
+   * would be a mark no company has.
+   */
+  orgWithheld?: boolean;
+  /**
+   * The company's name could not be READ — the caller's lookup failed rather
+   * than answering. A distinct flag from `orgWithheld`, because the two say
+   * opposite things about the reader: withheld means the answer exists and is
+   * not theirs, unreadable means nobody got an answer at all.
+   *
+   * It exists because the alternative is worse than either. An empty `org` is
+   * the reading for a deal that names NO company, and a failed lookup falling
+   * into it tells the reader the deal is unlinked when it is linked to a
+   * company they simply could not fetch. The table's own company cell has had
+   * this reading all along; this is the card's half of it.
+   */
+  orgUnreadable?: boolean;
   /**
    * The deal's money, as the two halves it actually has: an integer minor
    * amount and its ISO currency, either of which can be missing on a deal
@@ -152,6 +181,46 @@ export type BoardMoneyColumn = BoardColumn<BoardDeal> & {
   currency: string | null;
 };
 
+/**
+ * The company slot on a deal card, in the four readings a company has.
+ *
+ * Withheld is the MASK — the same `FieldGuard` control the deals table's
+ * company cell draws, so one refusal has one spelling wherever it is read. A
+ * name that could not be read says so, in the same words the shared reference
+ * resolver uses for its own failed read. A company the caller named takes its
+ * mark and its name. Only a deal that names no company draws nothing, which is
+ * the one reading an empty slot states truthfully.
+ */
+function DealCardCompany({ deal }: Readonly<{ deal: BoardDeal }>) {
+  const t = useT();
+  if (deal.orgWithheld) {
+    return (
+      <span className="deal-org">
+        <FieldGuard mode="masked" />
+      </span>
+    );
+  }
+  if (deal.orgUnreadable) {
+    return (
+      <span className="deal-org">
+        <span className="deal-org-name">{t("ref.nameLoadFailed")}</span>
+      </span>
+    );
+  }
+  if (!deal.org) {
+    return null;
+  }
+  return (
+    <span className="deal-org">
+      <Avatar name={deal.org} src={deal.orgLogoUrl} />
+      {/* The name needs a box of its own to be truncated in: a bare text node
+          has nothing for the ellipsis to apply to, and wraps under its own
+          mark instead. */}
+      <span className="deal-org-name">{deal.org}</span>
+    </span>
+  );
+}
+
 export function DealCard({
   deal,
   onOpen,
@@ -183,15 +252,7 @@ export function DealCard({
       {...dragHandlers}
     >
       <span className="deal-name">{deal.name}</span>
-      {deal.org && (
-        <span className="deal-org">
-          <Avatar name={deal.org} src={deal.orgLogoUrl} />
-          {/* The name needs a box of its own to be truncated in: a bare text
-              node has nothing for the ellipsis to apply to, and wraps under
-              its own mark instead. */}
-          <span className="deal-org-name">{deal.org}</span>
-        </span>
-      )}
+      <DealCardCompany deal={deal} />
       <span className="deal-meta">
         <span className="deal-value">
           {formatMoneyOrAbsent(deal.valueMinor, deal.currency, locale)}

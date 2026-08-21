@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button, Field, TextInput } from "../design-system/atoms";
 import { usePasswordReveal } from "../design-system/passwordreveal";
+import { viewerZone } from "../format/timezone";
 import { useT } from "../i18n";
 import { usePageTitle, Wordmark } from "./auth";
 import { AuthExperience } from "./auth-core";
@@ -87,7 +88,7 @@ export function SetupClaimScreen({
   // The browser's own timezone, offered as the default. An installation is
   // almost always claimed from where it will be used, and the alternative is
   // asking a human to name a zone they have no reason to know.
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const timezone = viewerZone();
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();

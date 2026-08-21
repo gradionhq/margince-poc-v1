@@ -479,6 +479,115 @@ it("keeps the naming dialog open, with the name, when the list is refused", asyn
   );
 });
 
+/**
+ * A stub answering `/filters/preview` with a problem body and everything else
+ * normally.
+ *
+ * Only that route changes, so the failure path is the real one: the vocabulary
+ * still arrives, the clause on screen is still complete, and what the screen
+ * says about it is the whole assertion.
+ */
+function previewRefused(body: unknown, status: number) {
+  const json = (payload: unknown) =>
+    new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes("/filters/preview")) {
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/problem+json" },
+      });
+    }
+    if (url.includes("/filters/vocabulary")) {
+      return json(PERSON_VOCAB);
+    }
+    if (url.endsWith("/v1/me")) {
+      return json(meFixture({}));
+    }
+    return json({ data: [], page: { next_cursor: null, has_more: false } });
+  });
+}
+
+/**
+ * Add a second clause, which is a new query key and therefore a new request.
+ *
+ * The refusal has to be the answer ON SCREEN, and react-query keeps the
+ * previous key's success: re-asking the same one would read a cache hit.
+ */
+async function addSecondClause(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Add clause" }));
+  await user.type(screen.getAllByLabelText("Value")[1], "lee");
+}
+
+it("reads a refused preview as a failure, not as an unwritten filter", async () => {
+  const { wrapper } = mount({ match_count: 2 });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(await screen.findByRole("button", { name: "Add clause" }));
+  await user.type(screen.getByLabelText("Value"), "ann");
+  await screen.findByText("2 contacts match");
+
+  // A bodiless 502 — a proxy between the client and the app — is the failure
+  // with the least to say, so what the screen says instead is all its own.
+  vi.stubGlobal("fetch", previewRefused({}, 502));
+  await addSecondClause(user);
+
+  // Not "Add a clause to see what it selects": two complete clauses are on
+  // screen, and blaming the reader for the server's refusal is exactly what hid
+  // this refusal.
+  expect(await screen.findByText("Count unavailable")).toBeTruthy();
+  expect(screen.queryByText("Add a clause to see what it selects")).toBeNull();
+  // The reason and the way out land where a sentence fits.
+  expect(
+    screen.getByRole("heading", { name: "Matching records" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  // A 502 from a proxy carries no reader copy, so the shared line stands in
+  // rather than the proxy's own words.
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "The request failed. No cause reported.",
+  );
+});
+
+// `/filters/preview` is a POST, and the seat ceiling refuses every mutating
+// method for a read seat BEFORE any role is consulted. So a read-seat member
+// reads the vocabulary (granted to all seeded roles), builds a clause, and can
+// never get a count — the one refusal on this screen a reader cannot see coming.
+it("names the seat when a read seat is refused a preview", async () => {
+  const { wrapper } = mount({ match_count: 2 });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(await screen.findByRole("button", { name: "Add clause" }));
+  await user.type(screen.getByLabelText("Value"), "ann");
+  await screen.findByText("2 contacts match");
+
+  vi.stubGlobal(
+    "fetch",
+    previewRefused(
+      {
+        title: "Forbidden",
+        status: 403,
+        code: "seat_tier_insufficient",
+        detail: "seat tier insufficient",
+      },
+      403,
+    ),
+  );
+  await addSecondClause(user);
+
+  // The server's own detail is the bare sentinel: it names a concept no reader
+  // has met and offers nothing to do about it, so the catalog copy replaces it.
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain("This seat is read-only");
+  expect(alert.textContent).toContain("Ask an operator to raise the seat.");
+  expect(alert.textContent).not.toContain("seat tier insufficient");
+});
+
 it("starts a fresh tree when the object changes", async () => {
   const { wrapper } = mount({ match_count: 4 });
   const user = userEvent.setup();
@@ -494,4 +603,23 @@ it("starts a fresh tree when the object changes", async () => {
   // names does not exist — a filter the new vocabulary would refuse.
   expect(screen.queryByLabelText("Value")).toBeNull();
   expect(screen.getByText("Add a clause to see what it selects")).toBeTruthy();
+});
+
+// The shell's page head names every rail destination and prints the subtitle
+// under it. A screen that named itself as well would put two page titles in one
+// document, and a reader navigating by heading could not tell which was the page.
+it("leaves the page's own name to the shell", async () => {
+  const { wrapper } = mount({ match_count: 4 });
+  render(<FiltersScreen />, { wrapper });
+
+  await screen.findByRole("button", { name: "Add clause" });
+  expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+  expect(
+    screen.queryByText(
+      "Build a filter, watch what it selects, and save it as a view.",
+    ),
+  ).toBeNull();
+  // The object choice stays, because it is the screen's own state rather than
+  // the page's name: everything below it reads from it.
+  expect(screen.getByRole("button", { name: "Contacts" })).toBeTruthy();
 });

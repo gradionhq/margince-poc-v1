@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import { AiUsageCard } from "./aiusage";
 
 const budget = { monthly_tokens: 1000, spent_tokens: 850, band: "degraded" };
@@ -107,22 +108,30 @@ it("renders queued and lights up estimated cost only when present", async () => 
   expect(note.textContent).toContain("€1.23");
 });
 
-it("distinguishes an empty window and exposes a denied problem detail", async () => {
+// An empty window and a refused read are different answers, and the card owes
+// each its own: "nothing was spent" is a fact about the month, while a 403 is a
+// fact about the reader. The refusal reads as catalog copy because that is all a
+// 403 has to offer — its detail is the permission sentinel, which says less than
+// the code it arrives with.
+it("distinguishes an empty window from a refused read", async () => {
   mount({ budget, days: [] });
   expect(await screen.findByText("No AI calls in this window.")).toBeTruthy();
   cleanup();
   mount(
     {
-      title: "Permission denied",
-      detail: "automation-config grant required",
+      title: "Forbidden",
+      detail: "automation.update: permission denied",
       status: 403,
       code: "permission_denied",
     },
     403,
   );
   await waitFor(() =>
-    expect(screen.getByText("automation-config grant required")).toBeTruthy(),
+    expect(screen.getByText(en["common.permissionDenied"])).toBeTruthy(),
   );
+  // The RBAC object and verb the gate wrapped its refusal with never reach the
+  // reader: that is the authority model's shape, not an explanation.
+  expect(screen.queryByText(/automation.update/)).toBeNull();
 });
 
 it("names every row, and puts the per-day breakdown behind one disclosure", async () => {

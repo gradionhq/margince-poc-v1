@@ -14,6 +14,7 @@ import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, useMe } from "./common";
@@ -330,11 +331,7 @@ function ImportOutcome({
       {resumed ? (
         <Callout tone="info">
           {t("import.resumedRun", {
-            when: formatDateTime(
-              run.created_at,
-              locale,
-              Intl.DateTimeFormat().resolvedOptions().timeZone,
-            ),
+            when: formatDateTime(run.created_at, locale, viewerZone()),
           })}
         </Callout>
       ) : null}

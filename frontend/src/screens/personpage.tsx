@@ -16,6 +16,7 @@ import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import { Button, SegmentedControl } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
+import { RECORD_ZONE } from "../format/timezone";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
@@ -282,7 +283,7 @@ export function PersonPageV2({
           />
         }
         actionsInline
-        zone="Europe/Berlin"
+        zone={RECORD_ZONE}
         // The readings ride the band, above the columns and across the full
         // width: they describe the RELATIONSHIP, not one view of it, and a
         // strip that vanished on the Deals tab would move the tab bar and

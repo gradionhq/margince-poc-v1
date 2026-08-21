@@ -1,7 +1,7 @@
 import type { ListColumn } from "../design-system/listtable";
 import { formatDateAbbrev } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import type { useLocale, useT } from "../i18n";
-import { RECORD_ZONE } from "./company360";
 import { OwnerName } from "./entityref";
 import type { ViewSpec } from "./listquery";
 

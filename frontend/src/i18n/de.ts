@@ -25,6 +25,9 @@ export const de = {
   "trust.typedByPrefix": "eingetragen von",
   "trust.sourceUnknown": "Herkunft nicht erfasst",
   "trust.agentTag": "Automatisiert durch {agent}",
+  "trust.agentUnnamed": "Automatisiert durch einen Agenten",
+  "trust.systemTag": "Systemvorgang {job}",
+  "trust.systemUnnamed": "Systemvorgang",
   "trust.connectorTag": "über {connector}",
   "trust.dismissed": "Vorschlag verworfen.",
   "trust.stagedProposal": "vorgemerkter Vorschlag",
@@ -344,11 +347,16 @@ export const de = {
   "common.error": "Konnten diese Ansicht nicht laden.",
   "common.errorNoCause":
     "Die Anfrage ist fehlgeschlagen. Keine Ursache gemeldet.",
+  "common.permissionDenied":
+    "Du hast keine Berechtigung für diese Aktion. Bitte einen Admin oder die Person, die diesen Datensatz mit dir geteilt hat, deinen Zugriff zu erweitern.",
+  "common.seatReadOnly":
+    "Dieser Sitzplatz ist nur lesend, daher wurde die Anfrage abgelehnt. Bitte einen Betreiber, den Sitzplatz höherzustufen.",
   "common.retry": "Erneut versuchen",
   "common.empty": "Hier ist noch nichts.",
   "common.saving": "Wird gespeichert…",
   "common.loading": "Wird geladen…",
   "ref.nameLoadFailed": "Name konnte nicht geladen werden",
+  "ref.notInRoster": "Aktuell zugeordnet (nicht mehr in der Nutzerliste)",
 
   // "Funktioniert nicht mehr", nicht "Fehler aufgetreten": die Ansicht ist
   // stehengeblieben, und das ist die Beobachtung, die der Lesende selbst
@@ -579,6 +587,7 @@ export const de = {
   "views.saveConfirm": "Speichern",
   "views.saveTitle": "Diese Ansicht speichern",
   "views.name": "Name",
+  "views.rail": "Gespeicherte Ansichten",
   "list.viewMine": "Meine",
   "list.viewCustomers": "Kunden",
   "list.viewProspects": "Interessenten",
@@ -768,7 +777,6 @@ export const de = {
   "co.pulse.strongestLead": "Zugang \u00fcber",
   "co.pulse.strengthTail.one": "\u2014 der einzige Kontakt hier",
   "co.pulse.strengthTail.other": "\u2014 von {count} Kontakten hier",
-  "co.owner.notInRoster": "Aktuell zugeordnet (nicht mehr in der Nutzerliste)",
   "co.pulse.unowned": "Nicht zugewiesen",
   "co.since.first": "Du öffnest diesen Account zum ersten Mal.",
   "co.partial":
@@ -1564,6 +1572,8 @@ export const de = {
   "deal.ownerMe": "Mir zuweisen",
   "deal.ownerUnassign": "Zuweisung aufheben",
   "deal.partnerOrg": "über Partner",
+  "deal.companyWithheld": "Firma nicht sichtbar",
+  "deal.partnerWithheld": "Partner nicht sichtbar",
   "deal.forecastCategory": "Forecast-Kategorie",
   "deal.waitUntil": "Warten bis",
   "deal.fxBase": "Basis {value} · Kurs {rate} vom {date}",
@@ -5636,6 +5646,7 @@ export const de = {
   "filters.matchCompanies": "{count} Firmen treffen zu",
   "filters.matchDeals": "{count} Gesch\u00e4fte treffen zu",
   "filters.noFilterYet": "Bedingung hinzuf\u00fcgen, um die Treffer zu sehen",
+  "filters.countUnavailable": "Anzahl nicht verf\u00fcgbar",
   "filters.loadingVocabulary": "Filterbare Felder werden geladen\u2026",
   "filters.noFields": "Keine filterbaren Felder f\u00fcr diesen Datensatztyp.",
   "filters.resultsTitle": "Passende Datens\u00e4tze",

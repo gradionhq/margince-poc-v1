@@ -492,7 +492,7 @@ describe("federated sign-in", () => {
       name: "Continue with Microsoft",
     });
     expect(microsoft.disabled).toBe(true);
-    expect(microsoft.classList.contains("is-unavailable")).toBe(true);
+    expect(microsoft.classList.contains("btn-unavailable")).toBe(true);
     // Inert, and that is the point of the switch: it draws the design, it does
     // not invent a redirect. Clicking must neither navigate nor hit the wire.
     const calls = stubApi({ password: true, password_reset: true }, () =>
@@ -538,7 +538,7 @@ describe("federated sign-in", () => {
         expect(label).toContain(brand);
       }
     }
-    expect(document.querySelector(".is-unavailable")).toBeNull();
+    expect(document.querySelector(".btn-unavailable")).toBeNull();
   });
 
   // The preview marker (app/ui-preview.ts), on the component that renders it.
@@ -557,8 +557,9 @@ describe("federated sign-in", () => {
       />,
     );
 
-    // The state is `disabled` plus a class the stylesheet draws, and the
-    // accessible name is left as the installation's own string. That is the
+    // The state is `Button`'s `unavailable`, which refuses the press itself and
+    // draws the resting dim, and the accessible name is left as the
+    // installation's own string. That is the
     // assertion worth pinning: the marker must not append copy to somebody
     // else's label, so an unrecognised provider on a real installation could
     // never have words we wrote spliced onto the words they wrote.
@@ -566,7 +567,7 @@ describe("federated sign-in", () => {
       name: "Continue with Microsoft",
     });
     expect(microsoft.disabled).toBe(true);
-    expect(microsoft.classList.contains("is-unavailable")).toBe(true);
+    expect(microsoft.classList.contains("btn-unavailable")).toBe(true);
     // What names the button, not its raw text: the phone layout's short brand
     // word is `aria-hidden` beside an `.sr-only` copy of the served label. What
     // must never happen is a word of OURS reaching the name.

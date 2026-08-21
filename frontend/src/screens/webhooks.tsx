@@ -25,6 +25,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -592,7 +593,7 @@ function deliveryColumns(
       header: t("webhooks.deliveries.column.created"),
       render: (delivery: WebhookDelivery) =>
         delivery.created_at
-          ? formatDateTime(delivery.created_at, locale, "Europe/Berlin")
+          ? formatDateTime(delivery.created_at, locale, viewerZone())
           : "—",
     },
     {
@@ -600,7 +601,7 @@ function deliveryColumns(
       header: t("webhooks.deliveries.column.resolved"),
       render: (delivery: WebhookDelivery) => {
         const at = deliveryResolvedAt(delivery);
-        return at ? formatDateTime(at, locale, "Europe/Berlin") : "—";
+        return at ? formatDateTime(at, locale, viewerZone()) : "—";
       },
     },
   ];
@@ -774,7 +775,7 @@ function SubscriptionRow({
                 date: formatDateTime(
                   subscription.updated_at,
                   locale,
-                  "Europe/Berlin",
+                  viewerZone(),
                 ),
               })
             : undefined

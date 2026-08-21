@@ -32,6 +32,7 @@ import { Select, type SelectOption } from "../design-system/select";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDate } from "../format/format";
 import { useNow } from "../format/now";
+import { viewerZone } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { humanizeToken } from "./audit";
@@ -44,7 +45,13 @@ import {
   throwProblem,
   useMe,
 } from "./common";
-import { EntityRef, useRoster } from "./entityref";
+import {
+  EntityRef,
+  RosterPartialNote,
+  rosterMissLabel,
+  useRoster,
+  useRosterPartial,
+} from "./entityref";
 import {
   DSR_STATUS_FACETS,
   type DsrStatus,
@@ -340,7 +347,7 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
   // `new Date(dueAt).toISOString()` would instead read the date-only input
   // as UTC midnight, silently rolling the picked day back a day for anyone
   // west of UTC.
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = viewerZone();
 
   const create = useMutation({
     mutationFn: async () => {
@@ -496,11 +503,61 @@ function transitionLabelKey(status: DsrStatus): MessageKey {
 // aim at has to be able to change something. Kept in the list because it is the
 // face an unassigned request shows, and the state has to stay legible even
 // where it is not actionable. The em dash carries no words to translate.
-function assigneeOptions(users: readonly User[]): SelectOption[] {
+//
+// `current` is the request's own assignee when they are nobody this list offers
+// — deactivated out of the roster, sitting past the walk's bound, or an agent
+// seat this picker deliberately withholds. Without it the select's value matches
+// no option and paints as the unassigned em dash: a DPO would read an erasure
+// request that IS assigned as one that is not, and reassign it off the holder
+// with a statutory clock running. It leads the list because it is the state the
+// field is in, exactly as the unassigned entry does.
+function assigneeOptions(
+  users: readonly User[],
+  current: SelectOption | null,
+): SelectOption[] {
   return [
-    { value: "", label: "—", disabled: true },
+    current ?? { value: "", label: "—", disabled: true },
     ...users.map((user) => ({ value: user.id, label: user.display_name })),
   ];
+}
+
+/**
+ * The request's own assignee as an option, when they are nobody the picker
+ * offers — and null when they are, or when nobody holds it.
+ *
+ * `members` is the whole roster read and `offered` the filtered list: an agent
+ * seat is in the first and never the second, so it can be named by its own name
+ * while still not being offered. An id in neither is one the roster could not
+ * name at all, and `rosterMissLabel` decides what that is honest to say.
+ */
+function unofferedAssignee({
+  assigneeId,
+  offered,
+  members,
+  roster,
+  partial,
+  t,
+}: Readonly<{
+  assigneeId: string | null | undefined;
+  offered: readonly User[];
+  members: readonly User[];
+  roster: Readonly<{ isPending: boolean; isError: boolean }>;
+  partial: boolean;
+  t: ReturnType<typeof useT>;
+}>): SelectOption | null {
+  if (!assigneeId || offered.some((member) => member.id === assigneeId)) {
+    return null;
+  }
+  return {
+    value: assigneeId,
+    label:
+      members.find((member) => member.id === assigneeId)?.display_name ??
+      rosterMissLabel(roster, partial, t, t("ref.notInRoster")),
+    // Disabled for the same reason the unassigned entry is: re-choosing the
+    // holder this request already has changes nothing, and an entry a reader can
+    // aim at has to be able to change something.
+    disabled: true,
+  };
 }
 
 // One DSR row: collapsed summary + (on click) the case-work panel — subject,
@@ -545,12 +602,24 @@ function DsrRow({
   // Only fetched while this row's panel is actually open — the roster is the
   // same shared ["users"] cache entry EntityRef and the share picker read.
   const roster = useRoster("user", expanded);
+  const rosterPartial = useRosterPartial("user", expanded);
+  // The roster hook serves users and teams alike, so narrow to the entries that
+  // carry a person's name rather than asserting the shape.
+  const members = (roster.data ?? []).flatMap((entry) =>
+    "display_name" in entry ? [entry] : [],
+  );
   // Agent seats can't hold requireDSRAdmin's unbounded row scope (only a
   // human admission can), so the picker never offers one — same is_agent
   // filter as the share subject picker.
-  const assignableUsers = ((roster.data ?? []) as User[]).filter(
-    (u) => !u.is_agent,
-  );
+  const assignableUsers = members.filter((member) => !member.is_agent);
+  const currentAssignee = unofferedAssignee({
+    assigneeId: dsr.assignee_id,
+    offered: assignableUsers,
+    members,
+    roster,
+    partial: rosterPartial,
+    t,
+  });
 
   const patch = useMutation({
     mutationFn: async (body: UpdateDataSubjectRequest) => {
@@ -659,12 +728,16 @@ function DsrRow({
               </label>
               <Select
                 id={assigneeFieldId}
-                options={assigneeOptions(assignableUsers)}
+                options={assigneeOptions(assignableUsers, currentAssignee)}
                 value={dsr.assignee_id ?? ""}
                 disabled={patch.isPending}
                 onChange={(value) => patch.mutate({ assignee_id: value })}
               />
               <p className="t-caption">{t("privacy.assigneeUnassignable")}</p>
+              {/* Who this list leaves out is already its subject, so a roster
+                  that stopped short of the workspace belongs on the same line
+                  rather than being the one omission nobody is told about. */}
+              <RosterPartialNote partial={rosterPartial} />
               {patch.isPending && (
                 <p className="t-caption">{t("common.saving")}</p>
               )}
@@ -899,7 +972,7 @@ export function PrivacyInboxCard() {
   // calendar day to anyone outside it — the viewer's own resolved IANA zone
   // is the only honest signal for "what date does THIS reader see"
   // (share.tsx:290's precedent for the same problem on grant expiry).
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = viewerZone();
   const [facet, setFacet] = useState<DsrStatusFacet>("all");
   // One case open at a time: expandedId lives here (not per-row) so opening
   // a second row's panel closes the first — the queue itself (sibling rows,

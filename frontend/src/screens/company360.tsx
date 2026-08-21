@@ -35,6 +35,7 @@ import {
   formatMoneyCompact,
   formatMoneyOrAbsent,
 } from "../format/format";
+import { RECORD_ZONE, viewerZone } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -163,11 +164,6 @@ export function dealRoleLabel(role: string, t: (key: MessageKey) => string) {
 // reading from an incumbent mirror. It is a refusal to assemble, not a
 // failure, so the screen falls back instead of showing an error.
 const OVERLAY_REFUSAL = "unsupported_in_overlay_mode";
-
-// RECORD_ZONE is the zone every record page renders its dates in, matching
-// what RecordView passes its timeline. One spelling, so a due date and the
-// activity beside it can never be read in two different zones.
-export const RECORD_ZONE = "Europe/Berlin";
 
 export type Org360Result =
   | { state: "ready"; view: Organization360 }
@@ -1446,7 +1442,17 @@ export function NextSteps({
                 {!step.overdue && step.due_at && (
                   <span>
                     {t("co.next.due", {
-                      when: formatDate(step.due_at, locale, RECORD_ZONE),
+                      // The one viewer-clock reading on this record page, and
+                      // it is not a preference: `dueInstant` mints a due date
+                      // as the end of the picked day in the BROWSER's zone, so
+                      // the stored instant already carries the picker's clock.
+                      // Read in the organization's zone it names a different
+                      // calendar day than the one the picker chose, for every
+                      // reader outside that zone — there is no organization
+                      // reading of it to prefer. The timeline below still reads
+                      // in RECORD_ZONE, because an activity's occurrence IS a
+                      // fact about the record.
+                      when: formatDate(step.due_at, locale, viewerZone()),
                     })}
                   </span>
                 )}

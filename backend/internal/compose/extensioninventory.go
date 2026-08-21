@@ -82,7 +82,8 @@ func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slo
 			return nil
 		}
 		_, err = storekit.LogSystem(ctx, tx, extensionCompositionObserved, map[string]any{
-			"extensions": current,
+			"extensions":   current,
+			"installation": installationMarker(ctx),
 		})
 		if err != nil {
 			return err
@@ -112,9 +113,9 @@ func lastObservedExtensions(ctx context.Context, tx pgx.Tx) ([]observedExtension
 	// alone. id stays as the deterministic tiebreak.
 	err := tx.QueryRow(ctx,
 		`SELECT detail->'extensions' FROM system_log
-		  WHERE action = $1
+		  WHERE action = $1 AND detail->>'installation' = $2
 		  ORDER BY occurred_at DESC, id DESC LIMIT 1`,
-		extensionCompositionObserved).Scan(&detail)
+		extensionCompositionObserved, installationMarker(ctx)).Scan(&detail)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

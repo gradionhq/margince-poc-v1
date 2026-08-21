@@ -144,6 +144,32 @@ describe("ProvenanceTag", () => {
       "provenance-agent",
     );
   });
+
+  // A background job and an AI agent are different answers to "who do I ask",
+  // so they take different wording and different chrome. Drawn in the agent
+  // tint, a scheduled sweep would tell a reader a model decided something.
+  it("reads a job the installation ran as the system, not as an agent", () => {
+    render(
+      <ProvenanceTag provenance={{ kind: "system", job: "close-date" }} />,
+    );
+    const tag = screen.getByText("System task close-date");
+    expect(tag.className).toContain("provenance-system");
+    expect(tag.className).not.toContain("provenance-agent");
+  });
+
+  // The two unnamed cases: an agent behind a passport uuid, and a job that
+  // stamped no id. Both say the KIND — which is what the wire recorded —
+  // instead of printing an identifier a reader can do nothing with.
+  it("says the kind and stops when the actor has no name to print", () => {
+    render(<ProvenanceTag provenance={{ kind: "agent" }} />);
+    render(<ProvenanceTag provenance={{ kind: "system" }} />);
+    expect(screen.getByText("Automated by an agent").className).toContain(
+      "provenance-agent",
+    );
+    expect(screen.getByText("System task").className).toContain(
+      "provenance-system",
+    );
+  });
 });
 
 // WHERE in the source a claim came from. A quoted sentence with no address is

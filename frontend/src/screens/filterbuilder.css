@@ -61,7 +61,22 @@
 }
 
 .filter-clause > .token-input,
-.filter-clause > .input {
+.filter-clause > .input,
+.filter-clause > .filter-value {
   flex: 1 1 12rem;
   min-width: 8rem;
+}
+
+/* A value control that has something to say about its own option list keeps that
+ * line UNDER itself, inside the one flex item the value occupies. As a sibling in
+ * the clause row it would land between the value and the button that removes the
+ * clause, and take the row's wrap point with it. */
+.filter-value {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.filter-value > p {
+  margin: 0;
 }

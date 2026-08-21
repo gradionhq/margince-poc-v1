@@ -65,7 +65,11 @@ const FIELDS: VocabularyField[] = [
   },
 ];
 
-function routes(): void {
+// The seat roster is a keyset walk, shared with every other picker in the
+// product. `nextCursor` is what says whether the story's list is the whole
+// workspace: null ends the walk, and a cursor the server never stops offering
+// makes it stop at its page budget instead, which the clause has to disclose.
+function routes(nextCursor: string | null = null): void {
   installFetchStub({
     "GET /users": () =>
       jsonResponse({
@@ -73,7 +77,7 @@ function routes(): void {
           { id: "u-1", display_name: "Ann Lee" },
           { id: "u-2", display_name: "Bruno Sá" },
         ],
-        page: { next_cursor: null, has_more: false },
+        page: { next_cursor: nextCursor, has_more: nextCursor !== null },
       }),
   });
 }
@@ -84,9 +88,9 @@ function Editing({ start }: Readonly<{ start: Node }>) {
   return <FilterBuilder tree={tree} onChange={setTree} fields={FIELDS} />;
 }
 
-function story(start: Node) {
+function story(start: Node, nextCursor: string | null = null) {
   return () => {
-    routes();
+    routes(nextCursor);
     return (
       <StoryProviders>
         <Editing start={start} />
@@ -100,6 +104,13 @@ type Story = StoryObj<typeof FilterBuilder>;
 export const RecordPicker: Story = {
   // An id clause names a seat, chosen by name. The stored value is still the id.
   render: story(newGroup("and", [newLeaf("owner_id", "eq", "u-2")])),
+};
+
+export const RecordPickerOnAPartialRoster: Story = {
+  // The clause is written against a list that stopped short of the workspace, so
+  // it says so — under the picker, inside the value's own column, where it cannot
+  // land between the value and the button that removes the clause.
+  render: story(newGroup("and", [newLeaf("owner_id", "eq", "u-2")]), "next"),
 };
 
 export const UnboundedTargetKeepsABox: Story = {

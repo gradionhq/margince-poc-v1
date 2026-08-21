@@ -22,6 +22,7 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDate } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
@@ -131,7 +132,7 @@ export function BlockedDomainsCard() {
   // time on their own wall clock, the same choice the audit trail makes — a
   // fixed installation zone would put the moment they are correlating against
   // an hour they were not working.
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   const canManage = useCanWrite("organization", "update");
   const query = useBlockedDomains();
   const set = useSetBlockedDomain();

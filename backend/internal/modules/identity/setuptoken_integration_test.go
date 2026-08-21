@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -301,4 +302,66 @@ func TestAClaimCannotSetAnEmptyOrShortAdminPassword(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTheSetupTokenLifecycleIsRecorded pins what #2198 was about: the
+// credential that lets any bearer claim an unprovisioned installation as admin
+// used to leave no durable trace at all.
+//
+// A rotation is the case that matters most. It silently invalidates whatever
+// the operator was holding, and before this the only evidence was a boot log
+// line on whichever process happened to run it.
+func TestTheSetupTokenLifecycleIsRecorded(t *testing.T) {
+	svc := newSetupService(t)
+	ctx := context.Background()
+
+	if _, err := svc.MintSetupToken(ctx); err != nil {
+		t.Fatalf("minting the first token: %v", err)
+	}
+	if got := setupTokenLedger(t, svc, actionInstallationClaimOpened); got != 1 {
+		t.Fatalf("minting a token wrote %d issued rows, want 1 — the credential's creation is unrecorded", got)
+	}
+
+	// The rotation: one more issue, and a retirement of what the operator held.
+	if _, err := svc.RotateSetupToken(ctx); err != nil {
+		t.Fatalf("rotating the token: %v", err)
+	}
+	if got := setupTokenLedger(t, svc, actionInstallationClaimOpened); got != 2 {
+		t.Errorf("after a rotation the ledger holds %d issued rows, want 2", got)
+	}
+	if got := setupTokenLedger(t, svc, actionInstallationClaimClosed); got != 1 {
+		t.Errorf("a rotation retired the outstanding credential and recorded it %d times, want 1 — "+
+			"an operator whose token stopped working has nothing to read", got)
+	}
+
+	// The row names a system actor, because nobody is authenticated before an
+	// installation exists — and it must not carry the credential itself.
+	var actorType, actorID string
+	var detail []byte
+	if err := database.WithInfraTx(ctx, svc.db.Pool(), func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT actor_type, actor_id, coalesce(detail::text, '') FROM system_log
+			  WHERE action = $1 ORDER BY occurred_at DESC LIMIT 1`,
+			actionInstallationClaimOpened).Scan(&actorType, &actorID, &detail)
+	}); err != nil {
+		t.Fatalf("reading the issued row: %v", err)
+	}
+	if actorType != "system" || actorID != "system:setup-token" {
+		t.Errorf("the issued row is attributed to (%q, %q); nobody is authenticated yet, so it must say so", actorType, actorID)
+	}
+	if strings.Contains(string(detail), "token") && strings.Contains(string(detail), "hash") {
+		t.Errorf("the issued row's detail mentions a token hash: %s — a ledger every admin can read must not carry the credential", detail)
+	}
+}
+
+func setupTokenLedger(t *testing.T, svc *Service, action string) int {
+	t.Helper()
+	var n int
+	if err := database.WithInfraTx(context.Background(), svc.db.Pool(), func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM system_log WHERE action = $1`, action).Scan(&n)
+	}); err != nil {
+		t.Fatalf("counting %s rows: %v", action, err)
+	}
+	return n
 }

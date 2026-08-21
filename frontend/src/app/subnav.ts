@@ -76,6 +76,12 @@ export type NavTrailLevel = {
   // elements claiming `aria-current="page"` for different things is worse than
   // one claiming a little less, so a row that is only an ancestor says
   // `aria-current="true"` instead: current in this set, not the page.
+  //
+  // On the PRIMARY level the answer arrives with the level, because whether a
+  // route's segments reach a page below the screen is a question about the
+  // screens, and this module deliberately knows none of them (app/nav.ts, which
+  // owns the destinations, answers it there). A level built below the primary
+  // one is a section the page sits in and says nothing here.
   ancestor?: boolean;
   path: readonly string[];
   badgeIds?: ReadonlySet<string>;
@@ -156,11 +162,10 @@ export function navTrail(
   activeId: string,
   section?: NavSection,
 ): readonly NavTrailLevel[] {
-  // A segment under the screen means the page is something the screen holds —
-  // a record, a unit — rather than the screen itself.
-  const trail: NavTrailLevel[] = [
-    { ...top, activeId, ancestor: route.id !== undefined },
-  ];
+  // `ancestor` rides in on `top`: whether this route's segments reach a page
+  // below the screen depends on what the screen does with them, which is
+  // knowledge this module does not have and app/nav.ts does.
+  const trail: NavTrailLevel[] = [{ ...top, activeId }];
   // Compared against the ROW the route makes current, not the route's raw
   // screen. They are the same string for every destination the product owns, and
   // they differ for exactly one case: a composed unit routes as

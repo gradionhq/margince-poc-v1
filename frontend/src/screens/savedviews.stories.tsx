@@ -134,6 +134,18 @@ export const NoSaveForAnIncompleteFilter: Story = {
   },
 };
 
+export const TheRailFailedToLoad: Story = {
+  // The one place that says the saved-view rail did not load, and it says WHICH
+  // surface: the notice lands beside a list's Columns and Compact buttons, where
+  // an unnamed "this section did not load" could be any of the three.
+  render: () => {
+    installFetchStub({
+      "GET /views": () => jsonResponse({ title: "Server error" }, 500),
+    });
+    return <SaveViewAction resource="people" query={NARROWED} />;
+  },
+};
+
 export const LoadingASavedFilter: Story = {
   // Two stored views, one offered: the menu leaves out what it cannot read.
   render: () => {
