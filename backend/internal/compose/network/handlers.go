@@ -173,6 +173,15 @@ func wireCoverage(c DealCoverage, names map[ids.UUID]string) crmcontracts.DealCo
 		Stakeholders: []crmcontracts.DealCoverageSeat{},
 		OurSide:      []crmcontracts.PersonNetworkColleague{},
 		Risks:        []crmcontracts.DealCoverageRisk{},
+		// Present and empty on every read, never absent: the contract requires
+		// it, and a client that had to tell "no sections were withheld" from
+		// "the server did not say" would be guessing at exactly the question
+		// this array exists to answer.
+		SectionsOmitted: []crmcontracts.DealCoverageSectionsOmitted{},
+	}
+	for _, section := range c.SectionsOmitted {
+		out.SectionsOmitted = append(out.SectionsOmitted,
+			crmcontracts.DealCoverageSectionsOmitted(section))
 	}
 	for _, s := range c.Stakeholders {
 		out.Stakeholders = append(out.Stakeholders, crmcontracts.DealCoverageSeat{

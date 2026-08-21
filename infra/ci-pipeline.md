@@ -499,6 +499,14 @@ Wiring details:
   redundant on paper** — it is kept deliberately as the one instrument that does
   not trust the queue. If it goes red while every `merge_group` build was green,
   the queue has a hole and this is how anyone finds out.
+  The **frontend clock-drift** lane is the same argument at its purest: it runs
+  the vitest suite as if it were 200 days from now and requires the same verdict,
+  because a fixture whose absolute date the component compares to `now` is broken
+  by the CALENDAR rather than by a diff — three tests began failing on a day
+  nobody edited anything (#1977), and the classifier's frontend skip kept `main`
+  green over them for a month. No static rule finds the next one: "an absolute
+  date in a file that never pins the clock" matches 129 files, nearly all
+  harmless, so the gate is a second run rather than a pattern.
   Findings become **issues** (`scripts/scheduled-report.sh`), one open issue per
   check keyed on an exact title, because a red scheduled run notifies nobody and
   these checks exist precisely for the case where nothing prompts a human to look.

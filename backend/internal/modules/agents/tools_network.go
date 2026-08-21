@@ -79,6 +79,14 @@ type DealCoverageAnswer struct {
 	Stakeholders []CoverageSeat   `json:"stakeholders"`
 	OurSide      []KnownColleague `json:"our_side"`
 	Risks        []CoverageRisk   `json:"risks"`
+	// SectionsOmitted names the sections withheld for lack of the relationship
+	// grant, the same channel the HTTP payload carries.
+	//
+	// A model needs it more than a screen does, not less. A screen shows an
+	// empty card and a human wonders; a model handed no seats and no findings
+	// will write "the deal looks well covered" in a sentence a rep then acts
+	// on. The tool says so in words for the same reason it reports truncation.
+	SectionsOmitted []string `json:"sections_omitted"`
 }
 
 // CoverageSeat is one stakeholder and whether the seat is a relationship.
@@ -140,6 +148,16 @@ type AtRiskReport struct {
 	Deals        []AtRiskDeal `json:"deals"`
 	DealsScanned int          `json:"deals_scanned"`
 	Truncated    bool         `json:"truncated"`
+	// CoverageWithheld says the sweep could not assess at least one deal it
+	// scanned, because the coverage view a finding is derived from needs the
+	// relationship grant this caller does not hold.
+	//
+	// It is the same obligation Truncated carries, for the same reason: a deal
+	// nothing could be said about is absent from Deals, and an absence in this
+	// report is otherwise read as a clean deal. Reporting a pipeline as healthy
+	// because the rules could not run over it is the failure this flag exists to
+	// prevent — and unlike truncation, no cap explains it.
+	CoverageWithheld bool `json:"coverage_withheld"`
 }
 
 // AtRiskLister answers "which of my relationships are in trouble" over the
@@ -269,6 +287,16 @@ func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (js
 	if answer.Risks == nil {
 		answer.Risks = []CoverageRisk{}
 	}
+	if answer.SectionsOmitted == nil {
+		answer.SectionsOmitted = []string{}
+	}
+	// The words, not only the field. A model reading a structured answer with
+	// three empty arrays has everything it needs to conclude the deal is well
+	// covered, and the field naming the omission is one it has no obligation to
+	// look at. The warning is the instruction.
+	if len(answer.SectionsOmitted) > 0 {
+		noteWarning(ctx, warningSectionWithheld, coverageWithheldMessage)
+	}
 	noteDerivedContent(ctx)
 	noteEvidence(ctx, datasource.EntityDeal, args.DealID)
 	for _, seat := range answer.Stakeholders {
@@ -360,6 +388,20 @@ func (t atRiskTool) Spec() mcp.ToolSpec {
 const atRiskTruncatedMessage = "The scan stopped at its cap, so deals beyond it were not examined. " +
 	"Report these as what was found, not as every relationship at risk."
 
+// coverageWithheldMessage is what a model is told when the seats, our side and
+// the findings were all refused. It names the conclusion NOT to draw, because
+// the answer's own shape — three empty arrays — argues for exactly that
+// conclusion.
+const coverageWithheldMessage = "The stakeholders, our side and the risks were WITHHELD: this " +
+	"passport cannot read relationship records. Say the coverage could not be assessed. Do not " +
+	"report the deal as well covered, single-threaded, or clear of risk — none of those were checked."
+
+// atRiskWithheldMessage is the same claim over a sweep, where the absence is a
+// deal missing from a list rather than an empty section.
+const atRiskWithheldMessage = "At least one deal could not be assessed: reading its coverage needs " +
+	"the relationship grant this passport does not hold. Those deals are ABSENT from this report, " +
+	"not clean — report the pipeline as partly unexamined."
+
 func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct{}
 	if err := decodeArgs(in, &args); err != nil {
@@ -394,6 +436,9 @@ func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMes
 	}
 	if report.Truncated {
 		noteWarning(ctx, warningSweepTruncated, atRiskTruncatedMessage)
+	}
+	if report.CoverageWithheld {
+		noteWarning(ctx, warningSectionWithheld, atRiskWithheldMessage)
 	}
 	return json.Marshal(report)
 }

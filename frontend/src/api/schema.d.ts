@@ -7662,6 +7662,13 @@ export interface paths {
          *
          *     Every risk carries the ids behind it. A flag a human cannot drill into is a red
          *     dot nobody can act on.
+         *
+         *     **A seat is an edge.** Every stakeholder on this payload is a `deal_stakeholder`
+         *     relationship, and reading one discloses its endpoints as a pair — so this endpoint
+         *     needs `relationship:read` on top of the deal grant. Without it the three
+         *     edge-derived sections come back empty and named in `sections_omitted` rather than
+         *     the endpoint refusing: an operator who restricted the edge grant should be told the
+         *     coverage view was withheld, not that the deal passes every check.
          */
         get: operations["getDealCoverage"];
         put?: never;
@@ -12743,6 +12750,23 @@ export interface components {
             stakeholders: components["schemas"]["DealCoverageSeat"][];
             our_side: components["schemas"]["PersonNetworkColleague"][];
             risks: components["schemas"]["DealCoverageRisk"][];
+            /**
+             * @description The sections withheld for lack of the `relationship` grant — so a client can say
+             *     "you can't see this" instead of "there is none". Never returned absent, and empty
+             *     on the ordinary read: empty and forbidden are different answers, and a client that
+             *     had to infer the difference from an empty `risks` array would render a withheld
+             *     coverage view as a clean one.
+             *
+             *     All three sections go together or none does. Every seat on the deal is a
+             *     `deal_stakeholder` EDGE, `our_side` is derived from the seats, and every risk rule
+             *     but `going_cold` reads them — so there is no partial answer to give here.
+             *
+             *     A named section is EMPTY, never partial. `going_cold` needs no edge and could have
+             *     survived, but a `risks` array holding one finding while this array names it would
+             *     leave a client unable to say whether the list is complete. The deal's last touch is
+             *     on the deal record; only this card's copy of the finding is withheld.
+             */
+            sections_omitted: ("stakeholders" | "our_side" | "risks")[];
         };
         EmailSignature: {
             /**

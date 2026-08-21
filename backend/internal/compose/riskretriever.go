@@ -32,6 +32,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
+// coverageWithheldSummary is what the section says when the coverage view's
+// edge-derived halves were refused. Phrased as the fact rather than as an
+// error, because it reaches a model as one item among many and has to carry its
+// own meaning there.
+const coverageWithheldSummary = "the deal's coverage could not be assessed: reading its " +
+	"stakeholder relationships needs a grant this caller does not hold, so no risk was checked"
+
 // riskAwareRetriever appends a deal anchor's coverage findings to the context
 // the inner retriever assembled.
 type riskAwareRetriever struct {
@@ -67,6 +74,13 @@ func (r riskAwareRetriever) AssembleContext(ctx context.Context, anchor datasour
 		// coverage summary is advisory, and throwing away a fully assembled
 		// timeline because one advisory read was refused turns a revoked grant
 		// into a broken assistant. Anything else still fails loudly.
+		//
+		// This is the DEAL gate's denial only. A missing relationship grant no
+		// longer arrives here — CoverageFor returns it as sections_omitted, and
+		// riskSection renders it as an item. That matters because the two
+		// denials deserve different answers: a deal this caller cannot read has
+		// no section to speak of, while a deal whose coverage was withheld is
+		// one the assistant must be told it did not check.
 		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
 			return out, nil
 		}
@@ -92,6 +106,22 @@ func (r riskAwareRetriever) riskSection(ctx context.Context, dealID ids.UUID) (r
 		coverage, err := network.CoverageFor(ctx, tx, ids.From[ids.DealKind](dealID), clockNow())
 		if err != nil {
 			return err
+		}
+		// The withholding is an ITEM, not a silent absence. The assistant's
+		// whole reason for this section is that a human would lead with "the
+		// champion has left" — so a section that quietly comes back empty
+		// because the edge grant is missing produces a summary that leads with
+		// nothing and reads as reassurance.
+		if len(coverage.SectionsOmitted) > 0 {
+			section.Items = append(section.Items, retrieval.Item{
+				Ref:     datasource.EntityRef{Type: datasource.EntityDeal, ID: dealID},
+				Summary: coverageWithheldSummary,
+				Evidence: []retrieval.Evidence{{
+					Source:  "deal_coverage_withheld",
+					Snippet: coverageWithheldSummary,
+				}},
+			})
+			return nil
 		}
 		for _, risk := range coverage.Risks {
 			section.Items = append(section.Items, retrieval.Item{

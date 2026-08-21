@@ -3912,6 +3912,27 @@ func (e DealWonWithoutContractReason) Valid() bool {
 	}
 }
 
+// Defines values for DealCoverageSectionsOmitted.
+const (
+	DealCoverageSectionsOmittedOurSide      DealCoverageSectionsOmitted = "our_side"
+	DealCoverageSectionsOmittedRisks        DealCoverageSectionsOmitted = "risks"
+	DealCoverageSectionsOmittedStakeholders DealCoverageSectionsOmitted = "stakeholders"
+)
+
+// Valid indicates whether the value is a known member of the DealCoverageSectionsOmitted enum.
+func (e DealCoverageSectionsOmitted) Valid() bool {
+	switch e {
+	case DealCoverageSectionsOmittedOurSide:
+		return true
+	case DealCoverageSectionsOmittedRisks:
+		return true
+	case DealCoverageSectionsOmittedStakeholders:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DealCoverageRiskKind.
 const (
 	DealCoverageRiskKindChampionLeft         DealCoverageRiskKind = "champion_left"
@@ -14708,11 +14729,30 @@ type DealWonWithoutContractReason string
 
 // DealCoverage defines model for DealCoverage.
 type DealCoverage struct {
-	DealId       openapi_types.UUID       `json:"deal_id"`
-	OurSide      []PersonNetworkColleague `json:"our_side"`
-	Risks        []DealCoverageRisk       `json:"risks"`
-	Stakeholders []DealCoverageSeat       `json:"stakeholders"`
+	DealId  openapi_types.UUID       `json:"deal_id"`
+	OurSide []PersonNetworkColleague `json:"our_side"`
+	Risks   []DealCoverageRisk       `json:"risks"`
+
+	// SectionsOmitted The sections withheld for lack of the `relationship` grant — so a client can say
+	// "you can't see this" instead of "there is none". Never returned absent, and empty
+	// on the ordinary read: empty and forbidden are different answers, and a client that
+	// had to infer the difference from an empty `risks` array would render a withheld
+	// coverage view as a clean one.
+	//
+	// All three sections go together or none does. Every seat on the deal is a
+	// `deal_stakeholder` EDGE, `our_side` is derived from the seats, and every risk rule
+	// but `going_cold` reads them — so there is no partial answer to give here.
+	//
+	// A named section is EMPTY, never partial. `going_cold` needs no edge and could have
+	// survived, but a `risks` array holding one finding while this array names it would
+	// leave a client unable to say whether the list is complete. The deal's last touch is
+	// on the deal record; only this card's copy of the finding is withheld.
+	SectionsOmitted []DealCoverageSectionsOmitted `json:"sections_omitted"`
+	Stakeholders    []DealCoverageSeat            `json:"stakeholders"`
 }
+
+// DealCoverageSectionsOmitted defines model for DealCoverage.SectionsOmitted.
+type DealCoverageSectionsOmitted string
 
 // DealCoverageRisk One finding, with the records behind it. `kind` names the rule so a surface can
 // explain the flag rather than assert it.
