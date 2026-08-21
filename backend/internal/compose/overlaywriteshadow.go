@@ -196,7 +196,7 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		httperr.Write(w, r, err)
 		return
 	}
-	if _, err := s.sorDispatch.archiveInMode(r.Context(), bool(ov), ref); err != nil {
+	if _, err := s.sorDispatch.archiveInMode(r.Context(), bool(ov), datasource.ArchiveInput{Ref: ref}); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}

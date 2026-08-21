@@ -97,6 +97,17 @@ var unguardedByIDUpdates = gatekit.Waive(map[string]string{
 	// archived_at unconditionally (no state derived from a pre-read),
 	// so concurrent archives converge on the same terminal row and the
 	// in-transaction visibility read supplies the NotFound.
+	//
+	// That rationale answers "do two archives race each other", and it is
+	// still true of every entry below. It does NOT answer "did this archive
+	// land on the record the decider judged" — and for the six types
+	// archive_record stages a human confirmation for (person, organization,
+	// deal, project, relationship, activity) that is the question, because a
+	// concurrent UPDATE in the window between a released approval and the
+	// write changes the record without racing the archive at all. Those six
+	// now carry the version the approval was granted against and are no longer
+	// waived here. The entries that remain are types no approval ever pins.
+
 	// Both geocode writes are LAST-WRITER-WINS on purpose, and a version guard
 	// would make them worse rather than safer.
 	//
@@ -115,12 +126,8 @@ var unguardedByIDUpdates = gatekit.Waive(map[string]string{
 	"internal/modules/collections:ArchiveList":      "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/collections:ArchiveSavedView": "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/collections:ArchiveTag":       "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
-	"internal/modules/deals:ArchiveDeal":            "absolute idempotent archive transition (deal + its edges); concurrent archives converge, the visibility pre-read only feeds the response",
 	"internal/modules/deals:ArchiveProduct":         "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the response",
 	"internal/modules/deals:ArchiveOfferTemplate":   "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the response",
-	"internal/modules/people:archivePersonRows":     "absolute idempotent archive transition (person + child rows), shared by ArchivePerson and the lead demotion; concurrent archives converge, the visibility pre-read only feeds the response",
-	"internal/modules/people:ArchiveOrganization":   "absolute idempotent archive transition (org + child rows); concurrent archives converge, the visibility pre-read only feeds the response",
-	"internal/modules/people:ArchiveRelationship":   "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived",
 	"internal/modules/quotas:ArchiveQuota":          "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the response",
 	"internal/modules/webhooks:ArchiveSubscription": "absolute idempotent archive transition; the RETURNING + archived_at IS NULL predicate makes a lost race read as already archived (delivery stops at archive)",
 	"internal/modules/signals:ArchiveSignal":        "absolute idempotent archive transition; concurrent archives converge, the visibility pre-read only feeds the response",

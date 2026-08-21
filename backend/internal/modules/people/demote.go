@@ -220,7 +220,7 @@ func unwindPerson(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID id
 		}
 		return crmcontracts.DemoteUnwindMergeLineageOnly, nil
 	}
-	if err := archivePersonRows(ctx, tx, personID, time.Now().UTC()); err != nil {
+	if err := archivePersonRows(ctx, tx, personID, time.Now().UTC(), nil); err != nil {
 		return "", fmt.Errorf("archive promoted person: %w", err)
 	}
 	if _, err := tx.Exec(ctx,

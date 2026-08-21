@@ -72,7 +72,7 @@ func TestActivityLifecycleMutatorsHonorRowScope(t *testing.T) {
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("RelinkActivity out of row scope → %v, want ErrNotFound", err)
 	}
-	if _, err := e.Activities.ArchiveActivity(rep, theirID); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := e.Activities.ArchiveActivity(rep, theirID, nil); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("ArchiveActivity out of row scope → %v, want ErrNotFound", err)
 	}
 
@@ -116,7 +116,7 @@ func TestAReadableActivityOfAnotherTeamIsNotEditable(t *testing.T) {
 	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("RelinkActivity on a readable but foreign activity → %v, want ErrPermissionDenied", err)
 	}
-	if _, err := e.Activities.ArchiveActivity(rep, theirID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := e.Activities.ArchiveActivity(rep, theirID, nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("ArchiveActivity on a readable but foreign activity → %v, want ErrPermissionDenied", err)
 	}
 	var got string
@@ -210,7 +210,7 @@ func assertOwnTeamActivityStillMutable(rep context.Context, t *testing.T, e *Env
 	}); err != nil {
 		t.Errorf("RelinkActivity in row scope → %v, want ok", err)
 	}
-	if _, err := e.Activities.ArchiveActivity(rep, mineID); err != nil {
+	if _, err := e.Activities.ArchiveActivity(rep, mineID, nil); err != nil {
 		t.Errorf("ArchiveActivity in row scope → %v, want ok", err)
 	}
 }

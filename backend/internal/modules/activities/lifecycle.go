@@ -141,7 +141,37 @@ func ensureAssigneeExists(ctx context.Context, tx pgx.Tx, assigneeID *ids.UserID
 	return nil
 }
 
-func (s *Store) ArchiveActivity(ctx context.Context, id ids.ActivityID) (crmcontracts.Activity, error) {
+// RefuseArchiveActivity answers every authority refusal ArchiveActivity would
+// answer with, and writes nothing.
+//
+// It exists so a confirm-first archive is refused BEFORE a human is asked
+// rather than after they have answered: the two probes below are the whole of
+// what the archive requires of a caller, and asking them here is what keeps a
+// staged approval from being spent on a call the store was always going to
+// refuse. Deliberately NO version probe — a version that is right at staging
+// can be wrong by the time the human answers, so the pin is the write's
+// business and never a reason to refuse a staging.
+func (s *Store) RefuseArchiveActivity(ctx context.Context, id ids.ActivityID) error {
+	if err := auth.Require(ctx, "activity", principal.ActionDelete); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		return auth.EnsureActivityWritable(ctx, tx, id.UUID)
+	})
+}
+
+// ArchiveActivity retires one activity, conditioned on ifVersion wherever the
+// caller's authority named a version.
+//
+// The write rides storekit's guarded patch rather than a bare UPDATE, for the
+// reason ApplyGuarded's own doc gives — *an unguarded update is not
+// expressible* — which the archive verb was quietly the exception to. With a
+// pin it is the optimistic CAS, so an archive a human released against version
+// 4 lands on version 4 or answers skew; without one it takes the row lock, so
+// it is never LESS guarded than the bare statement it replaces. The gone and
+// already-archived cases keep answering ErrNotFound, which is the same
+// existence-hiding answer as before.
+func (s *Store) ArchiveActivity(ctx context.Context, id ids.ActivityID, ifVersion *int64) (crmcontracts.Activity, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionDelete); err != nil {
 		return crmcontracts.Activity{}, err
 	}
@@ -150,12 +180,10 @@ func (s *Store) ArchiveActivity(ctx context.Context, id ids.ActivityID) (crmcont
 		if err := auth.EnsureActivityWritable(ctx, tx, id.UUID); err != nil {
 			return err
 		}
-		tag, err := tx.Exec(ctx, `UPDATE activity SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
-		if err != nil {
+		p := storekit.NewPatch()
+		p.Set("archived_at", nil, time.Now().UTC())
+		if err := p.ApplyGuarded(ctx, tx, "activity", id.UUID, ifVersion); err != nil {
 			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return apperrors.ErrNotFound
 		}
 		auditID, err := storekit.Audit(ctx, tx, "archive", "activity", id.UUID, nil, nil)
 		if err != nil {

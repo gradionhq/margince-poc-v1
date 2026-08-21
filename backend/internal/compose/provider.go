@@ -320,16 +320,65 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 }
 
 func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
-	switch r.Type {
+	return p.ArchiveAt(ctx, datasource.ArchiveInput{Ref: r})
+}
+
+// archiverFor routes one entity type to the module that archives it.
+//
+// It is the switch Archive, ArchiveAt and RefuseArchive all used to spell
+// separately, and separately is how three copies of one routing table drift.
+// The unsupported answer is the caller's to give, so this returns nil rather
+// than an error: each caller's own signature decides what "no module archives
+// this" looks like on the wire.
+//
+//nolint:ireturn // the routing IS the return: three module providers answer one question, and naming one of them here would be a fourth copy of the switch
+func (p *Provider) archiverFor(t datasource.EntityType) datasource.RecordArchiverV2 {
+	switch t {
 	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityRelationship:
-		return p.people.Archive(ctx, r)
+		return p.people
 	case datasource.EntityDeal, datasource.EntityProject:
-		return p.deals.Archive(ctx, r)
+		return p.deals
 	case datasource.EntityActivity:
-		return p.activities.Archive(ctx, r)
+		return p.activities
 	default:
-		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
+		return nil
 	}
+}
+
+// ArchivableTypes is datasource.RecordArchiverV2's: the union of what the
+// modules below archive, asked of them rather than restated here. A module that
+// learns a new type enrols it by answering for it, which is what stops this
+// list and the switch above from disagreeing.
+func (p *Provider) ArchivableTypes(ctx context.Context) ([]datasource.EntityType, error) {
+	var out []datasource.EntityType
+	for _, module := range []datasource.RecordArchiverV2{p.people, p.deals, p.activities} {
+		types, err := module.ArchivableTypes(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, types...)
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
+// RefuseArchive is datasource.RecordArchiverV2's stage-time half, routed to the
+// module that would perform the write.
+func (p *Provider) RefuseArchive(ctx context.Context, r datasource.EntityRef) error {
+	module := p.archiverFor(r.Type)
+	if module == nil {
+		return &datasource.UnsupportedEntityError{Type: string(r.Type)}
+	}
+	return module.RefuseArchive(ctx, r)
+}
+
+// ArchiveAt is Archive carrying the version the caller's authority named.
+func (p *Provider) ArchiveAt(ctx context.Context, in datasource.ArchiveInput) (datasource.EntityRef, error) {
+	module := p.archiverFor(in.Ref.Type)
+	if module == nil {
+		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
+	}
+	return module.ArchiveAt(ctx, in)
 }
 
 func (p *Provider) Merge(ctx context.Context, in datasource.MergeInput) (datasource.EntityRef, error) {

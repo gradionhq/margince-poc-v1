@@ -98,7 +98,7 @@ func (h Handlers) UpdateRelationship(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (h Handlers) ArchiveRelationship(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	rel, err := h.store.ArchiveRelationship(r.Context(), ids.UUID(id))
+	rel, err := h.store.ArchiveRelationship(r.Context(), ids.UUID(id), nil)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

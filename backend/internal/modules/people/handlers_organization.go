@@ -184,7 +184,7 @@ func (h Handlers) ListOrganizationProfileFields(w http.ResponseWriter, r *http.R
 }
 
 func (h Handlers) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	org, err := h.store.ArchiveOrganization(r.Context(), pathID[ids.OrganizationKind](id))
+	org, err := h.store.ArchiveOrganization(r.Context(), pathID[ids.OrganizationKind](id), nil)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

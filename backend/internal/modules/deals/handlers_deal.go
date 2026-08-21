@@ -119,7 +119,7 @@ func (h Handlers) AdvanceDeal(w http.ResponseWriter, r *http.Request, id crmcont
 }
 
 func (h Handlers) ArchiveDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	deal, err := h.store.ArchiveDeal(r.Context(), pathID[ids.DealKind](id))
+	deal, err := h.store.ArchiveDeal(r.Context(), pathID[ids.DealKind](id), nil)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

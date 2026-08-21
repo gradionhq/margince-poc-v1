@@ -197,7 +197,7 @@ func archiveRequestFor(as context.Context, person ids.UUID) *http.Request {
 type repSeat struct{ e *integration.Env }
 
 func (s repSeat) EffectiveRBAC(context.Context, ids.UUID, ids.UUID) (authz.RBAC, error) {
-	return authz.RBAC{Permissions: integration.RepPerms, TeamIDs: []ids.UUID{s.e.Team1}}, nil
+	return authz.RBAC{Permissions: archiveRepPerms, TeamIDs: []ids.UUID{s.e.Team1}}, nil
 }
 
 func (repSeat) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatType, error) {

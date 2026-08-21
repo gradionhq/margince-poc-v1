@@ -27,7 +27,27 @@ import (
 
 // ArchiveOrganization retires the account and its cascade in ONE transaction,
 // then answers the archived record.
-func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) (crmcontracts.Organization, error) {
+// RefuseArchiveOrganization answers every authority refusal
+// ArchiveOrganization would answer with, and writes nothing. Its sibling on
+// person says why.
+//
+// The anchor refusal is deliberately NOT run here: refuseIfAnchor is a
+// domain-state answer ("this company anchors another"), and a state that can
+// change while a human decides is not one a staging may pre-empt — the archive
+// itself still refuses it.
+func (s *Store) RefuseArchiveOrganization(ctx context.Context, id ids.OrganizationID) error {
+	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		return auth.EnsureWritable(ctx, tx, "organization", id.UUID)
+	})
+}
+
+// ArchiveOrganization retires one company and everything that answers a list on
+// its behalf, conditioned on ifVersion wherever the caller's authority named a
+// version.
+func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID, ifVersion *int64) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
 		return crmcontracts.Organization{}, err
 	}
@@ -53,8 +73,15 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 		// its own table serves, which is how an archived account goes on
 		// appearing as a partner.
 		now := time.Now().UTC()
+		// The COMPANY row rides the guarded patch; the sweep below stays plain
+		// statements because each is a cascade off that row rather than a
+		// second decision, and the guard on the company serializes them all.
+		p := storekit.NewPatch()
+		p.Set("archived_at", nil, now)
+		if err := p.ApplyGuarded(ctx, tx, "organization", id.UUID, ifVersion); err != nil {
+			return fmt.Errorf("archive the account: %w", err)
+		}
 		for _, stmt := range []string{
-			`UPDATE organization SET archived_at = $2 WHERE id = $1 AND archived_at IS NULL`,
 			`UPDATE organization_domain SET archived_at = $2 WHERE organization_id = $1 AND archived_at IS NULL`,
 			// ADR-0079's partner invariant runs over LIVE type rows, so the
 			// types retire with their parent.

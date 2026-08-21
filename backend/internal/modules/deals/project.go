@@ -167,6 +167,17 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 // the FK's ON DELETE SET NULL only on a hard delete, so an archived
 // project keeps its rollup readable — which is what "the history does not
 // die" means in practice.
+// RefuseArchiveProject answers every authority refusal ArchiveProject would
+// answer with, and writes nothing. Its sibling on deal says why.
+func (s *Store) RefuseArchiveProject(ctx context.Context, id ids.ProjectID) error {
+	if err := auth.Require(ctx, projectObject, principal.ActionDelete); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		return auth.EnsureWritable(ctx, tx, projectObject, id.UUID)
+	})
+}
+
 func (s *Store) ArchiveProject(ctx context.Context, id ids.ProjectID, ifVersion *int64) (crmcontracts.Project, error) {
 	if err := auth.Require(ctx, projectObject, principal.ActionDelete); err != nil {
 		return crmcontracts.Project{}, err

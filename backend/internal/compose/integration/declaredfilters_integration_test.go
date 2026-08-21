@@ -130,7 +130,7 @@ func TestTheDomainFilterFindsAnArchivedAccountWhenAskedForOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding the account: %v", err)
 	}
-	if _, err := e.People.ArchiveOrganization(e.Admin(), ids.From[ids.OrganizationKind](ids.UUID(held.Id))); err != nil {
+	if _, err := e.People.ArchiveOrganization(e.Admin(), ids.From[ids.OrganizationKind](ids.UUID(held.Id)), nil); err != nil {
 		t.Fatalf("archiving the account: %v", err)
 	}
 

@@ -430,7 +430,27 @@ func (e *TerminalStageOnCreateError) FieldFault() (field, code, message string) 
 	return "stage_id", "terminal_stage_on_create", e.Error()
 }
 
-func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.Deal, error) {
+// RefuseArchiveDeal answers every authority refusal ArchiveDeal would answer
+// with, and writes nothing — the stage-time half of the archive, so a staged
+// approval is never spent on a call the store was always going to refuse. No
+// version probe: see RefuseArchiveActivity on why a pin is the write's
+// business rather than a staging's.
+func (s *Store) RefuseArchiveDeal(ctx context.Context, id ids.DealID) error {
+	if err := auth.Require(ctx, "deal", principal.ActionDelete); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		return auth.EnsureWritable(ctx, tx, "deal", id.UUID)
+	})
+}
+
+// ArchiveDeal retires one deal and the edges hanging off it, conditioned on
+// ifVersion wherever the caller's authority named a version.
+//
+// The DEAL's own row rides the guarded patch; the relationship sweep below
+// stays a plain statement because it is a cascade off that row rather than a
+// second decision — the guard on the deal is what serializes both.
+func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID, ifVersion *int64) (crmcontracts.Deal, error) {
 	if err := auth.Require(ctx, "deal", principal.ActionDelete); err != nil {
 		return crmcontracts.Deal{}, err
 	}
@@ -448,13 +468,15 @@ func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.De
 			return err
 		}
 		now := time.Now().UTC()
-		for _, stmt := range []string{
-			`UPDATE deal SET archived_at = $2 WHERE id = $1 AND archived_at IS NULL`,
+		p := storekit.NewPatch()
+		p.Set("archived_at", nil, now)
+		if err := p.ApplyGuarded(ctx, tx, "deal", id.UUID, ifVersion); err != nil {
+			return fmt.Errorf("archive deal: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
 			`UPDATE relationship SET archived_at = $2 WHERE deal_id = $1 AND archived_at IS NULL`,
-		} {
-			if _, err := tx.Exec(ctx, stmt, id, now); err != nil {
-				return fmt.Errorf("archive deal and its relationships: %w", err)
-			}
+			id, now); err != nil {
+			return fmt.Errorf("archive the deal's relationships: %w", err)
 		}
 		if _, err := tx.Exec(ctx,
 			`DELETE FROM list_member WHERE entity_type = 'deal' AND entity_id = $1`, id); err != nil {

@@ -30,7 +30,7 @@ func (h Handlers) UpdateActivity(w http.ResponseWriter, r *http.Request, id crmc
 }
 
 func (h Handlers) ArchiveActivity(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	activity, err := h.store.ArchiveActivity(r.Context(), pathID[ids.ActivityKind](id))
+	activity, err := h.store.ArchiveActivity(r.Context(), pathID[ids.ActivityKind](id), nil)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

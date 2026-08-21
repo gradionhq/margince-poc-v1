@@ -170,7 +170,7 @@ func (s *Store) RemoveProjectStakeholder(ctx context.Context, projectID ids.Proj
 	if err != nil {
 		return err
 	}
-	_, err = s.ArchiveRelationship(ctx, edgeID)
+	_, err = s.ArchiveRelationship(ctx, edgeID, nil)
 	return err
 }
 
