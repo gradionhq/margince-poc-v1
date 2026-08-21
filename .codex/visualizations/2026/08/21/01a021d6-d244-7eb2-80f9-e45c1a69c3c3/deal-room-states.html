@@ -489,20 +489,20 @@
   const states = [
     { id: "not-created", group: "Build", label: "Internal only", detail: "The deal is complete without a Shared Space; no buyer can see anything yet." },
     { id: "building", group: "Build", label: "AI building", detail: "Margince assembles a grounded draft while the seller stays on the deal." },
-    { id: "draft-review", group: "Build", label: "Draft review", detail: "AI proposals are visibly drafts, with citations and safety checks before publication." },
+    { id: "draft-review", group: "Build", label: "Draft review", detail: "AI proposals, citations and safety checks stay in the internal cockpit; only approved operational fields cross the boundary." },
     { id: "ready", group: "Build", label: "Ready", detail: "All public blocks are reviewed; participants and the exact release are confirmed." },
     { id: "publishing", group: "Build", label: "Publishing", detail: "The write is in flight, focus stays on the action, and the prior live release remains authoritative." },
     { id: "live-unopened", group: "Live", label: "Live · unopened", detail: "The room is live, but nobody has opened it; absence of activity is stated honestly." },
     { id: "live-active", group: "Live", label: "Live · active", detail: "Material buyer actions become a concise deal pulse, not a stream of page-view alerts." },
-    { id: "question", group: "Live", label: "Question waiting", detail: "The buyer asked something the published corpus cannot answer; Margince escalates instead of guessing." },
+    { id: "question", group: "Live", label: "Question waiting", detail: "The buyer sends a normal human message; Margince privately prepares a grounded reply draft for the seller." },
     { id: "update", group: "Live", label: "Update proposed", detail: "New deal evidence makes the public release stale; the seller reviews a release diff." },
     { id: "paused", group: "Access & end", label: "Paused", detail: "Buyer access is temporarily refused while the seller keeps the room and its history." },
     { id: "expired", group: "Access & end", label: "Expired", detail: "The access window ended automatically; extending it is an explicit human action." },
     { id: "closed", group: "Access & end", label: "Closed · handoff", detail: "The sales release is frozen and the stable space continues into onboarding." },
     { id: "readonly", group: "Access & end", label: "Read only", detail: "The viewer may read the deal and live release but cannot publish or manage buyer access." },
     { id: "unavailable", group: "Access & end", label: "Unavailable", detail: "The external surface failed without making the internal deal disappear or pretending the room is empty." },
-    { id: "buyer-first", group: "Buyer", label: "First visit", detail: "A named buyer lands on a calm decision path with the next action first." },
-    { id: "buyer-returning", group: "Buyer", label: "Returning", detail: "A returning buyer sees only material changes since the last visit." },
+    { id: "buyer-first", group: "Buyer", label: "First visit", detail: "A named buyer lands on a calm workspace: status, next step, to-dos, documents and exchange." },
+    { id: "buyer-returning", group: "Buyer", label: "Returning", detail: "A returning buyer sees the human-updated status and the current work—never AI analysis." },
     { id: "buyer-stopped", group: "Buyer", label: "Access stopped", detail: "Paused, revoked and expired access each say what happened without leaking internal detail." }
   ];
 
@@ -544,14 +544,20 @@
   function internalCockpit(mode = "risk") {
     const won = mode === "won";
     const pulse = mode === "active"
-      ? `<div class="drx-statusline"><span class="viz-badge">3 material changes</span><span class="drx-small drx-muted">since your last visit</span></div><p>The CFO joined, Security finished its task, and the revised offer is under review.</p>`
+      ? `<div class="drx-statusline"><span class="viz-badge">AI brief · internal</span><span class="drx-small drx-muted">3 material changes</span></div><p>The CFO joined, Security finished its task, and the revised offer is under review. Recommended: confirm Procurement before Friday.</p>`
       : mode === "question"
-        ? `<div class="drx-statusline"><span class="viz-badge">Buyer question</span><span class="drx-small drx-muted">18 minutes ago</span></div><p>Sabine asked where customer data is stored. The published room has no grounded answer.</p>`
+        ? `<div class="drx-statusline"><span class="viz-badge">Reply copilot · internal</span><span class="drx-small drx-muted">18 minutes ago</span></div><p>Sabine asked about data residency. Margince prepared a grounded reply draft and flagged the exact region for confirmation.</p>`
         : mode === "update"
-          ? `<div class="drx-statusline"><span class="viz-badge">Shared Space is stale</span><span class="drx-small drx-muted">3 facts changed</span></div><p>Tuesday’s meeting changed the go-live date, Security owner and SSO status.</p>`
-          : won
-            ? `<div class="drx-statusline"><span class="viz-badge">Won</span><span class="drx-small drx-muted">today</span></div><p>The signed agreement is recorded. Preserve the sales evidence and begin onboarding.</p>`
-            : `<div class="drx-statusline"><span class="viz-badge">At risk</span><span class="drx-small drx-muted">82 days quiet</span></div><p>Re-engage Sabine and add an operational stakeholder before presenting a proposal.</p>`;
+          ? `<div class="drx-statusline"><span class="viz-badge">Update proposal · internal</span><span class="drx-small drx-muted">3 changes</span></div><p>Change shared status, move go-live to 15 October, assign Security to Maya, and close the SSO question.</p>`
+          : mode === "building"
+            ? `<div class="drx-statusline"><span class="viz-badge">Setup copilot · internal</span><span class="drx-small drx-muted">working</span></div><p>Reading meetings, commitments and documents to propose status, tasks, participants and document requests.</p>`
+            : mode === "draft"
+              ? `<div class="drx-statusline"><span class="viz-badge">Review · internal</span><span class="drx-small drx-muted">3 checks</span></div><p>Go-live needs confirmation, Security has no owner, and offer R1 is still a draft. Evidence is available here only.</p>`
+              : mode === "ready"
+                ? `<div class="drx-statusline"><span class="viz-badge">Ready · internal</span><span class="drx-small drx-muted">human approved</span></div><p>Status, next step, five tasks and three documents are approved for the Shared Space.</p>`
+                : won
+                  ? `<div class="drx-statusline"><span class="viz-badge">Won</span><span class="drx-small drx-muted">today</span></div><p>The signed agreement is recorded. Preserve the sales evidence and begin onboarding.</p>`
+                  : `<div class="drx-statusline"><span class="viz-badge">AI brief · internal</span><span class="drx-small drx-muted">82 days quiet</span></div><p>Re-engage Sabine, add an operational stakeholder, and request the missing security owner before proposal.</p>`;
 
     return `
       ${topbar()}
@@ -638,41 +644,42 @@
     return `
       <article class="drx-buyer-preview" aria-label="Buyer preview">
         <div class="drx-buyer-brand">
-          <div class="drx-person"><span class="drx-brand-mark">M</span><div><strong>Margince × TeamOne</strong><div class="drx-small drx-muted">Shared decision space</div></div></div>
-          <div class="drx-actions">${editable ? '<span class="viz-badge">Draft for buyer</span>' : '<span class="viz-badge">Live release 4</span>'}</div>
+          <div class="drx-person"><span class="drx-brand-mark">M</span><div><strong>Margince × TeamOne</strong><div class="drx-small drx-muted">Shared workspace</div></div></div>
+          <nav class="drx-buyer-nav" aria-label="Shared Space"><strong>Status</strong><span>To-dos</span><span>Documents</span><span>Exchange</span></nav>
+          <div class="drx-actions">${editable ? '<span class="viz-badge">Draft change</span>' : '<span class="viz-badge">Live</span>'}</div>
         </div>
         <div class="drx-buyer-content">
-          ${returning ? '<div class="drx-callout"><strong>Since your last visit</strong><div class="drx-small">The go-live date moved to 15 October, Security is complete and offer R2 is ready.</div></div>' : ""}
+          ${returning ? '<div class="drx-callout"><strong>Updated by Hau today</strong><div class="drx-small">Go-live is now 15 October and the revised offer is available.</div></div>' : ""}
           <div class="drx-hero">
-            <span class="drx-kicker">Prepared for Sabine Fröschl and the TeamOne buying team</span>
-            <h3>A clear path to a faster, more reliable property-management handover</h3>
-            <p class="drx-muted">Align the operating team, validate the migration plan and make a confident commercial decision by 30 September.</p>
-            <div class="drx-actions"><span class="viz-badge">Next: confirm scope</span><span class="drx-small drx-muted">Owner · Sabine · due Friday</span></div>
+            <span class="drx-kicker">Current status · updated by Hau today</span>
+            <h3>Implementation scope is being confirmed</h3>
+            <p class="drx-muted">Security review is complete. The remaining step before commercial approval is confirming the 14-property migration scope.</p>
+            <div class="drx-actions"><span class="viz-badge">Next step</span><strong>Sabine confirms scope by Friday</strong></div>
           </div>
           <div class="drx-shared-grid">
             <div>
               <div class="drx-section">
-                <div class="drx-section-line"><strong>What we heard</strong><span class="viz-badge">3 priorities</span></div>
-                <p class="drx-small drx-muted">Reduce manual handovers, give owners clearer reporting, and migrate without disrupting the current team.</p>
+                <div class="drx-section-line"><strong>Your to-dos</strong><span class="drx-small drx-muted">1 open</span></div>
+                <div class="drx-plan-row"><span>Confirm implementation scope</span><span class="viz-badge">Due Fri</span></div>
+                <div class="drx-plan-row"><span>Security review</span><span class="viz-badge">Done</span></div>
               </div>
               <div class="drx-section">
-                <div class="drx-section-line"><strong>Mutual plan</strong><span class="drx-small drx-muted">3 of 5 complete</span></div>
-                <div class="drx-plan-row"><span>Discovery & success criteria</span><span class="viz-badge">Done</span></div>
-                <div class="drx-plan-row"><span>Security review</span><span class="viz-badge">Done</span></div>
-                <div class="drx-plan-row"><span>Confirm implementation scope</span><span class="viz-badge">Your turn</span></div>
+                <div class="drx-section-line"><strong>Margince to-dos</strong><span class="drx-small drx-muted">1 open</span></div>
+                <div class="drx-plan-row"><span>Send implementation schedule</span><span class="viz-badge">Hau · Mon</span></div>
+                <div class="drx-plan-row"><span>Share revised offer</span><span class="viz-badge">Done</span></div>
               </div>
             </div>
             <div>
               <div class="drx-section">
-                <div class="drx-section-line"><strong>Key resources</strong><span class="drx-small drx-muted">Current</span></div>
-                <div class="drx-section-line"><span>${icon("file-text")} Solution overview</span><span>PDF</span></div>
-                <div class="drx-section-line"><span>${icon("shield-check")} Security profile</span><span>12 pages</span></div>
+                <div class="drx-section-line"><strong>Documents</strong><span class="drx-small drx-muted">3 current</span></div>
+                <div class="drx-section-line"><span>${icon("file-text")} Implementation scope</span><span>PDF</span></div>
+                <div class="drx-section-line"><span>${icon("shield-check")} Security profile</span><span>PDF</span></div>
                 <div class="drx-section-line"><span>${icon("receipt-text")} Offer R2</span><span>€160,100</span></div>
               </div>
               <div class="drx-section">
-                <strong>Your team</strong>
-                <div class="drx-person"><span class="drx-avatar drx-avatar-sm">SF</span><span>Sabine · Economic buyer</span></div>
-                <div class="drx-person"><span class="drx-avatar drx-avatar-sm">NO</span><span>Nora · Finance</span></div>
+                <div class="drx-section-line"><strong>Exchange</strong><span class="drx-small drx-muted">Hau and Sabine</span></div>
+                <div class="drx-plan-row"><span>Sabine: Can we include the two Austrian properties?</span><span class="viz-badge">New</span></div>
+                <button type="button" class="btn">Write a message</button>
               </div>
             </div>
           </div>
@@ -690,8 +697,8 @@
       <div class="drx-empty">
         <div class="drx-empty-inner">
           <div class="drx-empty-icon">${icon("panels-top-left")}</div>
-          <h3>Turn this deal into a clear buyer journey</h3>
-          <p class="drx-muted">Margince will draft the shared objective, plan, resources and commercial next step from the evidence above. Nothing is shared until you publish.</p>
+          <h3>Create a simple Shared Space</h3>
+          <p class="drx-muted">Margince will privately prepare the status, next step, tasks, participants and document set. Buyers see nothing until you approve it.</p>
           ${button("Create Shared Space", "building", "primary")}
         </div>
       </div>
@@ -700,76 +707,27 @@
 
   function building() {
     return sellerScreen("Building draft", "Visible to: no one", '<button type="button" class="btn" disabled>Preview</button>', `
-      <div class="drx-build-progress">
-        <div class="card">
-          <div class="drx-row"> <span class="drx-spin" aria-hidden="true"></span><div><h3>Margince is building the Shared Space</h3><p class="drx-muted">Reading only evidence you can access. No buyer can see this draft.</p></div></div>
-          <div class="drx-progress-line" aria-label="Draft generation 64 percent complete"><span style="width:64%"></span></div>
-          <div class="drx-check-list">
-            <div class="drx-check"><span class="drx-dot drx-dot-good"></span><span>Deal, stakeholders and current stage read</span></div>
-            <div class="drx-check"><span class="drx-dot drx-dot-good"></span><span>Meetings and commitments grounded</span></div>
-            <div class="drx-check"><span class="drx-dot"></span><span>Selecting buyer-safe resources</span></div>
-            <div class="drx-check"><span class="drx-dot"></span><span>Checking claims and permissions</span></div>
-          </div>
-          <div class="drx-actions">${button("Show completed draft", "draft-review")}</div>
-        </div>
-        <div class="card">
-          <h3>What Margince will not do</h3>
-          <div class="drx-risk-list">
-            <div class="drx-risk"><span class="drx-dot"></span><span>Publish automatically</span></div>
-            <div class="drx-risk"><span class="drx-dot"></span><span>Expose internal notes or health</span></div>
-            <div class="drx-risk"><span class="drx-dot"></span><span>Invent prices, dates or promises</span></div>
-          </div>
+      <div class="drx-empty">
+        <div class="drx-empty-inner">
+          <div class="drx-empty-icon">${icon("lock-keyhole")}</div>
+          <h3>No Shared Space is visible yet</h3>
+          <p class="drx-muted">Margince is preparing status, tasks, participants and documents in the internal cockpit above.</p>
+          ${button("Show internal draft review", "draft-review")}
         </div>
       </div>
-    `);
+    `, "building");
   }
 
   function draftReview() {
     return sellerScreen("Draft · 3 to review", "Visible to: no one", `${button("Preview as buyer", "buyer-first")}${button("Continue review", "ready", "primary")}`, `
-      <div class="drx-composer">
-        ${buyerPreview({ editable: true })}
-        <aside class="drx-review-rail" aria-label="Draft review">
-          <div class="card">
-            <h3>Review before sharing</h3>
-            <div class="drx-check-list">
-              <div class="drx-check"><span class="drx-dot drx-dot-good"></span><span>11 factual claims grounded</span></div>
-              <div class="drx-check"><span class="drx-dot drx-dot-good"></span><span>No internal-only source selected</span></div>
-              <div class="drx-check"><span class="drx-dot drx-dot-warn"></span><span>Go-live date needs confirmation</span></div>
-              <div class="drx-check"><span class="drx-dot drx-dot-warn"></span><span>Offer R1 is still a draft</span></div>
-              <div class="drx-check"><span class="drx-dot drx-dot-warn"></span><span>Security owner not named</span></div>
-            </div>
-          </div>
-          <div class="card">
-            <h3>Evidence</h3>
-            <div class="drx-source-list">
-              <div class="drx-source">${icon("message-square-text")}<span>Discovery call · lines 42–51</span></div>
-              <div class="drx-source">${icon("mail")}<span>Sabine’s reply · 30 May</span></div>
-              <div class="drx-source">${icon("file-text")}<span>Implementation notes · current</span></div>
-            </div>
-          </div>
-        </aside>
-      </div>
-    `);
+      ${buyerPreview({ editable: true })}
+    `, "draft");
   }
 
   function ready() {
     return sellerScreen("Ready to publish", "Will be visible to: Sabine and Nora", `${button("Preview as Nora", "buyer-first")}${button("Publish release 1", "publishing", "primary")}`, `
-      <div class="drx-composer">
-        ${buyerPreview({ editable: true })}
-        <aside class="drx-review-rail">
-          <div class="drx-callout"><strong>Ready to publish</strong><div class="drx-small">Every buyer-visible claim is reviewed and the current offer is pinned.</div></div>
-          <div class="card">
-            <h3>Release 1</h3>
-            <div class="drx-section-list">
-              <div class="drx-section-line"><span>5 sections</span><span class="viz-badge">Reviewed</span></div>
-              <div class="drx-section-line"><span>3 resources</span><span class="viz-badge">Current</span></div>
-              <div class="drx-section-line"><span>2 participants</span><span class="viz-badge">Named</span></div>
-              <div class="drx-section-line"><span>Analytics</span><span class="viz-badge">Consent required</span></div>
-            </div>
-          </div>
-        </aside>
-      </div>
-    `);
+      ${buyerPreview({ editable: true })}
+    `, "ready");
   }
 
   function publishing() {
@@ -777,95 +735,41 @@
       <div class="drx-callout"><strong>Publishing the reviewed release…</strong><div class="drx-small">The exact draft version is pinned. Invitations send only after publication commits.</div></div>
       ${buyerPreview({ editable: true })}
       <div class="drx-actions">${button("Show published state", "live-unopened")}</div>
-    `);
+    `, "ready");
   }
 
   function liveUnopened() {
     return sellerScreen("Live · release 1", "Visible to: Sabine, Nora · neither has opened", `${button("Preview as buyer", "buyer-first")}${button("Copy link", "live-unopened")}`, `
-      <div class="drx-composer">
-        ${buyerPreview()}
-        <aside class="drx-review-rail">
-          <div class="card">
-            <h3>Participants</h3>
-            <div class="drx-section-list">
-              <div class="drx-section-line"><span>Sabine Fröschl</span><span class="viz-badge">Invited</span></div>
-              <div class="drx-section-line"><span>Nora Ortiz</span><span class="viz-badge">Invited</span></div>
-            </div>
-          </div>
-          <div class="drx-callout"><strong>No buyer activity yet</strong><div class="drx-small">The invitations were sent 2 hours ago. This is not a risk signal.</div></div>
-          ${button("Simulate buyer activity", "live-active", "primary")}
-        </aside>
-      </div>
+      ${buyerPreview()}
+      <div class="drx-actions">${button("Simulate buyer activity", "live-active")}</div>
     `);
   }
 
   function liveActive() {
     return sellerScreen("Live · release 4", "Visible to: Sabine, Nora, Ben + 1 · 3 active this week", `${button("Preview as Nora", "buyer-returning")}${button("Pause access", "paused")}`, `
-      <div class="drx-composer">
-        ${buyerPreview({ returning: true })}
-        <aside class="drx-review-rail">
-          <div class="card">
-            <h3>Meaningful engagement</h3>
-            <div class="drx-events">
-              <div class="drx-event"><span>Nora joined as Finance</span><span class="drx-small drx-muted">Today</span></div>
-              <div class="drx-event"><span>Security task completed</span><span class="drx-small drx-muted">Yesterday</span></div>
-              <div class="drx-event"><span>Offer R2 reviewed</span><span class="drx-small drx-muted">2 days ago</span></div>
-            </div>
-          </div>
-          <div class="drx-callout"><strong>Recommended next move</strong><div class="drx-small">Confirm whether Procurement needs a vendor form before Friday.</div></div>
-          <div class="drx-actions">${button("Show buyer question", "question")}${button("Show meeting update", "update")}</div>
-        </aside>
-      </div>
+      ${buyerPreview({ returning: true })}
+      <div class="drx-actions">${button("Show buyer question", "question")}${button("Show meeting update", "update")}</div>
     `, "active");
   }
 
   function questionWaiting() {
     return sellerScreen("Live · question waiting", "Visible to: Sabine, Nora, Ben + 1", `${button("Preview thread", "buyer-returning")}`, `
-      <div class="drx-composer">
-        <div class="drx-buyer-preview">
-          <div class="drx-buyer-brand"><div class="drx-person"><span class="drx-brand-mark">M</span><strong>Questions</strong></div><span class="viz-badge">1 waiting</span></div>
-          <div class="drx-buyer-content">
-            <div class="drx-question">
-              <div class="drx-question-head"><span class="drx-avatar drx-avatar-sm">SF</span><div><strong>Sabine Fröschl</strong><div class="drx-small drx-muted">18 minutes ago · Security profile</div></div></div>
-              <p class="drx-question-body">Where will our tenant and document data be stored?</p>
-            </div>
-            <div class="drx-callout-warn drx-callout"><strong>Margince did not answer</strong><div class="drx-small">The published room does not contain a grounded residency answer. The question was routed to you.</div></div>
+      <div class="drx-buyer-preview">
+        <div class="drx-buyer-brand"><div class="drx-person"><span class="drx-brand-mark">M</span><strong>Exchange</strong></div><span class="viz-badge">1 waiting</span></div>
+        <div class="drx-buyer-content">
+          <div class="drx-question">
+            <div class="drx-question-head"><span class="drx-avatar drx-avatar-sm">SF</span><div><strong>Sabine Fröschl</strong><div class="drx-small drx-muted">18 minutes ago · Security profile</div></div></div>
+            <p class="drx-question-body">Where will our tenant and document data be stored?</p>
           </div>
+          <div class="drx-callout"><strong>Waiting for Hau</strong><div class="drx-small">Your question was sent to Hau. He will reply here.</div></div>
         </div>
-        <aside class="drx-review-rail">
-          <div class="card">
-            <h3>Prepare a grounded reply</h3>
-            <label class="form-label" for="drx-answer">Answer to Sabine</label>
-            <textarea id="drx-answer" class="form-control" rows="5">Our deployment stores tenant data in the EU region selected by your organization. I’ll add the exact region and subprocessors to the Security section.</textarea>
-            <div class="drx-actions"><button type="button" class="btn">Save draft</button><button type="button" class="btn btn-primary" data-go="update">Reply and propose room update</button></div>
-          </div>
-        </aside>
       </div>
     `, "question");
   }
 
   function updateProposed() {
     return sellerScreen("Live · release 4 · draft update", "Visible to buyers now: release 4", `${button("Preview current live", "buyer-returning")}${button("Publish release 5", "live-active", "primary")}`, `
-      <div class="drx-composer">
-        <div class="drx-buyer-preview">
-          <div class="drx-buyer-brand"><div class="drx-person"><span class="drx-brand-mark">M</span><div><strong>Release 5 diff</strong><div class="drx-small drx-muted">Proposed from Tuesday’s meeting</div></div></div><span class="viz-badge">Draft for buyer</span></div>
-          <div class="drx-buyer-content">
-            <div class="drx-diff"><span class="drx-old">Go-live · 1 October</span>${icon("arrow-right")}<span class="drx-new">Go-live · 15 October</span></div>
-            <div class="drx-diff"><span class="drx-old">Security owner · open</span>${icon("arrow-right")}<span class="drx-new">Security owner · Maya Becker</span></div>
-            <div class="drx-diff"><span class="drx-old">SSO · unanswered</span>${icon("arrow-right")}<span class="drx-new">SSO · confirmed in Enterprise plan</span></div>
-          </div>
-        </div>
-        <aside class="drx-review-rail">
-          <div class="drx-callout-warn drx-callout"><strong>The live room is now stale</strong><div class="drx-small">Buyers still see release 4 until you review and publish this exact diff.</div></div>
-          <div class="card">
-            <h3>Evidence</h3>
-            <div class="drx-source-list">
-              <div class="drx-source">${icon("mic")}<span>Steering call · lines 88–104</span></div>
-              <div class="drx-source">${icon("check-check")}<span>Commitment accepted by Sabine</span></div>
-            </div>
-          </div>
-        </aside>
-      </div>
+      ${buyerPreview({ editable: true })}
     `, "update");
   }
 
@@ -900,22 +804,23 @@
 
   function closed() {
     return sellerScreen("Closed · sales release frozen", "Buyer access continues as onboarding", `${button("Open onboarding project", "closed", "primary")}${button("Preview as customer", "buyer-returning")}`, `
-      <div class="drx-composer">
-        <div class="drx-buyer-preview">
-          <div class="drx-buyer-brand"><div class="drx-person"><span class="drx-brand-mark">M</span><div><strong>TeamOne onboarding</strong><div class="drx-small drx-muted">The same stable Shared Space</div></div></div><span class="viz-badge">Sales release frozen</span></div>
-          <div class="drx-buyer-content">
-            <div class="drx-callout"><strong>Welcome to onboarding</strong><div class="drx-small">The offer and decision history are preserved. New work now comes from the onboarding project.</div></div>
+      <div class="drx-buyer-preview">
+        <div class="drx-buyer-brand"><div class="drx-person"><span class="drx-brand-mark">M</span><div><strong>TeamOne onboarding</strong><div class="drx-small drx-muted">The same stable Shared Space</div></div></div><span class="viz-badge">Onboarding</span></div>
+        <div class="drx-buyer-content">
+          <div class="drx-callout"><strong>Status · ready for kickoff</strong><div class="drx-small">The agreement is complete. The next shared step is the kickoff meeting on 28 August.</div></div>
+          <div class="drx-shared-grid">
             <div class="drx-section">
-              <div class="drx-section-line"><strong>Kickoff plan</strong><span class="drx-small drx-muted">1 of 4 complete</span></div>
+              <div class="drx-section-line"><strong>To-dos</strong><span class="drx-small drx-muted">1 of 4 complete</span></div>
               <div class="drx-plan-row"><span>Agreement recorded</span><span class="viz-badge">Done</span></div>
-              <div class="drx-plan-row"><span>Kickoff meeting</span><span class="viz-badge">28 Aug</span></div>
-              <div class="drx-plan-row"><span>Data preparation</span><span class="viz-badge">Your turn</span></div>
+              <div class="drx-plan-row"><span>Prepare source data</span><span class="viz-badge">Your turn</span></div>
+            </div>
+            <div class="drx-section">
+              <div class="drx-section-line"><strong>Documents</strong><span class="drx-small drx-muted">Current</span></div>
+              <div class="drx-plan-row"><span>Signed agreement</span><span class="viz-badge">PDF</span></div>
+              <div class="drx-plan-row"><span>Kickoff checklist</span><span class="viz-badge">Open</span></div>
             </div>
           </div>
         </div>
-        <aside class="drx-review-rail">
-          <div class="card"><h3>Sales evidence preserved</h3><div class="drx-section-list"><div class="drx-section-line"><span>Offer R2</span><span>Accepted</span></div><div class="drx-section-line"><span>Contract</span><span>Active</span></div><div class="drx-section-line"><span>Release 5</span><span>Frozen</span></div></div></div>
-        </aside>
       </div>
     `, "won");
   }
@@ -934,36 +839,7 @@
     const returning = kind === "buyer-returning";
     return `
       <div class="drx-buyer-only">
-        <article class="drx-buyer-preview">
-          <div class="drx-buyer-brand">
-            <div class="drx-person"><span class="drx-brand-mark">M</span><div><strong>Margince × TeamOne</strong><div class="drx-small drx-muted">Shared decision space</div></div></div>
-            <nav class="drx-buyer-nav" aria-label="Shared Space"><strong>Start</strong><span>Plan</span><span>Resources</span><span>Commercials</span><span>Questions</span></nav>
-          </div>
-          <div class="drx-buyer-content">
-            ${returning ? '<div class="drx-callout"><strong>Three things changed since Tuesday</strong><div class="drx-small">Go-live moved to 15 October, Security is complete, and offer R2 is ready for review.</div></div>' : '<div class="drx-callout"><strong>Welcome, Sabine</strong><div class="drx-small">This space contains the current plan, documents and commercial proposal for your team.</div></div>'}
-            <div class="drx-hero">
-              <span class="drx-kicker">Prepared for Sabine Fröschl and the TeamOne buying team</span>
-              <h2>A clear path to a faster, more reliable property-management handover</h2>
-              <p class="drx-muted">Everything needed to align your team and make the decision—kept current in one place.</p>
-              <div class="drx-actions"><button type="button" class="btn btn-primary">Confirm implementation scope</button><span class="drx-small drx-muted">Due Friday · owned by you</span></div>
-            </div>
-            <div class="drx-shared-grid">
-              <div>
-                <div class="drx-section"><div class="drx-section-line"><strong>Shared outcome</strong><span class="viz-badge">Agreed</span></div><p class="drx-muted">Move 14 managed properties without interrupting tenant communication or owner reporting.</p></div>
-                <div class="drx-section"><div class="drx-section-line"><strong>Mutual plan</strong><span>3 of 5 complete</span></div><div class="drx-plan-row"><span>Security review</span><span class="viz-badge">Done</span></div><div class="drx-plan-row"><span>Confirm implementation scope</span><span class="viz-badge">Your turn</span></div><div class="drx-plan-row"><span>Commercial approval</span><span class="viz-badge">Next</span></div></div>
-              </div>
-              <div>
-                <div class="drx-section"><div class="drx-section-line"><strong>Current documents</strong><span>3</span></div><div class="drx-section-line"><span>${icon("file-text")} Solution overview</span><span>Open</span></div><div class="drx-section-line"><span>${icon("shield-check")} Security profile</span><span>Open</span></div><div class="drx-section-line"><span>${icon("receipt-text")} Offer R2</span><span>Review</span></div></div>
-                <div class="drx-section"><strong>Your contacts</strong><div class="drx-person"><span class="drx-avatar drx-avatar-sm">HG</span><span>Hau · Account lead</span></div><div class="drx-person"><span class="drx-avatar drx-avatar-sm">MB</span><span>Maya · Security</span></div></div>
-              </div>
-            </div>
-            <div class="drx-ask">
-              <div><label class="form-label" for="drx-buyer-question">Ask about this deal</label><input id="drx-buyer-question" class="form-control" placeholder="Ask about the plan, documents or offer"></div>
-              <button type="button" class="btn" data-go="question">Ask Margince</button>
-            </div>
-            <p class="drx-small drx-muted">Margince answers only from this published Shared Space and cites its source. If the answer is not here, your question goes to the seller.</p>
-          </div>
-        </article>
+        ${buyerPreview({ returning })}
       </div>
     `;
   }
