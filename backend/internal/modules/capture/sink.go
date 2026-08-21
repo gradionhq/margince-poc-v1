@@ -36,6 +36,10 @@ type Sink struct {
 	// files is the timeline module's attachment writer. Nil is a role that
 	// keeps no files: messages still land, and their attachments do not.
 	files FileKeeper
+	// projectKeys resolves the subject-line rung of the project attribution
+	// ladder. Nil is a role that attributes nothing — messages still land, and
+	// none of them is filed under a project.
+	projectKeys ProjectKeyMatcher
 	// tracePayloads is the deployment's capture.trace_payloads posture: with it
 	// on, the 24-hour trace keeps each message's sender and subject. Off is the
 	// default and the only value a member can cause.
@@ -48,6 +52,10 @@ const (
 	fieldSourceSystem = "source_system"
 	fieldSourceID     = "source_id"
 	fieldReason       = "reason"
+	// fieldError carries the cause on a fault breadcrumb. Named once because
+	// two post-commit steps record one, and an operator filtering system_log
+	// must not have to know which of them spelled the key.
+	fieldError = "error"
 )
 
 // MergeStager is the dedupe seam: a captured lead colliding with an
@@ -190,6 +198,12 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		// a fault here is logged for the nightly reconcile rather than
 		// surfaced as a capture failure (the 60s p95 already delivered).
 		s.ensureCounterparty(ctx, rec, ref, decision)
+		// The project ladder runs on the same terms and for the same reasons:
+		// after the commit, in its own transaction, never failing the capture.
+		// It is independent of the counterparty decision — a message from a
+		// sender no record was created for still belongs to the project its
+		// subject names.
+		s.attributeProject(ctx, rec, ref)
 	}
 	if dedupeHit != nil && s.stager != nil {
 		// Staged OUTSIDE the capture transaction on purpose: the capture
