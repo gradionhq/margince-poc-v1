@@ -35,8 +35,8 @@ func (e *dedupeEnv) seedMember(t *testing.T, name string) ids.UUID {
 	ctx := e.as()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO app_user (id, workspace_id, email, display_name)
-			VALUES ($1, $2, $3, $4)`, id, e.ws, id.String()+"@dd.test", name)
+			INSERT INTO app_user (id, email, display_name)
+			VALUES ($1, $2, $3)`, id, id.String()+"@dd.test", name)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding member %q: %v", name, err)

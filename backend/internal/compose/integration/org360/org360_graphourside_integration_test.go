@@ -42,8 +42,7 @@ func seedMember(t *testing.T, owner *pgx.Conn, ws ids.UUID, name string) ids.UUI
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, $4)`,
-		id, ws, id.String()+"@authz.test", name); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, $3)`, id, id.String()+"@authz.test", name); err != nil {
 		t.Fatalf("seeding member %s: %v", name, err)
 	}
 	return id

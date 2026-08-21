@@ -91,8 +91,7 @@ func setupCapturePrivacy(t *testing.T) *privacyEnv {
 		name string
 	}{{e.owner, "Owner"}, {e.teammate, "Teammate"}, {e.admin, "Admin"}} {
 		if _, err := conn.Exec(ctx,
-			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, $4)`,
-			u.id, e.ws, "cp-"+u.id.String()+"@cp.test", u.name); err != nil {
+			`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, $3)`, u.id, "cp-"+u.id.String()+"@cp.test", u.name); err != nil {
 			t.Fatal(err)
 		}
 	}

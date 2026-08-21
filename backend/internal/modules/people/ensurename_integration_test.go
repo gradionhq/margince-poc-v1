@@ -165,8 +165,8 @@ func TestACounterpartyWhoIsAKnownHumanGetsTheirRealName(t *testing.T) {
 
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO app_user (id, workspace_id, email, display_name)
-			VALUES ($1, $2, $3, 'Lars Jankowfsky')`, ids.NewV7(), e.ws, addr)
+			INSERT INTO app_user (id, email, display_name)
+			VALUES ($1, $2, 'Lars Jankowfsky')`, ids.NewV7(), addr)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -197,8 +197,8 @@ func TestAConfidentHeaderOutranksAKnownHumansStoredName(t *testing.T) {
 
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO app_user (id, workspace_id, email, display_name)
-			VALUES ($1, $2, $3, 'Anna Old-Surname')`, ids.NewV7(), e.ws, addr)
+			INSERT INTO app_user (id, email, display_name)
+			VALUES ($1, $2, 'Anna Old-Surname')`, ids.NewV7(), addr)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -239,8 +239,8 @@ func TestASpoofedHeaderCannotBorrowAKnownHumansName(t *testing.T) {
 
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO app_user (id, workspace_id, email, display_name)
-			VALUES ($1, $2, $3, 'Real Colleague')`, ids.NewV7(), e.ws, addr)
+			INSERT INTO app_user (id, email, display_name)
+			VALUES ($1, $2, 'Real Colleague')`, ids.NewV7(), addr)
 		return err
 	}); err != nil {
 		t.Fatal(err)

@@ -6,9 +6,7 @@ package identity
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -261,7 +259,7 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 		if err != nil {
 			return err
 		}
-		if err := insertSession(ctx, tx, wsID, account.UserID, tokenHash); err != nil {
+		if err := insertSession(ctx, tx, account.UserID, tokenHash); err != nil {
 			return err
 		}
 		if err := auditLogin(ctx, tx, wsID, account.UserID, "password login"); err != nil {
@@ -322,15 +320,22 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, error) {
 	tokenHash := hashToken(rawToken)
 
-	var id Identity
-	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+	// The workspace is the installation's, resolved once and cached, not a
+	// column on the session: ADR-0091 §8 phase D took the tenant column off
+	// session and app_user, and a request already carries this same value from
+	// the middleware before any session is looked up.
+	wsID, err := s.InstallationWorkspace(ctx)
+	if err != nil {
+		return Identity{}, err
+	}
+	id := Identity{WorkspaceID: wsID}
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// note: a session is keyed by its opaque token, not exposed as a
 		// first-class entity id — its row id has no kind and stays ids.UUID.
 		var sessionID ids.UUID
 		var userID ids.UserID
 		err := tx.QueryRow(ctx,
 			`SELECT s.id, u.id, u.email, u.display_name, u.seat_type, u.must_change_password,
-			        s.workspace_id,
 			        coalesce((SELECT value #>> '{}' FROM setting WHERE key = $2), '')
 			 FROM session s
 			 JOIN app_user u ON u.id = s.user_id
@@ -339,7 +344,7 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Identity, 
 			   AND now() < s.idle_expires_at
 			   AND now() < s.expires_at
 			   AND u.status = 'active' AND u.archived_at IS NULL`,
-			tokenHash, Name.Key()).Scan(&sessionID, &userID, &id.Email, &id.DisplayName, &id.SeatType, &id.MustChangePassword, &id.WorkspaceID, &id.WorkspaceName)
+			tokenHash, Name.Key()).Scan(&sessionID, &userID, &id.Email, &id.DisplayName, &id.SeatType, &id.MustChangePassword, &id.WorkspaceName)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -378,14 +383,6 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 			hashToken(rawToken))
 		return err
 	})
-}
-
-func insertSession(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, userID ids.UserID, tokenHash string) error {
-	_, err := tx.Exec(ctx,
-		`INSERT INTO session (workspace_id, user_id, token_hash, idle_expires_at, expires_at)
-		 VALUES ($1, $2, $3, now() + $4::interval, now() + $5::interval)`,
-		wsID, userID, tokenHash, idleTTL.String(), absoluteTTL.String())
-	return err
 }
 
 // auditLogin appends the login fact to system_log — the ledger for
@@ -480,20 +477,4 @@ func rawTeamIDs(teams []ids.TeamID) []ids.UUID {
 		out[i] = t.UUID
 	}
 	return out
-}
-
-// mintSessionToken returns the raw cookie value and the SHA-256 hex the
-// database stores — the raw token never touches the DB (ADR-0043).
-func mintSessionToken() (raw, hash string, err error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", "", fmt.Errorf("crmauth: minting session token: %w", err)
-	}
-	raw = base64.RawURLEncoding.EncodeToString(buf)
-	return raw, hashToken(raw), nil
-}
-
-func hashToken(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
 }

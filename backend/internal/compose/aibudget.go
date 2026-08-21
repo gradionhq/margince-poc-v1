@@ -40,14 +40,13 @@ func NewSeatBudget(pool *pgxpool.Pool) ai.BudgetPolicy { return seatBudget{pool:
 func (b seatBudget) MonthlyTokenBudget(ctx context.Context, workspaceID ids.WorkspaceID) (int64, error) {
 	var fullSeats int64
 	err := database.WithWorkspaceTx(principal.WithWorkspaceID(ctx, workspaceID.UUID), b.pool, func(tx pgx.Tx) error {
-		// The workspace predicate is the count's own: tenant isolation used to
-		// bound it, and without it every workspace is charged the whole
-		// installation's seat count (ADR-0091 §8 phase A).
+		// Every full seat on the installation, which is every full seat there
+		// is: ADR-0091 §8 phase D took the tenant column off app_user, and a
+		// single-organization installation has one workspace to charge.
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FROM app_user
 			WHERE seat_type = 'full' AND status = 'active'
-			  AND archived_at IS NULL AND NOT is_agent
-			  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`).Scan(&fullSeats)
+			  AND archived_at IS NULL AND NOT is_agent`).Scan(&fullSeats)
 	})
 	if err != nil {
 		return 0, err

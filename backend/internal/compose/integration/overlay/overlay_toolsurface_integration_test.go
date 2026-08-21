@@ -395,8 +395,7 @@ func seedNativeModeWorkspaceForFlip(t *testing.T) (ws, user ids.UUID) {
 	}
 	user = ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Pre-flip User')`,
-		user, ws, "preflip-"+user.String()+"@overlay.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Pre-flip User')`, user, "preflip-"+user.String()+"@overlay.test"); err != nil {
 		t.Fatalf("seeding the native-mode workspace's user: %v", err)
 	}
 	return ws, user

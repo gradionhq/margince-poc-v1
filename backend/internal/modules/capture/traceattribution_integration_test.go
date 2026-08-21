@@ -132,10 +132,9 @@ func seedMember(ctx context.Context, t *testing.T, db *database.DB, member ids.U
 	t.Helper()
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO app_user (id, workspace_id, email, display_name, status)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, 'Member', 'active')
-			ON CONFLICT (id) DO NOTHING`,
-			member, "member-"+member.String()+"@example.test")
+			INSERT INTO app_user (id, email, display_name, status)
+			VALUES ($1, $2, 'Member', 'active')
+			ON CONFLICT (id) DO NOTHING`, member, "member-"+member.String()+"@example.test")
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the member: %v", err)

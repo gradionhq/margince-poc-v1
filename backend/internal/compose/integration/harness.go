@@ -86,8 +86,7 @@ func Setup(t *testing.T) *Env {
 	seedInstallationIdentity(ctx, t, owner)
 	for i, user := range []ids.UUID{e.Rep1, e.Rep2, e.Rep3, e.AdminUser} {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, $4)`,
-			user, e.WS, string(rune('a'+i))+"@authz.test", "Rep"); err != nil {
+			`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, $3)`, user, string(rune('a'+i))+"@authz.test", "Rep"); err != nil {
 			t.Fatal(err)
 		}
 	}

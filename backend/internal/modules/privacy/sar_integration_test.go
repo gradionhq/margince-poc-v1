@@ -71,8 +71,7 @@ func setupSARIdentifiers(t *testing.T) *sarIdentifierEnv {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Admin')`,
-		user, ws, "admin-"+user.String()+"@sar.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Admin')`, user, "admin-"+user.String()+"@sar.test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx,

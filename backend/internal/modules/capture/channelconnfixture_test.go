@@ -198,8 +198,7 @@ func newChannelFixture(t *testing.T, api *fakeTelegram) *channelFixture {
 		t.Fatalf("seeding workspace: %v", err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Channel Admin')`,
-		userUUID, wsUUID, "admin-"+userUUID.String()+"@"+slug+".test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Channel Admin')`, userUUID, "admin-"+userUUID.String()+"@"+slug+".test"); err != nil {
 		t.Fatalf("seeding app_user: %v", err)
 	}
 

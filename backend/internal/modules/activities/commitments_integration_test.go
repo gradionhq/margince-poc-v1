@@ -81,8 +81,7 @@ func setupPromises(t *testing.T) *promiseEnv {
 	}
 	for _, user := range []ids.UUID{e.rep, e.other} {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
-			user, e.ws, "rep-"+user.String()+"@promises.test"); err != nil {
+			`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep')`, user, "rep-"+user.String()+"@promises.test"); err != nil {
 			t.Fatal(err)
 		}
 	}

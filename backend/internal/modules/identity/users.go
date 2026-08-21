@@ -79,10 +79,6 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 	if !actor.hasRole(roleAdmin) {
 		return ids.UserID{}, "", apperrors.ErrPermissionDenied
 	}
-	wsID, ok := workspaceFrom(ctx)
-	if !ok {
-		return ids.UserID{}, "", apperrors.ErrNotFound
-	}
 	teams, err := validTeamIDs(in.TeamIDs)
 	if err != nil {
 		return ids.UserID{}, "", err
@@ -111,9 +107,9 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 			return roleErr
 		}
 		insErr := tx.QueryRow(ctx,
-			`INSERT INTO app_user (workspace_id, email, password_hash, display_name, status)
-			 VALUES ($1, lower($2), NULL, $3, 'active') RETURNING id`,
-			wsID, in.Email, in.DisplayName).Scan(&newUserID)
+			`INSERT INTO app_user (email, password_hash, display_name, status)
+			 VALUES (lower($1), NULL, $2, 'active') RETURNING id`,
+			in.Email, in.DisplayName).Scan(&newUserID)
 		var pgErr *pgconn.PgError
 		if errors.As(insErr, &pgErr) && pgErr.Code == "23505" {
 			return errEmailTaken

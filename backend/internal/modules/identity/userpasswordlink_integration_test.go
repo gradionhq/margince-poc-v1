@@ -308,8 +308,7 @@ func TestPasswordLinkHandlerRefusesTheAgentSeat(t *testing.T) {
 	// this test invented, which is not the row an admin can reach.
 	var seat ids.UserID
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT id FROM app_user WHERE workspace_id = $1 AND is_agent`,
-		e.admin.WorkspaceID).Scan(&seat); err != nil {
+		`SELECT id FROM app_user WHERE is_agent`).Scan(&seat); err != nil {
 		t.Fatalf("reading the workspace's agent seat: %v", err)
 	}
 

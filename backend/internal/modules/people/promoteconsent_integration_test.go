@@ -76,8 +76,7 @@ func setupPromoteConsent(t *testing.T) *promoteConsentEnv {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
-		e.user, e.ws, "rep-"+e.user.String()+"@pc.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep')`, e.user, "rep-"+e.user.String()+"@pc.test"); err != nil {
 		t.Fatal(err)
 	}
 	for id, key := range map[ids.UUID]string{e.newsletter: "newsletter", e.updates: "product_updates"} {

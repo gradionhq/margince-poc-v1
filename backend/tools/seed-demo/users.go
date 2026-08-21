@@ -66,16 +66,11 @@ func seedOrg(ctx context.Context, conn *pgx.Conn, cfg demoConfig, mode runMode) 
 		return nil
 	}
 
-	var workspace string
-	if err := conn.QueryRow(ctx, `SELECT id FROM workspace ORDER BY created_at LIMIT 1`).Scan(&workspace); err != nil {
-		return fmt.Errorf("resolving the installation's workspace: %w", err)
-	}
-
 	teamIDs, teamsNew, err := ensureTeams(ctx, conn, cfg.Teams)
 	if err != nil {
 		return err
 	}
-	seatsNew, err := ensureUsers(ctx, conn, workspace, cfg, teamIDs)
+	seatsNew, err := ensureUsers(ctx, conn, cfg, teamIDs)
 	if err != nil {
 		return err
 	}
@@ -111,10 +106,10 @@ func ensureTeams(ctx context.Context, conn *pgx.Conn, teams []demoTeam) (map[str
 	return ids, created, nil
 }
 
-func ensureUsers(ctx context.Context, conn *pgx.Conn, workspace string, cfg demoConfig, teamIDs map[string]string) (int, error) {
+func ensureUsers(ctx context.Context, conn *pgx.Conn, cfg demoConfig, teamIDs map[string]string) (int, error) {
 	created := 0
 	for _, user := range cfg.Users {
-		id, isNew, err := ensureSeat(ctx, conn, workspace, user, cfg.UserPassword)
+		id, isNew, err := ensureSeat(ctx, conn, user, cfg.UserPassword)
 		if err != nil {
 			return created, err
 		}
@@ -125,7 +120,7 @@ func ensureUsers(ctx context.Context, conn *pgx.Conn, workspace string, cfg demo
 		// no longer matches is corrected rather than left: the CSO was seeded
 		// as admin while `management` did not exist, and re-running after it
 		// landed has to actually move her.
-		if err := reconcileRole(ctx, conn, workspace, id, user.RoleKey); err != nil {
+		if err := reconcileRole(ctx, conn, id, user.RoleKey); err != nil {
 			return created, fmt.Errorf("seat %s: %w", user.Email, err)
 		}
 		if user.Team == "" {
@@ -144,10 +139,10 @@ func ensureUsers(ctx context.Context, conn *pgx.Conn, workspace string, cfg demo
 	return created, nil
 }
 
-func ensureSeat(ctx context.Context, conn *pgx.Conn, workspace string, user demoUser, password string) (id string, isNew bool, err error) {
+func ensureSeat(ctx context.Context, conn *pgx.Conn, user demoUser, password string) (id string, isNew bool, err error) {
 	switch err := conn.QueryRow(ctx,
-		`SELECT id FROM app_user WHERE workspace_id = $1 AND lower(email) = lower($2)`,
-		workspace, user.Email).Scan(&id); {
+		`SELECT id FROM app_user WHERE lower(email) = lower($1)`,
+		user.Email).Scan(&id); {
 	case err == nil:
 		return id, false, nil
 	case err != pgx.ErrNoRows:
@@ -159,9 +154,9 @@ func ensureSeat(ctx context.Context, conn *pgx.Conn, workspace string, user demo
 		return "", false, err
 	}
 	if err := conn.QueryRow(ctx,
-		`INSERT INTO app_user (workspace_id, email, password_hash, display_name, seat_type, status)
-		 VALUES ($1, $2, $3, $4, 'full', 'active') RETURNING id`,
-		workspace, user.Email, hash, user.DisplayName).Scan(&id); err != nil {
+		`INSERT INTO app_user (email, password_hash, display_name, seat_type, status)
+		 VALUES ($1, $2, $3, 'full', 'active') RETURNING id`,
+		user.Email, hash, user.DisplayName).Scan(&id); err != nil {
 		return "", false, fmt.Errorf("creating seat %s: %w", user.Email, err)
 	}
 	return id, true, nil
@@ -170,14 +165,14 @@ func ensureSeat(ctx context.Context, conn *pgx.Conn, workspace string, user demo
 // reconcileRole makes a seat hold exactly the role the dataset names, dropping
 // any other. A seat with two roles holds the union of both, so leaving a
 // superseded one in place would quietly keep powers the dataset revoked.
-func reconcileRole(ctx context.Context, conn *pgx.Conn, workspace, userID, roleKey string) error {
-	if err := assignRole(ctx, conn, workspace, userID, roleKey); err != nil {
+func reconcileRole(ctx context.Context, conn *pgx.Conn, userID, roleKey string) error {
+	if err := assignRole(ctx, conn, userID, roleKey); err != nil {
 		return err
 	}
 	if _, err := conn.Exec(ctx,
 		`DELETE FROM role_assignment ra USING role r
-		  WHERE ra.role_id = r.id AND ra.workspace_id = $1 AND ra.user_id = $2 AND r.key <> $3`,
-		workspace, userID, roleKey); err != nil {
+		  WHERE ra.role_id = r.id AND ra.user_id = $1 AND r.key <> $2`,
+		userID, roleKey); err != nil {
 		return fmt.Errorf("dropping superseded roles: %w", err)
 	}
 	return nil
@@ -185,15 +180,15 @@ func reconcileRole(ctx context.Context, conn *pgx.Conn, workspace, userID, roleK
 
 // assignRole gives a seat its permissions. A seat with no role_assignment has
 // NONE — every object check fails closed, so it cannot even load a list.
-func assignRole(ctx context.Context, conn *pgx.Conn, workspace, userID, roleKey string) error {
+func assignRole(ctx context.Context, conn *pgx.Conn, userID, roleKey string) error {
 	tag, err := conn.Exec(ctx,
-		`INSERT INTO role_assignment (workspace_id, role_id, user_id)
-		 SELECT $1, r.id, $2 FROM role r
-		  WHERE r.workspace_id = $1 AND r.key = $3
+		`INSERT INTO role_assignment (role_id, user_id)
+		 SELECT r.id, $1 FROM role r
+		  WHERE r.key = $2
 		    AND NOT EXISTS (
 		          SELECT 1 FROM role_assignment ra
-		           WHERE ra.workspace_id = $1 AND ra.user_id = $2 AND ra.role_id = r.id)`,
-		workspace, userID, roleKey)
+		           WHERE ra.user_id = $1 AND ra.role_id = r.id)`,
+		userID, roleKey)
 	if err != nil {
 		return fmt.Errorf("assigning role %q: %w", roleKey, err)
 	}
@@ -203,12 +198,12 @@ func assignRole(ctx context.Context, conn *pgx.Conn, workspace, userID, roleKey 
 		var exists bool
 		if err := conn.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM role_assignment ra JOIN role r ON r.id = ra.role_id
-			  WHERE ra.workspace_id = $1 AND ra.user_id = $2 AND r.key = $3)`,
-			workspace, userID, roleKey).Scan(&exists); err != nil {
+			  WHERE ra.user_id = $1 AND r.key = $2)`,
+			userID, roleKey).Scan(&exists); err != nil {
 			return fmt.Errorf("confirming role %q: %w", roleKey, err)
 		}
 		if !exists {
-			return fmt.Errorf("role %q does not exist in this workspace — a seat without one has no permissions at all", roleKey)
+			return fmt.Errorf("role %q does not exist on this installation — a seat without one has no permissions at all", roleKey)
 		}
 	}
 	return nil

@@ -350,9 +350,8 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	fixtureUser := ids.New[ids.UserKind]()
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO app_user (id, workspace_id, email, display_name)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, 'Revalidate Fixture User')`,
-			fixtureUser, "revalidate-fixture-"+fixtureUser.String()+"@overlay.test"); err != nil {
+			INSERT INTO app_user (id, email, display_name)
+			VALUES ($1, $2, 'Revalidate Fixture User')`, fixtureUser, "revalidate-fixture-"+fixtureUser.String()+"@overlay.test"); err != nil {
 			return err
 		}
 		_, execErr := tx.Exec(ctx, `

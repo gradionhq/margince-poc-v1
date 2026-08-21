@@ -211,7 +211,6 @@ func assertParticipant(t *testing.T, rows []participantRow, role string, user *i
 func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := context.Background()
-	ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 
 	var contact, activityID ids.UUID
 	var doomed ids.UUID
@@ -223,8 +222,8 @@ func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO app_user (workspace_id, email, display_name)
-			VALUES (`+ws+`, 'doomed@example.test', 'Doomed Colleague')
+			INSERT INTO app_user (email, display_name)
+			VALUES ('doomed@example.test', 'Doomed Colleague')
 			RETURNING id`).Scan(&doomed); err != nil {
 			return err
 		}

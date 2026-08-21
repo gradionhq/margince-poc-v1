@@ -53,15 +53,20 @@ func setupVoiceSend(t *testing.T) *voiceSendEnv {
 	e.BootstrapWorkspace(t)
 	profile := createVoiceProfile(t, e)
 
-	var workspaceID, ownerID ids.UUID
-	// The workspace comes from the profile's OWNER now: app_user still carries
-	// the column and voice_profile does not, and the colleague this suite seeds
-	// has to land in the same one.
+	var ownerID ids.UUID
+	// Only the owner is resolved here: ADR-0091 §8 phase D took the tenant
+	// column off app_user too, so there is no workspace left to read off either
+	// side of this join — the installation has one, and the harness already
+	// carries it.
 	if err := e.Owner.QueryRow(context.Background(), `
-		SELECT u.workspace_id, p.owner_id
-		FROM voice_profile p JOIN app_user u ON u.id = p.owner_id
-		WHERE p.id = $1`, profile.ID).Scan(&workspaceID, &ownerID); err != nil {
-		t.Fatalf("resolving the profile's workspace and owner: %v", err)
+		SELECT p.owner_id FROM voice_profile p WHERE p.id = $1`,
+		profile.ID).Scan(&ownerID); err != nil {
+		t.Fatalf("resolving the profile's owner: %v", err)
+	}
+	var workspaceID ids.UUID
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT id FROM workspace WHERE slug = $1`, e.Slug).Scan(&workspaceID); err != nil {
+		t.Fatalf("resolving the installation's workspace: %v", err)
 	}
 
 	var person struct {
@@ -125,9 +130,9 @@ func (e *voiceSendEnv) openVoiceDraft(t *testing.T, opts voiceDraftOptions) (ref
 	if opts.foreignOwner {
 		var colleague ids.UUID
 		if err := e.Owner.QueryRow(ctx, `
-			INSERT INTO app_user (workspace_id, email, display_name)
-			VALUES ($1, $2, 'Colleague') RETURNING id`,
-			e.workspaceID, "colleague-"+ids.NewV7().String()+"@example.test").Scan(&colleague); err != nil {
+			INSERT INTO app_user (email, display_name)
+			VALUES ($1, 'Colleague') RETURNING id`,
+			"colleague-"+ids.NewV7().String()+"@example.test").Scan(&colleague); err != nil {
 			t.Fatalf("seeding the colleague: %v", err)
 		}
 		var foreign ids.UUID

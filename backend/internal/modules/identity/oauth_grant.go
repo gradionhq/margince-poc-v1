@@ -84,8 +84,8 @@ func requireLiveConsentingUser(ctx context.Context, tx pgx.Tx, in issueGrantInpu
 	var status string
 	err := tx.QueryRow(ctx, `
 		SELECT status FROM app_user
-		WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
-		FOR UPDATE`, in.UserID, in.WorkspaceID).Scan(&status)
+		WHERE id = $1 AND archived_at IS NULL
+		FOR UPDATE`, in.UserID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errConsentingUserInactive
 	}

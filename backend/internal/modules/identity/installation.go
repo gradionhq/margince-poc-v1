@@ -230,9 +230,9 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 
 	var userID ids.UserID
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO app_user (workspace_id, email, password_hash, display_name, timezone, must_change_password)
-		 VALUES ($1, lower($2), $3, $4, $5, $6) RETURNING id`,
-		wsID, boot.AdminEmail, hash, boot.AdminName, boot.Timezone,
+		`INSERT INTO app_user (email, password_hash, display_name, timezone, must_change_password)
+		 VALUES (lower($1), $2, $3, $4, $5) RETURNING id`,
+		boot.AdminEmail, hash, boot.AdminName, boot.Timezone,
 		origin == originConfigured).Scan(&userID); err != nil {
 		return ids.WorkspaceID{}, err
 	}
@@ -304,9 +304,9 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 // states the constraint it is subject to instead of satisfying it by accident.
 func seedAgentSeat(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, boot BootstrapInput) error {
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO app_user (workspace_id, email, display_name, timezone, is_agent, seat_type, status)
-		 VALUES ($1, $2, 'Gradion Agent', $3, true, 'full', 'active')`,
-		wsID, agentSeatEmail(boot.Slug), boot.Timezone); err != nil {
+		`INSERT INTO app_user (email, display_name, timezone, is_agent, seat_type, status)
+		 VALUES ($1, 'Gradion Agent', $2, true, 'full', 'active')`,
+		agentSeatEmail(boot.Slug), boot.Timezone); err != nil {
 		return fmt.Errorf("identity: seeding the agent seat: %w", err)
 	}
 	return nil

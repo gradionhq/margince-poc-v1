@@ -62,8 +62,7 @@ func setupStaging(t *testing.T) *stagingEnv {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
-		e.rep, e.ws, "rep-"+e.rep.String()+"@st.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep')`, e.rep, "rep-"+e.rep.String()+"@st.test"); err != nil {
 		t.Fatal(err)
 	}
 	pool, err := database.NewPool(ctx, appDSN)

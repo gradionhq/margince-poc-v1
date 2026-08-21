@@ -1,3 +1,16 @@
+-- AMENDED (ADR-0091 §8 phase D): the composite foreign keys below referenced
+-- app_user (workspace_id, id) and now reference app_user (id). `dbmigrate.Up`
+-- applies ALL of `core` before ANY of `custom`, so on a FRESH database this
+-- file runs against the FINAL core schema — where app_user has no workspace_id
+-- and no UNIQUE (workspace_id, id) for a composite key to point at — and the
+-- install fails outright. Amending is what keeps a fresh install working.
+--
+-- The tenancy integrity the composite form bought is not lost, it has no
+-- subject: a single-organization installation (ADR-0061) has one workspace, so
+-- there is no cross-workspace target for the database to reject. This is the
+-- same rewrite 20260813120000_single_column_foreign_keys_custom already applies
+-- to these constraints at a later version; a deployed database reaches the same
+-- shape either way.
 -- 20260716120000_overlay: the HubSpot-overlay schema cluster (fork-owned,
 -- ADR-0017 custom namespace). x_sor_mode/x_incumbent flip a workspace into
 -- overlay mode (design §4.2); the seven tables below are the overlay-mode
@@ -41,12 +54,12 @@ CREATE TABLE mirror_user_map (
   match_source text NOT NULL DEFAULT 'email' CHECK (match_source IN ('email','manual')),
   UNIQUE (workspace_id, app_user_id, incumbent),
   -- Composite FK (workspace_id, app_user_id), not a bare app_user_id ->
-  -- app_user(id): a tenant-local FK must carry workspace_id on both sides
-  -- so a cross-workspace target is rejected by the database, not just by
-  -- RLS row visibility (data-model tenancy integrity C4; same pattern as
-  -- connector_connection's granted_by FK in 0023_capture.up.sql).
-  CONSTRAINT mirror_user_map_app_user_id_fkey FOREIGN KEY (workspace_id, app_user_id)
-    REFERENCES app_user (workspace_id, id) ON DELETE CASCADE
+  -- app_user(id). This carried workspace_id on both sides so a cross-workspace
+  -- target was rejected by the database rather than merely hidden by RLS; see
+  -- the amendment note at the top of this file for why that has no subject on a
+  -- single-organization installation.
+  CONSTRAINT mirror_user_map_app_user_id_fkey FOREIGN KEY (app_user_id)
+    REFERENCES app_user (id) ON DELETE CASCADE
 );
 CREATE INDEX idx_mirror_user_map ON mirror_user_map (workspace_id, incumbent, incumbent_user_id);
 CREATE TABLE mirror_visibility (
