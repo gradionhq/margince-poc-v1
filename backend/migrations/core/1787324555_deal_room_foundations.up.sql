@@ -40,7 +40,12 @@ CREATE TABLE deal_room (
         REFERENCES app_user(id) ON DELETE SET NULL,
     CONSTRAINT deal_room_state_check CHECK (state IN (
         'draft', 'building', 'ready', 'publishing',
-        'live', 'paused', 'closed', 'expired', 'archived'))
+        'live', 'paused', 'closed', 'expired', 'archived')),
+    -- The two ways this row can say "archived" must agree. Left apart, a row
+    -- could read live to the state machine and archived to every list query
+    -- that filters on archived_at, which is the repo's normal convention.
+    CONSTRAINT deal_room_archived_agrees
+        CHECK ((state = 'archived') = (archived_at IS NOT NULL))
 );
 
 -- ONE active room per deal. The predicate names every non-terminal state, not
@@ -48,7 +53,8 @@ CREATE TABLE deal_room (
 -- ready or publishing is the same "which link is current?" bug arriving a few
 -- seconds earlier.
 CREATE UNIQUE INDEX uq_deal_room_active ON deal_room (deal_id)
-    WHERE state IN ('draft', 'building', 'ready', 'publishing', 'live', 'paused');
+    WHERE state IN ('draft', 'building', 'ready', 'publishing', 'live', 'paused')
+      AND archived_at IS NULL;
 
 -- An immutable published snapshot. Every buyer-visible editorial value is
 -- COPIED in, so a later edit to the deal cannot change what a buyer was shown,
@@ -73,10 +79,12 @@ CREATE TABLE deal_room_release (
         REFERENCES deal_room(id) ON DELETE CASCADE,
     CONSTRAINT deal_room_release_published_by_fkey FOREIGN KEY (published_by)
         REFERENCES app_user(id) ON DELETE SET NULL,
-    CONSTRAINT uq_deal_room_release_no UNIQUE (room_id, release_no)
+    CONSTRAINT uq_deal_room_release_no UNIQUE (room_id, release_no),
+    -- Every consumer reads this as a projection object; jsonb would otherwise
+    -- accept a bare string or array and fail far from here.
+    CONSTRAINT deal_room_release_snapshot_is_object
+        CHECK (jsonb_typeof(snapshot) = 'object')
 );
-
-CREATE INDEX idx_deal_room_release_room ON deal_room_release (room_id, release_no DESC);
 
 -- One named person admitted to one room. Not an app_user, not a seat: a buyer
 -- consumes no licence and has no CRM authority whatsoever.
@@ -105,7 +113,10 @@ CREATE TABLE deal_room_participant (
         REFERENCES app_user(id) ON DELETE SET NULL,
     CONSTRAINT deal_room_participant_capability_check
         CHECK (capability IN ('view', 'comment', 'reviewer')),
-    CONSTRAINT deal_room_participant_email_norm CHECK (email = lower(email))
+    CONSTRAINT deal_room_participant_email_norm CHECK (email = lower(email)),
+    -- Not redundant with the primary key: it is the target a child row binds to
+    -- when it must prove its participant belongs to the SAME room it names.
+    CONSTRAINT uq_deal_room_participant_in_room UNIQUE (id, room_id)
 );
 
 -- One live seat per address. A revoked participant keeps their row so their
@@ -161,10 +172,16 @@ CREATE TABLE deal_room_session (
     captured_by text NOT NULL,
     created_at timestamptz DEFAULT now() NOT NULL,
     CONSTRAINT deal_room_session_pkey PRIMARY KEY (id),
-    CONSTRAINT deal_room_session_participant_fkey FOREIGN KEY (participant_id)
-        REFERENCES deal_room_participant(id) ON DELETE CASCADE,
     CONSTRAINT deal_room_session_room_fkey FOREIGN KEY (room_id)
         REFERENCES deal_room(id) ON DELETE CASCADE,
+    -- COMPOSITE, and this is the load-bearing one: two independent foreign keys
+    -- would let a session name room A while its participant belongs to room B,
+    -- and a resolver that trusted room_id would then serve one room's content to
+    -- another room's buyer. The database refuses the pairing outright rather
+    -- than leaving it to every future query to re-check.
+    CONSTRAINT deal_room_session_participant_in_room
+        FOREIGN KEY (participant_id, room_id)
+        REFERENCES deal_room_participant(id, room_id) ON DELETE CASCADE,
     CONSTRAINT uq_deal_room_session_token UNIQUE (token_hash)
 );
 
@@ -203,10 +220,19 @@ CREATE TABLE deal_room_task (
     CONSTRAINT deal_room_task_pkey PRIMARY KEY (id),
     CONSTRAINT deal_room_task_room_fkey FOREIGN KEY (room_id)
         REFERENCES deal_room(id) ON DELETE CASCADE,
-    CONSTRAINT deal_room_task_participant_fkey FOREIGN KEY (done_by_participant_id)
-        REFERENCES deal_room_participant(id) ON DELETE SET NULL,
+    -- Composite for the same reason the session is: a buyer from another room
+    -- must not be able to appear as the person who completed this one's work.
+    --
+    -- RESTRICT, not SET NULL: the completion CHECK below forbids a done row with
+    -- no actor, so SET NULL would fire on delete and then fail that CHECK,
+    -- making the parent undeletable in a way nobody chose. Attribution outlives
+    -- the actor here; clearing the completion is the writer's decision to make
+    -- deliberately, not a cascade's.
+    CONSTRAINT deal_room_task_participant_in_room
+        FOREIGN KEY (done_by_participant_id, room_id)
+        REFERENCES deal_room_participant(id, room_id) ON DELETE RESTRICT,
     CONSTRAINT deal_room_task_user_fkey FOREIGN KEY (done_by_user_id)
-        REFERENCES app_user(id) ON DELETE SET NULL,
+        REFERENCES app_user(id) ON DELETE RESTRICT,
     CONSTRAINT deal_room_task_side_check CHECK (side IN ('seller', 'buyer')),
     -- An open task names nobody; a done task names exactly one side's actor.
     -- Written as a constraint rather than trusted to the writer, because a
@@ -220,3 +246,72 @@ CREATE TABLE deal_room_task (
 
 CREATE INDEX idx_deal_room_task_room ON deal_room_task (room_id, position)
     WHERE archived_at IS NULL;
+
+-- The version/updated_at contract. A store that patches WHERE version = $n
+-- needs the row to bump its own version, or a stale write passes the guard and
+-- silently overwrites a change the caller never saw.
+CREATE TRIGGER deal_room_touch BEFORE UPDATE ON deal_room
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();
+CREATE TRIGGER deal_room_task_touch BEFORE UPDATE ON deal_room_task
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();
+
+-- A participant carries no version column (nothing patches it optimistically),
+-- so it takes the plain touch.
+CREATE TRIGGER deal_room_participant_touch BEFORE UPDATE ON deal_room_participant
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- A release is immutable, and saying so in prose is not enough: the app role
+-- holds ordinary CRUD on every table, so one buggy writer could rewrite what a
+-- buyer was actually shown and leave no trace that it changed. The whole value
+-- of a release is that it answers "what did they see in August?" without
+-- trusting anything written since, so the database refuses the edit.
+--
+-- DELETE is allowed only as the room's CASCADE: by the time this fires for a
+-- cascade the parent room is already gone, which is exactly when removing the
+-- release is legitimate. A direct delete finds the room still there and fails.
+CREATE FUNCTION deal_room_release_is_frozen() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    RAISE EXCEPTION 'deal_room_release is immutable: publish a new release instead of editing release % of room %', OLD.release_no, OLD.room_id
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM deal_room r WHERE r.id = OLD.room_id) THEN
+    RAISE EXCEPTION 'deal_room_release is immutable: release % of room % goes only with its room', OLD.release_no, OLD.room_id
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+
+  RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER deal_room_release_frozen BEFORE UPDATE OR DELETE ON deal_room_release
+    FOR EACH ROW EXECUTE FUNCTION deal_room_release_is_frozen();
+
+-- Reach the installations that already exist. seedSystemRoles writes each role
+-- document once at workspace creation and never re-syncs, so an object added to
+-- the compiled defaults alone is granted to nobody who bootstrapped earlier — it
+-- works on a fresh database and 403s everywhere else, permanently. The grants
+-- below are the same ones the compiled defaults carry.
+UPDATE role SET permissions = jsonb_set(
+        permissions, '{objects,deal_room}',
+        '{"create": true, "read": true, "update": true, "delete": true}'::jsonb, true)
+    WHERE key IN ('admin', 'ops', 'manager', 'management')
+      AND permissions ? 'objects'
+      AND NOT (permissions -> 'objects') ? 'deal_room';
+
+UPDATE role SET permissions = jsonb_set(
+        permissions, '{objects,deal_room}',
+        '{"create": true, "read": true, "update": true, "delete": false}'::jsonb, true)
+    WHERE key = 'rep'
+      AND permissions ? 'objects'
+      AND NOT (permissions -> 'objects') ? 'deal_room';
+
+UPDATE role SET permissions = jsonb_set(
+        permissions, '{objects,deal_room}',
+        '{"create": false, "read": true, "update": false, "delete": false}'::jsonb, true)
+    WHERE key = 'read_only'
+      AND permissions ? 'objects'
+      AND NOT (permissions -> 'objects') ? 'deal_room';

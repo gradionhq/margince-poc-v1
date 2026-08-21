@@ -115,6 +115,7 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"activity_link.lead_id":           "gated: auth.EnsureLinkTarget in LogActivity",
 	"activity_link.project_id":        "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
 	"deal.project_id":                 "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
+	"deal_room.deal_id":               "gated: auth.EnsureLinkTarget when the dealrooms store lands — the deal a room is opened on is client-supplied, so naming it is a read of it, and a room on a deal the caller cannot open would publish that deal's existence to its buyers. The schema-only slice has no store yet; the gate is the store's first obligation at its create entry point",
 	"contract.organization_id":        "gated: auth.EnsureLinkTarget in createContractTx (H1) — the counterparty is client-supplied, so naming it is a read of it",
 	// The deal and project links carry a SECOND obligation the sibling columns
 	// above do not, and it is the reason this table's gate is not just a copy.

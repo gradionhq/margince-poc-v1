@@ -15,3 +15,10 @@ DROP TABLE IF EXISTS deal_room_invitation;
 DROP TABLE IF EXISTS deal_room_participant;
 DROP TABLE IF EXISTS deal_room_release;
 DROP TABLE IF EXISTS deal_room;
+
+DROP FUNCTION IF EXISTS deal_room_release_is_frozen();
+
+-- The grant goes with the object it names: leaving it behind would have every
+-- role document claim authority over a table that no longer exists.
+UPDATE role SET permissions = permissions #- '{objects,deal_room}'
+    WHERE permissions ? 'objects' AND (permissions -> 'objects') ? 'deal_room';
