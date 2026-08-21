@@ -21,6 +21,7 @@ import {
   formatDateTime,
   formatMoneyOrAbsent,
 } from "../format/format";
+import { RECORD_ZONE, viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
@@ -131,7 +132,7 @@ function DigestSection() {
                 <span className="digest-title">{t("home.digest")}</span>
                 <span className="t-caption">
                   {t("home.digestFor", {
-                    date: formatDate(digest.date, locale, "Europe/Berlin"),
+                    date: formatDate(digest.date, locale, RECORD_ZONE),
                   })}
                 </span>
               </div>
@@ -433,7 +434,7 @@ function BriefSection() {
                 <SectionHeader
                   title={t("home.queue")}
                   sub={t("home.asOf", {
-                    at: formatDateTime(brief.as_of, locale, "Europe/Berlin"),
+                    at: formatDateTime(brief.as_of, locale, viewerZone()),
                   })}
                 />
                 {refreshButton("home.refresh")}

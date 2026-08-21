@@ -10,6 +10,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { BackfillPanel } from "./backfill";
@@ -541,7 +542,7 @@ function failureOwnedBy(
 function ConnectorFacts({ conn }: Readonly<{ conn: CaptureConnection }>) {
   const t = useT();
   const { locale } = useLocale();
-  const at = (iso: string) => formatDateTime(iso, locale, "Europe/Berlin");
+  const at = (iso: string) => formatDateTime(iso, locale, viewerZone());
   return (
     <>
       <span className="connector-fact">

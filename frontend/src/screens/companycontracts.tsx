@@ -14,10 +14,10 @@ import { FileChip } from "../design-system/filechip";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatBytes, formatDate, formatMoney } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
-import { RECORD_ZONE } from "./company360";
 import { ContractForm } from "./contractform";
 import { useContractPaper } from "./contractpaper";
 

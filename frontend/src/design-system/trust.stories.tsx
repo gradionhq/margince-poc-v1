@@ -100,9 +100,22 @@ export const Provenance: Story = {
       <div style={row}>
         <ProvenanceTag provenance={{ kind: "agent", agent: "capture" }} />
         <PassportChip id="psp_7Q3fa91" />
+        {/* The same kind with nothing to name: a passport call stamps an opaque
+            id, and no lookup here turns it into a word, so the tag says what the
+            wire said and prints no identifier. */}
+        <ProvenanceTag provenance={{ kind: "agent" }} />
       </div>
       <div style={row}>
         <ProvenanceTag provenance={{ kind: "connector", connector: "gmail" }} />
+      </div>
+      {/* A job the installation ran itself. Beside the agent row on purpose:
+          these two are what a reader most needs told apart, and only the
+          wording and the ground say which is which. */}
+      <div style={row}>
+        <ProvenanceTag
+          provenance={{ kind: "system", job: "person_auto_enrich" }}
+        />
+        <ProvenanceTag provenance={{ kind: "system" }} />
       </div>
       <div style={row}>
         <ProvenanceTag provenance={{ kind: "human", self: true }} />

@@ -5,6 +5,7 @@ import {
   CheckSquare,
   Home,
   Kanban,
+  ListFilter,
   type LucideIcon,
   Merge,
   Sparkles,
@@ -12,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import type { MessageKey } from "../i18n/en";
+import { SCREEN_ENTITY } from "./entity";
 import { EXTENSION_SCREEN } from "./extensions";
 import type { Route, Screen } from "./router";
 import { type NavSection, type NavTrailLevel, navTrail } from "./subnav";
@@ -32,17 +34,19 @@ export {
   navLevelRoute,
 } from "./subnav";
 
-// The primary nav. Order is normative and shell.test.tsx pins it. Home stands
+// The primary nav. Order is normative and rail.test.tsx pins it. Home stands
 // alone above three labeled groups; the groups are the expanded sidebar's own
 // structure and collapse to hairline rules at 64px, so the collapsed rail is the
 // flat list WDS-NAV-1 describes.
 //
-// It carries ten rows against upstream's own ten, but not the SAME ten: Duplicates
-// is a destination here and Automations is not. Automations is set-and-forget
-// configuration and now lives inside Settings → AI, which is where the product
-// already offered a second door to it; the dedupe queue is work somebody has to
-// get through, and it had no address outside a home digest card. Both divergences
-// are the UI's to make and are on the founder's back-fill list.
+// It carries eleven rows against upstream's own ten, and not as a superset:
+// Duplicates and Filters & views are destinations here, Automations is not.
+// Automations is set-and-forget configuration and now lives inside Settings →
+// AI, which is where the product already offered a second door to it; the dedupe
+// queue is work somebody has to get through, and it had no address outside a
+// home digest card; the filter builder is a full authoring surface, and a screen
+// this list does not name is a screen only a typed URL reaches. All three
+// divergences are the UI's to make and are on the founder's back-fill list.
 //
 // `screen` is the route id and never changes with a label: `deals` presents as
 // Pipeline (it routes to the pipeline surface) and `inbox` presents as
@@ -71,6 +75,18 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // no address at all for a queue somebody has to work through. It keeps that
       // card; this is the destination the card now points into.
       { screen: "dedupe", labelKey: "nav.dedupe", icon: Merge },
+      // Slicing the records above it: a filter authored here becomes a dynamic
+      // list, a saved view or an export, and each of those selects from the
+      // record types this group names. So it belongs with them rather than under
+      // Intelligence — nothing on this screen aggregates, it answers "which
+      // records", which is the question the rows above it each answer with one
+      // fixed set. It reuses the screen's own title rather than a `nav.*` label,
+      // because a surface named twice gets renamed once.
+      //
+      // A funnel is the glyph every CRM draws a sales pipeline with, and
+      // Pipeline is already a row on this list; a filtered list says what this
+      // surface produces and cannot be read as a second door to the board.
+      { screen: "filters", labelKey: "filters.title", icon: ListFilter },
     ],
   },
   {
@@ -111,7 +127,7 @@ export const NAV: readonly NavItem[] = NAV_GROUPS.flatMap(
 export const BADGE_SCREENS: ReadonlySet<Screen> = new Set(["tasks", "inbox"]);
 
 // At phone width the sidebar becomes a bottom bar, which fits four thumb-sized
-// destinations plus More — ten would need horizontal scrolling, and a nav you
+// destinations plus More — eleven would need horizontal scrolling, and a nav you
 // have to scroll is a nav you cannot see. Approvals is non-negotiable here: the
 // 390px approval path is required for V1.
 export const MOBILE_PRIMARY: ReadonlySet<Screen> = new Set([
@@ -164,7 +180,7 @@ export const RAIL_LESS_SCREENS: ReadonlySet<Screen> = new Set([
 //
 // It carries the product's OWN destinations and nothing else. A composed unit
 // had a group of its own here once; it does not any more. An installation
-// enabling a unit is not the same as the product growing an eleventh
+// enabling a unit is not the same as the product growing a twelfth
 // destination, and the rail is the one surface where that distinction is
 // visible to every person who uses the app.
 //
@@ -173,7 +189,7 @@ export const RAIL_LESS_SCREENS: ReadonlySet<Screen> = new Set([
 // the unit is configured with (see screens/extension-units.tsx). That is also
 // what makes the offer honest about permission, because the two settings pages
 // are already split by whose thing each surface is.
-function primaryLevel(): NavTrailLevel {
+function primaryLevel(route: Route): NavTrailLevel {
   return {
     groups: NAV_GROUPS.map((group) => ({
       headingKey: group.headingKey,
@@ -183,10 +199,25 @@ function primaryLevel(): NavTrailLevel {
         icon: item.icon,
       })),
     })),
+    ancestor: opensARecord(route),
     path: [],
     badgeIds: BADGE_SCREENS,
     barIds: MOBILE_PRIMARY,
   };
+}
+
+// Whether the active row is only the SECTION the page sits in rather than the
+// page itself — which is true exactly when the route opens a RECORD, because a
+// record is the one thing a segment under a screen reaches that is a page of its
+// own. The test is the top bar's own: `SCREEN_ENTITY` is what decides whether
+// the trail up there ends in a record and claims to be the page, so deriving the
+// row's answer from the same map is what keeps exactly one element claiming
+// `aria-current="page"`. Asking `route.id !== undefined` instead read every
+// segment as a page: `#/filters/companies` picks the object tab OF the filters
+// page, and the row that leads there was demoted to an ancestor of a page that
+// does not exist.
+function opensARecord(route: Route): boolean {
+  return route.id !== undefined && SCREEN_ENTITY[route.screen] !== undefined;
 }
 
 // Which primary row a route makes current. It is the route's screen for every
@@ -207,5 +238,5 @@ export function railTrail(
   route: Route,
   section?: NavSection,
 ): readonly NavTrailLevel[] {
-  return navTrail(primaryLevel(), route, activeRowFor(route), section);
+  return navTrail(primaryLevel(route), route, activeRowFor(route), section);
 }

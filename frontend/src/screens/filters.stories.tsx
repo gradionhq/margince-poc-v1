@@ -192,6 +192,39 @@ export const ExportRefused: Story = {
   },
 };
 
+export const PreviewRefusedToAReadSeat: Story = {
+  // `/filters/preview` is a POST, and the seat ceiling refuses every mutating
+  // method for a read seat before any role is consulted. So this reader loads
+  // the vocabulary, builds a clause, and can never get a count — the count says
+  // the refusal rather than "you have not asked yet", and the reason and the
+  // retry land in the results card, which is the only row wide enough for both.
+  render: () => {
+    installFetchStub({
+      "GET /filters/vocabulary": () => jsonResponse(PERSON_VOCAB),
+      "GET /views": () => jsonResponse(SAVED_VIEWS),
+      "POST /filters/preview": () =>
+        jsonResponse(
+          {
+            title: "Forbidden",
+            status: 403,
+            code: "seat_tier_insufficient",
+            detail: "seat tier insufficient",
+          },
+          403,
+        ),
+    });
+    return <FiltersScreen />;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add clause" }),
+    );
+    await userEvent.type(canvas.getByLabelText("Value"), "Berlin");
+    await canvas.findByRole("alert");
+  },
+};
+
 export const WithAClause: Story = {
   // The builder owns its own tree, so the only way to reach the answered state
   // is to author a clause the way a human does. fe-uat waits for a play()

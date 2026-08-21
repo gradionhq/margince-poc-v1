@@ -64,6 +64,38 @@ const updated = {
   summary: "Anna Weber, via an agent, updated the record",
 };
 
+// A passport id, and the member id a connector principal carries in its tail:
+// identifiers with no name in them, which no tag may print at a reader.
+const OPAQUE = "0191c3a2-7f4b-4c19-9a5e-6d2f8b1e40aa";
+
+// The installation's own processing, naming the job that ran.
+const sweptBySystem = {
+  id: "h3",
+  actor_type: "system",
+  actor_id: "system:retention-sweep",
+  action: "delete",
+  occurred_at: "2026-07-15T10:00:00Z",
+  summary: "A retention sweep cleared the note",
+};
+// A connector, under the grant of a member whose uuid rides in the same string.
+const writtenByConnector = {
+  id: "h4",
+  actor_type: "connector",
+  actor_id: `connector:ext:zalo-oa:${OPAQUE}`,
+  action: "update",
+  occurred_at: "2026-07-16T10:00:00Z",
+  summary: "A message was filed against the record",
+};
+// An agent whose id is its passport, which names nothing on this side.
+const writtenByPassport = {
+  id: "h5",
+  actor_type: "agent",
+  actor_id: `agent:${OPAQUE}`,
+  action: "update",
+  occurred_at: "2026-07-17T10:00:00Z",
+  summary: "An agent updated the record",
+};
+
 describe("RecordHistory", () => {
   it("renders plain-language summaries with attribution", async () => {
     vi.stubGlobal(
@@ -88,6 +120,67 @@ describe("RecordHistory", () => {
     // correct and not the doubling above: once as the sentence's subject, once
     // as the "typed by" chip in the meta row.
     expect(screen.getAllByText(/Demo Admin/)).toHaveLength(2);
+  });
+
+  it("tells a system task and a connector apart from an agent", async () => {
+    // Three different facts about a record, and they used to read as one: every
+    // non-human actor said "Automated by …", so a scheduled sweep and a mailbox
+    // connector both named an agent that had not acted.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [sweptBySystem, writtenByConnector, writtenByPassport],
+          page: { next_cursor: null },
+        }),
+      ),
+    );
+    render(<RecordHistory kind="deal" id="d1" />);
+    expect(await screen.findByText("System task retention-sweep")).toBeTruthy();
+    expect(screen.getByText("via zalo-oa")).toBeTruthy();
+    // Only the row that IS an agent reads as one.
+    expect(screen.getAllByText(/Automated by/)).toHaveLength(1);
+    expect(screen.getByText("Automated by an agent")).toBeTruthy();
+  });
+
+  it("prints no identifier it cannot turn into a name", async () => {
+    // A passport id and a connector's member-uuid tail are opaque: a reader
+    // cannot look either one up, so a tag that shows them attributes the change
+    // to a string instead of to something. The tag says the kind and stops.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [writtenByConnector, writtenByPassport],
+          page: { next_cursor: null },
+        }),
+      ),
+    );
+    render(<RecordHistory kind="deal" id="d1" />);
+    expect(await screen.findByText("Automated by an agent")).toBeTruthy();
+    expect(screen.queryByText(new RegExp(OPAQUE))).toBeNull();
+  });
+
+  it("reads an id stamped without its kind the same as a whole principal", async () => {
+    // actor_id is a plain string on this projection, and both spellings turn up
+    // in it. actor_type already says which kind acted, so a bare id costs the
+    // row nothing: a named one still names, and an id that is only the kind
+    // names nothing rather than being promoted into the name.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [
+            { ...writtenByPassport, actor_id: "sdr" },
+            { ...sweptBySystem, actor_id: "system" },
+          ],
+          page: { next_cursor: null },
+        }),
+      ),
+    );
+    render(<RecordHistory kind="deal" id="d1" />);
+    expect(await screen.findByText("Automated by sdr")).toBeTruthy();
+    expect(screen.getByText("System task")).toBeTruthy();
   });
 
   it("shows an honest empty state", async () => {

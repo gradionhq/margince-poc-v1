@@ -348,15 +348,35 @@ export function QueryGate<Data>({
   );
 }
 
-// captured_by is server-stamped "human:<uuid> | agent:<id> | connector:<name>".
-// The tag shows the bare id — never the doubled "agent: agent:<id>" the old
-// reassembly produced — and a connector reads as a connector, not an agent.
+// captured_by is server-stamped and carries one of the four kinds the contract
+// enumerates: "human:<uuid> | agent:<id> | connector:<name> | system:<id>".
+// Each reads as the kind of actor it IS — a connector as a connector, a
+// background job as the system, an agent as an agent — because telling those
+// apart is the whole reason a provenance tag is on the screen. A kind this app
+// does not know is `unknown` rather than any of them: naming the wrong kind of
+// actor is a claim about who to ask, and "not recorded" is the only thing still
+// true when the string is unreadable.
 //
 // A human is only "you" when the id is the reader's. Without a viewer id the
 // human branch stays unnamed rather than guessing: a caller that cannot say
 // who is reading cannot claim the reader typed it. An absent captured_by is
 // `unknown` and says so — it used to render as the reader's own typing, which
 // is the one attribution nobody can check.
+//
+// The kind is the FIRST segment and everything after it belongs to that kind,
+// which is why the leading colon is found by index: `split(":", 2)` truncates at
+// the limit instead of putting the remainder in the last element, so
+// `connector:ext:dispact-connector:<uuid>` parses to `["connector", "ext"]` and
+// every extension unit's tag reads the literal word "ext".
+//
+// NOTHING opaque is handed on for a tag to print. A uuid names nothing a reader
+// can act on, so it is dropped rather than rendered: a passport id leaves the
+// agent tag unnamed, and a connector's member id is dropped a segment at a time.
+// The human remainder is the exception and is kept WHOLE, because it is compared
+// against the reader's own id and never printed — the tag resolves it through
+// the caller's `renderUser` or says a person entered it — and an id truncated to
+// its first segment is how a colleague's entry would come to read "typed by
+// you".
 export function provenanceOf(
   capturedBy: string | undefined,
   viewerUserId?: string,
@@ -364,19 +384,66 @@ export function provenanceOf(
   if (!capturedBy) {
     return { kind: "unknown" };
   }
-  const [source, name] = capturedBy.split(":", 2);
+  const separator = capturedBy.indexOf(":");
+  const source = separator > 0 ? capturedBy.slice(0, separator) : capturedBy;
+  const rest = separator > 0 ? capturedBy.slice(separator + 1) : "";
   if (source === "human") {
+    const userId = rest || undefined;
     return {
       kind: "human",
-      self: Boolean(viewerUserId) && name === viewerUserId,
-      userId: name,
+      self: Boolean(viewerUserId) && userId === viewerUserId,
+      userId,
     };
   }
-  const label = name ?? source;
   if (source === "connector") {
-    return { kind: "connector", connector: label };
+    return { kind: "connector", connector: connectorLabel(rest) || source };
   }
-  return { kind: "agent", agent: label };
+  if (source === "agent") {
+    // A passport call stamps `agent:<passport_id>`, and a passport id is a uuid
+    // with no name behind it on this side: the design system holds no record
+    // lookups, so there is nothing here to resolve it to. The tag then says only
+    // what the wire says — an agent produced this — instead of printing an
+    // identifier at a reader. A named tool (`agent:enrich`) keeps its name.
+    const named = rest === "" || OPAQUE_ID.test(rest) ? undefined : rest;
+    return { kind: "agent", agent: named };
+  }
+  if (source === "system") {
+    // The installation's own processing: a scheduled sweep, a backfill, an
+    // anonymous public endpoint. Its id is a job name, and a bare `system` with
+    // no id at all is a job that never said which one it was.
+    return { kind: "system", job: rest || undefined };
+  }
+  return { kind: "unknown" };
+}
+
+/** A uuid: an identifier with no name in it, so no tag may print it. */
+const OPAQUE_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The marker that says the rest of a connector principal names an extension. */
+const EXTENSION_MARKER = "ext";
+
+/**
+ * Which connector a `connector:` principal names, from what follows the kind.
+ *
+ * Two grammars end up in the same column: `<system>:<user-uuid>` for a built-in
+ * connector and `ext:<unit>[:<user-uuid>]` for an extension unit. Either way the
+ * connector is ONE segment and the rest is the member whose grant it ran under,
+ * so the label is taken a segment at a time — a uuid tail in a provenance tag
+ * names nothing a reader can act on, and the unit is what tells
+ * `dispact-connector` from `zalo-oa`.
+ *
+ * The marker on its own names no unit, so it labels nothing: the empty answer
+ * sends the caller back to the kind, and the tag reads "connector" rather than
+ * the word "ext" — which is a segment of the grammar, not a thing that ran.
+ *
+ * The unit is the raw directory name: the transport directory resolves the
+ * provider-id grammar (`ext:<unit>:<system>`), which is a different namespace
+ * from this one, so there is no nicer label to look up here yet.
+ */
+function connectorLabel(rest: string): string {
+  const [head, ...tail] = rest.split(":");
+  return head === EXTENSION_MARKER ? (tail[0] ?? "") : head;
 }
 
 // The reader's own user id, for the provenance tags on this screen. Undefined
@@ -407,6 +474,34 @@ export function useViewerId(): string | undefined {
 // caller holding a translator gets copy naming which kind of refusal
 // happened. Callers without a translator — and every other problem code —
 // keep the server's own detail verbatim, exactly as before.
+//
+// A refusal is the OPPOSITE case: `permission_denied` is one code over two
+// authorities — an object-RBAC denial (this role does not admit the action on
+// this kind of record) and a row-authority denial (the record is on screen
+// through a read share) — and nothing on the wire says which of the two
+// happened. So the catalog copy replaces the server's detail and deliberately
+// does not guess: copy that named the wrong authority would be worse than the
+// bare sentinel.
+//
+// Replacing it loses nothing a reader wanted, and that is the part worth
+// knowing before anyone tries to "keep the more specific answer". `httperr`
+// builds a refusal's detail from `err.Error()`, and every producer of this
+// sentinel wraps it with INTERNALS: `auth.Require` sends the RBAC object and
+// verb ("person.update: permission denied"), the admission gate sends its own
+// spec name and resolver state. None of that is copy, and showing it would
+// leak the shape of the authority model to a client. There is no path on which
+// the server sends a sentence written for a reader here.
+//
+// `seat_tier_insufficient` is the LICENSING ceiling, and it is a different
+// refusal from the two above: it is decided before any role is consulted, so a
+// reader whose role admits the action is refused anyway. Its server detail is
+// the bare sentinel ("seat tier insufficient"), which names a concept no
+// reader has met and offers nothing to do about it, so the catalog copy
+// replaces it and points at the one person who can lift the ceiling. It names
+// the SEAT rather than "your seat": the same code answers a read seat's own
+// mutation, an agent passport acting for one, and a grant that would give a
+// read seat write access. A surface that knows WHOSE seat it is (share.tsx
+// knows it is the recipient's) says so in its own words before it gets here.
 function problemDetail(
   problem: unknown,
   t?: (key: MessageKey) => string,
@@ -417,6 +512,12 @@ function problemDetail(
   }
   if (t && code === "unsupported_in_overlay_mode") {
     return t("overlay.filterUnsupported");
+  }
+  if (t && code === "permission_denied") {
+    return t("common.permissionDenied");
+  }
+  if (t && code === "seat_tier_insufficient") {
+    return t("common.seatReadOnly");
   }
   if (isRecord(problem)) {
     // A field present but blank is the same fact as an absent one — it puts no

@@ -114,3 +114,30 @@ export const German: Story = {
     );
   },
 };
+
+// A roster whose walk never runs out of cursor, so it stops at its page budget
+// and the bar owes the reader the caveat. The state to LOOK at is where that
+// sentence lands: it is the last item in the row, so the row can still wrap
+// between groups but never between the owner picker and the button that assigns
+// it. German, because its string is the longest and moves the wrap point.
+const truncatedRoster = {
+  ...roster,
+  page: { next_cursor: "next", has_more: true },
+};
+
+export const GermanPartialRoster: Story = {
+  render: () => {
+    installFetchStub({ "GET /users": () => jsonResponse(truncatedRoster) });
+    return (
+      <StoryProviders locale="de">
+        <div className="lt-bulkbar">
+          <DealBulkBar
+            deals={[deal("d1", "Fleet retrofit"), deal("d2", "Depot rollout")]}
+            stages={stages}
+            onDone={() => {}}
+          />
+        </div>
+      </StoryProviders>
+    );
+  },
+};

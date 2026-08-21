@@ -14,6 +14,7 @@ import {
 import { Callout } from "../design-system/callout";
 import { calendarDay, dueInstant } from "../format/calendarday";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import {
   OverlayUnavailable,
@@ -87,11 +88,7 @@ function ReminderControl({
           style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
         >
           <Bell aria-hidden style={{ width: 12, height: 12 }} />
-          {formatDateTime(
-            task.remind_at,
-            locale,
-            Intl.DateTimeFormat().resolvedOptions().timeZone,
-          )}
+          {formatDateTime(task.remind_at, locale, viewerZone())}
         </span>
         <Button small onClick={() => onSet(task.id, null)}>
           {t("tasks.clearReminder")}
@@ -207,7 +204,7 @@ function TaskRow({
   // as does the reminder time above it, or one row would state two zones. Pinned
   // to Europe/Berlin it told a reader in another zone a different day than the
   // one their task is actually due on.
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   return (
     <Card as="div" style={{ marginBottom: "var(--space-2)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -364,7 +361,7 @@ export function TasksScreen() {
           const now = new Date();
           // The same zone the rows print their dates in, so a task filed for
           // today cannot appear under Upcoming.
-          const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const zone = viewerZone();
           const open = page.data.filter((task) => !task.is_done);
           return (
             <div className="arrive-stack">

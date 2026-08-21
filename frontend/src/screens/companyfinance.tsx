@@ -7,10 +7,11 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { Meter, Sparkline } from "../design-system/readings";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDate, formatMoney } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemCodeOf, useFinanceSummary } from "./common";
-import { medianDaysLabel, RECORD_ZONE } from "./company360";
+import { medianDaysLabel } from "./company360";
 
 // The finance card: does this customer actually pay us, and on time?
 //

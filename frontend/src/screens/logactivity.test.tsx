@@ -12,8 +12,8 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { calendarDay } from "../format/calendarday";
+import { RECORD_ZONE } from "../format/timezone";
 import { LocaleProvider } from "../i18n";
-import { RECORD_ZONE } from "./company360";
 import { LogActivity } from "./logactivity";
 import { PersonScreen } from "./people";
 import { groupTask } from "./tasks";
@@ -27,7 +27,22 @@ import { groupTask } from "./tasks";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // A case that pins the clock or pretends to be in another zone hands both
+  // back, so the next case reads the machine it is actually running on.
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
+
+// The viewer's zone as the composer asks for it. `calendarDay` takes its zone as
+// an argument and never consults resolvedOptions, so this redirects only the
+// screen's own lookup — which is what a test of the zone CHOICE needs.
+function pretendViewerZone(timeZone: string): void {
+  const real = Intl.DateTimeFormat().resolvedOptions();
+  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+    ...real,
+    timeZone,
+  });
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -94,6 +109,22 @@ function postedDueAt(body: unknown): string {
     throw new Error(`expected due_at to be an instant, got ${typeof dueAt}`);
   }
   return dueAt;
+}
+
+// The occurred_at off a captured request body, narrowed the same way and for the
+// same reason: an entry that carried no instant would otherwise satisfy a day
+// comparison as `undefined` on both sides.
+function postedOccurredAt(body: unknown): string {
+  if (typeof body !== "object" || body === null || !("occurred_at" in body)) {
+    throw new Error("expected the logged activity to carry an occurred_at");
+  }
+  const occurredAt = body.occurred_at;
+  if (typeof occurredAt !== "string") {
+    throw new Error(
+      `expected occurred_at to be an instant, got ${typeof occurredAt}`,
+    );
+  }
+  return occurredAt;
 }
 
 function stubApi(
@@ -230,11 +261,12 @@ describe("log activity from a 360", () => {
   it("offers one date box for every kind: prefilled today, relabeled per kind, the day kept across a switch", async () => {
     stubApi({ "POST /activities": createdActivity });
     // Read the clock on both sides of the render: a run that straddles
-    // midnight would otherwise fail on which "today" the prefill caught.
-    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const dayBeforeRender = calendarDay(new Date(), zone);
+    // midnight would otherwise fail on which "today" the prefill caught. The
+    // zone is RECORD_ZONE because a note's day is the timeline heading it will
+    // file under, and the timeline groups there.
+    const dayBeforeRender = calendarDay(new Date(), RECORD_ZONE);
     render(<LogActivity entityType="organization" entityId="o1" />);
-    const dayAfterRender = calendarDay(new Date(), zone);
+    const dayAfterRender = calendarDay(new Date(), RECORD_ZONE);
     // A note's date is the day it happened, live from the start and showing
     // the today that would otherwise be assumed invisibly at submit.
     const noteDay = screen.getByLabelText<HTMLInputElement>("Date", {
@@ -268,22 +300,85 @@ describe("log activity from a 360", () => {
     );
     const post = captured.find((entry) => entry.key === "POST /activities");
     if (!post) throw new Error("expected a POST /activities to be captured");
-    if (
-      typeof post.body !== "object" ||
-      post.body === null ||
-      !("occurred_at" in post.body) ||
-      typeof post.body.occurred_at !== "string"
-    ) {
-      throw new Error("expected the note to carry a string occurred_at");
-    }
     // The instant lands on the day the writer picked in BOTH zones that
     // matter: the record pages render timelines in RECORD_ZONE, and the
     // writer reads their own wall clock — and a note never carries a due
     // date, backdated or not.
-    const occurred = new Date(post.body.occurred_at);
+    const occurred = new Date(postedOccurredAt(post.body));
     expect(calendarDay(occurred, RECORD_ZONE)).toBe(PICKED_DAY);
     expect(calendarDay(occurred, READER_ZONE)).toBe(PICKED_DAY);
-    expect("due_at" in post.body).toBe(false);
+    expect(post.body).not.toHaveProperty("due_at");
+  });
+
+  it("offers the day a note logged right now will actually file under, from a zone where the two disagree", async () => {
+    // The branch the backdated case never reaches: the writer accepts the
+    // offered day and the entry is stamped at the moment of logging.
+    //
+    // 23:00Z on 21 August is 16:00 the same afternoon in Los Angeles and 01:00
+    // the NEXT day in Berlin. Offered the writer's own today, the composer
+    // named 21 August and the record timeline — which groups in RECORD_ZONE —
+    // then filed the entry under 22 August: the composer promised a day it did
+    // not deliver.
+    // `toFake: ["Date"]` and not the default set: the default ALSO replaces
+    // Intl.DateTimeFormat, and the replacement does not carry resolvedOptions on
+    // the prototype the zone spy patches — so the spy silently stops redirecting
+    // and the case quietly runs in the machine's own zone, proving nothing. The
+    // clock is the only thing this needs frozen; every timer stays real, so the
+    // interactions below need no advancing.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-21T23:00:00Z"));
+    pretendViewerZone("America/Los_Angeles");
+    const user = userEvent.setup();
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="organization" entityId="o1" />);
+    const noteDay = screen.getByLabelText<HTMLInputElement>("Date");
+    expect(noteDay.value).toBe("2026-08-22");
+    // The ceiling moves with the offer, so the box does not refuse the day it
+    // just proposed.
+    expect(noteDay.max).toBe("2026-08-22");
+    await user.type(screen.getByLabelText("Subject *"), "Called back");
+    await user.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
+    );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    if (!post) throw new Error("expected a POST /activities to be captured");
+    const occurred = new Date(postedOccurredAt(post.body));
+    // The day the composer offered IS the day the timeline files it under.
+    expect(calendarDay(occurred, RECORD_ZONE)).toBe(noteDay.value);
+  });
+
+  it("files a note on the day the writer overrode to, when the record's clock already calls it yesterday", async () => {
+    // The other side of the same boundary. At 16:00 in Los Angeles the record's
+    // clock has already turned over, so the writer's own today is the record's
+    // yesterday. Deciding "today" on the writer's clock made this look like
+    // no backdating at all: the entry was stamped at the moment of logging and
+    // filed under the day AFTER the one the writer had typed.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-21T23:00:00Z"));
+    pretendViewerZone("America/Los_Angeles");
+    const user = userEvent.setup();
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="organization" entityId="o1" />);
+    const writersOwnToday = "2026-08-21";
+    fireEvent.change(screen.getByLabelText("Date"), {
+      target: { value: writersOwnToday },
+    });
+    await user.type(screen.getByLabelText("Subject *"), "Called back");
+    await user.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
+    );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    if (!post) throw new Error("expected a POST /activities to be captured");
+    const occurred = new Date(postedOccurredAt(post.body));
+    expect(calendarDay(occurred, RECORD_ZONE)).toBe(writersOwnToday);
   });
 
   it("refuses a future day for a note but not for a task's due date", async () => {

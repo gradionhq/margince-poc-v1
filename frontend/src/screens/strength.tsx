@@ -7,6 +7,7 @@ import type { components } from "../api/schema";
 import { Badge, Card, EmptyState, Skeleton } from "../design-system/atoms";
 import { Meter } from "../design-system/readings";
 import { formatDateTime } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import {
   OverlayUnavailable,
@@ -176,7 +177,7 @@ function StrengthBody({
               when: formatDateTime(
                 strength.last_interaction,
                 locale,
-                "Europe/Berlin",
+                RECORD_ZONE,
               ),
             })
           : t("strength.none")}

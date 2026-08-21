@@ -11,6 +11,7 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { ScopeChips } from "../design-system/passportselect";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDate } from "../format/format";
+import { RECORD_ZONE, viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
@@ -307,7 +308,7 @@ function ConnectionFacts({
   const connected = formatDate(
     passport.connection.connected_at,
     locale,
-    "Europe/Berlin",
+    RECORD_ZONE,
   );
   // Two of the three states say something about this date; the third must not.
   // A LIVE row shows when the agent must next hold a fresh credential, and a
@@ -319,11 +320,7 @@ function ConnectionFacts({
   const deadline =
     passport.expires_at != null && !state.revoked && !state.renewing
       ? t(state.lapsed ? "agents.expiredOn" : "agents.renewsBy", {
-          date: formatDate(
-            passport.expires_at,
-            locale,
-            Intl.DateTimeFormat().resolvedOptions().timeZone,
-          ),
+          date: formatDate(passport.expires_at, locale, viewerZone()),
         })
       : null;
   return (

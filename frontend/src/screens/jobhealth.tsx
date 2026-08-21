@@ -15,6 +15,7 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime, formatNumber } from "../format/format";
 import type { Translator } from "../format/now";
+import { viewerZone } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { QueryGate, throwProblem, useMe } from "./common";
@@ -348,7 +349,7 @@ export function JobHealthCard() {
   // against the clock on their wall, and no other zone here is ours to assume.
   // Resolved once for the card and handed down, so the stamp in the footer and
   // the failure timestamps in the body cannot read two different clocks.
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = viewerZone();
   // The probe itself, not only its answer: useHoldsAdminRole reads false while
   // /me is in flight, so branching on `!isAdmin` alone told every administrator
   // that job health was admin-only, on every load of the Maintenance tab,

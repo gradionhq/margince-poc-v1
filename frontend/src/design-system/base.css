@@ -159,6 +159,64 @@
   background: var(--accentMed);
   color: var(--accent);
 }
+/* federated: the door into another company's sign-in.
+ *
+ * Full width because it is a DOOR rather than a verb in a row of verbs — the
+ * sign-in surface stacks one per provider above its own submit, and two
+ * half-width boxes side by side read as a segmented control offering a choice
+ * between them. Unfilled because the filled variants are this page's own
+ * actions, and a provider's sign-in is not this page's action to claim.
+ *
+ * What differs from `ghost`, and why each one: the radius is the input shell's
+ * `--r-md`, so a provider button and the address field below it read as one
+ * column of controls rather than two shapes; the border is `--borderControl`,
+ * because an unfilled control on a same-coloured pane is defined entirely by
+ * its border and that border owes 1.4.11 its 3:1; the ground is `--bgElevated`
+ * and the ink `--textPrimary`, since a door the reader is invited to take
+ * cannot be drawn in the muted ink `ghost` keeps for a dismissal; and the
+ * weight is 500, because the label is the installation's own sentence rather
+ * than one of our verbs.
+ *
+ * The 44px target is this variant's own floor rather than `--control-h`'s. That
+ * token is 40px for a fine pointer and rises to 44 only for a coarse one, and
+ * `.btn` pins `line-height: 1.25` — so on a mouse the box settles at 41px, tall
+ * enough for a verb and short of the target a sign-in door owes every pointer.
+ * `max()` rather than a flat 44, so a future rise in the shared control height
+ * is not capped here. */
+.btn-federated {
+  inline-size: 100%;
+  min-block-size: max(var(--control-h), 44px);
+  /* The width floor keeps a two-letter verb readable and has nothing to do with
+     a control already as wide as its column. Left in place it becomes the floor
+     of a NARROW column, and the box spills past the card instead. */
+  min-inline-size: 0;
+  gap: 9px;
+  padding: 11px 12px;
+  /* The label is a SENTENCE the installation wrote, in a language and a length
+     nothing here chooses — "Continue with Google", or a German clause twice
+     that. Every other variant labels itself with one of our verbs and holds the
+     `nowrap` on `.btn`; this one has to be allowed to take a second line rather
+     than push its own box past the column it fills. */
+  white-space: normal;
+  border-radius: var(--r-md);
+  border-color: var(--borderControl);
+  background: var(--bgElevated);
+  color: var(--textPrimary);
+  font-weight: 500;
+}
+/* The mark is another company's logo rather than one of our icons, so it keeps
+   the size `provider-mark.css` gives it. `.btn svg` sizes a lucide glyph to the
+   label beside it, which is right for a glyph and wrong for a brand mark drawn
+   to its own proportions. `.busy-mark` is ours and stays at the button's size,
+   which is why this is scoped to the mark rather than to every svg. */
+.btn-federated > .provider-mark {
+  inline-size: var(--providerMarkSize, 17px);
+  block-size: var(--providerMarkSize, 17px);
+}
+.btn-federated:hover:not(:disabled) {
+  background: var(--accentSurface);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--borderStrong));
+}
 .btn-sm {
   padding: 6px 11px;
   font-size: 12.5px;
@@ -209,6 +267,41 @@
   cursor: not-allowed;
   transform: none;
   filter: none;
+}
+/* `unavailable`: advertised, and not coming back within this visit. Deeper than
+   the dim above because that one is a pause the reader waits out and this is a
+   resting state, and the two have to be told apart on a surface that draws both
+   — the federated sign-in block dims every provider while the password form is
+   writing, and a provider with nothing behind it is dead at the same moment.
+
+   Declared AFTER `.btn:disabled` deliberately: `.btn-unavailable:disabled`
+   carries the same specificity, so source order is what makes the deeper fade
+   win. And keyed on `:disabled` rather than on the class alone because the prop
+   refuses the press by itself — a `.btn-unavailable` that is not disabled is a
+   state Button cannot emit, and drawing it would be drawing a lie.
+
+   Uniform OPACITY rather than a swapped ground or a grayscaled mark, and both
+   alternatives are worse for a reason worth keeping: a background swap inverts
+   in dark, where `--bgCard` sits LIGHTER than `--bgElevated`, so the dead
+   control would become the prominent one, while opacity recedes against
+   whatever the theme put behind it. And `filter: grayscale()` would recolour
+   another company's logo, which is precisely what `provider-mark.tsx`'s named
+   exception in the colour gates exists to protect. Fading is not recolouring. */
+.btn-unavailable:disabled {
+  opacity: 0.4;
+}
+/* An unfilled control IS its border, so a dead one gives up the strong one:
+   otherwise the box still reads as a live control, merely behind a veil. Scoped
+   to `federated` because it is the only variant this reaches — `ghost` already
+   draws `--borderSubtle` and the filled variants draw no border at all.
+
+   Keyed on `:disabled` for the same reason as the fade above, and the two halves
+   of one treatment must not disagree about when they apply: an enabled
+   `.btn-unavailable` is a state Button cannot emit, so a rule that drew it would
+   be drawing a lie — and if the prop ever stopped refusing the press, the pale
+   border would arrive without the fade that says the door is shut. */
+.btn-federated.btn-unavailable:disabled {
+  border-color: var(--borderSubtle);
 }
 /* A control that is WORKING must not be drawn as one that was REFUSED, and
    until this rule existed every button in the product drew both the same way:

@@ -441,20 +441,25 @@ export function ProviderButtons({
         {providers.map((provider) => {
           const isUnavailable = unavailable.has(provider.key);
           return (
-            <button
+            <Button
               key={provider.key}
-              type="button"
-              /* A class rather than `:disabled` alone, because `disabled` is
-                 also how the form marks every provider while a sign-in is in
-                 flight, and the two want opposite treatments: in-flight is
-                 momentary and the control is coming back, this is a resting
-                 state. One selector for both tunes each at the other's expense.
-                 The button carries no appended copy, so its accessible name
+              variant="federated"
+              /* The whole of what this screen still decides about the box: it is
+                 an item in a VERTICAL stack, so a default flex-shrink is a
+                 shrink in height. The shape — full width, unfilled, the border
+                 that owes 1.4.11 its 3:1, the mark's size, the hover, the two
+                 dim states — belongs to the variant, which is what the sign-in
+                 surface used to redeclare for itself. */
+              className="auth-social"
+              /* Two unavailabilities, and Button keeps them apart because they
+                 want opposite treatments: `disabled` is how the form marks every
+                 provider while a sign-in is in flight — momentary, and the
+                 control is coming back — while `unavailable` is a provider this
+                 installation advertises with nothing behind it, which is a
+                 resting state. Neither appends copy, so the accessible name
                  stays the installation's own label. */
-              className={
-                isUnavailable ? "auth-social is-unavailable" : "auth-social"
-              }
-              disabled={disabled || isUnavailable}
+              disabled={disabled}
+              unavailable={isUnavailable}
               onClick={() => onSelect(provider.key)}
             >
               <ProviderMark providerKey={provider.key} />
@@ -472,7 +477,7 @@ export function ProviderButtons({
                 label={provider.label}
                 providerKey={provider.key}
               />
-            </button>
+            </Button>
           );
         })}
       </div>

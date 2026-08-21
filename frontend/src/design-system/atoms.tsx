@@ -27,7 +27,13 @@ import "./atoms.css";
 // arrives through props — callers translate with t(); atoms never hard-code
 // user-facing words.
 
-type ButtonVariant = "primary" | "ghost" | "danger";
+// `federated` is the door into another company's sign-in: full-width,
+// unfilled, and carrying that company's own mark. It is a variant rather than a
+// screen's own control because the alternative was tried — the sign-in surface
+// hand-rolled a button with its own border, fill, radius, weight, padding,
+// hover, focus and two dim states, and a control that redeclares every one of a
+// variant's properties has left the design system rather than reused it.
+type ButtonVariant = "primary" | "ghost" | "danger" | "federated";
 
 /**
  * The turning mark a control shows while a write it started is in flight.
@@ -67,6 +73,7 @@ export function Button({
   className,
   reason,
   reasonId,
+  unavailable,
   pending,
   busyLabel,
   disabled,
@@ -106,6 +113,24 @@ export function Button({
    * and still reaches a screen reader from each of them.
    */
   reasonId?: string;
+  /**
+   * A control the installation ADVERTISES and cannot complete.
+   *
+   * The RESTING refusal, and what separates it from the other two is how long
+   * it lasts: `disabled` is a precondition that clears and the control comes
+   * back, `pending` is a wait measured in seconds, and this is a door drawn
+   * because the installation offers it with nothing behind it yet. It refuses
+   * the press by itself, the way `reason` does, so the dead treatment cannot
+   * end up drawn over a live control.
+   *
+   * It carries no sentence of its own — a caller that has one passes `reason`
+   * as well and gets both — because the surface that needs this state may have
+   * nothing it is allowed to say: the federated sign-in button is named by the
+   * installation's own label, and a provider it advertises is not ours to
+   * explain. So the drawing IS the whole claim, which is why it is a deeper
+   * fade than `disabled` rather than the same one.
+   */
+  unavailable?: boolean;
   /**
    * Whether a write this button started is still in flight.
    *
@@ -161,17 +186,22 @@ export function Button({
     `btn-${variant}`,
     small ? "btn-sm" : "",
     iconOnly ? "btn-icon" : "",
+    unavailable ? "btn-unavailable" : "",
     className ?? "",
   ]
     .filter(Boolean)
     .join(" ");
   const refused = reason !== undefined || reasonId !== undefined;
-  // Refusal beats busy in BOTH its spellings. `disabled` used to be missing
-  // from this test, and the result was the exact failure `pending` exists to
-  // prevent: a caller passing both got a natively disabled button — focus gone
-  // — that announced itself busy and drew the dimmed refused chrome with a
-  // spinner turning inside it. `Switch` reads the same way.
-  const busy = pending === true && !refused && disabled !== true;
+  // Every way this control can be barred, in one value, because `disabled` and
+  // `busy` both have to agree about it. Refusal beats busy in ALL its
+  // spellings: `disabled` used to be missing from this test, and the result was
+  // the exact failure `pending` exists to prevent — a caller passing both got a
+  // natively disabled button, focus gone, that announced itself busy and drew
+  // the dimmed refused chrome with a spinner turning inside it. `unavailable`
+  // joins them for the same reason: a door with nothing behind it cannot also
+  // be mid-press. `Switch` reads the same way.
+  const barred = refused || disabled === true || unavailable === true;
+  const busy = pending === true && !barred;
   // Everything this component computes for itself is destructured out of
   // `rest`, so a caller's props cannot land on top of it. That is not tidiness:
   // a `disabled={false}` passed alongside `reason` re-enabled a control the
@@ -201,7 +231,7 @@ export function Button({
       type="button"
       {...attrs}
       className={classes}
-      disabled={disabled || refused}
+      disabled={barred}
       aria-disabled={busy || undefined}
       aria-busy={busy || undefined}
       aria-describedby={describedBy}

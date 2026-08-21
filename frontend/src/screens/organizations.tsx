@@ -33,6 +33,7 @@ import {
   EvidenceChip,
 } from "../design-system/trust";
 import { formatDateTime, formatMoney } from "../format/format";
+import { RECORD_ZONE, viewerZone } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
@@ -56,7 +57,6 @@ import {
   type Org360Result,
   OverlayFallback,
   PeopleCard,
-  RECORD_ZONE,
   RecentActivityPanel,
   StateStrip,
   type SuggestionAction,
@@ -887,11 +887,7 @@ function SiteReadDeferral({ report }: Readonly<{ report: SiteReadReport }>) {
         <>
           {" "}
           {t("deepread.resumesAt", {
-            when: formatDateTime(
-              report.next_attempt_at,
-              locale,
-              "Europe/Berlin",
-            ),
+            when: formatDateTime(report.next_attempt_at, locale, viewerZone()),
           })}
         </>
       )}
@@ -1240,7 +1236,7 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
       )}
       <p className="t-caption" style={{ marginTop: 10 }}>
         {t("rollup.computedAt", {
-          when: formatDateTime(rollup.computed_at, locale, "Europe/Berlin"),
+          when: formatDateTime(rollup.computed_at, locale, RECORD_ZONE),
         })}
       </p>
     </Card>

@@ -240,17 +240,26 @@ export function ConfidenceMeter({
   );
 }
 
-// Provenance is an agent (`agent:capture`), a connector (`connector:gmail`),
-// or a human — the shapes captured_by can take, plus the honest fourth for a
-// row that records none of them.
+// Provenance is an agent (`agent:capture`), a connector (`connector:gmail`), a
+// job the installation ran itself (`system:person_auto_enrich`) or a human —
+// the shapes captured_by can take, plus the honest fifth for a row that records
+// none of them. A reader has to be able to tell WHICH KIND of thing produced a
+// value, so each is its own arm: a scheduled sweep announced as an AI agent
+// misdescribes both.
 //
 // `human` carries whether that human is the reader. "Typed by you" over a
 // colleague's entry is a false statement about who to ask, and it was also
 // what an unattributed row said: the two cases a reader most needs kept apart
 // both read as their own handiwork.
+//
+// `agent` and `system` name the actor only when the wire named it. Neither is
+// required, because the id behind an agent may be a passport uuid and there are
+// no record lookups here to resolve it: an unnamed tag says the kind and stops,
+// which is more than an identifier tells a reader and all of it is true.
 export type Provenance =
-  | { kind: "agent"; agent: string }
+  | { kind: "agent"; agent?: string }
   | { kind: "connector"; connector: string }
+  | { kind: "system"; job?: string }
   | { kind: "human"; self: boolean; userId?: string }
   | { kind: "unknown" };
 
@@ -266,9 +275,18 @@ export function ProvenanceTag({
 }>) {
   const t = useT();
   if (provenance.kind === "agent") {
+    const { agent } = provenance;
     return (
       <span className="provenance provenance-agent">
-        {t("trust.agentTag", { agent: provenance.agent })}
+        {agent ? t("trust.agentTag", { agent }) : t("trust.agentUnnamed")}
+      </span>
+    );
+  }
+  if (provenance.kind === "system") {
+    const { job } = provenance;
+    return (
+      <span className="provenance provenance-system">
+        {job ? t("trust.systemTag", { job }) : t("trust.systemUnnamed")}
       </span>
     );
   }

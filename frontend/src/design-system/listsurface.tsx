@@ -18,7 +18,10 @@ const FILTER_SEARCH_DEBOUNCE_MS = 250;
 //
 // A view tab reports only its index. What a view MEANS — a sort, a set of
 // filters, a stage — is the caller's to decide, which is what lets the board
-// define views that are not a sort/filter preset at all.
+// define views that are not a sort/filter preset at all. An index is fine to
+// report a PRESS with, since it names a tab in the array just rendered; it is
+// not an identity, which is why a tab carries its own `id` for the caller that
+// has to remember which view is lit across a rename or an insertion.
 
 /**
  * One filter chip. Single-select by design: the list endpoints take one value
@@ -44,6 +47,14 @@ export type ListChip = {
 
 /** A saved view: a named tab whose meaning is entirely the caller's. */
 export type ListView = {
+  /**
+   * What identifies this tab, when the caller has something steadier than its
+   * name. Two saved views may share a name, so a rail keyed on the label
+   * collides on the pair and React renders one of them; the label stays the
+   * fallback for a rail whose tabs are a fixed set the caller wrote, where the
+   * name IS the identity.
+   */
+  id?: string;
   label: string;
   sort?: string;
   filters?: Readonly<Record<string, string>>;
@@ -127,7 +138,7 @@ export function ListSurface({
             {views.map((view, index) => (
               <button
                 type="button"
-                key={view.label}
+                key={view.id ?? view.label}
                 className={`lt-vtab${index === activeView ? " on" : ""}`}
                 aria-pressed={index === activeView}
                 onClick={() => onViewChange?.(index)}

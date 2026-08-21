@@ -10,7 +10,7 @@ import { useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import { ProblemError, problemMessageOf, throwProblem } from "./common";
 import { EditAction } from "./edit";
-import { useRoster } from "./entityref";
+import { useRoster, useRosterPartial, useRosterPartialHint } from "./entityref";
 import "./quotas.css";
 
 // The quota target write surface: create (owner-XOR-team side picker), edit
@@ -139,6 +139,13 @@ function SetTargetModal({
       : problemMessageOf(mutation.error, t);
 
   const roster = side === "owner" ? users : teams;
+  // Read for BOTH sides on every render — a hook count that followed `side`
+  // would change as the reader switched the radio.
+  const usersPartial = useRosterPartial("user", open);
+  const teamsPartial = useRosterPartial("team", open);
+  const rosterPartialHint = useRosterPartialHint(
+    side === "owner" ? usersPartial : teamsPartial,
+  );
   const canSubmit =
     subjectId !== "" &&
     periodStart !== "" &&
@@ -190,6 +197,17 @@ function SetTargetModal({
         <Field
           label={side === "owner" ? t("quotas.owner") : t("quotas.team")}
           required
+          // The side's own roster, and whether it is all of it. A quota is
+          // written against ONE subject, so a subject this dialog never read
+          // is a quota nobody can create — said here rather than left to look
+          // like a workspace with fewer people in it than it has.
+          //
+          // The words come from the roster rather than being spelled here. A
+          // Field hint is the Field's own paragraph, wired into the control's
+          // `aria-describedby`, so `RosterPartialNote` cannot be nested inside
+          // it — but a hand-written second wording of the same caveat would
+          // drift the moment the note's own changed.
+          hint={rosterPartialHint}
         >
           {(control) => (
             <Select

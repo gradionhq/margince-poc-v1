@@ -46,9 +46,10 @@ vi.mock("@composition/extensions", () => ({
 
 // B-EP09.4 acceptance, for the SIDEBAR — the left-hand panel and nothing else.
 //
-// It is destinations only: the canonical 10-item nav in order (AC-shell-1b —
-// Automations left it for Settings → AI and the dedupe queue took the slot,
-// which is a UI divergence on the founder's back-fill list), at most one active
+// It is destinations only: the canonical 11-item nav in order (AC-shell-1b —
+// Automations left it for Settings → AI while the dedupe queue and the filter
+// builder took rows, which is a UI divergence on the founder's back-fill list),
+// at most one active
 // item tracking the route (AC-shell-2), badges only on the attention screens and
 // only from live counts (AC-shell-1e), collapsed rows on the expanded rows' own
 // geometry with a dismissible tooltip (AC-shell-1d), and the phone bar with its
@@ -56,7 +57,7 @@ vi.mock("@composition/extensions", () => ({
 // and no account block any more — each of those moved to the top bar
 // (topbar.test.tsx).
 //
-// The second suite is the panel's own DEPTH: a section route replaces the ten
+// The second suite is the panel's own DEPTH: a section route replaces the
 // destinations with that section's entries, one level at a time, with the way
 // back up in the panel. A few of those cases drive the whole Shell, because
 // where the reader walked down FROM is remembered above the rail and a rail on
@@ -91,6 +92,7 @@ const CANONICAL_ORDER = [
   "Companies",
   "Leads",
   "Duplicates",
+  "Filters & views",
   "Pipeline",
   "Tasks",
   "Approvals",
@@ -98,7 +100,7 @@ const CANONICAL_ORDER = [
   "Ask Margince",
 ];
 
-// The rows of whatever level the panel is showing — the ten destinations, or a
+// The rows of whatever level the panel is showing — the destinations, or a
 // section's entries. Scoped to `.navlevel` rather than to the whole nav, because
 // the brand above the level and the More control below it are not places the
 // level leads: a claim about the level's inventory must not move when either of
@@ -142,7 +144,7 @@ function railDisplay(container: HTMLElement, selector: string): string {
 }
 
 describe("WorkspaceRail (AC-shell-1/2)", () => {
-  it("renders the canonical 10 items in order, logomark → home", () => {
+  it("renders the canonical 11 items in order, logomark → home", () => {
     render(<WorkspaceRail route={{ screen: "deals" }} />);
     const brand = within(
       screen.getByRole("navigation", { name: "Primary navigation" }),
@@ -179,7 +181,7 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
   });
 
   // Settings is not a destination and no longer has a door here, so a route the
-  // ten do not hold — the settings screen itself, a composed unit's screen —
+  // destinations do not hold — the settings screen itself, a composed unit's screen —
   // leaves every row quiet rather than lighting one that does not lead there. It
   // is the top bar's trail that says where the reader is on those routes
   // (topbar.test.tsx); what the rail promises is that it never claims a page it
@@ -338,7 +340,7 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
   });
 });
 
-// The sidebar's SECOND level (and its third). A section route replaces the ten
+// The sidebar's SECOND level (and its third). A section route replaces the
 // destinations with the section's entries rather than hanging them off it: one
 // level at a time, with the way back up in the panel. The depth is read off the
 // DATA, which is what the synthetic third level in `fixtureSection` is for —
@@ -386,7 +388,7 @@ describe("Rail levels (a section's entries as the second level)", () => {
   });
 
   // A section belongs to ONE screen. Without this the fixture's entries would
-  // leak onto every route, which is exactly what the canonical-ten assertions
+  // leak onto every route, which is exactly what the canonical-order assertions
   // above would then be lying about.
   it("ignores a section that belongs to another screen", () => {
     render(

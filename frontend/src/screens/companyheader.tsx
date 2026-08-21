@@ -9,16 +9,21 @@ import { Badge, Button, OverflowMenu } from "../design-system/atoms";
 import { InlineChoice } from "../design-system/inlinechoice";
 import { ProvenanceTag } from "../design-system/trust";
 import { formatDateAbbrev } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import { provenanceOf, throwProblem, useSorMode, useViewerId } from "./common";
-import { RECORD_ZONE } from "./company360";
 import { DecisionsChip } from "./companyapprovals";
 import { ComposeModal } from "./compose";
 import { joinMultiselectValue } from "./create";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { EntityRef, useRoster } from "./entityref";
+import {
+  EntityRef,
+  rosterMissLabel,
+  useRoster,
+  useRosterPartial,
+} from "./entityref";
 import { LogActivityAction } from "./logactivity";
 import { MergeAction } from "./merge";
 import {
@@ -285,21 +290,19 @@ export function CompanyLifecycleControl({
   );
 }
 
-// What to call an owner the roster's answer does not name, in the three
-// readings that answer has. "No longer in the user list" is a claim about a
-// read that came back WITHOUT them: over a read still in flight it reports the
-// owner as departed on the evidence of nothing having arrived, and over a read
-// that failed it turns a 403 or a dropped connection into a fact about who owns
-// the account. Shared by every control here that names the current owner, so
-// one of them cannot go on making the claim after the others stopped.
+// What to call an owner the roster's answer does not name. "No longer in the
+// user list" is a claim about a read that came back WITHOUT them, so it is the
+// only reading this screen supplies; the three that are not about an owner at
+// all — still reading, read failed, walk stopped short — belong to the roster
+// and are spelled once there. Shared by every control here that names the
+// current owner, so one of them cannot go on making the claim after the others
+// stopped.
 function unresolvedOwnerLabel(
   roster: Readonly<{ isPending: boolean; isError: boolean }>,
+  partial: boolean,
   t: ReturnType<typeof useT>,
 ): string {
-  if (roster.isPending) {
-    return t("common.loading");
-  }
-  return roster.isError ? t("ref.nameLoadFailed") : t("co.owner.notInRoster");
+  return rosterMissLabel(roster, partial, t, t("ref.notInRoster"));
 }
 
 // Exported for the same reason as useCompanyFieldPatch/useCompanyReadOnlyReason
@@ -320,20 +323,22 @@ export function CompanyOwnerControl({
   const claim = useClaimRecord("organization", org.id, org.version);
   const viewerId = useViewerId();
   const roster = useRoster("user", true);
+  const rosterPartial = useRosterPartial("user", true);
   const owners = (roster.data ?? []).flatMap((entry) =>
     "display_name" in entry
       ? [{ value: entry.id, label: entry.display_name }]
       : [],
   );
-  // The account's current owner may sit outside the roster's one page — a big
-  // workspace, a deactivated user — and a select whose current value is not an
-  // option renders blank. Naming them keeps the control honest about who owns
-  // it today even when it cannot resolve them; which sentence is honest is
-  // `unresolvedOwnerLabel`'s question, not this one's.
+  // The account's current owner may sit outside what the roster read — a
+  // deactivated user, or a workspace deeper than the walk reaches — and a select
+  // whose current value is not an option renders blank. Naming them keeps the
+  // control honest about who owns it today even when it cannot resolve them;
+  // which sentence is honest is `unresolvedOwnerLabel`'s question, not this
+  // one's.
   if (org.owner_id && !owners.some((user) => user.value === org.owner_id)) {
     owners.unshift({
       value: org.owner_id,
-      label: unresolvedOwnerLabel(roster, t),
+      label: unresolvedOwnerLabel(roster, rosterPartial, t),
     });
   }
   // "Unowned" is offered only while the account IS unowned. `owner_id` cannot
@@ -366,7 +371,7 @@ export function CompanyOwnerControl({
         }
         return (
           owners.find((user) => user.value === value)?.label ??
-          unresolvedOwnerLabel(roster, t)
+          unresolvedOwnerLabel(roster, rosterPartial, t)
         );
       }}
       // An unowned account is nobody's to change until somebody claims it, so
@@ -420,6 +425,7 @@ function CompanyEditAction({
   const t = useT();
   const cf = useObjectCustomFields("organization");
   const roster = useRoster("user", true);
+  const rosterPartial = useRosterPartial("user", true);
   // The roster hook serves users and teams alike, so narrow to the entries
   // that actually carry a person's name rather than asserting the shape.
   const owners = (roster.data ?? []).flatMap((entry) =>
@@ -427,16 +433,16 @@ function CompanyEditAction({
       ? [{ id: entry.id, display_name: entry.display_name }]
       : [],
   );
-  // The roster is one page of 200. An owner outside it — a big workspace, a
-  // deactivated user — would leave the prefilled select showing a blank it
-  // cannot resolve, and since the select is required once an owner is set,
-  // saving anything else would then force a reassignment nobody asked for. The
-  // form names them exactly as the header does, off the same three readings:
+  // An owner outside what the roster read — a deactivated user, or a workspace
+  // deeper than the walk reaches — would leave the prefilled select showing a
+  // blank it cannot resolve, and since the select is required once an owner is
+  // set, saving anything else would then force a reassignment nobody asked for.
+  // The form names them exactly as the header does, off the same four readings:
   // the same roster read cannot be a departure here and a refusal there.
   if (org.owner_id && !owners.some((user) => user.id === org.owner_id)) {
     owners.push({
       id: org.owner_id,
-      display_name: unresolvedOwnerLabel(roster, t),
+      display_name: unresolvedOwnerLabel(roster, rosterPartial, t),
     });
   }
   return (
@@ -755,10 +761,10 @@ export function CompanyIdentityLine({
   // react-query's `["users"]` entry, so this adds no request.
   //
   // Undefined on a roster miss, deliberately: `ProvenanceTag` falls back to
-  // "typed by a person", which is true. The roster reads one page of 200 users,
-  // so an author outside it would otherwise be named with the raw uuid the
-  // generic reference renders — and "typed by 3f2b8c…" is worse than not
-  // claiming to know, not better.
+  // "typed by a person", which is true. The roster walk is bounded, and an
+  // author it never reached — or one deactivated out of the list since — would
+  // otherwise be named with the raw uuid the generic reference renders, and
+  // "typed by 3f2b8c…" is worse than not claiming to know, not better.
   const roster = useRoster("user", true);
   const authorName = (userId: string) => {
     const entry = roster.data?.find((candidate) => candidate.id === userId);

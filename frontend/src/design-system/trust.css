@@ -122,6 +122,14 @@ button.evidence-chip:hover {
   background: var(--bgCard);
   color: var(--teal);
 }
+/* The installation's own housekeeping: neither a person nor a model, so it
+   borrows neither the human teal nor the AI tint. Plain ink on the card ground
+   is the quietest thing that is still a claim — a scheduled sweep drawn in the
+   AI colour would tell a reader a model decided something here. */
+.provenance-system {
+  background: var(--bgCard);
+  color: var(--textPrimary);
+}
 /* An unrecorded source claims neither a person nor a machine, and reads as
    the absence it is rather than borrowing either one's colour. */
 .provenance-unknown {

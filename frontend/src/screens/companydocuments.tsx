@@ -7,11 +7,11 @@ import { Badge, Button, EmptyState } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AddDocumentDialog } from "./adddocument";
 import { throwProblem } from "./common";
-import { RECORD_ZONE } from "./company360";
 import { DocumentExtractionPanel } from "./documentextraction";
 
 // The account's documents: the offers, legal files and loose paper a rep goes

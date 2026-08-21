@@ -9,10 +9,10 @@ import {
   Skeleton,
 } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
-import { RECORD_ZONE } from "./company360";
 
 type Receipt = components["schemas"]["ClaimEvidence"];
 type SourceKind = Receipt["source_kind"];

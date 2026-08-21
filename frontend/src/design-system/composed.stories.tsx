@@ -177,22 +177,22 @@ const boardColumns: BoardMoneyColumn[] = [
     stage: "discovery",
     label: "Discovery",
     probabilityPct: 10,
-    rawMinor: 450_00,
-    weightedMinor: 45_00,
+    rawMinor: 45_000,
+    weightedMinor: 4_500,
     currency: "EUR",
     deals: [
-      boardDeal("d1", "Contoso renewal", 120_00, 3),
-      boardDeal("d2", "Fabrikam expansion", 330_00, 9, { stalled: true }),
+      boardDeal("d1", "Contoso renewal", 12_000, 3),
+      boardDeal("d2", "Fabrikam expansion", 33_000, 9, { stalled: true }),
     ],
   },
   {
     stage: "qualified",
     label: "Qualified",
     probabilityPct: 30,
-    rawMinor: 280_00,
-    weightedMinor: 84_00,
+    rawMinor: 28_000,
+    weightedMinor: 8_400,
     currency: "EUR",
-    deals: [boardDeal("d3", "Globex onboarding", 280_00, 14)],
+    deals: [boardDeal("d3", "Globex onboarding", 28_000, 14)],
   },
   {
     stage: "proposal",
@@ -207,11 +207,11 @@ const boardColumns: BoardMoneyColumn[] = [
     stage: "negotiation",
     label: "Negotiation",
     probabilityPct: 80,
-    rawMinor: 540_00,
-    weightedMinor: 432_00,
+    rawMinor: 54_000,
+    weightedMinor: 43_200,
     currency: "EUR",
     deals: [
-      boardDeal("d4", "Initech upgrade", 540_00, 21, {
+      boardDeal("d4", "Initech upgrade", 54_000, 21, {
         singleThreaded: true,
       }),
     ],
@@ -220,10 +220,10 @@ const boardColumns: BoardMoneyColumn[] = [
     stage: "won",
     label: "Closed Won",
     probabilityPct: 100,
-    rawMinor: 610_00,
-    weightedMinor: 610_00,
+    rawMinor: 61_000,
+    weightedMinor: 61_000,
     currency: "EUR",
-    deals: [boardDeal("d5", "Umbrella Corp", 610_00, 2)],
+    deals: [boardDeal("d5", "Umbrella Corp", 61_000, 2)],
   },
 ];
 
@@ -304,7 +304,7 @@ const absentMoneyColumns: BoardMoneyColumn[] = [
       boardDeal("a1", "Contoso pilot", null, 4, { currency: null }),
       // An amount with no currency is the case a fallback hides best: it looks
       // like a real figure until somebody asks which money it is in.
-      boardDeal("a2", "Fabrikam trial", 90_00, 11, { currency: null }),
+      boardDeal("a2", "Fabrikam trial", 9_000, 11, { currency: null }),
       boardDeal("a3", "Initech scoping", null, 26, {
         stalled: true,
         currency: "EUR",
@@ -321,8 +321,8 @@ const absentMoneyColumns: BoardMoneyColumn[] = [
     sumHidden: true,
     count: 2,
     deals: [
-      boardDeal("a4", "Globex EU", 280_00, 6),
-      boardDeal("a5", "Globex US", 310_00, 8, { currency: "USD" }),
+      boardDeal("a4", "Globex EU", 28_000, 6),
+      boardDeal("a5", "Globex US", 31_000, 8, { currency: "USD" }),
     ],
   },
   {
@@ -332,10 +332,39 @@ const absentMoneyColumns: BoardMoneyColumn[] = [
     rawMinor: null,
     weightedMinor: null,
     currency: null,
-    deals: [boardDeal("a6", "Umbrella renewal", 540_00, 2)],
+    deals: [boardDeal("a6", "Umbrella renewal", 54_000, 2)],
   },
 ];
 
 export const BoardWithAbsentMoney: StoryObj = {
   render: () => <PipelineBoard columns={absentMoneyColumns} />,
+};
+
+// A company has three readings on a card, and the whole point of the middle one
+// is that it cannot be mistaken for the third. Read the column top to bottom: a
+// company this reader may see, one the payload withheld from them (the mask,
+// the same control the deals table's company cell draws — no words, and no
+// monogram, since neither is a fact about a company nobody named), and a deal
+// that is linked to no company at all.
+const withheldCompanyColumns: BoardMoneyColumn[] = [
+  {
+    stage: "discovery",
+    label: "Discovery",
+    probabilityPct: 10,
+    rawMinor: 99_000,
+    weightedMinor: 9_900,
+    currency: "EUR",
+    deals: [
+      boardDeal("w1", "Contoso renewal", 12_000, 3),
+      boardDeal("w2", "Fabrikam expansion", 33_000, 9, {
+        org: "",
+        orgWithheld: true,
+      }),
+      boardDeal("w3", "Inbound, unlinked", 54_000, 5, { org: "" }),
+    ],
+  },
+];
+
+export const BoardWithWithheldCompany: StoryObj = {
+  render: () => <PipelineBoard columns={withheldCompanyColumns} />,
 };

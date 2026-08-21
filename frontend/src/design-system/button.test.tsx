@@ -1,9 +1,14 @@
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Button } from "./atoms";
+
+const here = dirname(fileURLToPath(import.meta.url));
 
 // jsdom resolves no custom properties and computes no layout, so the geometry
 // this component owns — the shared control height, the width floor, the icon
@@ -336,5 +341,126 @@ describe("Button", () => {
     expect(
       screen.getByRole("button", { name: "Save" }).getAttribute("type"),
     ).toBe("submit");
+  });
+
+  // The federated door and its resting refusal. The sign-in surface draws both
+  // dims at once — every provider goes pale while the password form beside it
+  // writes, and a provider with nothing behind it is dead at the same moment —
+  // so what matters is that they are two states rather than one selector tuned
+  // at the other's expense.
+  describe("the unavailable contract", () => {
+    it("refuses the press and names the resting state for the stylesheet", () => {
+      render(
+        <Button variant="federated" unavailable>
+          Continue with Microsoft
+        </Button>,
+      );
+      const door = screen.getByRole("button", {
+        name: "Continue with Microsoft",
+      });
+      expect(door).toBeDisabled();
+      expect(classesOf("Continue with Microsoft")).toEqual(
+        expect.arrayContaining(["btn", "btn-federated", "btn-unavailable"]),
+      );
+    });
+
+    it("stays refused when the caller passes disabled={false}", () => {
+      render(
+        <Button variant="federated" unavailable disabled={false}>
+          Continue with Microsoft
+        </Button>,
+      );
+      expect(
+        screen.getByRole("button", { name: "Continue with Microsoft" }),
+      ).toBeDisabled();
+    });
+
+    it("outranks pending, so a door with nothing behind it never draws a mark", () => {
+      const { container } = render(
+        <Button variant="federated" unavailable pending>
+          Continue with Microsoft
+        </Button>,
+      );
+      const door = screen.getByRole("button", {
+        name: "Continue with Microsoft",
+      });
+      expect(door).toBeDisabled();
+      expect(door.getAttribute("aria-busy")).toBeNull();
+      expect(container.querySelector(".busy-mark")).toBeNull();
+    });
+
+    it("adds no words to the name the caller gave it", () => {
+      render(
+        <Button variant="federated" unavailable>
+          Anmeldung über Werk-IT
+        </Button>,
+      );
+      expect(
+        screen.getByRole("button", { name: "Anmeldung über Werk-IT" })
+          .textContent,
+      ).toBe("Anmeldung über Werk-IT");
+    });
+  });
+});
+
+// A swallowed rule body still parses and still paints, so the two promises the
+// federated variant makes about somebody else's logo are asserted on the
+// stylesheet itself rather than on the class list above.
+describe("base.css draws the federated door without touching the mark", () => {
+  it("recolours nothing about the provider mark, and only sizes it", () => {
+    const css = readFileSync(join(here, "base.css"), "utf8");
+    const rules = [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)].filter(([, sel]) =>
+      sel.includes(".provider-mark"),
+    );
+    expect(rules.length).toBe(1);
+    const body = rules[0][2];
+    // Sizing is ours — the mark's own proportions against the atom's 16px glyph
+    // rule. Its colours are not: a fill, a stroke or a filter here would be this
+    // sheet recolouring another company's logo, which is the whole reason
+    // provider-mark.tsx is the one file the colour gates exempt by name.
+    expect(body).toMatch(/inline-size:\s*var\(--providerMarkSize/);
+    expect(body).not.toMatch(/fill|stroke|filter|color/);
+  });
+
+  it("fades the dead door deeper than the pale one, and later in the sheet", () => {
+    const css = readFileSync(join(here, "base.css"), "utf8");
+    const pale = /(?:^|\n)\.btn:disabled\s*\{([^}]*)\}/.exec(css);
+    const dead = /(?:^|\n)\.btn-unavailable:disabled\s*\{([^}]*)\}/.exec(css);
+    expect(pale).not.toBeNull();
+    expect(dead).not.toBeNull();
+    // Equal specificity, so the deeper fade wins by POSITION or not at all.
+    expect((dead?.index ?? 0) > (pale?.index ?? 0)).toBe(true);
+    expect(pale?.[1]).toMatch(/opacity:\s*0\.5/);
+    expect(dead?.[1]).toMatch(/opacity:\s*0\.4/);
+  });
+
+  // The dead door is drawn by TWO rules — the fade and the border it gives up —
+  // and they have to agree about when they apply. An enabled `.btn-unavailable`
+  // is a state Button cannot emit, so neither may key on the class alone: the
+  // border rule did, which left a pale box with no fade behind it as the drawing
+  // of a state the component has no way to be in.
+  it("keys the border it gives up on the same refusal as the fade", () => {
+    const css = readFileSync(join(here, "base.css"), "utf8");
+    const border = /(?:^|\n)(\.btn-federated\.btn-unavailable[^{]*)\{/.exec(
+      css,
+    );
+    expect(border).not.toBeNull();
+    expect(border?.[1].trim()).toBe(".btn-federated.btn-unavailable:disabled");
+  });
+
+  it("floors the door at the touch target on a fine pointer too", () => {
+    const css = readFileSync(join(here, "base.css"), "utf8");
+    const rule = /(?:^|\n)\.btn-federated\s*\{([^}]*)\}/.exec(css);
+    expect(rule).not.toBeNull();
+    // `--control-h` is 40px for a fine pointer and rises to 44 only for a coarse
+    // one, and `.btn` pins a 1.25 line-height — so leaning on the shared height
+    // alone lands this box at 41px on a mouse. The floor is declared here, and
+    // `max()` keeps the shared height wherever it is the taller of the two.
+    // The RENDERED height is what actually matters and jsdom cannot compute
+    // `max()`; the login spec measures it. This asserts the declaration survives,
+    // because a deletion here would only surface in that slower lane.
+    expect(rule?.[1]).toMatch(
+      /min-block-size:\s*max\(var\(--control-h\),\s*44px\)/,
+    );
   });
 });

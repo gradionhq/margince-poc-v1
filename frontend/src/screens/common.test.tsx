@@ -126,6 +126,64 @@ describe("problemMessage", () => {
     expect(message).not.toBe(t("overlay.refused"));
   });
 
+  // The sentinel string is what an object-RBAC denial and a read-share denial
+  // both arrive with, and it names neither the authority the reader holds nor
+  // what would widen it. Catalog copy replaces it.
+  it("translates a permission_denied refusal instead of echoing the sentinel", () => {
+    const message = problemMessage(
+      { code: "permission_denied", detail: "permission denied" },
+      t,
+    );
+    expect(message).toBe(t("common.permissionDenied"));
+    expect(message).not.toBe("permission denied");
+  });
+
+  // One code, two authorities, and no wire field separating them: whatever the
+  // server put in `detail`, the reader gets the copy that is true for both. A
+  // branch that fell through to the detail for one of them would print a
+  // sentence written for the other refusal.
+  it("answers both denials with the same copy, whatever the server detailed", () => {
+    const objectDenial = problemMessage(
+      { code: "permission_denied", detail: "permission denied" },
+      t,
+    );
+    const rowDenial = problemMessage(
+      { code: "permission_denied", detail: "person:update denied" },
+      t,
+    );
+    expect(rowDenial).toBe(objectDenial);
+  });
+
+  // The gate's own wrapping, which is the other real producer of this code. Its
+  // detail names the admission spec and the resolver state — the authority
+  // model's internals, not a sentence for a reader — so the copy stands in for
+  // this one too, and none of it reaches the screen.
+  it("stands in for the admission gate's detail, and shows none of it", () => {
+    const message = problemMessage(
+      {
+        code: "permission_denied",
+        detail:
+          "gate: deal.advance: no authority resolver composed: permission denied",
+      },
+      t,
+    );
+    expect(message).toBe(t("common.permissionDenied"));
+    expect(message).not.toContain("resolver");
+  });
+
+  // The wrapped form of the same sentinel, which `auth.Require` sends for every
+  // object-RBAC denial. The prefix is the RBAC object and verb: internals no
+  // client may be shown, and no more use to a reader than the sentinel trailing
+  // them — so this is the same nothing, spelled longer.
+  it("stands in for a wrapped sentinel too, and never shows the object and verb", () => {
+    const message = problemMessage(
+      { code: "permission_denied", detail: "person.update: permission denied" },
+      t,
+    );
+    expect(message).toBe(t("common.permissionDenied"));
+    expect(message).not.toContain("person.update");
+  });
+
   it("keeps the server detail when no translator is given", () => {
     expect(
       problemMessage({
@@ -133,6 +191,12 @@ describe("problemMessage", () => {
         detail: "write not supported by SoR",
       }),
     ).toBe("write not supported by SoR");
+    expect(
+      problemMessage({
+        code: "permission_denied",
+        detail: "permission denied",
+      }),
+    ).toBe("permission denied");
     expect(
       problemMessage({
         code: "unsupported_in_overlay_mode",
@@ -267,10 +331,94 @@ describe("provenanceOf", () => {
       kind: "connector",
       connector: "gmail",
     });
-    // A bare token with no kind prefix falls back to an agent label.
-    expect(provenanceOf("capture")).toEqual({
+    // A background job reads as the system, not as an agent: the four kinds the
+    // contract enumerates are four different answers to "who do I ask", and
+    // routing the unrecognised ones into the agent arm made a scheduled sweep
+    // announce itself as an AI.
+    expect(provenanceOf("system:person_auto_enrich")).toEqual({
+      kind: "system",
+      job: "person_auto_enrich",
+    });
+    // A kind this app cannot read names no actor rather than the wrong one.
+    expect(provenanceOf("capture")).toEqual({ kind: "unknown" });
+  });
+
+  it("says a job ran without naming one when the wire names none", () => {
+    // The privacy-retention sweep stamps a bare `system`, so the kind is all
+    // there is; the tag still has to say it was the system and not a person.
+    expect(provenanceOf("system")).toEqual({ kind: "system", job: undefined });
+  });
+
+  it("never carries a passport uuid into an agent tag", () => {
+    // A passport call stamps `agent:<passport_id>`, and there is no name behind
+    // it on this side — the design system holds no record lookups. So the kind
+    // travels and the id does not: the tag renders "Automated by an agent"
+    // rather than "Automated by 0192abcd-…".
+    expect(provenanceOf("agent:0192abcd-1111-4111-8111-111111111111")).toEqual({
       kind: "agent",
-      agent: "capture",
+      agent: undefined,
+    });
+    // Upper case is the same id. Nothing mints it that way today, and a matcher
+    // that only reads one casing would let the other through as a label.
+    expect(provenanceOf("agent:0192ABCD-1111-4111-8111-111111111111")).toEqual({
+      kind: "agent",
+      agent: undefined,
+    });
+    // A named tool is not opaque and keeps its name: this is a rule about ids
+    // that name nothing, not a refusal to attribute agents at all.
+    expect(provenanceOf("agent:document-extractor")).toEqual({
+      kind: "agent",
+      agent: "document-extractor",
+    });
+  });
+
+  it("names the connector, and never the member's uuid, whatever the id's shape", () => {
+    // `connector:<system>:<user-uuid>`: the system is the connector, the uuid
+    // is the member whose grant it ran under and belongs in no tag.
+    expect(
+      provenanceOf("connector:gmail:11111111-1111-4111-8111-111111111111"),
+    ).toEqual({ kind: "connector", connector: "gmail" });
+    // `connector:ext:<unit>[:<user-uuid>]`: the UNIT is the connector. Parsed
+    // with a 2-limit split this read the literal word "ext" — identically for
+    // every unit, so dispact-connector and zalo-oa were indistinguishable.
+    expect(
+      provenanceOf(
+        "connector:ext:dispact-connector:11111111-1111-4111-8111-111111111111",
+      ),
+    ).toEqual({ kind: "connector", connector: "dispact-connector" });
+    expect(provenanceOf("connector:ext:zalo-oa")).toEqual({
+      kind: "connector",
+      connector: "zalo-oa",
+    });
+    // Nothing after the kind at all: the kind is still the honest label, which
+    // is what the old parse fell back to as well.
+    expect(provenanceOf("connector")).toEqual({
+      kind: "connector",
+      connector: "connector",
+    });
+    // The extension marker with no unit behind it names nothing that ran, so it
+    // falls back to the kind rather than labelling the tag with a segment of the
+    // grammar. Nothing mints this shape; it costs one fallback to not print it.
+    expect(provenanceOf("connector:ext")).toEqual({
+      kind: "connector",
+      connector: "connector",
+    });
+  });
+
+  it("keeps the whole remainder for a human id, and for a named agent", () => {
+    // An extra segment used to be discarded silently, which for a human id is a
+    // partial match against the reader's own — the one comparison that must be
+    // exact. It is safe to keep whole because it is compared and never printed.
+    expect(provenanceOf("human:abc:stale-tail", "abc")).toEqual({
+      kind: "human",
+      self: false,
+      userId: "abc:stale-tail",
+    });
+    // An agent id that is a name all the way through is a name a reader can act
+    // on, however many segments it has.
+    expect(provenanceOf("agent:ext:notes:summarise")).toEqual({
+      kind: "agent",
+      agent: "ext:notes:summarise",
     });
   });
 

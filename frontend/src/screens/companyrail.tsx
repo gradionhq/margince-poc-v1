@@ -14,9 +14,10 @@ import {
 } from "../design-system/surfacestate";
 import { useTruncationTooltip } from "../design-system/tooltip";
 import { formatDate } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import { problemCodeOf, throwProblem } from "./common";
-import { RECORD_ZONE, signalKindLabel, worstOf } from "./company360";
+import { signalKindLabel, worstOf } from "./company360";
 import {
   HEALTH_DIMENSION_LABEL,
   HEALTH_RANK,

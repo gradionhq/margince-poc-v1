@@ -23,6 +23,15 @@ export const en = {
   "trust.typedByPrefix": "typed by",
   "trust.sourceUnknown": "source not recorded",
   "trust.agentTag": "Automated by {agent}",
+  // A passport call stamps an opaque id and nothing on this side resolves it to
+  // a name, so the tag says the kind and stops rather than printing an
+  // identifier at a reader who can do nothing with it.
+  "trust.agentUnnamed": "Automated by an agent",
+  // A job the installation ran itself — a scheduled sweep, a backfill, a public
+  // endpoint. Named apart from an agent because "a model decided this" and "the
+  // system did its housekeeping" are different answers to "who do I ask".
+  "trust.systemTag": "System task {job}",
+  "trust.systemUnnamed": "System task",
   "trust.connectorTag": "via {connector}",
   "trust.dismissed": "Suggestion dismissed.",
   "trust.stagedProposal": "staged proposal",
@@ -354,6 +363,24 @@ export const en = {
   // fetch and a bug in our own code both report in wording nobody authored for
   // a reader, so the screen states the fact it can stand behind and stops.
   "common.errorNoCause": "The request failed. No cause reported.",
+  // Every 403 the server codes `permission_denied`, which is two refusals with
+  // one name: a role that does not admit the action on this kind of record, and
+  // a record the reader holds read-only through a share. Nothing on the wire
+  // tells them apart, so the copy names neither and offers both ways out — an
+  // admin widens a role, the person who shared a record widens the share. It
+  // does not say the record may be missing: a row the reader may not see at all
+  // comes back 404, so by the time this is read the record is one they may know
+  // about. Two sentences, no dash (VOICE-RULE-5).
+  "common.permissionDenied":
+    "You do not have permission for this action. Ask an admin, or whoever shared this record with you, to widen your access.",
+  // The licensing ceiling, decided before any role is consulted: a read seat is
+  // refused every mutating request, so a reader whose role admits the action is
+  // refused anyway. Names the SEAT rather than the reader, because the same code
+  // answers a read seat's own request, an agent passport acting for one, and a
+  // grant that would give a read seat write access. Two sentences, no dash
+  // (VOICE-RULE-5).
+  "common.seatReadOnly":
+    "This seat is read-only, so the request was refused. Ask an operator to raise the seat.",
   "common.retry": "Retry",
   "common.empty": "Nothing here yet.",
   "common.saving": "Saving…",
@@ -363,6 +390,7 @@ export const en = {
   // never becomes a link, because a name that did not load cannot be trusted as
   // a destination.
   "ref.nameLoadFailed": "Name didn't load",
+  "ref.notInRoster": "Currently assigned (no longer in the user list)",
 
   // The app-level boundary's fallback. It says what happened and what to do
   // next, and nothing about the error itself: a render throw carries our own
@@ -595,6 +623,10 @@ export const en = {
   "views.saveConfirm": "Save",
   "views.saveTitle": "Save this view",
   "views.name": "Name",
+  // Names the saved-view rail where the rail itself cannot: a failure notice
+  // lands beside the list's own tools, and "this section did not load" under a
+  // toolbar says nothing about WHICH section.
+  "views.rail": "Saved views",
   "list.viewMine": "Mine",
   "list.viewCustomers": "Customers",
   "list.viewProspects": "Prospects",
@@ -789,7 +821,6 @@ export const en = {
   "co.pulse.strongestLead": "Way in",
   "co.pulse.strengthTail.one": "\u2014 the only contact here",
   "co.pulse.strengthTail.other": "\u2014 of {count} contacts here",
-  "co.owner.notInRoster": "Current owner (no longer in the user list)",
   "co.pulse.unowned": "Unassigned",
   "co.since.first": "You are opening this account for the first time.",
   "co.partial":
@@ -1568,6 +1599,12 @@ export const en = {
   "deal.ownerMe": "Assign to me",
   "deal.ownerUnassign": "Unassign",
   "deal.partnerOrg": "via Partner",
+  // A reference the reader may not read, on a surface with no room for the
+  // mask glyph: a Kanban card's company line, and the one entry a withheld
+  // picker offers. Both have to say WHICH thing is withheld, because a card
+  // and a form field carry no header to say it for them.
+  "deal.companyWithheld": "Company withheld",
+  "deal.partnerWithheld": "Partner withheld",
   "deal.forecastCategory": "Forecast category",
   "deal.waitUntil": "Wait until",
   "deal.fxBase": "Base {value} · rate {rate} as of {date}",
@@ -5654,6 +5691,12 @@ export const en = {
   "filters.matchCompanies": "{count} companies match",
   "filters.matchDeals": "{count} deals match",
   "filters.noFilterYet": "Add a clause to see what it selects",
+  // The count when the server was asked and did not answer. It must not fall
+  // back to noFilterYet: a reader looking at a finished clause would read a
+  // refusal as their own unfinished work. Three words, because this sits in a
+  // header row beside two buttons; the reason and the retry go in the results
+  // card below, which is the only row wide enough for a sentence.
+  "filters.countUnavailable": "Count unavailable",
   "filters.loadingVocabulary": "Loading the fields you can filter on\u2026",
   "filters.noFields": "No filterable fields for this record type.",
   "filters.resultsTitle": "Matching records",

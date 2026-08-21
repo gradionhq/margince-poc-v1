@@ -3,13 +3,13 @@ import type { components } from "../api/schema";
 import { Badge, Button, EmptyState, Skeleton } from "../design-system/atoms";
 import { Panel, PanelBody, PanelPlate, PanelRow } from "../design-system/panel";
 import { formatDateTime } from "../format/format";
+import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
   ENGAGEMENT_LABELS,
   ENGAGEMENT_TONE,
   nextCommitmentLine,
-  RECORD_ZONE,
   type SuggestionAction,
   signalKindLabel,
   useSuggestionsBody,

@@ -195,31 +195,6 @@
   flex: none;
   margin-top: 2px;
 }
-.email-callout {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
-  background: var(--accentLight);
-  border: 1px solid var(--accentMed);
-  border-radius: var(--r-md);
-  padding: var(--space-3) var(--space-4);
-  font-size: var(--fs-sm);
-  color: var(--textContent);
-  line-height: var(--lh-normal);
-}
-.email-callout svg {
-  width: 17px;
-  height: 17px;
-  color: var(--accent);
-  flex: none;
-  margin-top: 1px; /* ds:ignore optical nudge that sits the 17px glyph on the first line's baseline — the smallest rhythm token is four times the distance */
-}
-.email-callout b {
-  color: var(--textPrimary);
-  font-weight: var(--fw-semibold);
-}
-
 .seclabel {
   font-size: var(--fs-eyebrow);
   font-weight: var(--fw-semibold);

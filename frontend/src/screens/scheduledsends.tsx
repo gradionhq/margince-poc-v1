@@ -18,6 +18,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { SurfaceState } from "../design-system/surfacestate";
 import { localDateTimeValue } from "../format/calendarday";
 import { formatDateTime } from "../format/format";
+import { viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -357,7 +358,7 @@ export function ScheduledSendsScreen() {
   const queryClient = useQueryClient();
   // A moment a rep chose is a personal one, so the page reads in the viewer's
   // own zone unless the send names another (see Moment).
-  const readerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const readerZone = viewerZone();
   const [withdrawing, setWithdrawing] = useState<ScheduledSend | null>(null);
 
   const query = useScheduledSends();

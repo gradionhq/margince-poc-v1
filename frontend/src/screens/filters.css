@@ -9,6 +9,15 @@
   gap: var(--space-4);
 }
 
+/* The object tabs on a row of their own. The shell's page head names the page
+ * above them, so this row carries the one choice everything below it reads. */
+.filters-object-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
 .filters-count-row {
   display: flex;
   align-items: center;
@@ -37,6 +46,15 @@
 .filters-count-unasked {
   font-weight: 400;
   color: var(--textMuted);
+}
+
+/* Asked and refused. Not muted like the state above it: a reader with a finished
+ * clause on screen would take a grey line as their own unfinished work, which is
+ * the falsehood this reading exists to end. The reason and the retry are in the
+ * results card, the only row wide enough for both. */
+.filters-count-failed {
+  font-weight: 400;
+  color: var(--danger);
 }
 
 /* The export sits under the builder, because it takes the filter as its
