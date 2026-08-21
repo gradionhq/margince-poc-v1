@@ -181,6 +181,8 @@
     gap: 0.75rem;
   }
 
+  #deal-room-state-lab .drx-ai-command { margin-block-start: 0.75rem; }
+
   #deal-room-state-lab .drx-card-content { display: grid; gap: 0.65rem; }
   #deal-room-state-lab .card h3 { margin-block-end: 0.25rem; }
   #deal-room-state-lab .card p:last-child { margin-block-end: 0; }
@@ -501,7 +503,7 @@
     { id: "closed", group: "Access & end", label: "Closed · handoff", detail: "The sales release is frozen and the stable space continues into onboarding." },
     { id: "readonly", group: "Access & end", label: "Read only", detail: "The viewer may read the deal and live release but cannot publish or manage buyer access." },
     { id: "unavailable", group: "Access & end", label: "Unavailable", detail: "The external surface failed without making the internal deal disappear or pretending the room is empty." },
-    { id: "buyer-first", group: "Buyer", label: "First visit", detail: "A named buyer lands on a calm workspace: status, next step, to-dos, documents and exchange." },
+    { id: "buyer-first", group: "Buyer", label: "First visit", detail: "A named buyer lands on a calm workspace: status, next steps, documents and exchange." },
     { id: "buyer-returning", group: "Buyer", label: "Returning", detail: "A returning buyer sees the human-updated status and the current work—never AI analysis." },
     { id: "buyer-stopped", group: "Buyer", label: "Access stopped", detail: "Paused, revoked and expired access each say what happened without leaking internal detail." }
   ];
@@ -615,6 +617,29 @@
             </div>
           </article>
         </div>
+
+        <article class="card drx-ai-command" aria-label="Margince AI command center">
+          <div class="drx-card-content">
+            <div class="drx-section-line">
+              <div class="drx-row">${icon("sparkles")}<h3>Ask Margince about this deal</h3></div>
+              <span class="viz-badge">Internal · evidence linked</span>
+            </div>
+            <div class="drx-ask">
+              <div>
+                <label class="form-label" for="drx-ai-question">Deal question</label>
+                <input id="drx-ai-question" class="form-control" value="What is the highest-leverage move right now?">
+              </div>
+              <button type="button" class="btn btn-primary" data-ai-action="ask">Ask</button>
+            </div>
+            <div class="drx-actions" aria-label="Suggested AI actions">
+              <button type="button" class="btn" data-ai-action="meeting">Prepare next meeting</button>
+              <button type="button" class="btn" data-ai-action="followup">Draft re-engagement</button>
+              <button type="button" class="btn" data-ai-action="team">Map buying team</button>
+              <button type="button" class="btn" data-ai-action="commercial">Check proposal readiness</button>
+            </div>
+            <div class="drx-callout drx-ai-answer"><strong>Recommended move</strong><div class="drx-small">Re-engage Sabine with one scope question and ask for an introduction to the operational owner. Based on 2 calls, 3 emails and the missing-role analysis.</div></div>
+          </div>
+        </article>
       </section>
     `;
   }
@@ -645,7 +670,7 @@
       <article class="drx-buyer-preview" aria-label="Buyer preview">
         <div class="drx-buyer-brand">
           <div class="drx-person"><span class="drx-brand-mark">M</span><div><strong>Margince × TeamOne</strong><div class="drx-small drx-muted">Shared workspace</div></div></div>
-          <nav class="drx-buyer-nav" aria-label="Shared Space"><strong>Status</strong><span>To-dos</span><span>Documents</span><span>Exchange</span></nav>
+          <nav class="drx-buyer-nav" aria-label="Shared Space"><strong>Status</strong><span>Next steps</span><span>Documents</span><span>Exchange</span></nav>
           <div class="drx-actions">${editable ? '<span class="viz-badge">Draft change</span>' : '<span class="viz-badge">Live</span>'}</div>
         </div>
         <div class="drx-buyer-content">
@@ -654,19 +679,15 @@
             <span class="drx-kicker">Current status · updated by Hau today</span>
             <h3>Implementation scope is being confirmed</h3>
             <p class="drx-muted">Security review is complete. The remaining step before commercial approval is confirming the 14-property migration scope.</p>
-            <div class="drx-actions"><span class="viz-badge">Next step</span><strong>Sabine confirms scope by Friday</strong></div>
+            <div class="drx-actions"><span class="viz-badge">Next step</span><strong>Sabine confirms the implementation scope</strong></div>
           </div>
           <div class="drx-shared-grid">
             <div>
               <div class="drx-section">
-                <div class="drx-section-line"><strong>Your to-dos</strong><span class="drx-small drx-muted">1 open</span></div>
-                <div class="drx-plan-row"><span>Confirm implementation scope</span><span class="viz-badge">Due Fri</span></div>
+                <div class="drx-section-line"><strong>Next steps</strong><span class="drx-small drx-muted">2 open</span></div>
+                <div class="drx-plan-row"><span>Confirm implementation scope</span><span class="viz-badge">You</span></div>
+                <div class="drx-plan-row"><span>Send implementation schedule</span><span class="viz-badge">Hau</span></div>
                 <div class="drx-plan-row"><span>Security review</span><span class="viz-badge">Done</span></div>
-              </div>
-              <div class="drx-section">
-                <div class="drx-section-line"><strong>Margince to-dos</strong><span class="drx-small drx-muted">1 open</span></div>
-                <div class="drx-plan-row"><span>Send implementation schedule</span><span class="viz-badge">Hau · Mon</span></div>
-                <div class="drx-plan-row"><span>Share revised offer</span><span class="viz-badge">Done</span></div>
               </div>
             </div>
             <div>
@@ -807,7 +828,7 @@
       <div class="drx-buyer-preview">
         <div class="drx-buyer-brand"><div class="drx-person"><span class="drx-brand-mark">M</span><div><strong>TeamOne onboarding</strong><div class="drx-small drx-muted">The same stable Shared Space</div></div></div><span class="viz-badge">Onboarding</span></div>
         <div class="drx-buyer-content">
-          <div class="drx-callout"><strong>Status · ready for kickoff</strong><div class="drx-small">The agreement is complete. The next shared step is the kickoff meeting on 28 August.</div></div>
+          <div class="drx-callout"><strong>Status · ready for kickoff</strong><div class="drx-small">The agreement is complete. The next shared step is scheduling the kickoff meeting.</div></div>
           <div class="drx-shared-grid">
             <div class="drx-section">
               <div class="drx-section-line"><strong>To-dos</strong><span class="drx-small drx-muted">1 of 4 complete</span></div>
@@ -844,6 +865,14 @@
     `;
   }
 
+  const aiAnswers = {
+    ask: ["Recommended move", "Re-engage Sabine with one scope question and ask for an introduction to the operational owner. Based on 2 calls, 3 emails and the missing-role analysis."],
+    meeting: ["Meeting brief ready", "Open with the 82-day silence, confirm the 14-property scope, surface the missing operational owner, and close on one concrete next step. Five supporting moments are linked."],
+    followup: ["Re-engagement draft ready", "A short, specific email is prepared in your voice. It references Sabine’s migration concern, asks one scope question and avoids artificial urgency."],
+    team: ["Buying-team gap", "Sabine appears to own the economic decision, but no operational owner or champion is engaged. Ask Sabine to introduce the person responsible for the property handover."],
+    commercial: ["Proposal not ready", "Offer R1 is still a draft, Security has no named owner and the implementation scope is unresolved. Resolve those two gaps before presenting commercial terms."]
+  };
+
   const renderers = {
     "not-created": notCreated,
     building,
@@ -875,6 +904,13 @@
   }
 
   root.addEventListener("click", event => {
+    const aiControl = event.target.closest("[data-ai-action]");
+    if (aiControl) {
+      const answer = root.querySelector(".drx-ai-answer");
+      const content = aiAnswers[aiControl.dataset.aiAction];
+      if (answer && content) answer.innerHTML = `<strong>${content[0]}</strong><div class="drx-small">${content[1]}</div>`;
+      return;
+    }
     const stateControl = event.target.closest("[data-state]");
     const flowControl = event.target.closest("[data-go]");
     const next = stateControl?.dataset.state || flowControl?.dataset.go;

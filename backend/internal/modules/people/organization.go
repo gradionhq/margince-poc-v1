@@ -242,6 +242,16 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		if err := p.ApplyGuarded(ctx, tx, "organization", id.UUID, in.IfVersion); err != nil {
 			return fmt.Errorf("apply organization patch: %w", err)
 		}
+		// The coordinates go stale in the SAME transaction as the address, not
+		// after it. Enqueueing a lookup and leaving the old point queryable
+		// would have a radius query answer distances from the previous address
+		// — reporting success — for as long as the worker took to catch up,
+		// which is forever if it is down.
+		if in.Address != nil {
+			if err := invalidateGeocodeInTx(ctx, tx, id); err != nil {
+				return fmt.Errorf("invalidating the coordinates of a moved company: %w", err)
+			}
+		}
 
 		before, after := p.Before(), p.After()
 		// A human editing the display name is the top of the name-source
