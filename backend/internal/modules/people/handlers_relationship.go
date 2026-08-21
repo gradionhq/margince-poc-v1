@@ -97,6 +97,8 @@ func (h Handlers) UpdateRelationship(w http.ResponseWriter, r *http.Request, id 
 	httperr.WriteJSON(w, http.StatusOK, wireRelationship(rel))
 }
 
+// ArchiveRelationship retires one edge, honouring If-Match where the caller
+// named a version.
 func (h Handlers) ArchiveRelationship(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ArchiveRelationshipParams) {
 	ifVersion, ok := httperr.IfMatchVersion(w, r)
 	if !ok {

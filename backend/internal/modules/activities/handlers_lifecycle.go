@@ -29,6 +29,8 @@ func (h Handlers) UpdateActivity(w http.ResponseWriter, r *http.Request, id crmc
 	httperr.WriteJSON(w, http.StatusOK, activity)
 }
 
+// ArchiveActivity retires one activity, honouring If-Match where the caller
+// named a version — including the one an approval's release forwards.
 func (h Handlers) ArchiveActivity(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ArchiveActivityParams) {
 	ifVersion, ok := httperr.IfMatchVersion(w, r)
 	if !ok {

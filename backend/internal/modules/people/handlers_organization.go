@@ -183,6 +183,8 @@ func (h Handlers) ListOrganizationProfileFields(w http.ResponseWriter, r *http.R
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.OrganizationProfileFieldListResponse{Data: fields})
 }
 
+// ArchiveOrganization retires one company and its cascade, honouring If-Match
+// where the caller named a version.
 func (h Handlers) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ArchiveOrganizationParams) {
 	ifVersion, ok := httperr.IfMatchVersion(w, r)
 	if !ok {

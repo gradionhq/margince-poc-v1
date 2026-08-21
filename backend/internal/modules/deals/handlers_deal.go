@@ -118,6 +118,8 @@ func (h Handlers) AdvanceDeal(w http.ResponseWriter, r *http.Request, id crmcont
 	httperr.WriteJSON(w, http.StatusOK, deal)
 }
 
+// ArchiveDeal retires one deal and the edges hanging off it, honouring
+// If-Match where the caller named a version.
 func (h Handlers) ArchiveDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ArchiveDealParams) {
 	ifVersion, ok := httperr.IfMatchVersion(w, r)
 	if !ok {
