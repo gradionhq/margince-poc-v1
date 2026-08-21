@@ -26,6 +26,8 @@ import { useDedupeQueue } from "../screens/dedupe";
 import { usePendingApprovals } from "../screens/inbox.queries";
 import { useLicenseEntitlement } from "../screens/license";
 import { type AppActivity, useAppActivity } from "./activity";
+import { type AgentActivity, useAgentActivity } from "./agent-activity";
+import { lineFor, PANEL_HEADING } from "./agent-activity-lines";
 import {
   IDLE_ORDER,
   type IdleKind,
@@ -504,10 +506,64 @@ function RuntimeRows({
   );
 }
 
+/** One scheduled run, as the server reports it. */
+type ActivityItem = components["schemas"]["ActivityItem"];
+
+/**
+ * What the overnight runner is doing right now, in the reader's words.
+ *
+ * A kind or state the copy map has no line for draws NOTHING — not a fallback
+ * sentence, not the message key. `lineFor` returning null is the map saying it
+ * has never heard of this run, and a surface that answers that with an invented
+ * sentence is a surface a reader cannot trust about the runs it DOES name. When
+ * that empties the section, the section is absent too.
+ *
+ * `degrade_reason` is server-authored operator vocabulary and untranslated, so
+ * it lives here as detail under its own label and never inside the line: a raw
+ * internal token in a localized sentence is the defect, whichever sentence it
+ * is.
+ */
+function RunningNow({
+  running,
+}: Readonly<{ running: readonly ActivityItem[] }>) {
+  const t = useT();
+  // flatMap rather than map+filter: the empty array drops the run AND narrows
+  // the line to a string, where a filtered predicate would only have claimed it.
+  const said = running.flatMap((item) => {
+    const line = lineFor(item, t);
+    return line === null ? [] : [{ item, line }];
+  });
+  if (said.length === 0) {
+    return null;
+  }
+  return (
+    <div className="arsect">
+      <h4>{t(PANEL_HEADING.running)}</h4>
+      <ul className="arruns">
+        {said.map(({ item, line }) => (
+          <li className="arrun" key={item.id}>
+            <span className="arrunline">{line}</span>
+            {item.degrade_reason ? (
+              <span className="arrundetail">
+                <i>{t(PANEL_HEADING.stopped)}</i>
+                {item.degrade_reason}
+              </span>
+            ) : null}
+            {item.summary ? (
+              <span className="arrundetail">{item.summary}</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function AgentPanel({
   state,
   setState,
   line,
+  running,
   signals,
   model,
   spend,
@@ -519,6 +575,8 @@ function AgentPanel({
   setState: (next: MarginceCoreState) => void;
   /** The same line the card carries, so the two never disagree. */
   line: string;
+  /** The scheduled runs the server reports as live. */
+  running: readonly ActivityItem[];
   signals: Signals;
   model: Readonly<{ allowed: boolean; calls: readonly AiCall[] }>;
   spend: Readonly<{
@@ -566,6 +624,10 @@ function AgentPanel({
           </span>
         )}
       </header>
+
+      {/* Above the counts: a run happening this second outranks a queue that has
+          been waiting since yesterday. */}
+      <RunningNow running={running} />
 
       {/* The counts, as tiles rather than rows: they are the two numbers somebody
           opens this panel to act on, and a number in a list of rows reads as one
@@ -775,7 +837,11 @@ function warningLine(signals: Signals): string {
  * running. Amber is the fault that can wait, and an unlicensed installation is
  * the case it exists for. Everything else is the tool working or at rest.
  */
-function derive(activity: AppActivity, signals: Signals): MarginceCoreState {
+function derive(
+  activity: AppActivity,
+  signals: Signals,
+  server: AgentActivity,
+): MarginceCoreState {
   if (signals.ai === "unconfigured" || signals.offline.length > 0) {
     return "error";
   }
@@ -784,7 +850,11 @@ function derive(activity: AppActivity, signals: Signals): MarginceCoreState {
   if (signals.license === "none" || signals.license === "refused") {
     return "warning";
   }
-  if (activity.working) {
+  // Below the two faults, because a source the agent cannot reach outranks work
+  // in progress. Either side of the or is the same standing: the scheduled
+  // runner works while nobody is looking at this tab, and a rail that moved only
+  // for its own fetches reported an agent at rest whenever the reader was.
+  if (server.working || activity.working) {
     return "working";
   }
   if (activity.reading) {
@@ -871,6 +941,9 @@ function barLine(
   signals: Signals,
   record: Readonly<{ reading: boolean }>,
   devLine: string,
+  /** What the server says it is doing, or null when it says nothing this
+   *  surface has words for. */
+  serverLine: string | null,
 ): string {
   if (state === "error") {
     // Red says NOT CONNECTED, and the line says what is not connected: a
@@ -888,7 +961,9 @@ function barLine(
     return warningLine(signals);
   }
   if (state === "working") {
-    return LABELS.working;
+    // The named run outranks the generic word: "Working" is true of both a local
+    // save and an overnight brief, and only one of them is news.
+    return serverLine ?? LABELS.working;
   }
   if (state === "ingest") {
     return record.reading ? LABELS.readingRecord : LABELS.reading;
@@ -920,13 +995,14 @@ export function AgentRail({ route }: Readonly<{ route: Route }>) {
   const model = useRecentCalls();
   const record = useRecordRead(route);
   const activity = useAppActivity();
+  const server = useAgentActivity();
   const ticker = useAgentTicker();
   const spend = useAiSpend();
   const { locale } = useLocale();
   const demo = useDemoRun();
   // A run outranks everything, including a held state: it is the reviewer's own
   // request, and it lasts seconds.
-  const state = demo.state ?? override ?? derive(activity, signals);
+  const state = demo.state ?? override ?? derive(activity, signals, server);
 
   // Put focus back on the block only when the panel actually HELD it: an outside
   // click usually lands on something focusable of its own, and pulling focus
@@ -975,12 +1051,16 @@ export function AgentRail({ route }: Readonly<{ route: Route }>) {
   // because a reviewer asked for that state; then whatever the state itself has
   // to say, because a fault outranks small talk; and at rest, the rotation of
   // true readings.
+  // The first run the server reports, when this surface has words for it. It
+  // outranks the resting rotation: a live run is what is true right now, and the
+  // rotation is what is true in general.
+  const serverLine = server.running[0] ? lineFor(server.running[0], t) : null;
   const line =
     demo.said ??
     (override && REVIEW_ONLY[override]) ??
     (state === "idle"
       ? resting
-      : barLine(state, signals, record, t("auth.coreDevelopment")));
+      : barLine(state, signals, record, t("auth.coreDevelopment"), serverLine));
   return (
     <section
       className={RUNNING.has(state) ? "arblock working" : "arblock"}
@@ -1004,6 +1084,7 @@ export function AgentRail({ route }: Readonly<{ route: Route }>) {
               frame={frame}
               demo={demo}
               line={line}
+              running={server.running}
               spend={spend}
             />
           </div>,

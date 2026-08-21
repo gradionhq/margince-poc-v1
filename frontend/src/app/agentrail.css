@@ -854,3 +854,49 @@
   outline: var(--focus-ring-forced);
   box-shadow: 0 0 0 3px var(--accentLight);
 }
+
+/* ── Running now ─────────────────────────────────────────────────────────────
+   The scheduled runner's own work, which nothing in this tab started. One row
+   per run: the sentence a reader gets, and under it the detail — the operator's
+   reason and whatever the run itself wrote. The detail is set smaller and
+   dimmer than the line on purpose: it is the answer to a question the line
+   already raised, not a second claim of equal weight. */
+.arruns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.arrun {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgHover);
+}
+.arrunline {
+  color: var(--textPrimary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.arrundetail {
+  color: var(--textMeta);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+/* The label the operator's reason arrives under. Upright, because the reason
+   beside it is a machine token and italics on both would make the two one
+   string. */
+.arrundetail i {
+  margin-right: var(--space-2);
+  font-style: normal;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 9.5px;
+  color: var(--textMeta);
+}

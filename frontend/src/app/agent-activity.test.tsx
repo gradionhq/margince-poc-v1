@@ -215,4 +215,17 @@ describe("a read that has not answered", () => {
     expect(result.current.working).toBe(false);
     expect(result.current.running).toEqual([]);
   });
+
+  // A 200 that is not the shape the contract promises is an absent read too.
+  // The rail draws this hook's result in the app chrome, so a body without
+  // `running` must report nothing rather than throw the whole section away.
+  it("reports not-working when the body carries no lists at all", async () => {
+    const { result } = mount(() => jsonResponse({}));
+
+    await advance(0);
+
+    expect(result.current.working).toBe(false);
+    expect(result.current.running).toEqual([]);
+    expect(result.current.recent).toEqual([]);
+  });
 });

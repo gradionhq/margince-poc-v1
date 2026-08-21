@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
@@ -57,8 +60,13 @@ export function useAgentActivity(): AgentActivity {
       }
       return data;
     },
+    // Coalesced through NOTHING for the same reason the result below is: the
+    // cached body is whatever the server sent, and reaching into it for a
+    // length is what turns an off-contract 200 into a throw.
     refetchInterval: (q) =>
-      (q.state.data?.running.length ?? 0) > 0 ? POLL_LIVE_MS : POLL_IDLE_MS,
+      (q.state.data?.running ?? NOTHING).length > 0
+        ? POLL_LIVE_MS
+        : POLL_IDLE_MS,
   });
 
   // The app disables focus refetching for every query (FE-PARAM-3), so
@@ -79,10 +87,15 @@ export function useAgentActivity(): AgentActivity {
     }
   }, [visible, client]);
 
+  // Coalesced ONCE, and `working` is read off the coalesced list rather than
+  // off the body: a 200 whose shape is not the one the contract promises is
+  // another absent read, and reaching into it for a length is how the rail's
+  // whole section throws instead of reporting nothing.
   const answered = query.data;
+  const running = answered?.running ?? NOTHING;
   return {
-    running: answered?.running ?? NOTHING,
+    running,
     recent: answered?.recent ?? NOTHING,
-    working: answered !== undefined && answered.running.length > 0,
+    working: running.length > 0,
   };
 }
