@@ -118,6 +118,7 @@ function ListTableHarness({
   dataViews,
   dataChips,
   scopeKey,
+  initialFilters,
 }: Readonly<{
   fetchPage: (
     query: ListQuery,
@@ -129,10 +130,12 @@ function ListTableHarness({
   dataViews?: readonly ListView[];
   dataChips?: readonly ListChip[];
   scopeKey?: string;
+  initialFilters?: Readonly<Record<string, string>>;
 }>) {
   const state = useListQuery<Row>({
     key: "list-table-harness",
     initialSort: "-created_at",
+    initialFilters,
     fetchPage,
   });
   return (
@@ -753,5 +756,100 @@ describe("a scope the chips cannot see", () => {
 
     await user.click(screen.getByRole("button", { name: "other pipeline" }));
     await waitFor(() => expect(screen.getByText("Row 0")).toBeTruthy());
+  });
+});
+
+describe("a late option that matches a filter already set", () => {
+  it("still keeps the reader on their page", async () => {
+    const user = userEvent.setup();
+    const page = (from: number) => ({
+      data: Array.from({ length: 25 }, (_, i) => ({
+        id: `r-${from + i}`,
+        name: `Row ${from + i}`,
+      })),
+      page: { next_cursor: `c-${from + 25}`, has_more: true },
+    });
+    let served = 0;
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      page(25 * served++),
+    );
+    // The harder half of the same bug. A saved view restores
+    // `owner_team_id=t-9` before the roster has answered, so the filter is
+    // already set when the matching option finally arrives. chosenFor then
+    // gains the chip's own key — the chosen RESULT changes shape — even
+    // though the query, and therefore every row, is exactly what it was.
+    function LateMatchingOption() {
+      const [teamKnown, setTeamKnown] = useState(false);
+      const chip = {
+        key: "owner",
+        label: "Owner",
+        allLabel: "Any owner",
+        options: teamKnown
+          ? [{ value: "owner_team_id:t-9", label: "Team Neukunden" }]
+          : [],
+      };
+      return (
+        <>
+          <button type="button" onClick={() => setTeamKnown(true)}>
+            roster answers
+          </button>
+          <ListTableHarness
+            fetchPage={fetchPage}
+            dataChips={[chip]}
+            initialFilters={{ owner_team_id: "t-9" }}
+          />
+        </>
+      );
+    }
+    render(<LateMatchingOption />);
+    await waitFor(() => expect(screen.getByText("Row 0")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: /Next/ }));
+    await waitFor(() => expect(screen.getByText("Row 25")).toBeTruthy());
+
+    await user.click(screen.getByRole("button", { name: "roster answers" }));
+    await waitFor(() => expect(screen.getByText("Row 25")).toBeTruthy());
+    expect(screen.queryByText("Row 0")).toBeNull();
+  });
+});
+
+describe("a late option that matches a filter already set", () => {
+  it("shows the chip as chosen once the option arrives", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      emptyPage(),
+    );
+    // The display half of the same moment. Keeping the reader in place must not
+    // cost them the truth about what the list is narrowed BY: once the roster
+    // answers, the dial has to read "Team Neukunden", not "Any owner".
+    function LateMatchingOption() {
+      const [teamKnown, setTeamKnown] = useState(false);
+      const chip = {
+        key: "owner",
+        label: "Owner",
+        allLabel: "Any owner",
+        options: teamKnown
+          ? [{ value: "owner_team_id:t-9", label: "Team Neukunden" }]
+          : [],
+      };
+      return (
+        <>
+          <button type="button" onClick={() => setTeamKnown(true)}>
+            roster answers
+          </button>
+          <ListTableHarness
+            fetchPage={fetchPage}
+            dataChips={[chip]}
+            initialFilters={{ owner_team_id: "t-9" }}
+          />
+        </>
+      );
+    }
+    render(<LateMatchingOption />);
+    await user.click(screen.getByRole("button", { name: "roster answers" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("group", { name: "Owner: Team Neukunden" }),
+      ).toBeTruthy(),
+    );
   });
 });

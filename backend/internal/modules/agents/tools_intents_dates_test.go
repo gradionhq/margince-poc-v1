@@ -26,8 +26,10 @@ func TestAnAssembledContextCarriesWhenEachThingHappened(t *testing.T) {
 	got := assembledContext(context.Background(), retrieval.Context{
 		Anchor: datasource.EntityRef{Type: datasource.EntityOrganization, ID: ids.NewV7()},
 		Sections: []retrieval.Section{{Name: "recent", Items: []retrieval.Item{
-			{Ref: datasource.EntityRef{Type: datasource.EntityActivity, ID: activity},
-				Summary: "Zu viele Ansprechpartner", OccurredAt: when},
+			{
+				Ref:     datasource.EntityRef{Type: datasource.EntityActivity, ID: activity},
+				Summary: "Zu viele Ansprechpartner", OccurredAt: when,
+			},
 			// A person is not an event and carries no date; a zero one would
 			// render as 0001-01-01 rather than as absent.
 			{Ref: datasource.EntityRef{Type: datasource.EntityPerson, ID: person}, Summary: "Andrea"},

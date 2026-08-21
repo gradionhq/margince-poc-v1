@@ -286,6 +286,7 @@ export function ListTable<Row>({
   sort,
   chips = [],
   chosen = EMPTY_FILTERS,
+  narrowKey,
   onChipChange,
   archived,
   views = [],
@@ -357,6 +358,19 @@ export function ListTable<Row>({
   sort?: SortControl;
   chips?: readonly ListChip[];
   chosen?: Readonly<Record<string, string>>;
+  /**
+   * What the list is narrowed BY, serialized — the reset trigger, separate
+   * from `chosen`, which is what the DIALS show.
+   *
+   * They are two jobs and they cannot share one value. `chosen` must always be
+   * current or a dial renders the wrong label; the reset must fire only when
+   * the answer changes, or an option arriving late throws the reader off their
+   * page. Keying the reset on `chosen` forces one to break the other.
+   *
+   * Defaults to `chosen` for the callers whose dials are all declared up front
+   * and therefore cannot drift apart.
+   */
+  narrowKey?: string;
   /** Called with "" to clear. */
   onChipChange?: (key: string, value: string) => void;
   archived?: { checked: boolean; onChange: (next: boolean) => void };
@@ -611,7 +625,7 @@ export function ListTable<Row>({
     () => setPage(1),
     [
       search?.value,
-      chosen,
+      narrowKey ?? chosen,
       activeView,
       perPage,
       sort?.value,
