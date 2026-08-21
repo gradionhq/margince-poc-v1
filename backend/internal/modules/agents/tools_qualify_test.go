@@ -124,8 +124,8 @@ func TestQualifyLeadFillsOnlyInferableEmptyFieldsWithEvidence(t *testing.T) {
 	if p.updates[0].IfVersion == nil || *p.updates[0].IfVersion != 3 {
 		t.Fatalf("IfVersion = %v, want the version the fill was decided on (3)", p.updates[0].IfVersion)
 	}
-	if p.updates[0].Source != toolSource {
-		t.Fatalf("update source = %q, want the tool surface's provenance channel %q", p.updates[0].Source, toolSource)
+	if p.updates[0].Source != ToolSource {
+		t.Fatalf("update source = %q, want the tool surface's provenance channel %q", p.updates[0].Source, ToolSource)
 	}
 }
 
