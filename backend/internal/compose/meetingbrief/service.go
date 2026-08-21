@@ -127,7 +127,7 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 		if err != nil {
 			return err
 		}
-		earlier, err = s.readPriorMeetings(ctx, tx, loaded)
+		earlier, err = s.readPriorMeetings(ctx, tx, loaded, s.now().UTC())
 		return err
 	})
 	if err != nil {

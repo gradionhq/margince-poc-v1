@@ -50,21 +50,35 @@ type priorMeeting struct {
 //   - overlapping attendees, because "this room" is the people, not the
 //     recurring calendar entry — a series that changed its title is still the
 //     same conversation, and two different meetings on one account are not.
-func (s *Service) readPriorMeetings(ctx context.Context, tx pgx.Tx, room meeting) ([]priorMeeting, error) {
-	if len(room.Attendees) == 0 {
+//
+// And it recalls only meetings that actually HAPPENED: earlier than this one,
+// already past, and not cancelled or no-showed. "You met 4 days ago" about a
+// meeting nobody attended is worse than saying nothing.
+func (s *Service) readPriorMeetings(ctx context.Context, tx pgx.Tx, room meeting, now time.Time) ([]priorMeeting, error) {
+	// room.Room, not room.Attendees: the latter is the DISPLAY list and stops
+	// at eight, so matching on it would lose history shared only with the ninth
+	// person in a large room.
+	if len(room.Room) == 0 {
 		return nil, nil
 	}
-	attendees := make([]ids.UUID, 0, len(room.Attendees))
-	for _, attendee := range room.Attendees {
-		attendees = append(attendees, attendee.PersonID)
-	}
+	attendees := room.Room
 
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	roomPos := arg(room.ID)
+	// Earlier than this meeting AND already past. Constraining on the current
+	// meeting alone would let a brief for a meeting three weeks out say "you
+	// met" about one happening next Tuesday — a room that has not met yet.
 	startsPos := arg(room.StartsAt)
+	nowPos := arg(now)
 	attendeePos := arg(attendees)
-	scope, err := auth.ActivityDiscoverClause(ctx, "m", arg)
+	// CONTENT, not discover. This section prints an earlier meeting's SUBJECT,
+	// and ActivityDiscoverClause is documented as covering the safe markers
+	// alone — a last-touch date, an open-task count. A reader who may know
+	// that a conversation happened is not thereby entitled to read what it was
+	// called, and picking the weaker clause for content is precisely the
+	// defect restrictedreaders_test.go exists to catch.
+	scope, err := auth.ActivityContentClause(ctx, "m", arg)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +100,7 @@ func (s *Service) readPriorMeetings(ctx context.Context, tx pgx.Tx, room meeting
 			arg(room.Project.ID))
 	}
 
-	rows, err := tx.Query(ctx, fmt.Sprintf(priorMeetingsQuery, scope, within, roomPos, startsPos, attendeePos, priorMeetingCap), args...)
+	rows, err := tx.Query(ctx, fmt.Sprintf(priorMeetingsQuery, scope, within, roomPos, startsPos, nowPos, attendeePos, priorMeetingCap), args...)
 	if err != nil {
 		return nil, fmt.Errorf("read the earlier meetings: %w", err)
 	}
@@ -116,9 +130,10 @@ const priorMeetingsQuery = `
 	FROM activity m
 	JOIN activity_participant mp ON mp.activity_id = m.id
 	WHERE m.kind = 'meeting' AND m.archived_at IS NULL
-	  AND m.id <> $%[3]d AND m.occurred_at < $%[4]d
-	  AND mp.person_id = ANY($%[5]d)
+	  AND m.id <> $%[3]d AND m.occurred_at < $%[4]d AND m.occurred_at <= $%[5]d
+	  AND (m.meeting_status IS NULL OR m.meeting_status = 'held')
+	  AND mp.person_id = ANY($%[6]d)
 	  AND %[1]s
 	  AND %[2]s
 	ORDER BY m.occurred_at DESC
-	LIMIT %[6]d`
+	LIMIT %[7]d`

@@ -42,6 +42,12 @@ type meeting struct {
 	Deal      *dealRow
 	Project   *projectRow
 	Attendees []attendeeRow
+	// Room is every attendee this caller may see, uncapped. Attendees above is
+	// the DISPLAY list and stops at attendeeCap, so a reader is not scanning
+	// names — but "who was in this room" is a different question from "who do
+	// we name", and history shared only with the ninth person is still this
+	// room's history.
+	Room []ids.UUID
 }
 
 // dealRow is the deal this meeting is linked to, if the caller may read it.
@@ -172,9 +178,16 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 		deal.Currency = deref(currency)
 		out.Deal = &deal
 	}
-	out.Attendees, err = decodeAttendees(attendees)
+	full, err := decodeAttendees(attendees)
 	if err != nil {
 		return meeting{}, err
+	}
+	for _, attendee := range full {
+		out.Room = append(out.Room, attendee.PersonID)
+	}
+	out.Attendees = full
+	if len(out.Attendees) > attendeeCap {
+		out.Attendees = out.Attendees[:attendeeCap]
 	}
 	return out, nil
 }
@@ -309,17 +322,17 @@ func scopeFor(ctx context.Context, object, alias string, arg func(any) int) (str
 	return clause, nil
 }
 
-// decodeAttendees reads the sub-select's JSON into the room.
+// decodeAttendees reads the sub-select's JSON into the room, UNCAPPED.
 //
-// The cap lands here, beside the type it bounds; the sub-select already carries
-// the row-scope predicate that decides which names may appear at all.
+// The display cap is applied by the caller, which also keeps the full set: a
+// list bounded here would make "who was in this room" unanswerable, and the
+// prior-meeting history is matched on the room rather than on the names the
+// brief prints. The sub-select already carries the row-scope predicate that
+// decides which names may appear at all.
 func decodeAttendees(raw []byte) ([]attendeeRow, error) {
 	var decoded []attendeeRow
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, fmt.Errorf("decode the meeting attendees: %w", err)
-	}
-	if len(decoded) > attendeeCap {
-		decoded = decoded[:attendeeCap]
 	}
 	return decoded, nil
 }

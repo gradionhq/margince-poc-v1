@@ -23,6 +23,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/meetingbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/person360"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -440,10 +441,67 @@ func TestMeetingBriefRecallsNoMeetingFromAnotherEngagement(t *testing.T) {
 			recalled += sentence.Text + "\n"
 		}
 	}
+	// Three assertions, because the rule has three arms and an OR over two of
+	// them would let a mutation that drops either one still pass.
 	if strings.Contains(recalled, "Rack walkthrough") {
 		t.Errorf("recalled = %q, but that meeting belongs to the other engagement", recalled)
 	}
-	if !strings.Contains(recalled, "ERP kickoff") && !strings.Contains(recalled, "Quarterly catch-up") {
-		t.Errorf("recalled = %q, want this engagement's history or the unfiled kind", recalled)
+	if !strings.Contains(recalled, "ERP kickoff") {
+		t.Errorf("recalled = %q, want this engagement's own earlier meeting", recalled)
+	}
+	if !strings.Contains(recalled, "Quarterly catch-up") {
+		t.Errorf("recalled = %q, want the unfiled meeting too — attribution is optional, so most history carries no project", recalled)
+	}
+}
+
+// Naming an earlier meeting means printing its SUBJECT, which is content
+// rather than a marker. A reader who may DISCOVER that a conversation
+// happened is not thereby entitled to read what it was called, so this
+// section takes the content clause — the weaker discover clause is documented
+// as covering the safe markers alone (a last-touch date, an open-task count).
+func TestMeetingBriefRecallsNoSubjectItMayNotRead(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	ours := e.SeedPerson(t, "Ana Roth", &e.Rep1)
+
+	// An earlier meeting our attendee sat in, whose author then limited it to
+	// its participants. Rep1 is not one, so the row stays DISCOVERABLE to them
+	// and its content does not — which is the exact gap between the two
+	// clauses, and the only fixture that can tell them apart.
+	when := roomAgo(6 * 24 * time.Hour)
+	hidden, _, err := e.Activities.LogActivity(
+		e.As(e.Rep3, []ids.UUID{e.Team2}, activityLifecyclePerms),
+		activities.LogActivityInput{
+			Kind: "meeting", Subject: strPtr("Board compensation review"),
+			OccurredAt: &when, Source: "manual",
+			Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: ours}},
+		})
+	if err != nil {
+		t.Fatalf("log the earlier meeting: %v", err)
+	}
+	hiddenID := ids.From[ids.ActivityKind](ids.UUID(hidden.Id))
+	seatInRoom(t, owner, e.WS, ids.UUID(hidden.Id), ours)
+	if _, err := e.Activities.SetAudience(
+		e.As(e.Rep3, []ids.UUID{e.Team2}, activityLifecyclePerms),
+		hiddenID, activities.SetAudienceInput{Audience: "participants"}); err != nil {
+		t.Fatalf("limit the earlier meeting: %v", err)
+	}
+
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Cutover review', $2, 'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", ours)
+	seatInRoom(t, owner, e.WS, meeting, ours)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	brief, err := meetingBriefService(e).Get(rep, meeting)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	for _, section := range brief.Sections {
+		for _, sentence := range section.Sentences {
+			if strings.Contains(sentence.Text, "compensation") {
+				t.Errorf("the brief disclosed a subject this caller may not read: %q", sentence.Text)
+			}
+		}
 	}
 }

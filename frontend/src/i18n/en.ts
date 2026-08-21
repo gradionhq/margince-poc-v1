@@ -5526,7 +5526,7 @@ export const en = {
   "person.meeting.deal_state": "Where the deal stands",
   "person.meeting.risks": "Risks and watch-outs",
   "person.meeting.talking_points": "Suggested talking points",
-  "person.meeting.company_context": "Company context",
+  "person.meeting.company_context": "When you last met",
 
   "co.strip.healthSummary": "Health",
   "co.strip.healthSummary.failingOf": "{failing} of {rated} at risk",
