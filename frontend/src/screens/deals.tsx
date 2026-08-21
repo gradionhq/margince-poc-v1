@@ -562,9 +562,16 @@ export function usePartnerOptions(
  * The two fields that record a deal coming through a partner, for both the
  * create form and the edit form — one spelling, so the two cannot drift.
  *
- * Nothing at all when the installation has no partners: an empty picker asks a
- * question with no answers in it, and a form that shows partner controls to a
- * company running no partner programme is claiming a feature it does not have.
+ * Nothing at all when the installation has no partners AND the deal names
+ * none: an empty picker asks a question with no answers in it, and a form that
+ * shows partner controls to a company running no partner programme is claiming
+ * a feature it does not have.
+ *
+ * `attributed` is what keeps that from eating data. A form omits nothing a
+ * record already carries: the pickable list is one capped page of companies, so
+ * a deal's own partner can be missing from it, and dropping the field would
+ * blank the stored partner the next time anybody edited anything else on the
+ * deal — taking the commission attribution with it, silently.
  *
  * The attribution follows the partner rather than standing beside it. What a
  * partner DID is a question about a partner, so it appears once one is named
@@ -574,16 +581,25 @@ export function usePartnerOptions(
 function partnerFields(
   t: (k: MessageKey) => string,
   partnerOptions: { value: string; label: string }[],
+  attributed?: { id: string; label: string },
 ): CreateField[] {
-  if (partnerOptions.length === 0) {
+  if (partnerOptions.length === 0 && !attributed) {
     return [];
   }
+  // The deal's own partner is always among the choices, even when the capped
+  // page of partners this form could offer does not include it. A select whose
+  // stored value is not an option shows blank, and saving that blank clears the
+  // partner nobody meant to touch.
+  const options =
+    attributed && !partnerOptions.some((o) => o.value === attributed.id)
+      ? [{ value: attributed.id, label: attributed.label }, ...partnerOptions]
+      : partnerOptions;
   return [
     {
       key: "partner_org_id",
       label: "deal.partnerOrg",
       type: "select",
-      options: partnerOptions,
+      options,
     },
     // Commission accrues on "sourced" only, so this is the field that decides
     // whether a win pays the partner.
@@ -600,11 +616,35 @@ function partnerFields(
   ];
 }
 
+/**
+ * The partner a deal already names, ready to stand as its own option.
+ *
+ * Falls back to the raw id when the org list cannot name it — an unreadable or
+ * off-page company. Ugly, and correct: the alternative is a blank select whose
+ * save clears an attribution the reader never touched.
+ */
+function attributedPartner(
+  deal: Deal,
+  orgs: { id: string; display_name: string }[],
+): { id: string; label: string } | undefined {
+  if (!deal.partner_org_id) {
+    return undefined;
+  }
+  const named = orgs.find((org) => org.id === deal.partner_org_id);
+  return {
+    id: deal.partner_org_id,
+    label: named?.display_name ?? deal.partner_org_id,
+  };
+}
+
 export function dealEditFields(
   t: (k: MessageKey) => string,
   opts: {
     orgs: { id: string; display_name: string }[];
     partnerOptions: { value: string; label: string }[];
+    // The partner this deal ALREADY names, when it names one. Keeps the field
+    // (and its stored value) on a form whose pickable list does not reach it.
+    attributedPartner?: { id: string; label: string };
     me: string;
     currentOwner: string | null;
     currency: string;
@@ -650,7 +690,7 @@ export function dealEditFields(
     // Both partner fields are absent where no company has been made a partner:
     // there is no partner programme to attribute anything to, and an empty
     // picker is a question the reader cannot answer.
-    ...partnerFields(t, opts.partnerOptions),
+    ...partnerFields(t, opts.partnerOptions, opts.attributedPartner),
     {
       key: "forecast_category",
       label: "deal.forecastCategory",
@@ -2211,6 +2251,7 @@ function DealBadges({
           ...dealEditFields(t, {
             orgs,
             partnerOptions,
+            attributedPartner: attributedPartner(deal, orgs),
             me: meId,
             currentOwner: deal.owner_id ?? null,
             // EMPTY, not a default. `dealEditFields` only uses this to put the

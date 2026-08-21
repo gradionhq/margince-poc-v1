@@ -1539,6 +1539,41 @@ describe("DealScreen — edit, archive, FX line (A3)", () => {
     expect(screen.getByText("via")).toBeTruthy();
   });
 
+  // A form omits nothing the record already carries. The partner picker offers
+  // one capped page of partners, so a deal's own partner can be missing from
+  // it — and a select whose stored value is not an option shows blank, which
+  // on save clears the partner and the commission attribution with it.
+  it("keeps a partner the picker cannot reach, rather than clearing it on save", async () => {
+    const user = userEvent.setup();
+    const patches: { body: unknown }[] = [];
+    // Neither the org list ("Acme") nor the partner list holds p-offpage.
+    const d = deal({
+      id: "x",
+      version: 4,
+      partner_org_id: "p-offpage",
+      partner_attribution: "sourced",
+    });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], {
+        single: d,
+        onPatch: (body) => patches.push({ body }),
+      }),
+    );
+
+    render(<DealScreen id="x" />);
+    await user.click(await screen.findByTestId("edit-record"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patches.length).toBe(1));
+    const body = patches[0].body as {
+      partner_org_id: string | null;
+      partner_attribution: string | null;
+    };
+    expect(body.partner_org_id).toBe("p-offpage");
+    expect(body.partner_attribution).toBe("sourced");
+  });
+
   // The facts run together without a separator: three adjacent spans in a
   // plain text line rendered "€48,000.00Acme Corpvia Northgate", which is why
   // the partner looked missing on screen while every assertion about it passed.
