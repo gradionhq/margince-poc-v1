@@ -19,6 +19,12 @@ package deals
 // deals owns both records, so this needs no seam — it calls the same
 // recordPhaseTransition every human-driven phase move goes through, which is
 // what keeps the phase, its history row and project.phase_changed inseparable.
+//
+// Every guard here decides UNDER the project's row lock. A guard that reads
+// the phase before locking is a check-then-act race: the window between the
+// read and the write is long enough for a human to close the project, and the
+// stale patch would then reinstate `delivering` over their close and append a
+// history row for a transition that never happened.
 
 import (
 	"context"
@@ -26,7 +32,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -41,6 +46,18 @@ const PhasePursuing = "pursuing"
 // not sought.
 const PhaseDelivering = "delivering"
 
+// deliveryEvidence is what the audit row records in place of a project.update
+// check that never ran. audit_log.authorization_rule is derived from the
+// entity and action, so this row reads `project.update` whatever the caller
+// actually held — and on this path the caller was admitted by deal.update and
+// the project's own row scope was deliberately not consulted. Saying so in
+// evidence is the only way the ledger stops overclaiming.
+var deliveryEvidence = map[string]any{
+	"authorized_by":      "deal.update",
+	"project_row_scope":  "not_checked",
+	"transition_trigger": "deal_won",
+}
+
 // startDeliveryForWonDeal advances the project a just-won deal belongs to into
 // `delivering`, inside the transaction that won it. Every case it declines to
 // act on is a legitimate state of the world rather than a failure, so it
@@ -53,6 +70,9 @@ const PhaseDelivering = "delivering"
 //   - the deal names no project — nothing to advance. Creating one, and
 //     guessing which existing one a projectless deal meant, are separate
 //     questions with their own answers.
+//   - the project is archived — the grouping was ended deliberately, and a
+//     win does not resurrect it. A no-op, never an error: failing here would
+//     roll back the win itself over somebody else's archive.
 //   - the project is already `delivering` — a second deal landing on work
 //     already under way is not a transition, and recording one would claim a
 //     restart that never happened.
@@ -68,22 +88,34 @@ const PhaseDelivering = "delivering"
 // authorizes the correspondence stamp: a rep closing their own deal must not
 // have the win refused because the delivery project belongs to another team.
 // changed_by records the human who won, because that is who caused it — there
-// is no separate system principal here to invent.
-func startDeliveryForWonDeal(ctx context.Context, tx pgx.Tx, projectID *openapi_types.UUID, by string) error {
-	if projectID == nil {
-		return nil
+// is no separate system principal here to invent. The audit row carries
+// deliveryEvidence so the ledger names that authority rather than implying a
+// project grant.
+//
+// dealID must name a deal row this transaction already holds: the project
+// pointer is re-read from it here rather than taken from a pre-lock snapshot,
+// because a concurrent edit that repoints the deal from one project to another
+// would otherwise send this advance at the project the deal no longer names.
+func startDeliveryForWonDeal(ctx context.Context, tx pgx.Tx, dealID ids.DealID, by string) error {
+	projectID, err := lockedDealProject(ctx, tx, dealID)
+	if err != nil || projectID == nil {
+		return err
 	}
-	id := ids.From[ids.ProjectKind](ids.UUID(*projectID))
+	id := ids.From[ids.ProjectKind](*projectID)
+	// The lock comes FIRST and the phase is read under it, so the decision
+	// below cannot go stale between reading and writing. A row the filter
+	// cannot resolve is an archived project, which is a no-op.
+	if _, err := storekit.LockRow(ctx, tx, projectObject, id.UUID, storekit.LiveOnly); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("lock the won deal's project: %w", err)
+	}
 	// A decision read, not a wire read — no custom columns needed, and the
 	// project this deal already points at needs no row-scope probe: the FK
 	// proves it is in this workspace, and the caller's authority came from the
 	// deal.
 	current, err := readProject(ctx, tx, id, storekit.LiveOnly, nil)
-	if errors.Is(err, apperrors.ErrNotFound) {
-		// The deal points at an archived project. The grouping was ended
-		// deliberately; the win does not resurrect it.
-		return nil
-	}
 	if err != nil {
 		return fmt.Errorf("read the won deal's project: %w", err)
 	}
@@ -95,5 +127,18 @@ func startDeliveryForWonDeal(ctx context.Context, tx pgx.Tx, projectID *openapi_
 		return nil
 	}
 	return recordPhaseTransition(ctx, tx, id, current, fromPhase,
-		AdvanceProjectPhaseInput{ToPhase: PhaseDelivering}, by)
+		AdvanceProjectPhaseInput{ToPhase: PhaseDelivering}, by, deliveryEvidence)
+}
+
+// lockedDealProject reads the project pointer off a deal row the caller's
+// transaction already holds — the win path calls this only after its patch has
+// applied, and applying is what takes the lock. Nil means the deal names no
+// project.
+func lockedDealProject(ctx context.Context, tx pgx.Tx, dealID ids.DealID) (*ids.UUID, error) {
+	var projectID *ids.UUID
+	if err := tx.QueryRow(ctx,
+		`SELECT project_id FROM deal WHERE id = $1`, dealID).Scan(&projectID); err != nil {
+		return nil, fmt.Errorf("read the won deal's project pointer: %w", err)
+	}
+	return projectID, nil
 }

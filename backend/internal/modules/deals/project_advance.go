@@ -58,6 +58,15 @@ func (s *Store) AdvanceProjectPhase(ctx context.Context, id ids.ProjectID, in Ad
 		if err := auth.EnsureWritable(ctx, tx, projectObject, id.UUID); err != nil {
 			return err
 		}
+		// The row is locked BEFORE the phase is read, so the phase this
+		// transition is derived from cannot change under it. An If-Match
+		// caller keeps the optimistic CAS instead: ApplyGuarded answers
+		// version skew, which is the refusal that caller asked for.
+		if in.IfVersion == nil {
+			if _, err := storekit.LockRow(ctx, tx, projectObject, id.UUID, storekit.LiveOnly); err != nil {
+				return err
+			}
+		}
 		// A decision read, not a wire read — no custom columns needed.
 		current, err := readProject(ctx, tx, id, storekit.LiveOnly, nil)
 		if err != nil {
@@ -74,7 +83,7 @@ func (s *Store) AdvanceProjectPhase(ctx context.Context, id ids.ProjectID, in Ad
 		// history row for it would inflate the record with movement that
 		// never happened.
 		if fromPhase != in.ToPhase {
-			if err := recordPhaseTransition(ctx, tx, id, current, fromPhase, in, by); err != nil {
+			if err := recordPhaseTransition(ctx, tx, id, current, fromPhase, in, by, nil); err != nil {
 				return err
 			}
 		}
@@ -89,8 +98,20 @@ func (s *Store) AdvanceProjectPhase(ctx context.Context, id ids.ProjectID, in Ad
 // recordPhaseTransition applies the row change, appends its history row and
 // emits the first-class event — the three writes that must land together or
 // not at all, which is the whole reason this verb exists apart from update.
+//
+// Callers must already hold the project row (LockRow, or an If-Match version
+// on the input) and must have read `current` under it: the patch below carries
+// a before-image, so a snapshot taken before the lock would overwrite a
+// concurrent writer's change with stale values.
+//
+// evidence records what authorized the write when it was NOT the caller's own
+// project.update grant. audit_log.authorization_rule is derived from the entity
+// and action, so it always reads `project.update`; a path that was admitted by
+// something else must say so here or the ledger claims a check that never ran.
+// nil is the ordinary case — a human advancing a project they may write.
 func recordPhaseTransition(ctx context.Context, tx pgx.Tx, id ids.ProjectID,
 	current crmcontracts.Project, fromPhase string, in AdvanceProjectPhaseInput, by string,
+	evidence map[string]any,
 ) error {
 	p := storekit.NewPatch()
 	p.Set("phase", fromPhase, in.ToPhase)
@@ -117,7 +138,8 @@ func recordPhaseTransition(ctx context.Context, tx pgx.Tx, id ids.ProjectID,
 		return fmt.Errorf("record project phase history: %w", err)
 	}
 
-	auditID, err := storekit.Audit(ctx, tx, "advance_phase", projectObject, id.UUID, p.Before(), p.After())
+	auditID, err := storekit.AuditWithEvidence(ctx, tx, "advance_phase", projectObject, id.UUID,
+		p.Before(), p.After(), evidence)
 	if err != nil {
 		return fmt.Errorf("audit project advance: %w", err)
 	}
