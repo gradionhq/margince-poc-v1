@@ -306,6 +306,18 @@ func EmitPipeline(ctx context.Context, tx pgx.Tx, ledgerID ids.UUID, eventType s
 	return Emit(ctx, tx, ledgerID, eventType, "", ids.Nil, payload)
 }
 
+// EmitPipelinePayload is EmitPipeline with the payload bound to its event type
+// by the compiler (events.Payload, the gen-payloads seam) instead of by a
+// string literal at the call site. Prefer it: the literal spelling is one typo
+// away from an unroutable envelope that wedges the relay, and the generated
+// struct cannot disagree with the schema it came from.
+func EmitPipelinePayload(ctx context.Context, tx pgx.Tx, ledgerID ids.UUID, p events.Payload) error {
+	if !events.IsPipelineEvent(p.EventType()) {
+		return fmt.Errorf("store: %s is not an entity-less pipeline event — use EmitEvent with its entity ref", p.EventType())
+	}
+	return Emit(ctx, tx, ledgerID, p.EventType(), "", ids.Nil, p)
+}
+
 // UUIDOrNil maps a zero UUID to SQL NULL / JSON null (the Principal uses
 // the zero value for "not an agent action").
 func UUIDOrNil(id ids.UUID) *ids.UUID {
