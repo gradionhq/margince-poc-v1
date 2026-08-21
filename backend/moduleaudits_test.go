@@ -68,6 +68,15 @@ var modulesThatWriteNoHistory = gatekit.Waive(map[string]string{
 	"internal/modules/agents": "agent_run and runner_job are runner lifecycle bookkeeping. The domain writes a run performs happen inside the TOOLS it calls, and those carry the full audit and outbox shape — auditing the run row as well would file the same change twice under two entity types",
 	"internal/modules/comms":  "comms_outbound is delivery machinery, not the message. The user-visible fact of an outbound email is the ACTIVITY row, which activities owns and audits; StageTx runs inside that same transaction, so the send already has its history. comms does write a ledger row for the one thing activities cannot describe — a reconcile failure — through storekit.LogSystem, which is system_log and deliberately not counted here",
 
+	// A projection whose whole input is the ledger of its sources. ai_task_run
+	// holds one row per AI-backed occurrence, and every state change it stores
+	// arrived as an ai_task.state_changed event — an event the bus refuses
+	// without a ledger trace link, so each of them already has an audit_log or
+	// system_log row at the WRITER that made the change. Auditing the projection
+	// too would file the same change twice, and the second filing would name a
+	// system actor rather than the human whose work it was.
+	"internal/modules/aiactivity": "ai_task_run is projected entirely from ai_task.state_changed, and the bus refuses that event without a ledger row at its own writer — the history is at the source, one filing per change",
+
 	// Rebuildable projections, and one table that could not carry an audit row.
 	"internal/modules/search": "graph_interaction_edge and embedding are PROJECTIONS folded from rows the owning modules already audited; each holds no fact of its own and is thrown away and rebuilt as the corruption remedy, so an audit trail over them would record a recomputation rather than a change. embed_store_binding is stronger than a judgement call, though not for the reason it first looks: the audit row takes its workspace from the GUC rather than from the audited table, so a table lacking the column would not by itself stop one. What stops it is that binding.go writes on the BARE POOL, deliberately outside any per-workspace transaction — it is deployment metadata, marked rls-exempt in-source — so the GUC is unset and audit_log`s NOT NULL workspace_id would take a NULL",
 

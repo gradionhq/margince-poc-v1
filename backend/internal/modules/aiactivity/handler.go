@@ -18,9 +18,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// aiTaskStateChanged is the generated payload's zero value, DECLARED rather
+// than composed on purpose: a composite literal of a payload struct is how the
+// event-ownership gate finds a module that PUBLISHES a type, and this consumer
+// publishes nothing. Composing one here would file the projection as a second
+// emitter of the event it exists to receive.
+var aiTaskStateChanged crmcontracts.InternalEventAiTaskStateChanged
+
 // eventType is the one type this consumer projects. Taken from the generated
 // payload rather than written out, so the string cannot drift from the schema.
-var eventType = crmcontracts.InternalEventAiTaskStateChanged{}.EventType()
+var eventType = aiTaskStateChanged.EventType()
 
 // Consumer projects ai_task.state_changed into ai_task_run.
 type Consumer struct {

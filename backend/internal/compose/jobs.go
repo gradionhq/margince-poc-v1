@@ -20,7 +20,9 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -352,6 +354,8 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 		periodicFor(cfg, VoiceBuildRetryArgs{}),
 		periodicFor(cfg, IdempotencyRetentionArgs{}),
 		periodicFor(cfg, AgentTaskRetentionArgs{}),
+		periodicFor(cfg, AIActivityReconcileArgs{}),
+		periodicFor(cfg, AIActivityRetentionArgs{}),
 		periodicFor(cfg, ApprovalExpiryArgs{}),
 		periodicFor(cfg, CaptureAutoEnrichSweepArgs{}),
 		periodicFor(cfg, CaptureClassifyArgs{}),
@@ -428,5 +432,22 @@ func addDatabaseOnlySweepJobs(reg *jobRegistry, pool *pgxpool.Pool, log *slog.Lo
 	})
 	addDeclaredWorker[ApprovalExpiryArgs](reg, &approvalExpiryWorker{
 		pool: pool, identity: identity.NewService(pool), log: log,
+	})
+	addAIActivitySweepJobs(reg, pool, log)
+}
+
+// addAIActivitySweepJobs registers the AI-activity projection's two passes. It
+// is its own function rather than four more lines above because both workers
+// need a store the group's other members do not, and the compiler's closed args
+// set forces one addDeclaredWorker per kind anyway.
+func addAIActivitySweepJobs(reg *jobRegistry, pool *pgxpool.Pool, log *slog.Logger) {
+	db := InstallationDB(pool)
+	addDeclaredWorker[AIActivityReconcileArgs](reg, &aiActivityReconcileWorker{
+		activities: activities.NewStore(db), identity: identity.NewService(pool),
+		now: time.Now, log: log,
+	})
+	addDeclaredWorker[AIActivityRetentionArgs](reg, &aiActivityRetentionWorker{
+		projection: aiactivity.NewStore(db), identity: identity.NewService(pool),
+		now: time.Now, log: log,
 	})
 }
