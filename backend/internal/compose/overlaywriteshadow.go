@@ -26,6 +26,7 @@ import (
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -190,22 +191,35 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		native()
 		return
 	}
-	// If-Match is accepted and discarded here, exactly as overlayUpdate's own
-	// doc says it is twenty lines above, and for the same reason: a mirror row
-	// carries no version to compare against.
+	// A CALLER's If-Match and a released APPROVAL's pin arrive in the same
+	// header and are not the same thing, so they are not answered the same way.
 	//
-	// Forwarding it was tried and reverted. The pin reaches
-	// overlay.Provider.ArchiveAt, which refuses a version it cannot honour —
-	// correct on the seam, wrong through this door. It made one REST client
-	// carrying `If-Match` on every write get 200-and-ignored from
-	// PATCH /people/{id} and 422 from DELETE /people/{id}, on the same record
-	// in the same installation, for a request that archived successfully
-	// before. Two doors of one shadow may not answer a header two ways.
+	// A caller's precondition is a client convenience, and overlayUpdate's own
+	// doc twenty lines above states this shadow's answer to it: accepted and
+	// discarded, because a mirror row carries no version to compare against.
+	// Both verbs of one shadow owe a caller the same answer about one header —
+	// ignoring it on PATCH and refusing it on DELETE tells a client two things
+	// about one record.
 	//
-	// The gap both verbs share — an overlay caller has no optimistic
-	// concurrency and gets no signal saying so — is one question, filed once,
-	// and closing it needs a version the caller can pin rather than a refusal
-	// on one verb.
+	// A released approval's pin is an AUTHORIZATION BINDING. redeemIfPresented
+	// (agentgatestaging.go) sets the header from it precisely so the store
+	// re-checks the version inside the transaction that mutates, and discarding
+	// it would carry out an archive a human approved against a version nothing
+	// then verified — silently, where the caller's own header is merely
+	// ignored. So it is forwarded, and overlay refuses it in its own words: an
+	// approval this seam cannot honour must fail loudly rather than land
+	// unconditioned.
+	//
+	// The gap the caller's header leaves — an overlay client has no optimistic
+	// concurrency and no signal saying so — is one question about both verbs,
+	// and closing it needs a version the caller can pin.
+	var pin *int64
+	if agents.ApprovalRedeemed(r.Context()) {
+		var ok bool
+		if pin, ok = httperr.IfMatchVersion(w, r); !ok {
+			return
+		}
+	}
 	ref := datasource.EntityRef{Type: et, ID: ids.UUID(id)}
 	rec, err := s.sorDispatch.Read(r.Context(), ref)
 	if err != nil {
@@ -213,7 +227,7 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if _, err := s.sorDispatch.archiveInMode(r.Context(), bool(ov),
-		datasource.ArchiveInput{Ref: ref}); err != nil {
+		datasource.ArchiveInput{Ref: ref, IfVersion: pin}); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}

@@ -290,20 +290,7 @@ func archiveOverREST(as context.Context, t *testing.T, e *integration.Env,
 	return rec
 }
 
-// The geocode sidecar's cost is NOT measured here, and #2173 is why.
-//
-// This is where a fixture would go proving what `rowScopedFKDecisions`'s
-// waiver on organization_geocode_state.organization_id claims — that the
-// app.workspace_id predicate is what keeps the FK from being a cross-tenant
-// read. Writing it is how #2173 was found: `organization` has had no
-// workspace_id column since core 1787047322 dropped it (2026-08-18, ADR-0091
-// phase D), and geocode.go shipped three days later naming it in all three of
-// its statements. Every one fails with SQLSTATE 42703.
-//
-// So the fixture cannot exist yet, and shipping it anyway would be worse than
-// having none: it could not tell "the workspace guard refused" from "the query
-// cannot run", which means it would read GREEN exactly when the subject is most
-// broken. An inverted test, not a weak one.
-//
-// It goes in when #2173 lands. The waiver's own text needs revisiting then too
-// — its stated cost is currently unmeasurable rather than mis-stated.
+// No geocode fixture lives here. #2173 records why, and carries what a future
+// one has to prove: while organization.workspace_id is missing, a fixture
+// cannot tell "the workspace guard refused" from "the query cannot run", so it
+// would read GREEN exactly when the subject is most broken.

@@ -86,9 +86,12 @@ func TestRefuseArchiveRoutesByTheSameModeRead(t *testing.T) {
 		t.Fatal("RefuseArchive answered nil: it never reached a provider, so it refused nothing and " +
 			"a staging it should have stopped would proceed to a human")
 	}
-	if strings.Contains(err.Error(), "no actor bound") {
-		t.Fatalf("RefuseArchive stopped at its object gate (%v) — that refusal is upstream of "+
-			"everything this case is about, and it would pass whether or not the routing works", err)
+	// The refusal named in this case's own doc, not merely "not the upstream
+	// one": an assertion that only excludes today's impostor admits tomorrow's.
+	if !strings.Contains(err.Error(), "no mirror store") {
+		t.Fatalf("RefuseArchive answered %v, want overlay's own no-mirror-store refusal — anything "+
+			"else is a guard upstream of the routing this case exists to pin, and would hold "+
+			"whether or not the routing works", err)
 	}
 	if *calls == 0 {
 		t.Error("RefuseArchive answered from the cached mode; the refusals it reports belong to the " +
@@ -104,7 +107,10 @@ func TestRefuseArchiveRoutesByTheSameModeRead(t *testing.T) {
 // vocabulary would admit it here.
 func TestRefuseArchiveRefusesATypeTheMirrorDoesNotArchive(t *testing.T) {
 	wsID := ids.NewV7()
-	d, _ := cachedModeDispatcher(wsID, modeOverlay)
+	// modeNative, so the cached answer DISAGREES with the workspace row. Seeded
+	// as modeOverlay the two agree, and the case cannot observe which was read
+	// — measured: swapping RefuseArchive to the cached read left it green.
+	d, calls := cachedModeDispatcher(wsID, modeNative)
 	ctx := principal.WithWorkspaceID(context.Background(), wsID)
 	ref := datasource.EntityRef{Type: datasource.EntityProject, ID: ids.NewV7()}
 
@@ -118,5 +124,9 @@ func TestRefuseArchiveRefusesATypeTheMirrorDoesNotArchive(t *testing.T) {
 		t.Fatalf("staging a project archive against an overlay workspace answered %v, want the "+
 			"unsupported-by-SoR refusal — overlay archives person, organization and deal, so this "+
 			"approval could never be carried out", err)
+	}
+	if *calls == 0 {
+		t.Error("the refusal came from the cached mode, which disagrees with the workspace row here " +
+			"— the types a staging is judged against belong to the writer that will actually run")
 	}
 }

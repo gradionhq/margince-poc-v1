@@ -60,10 +60,17 @@ func (d *Dispatcher) ArchivableTypes(ctx context.Context) ([]datasource.EntityTy
 // The egress backstop is deliberately NOT repeated here. It guards the WRITE,
 // and its own doc places it on updateInMode/archiveInMode precisely so the one
 // path that dispatches directly cannot slip underneath it; a third call site
-// would be a third thing to keep in step. Nor is one needed: a staging against
-// an overlay-served record is already refused earlier, by
-// refuseStagingElsewhere — a mirror read is Authoritative:false
-// (overlay/provider.go), and both answer the same unsupported-by-SoR sentinel.
+// would be a third thing to keep in step.
+//
+// What is NOT claimed, because it is not true: that a staging against an
+// overlay-served record is always refused earlier by refuseStagingElsewhere.
+// That holds only while the seam read and this refusal resolve the SAME mode,
+// and they do not — Dispatcher.Read answers from the cached mode (5s TTL, and
+// Invalidate reaches only the process that committed a flip) while this asks
+// isOverlayUncached. Inside that window, on a replica the invalidation never
+// reached, the read can route native and pass while this routes overlay. The
+// backstop on the write is what still catches it, which is the reason it stays
+// where its own doc puts it rather than being duplicated here.
 func (d *Dispatcher) RefuseArchive(ctx context.Context, ref datasource.EntityRef) error {
 	ov, err := d.isOverlayUncached(ctx)
 	if err != nil {

@@ -300,6 +300,33 @@ func TestOverlayUpdateIgnoresIfMatch(t *testing.T) {
 	}
 }
 
+// The archive half of the same rule, and it had no gate in either direction:
+// #2142 made this route answer 422 on a stale If-Match and `make check` was
+// green; the revert restored 200 and `make check` was green again. Whichever
+// way the behaviour goes, nothing was watching it.
+//
+// A CALLER's header is what this pins. A released approval's pin travels in
+// the same header and is deliberately NOT ignored — that one is an
+// authorization binding rather than a client convenience, and
+// overlaywriteshadow.go answers the two separately.
+func TestOverlayArchiveIgnoresACallersIfMatch(t *testing.T) {
+	e := setupOverlayWrite(t)
+	e.seed(t, "person", "9104", map[string]any{"first_name": "Ada", "last_name": "Overlay"})
+	id := firstListedID(t, e.AppEnv, "/v1/people")
+
+	var person crmcontracts.Person
+	status := e.Call(t, "DELETE", "/v1/people/"+id, nil,
+		map[string]string{"If-Match": "999"}, &person)
+	if status != http.StatusOK {
+		t.Fatalf("DELETE with a stale If-Match = %d, want 200 — a caller's precondition is accepted "+
+			"and discarded on the overlay path, the same answer PATCH gives it, and refusing one verb "+
+			"while ignoring the other tells one client two things about one record", status)
+	}
+	if person.ArchivedAt == nil {
+		t.Error("the archive itself did not apply: the header must be ignored, not the request")
+	}
+}
+
 // The write mapping carries only the fields it declares writable — here,
 // observed at the overlay REST surface's OWN honest limit: owner_id is a
 // valid, contract-writable UpdatePersonRequest field, but overlayWirePerson
