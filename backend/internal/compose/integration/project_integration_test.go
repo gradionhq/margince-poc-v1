@@ -596,6 +596,53 @@ func TestTheMergeRefusalNamesTheProjectsTheCallerCanSee(t *testing.T) {
 	}
 }
 
+// The other half of the same rule: naming a project is a read of it, so a
+// caller who never held project.read is refused the merge WITHOUT the names.
+//
+// The merge entry point gates on organization.update alone, so this seat is a
+// real one — a rep who may tidy up duplicate companies and has no business
+// with the delivery side. Row scope does not narrow a project any more, but
+// the object grant is a separate gate, and the counts are what tells this
+// caller the work exists without telling them what it is called.
+func TestTheMergeRefusalWithholdsProjectNamesFromACallerWithoutTheGrant(t *testing.T) {
+	e := Setup(t)
+	source := e.SeedOrg(t, "Kepler GmbH", &e.Rep1)
+	target := e.SeedOrg(t, "Kepler AG", &e.Rep1)
+	seedProject(e.Admin(), t, e, "Secret migration", nil, source, &e.Rep1)
+	seedProject(e.Admin(), t, e, "Secret rollout", nil, target, &e.Rep1)
+
+	// Everything the merge itself demands, and no project grant at all.
+	ungranted := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"organization":          {Read: true, Update: true, Delete: true},
+			"person":                {Read: true, Update: true},
+			"installation_settings": {Read: true},
+		},
+		RowScope: principal.RowScopeOwn,
+	})
+
+	_, err := e.People.MergeOrganization(ungranted, orgIDOf(source), orgIDOf(target))
+	var both *people.BothCompaniesCarryProjectsError
+	if !errors.As(err, &both) {
+		t.Fatalf("the merge produced %v, want a refusal — work the caller cannot see still blocks it", err)
+	}
+	// Still refused, and still on the true counts: the decision is unscoped.
+	if both.SourceCount != 1 || both.TargetCount != 1 {
+		t.Errorf("counted %d and %d live projects, want one each", both.SourceCount, both.TargetCount)
+	}
+	if len(both.Source) != 0 || len(both.Target) != 0 {
+		t.Errorf("the refusal named %v and %v to a caller holding no project grant", both.Source, both.Target)
+	}
+	// And no name reaches the rendered message either, which is what the
+	// handler puts on the wire as the 409 detail.
+	for _, name := range []string{"Secret migration", "Secret rollout"} {
+		if strings.Contains(err.Error(), name) {
+			t.Errorf("the refusal message discloses %q to a caller holding no project grant: %v", name, err)
+		}
+	}
+}
+
 // An activity's visibility DERIVES from its links, so replacing one is not a
 // harmless association edit: cut the link a team sees the activity through
 // and the activity leaves their world. Relink therefore replaces only what
