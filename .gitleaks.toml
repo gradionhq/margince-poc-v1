@@ -101,25 +101,3 @@ targetRules = ["linkedin-client-id"]
 condition = "AND"
 paths = ['''frontend/src/screens/onboarding-conversation/connect-scene\.tsx$''']
 regexes = ['''^LinkedinStatus$''']
-
-# `zcidKey` — the fixed key Zalo Web ships in its OWN public JavaScript bundle
-# to encrypt the zcid before login. It is a constant of somebody else's client,
-# transcribed so our handshake produces the bytes their server expects; it
-# authenticates nothing, and it is as public as the minified script any browser
-# downloads from Zalo. Rotating it is not a thing we can do or would want to:
-# changing it means the server refuses every login.
-#
-# Bound to the rule and to the literal itself, so every OTHER rule still reads
-# this file — which matters, because zalocrypto.go handles real session keys.
-# What this does NOT buy, measured rather than assumed: a second
-# `generic-api-key` match elsewhere in this file would also be excused. That is
-# how the two allowlists above behave too, and scripts/test-secret-scan.sh does
-# not catch it because the token it plants trips `github-pat` instead. See the
-# issue #1659 for the narrowing gap and the fix (plant one token per targeted rule).
-[[allowlists]]
-description = "Zalo Web's own published zcid key, transcribed into the personal connector"
-targetRules = ["generic-api-key"]
-condition = "AND"
-regexTarget = "line"
-paths = ['''extensions/zalo-personal/zalocrypto\.go$''']
-regexes = ['''3FC4F0D2AB50057BCE0D90D9187A22B1''']
