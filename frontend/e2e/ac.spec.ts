@@ -913,7 +913,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     await expect(page.getByText("Von Admin aufgehoben")).toBeVisible();
     await expect(page.getByText("Über E-Mail zugeordnet")).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Zuordnen…" }).click();
+    await page.getByRole("button", { name: "Zuordnen" }).click();
     await page.getByLabel("HubSpot-Nutzer suchen").fill("Lars");
     await page
       .getByRole("button", { name: "Lars Brandt · lars@brandt.example" })
@@ -1164,10 +1164,13 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
         expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
       });
 
-      // Where the region IS part of the surface, it shows all of itself: no
-      // limit may be dropped to fit (ADR-0076 Decision 6, and both earlier
-      // implementations dropped two of them with `display: none`). Count AND
-      // rendered height, because a count alone passes on a hidden node.
+      // Where the region IS part of the surface, it shows all of itself: not one
+      // of its rows may be dropped or clipped to fit (ADR-0076 Decision 6, and
+      // two earlier implementations dropped rows with `display: none`). Presence
+      // AND rendered height, because a node that is CSS-visible inside a
+      // container hiding its overflow still passes `toBeVisible` while measuring
+      // nothing — which is exactly how the copy came to be cut off at this width
+      // once already.
       //
       // Where it is NOT — the phone layout — the region is absent by design and
       // what remains is the task alone: no aside, no sphere, and no second copy
@@ -1175,17 +1178,32 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
       // ruling, 2026-08-07): the disclosure the aside makes is a property of the
       // region, and at this width the region is not on the screen for it to be a
       // property of.
+      //
+      // Named ROW BY ROW rather than counted: the copy is one paragraph in one
+      // voice, so a row missing from the middle of it is a sentence the system
+      // stopped saying, and a count would pass on any six elements.
+      const identityRows = [
+        ".auth-kicker",
+        ".auth-statement",
+        ".auth-purpose",
+        ".auth-scope",
+        ".auth-promise",
+        ".auth-handover",
+      ];
+
       test("shows the identity region whole, or not at all", async ({
         page,
       }) => {
         await page.goto("/");
         const region = page.locator("aside.auth-identity");
-        const limits = page.locator(".auth-limits li");
         if (identity) {
           await expect(region).toBeVisible();
-          await expect(limits).toHaveCount(4);
-          for (let index = 0; index < 4; index += 1) {
-            await expect(limits.nth(index)).toBeVisible();
+          for (const row of identityRows) {
+            const line = page.locator(row);
+            await expect(line).toHaveCount(1);
+            await expect(line).toBeVisible();
+            const box = await line.boundingBox();
+            expect(box?.height ?? 0).toBeGreaterThan(0);
           }
         } else {
           await expect(region).toBeHidden();
@@ -1197,11 +1215,9 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
           // region hides as one box, so a future rule that lifted a line of it
           // back into the task column would leave this width claiming to be the
           // form alone while a sentence about the AI sat above the fields.
-          await expect(page.locator(".auth-kicker")).toBeHidden();
-          await expect(page.locator(".auth-statement")).toBeHidden();
-          // The LIST, not its items: a locator that resolves to four elements is a
-          // strict-mode violation rather than an assertion.
-          await expect(page.locator(".auth-limits")).toBeHidden();
+          for (const row of identityRows) {
+            await expect(page.locator(row)).toBeHidden();
+          }
           // The class, not the tag: `RaillessFrame` already wraps every
           // rail-less screen in a `<main>`, so the task region is a `<div>` —
           // a second `<main>` here would be an invalid, duplicate landmark.
