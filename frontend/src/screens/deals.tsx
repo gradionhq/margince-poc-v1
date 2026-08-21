@@ -520,10 +520,91 @@ const ATTRIBUTION_OPTIONS: { value: string; label: MessageKey }[] = [
   { value: "influenced", label: "deal.attributionInfluenced" },
 ];
 
+/**
+ * The companies a deal may name as the partner who brought it.
+ *
+ * Only companies that ARE partners: the picker once offered every
+ * organization, which let a deal be attributed to an ordinary customer — and
+ * an attribution to a company with no partner row has no margin tier behind
+ * it, so it looks attributed and silently never earns anything.
+ *
+ * An empty list is also the answer to "is there a partner programme here": an
+ * installation that has never made a company a partner has no partner
+ * question to ask, and the two fields stay off the form entirely.
+ */
+export function usePartnerOptions(
+  orgs: { id: string; display_name: string }[],
+): { value: string; label: string }[] {
+  const partners = useQuery({
+    queryKey: ["partners", "options"],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/partners", {
+        params: { query: { limit: 200 } },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data.data;
+    },
+    staleTime: 60_000,
+  });
+  const named = new Map(orgs.map((org) => [org.id, org.display_name]));
+  return (partners.data ?? []).flatMap((partner) => {
+    const label = named.get(partner.organization_id);
+    // A partner whose organization the caller cannot read is left out rather
+    // than offered as a bare id: picking it would name a company the picker
+    // could not show them.
+    return label ? [{ value: partner.organization_id, label }] : [];
+  });
+}
+
+/**
+ * The two fields that record a deal coming through a partner, for both the
+ * create form and the edit form — one spelling, so the two cannot drift.
+ *
+ * Nothing at all when the installation has no partners: an empty picker asks a
+ * question with no answers in it, and a form that shows partner controls to a
+ * company running no partner programme is claiming a feature it does not have.
+ *
+ * The attribution follows the partner rather than standing beside it. What a
+ * partner DID is a question about a partner, so it appears once one is named
+ * and disappears when the choice is cleared — asking it first offers a claim
+ * with nobody to attach it to.
+ */
+function partnerFields(
+  t: (k: MessageKey) => string,
+  partnerOptions: { value: string; label: string }[],
+): CreateField[] {
+  if (partnerOptions.length === 0) {
+    return [];
+  }
+  return [
+    {
+      key: "partner_org_id",
+      label: "deal.partnerOrg",
+      type: "select",
+      options: partnerOptions,
+    },
+    // Commission accrues on "sourced" only, so this is the field that decides
+    // whether a win pays the partner.
+    {
+      key: "partner_attribution",
+      label: "deal.partnerAttribution",
+      type: "select",
+      showWhen: (values) => Boolean(values.partner_org_id),
+      options: ATTRIBUTION_OPTIONS.map((o) => ({
+        value: o.value,
+        label: t(o.label),
+      })),
+    },
+  ];
+}
+
 export function dealEditFields(
   t: (k: MessageKey) => string,
   opts: {
     orgs: { id: string; display_name: string }[];
+    partnerOptions: { value: string; label: string }[];
     me: string;
     currentOwner: string | null;
     currency: string;
@@ -566,23 +647,10 @@ export function dealEditFields(
       type: "select",
       options: orgOptions,
     },
-    {
-      key: "partner_org_id",
-      label: "deal.partnerOrg",
-      type: "select",
-      options: orgOptions,
-    },
-    // What that partner DID for the deal. Commission accrues on "sourced"
-    // only, so this is the field that decides whether a win pays them.
-    {
-      key: "partner_attribution",
-      label: "deal.partnerAttribution",
-      type: "select",
-      options: ATTRIBUTION_OPTIONS.map((o) => ({
-        value: o.value,
-        label: t(o.label),
-      })),
-    },
+    // Both partner fields are absent where no company has been made a partner:
+    // there is no partner programme to attribute anything to, and an empty
+    // picker is a question the reader cannot answer.
+    ...partnerFields(t, opts.partnerOptions),
     {
       key: "forecast_category",
       label: "deal.forecastCategory",
@@ -1212,6 +1280,8 @@ export function DealsScreen({
     },
   });
 
+  const partnerOptions = usePartnerOptions(orgsQuery.data?.data ?? []);
+
   const createDeal = async (values: Record<string, string>) => {
     const pipeline = effectivePipeline;
     if (!pipeline) {
@@ -1330,25 +1400,8 @@ export function DealsScreen({
         },
         // A deal brought by a partner is attributed at birth, not by editing
         // it afterwards: the win that pays them can come before anybody thinks
-        // to revisit the record, and commission accrues on "sourced" only.
-        {
-          key: "partner_org_id",
-          label: "deal.partnerOrg",
-          type: "select",
-          options: (orgsQuery.data?.data ?? []).map((org) => ({
-            value: org.id,
-            label: org.display_name,
-          })),
-        },
-        {
-          key: "partner_attribution",
-          label: "deal.partnerAttribution",
-          type: "select",
-          options: ATTRIBUTION_OPTIONS.map((o) => ({
-            value: o.value,
-            label: t(o.label),
-          })),
-        },
+        // to revisit the record.
+        ...partnerFields(t, partnerOptions),
         {
           key: "expected_close_date",
           label: "create.expectedClose",
@@ -2132,6 +2185,9 @@ function DealBadges({
 }>) {
   const t = useT();
   const cf = useObjectCustomFields("deal");
+  // Reads the same cached partner list the deals list built, so opening Edit
+  // costs no extra request.
+  const partnerOptions = usePartnerOptions(orgs);
   // The seam serves update and archive for a mirrored deal (write-back
   // projects onto the incumbent, overlay/provider_writes.go), so Edit and
   // Archive render in overlay too. Reopen and share stay hidden: reopen
@@ -2154,6 +2210,7 @@ function DealBadges({
         fields={[
           ...dealEditFields(t, {
             orgs,
+            partnerOptions,
             me: meId,
             currentOwner: deal.owner_id ?? null,
             // EMPTY, not a default. `dealEditFields` only uses this to put the

@@ -1576,7 +1576,7 @@ export const en = {
   "deal.ownerKeep": "Keep current owner",
   "deal.ownerMe": "Assign to me",
   "deal.ownerUnassign": "Unassign",
-  "deal.partnerOrg": "Partner organization",
+  "deal.partnerOrg": "via Partner",
   "deal.forecastCategory": "Forecast category",
   "deal.waitUntil": "Wait until",
   "deal.fxBase": "Base {value} · rate {rate} as of {date}",

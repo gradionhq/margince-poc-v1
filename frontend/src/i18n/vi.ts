@@ -1563,7 +1563,7 @@ export const vi = {
   "deal.ownerKeep": "Giữ người phụ trách hiện tại",
   "deal.ownerMe": "Giao cho tôi",
   "deal.ownerUnassign": "Bỏ giao",
-  "deal.partnerOrg": "Tổ chức đối tác",
+  "deal.partnerOrg": "qua đối tác",
   "deal.forecastCategory": "Nhóm dự báo",
   "deal.waitUntil": "Chờ đến",
   "deal.fxBase": "Gốc {value} · tỷ giá {rate} tính đến {date}",
