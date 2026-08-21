@@ -2316,6 +2316,8 @@ export const en = {
   "agent.activity.morningBrief.degraded":
     "I got partway through your morning brief and stopped.",
   "agent.activity.morningBrief.failed": "I couldn't finish your morning brief.",
+  "agent.activity.morningBrief.stalled":
+    "Your morning brief has been running unusually long. It may have stopped.",
   "agent.activity.riskSweep.queued": "The overnight risk sweep is queued.",
   "agent.activity.riskSweep.running": "I'm checking your deals for risk.",
   "agent.activity.riskSweep.done":
@@ -2324,6 +2326,17 @@ export const en = {
     "I got partway through the risk sweep and stopped.",
   "agent.activity.riskSweep.failed":
     "I couldn't finish the overnight risk sweep.",
+  "agent.activity.riskSweep.stalled":
+    "The risk sweep has been running unusually long. It may have stopped.",
+  "agent.activity.documentExtract.queued":
+    "Your document is queued to be read.",
+  "agent.activity.documentExtract.running": "I'm reading your document.",
+  "agent.activity.documentExtract.stalled":
+    "Reading your document has taken unusually long. It may have stopped.",
+  "agent.activity.documentExtract.done": "I've read your document.",
+  "agent.activity.documentExtract.degraded":
+    "I got partway through your document and stopped.",
+  "agent.activity.documentExtract.failed": "I couldn't read your document.",
   "agent.panel.runningNow": "Running now",
   "agent.panel.finishedToday": "Finished today",
   "agent.panel.stoppedEarly": "Why it stopped",

@@ -115,6 +115,14 @@ const (
 		"grant it again and the next occurrence will run"
 	FailureSpecLeftTheCatalog FailureReason = "this scheduled agent was removed while the run waited " +
 		"for an answer, so there is no goal left to resume; nothing further is needed"
+	// FailureCouldNotStart is a job that never became a run: the passport would
+	// not resolve, or the run row could not be written. The CAUSE is the
+	// operator log's — a resolution error carries identity's own words and a
+	// write error carries the driver's, and both reach an ordinary rep through
+	// the AI-activity rail.
+	FailureCouldNotStart FailureReason = "this scheduled run could not start; " +
+		"nothing was changed, and it will be tried again on its next schedule"
+
 	FailureRunFaulted FailureReason = "the run stopped on a fault before it could finish — " +
 		"the server log carries the cause; the next scheduled occurrence starts clean"
 )

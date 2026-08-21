@@ -117,7 +117,7 @@ export const LABELS = {
  *
  * The section reaches `ingest`, `working` and `error` on its own, but about the
  * TOOL: a read in flight, a write in flight, a source it cannot get to. `working`
- * about the AGENT is real too now — `useAgentActivity` reads the run row and
+ * about the AGENT is real too now — `useAiActivity` reads the run row and
  * `RunSection` (`agentrail.tsx`) names it in the reader's own words. What stays
  * unreachable is narrower: there is no per-step progress stream (a run is
  * `queued`, `running` or settled, never "40% through"), and `ingest` here is

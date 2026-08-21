@@ -257,6 +257,7 @@ public.activity_retention_evidence_pkey CREATE UNIQUE INDEX activity_retention_e
 public.activity_ts_config(lang text) secdef=false cfg=- acl=- 
 public.agent_run acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
 public.agent_run.agent_run_approval_fkey FOREIGN KEY (approval_id) REFERENCES approval(id) ON DELETE SET NULL (approval_id)
+public.agent_run.agent_run_attempt_check CHECK ((attempt >= 1))
 public.agent_run.agent_run_awaiting_shape CHECK (((status <> 'awaiting_approval'::text) OR ((approval_id IS NOT NULL) AND (pending IS NOT NULL))))
 public.agent_run.agent_run_passport_fkey FOREIGN KEY (passport_id) REFERENCES passport(id) ON DELETE SET NULL (passport_id)
 public.agent_run.agent_run_pkey PRIMARY KEY (id)
@@ -264,6 +265,7 @@ public.agent_run.agent_run_status_check CHECK ((status = ANY (ARRAY['running'::t
 public.agent_run.agent_run_trigger_unique UNIQUE (trigger_ref)
 public.agent_run.agent_spec text NOT NULL gen=- def=-
 public.agent_run.approval_id uuid gen=- def=-
+public.agent_run.attempt integer NOT NULL gen=- def=1
 public.agent_run.created_at timestamp with time zone NOT NULL gen=- def=now()
 public.agent_run.degrade_reason text gen=- def=-
 public.agent_run.finished_at timestamp with time zone gen=- def=-
@@ -408,6 +410,59 @@ public.ai_model_rate.output_per_mtok_microusd bigint NOT NULL gen=- def=-
 public.ai_model_rate.provider text NOT NULL gen=- def=-
 public.ai_model_rate_key CREATE UNIQUE INDEX ai_model_rate_key ON public.ai_model_rate USING btree (provider, model_id, effective_date)
 public.ai_model_rate_pkey CREATE UNIQUE INDEX ai_model_rate_pkey ON public.ai_model_rate USING btree (id)
+public.ai_task_run acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
+public.ai_task_run.actor_scope text NOT NULL gen=- def=-
+public.ai_task_run.actor_user_id uuid gen=- def=-
+public.ai_task_run.ai_task text gen=- def=-
+public.ai_task_run.ai_task_run_actor_scope_check CHECK ((actor_scope = ANY (ARRAY['personal'::text, 'workspace'::text])))
+public.ai_task_run.ai_task_run_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES app_user(id) ON DELETE SET NULL
+public.ai_task_run.ai_task_run_attempt_check CHECK ((attempt >= 1))
+public.ai_task_run.ai_task_run_identity UNIQUE (source, occurrence_key)
+public.ai_task_run.ai_task_run_passport_id_fkey FOREIGN KEY (passport_id) REFERENCES passport(id) ON DELETE SET NULL
+public.ai_task_run.ai_task_run_pkey PRIMARY KEY (id)
+public.ai_task_run.ai_task_run_quantity_check CHECK (((quantity IS NULL) OR (quantity >= 0)))
+public.ai_task_run.ai_task_run_quantity_unit_check CHECK (((quantity_unit IS NULL) OR (quantity_unit = ANY (ARRAY['messages'::text, 'records'::text, 'people'::text, 'documents'::text]))))
+public.ai_task_run.ai_task_run_queued_has_no_start CHECK (((state = 'queued'::text) = (started_at IS NULL)))
+public.ai_task_run.ai_task_run_seq_unique UNIQUE (seq)
+public.ai_task_run.ai_task_run_settled_has_finish CHECK (((state = ANY (ARRAY['done'::text, 'degraded'::text, 'failed'::text])) = (finished_at IS NOT NULL)))
+public.ai_task_run.ai_task_run_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'running'::text, 'done'::text, 'degraded'::text, 'failed'::text])))
+public.ai_task_run.ai_task_run_workspace_scope_has_no_actor CHECK (((actor_scope = 'personal'::text) OR (actor_user_id IS NULL)))
+public.ai_task_run.attempt integer NOT NULL gen=- def=1
+public.ai_task_run.created_at timestamp with time zone NOT NULL gen=- def=now()
+public.ai_task_run.degrade_reason text gen=- def=-
+public.ai_task_run.finished_at timestamp with time zone gen=- def=-
+public.ai_task_run.id uuid NOT NULL gen=- def=uuidv7()
+public.ai_task_run.kind text NOT NULL gen=- def=-
+public.ai_task_run.last_event_id uuid NOT NULL gen=- def=-
+public.ai_task_run.occurrence_key text NOT NULL gen=- def=-
+public.ai_task_run.passport_id uuid gen=- def=-
+public.ai_task_run.quantity integer gen=- def=-
+public.ai_task_run.quantity_unit text gen=- def=-
+public.ai_task_run.queued_at timestamp with time zone NOT NULL gen=- def=-
+public.ai_task_run.seq bigint NOT NULL gen=- def=nextval('ai_task_run_seq'::regclass)
+public.ai_task_run.source text NOT NULL gen=- def=-
+public.ai_task_run.stale_after timestamp with time zone gen=- def=-
+public.ai_task_run.started_at timestamp with time zone gen=- def=-
+public.ai_task_run.state text NOT NULL gen=- def=-
+public.ai_task_run.subject_id uuid gen=- def=-
+public.ai_task_run.subject_type text gen=- def=-
+public.ai_task_run.summary text gen=- def=-
+public.ai_task_run.trg_ai_task_run_updated CREATE TRIGGER trg_ai_task_run_updated BEFORE UPDATE ON public.ai_task_run FOR EACH ROW EXECUTE FUNCTION set_updated_at()
+public.ai_task_run.updated_at timestamp with time zone NOT NULL gen=- def=now()
+public.ai_task_run_cursor CREATE INDEX ai_task_run_cursor ON public.ai_task_run USING btree (actor_user_id, seq DESC)
+public.ai_task_run_identity CREATE UNIQUE INDEX ai_task_run_identity ON public.ai_task_run USING btree (source, occurrence_key)
+public.ai_task_run_live CREATE INDEX ai_task_run_live ON public.ai_task_run USING btree (actor_user_id, queued_at DESC, id DESC) WHERE (state = ANY (ARRAY['queued'::text, 'running'::text]))
+public.ai_task_run_pkey CREATE UNIQUE INDEX ai_task_run_pkey ON public.ai_task_run USING btree (id)
+public.ai_task_run_seq acl=margince_owner=rwU/margince_owner,margince_app=rU/margince_owner rls=false force=false
+public.ai_task_run_seq_unique CREATE UNIQUE INDEX ai_task_run_seq_unique ON public.ai_task_run USING btree (seq)
+public.ai_task_run_settled CREATE INDEX ai_task_run_settled ON public.ai_task_run USING btree (actor_user_id, finished_at DESC, id DESC) WHERE (state = ANY (ARRAY['done'::text, 'degraded'::text, 'failed'::text]))
+public.ai_task_run_state_rank(state text) secdef=false cfg=- acl=- 
+    SELECT CASE state
+      WHEN 'queued'  THEN 0
+      WHEN 'running' THEN 1
+      ELSE 2
+    END
+  
 public.ai_usage acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
 public.ai_usage.ai_usage_pkey PRIMARY KEY (day, task, tier)
 public.ai_usage.cache_write_tokens bigint NOT NULL gen=- def=0
@@ -534,13 +589,17 @@ public.attachment_account_ix CREATE INDEX attachment_account_ix ON public.attach
 public.attachment_contract_ix CREATE INDEX attachment_contract_ix ON public.attachment USING btree (contract_id, created_at DESC) WHERE ((contract_id IS NOT NULL) AND (archived_at IS NULL))
 public.attachment_external_part_key CREATE UNIQUE INDEX attachment_external_part_key ON public.attachment USING btree (external_source_id, external_part_id) WHERE (external_source_id IS NOT NULL)
 public.attachment_extraction acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
+public.attachment_extraction.activity_announced_at timestamp with time zone gen=- def=-
 public.attachment_extraction.attachment_extraction_attachment_id_fkey FOREIGN KEY (attachment_id) REFERENCES attachment(id) ON DELETE CASCADE
+public.attachment_extraction.attachment_extraction_attempt_check CHECK ((attempt >= 1))
 public.attachment_extraction.attachment_extraction_fields_shape CHECK ((jsonb_typeof(fields) = 'array'::text))
 public.attachment_extraction.attachment_extraction_pkey PRIMARY KEY (id)
 public.attachment_extraction.attachment_extraction_started_shape CHECK ((((status = 'queued'::text) AND (started_at IS NULL)) OR ((status <> 'queued'::text) AND (started_at IS NOT NULL))))
 public.attachment_extraction.attachment_extraction_status CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'done'::text, 'failed'::text])))
 public.attachment_extraction.attachment_extraction_terminal_shape CHECK ((((status = ANY (ARRAY['done'::text, 'failed'::text])) AND (finished_at IS NOT NULL)) OR ((status = ANY (ARRAY['queued'::text, 'running'::text])) AND (finished_at IS NULL))))
 public.attachment_extraction.attachment_id uuid NOT NULL gen=- def=-
+public.attachment_extraction.attempt integer NOT NULL gen=- def=1
+public.attachment_extraction.attempt_at timestamp with time zone NOT NULL gen=- def=now()
 public.attachment_extraction.created_at timestamp with time zone NOT NULL gen=- def=now()
 public.attachment_extraction.fields jsonb NOT NULL gen=- def='[]'::jsonb
 public.attachment_extraction.finished_at timestamp with time zone gen=- def=-
@@ -1725,6 +1784,8 @@ public.idx_are_activity CREATE INDEX idx_are_activity ON public.activity_retenti
 public.idx_are_deal CREATE INDEX idx_are_deal ON public.activity_retention_evidence USING btree (deal_id) WHERE (deal_id IS NOT NULL)
 public.idx_are_decided_by CREATE INDEX idx_are_decided_by ON public.activity_retention_evidence USING btree (decided_by) WHERE (decided_by IS NOT NULL)
 public.idx_attachment_entity CREATE INDEX idx_attachment_entity ON public.attachment USING btree (entity_type, entity_id) WHERE (archived_at IS NULL)
+public.idx_attachment_extraction_activity_live CREATE INDEX idx_attachment_extraction_activity_live ON public.attachment_extraction USING btree (activity_announced_at NULLS FIRST) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text]))
+public.idx_attachment_extraction_activity_settled CREATE INDEX idx_attachment_extraction_activity_settled ON public.attachment_extraction USING btree (finished_at DESC) WHERE (status = ANY (ARRAY['done'::text, 'failed'::text]))
 public.idx_attachment_extraction_latest CREATE INDEX idx_attachment_extraction_latest ON public.attachment_extraction USING btree (attachment_id, created_at DESC)
 public.idx_audit_actor CREATE INDEX idx_audit_actor ON public.audit_log USING btree (actor_id, occurred_at DESC)
 public.idx_audit_entity CREATE INDEX idx_audit_entity ON public.audit_log USING btree (entity_type, entity_id, occurred_at DESC)

@@ -28,11 +28,14 @@ import (
 	"go/token"
 	"io/fs"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
@@ -47,14 +50,34 @@ import (
 // PublicEventActivityChangedFields among them — and a name-prefix census counts
 // one of those as an extra shared type emitted by two modules, a duplicate that
 // does not exist.
+//
+// BOTH generated families are walked. The public one is the webhook contract;
+// the internal one carries the payloads that ride the bus without being
+// subscribable, and one module owns an event type whether or not an outside
+// consumer may name it. Walking the public file alone was right when it was the
+// only family and became a hole the moment a second one existed.
 func payloadEventTypes(t *testing.T) map[string]string {
 	t.Helper()
-	const generated = "internal/contracts/publicevents_gen.go"
-	file, err := parser.ParseFile(token.NewFileSet(), generated, nil, 0)
-	if err != nil {
-		t.Fatalf("reading the generated payloads to derive their event types: %v", err)
+	generated := []string{
+		"internal/contracts/publicevents_gen.go",
+		"internal/contracts/internalevents_gen.go",
 	}
 	out := map[string]string{}
+	for _, path := range generated {
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatalf("reading the generated payloads to derive their event types: %v", err)
+		}
+		collectEventTypeMethods(file, out)
+	}
+	assertEveryPublicTypeWasDerived(t, out, generated)
+	assertEveryInternalTypeWasDerived(t, out)
+	return out
+}
+
+// collectEventTypeMethods reads one generated file's EventType() methods into
+// the shared census.
+func collectEventTypeMethods(file *ast.File, out map[string]string) {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Name.Name != "EventType" || fn.Recv == nil || len(fn.Recv.List) != 1 {
@@ -76,16 +99,21 @@ func payloadEventTypes(t *testing.T) map[string]string {
 			out[ident.Name] = literal
 		}
 	}
-	// The floor, and it has to be a SET comparison rather than a count.
-	//
-	// A bare len(out) == 0 catches only a derivation that collapses completely.
-	// One that quietly loses a few — a pointer receiver, a two-statement body, a
-	// return of a named constant instead of a literal, all of which are generator
-	// shape changes this gate is meant to survive — drops those payloads out of
-	// BOTH gates: they vanish from the emit census and from the orphan sweep at
-	// the same time, so nothing is left to notice. PublicEventVersions is
-	// generated from the same contract and keyed on the event type, so a
-	// disagreement between the two is exactly the collapse.
+}
+
+// assertEveryPublicTypeWasDerived is the floor, and it has to be a SET
+// comparison rather than a count.
+//
+// A bare len(out) == 0 catches only a derivation that collapses completely.
+// One that quietly loses a few — a pointer receiver, a two-statement body, a
+// return of a named constant instead of a literal, all of which are generator
+// shape changes this gate is meant to survive — drops those payloads out of
+// BOTH gates: they vanish from the emit census and from the orphan sweep at
+// the same time, so nothing is left to notice. PublicEventVersions is
+// generated from the same contract and keyed on the event type, so a
+// disagreement between the two is exactly the collapse.
+func assertEveryPublicTypeWasDerived(t *testing.T, out map[string]string, generated []string) {
+	t.Helper()
 	missing := make([]string, 0)
 	for eventType := range crmcontracts.PublicEventVersions {
 		if !slices.Contains(slices.Collect(maps.Values(out)), eventType) {
@@ -93,10 +121,69 @@ func payloadEventTypes(t *testing.T) map[string]string {
 		}
 	}
 	if len(missing) > 0 {
-		t.Fatalf("derived %d event types from %s but PublicEventVersions carries %d; %v have a "+
+		t.Fatalf("derived %d event types from %v but PublicEventVersions carries %d; %v have a "+
 			"contract entry and no EventType() this walk could read. The walk has stopped seeing "+
 			"payloads, so both gates would pass over every type it lost",
 			len(out), generated, len(crmcontracts.PublicEventVersions), slices.Sorted(slices.Values(missing)))
+	}
+}
+
+// assertEveryInternalTypeWasDerived is the same floor for the internal family,
+// and it cannot lean on the same source.
+//
+// gen-payloads emits no versions map for that family on purpose — every family
+// compiles into ONE Go package, and only the public contract has gates that
+// read one — so there is no generated set to compare against. The CONTRACT is
+// the set instead: every schema in api/internal-events.yaml carrying an
+// x-event-type must have produced an EventType() this walk could read. Without
+// it a generator shape change drops the whole internal family out of both gates
+// silently, which is the collapse the public floor exists to catch.
+func assertEveryInternalTypeWasDerived(t *testing.T, out map[string]string) {
+	t.Helper()
+	declared := internalContractEventTypes(t)
+	if len(declared) == 0 {
+		t.Fatal("api/internal-events.yaml declares no x-event-type at all; this floor would pass vacuously")
+	}
+	derived := slices.Collect(maps.Values(out))
+	missing := make([]string, 0)
+	for _, eventType := range declared {
+		if !slices.Contains(derived, eventType) {
+			missing = append(missing, eventType)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("api/internal-events.yaml declares %v with no EventType() this walk could read; "+
+			"the internal family has dropped out of the ownership census and the orphan sweep at once",
+			slices.Sorted(slices.Values(missing)))
+	}
+}
+
+// internalContractEventTypes reads the internal family's event types from the
+// contract itself, which is the only place that set is written down.
+func internalContractEventTypes(t *testing.T) []string {
+	t.Helper()
+	// `x-event-type` is an OpenAPI extension, so the tag cannot be snake_case:
+	// the repo's tag rule is about the shapes WE publish, and this decodes a
+	// document whose key names are not ours to choose.
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				EventType string `yaml:"x-event-type"` //nolint:tagliatelle // OpenAPI's extension key, not ours to rename
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	raw, err := os.ReadFile("api/internal-events.yaml")
+	if err != nil {
+		t.Fatalf("reading the internal payload contract: %v", err)
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parsing the internal payload contract: %v", err)
+	}
+	out := make([]string, 0, len(doc.Components.Schemas))
+	for _, schema := range doc.Components.Schemas {
+		if schema.EventType != "" {
+			out = append(out, schema.EventType)
+		}
 	}
 	return out
 }
@@ -192,6 +279,25 @@ func modulesEmitting(sites []emitSite) []string {
 // module announces a fact that IS the first module's fact. None is a second
 // meaning for one name, which is what the rule protects.
 var sharedEventTypes = gatekit.Waive(map[string]string{
+	// Structure 0 — ai_task.state_changed is SHARED BY DESIGN, and it is the one
+	// type in this set where sharing is the feature rather than a tolerated
+	// exception.
+	//
+	// The projection behind the AI-activity rail exists precisely so that "what
+	// is the AI doing for me" is answered by ONE table with one shape, instead
+	// of by a read that unions every source's own tables and grows an arm per
+	// source. That design only works if every AI-backed writer announces in the
+	// same words: a per-module type would put the vocabulary back in the reader,
+	// which is the thing it replaced.
+	//
+	// What keeps it honest is that the type carries no entity ref and no shared
+	// MEANING to disagree about — it says "this occurrence of mine is now in
+	// this state", and `source` namespaces whose occurrence it is, so two
+	// emitters can never collide on one row. A third emitter is expected
+	// (capture sweeps); it belongs here, with its own line.
+	"ai_task.state_changed <- internal/modules/activities": "a document reading announces its own six transitions; source=attachment_extraction keys its occurrences",
+	"ai_task.state_changed <- internal/modules/agents":     "a scheduled run announces the same way; source=agent_runner keys its occurrences, and one trigger occurrence is one row because the key carries the spec and the trigger ref",
+
 	// Structure 1 — the overlay write-back announces the NATIVE module's event.
 	// overlay/writeaudit.go switches on datasource.EntityRef and emits the
 	// system-of-record type for the entity it just wrote. That is the point: a

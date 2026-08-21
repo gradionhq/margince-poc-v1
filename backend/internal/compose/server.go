@@ -15,10 +15,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/compose/agentactivity"
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/commissions"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
@@ -139,7 +139,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// the store bounds "today" at midnight in the clock's own location, and a
 		// UTC clock would name the wrong day on a non-UTC installation for the
 		// hours either side of local midnight.
-		agentActivityHandlers: agentactivity.NewHandlers(agentactivity.NewStore(InstallationDB(pool), time.Now), time.Now),
+		aiActivityHandlers: aiactivity.NewHandlers(aiactivity.NewStore(InstallationDB(pool)), time.Now),
 		// The accept-write needs no option to wire: it resolves the reading a
 		// human was already shown (RD-AC-N-5) rather than producing one, so it
 		// works wherever the readings do. An attachment that has never been read

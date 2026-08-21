@@ -281,3 +281,27 @@ func AgentRunID(ctx context.Context) (ids.UUID, bool) {
 	id, ok := ctx.Value(agentRunKey).(ids.UUID)
 	return id, ok
 }
+
+// HumanIDPrefix is how a Principal.ID names a person. It is the ONE spelling
+// of that fact in this tree, and it is named so the callers that have to read
+// a person out of an id string cannot each invent their own.
+const HumanIDPrefix = "human:"
+
+// HumanUserID reads the app_user behind a principal id, reporting whether the
+// id names a person at all.
+//
+// Only a HUMAN namespace can name a human owner. A system or connector
+// namespace that happened to carry a uuid would otherwise be attributed to a
+// person who did not ask for the work — the provenance mistake every caller of
+// this was written to avoid, three times over, before the parse lived here.
+func HumanUserID(id string) (ids.UUID, bool) {
+	raw, found := strings.CutPrefix(id, HumanIDPrefix)
+	if !found {
+		return ids.Nil, false
+	}
+	parsed, err := ids.Parse(raw)
+	if err != nil {
+		return ids.Nil, false
+	}
+	return parsed, true
+}

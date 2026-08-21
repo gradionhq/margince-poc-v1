@@ -11,7 +11,6 @@ package compose
 
 import (
 	"context"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -60,15 +59,12 @@ func withClaimedRequester(ctx context.Context, requestedBy string, readID ids.UU
 // on_behalf_of is then honestly NULL rather than the read failing over
 // provenance.
 func requestedByUserID(requestedBy string) ids.UUID {
-	namespace, raw, found := strings.Cut(requestedBy, ":")
-	// Only a HUMAN requester can be a human owner. A system namespace naming a
-	// uuid would otherwise be attributed to a person who did not ask for the
-	// read, which is the provenance mistake this whole path exists to avoid.
-	if !found || namespace != "human" {
-		return ids.UUID{}
-	}
-	id, err := ids.Parse(raw)
-	if err != nil {
+	// Only a HUMAN requester can be a human owner, which is exactly what
+	// principal.HumanUserID answers: a system namespace naming a uuid is not a
+	// person, and attributing it to one is the provenance mistake this whole
+	// path exists to avoid.
+	id, ok := principal.HumanUserID(requestedBy)
+	if !ok {
 		return ids.UUID{}
 	}
 	return id

@@ -2263,6 +2263,8 @@ export const vi = {
     "Tôi mới làm được một phần bản tóm tắt buổi sáng rồi dừng lại.",
   "agent.activity.morningBrief.failed":
     "Tôi không hoàn thành được bản tóm tắt buổi sáng của bạn.",
+  "agent.activity.morningBrief.stalled":
+    "Bản tóm tắt buổi sáng của bạn đang chạy lâu bất thường. Có thể nó đã dừng.",
   "agent.activity.riskSweep.queued": "Đợt kiểm tra rủi ro ban đêm đã xếp hàng.",
   "agent.activity.riskSweep.running":
     "Tôi đang kiểm tra rủi ro trong các deal của bạn.",
@@ -2272,6 +2274,18 @@ export const vi = {
     "Tôi mới kiểm tra được một phần rủi ro rồi dừng lại.",
   "agent.activity.riskSweep.failed":
     "Tôi không hoàn thành được đợt kiểm tra rủi ro ban đêm.",
+  "agent.activity.riskSweep.stalled":
+    "Đợt kiểm tra rủi ro đang chạy lâu bất thường. Có thể nó đã dừng.",
+  "agent.activity.documentExtract.queued":
+    "Tài liệu của bạn đang chờ được đọc.",
+  "agent.activity.documentExtract.running": "Tôi đang đọc tài liệu của bạn.",
+  "agent.activity.documentExtract.stalled":
+    "Việc đọc tài liệu của bạn kéo dài bất thường. Có thể nó đã dừng.",
+  "agent.activity.documentExtract.done": "Tôi đã đọc xong tài liệu của bạn.",
+  "agent.activity.documentExtract.degraded":
+    "Tôi mới đọc được một phần tài liệu của bạn rồi dừng.",
+  "agent.activity.documentExtract.failed":
+    "Tôi không đọc được tài liệu của bạn.",
   "agent.panel.runningNow": "Đang chạy",
   "agent.panel.finishedToday": "Đã xong hôm nay",
   "agent.panel.stoppedEarly": "Vì sao nó dừng",

@@ -104,6 +104,14 @@ func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain complet
 // schedule must still run when the accounting for last week's crash cannot.
 func (s *RunnerService) Tick(ctx context.Context, now time.Time) error {
 	now = now.UTC()
+	// The pass's own identity, bound once for everything it does.
+	//
+	// It is not decoration: seeding, sweeping and finishing all announce their
+	// occurrence to the AI-activity projection now, and an announcement carries
+	// the write shape — a ledger row and an outbox row, both of which take their
+	// actor from the context. A pass with no actor bound could not write either,
+	// and the rail would silently never learn that the 06:00 brief was queued.
+	ctx = schedulerContext(ctx)
 	s.reapAbandonedRuns(ctx)
 	for _, spec := range runner.Catalog() {
 		if due := spec.DueAt(now); !now.Before(due) {
@@ -122,6 +130,24 @@ func (s *RunnerService) Tick(ctx context.Context, now time.Time) error {
 		s.executeJob(ctx, job)
 	}
 	return nil
+}
+
+// schedulerActor is who the scheduling pass is. The runs it seeds are executed
+// under their own passports later; this names only the pass that placed them.
+const schedulerActor = "system:agent_scheduler"
+
+// resumeActor is who closes or resumes a parked run when an approval is
+// decided. The resumed leg itself runs under the run's own passport; this names
+// only the consumer that reacted to the decision.
+const resumeActor = "system:agent_resume"
+
+// schedulerContext binds the pass's actor and one correlation id, so every row
+// a single tick writes groups under the tick that wrote it.
+func schedulerContext(ctx context.Context) context.Context {
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: schedulerActor,
+	})
 }
 
 // stuckRunGrace is how far past its wall clock a 'running' row must be before
@@ -189,7 +215,12 @@ func (s *RunnerService) executeJob(ctx context.Context, job runner.QueuedJob) {
 	}
 	agentIdentity, err := s.identity.AuthenticateAgentByID(ctx, *job.PassportID)
 	if err != nil {
-		s.finishJob(ctx, job.ID, nil, "passport resolution failed: "+err.Error())
+		// The cause goes to the operator, never onto the row: this reason is
+		// announced to the AI-activity rail, where an ordinary rep reads it, and
+		// identity's own message names internals they cannot act on.
+		s.log.Warn("runner: a job's passport would not resolve",
+			"job", job.ID, "trigger_ref", job.TriggerRef, "cause", err)
+		s.finishJob(ctx, job.ID, nil, string(runner.FailureCouldNotStart))
 		return
 	}
 	// One correlation id per run: every event the run's writes emit
@@ -198,7 +229,11 @@ func (s *RunnerService) executeJob(ctx context.Context, job runner.QueuedJob) {
 
 	runID, created, err := s.store.StartRun(runCtx, spec, job.TriggerRef, *job.PassportID)
 	if err != nil {
-		s.finishJob(ctx, job.ID, nil, err.Error())
+		// Same rule as the resolution failure above: a write error carries the
+		// driver's words, which must not reach the column a rep reads.
+		s.log.Warn("runner: a run row could not be written",
+			"job", job.ID, "trigger_ref", job.TriggerRef, "cause", err)
+		s.finishJob(ctx, job.ID, nil, string(runner.FailureCouldNotStart))
 		return
 	}
 	if !created {
@@ -247,6 +282,16 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 		return err
 	}
 	ctx = principal.WithWorkspaceID(ctx, ws.UUID)
+	// The resume path's own actor, for the same reason Tick binds one: every
+	// terminal write below announces the occurrence to the AI-activity
+	// projection, and an announcement carries the write shape — a ledger row and
+	// an outbox row, both of which take their actor from the context. Without it
+	// MarkFailed rolls back, the claim is not undone, and the run is parked
+	// forever in a state no redelivery can close.
+	ctx = principal.WithCorrelationID(ctx, env.EventID)
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: resumeActor,
+	})
 
 	// The payload is read BEFORE the run is claimed: claiming is one-way, so
 	// every step after it must end in a terminal status rather than in a

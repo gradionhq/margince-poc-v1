@@ -20,6 +20,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 	"github.com/gradionhq/margince/backend/internal/modules/commissions"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/integrations"
@@ -391,6 +392,18 @@ func startProjectionLanes(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Cl
 		people.NewStore(compose.InstallationDB(pool)), logger)
 	_, _ = fmt.Fprintln(stdout, "worker accruing partner commission on won deals")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:commissions", accrual.HandleEvent, logger, 0) })
+
+	// What the AI is doing for one person, projected into the table the UI
+	// reads. Deterministic like the projections above, so it runs on every
+	// worker: an installation whose lane is not running has a rail that is not
+	// wrong so much as frozen, and a frozen rail reads as an idle one.
+	//
+	// The default reclaim window is right here, unlike the resume lane's: this
+	// handler is one guarded upsert, so a consumer that looks slow really is
+	// stuck and a peer should take the entry.
+	projection := aiactivity.NewConsumer(aiactivity.NewStore(compose.InstallationDB(pool)), logger)
+	_, _ = fmt.Fprintln(stdout, "worker projecting AI activity for the rail")
+	background.Go(func() { runSubscriber(ctx, rdb, "cg:ai-activity", projection.HandleEvent, logger, 0) })
 
 	// Filling a contact from what their employer's site already published, and
 	// from public search metadata when a provider is bound. Same trigger as the

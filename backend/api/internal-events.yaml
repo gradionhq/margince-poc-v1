@@ -1,0 +1,129 @@
+openapi: 3.1.0
+info:
+  title: Margince Internal Event Payloads
+  version: "1"
+  description: >-
+    Payloads for events that ride the bus but are NOT part of the public
+    webhook contract. They exist here for the same reason the public ones do:
+    gen-payloads projects EventType()/EntityType() onto the generated struct,
+    so an emit site and its schema cannot drift without failing to compile.
+
+    Kept SEPARATE from api/public-events.yaml because nothing here is
+    subscribable. A schema in that file is a promise to an outside consumer;
+    a schema in this one is an internal wire shape the tree may change with
+    its consumers, and the two must not be confused by a reader or by the
+    coverage gate that walks the subscribable set.
+components:
+  schemas:
+    InternalEventAiTaskStateChanged:
+      type: object
+      x-event-type: ai_task.state_changed
+      x-entity-type: ""
+      description: >-
+        Payload for ai_task.state_changed — one AI-backed occurrence reported
+        its current state to the AI-activity projection. Entity-less by nature:
+        the occurrence names no domain record, and the row that will hold it
+        does not exist until the projection this event feeds writes it.
+      required:
+        - source
+        - occurrence_key
+        - kind
+        - attempt
+        - state
+        - queued_at
+      properties:
+        source:
+          type: string
+          maxLength: 64
+          description: >-
+            The subsystem that owns the occurrence — 'attachment_extraction',
+            'agent_runner', 'capture_sync'. Identity, not display: two sources
+            must never collide on one occurrence key.
+        occurrence_key:
+          type: string
+          maxLength: 128
+          description: That source's own idempotency key for this occurrence.
+        kind:
+          type: string
+          maxLength: 64
+          description: The display kind the client maps to a sentence.
+        ai_task:
+          type: string
+          maxLength: 64
+          description: >-
+            The api/ai-tasks.yaml task that did the model work, when one did.
+            Absent for an occurrence with no model call of its own.
+        attempt:
+          type: integer
+          minimum: 1
+          description: >-
+            Which attempt this state belongs to. The lifecycle is NOT monotonic
+            — a claimed run can be released and re-claimed — so state alone
+            cannot order two events.
+        state:
+          type: string
+          enum: [queued, running, done, degraded, failed]
+          # A plain Go string, deliberately. oapi-codegen names an inline
+          # enum's constants after the VALUES, unprefixed — 'Failed', 'Queued',
+          # 'Records' — and crmcontracts is one package shared with the whole
+          # generated API surface, where 'Failed' is already taken. The enum
+          # stays here because it IS the contract: TestTheContractStateEnum-
+          # MatchesTheTableCheck holds it equal to ai_task_run's CHECK.
+          x-go-type: string
+          description: The occurrence's state as of this event.
+        queued_at:
+          type: string
+          format: date-time
+          description: >-
+            When the CURRENT attempt was enqueued. Not the occurrence's first
+            enqueue: a live row ages from the instant its attempt became
+            current, and a re-queued occurrence dated by its original creation
+            is past its lease before any worker sees it.
+        started_at:
+          type: string
+          format: date-time
+          description: When this attempt was claimed. Absent while queued.
+        finished_at:
+          type: string
+          format: date-time
+          description: When this attempt settled. Present exactly for a settled state.
+        lease_seconds:
+          type: integer
+          minimum: 1
+          description: >-
+            The source's own lease on a live attempt. The projection stores
+            started_at (or queued_at) plus this as stale_after, and the read
+            renders a live row past it as stalled rather than as live.
+        subject_type:
+          type: string
+          maxLength: 64
+          description: The kind of record the occurrence is about, when it is about one.
+        subject_id:
+          type: string
+          format: uuid
+          description: That record's id.
+        quantity:
+          type: integer
+          minimum: 0
+          description: How much the occurrence handled, in quantity_unit.
+        quantity_unit:
+          type: string
+          enum: [messages, records, people, documents]
+          x-go-type: string
+          description: What quantity counts.
+        degrade_reason:
+          type: string
+          maxLength: 200
+          description: >-
+            SERVER-AUTHORED prose, never a provider message and never
+            err.Error(). That is the property that matters rather than the
+            spelling: a provider's own text can echo key material or a prompt
+            injection's payload, and this column reaches an ordinary rep. The
+            emitters satisfy it with fixed literals today; what a reviewer has
+            to check of a new one is where the string came from, not what shape
+            it is.
+        summary:
+          type: string
+          maxLength: 2000
+          description: The occurrence's own prose. Never the status line.
+      additionalProperties: false

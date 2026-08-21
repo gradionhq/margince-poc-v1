@@ -27,12 +27,6 @@ import { useDedupeQueue } from "../screens/dedupe";
 import { usePendingApprovals } from "../screens/inbox.queries";
 import { useLicenseEntitlement } from "../screens/license";
 import { type AppActivity, useAppActivity } from "./activity";
-import { type AgentActivity, useAgentActivity } from "./agent-activity";
-import {
-  lineFor,
-  PANEL_HEADING,
-  RUN_DETAIL_LABEL,
-} from "./agent-activity-lines";
 import {
   IDLE_ORDER,
   type IdleKind,
@@ -44,6 +38,8 @@ import {
 } from "./agentrail-copy";
 import { type DemoRun, useDemoRun } from "./agentrail-demo";
 import { useAgentTicker } from "./agentrail-ticker";
+import { type AiActivity, useAiActivity } from "./ai-activity";
+import { lineFor, PANEL_HEADING, RUN_DETAIL_LABEL } from "./ai-activity-lines";
 import { useAgentTierMap } from "./autonomy";
 import { useCan } from "./capability";
 import { usePopoverDismiss } from "./popover";
@@ -511,8 +507,8 @@ function RuntimeRows({
   );
 }
 
-/** One scheduled run, as the server reports it. */
-type ActivityItem = components["schemas"]["ActivityItem"];
+/** One AI occurrence, as the server reports it. */
+type AiActivityItem = components["schemas"]["AiActivityItem"];
 
 /**
  * One list of scheduled runs, in the reader's words, under its own heading.
@@ -531,7 +527,7 @@ type ActivityItem = components["schemas"]["ActivityItem"];
 function RunSection({
   heading,
   items,
-}: Readonly<{ heading: MessageKey; items: readonly ActivityItem[] }>) {
+}: Readonly<{ heading: MessageKey; items: readonly AiActivityItem[] }>) {
   const t = useT();
   // flatMap rather than map+filter: the empty array drops the run AND narrows
   // the line to a string, where a filtered predicate would only have claimed it.
@@ -583,9 +579,9 @@ function AgentPanel({
   /** The same line the card carries, so the two never disagree. */
   line: string;
   /** The scheduled runs the server reports as live. */
-  running: readonly ActivityItem[];
+  running: readonly AiActivityItem[];
   /** The runs that settled since local midnight, newest first. */
-  recent: readonly ActivityItem[];
+  recent: readonly AiActivityItem[];
   signals: Signals;
   model: Readonly<{ allowed: boolean; calls: readonly AiCall[] }>;
   spend: Readonly<{
@@ -854,7 +850,7 @@ function warningLine(signals: Signals): string {
 function derive(
   activity: AppActivity,
   signals: Signals,
-  server: AgentActivity,
+  server: AiActivity,
 ): MarginceCoreState {
   if (signals.ai === "unconfigured" || signals.offline.length > 0) {
     return "error";
@@ -1016,7 +1012,7 @@ export function AgentRail({ route }: Readonly<{ route: Route }>) {
   const model = useRecentCalls();
   const record = useRecordRead(route);
   const activity = useAppActivity();
-  const server = useAgentActivity();
+  const server = useAiActivity();
   const ticker = useAgentTicker();
   const spend = useAiSpend();
   const { locale } = useLocale();

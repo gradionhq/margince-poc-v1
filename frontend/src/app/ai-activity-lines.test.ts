@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 import { vi } from "../i18n/vi";
-import { ACTIVITY_LINE, lineFor } from "./agent-activity-lines";
+import { ACTIVITY_LINE, lineFor } from "./ai-activity-lines";
 
 // A key the map names must exist in the catalog, and a translated
 // `agent.activity.` key nothing names is copy three translators paid for and
@@ -56,12 +56,32 @@ describe("the activity copy set", () => {
     },
   );
 
-  it("has a line for every state the runner can reach, and none for approval", () => {
-    for (const byState of Object.values(ACTIVITY_LINE)) {
-      for (const state of ["queued", "running", "done", "degraded", "failed"]) {
-        expect(byState[state as keyof typeof byState], state).toBeDefined();
+  // Totality over (kind, state) is the COMPILER's, since ACTIVITY_LINE is typed
+  // as a full Record — a hard-coded state list here could only check the states
+  // somebody remembered to write down, and that list is what goes stale. What
+  // is left for runtime is that each key resolves to real copy: a key that
+  // typechecks but names no message renders as the key string to a reader.
+  it("names copy that exists, for every kind and state", () => {
+    let checked = 0;
+    for (const [kind, byState] of Object.entries(ACTIVITY_LINE)) {
+      for (const [state, key] of Object.entries(byState)) {
+        expect(en[key], `${kind}.${state} -> ${key}`).toBeTruthy();
+        checked++;
       }
-      expect(byState.awaiting_approval).toBeUndefined();
+    }
+    // A map that lost its entries would pass every assertion above.
+    expect(checked).toBeGreaterThanOrEqual(
+      Object.keys(ACTIVITY_LINE).length * 6,
+    );
+  });
+
+  // The one state a reader must always be told about, whatever the work was.
+  // It is the only state no writer produces — the server derives it — so a kind
+  // that forgot it would go silent for exactly the case it exists to report.
+  it("gives every kind a line for the derived stalled state", () => {
+    for (const [kind, byState] of Object.entries(ACTIVITY_LINE)) {
+      expect(byState.stalled, kind).toBeDefined();
+      expect(en[byState.stalled], kind).toBeTruthy();
     }
   });
 });
@@ -73,14 +93,19 @@ describe("lineFor", () => {
     ).toBe(en["agent.activity.morningBrief.running"]);
   });
 
-  // translate() falls back to the key string, so without the existence check a
-  // reader would be shown `agent.activity.morningBrief.awaiting_approval`.
-  it("renders nothing at all for a state with no copy", () => {
-    expect(
-      lineFor(
-        { kind: "morning_brief", state: "awaiting_approval" },
-        (key) => en[key],
-      ),
-    ).toBeNull();
+  // The map is total over the contract, so the only way to miss is a value the
+  // contract does not carry — which is exactly what an OLDER TAB receives from
+  // a newer server that has added a state or a kind. translate() falls back to
+  // the key string, so without the existence check that reader is shown
+  // `agent.activity.morningBrief.undefined` instead of nothing.
+  //
+  // The casts are the point rather than a shortcut: this asserts the runtime
+  // behaviour for a value the type system has already ruled out, and there is
+  // no other way to express it.
+  it.each([
+    ["an unknown state", { kind: "morning_brief", state: "hibernating" }],
+    ["an unknown kind", { kind: "weekly_digest", state: "running" }],
+  ])("renders nothing at all for %s", (_name, item) => {
+    expect(lineFor(item, (key) => en[key])).toBeNull();
   });
 });

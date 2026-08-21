@@ -801,6 +801,45 @@ kinds:
       expiry no surface can read it back, so a daily pass would leave a day of
       expired personal data sitting past its purpose.
 
+  ai_activity_reconcile:
+    role: worker
+    go_type: AIActivityReconcileArgs
+    queue: default
+    timeout: 5m
+    max_attempts: 3
+    opts_owner: args
+    cadence: 15m
+    reason: >-
+      The AI-activity projection is fed by an at-least-once bus, and a consumer
+      group that falls behind the stream's trim horizon loses events for good —
+      XAUTOCLAIM recovers pending entries, not trimmed ones. This pass
+      re-publishes the current state of live source occurrences — at most
+      aiActivityReconcileBatch (500) per run, rotating on the source's own
+      last-announced marker so a deep backlog drains rather than reselecting
+      its own head — and a lost event therefore costs a delay rather than a
+      permanently wrong display.
+
+      Fifteen minutes because the display it repairs is a LIVE one. A reading's
+      own lease is five minutes, so a row the projection missed entirely is
+      invisible for at most three lease windows — long enough that the pass is
+      cheap, short enough that a rep pressing the button again is not the only
+      way the rail ever catches up.
+
+  ai_activity_retention:
+    role: worker
+    go_type: AIActivityRetentionArgs
+    queue: default
+    timeout: 5m
+    max_attempts: 3
+    opts_owner: args
+    cadence: 24h
+    reason: >-
+      Daily, because what it drops is a settled occurrence past a fourteen-day
+      window and nothing reads one after that. The window is wider than the
+      rail needs (today) so the paginated feed that follows can page backwards
+      without a second migration; a narrower one would have to be widened by
+      changing history nobody kept.
+
   idempotency_retention:
     role: dispatcher
     go_type: IdempotencyRetentionArgs

@@ -7,28 +7,31 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { throwProblem } from "../screens/common";
 
-type ActivityItem = components["schemas"]["ActivityItem"];
+type AiActivityItem = components["schemas"]["AiActivityItem"];
 
-/** Fast while the agent is mid-run; slow otherwise. */
+/** Fast while the AI is mid-occurrence; slow otherwise. */
 const POLL_LIVE_MS = 3_000;
 const POLL_IDLE_MS = 30_000;
 
-const ACTIVITY_KEY = ["me", "agent-activity"] as const;
+const ACTIVITY_KEY = ["me", "ai-activity"] as const;
 
 /** One frozen empty list, so an absent read never mints a new array identity. */
-const NOTHING: readonly ActivityItem[] = Object.freeze([]);
+const NOTHING: readonly AiActivityItem[] = Object.freeze([]);
 
-export type AgentActivity = Readonly<{
-  /** Queued, running or awaiting-approval runs; empty while the read is absent. */
-  running: readonly ActivityItem[];
-  /** Runs that settled since local midnight, newest first. */
-  recent: readonly ActivityItem[];
-  /** Whether a run is live RIGHT NOW, as reported by a read that answered. */
+export type AiActivity = Readonly<{
+  /** Occurrences that are queued, running, or live past their lease; empty while the read is absent. */
+  running: readonly AiActivityItem[];
+  /** Occurrences that settled since local midnight, newest first. */
+  recent: readonly AiActivityItem[];
+  /** Whether any AI work is live RIGHT NOW, as reported by a read that answered. */
   working: boolean;
 }>;
 
 /**
- * What the overnight runner is doing, polled while somebody is looking.
+ * What the AI is doing for this person, polled while somebody is looking.
+ *
+ * ONE read over one projection: a scheduled run and a document reading arrive
+ * through the same feed, so a new kind of AI work never adds a call here.
  *
  * The rail's doctrine applies to `working`: a read that has not answered, or
  * that this seat may not make, is ABSENT rather than a zero. So `working` is
@@ -36,7 +39,7 @@ export type AgentActivity = Readonly<{
  * body came back carrying a live run — nothing here lets `undefined` flicker
  * through as a standing the reader would take for "at rest".
  */
-export function useAgentActivity(): AgentActivity {
+export function useAiActivity(): AiActivity {
   const client = useQueryClient();
   const [visible, setVisible] = useState(() => !document.hidden);
 
@@ -54,7 +57,7 @@ export function useAgentActivity(): AgentActivity {
     queryKey: ACTIVITY_KEY,
     enabled: visible,
     queryFn: async () => {
-      const { data, error } = await api.GET("/me/agent-activity");
+      const { data, error } = await api.GET("/me/ai-activity");
       if (error) {
         throwProblem(error);
       }
@@ -96,6 +99,11 @@ export function useAgentActivity(): AgentActivity {
   return {
     running,
     recent: answered?.recent ?? NOTHING,
-    working: running.length > 0,
+    // STALLED is not working. The server derives that state for an occurrence
+    // whose own source says it should have finished by now, and the chrome that
+    // reads `working` pulses to say the AI is busy — so counting a stalled item
+    // here would animate "still going" over a line that reads "it may have
+    // stopped", softening the one verdict this state exists to deliver.
+    working: running.some((item) => item.state !== "stalled"),
   };
 }

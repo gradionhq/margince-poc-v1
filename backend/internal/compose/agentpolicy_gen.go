@@ -196,7 +196,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/leads/{id}/manual-signals":                                  {Op: "listLeadManualSignals", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/leads/{id}/promote-preview":                                 {Op: "previewLeadPromotion", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/leads/{id}/score":                                           {Op: "explainLeadScore", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
-	"GET /v1/me/agent-activity":                                          {Op: "getMyAgentActivity", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"GET /v1/me/ai-activity":                                             {Op: "getMyAiActivity", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/me/email-signature":                                         {Op: "getMyEmailSignature", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/me/linkedin-account":                                        {Op: "getMyLinkedInAccount", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/me/linkedin-reach":                                          {Op: "getMyLinkedInReach", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

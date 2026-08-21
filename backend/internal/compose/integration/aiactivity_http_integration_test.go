@@ -12,7 +12,7 @@ package integration
 // contract envelope is the proof that the real handler serves this route.
 //
 // The second half is the operation's `x-agent-access: human-only`
-// declaration. A personal read of what the agent did on your behalf is
+// declaration. A personal read of what the AI did on your behalf is
 // exactly the surface an injected agent would use to learn what it is
 // permitted to do unobserved, so the refusal is asserted through a real
 // minted passport rather than trusted to the generated policy table.
@@ -25,7 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
 
-func TestMyAgentActivityServesTheRealHandlerToAHuman(t *testing.T) {
+func TestMyAiActivityServesTheRealHandlerToAHuman(t *testing.T) {
 	e := apptest.SetupApp(t)
 	e.BootstrapWorkspace(t)
 
@@ -39,23 +39,23 @@ func TestMyAgentActivityServesTheRealHandlerToAHuman(t *testing.T) {
 		Running *[]json.RawMessage `json:"running"`
 		Recent  *[]json.RawMessage `json:"recent"`
 	}
-	status := e.Call(t, "GET", "/v1/me/agent-activity", nil, nil, &body)
+	status := e.Call(t, "GET", "/v1/me/ai-activity", nil, nil, &body)
 	if status != http.StatusOK {
-		t.Fatalf("human GET /v1/me/agent-activity → %d, want 200 "+
+		t.Fatalf("human GET /v1/me/ai-activity → %d, want 200 "+
 			"(501 means the generated stub answered and the handler set is no longer embedded)", status)
 	}
 	if body.AsOf == nil || *body.AsOf == "" {
 		t.Errorf("as_of is absent or empty: the reader cannot tell how fresh this answer is")
 	}
 	if body.Running == nil {
-		t.Errorf("running is absent: the contract requires it, and an empty array is how the panel says the agent is at rest")
+		t.Errorf("running is absent: the contract requires it, and an empty array is how the rail says the AI is at rest")
 	}
 	if body.Recent == nil {
-		t.Errorf("recent is absent: the contract requires it even on a day with no settled run")
+		t.Errorf("recent is absent: the contract requires it even on a day with no settled occurrence")
 	}
 }
 
-func TestMyAgentActivityRefusesAnAgentBearer(t *testing.T) {
+func TestMyAiActivityRefusesAnAgentBearer(t *testing.T) {
 	e := apptest.SetupApp(t)
 	e.BootstrapWorkspace(t)
 
@@ -74,12 +74,12 @@ func TestMyAgentActivityRefusesAnAgentBearer(t *testing.T) {
 	var problem struct {
 		Code string `json:"code"`
 	}
-	status := e.Call(t, "GET", "/v1/me/agent-activity", nil,
+	status := e.Call(t, "GET", "/v1/me/ai-activity", nil,
 		map[string]string{"Authorization": "Bearer " + minted.Token}, &problem)
 	if status != http.StatusForbidden {
-		t.Errorf("agent GET /v1/me/agent-activity → %d, want 403 (the contract declares it human-only)", status)
+		t.Errorf("agent GET /v1/me/ai-activity → %d, want 403 (the contract declares it human-only)", status)
 	}
 	if problem.Code != "permission_denied" {
-		t.Errorf("agent GET /v1/me/agent-activity → code %q, want permission_denied", problem.Code)
+		t.Errorf("agent GET /v1/me/ai-activity → code %q, want permission_denied", problem.Code)
 	}
 }

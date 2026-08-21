@@ -210,7 +210,7 @@ function stubAgentRailApi(routes: FetchRoutes = {}) {
     if (pathname.endsWith("/ai/usage")) {
       return routes.aiUsage ? routes.aiUsage() : jsonResponse(EMPTY_USAGE);
     }
-    if (pathname.endsWith("/me/agent-activity")) {
+    if (pathname.endsWith("/me/ai-activity")) {
       return routes.agentActivity
         ? routes.agentActivity()
         : jsonResponse({ running: [], recent: [] });
@@ -788,7 +788,7 @@ describe("AgentRail", () => {
 
   // Work THIS TAB DID NOT START. Everything above moves the Core because a
   // query in this browser fetched; these cases cover the overnight runner,
-  // reported through /me/agent-activity, plus the two invariants that must
+  // reported through /me/ai-activity, plus the two invariants that must
   // hold alongside it: operator vocabulary stays out of the reader's line, and
   // the surface never invents a sentence for a kind it has no copy for.
 
