@@ -316,7 +316,11 @@ var deleteGuardedSweepTargets = gatekit.Waive(map[string]string{
 	"activity activity_refuse_restricted_mutation": "a row-conditional statutory hold, not a protected store: preserving it would leave every activity behind on a reset meant to clear them, and no writer can set the restriction yet (#1557) — when one lands the reset must lift before it sweeps",
 	// Not guards at all (migration 1787032690).
 	"activity_link activity_link_last_activity": "a clock-maintenance trigger, not a guard: it recomputes the last_activity_at of the records the deleted link reached and refuses no delete; the sweep deletes those records too, so the recompute is discarded with them",
-	"relationship relationship_last_activity":   "a clock-maintenance trigger, not a guard: it recomputes the employer's last_activity_at and refuses no delete",
+	// The project arm of the same clock, on the same table (migration
+	// 1787320000). A second trigger rather than a fourth id inside the one
+	// above, so it needs its own entry — and it earns it the same way.
+	"activity_link activity_link_project_last_activity": "a clock-maintenance trigger, not a guard: it recomputes the project's last_activity_at when a link is written, moved or removed, and refuses no delete; `project` is swept too, so the recompute is discarded with it",
+	"relationship relationship_last_activity":           "a clock-maintenance trigger, not a guard: it recomputes the employer's last_activity_at and refuses no delete",
 	// Also not a guard (migration 1787226902): BEFORE DELETE ON organization, it
 	// sets deal.partner_org_id and deal.partner_attribution to NULL so a deleted
 	// partner leaves no dangling attribution. It refuses no delete.
