@@ -94,15 +94,12 @@ var companyFields = []companyField{
 	{name: fieldOfferSummary, update: `UPDATE organization SET description = $2 WHERE id = $1
 		AND description IS NULL AND $2::text IS NOT NULL AND length($2) <= 500`},
 	{name: fieldLegalName, update: `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS DISTINCT FROM $2`},
-	// The coordinates are invalidated in the SAME statement as the address,
-	// not in a second one: a radius query reading between the two would answer
-	// distances from the previous address and report success. See
-	// people/geocode.go — invalidateGeocodeInTx is the same rule for the
-	// callers that write through Go rather than through this table.
-	{name: fieldRegisteredAddress, update: `UPDATE organization
-		SET address_line1 = $2,
-		    geocode_status = CASE WHEN geocode_status IS NULL THEN NULL ELSE 'stale' END
-		WHERE id = $1 AND address_line1 IS DISTINCT FROM $2`},
+	// Nothing about geocoding here: a trigger marks the coordinates stale on
+	// any address column that changes (the organization_geocode migration), so
+	// this writer neither can nor has to remember. An earlier version did it in
+	// this statement — correct, and something the next address writer would not
+	// have known to copy.
+	{name: fieldRegisteredAddress, update: `UPDATE organization SET address_line1 = $2 WHERE id = $1 AND address_line1 IS DISTINCT FROM $2`},
 	{name: fieldRegisterVat},
 	{name: fieldIndustry, update: `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS DISTINCT FROM $2`},
 	{name: fieldICP},
