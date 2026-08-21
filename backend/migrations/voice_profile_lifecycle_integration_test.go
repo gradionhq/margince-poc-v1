@@ -98,6 +98,12 @@ func migrateToBeforeVoiceLifecycle(t *testing.T, conn *pgx.Conn) dbmigrate.Names
 	return core
 }
 
+// The three asserts below expect source = "manual", not the 'ui' that 0107's
+// own DEFAULT writes. This suite migrates a pre-0107 installation all the way to
+// HEAD, and core/1787315000_source_names_the_origin collapses 'ui' and 'mcp'
+// into 'manual' across all three voice tables — so 'manual' is what an
+// installation that took this upgrade path actually holds. Asserting 0107's
+// default would be asserting a value no migrated database ends up with.
 func assertMigratedVoiceCorpus(t *testing.T, conn *pgx.Conn, profileID, wantContentHash string) {
 	t.Helper()
 	var contentHash, kind, register, source, capturedBy string
@@ -114,8 +120,8 @@ func assertMigratedVoiceCorpus(t *testing.T, conn *pgx.Conn, profileID, wantCont
 	if kind != "linkedin" || register != "social" {
 		t.Errorf("translated corpus vocabulary = (%q, %q), want (linkedin, social)", kind, register)
 	}
-	if source != "ui" || capturedBy != "system" {
-		t.Errorf("corpus provenance = (%q, %q), want (ui, system)", source, capturedBy)
+	if source != "manual" || capturedBy != "system" {
+		t.Errorf("corpus provenance = (%q, %q), want (manual, system)", source, capturedBy)
 	}
 }
 
@@ -141,8 +147,8 @@ func assertMigratedVoiceProfile(t *testing.T, conn *pgx.Conn, profileID, ownerID
 	if sourceHash != wantSourceHash {
 		t.Errorf("active_source_hash = %q, want %q", sourceHash, wantSourceHash)
 	}
-	if source != "ui" || capturedBy != "system" || !builtAtPresent {
-		t.Errorf("profile backfill = source %q, captured_by %q, built_at %v; want ui, system, true", source, capturedBy, builtAtPresent)
+	if source != "manual" || capturedBy != "system" || !builtAtPresent {
+		t.Errorf("profile backfill = source %q, captured_by %q, built_at %v; want manual, system, true", source, capturedBy, builtAtPresent)
 	}
 }
 
@@ -168,8 +174,8 @@ func assertMigratedVoiceVersion(t *testing.T, conn *pgx.Conn, profileID string, 
 	if sourceHash != wantSourceHash || sourceCount != 1 {
 		t.Errorf("immutable version source snapshot = (%q, %d), want (%q, 1)", sourceHash, sourceCount, wantSourceHash)
 	}
-	if source != "ui" || capturedBy != "system" {
-		t.Errorf("immutable version provenance = (%q, %q), want (ui, system)", source, capturedBy)
+	if source != "manual" || capturedBy != "system" {
+		t.Errorf("immutable version provenance = (%q, %q), want (manual, system)", source, capturedBy)
 	}
 }
 
