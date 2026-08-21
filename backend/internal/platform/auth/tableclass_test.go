@@ -11,23 +11,31 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-func TestReadClassesPartitionTheShareableTables(t *testing.T) {
-	// Every shareable table is exactly one of identity or commercial, and the
-	// tables carrying capture privacy are identity tables — the one narrowing
-	// that survives the shared-identity read.
+func TestEveryShareableTableIsWorkspaceReadable(t *testing.T) {
+	// Every record type a manual grant can widen is read by every seat today.
+	// A record type that arrives scoped-read must say so here rather than land
+	// silently: the write arm, not the read arm, is what keeps a row its
+	// owner's. A table free of capture privacy renders the predicate away
+	// entirely; person and organization keep an owner arm because an
+	// owner-private capture still answers to its owner alone.
+	rep := human(principal.RowScopeOwn)
 	for table := range shareableTables {
-		if identityTables[table] == commercialTables[table] {
-			t.Errorf("%s is in neither or both read classes", table)
+		if !identityTables[table] {
+			t.Errorf("shareable table %s is not workspace-readable; if that is deliberate, "+
+				"say so here and pin the scoped predicate it keeps", table)
+			continue
+		}
+		if ownerPrivateTables[table] {
+			continue
+		}
+		if sql := rendered(rep, table); sql != "TRUE" {
+			t.Errorf("%s predicate for a rep = %q, want TRUE — a table with no capture "+
+				"privacy left has nothing to narrow a workspace read with", table, sql)
 		}
 	}
 	for table := range identityTables {
 		if !shareableTables[table] {
 			t.Errorf("identity table %s is not shareable", table)
-		}
-	}
-	for table := range commercialTables {
-		if !shareableTables[table] {
-			t.Errorf("commercial table %s is not shareable", table)
 		}
 	}
 	for table := range ownerPrivateTables {
@@ -61,13 +69,29 @@ func TestIdentityTablesAreReadByEverySeat(t *testing.T) {
 	}
 }
 
-func TestCommercialTablesKeepTheRowScope(t *testing.T) {
+func TestAProjectIsReadByEverySeat(t *testing.T) {
+	// A consultant delivering a project they neither own nor were granted has
+	// to reach it: the predicate collapses to TRUE and the list paths render
+	// no clause at all.
 	rep := human(principal.RowScopeOwn)
-	if sql := rendered(rep, "project"); !strings.Contains(sql, "t.owner_id = $") {
-		t.Errorf("project predicate for a rep lost the owner scope: %s", sql)
+	if sql := rendered(rep, "project"); sql != "TRUE" {
+		t.Errorf("project predicate for a rep = %q, want TRUE — a rep 404s on the "+
+			"project they are working but do not own", sql)
 	}
-	if UnboundedFor(rep, "project") {
-		t.Error("UnboundedFor(rep, project) = true")
+	if !UnboundedFor(rep, "project") {
+		t.Error("UnboundedFor(rep, project) = false; list paths would still narrow to the owner")
+	}
+}
+
+func TestAProjectStaysTheOwnersToWrite(t *testing.T) {
+	// The read widening must not reach the write arm: seeing a project is not
+	// permission to edit one.
+	rep := human(principal.RowScopeOwn)
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	sql := writeAuthorityPredicate(rep, "project", arg)
+	if !strings.Contains(sql, "owner_id = $") || !strings.Contains(sql, "rg.access = 'write'") {
+		t.Errorf("project write arm for a rep widened with the read class: %s", sql)
 	}
 }
 

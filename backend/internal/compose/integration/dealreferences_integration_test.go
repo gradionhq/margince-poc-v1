@@ -90,18 +90,22 @@ func TestADealDoesNotNameRecordsItsReaderCannotRead(t *testing.T) {
 	}
 	assertMaskNames(t, got, "organization_id", "partner_org_id")
 
-	// The project is out of the reader's row scope; its anchor company is not.
+	// The project belongs to another team, and the reader receives it anyway:
+	// every seat reads every project (platform/auth tableclass.go), so there
+	// is nothing here to withhold. Both references are named and the mask is
+	// empty — a mask naming a field the caller can read would send them
+	// hunting for access they already hold.
 	proj, err := e.Deals.GetDeal(rep, fx.hiddenProj, 0)
 	if err != nil {
 		t.Fatalf("a rep reading a deal whose project is another team's: %v", err)
 	}
-	if proj.ProjectId != nil {
-		t.Errorf("project_id = %v, want withheld: the project is outside the reader's row scope", proj.ProjectId)
+	if proj.ProjectId == nil {
+		t.Error("project_id is withheld; a project is read by every seat holding the object grant")
 	}
 	if proj.OrganizationId == nil || ids.UUID(*proj.OrganizationId) != fx.openOrg {
 		t.Errorf("organization_id = %v, want the workspace-visible company the reader CAN open", proj.OrganizationId)
 	}
-	assertMaskNames(t, proj, "project_id")
+	assertMaskNames(t, proj)
 
 	// A reader who can see all three still receives all three.
 	full, err := e.Deals.GetDeal(e.Admin(), fx.hiddenProj, 0)
@@ -132,9 +136,12 @@ func TestTheDealListWithholdsTheSameReferencesAsTheGet(t *testing.T) {
 			}
 			assertMaskNames(t, d, "organization_id", "partner_org_id")
 		case fx.hiddenProj.UUID:
-			if d.ProjectId != nil {
-				t.Errorf("the list handed out another team's project: %v", d.ProjectId)
+			// Another team's project is still this workspace's to read, so
+			// the list names it and masks nothing.
+			if d.ProjectId == nil {
+				t.Error("the list withheld a project every seat reads")
 			}
+			assertMaskNames(t, d)
 		}
 	}
 	if !seen[fx.hiddenRefs.UUID] || !seen[fx.hiddenProj.UUID] {
@@ -148,7 +155,9 @@ func TestTheDealListWithholdsTheSameReferencesAsTheGet(t *testing.T) {
 func assertMaskNames(t *testing.T, d crmcontracts.Deal, want ...string) {
 	t.Helper()
 	if d.MaskedFields == nil {
-		t.Errorf("masked_fields is absent, want %v named — a withheld null must say it was withheld", want)
+		if len(want) > 0 {
+			t.Errorf("masked_fields is absent, want %v named — a withheld null must say it was withheld", want)
+		}
 		return
 	}
 	got := map[string]bool{}

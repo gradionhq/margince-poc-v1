@@ -302,14 +302,15 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 // reached this activity through one link cut another — dropping a team's sight
 // of a record by rewriting an association they were never shown.
 //
-// A link outside the caller's scope survives instead. For `project` that
-// leaves a residual worth naming rather than glossing: at most one project
-// link may exist, so the insert then hits the partial index and refuses, and
-// the difference between that refusal and a success tells the caller a project
-// link they cannot see is there. One bit escapes, and it cannot be closed from
-// here — hiding the link's existence and enforcing one-per-activity are the
-// same question asked twice. Its CONTENT stays hidden, which is what the scope
-// is for, and losing the link outright would be worse.
+// A link outside the caller's scope survives instead, and for `project` that
+// used to leave a residual: at most one project link may exist, so the insert
+// then hit the partial index and refused, and the difference between that
+// refusal and a success told the caller a project link they could not see was
+// there. That is closed, because a project is now read by every seat holding
+// the object grant (platform/auth tableclass.go) — there is no project link
+// such a caller cannot see, so the delete reaches every one and the move
+// succeeds. The 23505 path below still stands for the links that CAN be
+// invisible, and for the caller who asks to associate rather than move.
 func deleteVisibleLinksOfType(ctx context.Context, tx pgx.Tx, id ids.ActivityID, entityType, column string) ([]ids.UUID, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
