@@ -114,23 +114,19 @@ func (s *Store) SaveResearchClaims(ctx context.Context, personID ids.PersonID, c
 			// ON CONFLICT because the table holds one row per (person, field):
 			// accepting a newer claim about the same field REPLACES what was
 			// there, which is what a reader who just chose it expects.
+			// updated_at and version are the trigger's
+			// (trg_person_profile_field_updated), so the branch names neither.
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-				VALUES ($1, $1, $2, $3, $4, $6, $5)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
 				ON CONFLICT (person_id, field) DO UPDATE
 				SET value = EXCLUDED.value,
 				    evidence_snippet = EXCLUDED.evidence_snippet,
 				    source_ref = EXCLUDED.source_ref,
 				    source = EXCLUDED.source,
-				    captured_by = EXCLUDED.captured_by
-				-- The conflict target is workspace-blind (migration 0097's
-				-- uq_person_profile_field), so the branch names the workspace
-				-- itself. Person ids are unique across the fleet, but an
-				-- executor that bypasses row-level security would otherwise be
-				-- one id collision away from updating another tenant's row.
-				`,
-				storekit.MustWorkspace(ctx), personID, claim.Field, claim.Value,
-				claim.Quote, claim.SourceURL, by, researchSource); err != nil {
+				    captured_by = EXCLUDED.captured_by`,
+				personID, claim.Field, claim.Value, claim.Quote,
+				claim.SourceURL, researchSource, by); err != nil {
 				return fmt.Errorf("save the research claim %q: %w", claim.Field, err)
 			}
 			saved++

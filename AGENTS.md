@@ -397,6 +397,61 @@ scope clauses in `platform/auth`): object denial →
 `apperrors.ErrPermissionDenied` (403), row-scope miss →
 `apperrors.ErrNotFound` (404, existence-hiding).
 
+## Reuse before you build (non-negotiable)
+
+A second implementation of one capability is not untidy — it is two answers to
+one question, and the two drift until they disagree in front of a user. Four
+rules, each of them here because this tree has already paid for it.
+
+**1. Search the whole tree, not your directory.** Before adding a capability,
+grep its nouns across `backend/`, `frontend/src/` and `extensions/`. The
+duplicate is almost never in the package you are editing — that is precisely why
+it gets missed. The agent tool `prep_for_meeting` was written beside a working
+`compose/meetingbrief/` that a one-word grep would have found, and the two now
+answer one question with different grounding rules.
+
+**2. The tool surface and the web surface share ONE engine.** An MCP tool never
+re-derives what an HTTP handler already computes. The binding is a
+`compose/*seam*.go` file, and the seams that exist each state the rule in their
+own words — `briefseam.go`: "one queue rather than two readings of it";
+`importseam.go`: "it delegates rather than reimplementing, and that is the whole
+design". **If no seam exists for the capability you need, write the seam** — do
+not write a second assembler. A module may not import a sibling or `compose`
+(ADR-0054 §3), so rolling your own will always look like the cheaper path; it is
+the wrong one, and this is the case where saying so out loud is the only thing
+that helps.
+
+**3. Never hand-type a SQL placeholder.** Derive `$N` from the argument slice —
+`args = append(args, v)` then `fmt.Sprintf("%s = $%d", col, len(args))`, as
+`deals/offer_lines.go` does — or use `storekit.InsertFragments`. Nothing in this
+repo checks that a statement's column count, placeholder count and argument
+count agree, so a hand-numbered statement is one careless sweep away from
+binding every column to the wrong value. That is not hypothetical: it shipped in
+`people/researchclaim.go`, and the accept path was dead for two days because no
+test executed the statement.
+
+The `%s` in that pattern is the COLUMN, and it carries its own rule: a compile-
+time literal, or a catalog name quoted with `pgx.Identifier.Sanitize` — the one
+spelling this repo uses (`storekit/customcolumns.go`). Never a string off a
+request body. Values are always `$N`; only identifiers are ever formatted, and
+an identifier a caller chose is an injection with a placeholder's manners.
+
+**4. A comment may not claim to be the only implementation unless a test holds
+it.** "the one spelling of X", "the only writer of Y", "the same anonymization
+the eraser performs" — if no test fails when a second one appears, delete the
+claim or write the test. Every such claim audited in this tree was false. A
+false uniqueness claim is worse than silence: the next author greps, finds it,
+and stops looking.
+
+**Two writers of one invariant either share a helper or say why they do not.**
+If you are adding the second, put the reason in the code beside it, not in the
+pull request where the next reader will not see it.
+
+Catalogs to read before building anything they might already list:
+[docs/reference/modules.md](docs/reference/modules.md) for backend capabilities,
+[frontend/src/design-system/README.md](frontend/src/design-system/README.md) for
+every control that already exists.
+
 ## Craftsmanship
 
 The anti-tell catalog T1–T11, in full below — this list is the rule, not a summary
