@@ -221,11 +221,16 @@ func archivedAt(t *testing.T, e *integration.Env, table string, id ids.UUID) boo
 // closed on one door only.
 //
 // The agent gate forwards a released approval's version as the request's own
-// If-Match (compose/agentgatestaging.go), so an archive route that does not
-// DECLARE the parameter never parses it: the generated wrapper drops the
-// header, the handler passes nil, and the released archive runs unconditioned
-// exactly as before. Declaring it is what makes the forward mean something,
-// and only a request through the real handler proves the chain.
+// If-Match (compose/agentgatestaging.go). What left the archive unpinned was
+// not the contract: these handlers read the header straight off the request
+// with httperr.IfMatchVersion and ignore their Params struct entirely, so an
+// undeclared parameter would still have been parsed. It was the handler
+// passing a literal nil to the store.
+//
+// Declaring If-Match on the route is therefore about the CONTRACT telling the
+// truth — a client cannot be expected to send a precondition the API does not
+// advertise, and the 409 it can now provoke has to be a declared response.
+// Only a request through the real handler proves the chain either way.
 func TestTheRESTArchiveHonoursAStaleIfMatch(t *testing.T) {
 	e := integration.Setup(t)
 	native := NewProvider(e.Pool)
@@ -284,3 +289,8 @@ func archiveOverREST(as context.Context, t *testing.T, e *integration.Env,
 		crmcontracts.ArchivePersonParams{})
 	return rec
 }
+
+// No geocode fixture lives here. #2173 records why, and carries what a future
+// one has to prove: while organization.workspace_id is missing, a fixture
+// cannot tell "the workspace guard refused" from "the query cannot run", so it
+// would read GREEN exactly when the subject is most broken.

@@ -34,15 +34,19 @@ import (
 // as a nil rather than as a passing test.
 type narrowArchiver struct {
 	datasource.SystemOfRecordProvider
-	refuse     error
-	types      []datasource.EntityType
-	archivedAt *datasource.ArchiveInput
+	refuse error
+	types  []datasource.EntityType
+	// heldElsewhere makes the record non-authoritative, so a case can put the
+	// system-of-record refusal and the executor refusal in play AT ONCE — which
+	// is the only way their order is observable.
+	heldElsewhere bool
+	archivedAt    *datasource.ArchiveInput
 }
 
 func (n *narrowArchiver) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
 	return datasource.Record{
 		Ref: ref, Fields: json.RawMessage(`{"name":"Acme"}`), Version: 4,
-		Freshness: datasource.FreshnessInfo{Authoritative: true},
+		Freshness: datasource.FreshnessInfo{Authoritative: !n.heldElsewhere},
 	}, nil
 }
 
@@ -199,10 +203,26 @@ func TestGuardsRefuseWhatTheExecutorsOwnProbesWouldRefuse(t *testing.T) {
 // probe ahead of refuseStagingElsewhere would replace a deliberate
 // unsupported-by-SoR refusal with whatever the probe happened to say.
 func TestTheHeldElsewhereRefusalStillWinsOverTheExecutorProbe(t *testing.T) {
-	provider := stubRecordProvider{rec: stagedRecord(datasource.EntityPerson, ids.NewV7(), false)}
+	// BOTH refusals are armed, and they answer DIFFERENT sentinels. That is the
+	// whole design of this case. A version using a stub whose executor probe
+	// answers nil, or one answering the same unsupported-by-SoR sentinel, passes
+	// with the two arms swapped — measured: inverting the order in Guards left
+	// the earlier version of this test green, because only one arm could speak.
+	provider := &narrowArchiver{
+		types:         threeTypes(),
+		heldElsewhere: true,
+		refuse:        apperrors.ErrPermissionDenied,
+	}
 	call := NewArchiveCall(provider, ArchiveCommand{RecordType: "person", ID: ids.NewV7()})
 
-	if err := call.Guards(context.Background()); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+	err := call.Guards(context.Background())
+
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("the executor probe answered first (%v): a record held in another system of record "+
+			"has no local authority to ask about, so probing it is a question with no true answer — "+
+			"and the deliberate unsupported-by-SoR refusal is replaced by whatever the probe says", err)
+	}
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 		t.Fatalf("guarding a mirrored person answered %v, want the unsupported-by-SoR refusal to keep "+
 			"its place ahead of the executor probe", err)
 	}

@@ -159,13 +159,11 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"organization_geocode_state.organization_id": "child row: the sidecar for an organization's own coordinate lookup, and no caller ever names the organization it keys on. " +
 		"The row is created by enqueueGeocode inside UpdateOrganization's transaction, for the id that write was already addressing (people/organization.go), " +
 		"and touched afterwards only by AddressForGeocode and recordGeocodeAfter (people/geocode.go). " +
-		"The worker runs under the SYSTEM principal, which passes row scope, so what decides the tenant is an explicit app.workspace_id predicate rather than the job args. " +
-		"That predicate is present on the two statements that could DISCLOSE: AddressForGeocode's read joins the sidecar through organization and filters " +
-		"o.workspace_id, and recordGeocodeAfter's UPDATE organization carries the same clause. It is NOT present on the two INSERT ... ON CONFLICT statements " +
-		"that write the sidecar itself, and the table has no workspace column of its own (migration 1787320001), so a job carrying an organization id from another " +
-		"workspace would update zero organization rows and still write that organization's attempt ledger. That is a write, never a read, and it is latent — " +
-		"enqueueGeocode only ever mints the id its own workspace-checked write was addressing — but it is this exception's real cost and it is filed as #2167. " +
-		"Drop the workspace clause from AddressForGeocode and the FK becomes a cross-tenant READ with nothing else in the way.",
+		"WHAT THIS EXCEPTION RESTS ON IS CURRENTLY NON-EXECUTING, and that is the honest statement of its cost: all three of those statements filter " +
+		"organization.workspace_id, a column core 1787047322 dropped three days before geocode.go shipped, so every one fails with SQLSTATE 42703 (#2173). " +
+		"No read reaches this FK today because no read on this path runs at all. When #2173 is fixed the ADR-0091-consistent repair DELETES that predicate " +
+		"rather than restoring the column, at which point this reason is void and nothing here would fail — gatekit checks the key, never the rationale — so " +
+		"#2173 carries a note to revisit this entry, and it must be re-derived against whatever replaces the predicate rather than carried over.",
 	"activity_link.activity_id":  "child row: written only inside LogActivity for the new activity",
 	"lead_score_history.lead_id": "child row: one point in a lead's own score series, appended only from inside the lead's gated write paths — CreateLead/CreateLeadTx (lead:create), UpdateLead (lead:update) and RecomputeLeadScore (lead:update), each of which has already admitted the caller before the append runs in its transaction",
 	// comms_outbound is delivery machinery for one activity, not a
