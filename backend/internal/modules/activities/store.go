@@ -22,6 +22,12 @@ import (
 type Store struct {
 	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
 	db *database.DB
+	// transcriptEnqueue starts the reading of a transcript the moment it
+	// lands, in the same transaction that stores it. Nil in a deployment with
+	// no transcript brain wired, and then a transcript is simply stored —
+	// the write is what the caller asked for, the reading is what this
+	// installation can offer (WithTranscriptEnqueue).
+	transcriptEnqueue TranscriptReadEnqueue
 	// blob backs the attachment endpoints; nil in a role that stores no
 	// objects, in which case the attachment handlers answer 501 rather than
 	// nil-deref (WithBlobstore is how a role opts in).
@@ -140,4 +146,10 @@ func uuidPtr(id *ids.UUID) *openapi_types.UUID {
 // untyped) for the helpers that carry it as an entity parameter.
 func workspaceID(ctx context.Context) ids.WorkspaceID {
 	return ids.From[ids.WorkspaceKind](storekit.MustWorkspace(ctx))
+}
+
+// WithTranscriptEnqueue wires the reading a landed transcript starts.
+func (s *Store) WithTranscriptEnqueue(enqueue TranscriptReadEnqueue) *Store {
+	s.transcriptEnqueue = enqueue
+	return s
 }

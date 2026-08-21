@@ -385,3 +385,12 @@ func (p *Provider) ListFields(_ context.Context, entity datasource.EntityType) (
 func (p *Provider) RunReport(ctx context.Context, plan datasource.ReportPlan) (datasource.ReportResult, error) {
 	return p.reports.runAdHocPlan(ctx, plan)
 }
+
+// WithTranscriptEnqueue lets a transcript CREATED over this seam start its own
+// reading, the way one created over REST does. Without it the tool surface can
+// store a transcript and nothing reads it — which is how the extraction lane
+// came to hold zero rows while being fully built.
+func (p *Provider) WithTranscriptEnqueue(enqueue activities.TranscriptReadEnqueue) *Provider {
+	p.activities = p.activities.WithTranscriptEnqueue(enqueue)
+	return p
+}

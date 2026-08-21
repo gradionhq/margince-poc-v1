@@ -60,6 +60,18 @@ func NewHandlers(db *database.DB) Handlers {
 	return Handlers{store: NewStore(db)}
 }
 
+// WithTranscriptEnqueue lets a transcript POSTED to this transport start its
+// own reading, the same way one written over the tool surface does.
+//
+// It is a separate builder call rather than a NewHandlers argument because the
+// enqueue depends on the job runner, which the composition root only has after
+// the handlers are built. Left unset, a transcript still lands — it is simply
+// not read, which is what a deployment with no reading lane can offer.
+func (h Handlers) WithTranscriptEnqueue(enqueue TranscriptReadEnqueue) Handlers {
+	h.store = h.store.WithTranscriptEnqueue(enqueue)
+	return h
+}
+
 func pageInfo(p storekit.Page) crmcontracts.PageInfo {
 	info := crmcontracts.PageInfo{HasMore: p.HasMore}
 	if p.NextCursor != "" {

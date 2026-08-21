@@ -127,6 +127,39 @@ func (s *Store) StartTranscriptReadQueued(
 	var out TranscriptRead
 	var joined bool
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		out, joined, err = startTranscriptReadInTx(ctx, tx, activityID, requestedBy, enqueue)
+		return err
+	})
+	if err != nil {
+		return TranscriptRead{}, false, err
+	}
+	return out, joined, nil
+}
+
+// StartTranscriptReadQueuedTx is the same act inside a transaction the caller
+// already holds.
+//
+// It exists so a transcript can be read the moment it LANDS, rather than only
+// when somebody asks. The create path writes the activity and enqueues the
+// reading in one transaction — no window where the row exists and the job does
+// not — which the wrapper above cannot offer, because it opens a transaction
+// of its own and a caller already in one cannot join it.
+func (s *Store) StartTranscriptReadQueuedTx(
+	ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, requestedBy string, enqueue TranscriptReadEnqueue,
+) (TranscriptRead, bool, error) {
+	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
+		return TranscriptRead{}, false, err
+	}
+	return startTranscriptReadInTx(ctx, tx, activityID, requestedBy, enqueue)
+}
+
+func startTranscriptReadInTx(
+	ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, requestedBy string, enqueue TranscriptReadEnqueue,
+) (TranscriptRead, bool, error) {
+	var out TranscriptRead
+	var joined bool
+	err := func(tx pgx.Tx) error {
 		lineCount, err := transcriptLineCount(ctx, tx, activityID)
 		if err != nil {
 			return err
@@ -177,46 +210,9 @@ func (s *Store) StartTranscriptReadQueued(
 		if err != nil {
 			return fmt.Errorf("join in-flight transcript read: %w", err)
 		}
-		return s.rearmIfAbandoned(ctx, tx, &out, enqueue)
-	})
+		return rearmIfAbandoned(ctx, tx, &out, enqueue)
+	}(tx)
 	return out, joined, err
-}
-
-// rearmIfAbandoned hands a dead reading back to a worker.
-//
-// A row still `running` past its lease is not a live reading: the worker that
-// claimed it was killed, timed out, or exhausted its retries. Nothing else
-// would ever pick it up — a finished job is not re-enqueued, and
-// uq_transcript_read_inflight makes the corpse block every new reading of that
-// transcript — so without this the transcript is unreadable for good.
-//
-// Pressing the button again is therefore the recovery path, which is also the
-// thing a rep would try unprompted.
-func (s *Store) rearmIfAbandoned(
-	ctx context.Context, tx pgx.Tx, read *TranscriptRead, enqueue TranscriptReadEnqueue,
-) error {
-	if read.Status != TranscriptReadRunning {
-		return nil
-	}
-	rearmed, err := scanTranscriptRead(tx.QueryRow(ctx, `
-		UPDATE transcript_read
-		   SET status = 'queued', started_at = NULL, status_detail = NULL
-		 WHERE id = $1
-		   AND status = 'running'
-		   AND started_at < now() - ($2 * interval '1 microsecond')
-		RETURNING `+transcriptReadColumns, read.ID, TranscriptReadLease.Microseconds()))
-	if errors.Is(err, pgx.ErrNoRows) {
-		// Inside its lease: a real worker holds it, and joining is correct.
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("re-arm abandoned transcript read: %w", err)
-	}
-	*read = rearmed
-	if enqueue == nil {
-		return nil
-	}
-	return enqueue(ctx, tx, rearmed)
 }
 
 // transcriptLineCount resolves how many addressable lines the transcript has,

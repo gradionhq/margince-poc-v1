@@ -145,12 +145,54 @@ func TestTheTranscriptReadingDoorQueuesAndThenReportsOnItself(t *testing.T) {
 	}
 }
 
-func TestATranscriptNobodyHasReadIsNotFoundRatherThanEmpty(t *testing.T) {
+// Asking for a reading of something nobody has read answers 404, not an empty
+// report — the honest difference between never tried and tried and got nothing.
+//
+// The activity here is a plain meeting note rather than a transcript, because a
+// transcript no longer HAS this state: one that lands with source_system
+// 'transcript' starts its reading in the same transaction as the write, so
+// "logged but never read" stopped being reachable through this door. The
+// property is still worth holding — it is about what `latest` says when there
+// is nothing to report, and a note is now the way to get there.
+func TestAnActivityNobodyHasReadIsNotFoundRatherThanEmpty(t *testing.T) {
 	e := transcriptDoorApp(t, "transcript-unread", "Transcript Unread", "ada@unread.test")
+
+	var activity struct {
+		ID string `json:"id"`
+	}
+	status := e.Call(t, "POST", "/v1/activities", apptest.AnyMap{
+		"kind": "meeting", "subject": "Rollout call", "body": transcriptText,
+		"source": "manual",
+	}, nil, &activity)
+	if status != http.StatusCreated {
+		t.Fatalf("logging the note → %d", status)
+	}
+
+	if status := e.Call(t, "GET", "/v1/activities/"+activity.ID+"/transcript-proposals/latest", nil, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("an activity nobody has read → %d, want 404 — the honest difference between never tried and tried and got nothing", status)
+	}
+}
+
+// A transcript posted to POST /v1/activities is read WITHOUT anyone pressing
+// anything.
+//
+// This is the door the first cut missed. WithTranscriptRead wired the reading
+// onto the tool surface only, so a transcript arriving over REST was stored and
+// silently never read — the same silence the feature exists to end, on the door
+// a rep's integration actually posts to.
+func TestATranscriptPostedOverRESTIsReadWithoutBeingAsked(t *testing.T) {
+	e := transcriptDoorApp(t, "transcript-rest", "Transcript REST", "ada@rest.test")
 	activityID := logTranscript(t, e, transcriptText)
 
-	if status := e.Call(t, "GET", "/v1/activities/"+activityID+"/transcript-proposals/latest", nil, nil, nil); status != http.StatusNotFound {
-		t.Fatalf("a transcript nobody has read → %d, want 404 — the honest difference between never tried and tried and got nothing", status)
+	var latest readReport
+	if status := e.Call(t, "GET", "/v1/activities/"+activityID+"/transcript-proposals/latest",
+		nil, nil, &latest); status != http.StatusOK {
+		t.Fatalf("asking for the reading of a transcript that landed over REST → %d, "+
+			"want 200 — landing must start one, with nobody pressing anything", status)
+	}
+	if latest.ActivityID != activityID {
+		t.Errorf("the reading describes %s, want the transcript that just landed (%s)",
+			latest.ActivityID, activityID)
 	}
 }
 
