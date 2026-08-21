@@ -8,18 +8,18 @@
     "enrich"
   ],
   "totals": {
-    "tools": 47,
+    "tools": 51,
     "resources": 8,
-    "tool_catalog_bytes": 131572,
+    "tool_catalog_bytes": 139903,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 33670,
+    "approx_wire_tokens_total": 35752,
     "largest_tool_bytes": 4709,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
-      "description_bytes": 33621,
-      "input_schema_bytes": 29395,
-      "output_schema_bytes": 58335,
-      "description_plus_input_schema_bytes": 63016
+      "description_bytes": 34645,
+      "input_schema_bytes": 30637,
+      "output_schema_bytes": 63626,
+      "description_plus_input_schema_bytes": 65282
     }
   },
   "tools": {
@@ -1547,6 +1547,145 @@
           "type": "object"
         },
         "title": "Check calendar availability"
+      },
+      {
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": false,
+          "title": "Commit an import"
+        },
+        "description": "Write a checked import into the workspace, once a person approves. Only from awaiting_approval. Undoing one needs the web app. read_import_report first; nobody should approve what they have not read. (Governance: a person approves every call before it runs; requires passport scope \"write\".)",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "approval_id": {
+              "description": "Set on retry after approval",
+              "format": "uuid",
+              "type": "string"
+            },
+            "idempotency_key": {
+              "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+              "maxLength": 255,
+              "type": "string"
+            },
+            "run_id": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id"
+          ],
+          "type": "object"
+        },
+        "name": "commit_import",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "properties": {
+                "checkpoint": {
+                  "type": "integer"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "checkpoint",
+                "object",
+                "run_id",
+                "state"
+              ],
+              "type": "object"
+            },
+            "evidence": {
+              "items": {
+                "properties": {
+                  "captured_by": {
+                    "type": "string"
+                  },
+                  "record_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "record_type": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "record_id",
+                  "record_type"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "freshness": {
+              "properties": {
+                "authoritative": {
+                  "type": "boolean"
+                },
+                "last_synced_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authoritative"
+              ],
+              "type": "object"
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "trust": {
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data",
+            "evidence",
+            "freshness",
+            "schema_version",
+            "trace_id",
+            "trust",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "title": "Commit an import"
       },
       {
         "annotations": {
@@ -4566,6 +4705,183 @@
         "annotations": {
           "openWorldHint": false,
           "readOnlyHint": false,
+          "title": "Preview an import"
+        },
+        "description": "Bring a spreadsheet in: send the CSV as text and this checks every row against the workspace and reports what importing it would do. Writes nothing. People arrive as leads, so `object` is lead or organization. create_record for one record you already know. run_id. (Governance: runs immediately; requires passport scope \"write\".)",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "csv": {
+              "description": "The file's contents, header row first.",
+              "type": "string"
+            },
+            "idempotency_key": {
+              "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+              "maxLength": 255,
+              "type": "string"
+            },
+            "mapping": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Source column name → field name. Omit to accept the proposal this call would make.",
+              "type": "object"
+            },
+            "object": {
+              "enum": [
+                "organization",
+                "lead"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "object",
+            "csv"
+          ],
+          "type": "object"
+        },
+        "name": "preview_import",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "properties": {
+                "columns": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "mapping": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "run": {
+                  "properties": {
+                    "checkpoint": {
+                      "type": "integer"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "object": {
+                      "type": "string"
+                    },
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "checkpoint",
+                    "object",
+                    "run_id",
+                    "state"
+                  ],
+                  "type": "object"
+                },
+                "unmapped": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "columns",
+                "mapping",
+                "run"
+              ],
+              "type": "object"
+            },
+            "evidence": {
+              "items": {
+                "properties": {
+                  "captured_by": {
+                    "type": "string"
+                  },
+                  "record_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "record_type": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "record_id",
+                  "record_type"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "freshness": {
+              "properties": {
+                "authoritative": {
+                  "type": "boolean"
+                },
+                "last_synced_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authoritative"
+              ],
+              "type": "object"
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "trust": {
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data",
+            "evidence",
+            "freshness",
+            "schema_version",
+            "trace_id",
+            "trust",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "title": "Preview an import"
+      },
+      {
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": false,
           "title": "Progress a deal with a note"
         },
         "description": "Move a deal to a new stage and leave a note on its timeline saying why, in one call. The move commits first and the note follows it, so a note that fails to write does not put the deal back — the answer says so, and the note is then log_activity's to retry. The note itself is optional. Same rules as the bare move otherwise: call list_pipelines for the id of the stage you are moving to, and moving onto or off a stage that closes a deal as won or lost is staged for a person to approve. Use advance_deal when there is genuinely nothing to say about the move, and log_activity when something happened but the deal did not move. Send if_version with the version you read of the deal; keep the staged approval id if a closing move is sent for approval. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope \"write\".)",
@@ -5658,6 +5974,383 @@
           "type": "object"
         },
         "title": "Read the morning brief"
+      },
+      {
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "Read an import report"
+        },
+        "description": "What an import will do, or did: rows created, updated, failed, unusable. These counts are what a person approves. Same shape before and after. (Governance: runs immediately; requires passport scope \"read\".)",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "run_id": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id"
+          ],
+          "type": "object"
+        },
+        "name": "read_import_report",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "properties": {
+                "report": {
+                  "properties": {
+                    "disposition": {
+                      "properties": {
+                        "created": {
+                          "type": "integer"
+                        },
+                        "skipped": {
+                          "type": "integer"
+                        },
+                        "unchanged": {
+                          "type": "integer"
+                        },
+                        "updated": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "created",
+                        "skipped",
+                        "unchanged",
+                        "updated"
+                      ],
+                      "type": "object"
+                    },
+                    "estimated_duration_seconds": {
+                      "type": "integer"
+                    },
+                    "issues": {
+                      "items": {
+                        "properties": {
+                          "column": {
+                            "type": "string"
+                          },
+                          "line": {
+                            "type": "integer"
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "line",
+                          "reason"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "rows_read": {
+                      "type": "integer"
+                    },
+                    "run_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "source_key_used": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "undo": {
+                      "properties": {
+                        "errored": {
+                          "items": {
+                            "properties": {
+                              "id": {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "object": {
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "object",
+                              "reason"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "kept": {
+                          "items": {
+                            "properties": {
+                              "id": {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "object": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "object"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "reversed_count": {
+                          "type": "integer"
+                        },
+                        "run_id": {
+                          "format": "uuid",
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "errored",
+                        "kept",
+                        "reversed_count",
+                        "run_id",
+                        "status"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "disposition",
+                    "issues",
+                    "rows_read",
+                    "run_id",
+                    "source_key_used",
+                    "status"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "report"
+              ],
+              "type": "object"
+            },
+            "evidence": {
+              "items": {
+                "properties": {
+                  "captured_by": {
+                    "type": "string"
+                  },
+                  "record_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "record_type": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "record_id",
+                  "record_type"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "freshness": {
+              "properties": {
+                "authoritative": {
+                  "type": "boolean"
+                },
+                "last_synced_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authoritative"
+              ],
+              "type": "object"
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "trust": {
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data",
+            "evidence",
+            "freshness",
+            "schema_version",
+            "trace_id",
+            "trust",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "title": "Read an import report"
+      },
+      {
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": true,
+          "title": "Read an import run"
+        },
+        "description": "Where one import got to: awaiting approval, running, done, or stopped. A stopped run names the row it stopped at and can resume there. (Governance: runs immediately; requires passport scope \"read\".)",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "run_id": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_id"
+          ],
+          "type": "object"
+        },
+        "name": "read_import_run",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "properties": {
+                "checkpoint": {
+                  "type": "integer"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "checkpoint",
+                "object",
+                "run_id",
+                "state"
+              ],
+              "type": "object"
+            },
+            "evidence": {
+              "items": {
+                "properties": {
+                  "captured_by": {
+                    "type": "string"
+                  },
+                  "record_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "record_type": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "record_id",
+                  "record_type"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "freshness": {
+              "properties": {
+                "authoritative": {
+                  "type": "boolean"
+                },
+                "last_synced_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authoritative"
+              ],
+              "type": "object"
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "trust": {
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data",
+            "evidence",
+            "freshness",
+            "schema_version",
+            "trace_id",
+            "trust",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "title": "Read an import run"
       },
       {
         "annotations": {
@@ -8352,7 +9045,7 @@
     "ttlMs": 60000
   },
   "documents": {
-    "margince://capabilities": "{\"version\":\"1\",\"governance\":{\"scopes_held\":[\"draft\",\"enrich\",\"read\",\"send\",\"write\"],\"model\":\"A call either executes under this passport's authority or stages an approval a human decides. An agent can never exceed the human who granted the passport, and every call is re-authorised at the moment it runs, so a revoked grant binds mid-session.\",\"host_confirmation\":\"A confirmation your own client shows the user is NOT one of these approvals. A staged call is decided in Margince and returns its outcome here.\"},\"verbs\":{\"offered\":47,\"execute_directly\":[\"account_coverage\",\"apply_tag\",\"at_risk_relationships\",\"catch_me_up_on\",\"check_availability\",\"create_record\",\"decide_approval\",\"decide_approval_bundle\",\"draft_email\",\"draft_follow_ups_for\",\"intro_path_to\",\"list_approvals\",\"list_channel_providers\",\"list_colleagues\",\"list_pipelines\",\"list_records\",\"log_activity\",\"prep_for_meeting\",\"prepare_handoff\",\"qualify_lead\",\"query_workspace\",\"read_approval\",\"read_brief\",\"read_record\",\"relink_activity\",\"remove_tag\",\"resolve_entities\",\"review_commitments\",\"run_report\",\"search_context\",\"search_records\",\"update_record\",\"whats_slipping_this_week\",\"who_knows\",\"whoami\"],\"stage_for_approval\":[\"advance_project_phase\",\"archive_record\",\"book_meeting\",\"disqualify_lead\",\"enrich\",\"merge_records\",\"promote_lead\",\"send_account_email\",\"send_email\",\"send_message\"],\"decided_per_call\":[\"advance_deal\",\"progress_deal\"],\"decided_per_call_reason\":\"The tier depends on the arguments — the same verb can execute or stage depending on what it is asked to do.\"}}",
+    "margince://capabilities": "{\"version\":\"1\",\"governance\":{\"scopes_held\":[\"draft\",\"enrich\",\"read\",\"send\",\"write\"],\"model\":\"A call either executes under this passport's authority or stages an approval a human decides. An agent can never exceed the human who granted the passport, and every call is re-authorised at the moment it runs, so a revoked grant binds mid-session.\",\"host_confirmation\":\"A confirmation your own client shows the user is NOT one of these approvals. A staged call is decided in Margince and returns its outcome here.\"},\"verbs\":{\"offered\":51,\"execute_directly\":[\"account_coverage\",\"apply_tag\",\"at_risk_relationships\",\"catch_me_up_on\",\"check_availability\",\"create_record\",\"decide_approval\",\"decide_approval_bundle\",\"draft_email\",\"draft_follow_ups_for\",\"intro_path_to\",\"list_approvals\",\"list_channel_providers\",\"list_colleagues\",\"list_pipelines\",\"list_records\",\"log_activity\",\"prep_for_meeting\",\"prepare_handoff\",\"preview_import\",\"qualify_lead\",\"query_workspace\",\"read_approval\",\"read_brief\",\"read_import_report\",\"read_import_run\",\"read_record\",\"relink_activity\",\"remove_tag\",\"resolve_entities\",\"review_commitments\",\"run_report\",\"search_context\",\"search_records\",\"update_record\",\"whats_slipping_this_week\",\"who_knows\",\"whoami\"],\"stage_for_approval\":[\"advance_project_phase\",\"archive_record\",\"book_meeting\",\"commit_import\",\"disqualify_lead\",\"enrich\",\"merge_records\",\"promote_lead\",\"send_account_email\",\"send_email\",\"send_message\"],\"decided_per_call\":[\"advance_deal\",\"progress_deal\"],\"decided_per_call_reason\":\"The tier depends on the arguments — the same verb can execute or stage depending on what it is asked to do.\"}}",
     "margince://schema/query": "{\"version\":\"v1\",\"grammar\":{\"predicates\":\"{\\\"field\\\": \\u003cname below\\u003e, \\\"op\\\": \\u003cop the field admits\\u003e, \\\"value\\\": \\u003coperand\\u003e} — or \\\"values\\\": [...] for \\\"in\\\". Clauses are combined with AND.\",\"semantic_target\":\"\\\"similar_to\\\": \\u003cfree text\\u003e — one similarity clause, ranked by the hybrid retriever.\",\"traversal\":\"\\\"traverse\\\": {\\\"relation\\\": \\u003crelation below\\u003e, \\\"where\\\": [...]} — exactly one hop. A second hop is refused; ask it as its own query.\",\"limit\":\"\\\"limit\\\": 1..200; omit for the default page.\",\"refusal\":\"Anything outside this vocabulary is refused with a typed clarification naming what was not understood. Nothing is coerced, and no plan is narrowed to the part that was recognised.\"},\"targets\":[],\"unavailable\":[{\"op\":\"within_radius\",\"answers\":\"distance_ranking_unavailable\",\"because\":\"records carry no normalized coordinates yet; ask for a city or region as an exact predicate instead.\"}]}",
     "margince://schema/record-fields": "{\"version\":\"1\",\"notation\":\"A key with no `?` is REQUIRED by the contract; `?` marks one the body may omit. A name not listed is not a field: it is refused by name, never stored silently.\",\"create_record\":{\"fields\":{\"activity\":\"{assignee_id?: uuid, body?: string, channel_provider?: string, direction?: \\\"inbound\\\"|\\\"outbound\\\", due_at?: rfc3339, duration_seconds?: integer, kind: \\\"email\\\"|\\\"call\\\"|\\\"meeting\\\"|\\\"note\\\"|\\\"task\\\"|\\\"message\\\", links?: [{entity_id: uuid, entity_type: \\\"person\\\"|\\\"organization\\\"|\\\"deal\\\"|\\\"lead\\\"|\\\"project\\\"}], meeting_status?: \\\"booked\\\"|\\\"held\\\"|\\\"no_show\\\"|\\\"canceled\\\", occurred_at?: rfc3339, raw?: object, remind_at?: rfc3339, source?: string, source_id?: string, source_system?: string, subject?: string}\",\"deal\":\"{amount_minor?: integer, currency?: string, expected_close_date?: YYYY-MM-DD, name: string, organization_id?: uuid, owner_id?: uuid, partner_attribution?: \\\"sourced\\\"|\\\"influenced\\\", partner_org_id?: uuid, pipeline_id: uuid, project_id?: uuid, source?: string, stage_id: uuid}\",\"lead\":\"{candidate_org_key?: string, company_name?: string, email?: email, full_name?: string, linkedin_url?: string, owner_id?: uuid, project_id?: uuid, source?: string, source_id?: string, source_system?: string, status?: \\\"new\\\"|\\\"contacted\\\"|\\\"engaged\\\"|\\\"promoted\\\"|\\\"disqualified\\\", title?: string}\",\"organization\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, description?: string, display_name: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, owner_id?: uuid, parent_org_id?: uuid, size_band?: \\\"1-10\\\"|\\\"11-50\\\"|\\\"51-200\\\"|\\\"201-500\\\"|\\\"501-1000\\\"|\\\"1001-5000\\\"|\\\"5000+\\\", source?: string}\",\"person\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, emails?: [{email: email, email_type?: \\\"work\\\"|\\\"personal\\\"|\\\"other\\\", is_primary?: boolean, position?: integer}], first_name?: string, full_name: string, last_name?: string, owner_id?: uuid, phones?: [{is_primary?: boolean, phone: string, phone_type?: \\\"work\\\"|\\\"mobile\\\"|\\\"home\\\"|\\\"other\\\", position?: integer}], social?: object, source?: string, title?: string}\",\"project\":\"{description?: string, key?: string, name: string, organization_id: uuid, owner_id?: uuid, source?: string, started_at?: YYYY-MM-DD, target_end_date?: YYYY-MM-DD}\",\"relationship\":\"{counterparty_org_id?: uuid, deal_id?: uuid, ended_at?: YYYY-MM-DD, is_current_primary?: boolean, kind: \\\"employment\\\"|\\\"deal_stakeholder\\\"|\\\"project_stakeholder\\\"|\\\"partner_of\\\"|\\\"referred_by\\\"|\\\"co_sell_with\\\", organization_id?: uuid, person_id?: uuid, project_id?: uuid, role?: string, source?: string, started_at?: YYYY-MM-DD}\"},\"notes\":[\"A task is record_type=activity with kind=task.\",\"`source` is accepted but overwritten — this surface stamps its own provenance.\",\"A deal's `pipeline_id` and `stage_id` come from list_pipelines — nothing else on this surface yields them, and neither is defaultable.\",\"A person's employer is a relationship, not a field on the person: record_type=relationship with kind=employment, person_id and organization_id. Each kind REQUIRES its own endpoint pair, and a wrong pair is refused by name — employment: person + organization; deal_stakeholder: deal + person; project_stakeholder: project + person; partner_of, referred_by and co_sell_with: organization + counterparty_org_id. An edge is not searchable, so keep the id a relationship write returns.\",\"An activity is not searchable — search_records does not serve it — so keep the id an activity write returns; read_record answers it by that id.\",\"`assignee_id` and `owner_id` take a COLLEAGUE's id — list_colleagues answers those, whoami answers your own. A person id is a contact and is refused.\",\"A recording of a conversation is logged with `source_system: \\\"transcript\\\"` — that value is what has it read for next steps and commitments; any other value stores the text and reads nothing.\",\"Extra keys must be named cf_\\u003cslug\\u003e and are read as custom-field values; any other key is REFUSED by name, so an unknown field is never a silent loss. A cf_ key whose custom field is not ACTIVE in this workspace is the one that is: the write reports success and drops the value, so re-read the record if you are unsure a cf_ value landed.\",\"No custom fields on activity or relationship: those types carry no cf_ values at all, so a cf_ key there is refused rather than stored.\"]},\"update_record\":{\"fields\":{\"activity\":\"{assignee_id?: uuid, body?: string, due_at?: rfc3339, is_done?: boolean, occurred_at?: rfc3339, remind_at?: rfc3339, subject?: string}\",\"deal\":\"{amount_minor?: integer, currency?: string, expected_close_date?: YYYY-MM-DD, forecast_category?: \\\"commit\\\"|\\\"best_case\\\"|\\\"pipeline\\\"|\\\"omitted\\\", fx_rate_date?: YYYY-MM-DD, fx_rate_to_base?: string, lost_reason?: string, name?: string, organization_id?: uuid, owner_id?: uuid, partner_attribution?: \\\"sourced\\\"|\\\"influenced\\\", partner_org_id?: uuid, project_id?: uuid, status?: \\\"open\\\"|\\\"won\\\"|\\\"lost\\\", wait_until?: YYYY-MM-DD}\",\"lead\":\"{candidate_org_key?: string, company_name?: string, email?: email, full_name?: string, owner_id?: uuid, project_id?: uuid, score?: integer, score_override_reason?: string, source?: string, status?: \\\"new\\\"|\\\"contacted\\\"|\\\"engaged\\\", title?: string}\",\"organization\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, description?: string, display_name?: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, lifecycle?: \\\"unknown\\\"|\\\"target\\\"|\\\"prospect\\\"|\\\"opportunity\\\"|\\\"customer\\\"|\\\"former_customer\\\"|\\\"disqualified\\\", linkedin_url?: string, owner_id?: uuid, parent_org_id?: uuid, relationship_types?: [\\\"customer\\\"|\\\"partner\\\"|\\\"supplier\\\"|\\\"investor\\\"|\\\"portfolio_company\\\"|\\\"competitor\\\"|\\\"other\\\"], size_band?: \\\"1-10\\\"|\\\"11-50\\\"|\\\"51-200\\\"|\\\"201-500\\\"|\\\"501-1000\\\"|\\\"1001-5000\\\"|\\\"5000+\\\"}\",\"person\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, first_name?: string, full_name?: string, last_name?: string, owner_id?: uuid, social?: object, title?: string}\",\"project\":\"{description?: string, ended_at?: YYYY-MM-DD, key?: string, name?: string, owner_id?: uuid, started_at?: YYYY-MM-DD, target_end_date?: YYYY-MM-DD}\",\"relationship\":\"{ended_at?: YYYY-MM-DD, is_current_primary?: boolean, role?: string, started_at?: YYYY-MM-DD}\"},\"notes\":[\"A task is record_type=activity with kind=task.\",\"`source` on a lead is the administered lead-source key (see Settings › Data model); a patch corrects it, and the score follows.\",\"A person's employer is NOT a field here: employment is a relationship, created and archived as record_type=relationship — its endpoints are what it IS, so they cannot be patched.\",\"An activity's links are NOT patchable, here or by any tool on this surface: this write changes what an activity says, never who it is about.\",\"`assignee_id` and `owner_id` take a COLLEAGUE's id — list_colleagues answers those, whoami answers your own. A person id is a contact and is refused.\",\"Extra keys must be named cf_\\u003cslug\\u003e and are read as custom-field values; any other key is REFUSED by name, so an unknown field is never a silent loss. A cf_ key whose custom field is not ACTIVE in this workspace is the one that is: the write reports success and drops the value, so re-read the record if you are unsure a cf_ value landed.\",\"No custom fields on activity or relationship: those types carry no cf_ values at all, so a cf_ key there is refused rather than stored.\"]}}",
     "ui://margince/account-brief.html": "(not published here: a ui:// document is fetched from a web origin at boot, so its bytes are a property of the deployment rather than of this build)",

@@ -197,6 +197,7 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterWhoamiTool(r, func(context.Context) (ActingIdentity, error) { return ActingIdentity{}, nil })
 	RegisterColleaguesTool(r, func(context.Context, string) ([]Colleague, bool, error) { return nil, false, nil })
 	RegisterTagTools(r, stubTags{})
+	RegisterImportTools(r, stubImports{})
 	RegisterListTool(r, nil, probeVocabulary{})
 	RegisterBriefTool(r, briefOf(0))
 	RegisterApprovalTools(r, &fakeInbox{})

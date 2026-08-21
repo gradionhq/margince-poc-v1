@@ -39,6 +39,7 @@ const (
 	recordTypeCustomField         agentRecordType = "custom_field"
 	recordTypeDataSubjectRequest  agentRecordType = "data_subject_request"
 	recordTypeDeal                agentRecordType = "deal"
+	recordTypeImportRun           agentRecordType = "import_run"
 	recordTypeLead                agentRecordType = "lead"
 	recordTypeList                agentRecordType = "list"
 	recordTypeOffer               agentRecordType = "offer"
@@ -187,8 +188,8 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/embeddings/reindex/status":                                  {Op: "EmbedReindexStatus", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/extensions":                                                 {Op: "listExtensions", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/field-history":                                              {Op: "getFieldHistory", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
-	"GET /v1/imports/{id}":                                               {Op: "getImportRun", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
-	"GET /v1/imports/{id}/report":                                        {Op: "getImportRunReport", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"GET /v1/imports/{id}":                                               {Op: "getImportRun", Access: "tool", Tool: "read_import_run", RecordType: "import_run", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/imports/{id}/report":                                        {Op: "getImportRunReport", Access: "tool", Tool: "read_import_report", RecordType: "import_run", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/installation/license":                                       {Op: "getLicenseEntitlement", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/leads":                                                      {Op: "listLeads", Access: "tool", Tool: "list_records", RecordType: "lead", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/leads/{id}":                                                 {Op: "getLead", Access: "tool", Tool: "read_record", RecordType: "lead", Tier: "auto_execute", Scope: "read"},
@@ -361,9 +362,9 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/filters/preview":                                           {Op: "previewFilter", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/fx-rates":                                                  {Op: "setFxRate", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/fx-rates/propose-refresh":                                  {Op: "proposeFxRateRefresh", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
-	"POST /v1/imports":                                                   {Op: "createImportRun", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/imports":                                                   {Op: "createImportRun", Access: "tool", Tool: "preview_import", RecordType: "import_run", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/imports/sources":                                           {Op: "uploadImportSource", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
-	"POST /v1/imports/{id}/approve":                                      {Op: "approveImportRun", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/imports/{id}/approve":                                      {Op: "approveImportRun", Access: "tool", Tool: "commit_import", RecordType: "import_run", Tier: "confirmation_required", Scope: "write"},
 	"POST /v1/imports/{id}/undo":                                         {Op: "undoImportRun", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/lead-disqualify-reasons":                                   {Op: "createLeadDisqualifyReason", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/lead-sources":                                              {Op: "createLeadSource", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

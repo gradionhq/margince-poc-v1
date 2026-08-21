@@ -29,6 +29,16 @@ import (
 // and a typo in any of them would silently ask for a grant nobody holds.
 const objectActivity = "activity"
 
+// targetImportRun is the staged target a migrate-in commit names, and the RBAC
+// object the migration module admits on (migration.ImportRunObject). One word
+// for both, spelled here rather than imported: approvals may not import a
+// module it governs.
+const targetImportRun = "import_run"
+
+// KindImportCommit is the approval a migrate-in commit stages. The kind IS the
+// tool verb, which is how every other confirm-first verb is keyed here.
+const KindImportCommit = "commit_import"
+
 // grantRequirement is one RBAC pair approving a staged kind requires. Named
 // rather than anonymous because the derivation below appends to the set and the
 // composition layer's satisfiability gate reads the objects back out of it.
@@ -73,6 +83,11 @@ var decisionGrants = map[string][]grantRequirement{
 	// gone, the message still held. selfOnlyKinds narrows it from "anyone
 	// holding that grant" to the one person whose message it is.
 	KindScheduledSendHeld: {{objectActivity, principal.ActionUpdate}},
+	// Committing an import writes the estate in bulk, so deciding one requires
+	// the same grant creating a run does. It is the CREATE grant rather than an
+	// update: an import creates records, and the person releasing it is
+	// authorising those creations, not editing a run.
+	KindImportCommit: {{targetImportRun, principal.ActionCreate}},
 	// A step-up requires NO object grant, and the empty slice is the decision
 	// rather than an omission. Releasing a volume window touches no record: it
 	// does not widen what the agent may read, only how much of what it may

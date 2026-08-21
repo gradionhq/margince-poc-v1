@@ -149,6 +149,10 @@ var sharedConfigExistence = map[string]string{
 	"offer_template":       `SELECT EXISTS (SELECT 1 FROM offer_template WHERE id = $1 AND archived_at IS NULL)`,
 	"webhook_subscription": `SELECT EXISTS (SELECT 1 FROM webhook_subscription WHERE id = $1 AND archived_at IS NULL)`,
 	"custom_field":         `SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`,
+	// An import run carries no archived_at — a finished run is history, not a
+	// deleted row, and it is still the thing an approval named. Mirrors the
+	// inbox's own arm (approvals.existenceProbes).
+	"import_run": `SELECT EXISTS (SELECT 1 FROM import_run WHERE id = $1)`,
 }
 
 // approvalTargetRule names HOW a staged target type is scoped for the approval
