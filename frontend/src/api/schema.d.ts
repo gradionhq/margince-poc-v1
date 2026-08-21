@@ -13630,11 +13630,13 @@ export interface components {
             name: string;
             /** @description The short handle a human writes in a subject line. Letter-led and bounded so it can never be a bare number, which would match dates, amounts and order numbers. Unique among LIVE projects; archiving frees it. */
             key?: string | null;
+            /** @description The fields of THIS row the caller may not read (a field mask). A named field is null because it is withheld, not because it is empty; absent or empty means nothing is withheld. */
+            readonly masked_fields?: string[];
             /**
              * Format: uuid
-             * @description The anchor company — required and singular. A company has many projects; a project has one company.
+             * @description The anchor company — singular, and always set on the row. A company has many projects; a project has one company. Null on the wire when the caller may not read that company, in which case `masked_fields` names it: a project is readable across the workspace while the company it hangs off can still be an unpromoted capture.
              */
-            organization_id: string;
+            organization_id?: string | null;
             /** Format: uuid */
             owner_id?: string | null;
             /**

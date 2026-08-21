@@ -20,7 +20,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -516,27 +515,24 @@ func TestListProjectsAppliesFiltersRegisteredAfterThePrelude(t *testing.T) {
 	}
 }
 
-// The merge refusal is a read of both sides, so it obeys row scope like any
-// other read: work the caller cannot see must still BLOCK the merge —
-// otherwise a rep quietly combines two companies whose projects another team
-// owns — while a project it may not read is counted and not NAMED, because
-// naming a project is reading it.
+// The merge refusal reads both sides, and it must block on work the caller
+// does not own — otherwise a rep quietly combines two companies whose projects
+// another team is delivering.
 //
-// Today every seat reads every project (platform/auth tableclass.go), so the
-// refusal names both sides and withholds nothing. The withholding arm is
-// asserted from the row-scope clause rather than hard-coded, so a project
-// that ever returns to a scoped read re-arms this case instead of quietly
-// turning the refusal into a disclosure.
-func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
+// It names them too, and that is not a leak: every seat holding the object
+// grant reads every project (platform/auth tableclass.go), and a project
+// cannot be capture-private since migration 1787320003 narrowed its
+// visibility CHECK to 'workspace'. A refusal that counted these without
+// naming them would be withholding from a caller who can open both records
+// on the project page a moment later — precision, not silence, is the point.
+func TestTheMergeRefusalBlocksAndNamesProjectsTheCallerDoesNotOwn(t *testing.T) {
 	e := Setup(t)
 	// The merging rep owns both companies (a merge is a write, and an own-scope
-	// seat only writes what it owns), but not the projects under them.
+	// seat only writes what it owns), but neither project under them.
 	source := e.SeedOrg(t, "Helios GmbH", &e.Rep3)
 	target := e.SeedOrg(t, "Helios AG", &e.Rep3)
-	// Each side's project belongs to a different rep, and the caller below
-	// owns neither.
-	seedProject(e.Admin(), t, e, "Secret migration", nil, source, &e.Rep1)
-	seedProject(e.Admin(), t, e, "Secret rollout", nil, target, &e.Rep2)
+	seedProject(e.Admin(), t, e, "Another team's migration", nil, source, &e.Rep1)
+	seedProject(e.Admin(), t, e, "Another team's rollout", nil, target, &e.Rep2)
 
 	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
 		RoleKeys: []string{"rep"},
@@ -552,37 +548,17 @@ func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
 	_, err := e.People.MergeOrganization(outsider, orgIDOf(source), orgIDOf(target))
 	var both *people.BothCompaniesCarryProjectsError
 	if !errors.As(err, &both) {
-		t.Fatalf("the merge produced %v, want a refusal — invisible work still blocks it", err)
+		t.Fatalf("the merge produced %v, want a refusal — another team's work still blocks it", err)
 	}
-	// Blocked on the true state of the world...
 	if both.SourceCount != 1 || both.TargetCount != 1 {
 		t.Errorf("counted %d and %d live projects, want one each", both.SourceCount, both.TargetCount)
 	}
-	// ...and it names exactly the projects this caller may read. Ask the
-	// row-scope class rather than assuming: while a project is workspace-read
-	// both names belong in the message, and the day it is scoped again both
-	// must disappear from it.
-	readsEveryProject := auth.UnboundedFor(principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + e.Rep3.String(), UserID: e.Rep3,
-		Permissions: principal.Permissions{RowScope: principal.RowScopeOwn},
-	}, "project")
-	for _, secret := range []string{"Secret migration", "Secret rollout"} {
-		named := strings.Contains(err.Error(), secret)
-		if named != readsEveryProject {
-			t.Errorf("the refusal names %q = %v, want %v — the message and the row-scope class "+
-				"disagree, so it either leaks work this caller cannot read or withholds work "+
-				"they can: %v", secret, named, readsEveryProject, err)
+	// Named, so the rep can act on the refusal instead of hunting for what
+	// blocked it. A count with no name is an instruction to guess.
+	for _, name := range []string{"Another team's migration", "Another team's rollout"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("the refusal does not name %q, so the caller cannot act on it: %v", name, err)
 		}
-	}
-	if named := len(both.Source) + len(both.Target); (named == 2) != readsEveryProject {
-		t.Errorf("the refusal named %v and %v; with workspace-read projects = %v that is the "+
-			"wrong set", both.Source, both.Target, readsEveryProject)
-	}
-	// The SIZE of anything hidden is never reported. A number is a census:
-	// repeat the merge against every company you can reach and the refusals
-	// report how much hidden work each carries, and how it moves week to week.
-	if !readsEveryProject && strings.ContainsAny(err.Error(), "0123456789") {
-		t.Errorf("the refusal counted work the caller cannot see: %v", err)
 	}
 }
 
@@ -706,8 +682,14 @@ func TestRelinkReplacesOnlyTheLinksTheCallerCanSee(t *testing.T) {
 // Making a project workspace-readable (platform/auth tableclass.go) closed it
 // by removing the premise: there is no project link a seat holding the object
 // grant cannot see, so the delete reaches every one of them and the move
-// simply works. This case is the witness that the oracle is gone, and it
-// fails the day a project link can be invisible again.
+// simply works.
+//
+// The closure rests on BOTH halves of "a project is never invisible": no
+// own/team arm, and no capture privacy — migration 1787320003 narrowed the
+// visibility CHECK to 'workspace', so an owner-private project is not a state
+// the database can hold. Widen either and the oracle returns, which is why
+// TestEveryTableThatCanHoldAnOwnerRowIsOwnerPrivate guards the second half.
+// This case is the witness that the oracle is gone.
 func TestMovingAnActivityBetweenProjectsReplacesTheLinkItCannotSee(t *testing.T) {
 	e := Setup(t)
 	org := e.SeedOrg(t, "Oracle GmbH", nil)

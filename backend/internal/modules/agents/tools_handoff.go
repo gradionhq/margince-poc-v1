@@ -66,7 +66,7 @@ type HandoffProject struct {
 	Key            string
 	Phase          string
 	Description    string
-	OrganizationID ids.UUID
+	OrganizationID *ids.UUID
 	OwnerID        *ids.UUID
 	OwnerName      string
 	StartedAt      *time.Time
@@ -95,6 +95,7 @@ const (
 	gapNoWonDeal            = "no_won_deal"
 	gapUnpricedWonDeal      = "unpriced_won_deal"
 	gapOverdueCommitment    = "overdue_commitment"
+	gapAccountWithheld      = "account_withheld"
 )
 
 // dealStatusWon is the one status that means something was sold, read from
@@ -192,6 +193,12 @@ func handoffGaps(h PreparedHandoff, facts HandoffFacts) []HandoffGap {
 		gaps = append(gaps, HandoffGap{
 			gapNoDeliveryOwner, "project.owner_id",
 			"Nobody owns this project, so the handover has no receiving side.",
+		})
+	}
+	if h.OrganizationID == nil {
+		gaps = append(gaps, HandoffGap{
+			gapAccountWithheld, "project.organization_id",
+			"The account this work is for is not readable by you, so the handover cannot name it.",
 		})
 	}
 	if h.TargetEndDate == nil {

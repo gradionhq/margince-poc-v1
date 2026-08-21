@@ -72,7 +72,9 @@ func TestIdentityTablesAreReadByEverySeat(t *testing.T) {
 func TestAProjectIsReadByEverySeat(t *testing.T) {
 	// A consultant delivering a project they neither own nor were granted has
 	// to reach it: the predicate collapses to TRUE and the list paths render
-	// no clause at all.
+	// no clause at all. Nothing narrows a project read — it carries no
+	// capture privacy either, since migration 1787320003 narrowed its
+	// visibility CHECK to 'workspace'.
 	rep := human(principal.RowScopeOwn)
 	if sql := rendered(rep, "project"); sql != "TRUE" {
 		t.Errorf("project predicate for a rep = %q, want TRUE — a rep 404s on the "+

@@ -298,7 +298,7 @@ func (s *Store) UpdateAttachmentMetadata(
 ) (crmcontracts.Attachment, error) {
 	var out crmcontracts.Attachment
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		entityType, err := resolveVisibleAttachmentParent(ctx, tx, id, principal.ActionUpdate)
+		entityType, err := resolveAttachmentParent(ctx, tx, id, principal.ActionUpdate)
 		if err != nil {
 			return err
 		}
@@ -311,7 +311,7 @@ func (s *Store) UpdateAttachmentMetadata(
 		// document exists and build a relationship across a visibility boundary,
 		// so it is gated exactly like any other read.
 		if in.Supersedes != nil {
-			if _, err := resolveVisibleAttachmentParent(ctx, tx, *in.Supersedes, principal.ActionRead); err != nil {
+			if _, err := resolveAttachmentParent(ctx, tx, *in.Supersedes, principal.ActionRead); err != nil {
 				return err
 			}
 		}

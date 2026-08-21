@@ -33,6 +33,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -92,6 +93,14 @@ var deliveryEvidence = map[string]any{
 // deliveryEvidence so the ledger names that authority rather than implying a
 // project grant.
 //
+// What makes that safe is ensureProjectAttachable below: the deal could only
+// come to name this project through a caller who held WRITE authority over it.
+// The skip here inherits that check rather than dispensing with one. Both
+// halves are load-bearing — a visibility-only gate at attach time would turn
+// this skip into a way for any seat to force a phase change on any project in
+// the workspace, which is exactly what it became when a project stopped being
+// row-scoped for reads.
+//
 // dealID must name a deal row this transaction already holds: the project
 // pointer is re-read from it here rather than taken from a pre-lock snapshot,
 // because a concurrent edit that repoints the deal from one project to another
@@ -128,6 +137,23 @@ func startDeliveryForWonDeal(ctx context.Context, tx pgx.Tx, dealID ids.DealID, 
 	}
 	return recordPhaseTransition(ctx, tx, id, current, fromPhase,
 		AdvanceProjectPhaseInput{ToPhase: PhaseDelivering}, by, deliveryEvidence)
+}
+
+// ensureProjectAttachable is the gate every path that points a deal at a
+// project calls — create and update alike. It asks for WRITE authority on the
+// project, not visibility, and it lives beside startDeliveryForWonDeal because
+// that function is the reason the bar is this high: attaching a project is the
+// act that later authorizes advancing its phase, so the authority has to be
+// checked here or nowhere.
+//
+// A caller who may see a project but not change it can still work its deals —
+// they simply cannot bind one to it, because binding is what hands them the
+// phase transition. The refusal reads as permission-denied rather than
+// not-found: this caller can read the project (every seat holding the object
+// grant does), so claiming it is not there would be a lie about a record they
+// can see.
+func ensureProjectAttachable(ctx context.Context, tx pgx.Tx, projectID ids.UUID) error {
+	return auth.EnsureWritableLive(ctx, tx, projectObject, projectID)
 }
 
 // lockedDealProject reads the project pointer off a deal row the caller's

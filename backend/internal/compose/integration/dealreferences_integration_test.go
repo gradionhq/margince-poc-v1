@@ -90,22 +90,43 @@ func TestADealDoesNotNameRecordsItsReaderCannotRead(t *testing.T) {
 	}
 	assertMaskNames(t, got, "organization_id", "partner_org_id")
 
-	// The project belongs to another team, and the reader receives it anyway:
-	// every seat reads every project (platform/auth tableclass.go), so there
-	// is nothing here to withhold. Both references are named and the mask is
-	// empty — a mask naming a field the caller can read would send them
-	// hunting for access they already hold.
+	// A project is read by every seat HOLDING THE OBJECT GRANT, and this rep
+	// holds no project grant at all (AccountRepPerms). Row scope is not the
+	// only gate on a reference: object RBAC answers whether the caller may
+	// read that KIND of record, and a deal must not become the door to an id
+	// from a table its reader may not open.
 	proj, err := e.Deals.GetDeal(rep, fx.hiddenProj, 0)
 	if err != nil {
 		t.Fatalf("a rep reading a deal whose project is another team's: %v", err)
 	}
-	if proj.ProjectId == nil {
-		t.Error("project_id is withheld; a project is read by every seat holding the object grant")
+	if proj.ProjectId != nil {
+		t.Errorf("project_id = %v, want withheld: this rep holds no project.read grant",
+			proj.ProjectId)
 	}
 	if proj.OrganizationId == nil || ids.UUID(*proj.OrganizationId) != fx.openOrg {
 		t.Errorf("organization_id = %v, want the workspace-visible company the reader CAN open", proj.OrganizationId)
 	}
-	assertMaskNames(t, proj)
+	assertMaskNames(t, proj, "project_id")
+
+	// Add the project grant and the SAME deal names its project, though the
+	// project belongs to another team: no own/team arm narrows a project read,
+	// and it cannot be capture-private (migration 1787320003). Without this
+	// half the assertion above would pass against a mask that withheld every
+	// project from everybody.
+	withProject := AccountRepPerms
+	withProject.Objects = make(map[string]principal.ObjectGrant, len(AccountRepPerms.Objects)+1)
+	for object, grant := range AccountRepPerms.Objects {
+		withProject.Objects[object] = grant
+	}
+	withProject.Objects["project"] = principal.ObjectGrant{Read: true}
+	granted, err := e.Deals.GetDeal(e.As(e.Rep1, []ids.UUID{e.Team1}, withProject), fx.hiddenProj, 0)
+	if err != nil {
+		t.Fatalf("a rep holding project.read reading the same deal: %v", err)
+	}
+	if granted.ProjectId == nil {
+		t.Error("project_id is withheld from a rep who holds project.read; a project " +
+			"carries no owner scope and no capture privacy")
+	}
 
 	// A reader who can see all three still receives all three.
 	full, err := e.Deals.GetDeal(e.Admin(), fx.hiddenProj, 0)
@@ -136,12 +157,15 @@ func TestTheDealListWithholdsTheSameReferencesAsTheGet(t *testing.T) {
 			}
 			assertMaskNames(t, d, "organization_id", "partner_org_id")
 		case fx.hiddenProj.UUID:
-			// Another team's project is still this workspace's to read, so
-			// the list names it and masks nothing.
-			if d.ProjectId == nil {
-				t.Error("the list withheld a project every seat reads")
+			// This rep holds no project.read grant, so the page withholds the
+			// id for the same reason the single-row read does — the list is
+			// where an existence oracle is cheapest, so it must not be the
+			// looser door.
+			if d.ProjectId != nil {
+				t.Errorf("the list handed out a project id to a rep holding no project grant: %v",
+					d.ProjectId)
 			}
-			assertMaskNames(t, d)
+			assertMaskNames(t, d, "project_id")
 		}
 	}
 	if !seen[fx.hiddenRefs.UUID] || !seen[fx.hiddenProj.UUID] {

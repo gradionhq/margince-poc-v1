@@ -130,6 +130,14 @@ func (s *Store) dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontr
 // only settable to a target the caller may see, so each one gates before it
 // patches (auth.EnsureLinkTarget), and a miss reads as not-found rather than
 // disclosing that the row exists.
+//
+// The project pointer is the exception, and it needs WRITE authority
+// (ensureProjectAttachable). Pointing a deal at a project is not a read of the
+// project: winning that deal advances the project's phase and writes its
+// history (startDeliveryForWonDeal), and that advance deliberately does not
+// re-check the caller's authority over the project — the authority to attach
+// is what stands in for it. A visibility-only gate here would let any seat
+// attach any project in the workspace and then force it into `delivering`.
 func applyDealLinkPatches(ctx context.Context, tx pgx.Tx,
 	current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch,
 	ensurePartner EnsurePartner,
@@ -144,7 +152,7 @@ func applyDealLinkPatches(ctx context.Context, tx pgx.Tx,
 		p.Set("owner_id", current.OwnerId, *in.OwnerID)
 	}
 	if in.ProjectID != nil {
-		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
+		if err := ensureProjectAttachable(ctx, tx, in.ProjectID.UUID); err != nil {
 			return err
 		}
 		p.Set("project_id", current.ProjectId, *in.ProjectID)

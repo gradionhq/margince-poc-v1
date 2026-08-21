@@ -306,11 +306,17 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 // used to leave a residual: at most one project link may exist, so the insert
 // then hit the partial index and refused, and the difference between that
 // refusal and a success told the caller a project link they could not see was
-// there. That is closed, because a project is now read by every seat holding
-// the object grant (platform/auth tableclass.go) — there is no project link
-// such a caller cannot see, so the delete reaches every one and the move
-// succeeds. The 23505 path below still stands for the links that CAN be
-// invisible, and for the caller who asks to associate rather than move.
+// there. One bit escaped, and hiding a link's existence while enforcing
+// one-per-activity looked like the same question asked twice.
+//
+// It is closed, and closed on both halves rather than narrowed. A project
+// carries no own/team arm (platform/auth tableclass.go) and no capture privacy
+// either — migration 1787320003 narrowed its visibility CHECK to 'workspace',
+// because nothing auto-creates a project and an owner-private one was a state
+// no writer could reach. So no project link can be invisible to a caller
+// holding the object grant: the delete reaches every one, and the move
+// succeeds. The 23505 path below still stands for the caller who asks to
+// associate rather than move.
 func deleteVisibleLinksOfType(ctx context.Context, tx pgx.Tx, id ids.ActivityID, entityType, column string) ([]ids.UUID, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }

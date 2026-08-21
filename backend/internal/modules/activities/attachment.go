@@ -86,17 +86,24 @@ func requireParentOrHide(ctx context.Context, entityType string, action principa
 	return nil
 }
 
-// resolveVisibleAttachmentParent is the ONE spelling of "find a live
-// attachment's parent, then require the caller hold `action` on the parent
-// object type and be able to see the parent row" — GetAttachmentMeta and
-// ArchiveAttachment both need exactly this and nothing more. Object denial
-// and row-scope miss both surface as ErrNotFound (existence-hiding), and so
-// does a missing or already-archived row: a soft-deleted attachment has no
-// live parent to resolve against. OpenAttachment does NOT call this: it
-// fetches storage_key in the same round trip, so the key it hands the object
-// store comes from the same snapshot the visibility gates just read rather
-// than from a second query against a row that may have moved since.
-func resolveVisibleAttachmentParent(ctx context.Context, tx pgx.Tx, id ids.UUID, action principal.Action) (entityType string, err error) {
+// resolveAttachmentParent is the ONE spelling of "find a live attachment's
+// parent, then require the caller hold `action` on the parent object type and
+// the matching authority over the parent ROW" — GetAttachmentMeta and
+// ArchiveAttachment both need exactly this. Object denial and row-scope miss
+// both surface as ErrNotFound (existence-hiding), and so does a missing or
+// already-archived row: a soft-deleted attachment has no live parent to
+// resolve against. OpenAttachment does NOT call this: it fetches storage_key
+// in the same round trip, so the key it hands the object store comes from the
+// same snapshot the visibility gates just read rather than from a second query
+// against a row that may have moved since.
+//
+// The row gate follows the ACTION rather than being visibility for everyone: a
+// read needs only to see the parent, while archiving a file off a record
+// changes that record and needs the parent to be the caller's to change. That
+// distinction used to be invisible because every parent type a rep could see
+// was also one they owned; with a project readable workspace-wide it is the
+// difference between "look at another team's file" and "delete it".
+func resolveAttachmentParent(ctx context.Context, tx pgx.Tx, id ids.UUID, action principal.Action) (entityType string, err error) {
 	var entityID ids.UUID
 	row := tx.QueryRow(ctx,
 		`SELECT entity_type, entity_id FROM attachment WHERE id = $1 AND archived_at IS NULL`, id)
@@ -109,7 +116,13 @@ func resolveVisibleAttachmentParent(ctx context.Context, tx pgx.Tx, id ids.UUID,
 	if err := requireParentOrHide(ctx, entityType, action); err != nil {
 		return "", err
 	}
-	if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
+	if action == principal.ActionRead {
+		if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
+			return "", err
+		}
+		return entityType, nil
+	}
+	if err := ensureAttachmentParentWritable(ctx, tx, entityType, entityID); err != nil {
 		return "", err
 	}
 	return entityType, nil
@@ -161,13 +174,13 @@ func (s *Store) OpenAttachment(ctx context.Context, id ids.UUID) (crmcontracts.A
 }
 
 // GetAttachmentMeta resolves one attachment's metadata row, gated exactly
-// like resolveVisibleAttachmentParent but without any object-store access:
+// like resolveAttachmentParent but without any object-store access:
 // the extraction read and the request-access courtesy note both need only
 // the row's identity. Archived or invisible reads as ErrNotFound.
 func (s *Store) GetAttachmentMeta(ctx context.Context, id ids.UUID) (crmcontracts.Attachment, error) {
 	var out crmcontracts.Attachment
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := resolveVisibleAttachmentParent(ctx, tx, id, principal.ActionRead); err != nil {
+		if _, err := resolveAttachmentParent(ctx, tx, id, principal.ActionRead); err != nil {
 			return err
 		}
 		att, err := readAttachment(ctx, tx, id)
@@ -187,7 +200,7 @@ func (s *Store) GetAttachmentMeta(ctx context.Context, id ids.UUID) (crmcontract
 // scope). Archived/invisible reads as ErrNotFound.
 func (s *Store) ArchiveAttachment(ctx context.Context, id ids.UUID) error {
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		entityType, err := resolveVisibleAttachmentParent(ctx, tx, id, principal.ActionUpdate)
+		entityType, err := resolveAttachmentParent(ctx, tx, id, principal.ActionUpdate)
 		if err != nil {
 			return err
 		}

@@ -119,12 +119,15 @@ func TestAnExplicitShareStillWidensAnOwnerPrivateRow(t *testing.T) {
 }
 
 func TestTablesWithoutCapturePrivacyAreUnchanged(t *testing.T) {
-	// deal, lead and project carry no visibility column; adding the arm to
-	// them would filter on a column that does not exist.
+	// deal and lead carry no visibility column at all, and project carries one
+	// that migration 1787320003 narrowed to 'workspace' — nothing auto-creates
+	// a project, so an owner-private one was a state no writer could reach.
+	// Rendering the arm for any of the three would filter on a state the
+	// database refuses, which reads as a guarantee while proving nothing.
 	for _, table := range []string{"deal", "lead", "project"} {
 		sql := rendered(human(principal.RowScopeTeam), table)
 		if strings.Contains(sql, "visibility") {
-			t.Errorf("%s predicate reads a visibility column it does not have: %s", table, sql)
+			t.Errorf("%s predicate reads a visibility state it cannot hold: %s", table, sql)
 		}
 	}
 }

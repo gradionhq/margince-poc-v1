@@ -158,7 +158,7 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 	if err != nil {
 		return crmcontracts.Project{}, fmt.Errorf("read created project: %w", err)
 	}
-	return out, nil
+	return maskProjectForCaller(ctx, tx, out)
 }
 
 // RefuseArchiveProject answers every authority refusal ArchiveProject would
@@ -232,10 +232,12 @@ func (s *Store) ArchiveProject(ctx context.Context, id ids.ProjectID, ifVersion 
 		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventProjectArchived{}); err != nil {
 			return fmt.Errorf("emit project.archived: %w", err)
 		}
-		if out, err = readProject(ctx, tx, id, storekit.IncludeArchived, active); err != nil {
+		archivedRow, err := readProject(ctx, tx, id, storekit.IncludeArchived, active)
+		if err != nil {
 			return fmt.Errorf("read archived project: %w", err)
 		}
-		return nil
+		out, err = maskProjectForCaller(ctx, tx, archivedRow)
+		return err
 	})
 	return out, err
 }

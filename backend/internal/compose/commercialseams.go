@@ -150,7 +150,7 @@ func handoffProject(p crmcontracts.Project) agents.HandoffProject {
 	out := agents.HandoffProject{
 		ProjectID:      ids.UUID(p.Id),
 		Name:           p.Name,
-		OrganizationID: ids.UUID(p.OrganizationId),
+		OrganizationID: (*ids.UUID)(p.OrganizationId),
 		OwnerID:        (*ids.UUID)(p.OwnerId),
 	}
 	if p.Key != nil {
