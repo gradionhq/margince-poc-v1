@@ -52,11 +52,12 @@ func (noopWorker) Work(context.Context, *river.Job[noopArgs]) error { return nil
 // tables. The pool is returned alongside the runner so callers can open their
 // own transactions (e.g. to exercise EnqueueTx*).
 //
-// The schema is migrated once per test process (testdb.EnsureSchema) and only the
-// data is reset between tests (testdb.Reset) — the discipline
-// backend/integrationmigrateonce_test.go enforces module-wide. EnsureSchema opens
-// with the same DROP SCHEMA + GRANT USAGE ON SCHEMA public TO margince_app, which
-// is what makes the app-role reach this suite asserts reachable at all.
+// The schema is brought to head once per test process (testdb.EnsureSchema) and
+// only the data is reset between tests (testdb.Reset) — the discipline
+// backend/integrationmigrateonce_test.go enforces module-wide. The app-role
+// reach this suite asserts rests on GRANT USAGE ON SCHEMA public TO
+// margince_app, which EnsureSchema issues itself when it rebuilds the schema
+// and a lane clone carries from core 0015 when EnsureSchema reuses one.
 func migratedAppPool(t *testing.T) (*jobs.Runner, *pgxpool.Pool) {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")

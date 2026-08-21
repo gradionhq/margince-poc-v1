@@ -7,12 +7,19 @@
 // integration suites need a clean database per test, and the obvious way to get
 // one — DROP SCHEMA + re-run every embedded migration on each Setup — dominated
 // the lane: the heaviest package alone remigrated ~180 times (~0.8s each). This
-// package splits the cost. EnsureSchema migrates ONCE per test-binary process
-// and records the empty schema's physical size; every later test in that process
-// rides the already-migrated schema and only resets the data. Correctness holds
-// because no migration seeds reference data a test depends on — the only
-// data-touching migration (person_social backfill) is a no-op on an empty
-// database.
+// package splits the cost. EnsureSchema brings the database to head ONCE per
+// test-binary process and records the empty schema's physical size; every later
+// test in that process rides the already-migrated schema and only resets the
+// data. Correctness holds because no migration seeds reference data a test
+// depends on — the only data-touching migration (person_social backfill) is a
+// no-op on an empty database.
+//
+// Once per process is still not the same as once per RUN, and most of the time
+// it need not be either: the lane gives each package a file copy of an
+// already-migrated template, so the rebuild it used to perform reproduced a
+// schema it had just been handed. EnsureSchema now proves the copy is this
+// binary's own head and still empty, and skips the rebuild when it is — see
+// headprobe.go, which states what each proof is for.
 //
 // Emptying rows does not revert schema changes, so the reset also drops the
 // runtime cf_ columns the customfields engine adds — see dropCustomFieldColumns.
@@ -36,9 +43,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-
-	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
-	"github.com/gradionhq/margince/backend/migrations"
 )
 
 var (
@@ -60,8 +64,8 @@ var (
 )
 
 // resetTables is the ONE spelling of which relations a reset acts on: ordinary
-// tables in the schemas below, minus the schema_migrations_* ledger and the
-// boot-seeded reference-data tables. Both are preserved for the same reason:
+// tables in the schemas below, minus every MIGRATION LEDGER and the
+// boot-seeded reference-data tables. All are preserved for the same reason:
 // EnsureSchema's once-per-process contract assumes what its own package doc
 // once stated as an invariant — "no migration seeds reference data a test
 // depends on" — and migration 0240 was the first to break that assumption
@@ -77,6 +81,15 @@ var (
 // one. Every caller selects a qualified identifier from it, so the emitted
 // statements never depend on search_path resolution.
 //
+// river_migration is a ledger too, and is excluded for exactly the reason
+// schema_migrations_* is: it records which migrations a database applied, not
+// anything a test wrote. Emptying it left River's ledger disagreeing with
+// River's own tables, which still stood — a state River reads as "not migrated"
+// and then fails on SQLSTATE 42P07 when it replays its first migration onto
+// them. testdb/river.go had to probe the TABLE to work around that; with the
+// ledger preserved the two agree, and an already-migrated clone carries no rows
+// that EnsureSchema's emptiness proof has to make an exception for.
+//
 // ext is in scope for exactly the reason public is. Since 0202 every extension
 // unit's tables live there (ADR-0069), applied by the same lane, and an ext_
 // table left out of this fragment is one no reset ever empties: the rows an
@@ -90,6 +103,7 @@ const resetTables = `
 	WHERE n.nspname IN ('public', 'ext')
 	  AND c.relkind = 'r'
 	  AND c.relname NOT LIKE 'schema_migrations_%'
+	  AND c.relname <> 'river_migration'
 	  AND c.relname NOT IN ('activity_kind', 'channel_provider', 'lead_source', 'lead_disqualify_reason', 'field_mask')`
 
 // reclaimSlack is how much a table may grow past its empty size before a reset
@@ -103,49 +117,6 @@ const reclaimSlack = 256 << 10
 type execQuerier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-}
-
-// EnsureSchema migrates the test database exactly once per process. The first
-// integration test to run pays the schema drop + full embedded migration; every
-// later test in the same process is a no-op here and resets via Reset. Any
-// caller may pass any owner connection to the same database — the migration runs
-// on whichever connection wins the race to the sync.Once, and the result is the
-// same schema for all of them.
-func EnsureSchema(ctx context.Context, owner *pgx.Conn) error {
-	migrateOnce.Do(func() {
-		if err := dropPublicSchema(ctx, owner); err != nil {
-			migrateErr = err
-			return
-		}
-		core, err := migrations.Core()
-		if err != nil {
-			migrateErr = err
-			return
-		}
-		custom, err := migrations.Custom()
-		if err != nil {
-			migrateErr = err
-			return
-		}
-		if _, err := dbmigrate.Up(ctx, owner, core, custom); err != nil {
-			migrateErr = err
-			return
-		}
-		// The schema is migrated and provably empty exactly here, which is the
-		// only moment a per-table "this is what zero rows costs" baseline can be
-		// taken.
-		sizes, err := tableSizes(ctx, owner)
-		if err != nil {
-			migrateErr = fmt.Errorf("recording empty-schema sizes: %w", err)
-			return
-		}
-		emptySizes.Store(&sizes)
-		// Last, and only on the success path: Pool refuses to hand out a
-		// connection until this is set, so a pool can never predate the schema
-		// drop above.
-		schemaReady.Store(true)
-	})
-	return migrateErr
 }
 
 // Reset empties every data table so the next test sees a clean database without

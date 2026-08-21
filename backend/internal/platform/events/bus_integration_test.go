@@ -57,10 +57,12 @@ func setup(t *testing.T) *busEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
-	// Migrated once per test process; every later test resets the data only — the
-	// discipline backend/integrationmigrateonce_test.go enforces module-wide.
-	// EnsureSchema performs the GRANT USAGE ON SCHEMA public TO margince_app that
-	// the app pool below depends on.
+	// Brought to head once per test process; every later test resets the data
+	// only — the discipline backend/integrationmigrateonce_test.go enforces
+	// module-wide. Either way the app pool below gets the GRANT USAGE ON SCHEMA
+	// public TO margince_app it depends on: EnsureSchema issues it when it
+	// rebuilds the schema, and a lane clone inherits it from the migration that
+	// grants it (core 0015) when EnsureSchema reuses one.
 	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatalf("migrating the test schema: %v", err)
 	}
