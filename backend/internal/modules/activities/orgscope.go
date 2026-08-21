@@ -217,6 +217,22 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 			where = append(where, sprintf("al.%s = $%d", column, arg(*in.EntityID)))
 		}
 	}
+	if in.WithinProjectID != nil {
+		// EXCLUSION, not selection: what belongs to ANOTHER project drops out
+		// and what belongs to none stays. Attribution is optional, so most
+		// correspondence carries no project — an equality test would drop the
+		// account's general history and read as though nothing had been said.
+		//
+		// A subquery rather than a predicate on a joined link row, because
+		// `activity_link_shape` admits exactly one target per row: a
+		// person-link row carries a NULL project_id by construction, so a test
+		// on it would be true everywhere and narrow nothing.
+		where = append(where, sprintf(`NOT EXISTS (
+			SELECT 1 FROM activity_link scoped
+			WHERE scoped.activity_id = a.id
+			  AND scoped.project_id IS NOT NULL
+			  AND scoped.project_id <> $%d)`, arg(*in.WithinProjectID)))
+	}
 	if in.ThreadKey != nil && *in.ThreadKey != "" {
 		where = append(where, sprintf("a.thread_key = $%d", arg(*in.ThreadKey)))
 	}

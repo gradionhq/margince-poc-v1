@@ -74,6 +74,43 @@ var anchorLinkColumn = map[string]string{
 	string(datasource.EntityProject):      "project_id",
 }
 
+// projectScope narrows a walk to one body of work. The zero value scopes
+// nothing, which is the ordinary read.
+//
+// It is a CO-FILTER on an anchor that stays a person, a company or a deal —
+// not an anchor of its own. "Catch me up on Acme" and "catch me up on Acme,
+// but only the ERP rollout" walk the same neighborhood; the second one just
+// refuses to be told about the other engagement.
+type projectScope struct {
+	projectID string
+}
+
+// clause renders the exclusion the scope stands for, or "" when there is no
+// scope. `activityAlias` is the ACTIVITY alias it applies to.
+//
+// It has to be a subquery over the activity's other links, not a test on the
+// link row already joined: `activity_link_shape` admits exactly ONE target per
+// row, so a person-link row carries `project_id IS NULL` by construction. A
+// predicate on that row would be true for every row it saw and would filter
+// nothing at all — a scope that silently does nothing, which reads in a brief
+// exactly like a scope that works.
+//
+// KEEPING THE UNATTRIBUTED ROWS IS THE POINT. Attribution is optional here, so
+// most correspondence on an account carries no project at all: `NOT EXISTS a
+// link to another project` keeps those, and removes only what is filed under a
+// different body of work.
+func (s projectScope) clause(activityAlias string, arg func(any) int) string {
+	if s.projectID == "" {
+		return ""
+	}
+	return fmt.Sprintf(`NOT EXISTS (
+			SELECT 1 FROM activity_link scoped
+			WHERE scoped.activity_id = %s.id
+			  AND scoped.project_id IS NOT NULL
+			  AND scoped.project_id <> $%d)`,
+		activityAlias, arg(s.projectID))
+}
+
 // assembleGraph is the fixed-depth context walk (B-EP05.20a): anchor →
 // linked activities (hop 1) → those activities' other link targets
 // (hop 2). Depth is fixed by construction — two joins, not a traversal
@@ -83,15 +120,15 @@ var anchorLinkColumn = map[string]string{
 // An ACTIVITY anchor takes the other road (graphactivity.go): it names no
 // neighborhood of its own, so it is dereferenced to the records it is about
 // and the walk below runs around one of those.
-func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID ids.UUID, maxItems int) ([]graphSection, error) {
+func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID ids.UUID, maxItems int, within projectScope) ([]graphSection, error) {
 	var sections []graphSection
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		if anchorType == string(datasource.EntityActivity) {
-			sections, err = s.assembleActivityWithin(ctx, tx, anchorID, maxItems)
+			sections, err = s.assembleActivityWithin(ctx, tx, anchorID, maxItems, within)
 			return err
 		}
-		sections, err = s.assembleRecordWithin(ctx, tx, anchorType, anchorID, maxItems)
+		sections, err = s.assembleRecordWithin(ctx, tx, anchorType, anchorID, maxItems, within)
 		return err
 	})
 	if err != nil {
@@ -103,7 +140,7 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 // assembleRecordWithin is the record half of the walk, on a transaction the
 // caller owns — so an activity anchor can dereference to a record and walk it
 // without opening a second transaction against the same read.
-func (s *Store) assembleRecordWithin(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, maxItems int) ([]graphSection, error) {
+func (s *Store) assembleRecordWithin(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, maxItems int, within projectScope) ([]graphSection, error) {
 	// A record graph anchor is any searchable record type except activity
 	// itself (an activity is a link, not a thing links hang off).
 	var branch *searchBranch
@@ -164,7 +201,7 @@ func (s *Store) assembleRecordWithin(ctx context.Context, tx pgx.Tx, anchorType 
 		return sections, nil
 	}
 
-	touches, openTasks, activityIDs, err := anchorTimeline(ctx, tx, linkCol, anchorID, maxItems, now)
+	touches, openTasks, activityIDs, err := anchorTimeline(ctx, tx, linkCol, anchorID, maxItems, now, within)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +246,7 @@ func anchorProfile(ctx context.Context, tx pgx.Tx, branch *searchBranch, anchorT
 // anchorTimeline is hop 1: the anchor's activity timeline, scope-walked
 // and ranked by recency × trust (§10.7.2 with similarity = 0), split
 // into recent touches and open tasks.
-func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids.UUID, maxItems int, now time.Time) (touches, openTasks []graphItem, activityIDs []ids.ActivityID, err error) {
+func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids.UUID, maxItems int, now time.Time, within projectScope) (touches, openTasks []graphItem, activityIDs []ids.ActivityID, err error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	anchorPos := arg(anchorID)
@@ -223,6 +260,9 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 		WHERE l.%s = $%d AND a.archived_at IS NULL`, linkCol, anchorPos)
 	if scope != "" {
 		activitySQL += " AND " + scope
+	}
+	if narrow := within.clause("a", arg); narrow != "" {
+		activitySQL += " AND " + narrow
 	}
 	activitySQL += fmt.Sprintf(" ORDER BY a.occurred_at DESC LIMIT %d", graphExpansionLimit)
 	rows, err := tx.Query(ctx, activitySQL, args...)
