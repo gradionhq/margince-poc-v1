@@ -91,10 +91,6 @@ func correctTheToken(cfg deployconfig.Config, lookup config.Lookup) string {
 // who knows where to look and one who goes looking in the file that no longer
 // mentions it. A grep token rather than prose, because every other value of
 // this field is one.
-//
-// A zero Posture is the pre-verification caller: NewWatcher refused a token, so
-// one certainly exists and the vault is the only place left it can have come
-// from.
 func licenseTokenOrigin(cfg deployconfig.Config, lookup config.Lookup, posture licensecheck.Posture) string {
 	if origin := cfg.License.TokenOrigin(lookup); origin != deployconfig.TokenOriginNone {
 		return origin

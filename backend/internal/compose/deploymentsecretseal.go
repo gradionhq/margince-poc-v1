@@ -149,8 +149,29 @@ func (b vaultBinding) mirror(ctx context.Context, s deploymentSecret, stored, de
 		return
 	}
 	if superseded != "" {
-		keyvault.DeleteDetached(ctx, b.vault, b.log, b.ws.UUID, superseded, "deployment credential rotated")
-		b.log.InfoContext(ctx, "re-sealed a rotated deployment credential into the key vault",
+		// The superseded blob is deliberately NOT destroyed, which is the
+		// opposite of what the two arms above do, and the difference is the
+		// whole point: those delete a duplicate of a value still in hand, while
+		// this one would delete a DIFFERENT credential — and once the operator
+		// has deleted the declaration, the only copy of it.
+		//
+		// Three of this design's rules compose badly here. The declaration wins;
+		// a re-seal supersedes; and after retirement the vault is the only copy.
+		// So anything that puts a wrong value in the declaration for one boot —
+		// a stale variable restored from git, a botched pipeline, a value set by
+		// whoever can edit the deploy pipeline without touching the file the
+		// operator reviews — would irreversibly destroy the real credential.
+		// Unsetting the variable does not bring it back; nothing does.
+		//
+		// The cost of keeping it is an unreferenced blob per genuine rotation,
+		// encrypted at rest and reachable by nobody, which is the benign default
+		// keyvault.Put already documents for exactly this trade.
+		//
+		// Not "rotated" in the sentence either: this arm is also reached when the
+		// sealed copy could not be READ, and telling an operator their rotation
+		// landed when the vault merely hiccuped is the wrong half to be
+		// confident about.
+		b.log.InfoContext(ctx, "re-sealed a deployment credential into the key vault; the sealed copy did not match the declaration and has been left in place",
 			"credential_name", s.name, "declared_at", s.declaredAt)
 		return
 	}
@@ -273,6 +294,12 @@ func SealedLicenseTokenSource(ctx context.Context, pool *pgxpool.Pool, vault key
 // have been sealed before. What the deployment declares is the whole answer,
 // and that is not an error — every tenant route answers 503 until the claim
 // runs, so a boot that refused here would refuse the very thing that fixes it.
+//
+// singletonWorkspace documents EnsureInstallation as having already refused a
+// multi-workspace database, and on the WORKER that is the api's doing rather
+// than this process's — the worker never calls it. ADR-0061 makes a second
+// workspace unreachable, so the precondition holds in fact; it is worth saying
+// that it holds for a reason outside this call rather than because of one.
 func sealedSecret(ctx context.Context, pool *pgxpool.Pool, vault keyvault.Vault, s deploymentSecret, declared string, log *slog.Logger) (string, error) {
 	if vault == nil {
 		// No vault, which — because keyvault.FromEnv refuses a boot that has

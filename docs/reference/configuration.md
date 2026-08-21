@@ -483,7 +483,7 @@ has:
 
 ```
 sealed a deployment credential into the key vault; the deployment configuration
-that carried it can be removed  credential_name="the license token" declared_at=license.token
+that declared it can be deleted  credential_name="the license token" declared_at=license.token
 ```
 
 Once that line appears the declaration may be deleted and the installation keeps
@@ -498,12 +498,29 @@ unset is a named source that yielded nothing, which has always been an error
 rather than an absence. Remove the whole `license:` block, or the `password:`
 line from `email.smtp`. Then the variable or the file can go too.
 
+**There is no unseal.** Rotating works; *removing* does not. Deleting
+`email.smtp.password` used to switch the installation back to an unauthenticated
+relay, and it no longer does — the sealed copy keeps answering, because "declared
+nothing" and "declared nothing on purpose" are the same input to the resolver.
+Nothing in the product deletes either ref today. If you need a relay that takes
+no credential, say so on
+[issue #2162](https://github.com/gradionhq/margince-poc-v1/issues/2162), which
+tracks the supported way to do it. The license is unaffected in practice: an
+installation removing its license is one that has stopped paying, and a
+production boot refuses an absent license regardless.
+
 **Rotation moves into the vault only for reading, never for writing.** There is
 no product surface that changes either credential, and no seeded role holds the
 grant to write one, so the sealed copy is only ever a mirror of what the
 deployment declares. That is why the DECLARATION still wins when both exist: to
 rotate, put the new value back where it used to be — the variable or the file —
-and the next boot re-seals it and destroys the superseded blob. This is the
+and the next boot re-seals it. The superseded ciphertext is deliberately left
+in place rather than destroyed: a re-seal is triggered by the declaration alone,
+which is exactly what a stale variable or a botched pipeline gets wrong, and
+destroying what it supersedes would let one bad boot irreversibly take out the
+only copy of a credential nobody meant to replace. What it costs is one
+unreferenced blob per rotation — encrypted at rest, reachable by nobody. This is
+the
 opposite precedence to a BYOK provider key, which the vault wins because the
 routing surface can change one.
 

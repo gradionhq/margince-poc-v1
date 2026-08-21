@@ -82,19 +82,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	// Before this role does any work, so an operator mistake never leaves a
-	// worker running on a license the api refuses to boot on. The RUNNING
-	// posture is the api's to watch: it is the role that serves it, and two
-	// roles re-resolving one calendar answer would report the same lapse twice.
-	//
-	// After the pool rather than before it, which it used to be: an installation
-	// that has sealed its token holds it in the key vault, and the vault is a
-	// table. The check is placed after AssertRuntimeRole so a pool connecting as
-	// the wrong role fails as that rather than as a license nobody can read.
-	if err := ensureLicense(ctx, logger, pool, deployCfg, cfg.posture); err != nil {
-		return err
-	}
-
 	// Before this role does ANY work: a worker from a different release than the
 	// one this installation records is half of a torn tag pull, and it stops
 	// rather than run the outbox relay, the retention evaluator and the agent
@@ -102,6 +89,22 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// (compose/releaseversion.go carries why). Ahead of the composition record
 	// below, because a role that must not run must not write either.
 	if err := compose.AssertInstallationRelease(ctx, pool, logger, buildinfo.ReleaseVersion); err != nil {
+		return err
+	}
+
+	// Before this role does any work, so an operator mistake never leaves a
+	// worker running on a license the api refuses to boot on. The RUNNING
+	// posture is the api's to watch: it is the role that serves it, and two
+	// roles re-resolving one calendar answer would report the same lapse twice.
+	//
+	// After the pool rather than before it, which it used to be: an installation
+	// that has sealed its token holds it in the key vault, and the vault is a
+	// table. That makes this a WRITE — the first boot to resolve a declared
+	// token seals it and stamps an audit row — so it also has to sit after the
+	// release assertion above, which exists to stop a role that must not run
+	// from writing. AssertRuntimeRole comes earlier still, so a pool connecting
+	// as the wrong role fails as that rather than as a license nobody can read.
+	if err := ensureLicense(ctx, logger, pool, deployCfg, cfg.posture); err != nil {
 		return err
 	}
 

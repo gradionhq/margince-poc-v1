@@ -57,6 +57,11 @@ type Definition interface {
 	Frozen(context.Context, pgx.Tx) (bool, string, error)
 	// HasFreezeProbe reports whether an immutability probe is attached.
 	HasFreezeProbe() bool
+	// AuditImage renders a value for the ledger. Identity for almost every
+	// setting: what changed IS the value, and an audit row that hid it would
+	// answer nothing. The exception is a setting whose value is the ADDRESS of
+	// a secret rather than a posture somebody chose — see AsSecretReference.
+	AuditImage(json.RawMessage) json.RawMessage
 	// SurvivesDataReset reports whether this setting is part of the
 	// INSTALLATION'S IDENTITY rather than its configuration. A data reset
 	// returns the installation to first-boot state without re-creating it, so
@@ -79,6 +84,10 @@ type Entry[T any] struct {
 	validate func(T) error
 	freeze   func(context.Context, pgx.Tx) (bool, string, error)
 	identity bool
+	// secretReference redacts this entry's audited image. Off by default: a
+	// setting's value belongs in the ledger unless someone declares it is a
+	// capability handle rather than a choice.
+	secretReference bool
 	// machineryApplied admits this entry to ApplyTx, the ungated
 	// in-transaction reader for machinery that must apply the posture to its
 	// own write whoever the acting principal is. Off by default: an entry
@@ -262,4 +271,38 @@ func (e UnsetValue) Error() string {
 func (e UnsetValue) MessageFault() (code, message string) {
 	return "installation_setting_unset", e.Error() +
 		" — an admin must set it on the installation settings screen before this operation can succeed"
+}
+
+// AsSecretReference declares that this setting's value is the ADDRESS of a
+// secret, not a posture, and must not be written verbatim into audit_log.
+//
+// The ref is not the secret — it is opaque, workspace-bound, and the vault
+// refuses one presented under another workspace. But it is the unguessable
+// capability half of the handle, which is why keyvault.refLogSafe strips it
+// from every error the vault raises and why the data reset refuses to name one
+// in a log line. audit_log is a log sink like any other: admin-readable over
+// /audit-log and exportable. A ref that is careful everywhere else and verbatim
+// here is careful nowhere.
+//
+// What the ledger keeps is the fact and the actor and the moment, which is what
+// a reader of this row actually needs — "the seal changed", not which byte.
+func (e *Entry[T]) AsSecretReference() *Entry[T] {
+	e.secretReference = true
+	return e
+}
+
+// AuditImage renders a value for the ledger, redacting it for an entry declared
+// AsSecretReference. Set and unset stay distinguishable, because "a credential
+// was sealed for the first time" and "a sealed credential was repointed" are
+// different events and the row is the only place either is recorded.
+func (e *Entry[T]) AuditImage(raw json.RawMessage) json.RawMessage {
+	if !e.secretReference {
+		return raw
+	}
+	switch string(raw) {
+	case "", "null", `""`:
+		return json.RawMessage(`"none"`)
+	default:
+		return json.RawMessage(`"a sealed reference (redacted)"`)
+	}
 }

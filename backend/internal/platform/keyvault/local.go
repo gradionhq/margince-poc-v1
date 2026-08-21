@@ -260,12 +260,29 @@ func ConfigItems() []config.Item {
 // refuseIfAnythingIsSealed turns "no vault configured" into a boot error when
 // the installation is holding sealed ciphertext.
 //
-// A pool is not always there to ask — cmd/migrate builds a vault before it has
-// one — and a database that cannot answer is not evidence of anything, so both
-// stay silent. The check exists to catch the loud case: rows are there, the key
-// is not, and every reader downstream is about to fail in its own dialect.
+// Two answers are not evidence and stay silent. A caller with no pool cannot be
+// asked — no process role reaches here without one, but the unit lane builds a
+// vault before any database exists. And a database with no vault_secret table
+// has not been migrated yet, which is a state every fresh install passes
+// through and which the migration itself resolves.
+//
+// EVERY OTHER failure is returned. The temptation is to shrug one off as
+// "something later will report this better", and on this path nothing will: a
+// process that gets a nil vault here never touches the pool again on the
+// license path — sealedSecret short-circuits on a nil vault precisely because
+// this function has already spoken — so a swallowed error puts a production
+// installation back on "no license is configured", which is the misdirection
+// this whole refusal exists to end.
 func refuseIfAnythingIsSealed(ctx context.Context, pool *pgxpool.Pool) error {
 	if pool == nil {
+		return nil
+	}
+	var reg *string
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.vault_secret')::text`).Scan(&reg); err != nil {
+		return fmt.Errorf("keyvault: cannot tell whether this installation holds sealed secrets: %w", err)
+	}
+	if reg == nil {
+		// Unmigrated. Nothing can have been sealed into a table that is not there.
 		return nil
 	}
 	var sealed bool
@@ -273,9 +290,7 @@ func refuseIfAnythingIsSealed(ctx context.Context, pool *pgxpool.Pool) error {
 	// workspace-scoped), so this is an installation-wide question and needs no
 	// workspace predicate to be a correct one.
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM vault_secret)`).Scan(&sealed); err != nil {
-		// Not evidence. A pool that cannot answer this has a problem the boot
-		// will hit again in a moment, with a better message than this one.
-		return nil //nolint:nilerr // an unanswerable question is not a failed check; see above.
+		return fmt.Errorf("keyvault: cannot tell whether this installation holds sealed secrets: %w", err)
 	}
 	if !sealed {
 		return nil

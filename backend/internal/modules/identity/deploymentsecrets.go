@@ -20,7 +20,16 @@ package identity
 // Neither has a human write path, and that is deliberate rather than
 // unfinished: the deployment still DECLARES these credentials, compose seals
 // what it declared, and these rows only record where the sealed copy went. An
-// operator rotates by changing the declaration, exactly as before.
+// operator ROTATES by changing the declaration, exactly as before.
+//
+// REMOVING one is the case that changed, and it changed in a direction nobody
+// asked for: deleting `email.smtp.password` used to switch the relay back to
+// unauthenticated, and now the sealed copy keeps answering, because "declared
+// nothing" and "declared nothing AND meant it" are the same input here. There
+// is no unseal — no role holds update, the reset spares both rows, and no
+// surface deletes a setting. Tracked as issue #2162 rather than papered over;
+// the license is unaffected in practice (an installation removing its license
+// is one that has stopped paying, not one reconfiguring itself).
 //
 // Both are marked AsInstallationIdentity, and not because a relay password is
 // identity in the sense the installation's name and timezone are. It is a
@@ -57,7 +66,7 @@ var SMTPPasswordRef = settings.Define[string](
 	"update",
 	"",
 	validateSecretRef,
-).AsInstallationIdentity()
+).AsInstallationIdentity().AsSecretReference()
 
 // LicenseTokenRef holds the vault ref for the installation's entitlement token.
 //
@@ -71,7 +80,7 @@ var LicenseTokenRef = settings.Define[string](
 	"update",
 	"",
 	validateSecretRef,
-).AsInstallationIdentity()
+).AsInstallationIdentity().AsSecretReference()
 
 // validateSecretRef refuses an empty ref.
 //
@@ -79,7 +88,8 @@ var LicenseTokenRef = settings.Define[string](
 // legitimate DEFAULT and an illegitimate stored value: a row written with one
 // says a credential was sealed while naming nowhere to find it, and the
 // resolver would then fall through to the deployment file believing nothing was
-// ever sealed. Unsealing is deleting the row, not blanking it.
+// ever sealed. Blanking the row is therefore not how a credential would be
+// unsealed even once something can — deleting it is (issue #2162).
 func validateSecretRef(ref string) error {
 	if ref == "" {
 		return fmt.Errorf("identity: a sealed credential reference cannot be empty; delete the row to unseal")
