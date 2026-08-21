@@ -1079,7 +1079,16 @@ export function Modal({
   useEffect(() => {
     returnFocus.current = returnFocusTo;
   }, [returnFocusTo]);
-  useEffect(() => {
+  // A LAYOUT effect, because a passive one is scheduled after the browser
+  // paints: between the commit that puts this dialog on screen and a passive
+  // effect attaching the listener, the dialog is visible, hit-testable, and
+  // deaf to Escape. A key pressed in that window is not queued, it is lost —
+  // and for a dialog whose dismissal is the safe answer, losing it strands the
+  // reader in front of a question that no longer answers the one key everyone
+  // reaches for. React runs a layout effect during the commit, before yielding
+  // to the browser, so there is no frame in which this dialog can be seen and
+  // not respond.
+  useLayoutEffect(() => {
     if (!open) {
       return;
     }
