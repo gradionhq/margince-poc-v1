@@ -339,22 +339,38 @@ func seedRetentionPosture(ctx context.Context, tx pgx.Tx, seeds deployconfig.See
 // profile, an embeddings width out of range. A bad seed fails the BOOTSTRAP,
 // which is the only moment anybody is watching.
 func seedRoutingBinding(ctx context.Context, tx pgx.Tx, declared *yaml.Node) error {
-	if declared == nil {
-		return nil
+	cfg, declaredAny, err := routingSeedFrom(declared)
+	if err != nil || !declaredAny {
+		return err
 	}
-	raw, err := yaml.Marshal(declared)
-	if err != nil {
-		return fmt.Errorf("compose: re-encoding seeds.ai_routing: %w", err)
-	}
-	cfg, err := ai.ParseRouting(raw)
-	if err != nil {
-		return fmt.Errorf("compose: seeds.ai_routing: %w", err)
-	}
-	// The stored answer is discarded deliberately: inside the bootstrap
+	// Whether it stored is discarded deliberately: inside the bootstrap
 	// transaction there is no row to conflict with, because an installation
 	// being created cannot already hold a binding.
 	_, err = settings.SeedValue(ctx, tx, ai.Routing, cfg)
 	return err
+}
+
+// routingSeedFrom decodes and validates a declared binding, split from the
+// write so the half that can refuse is judgeable without a database — and it is
+// the half worth judging, because everything a bad seed does wrong it does
+// here.
+//
+// Reports whether anything was declared at all, which is not the same as an
+// error: most deployments declare no binding and bootstrap must not treat that
+// as a fault.
+func routingSeedFrom(declared *yaml.Node) (ai.RoutingConfig, bool, error) {
+	if declared == nil {
+		return ai.RoutingConfig{}, false, nil
+	}
+	raw, err := yaml.Marshal(declared)
+	if err != nil {
+		return ai.RoutingConfig{}, false, fmt.Errorf("compose: re-encoding seeds.ai_routing: %w", err)
+	}
+	cfg, err := ai.ParseRouting(raw)
+	if err != nil {
+		return ai.RoutingConfig{}, false, fmt.Errorf("compose: seeds.ai_routing: %w", err)
+	}
+	return cfg, true, nil
 }
 
 // seedBookingPage provisions the admin's public booking page.
