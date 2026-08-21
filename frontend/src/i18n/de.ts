@@ -1550,7 +1550,7 @@ export const de = {
   "deal.ownerKeep": "Aktuellen Inhaber behalten",
   "deal.ownerMe": "Mir zuweisen",
   "deal.ownerUnassign": "Zuweisung aufheben",
-  "deal.partnerOrg": "Partnerorganisation",
+  "deal.partnerOrg": "über Partner",
   "deal.forecastCategory": "Forecast-Kategorie",
   "deal.waitUntil": "Warten bis",
   "deal.fxBase": "Basis {value} · Kurs {rate} vom {date}",

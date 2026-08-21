@@ -473,6 +473,11 @@ export function PartnerTab({
       queryKey: ["organization", organizationId],
     });
     queryClient.invalidateQueries({ queryKey: ["organizations"] });
+    // The deal form asks this list whether a partner programme exists at all,
+    // so making the FIRST partner has to reach it — otherwise the partner
+    // fields stay absent from the deal form until the cache goes stale on its
+    // own, and the setting appears not to have taken.
+    queryClient.invalidateQueries({ queryKey: ["partners"] });
   }
 
   return (

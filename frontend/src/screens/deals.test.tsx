@@ -534,6 +534,28 @@ describe("mapDealUpdate", () => {
     expect(body.expected_close_date).toBe("2026-09-01");
     expect(body.wait_until).toBeNull();
   });
+
+  // A withheld reference arrives as null with masked_fields naming it —
+  // deliberately, so a reader can tell "you may not see this" from "there is
+  // nothing here". The form has only the null, so sending it back would ask
+  // the server to clear a partner the reader never saw. Omitted means
+  // unchanged, which is the only honest patch for a field nobody was shown.
+  it("does not clear a partner it was never allowed to see", () => {
+    const body = mapDealUpdate(
+      { name: "Fleet retrofit", partner_org_id: "", partner_attribution: "" },
+      ["partner_org_id"],
+    );
+    expect("partner_org_id" in body).toBe(false);
+    // The attribution is withheld WITH its partner, so it goes too — returning
+    // half the pair would decide what a partner nobody could see is owed.
+    expect("partner_attribution" in body).toBe(false);
+    expect(body.name).toBe("Fleet retrofit");
+  });
+
+  it("still clears a partner the reader could see and chose to remove", () => {
+    const body = mapDealUpdate({ name: "x", partner_org_id: "" }, []);
+    expect(body.partner_org_id).toBeNull();
+  });
 });
 
 describe("mapDealCreate", () => {
@@ -1537,6 +1559,78 @@ describe("DealScreen — edit, archive, FX line (A3)", () => {
       await screen.findByRole("button", { name: "VietnamPartner JSC" }),
     ).toBeTruthy();
     expect(screen.getByText("via")).toBeTruthy();
+  });
+
+  // A form omits nothing the record already carries. The partner picker offers
+  // one capped page of partners, so a deal's own partner can be missing from
+  // it — and a select whose stored value is not an option shows blank, which
+  // on save clears the partner and the commission attribution with it.
+  it("keeps a partner the picker cannot reach, rather than clearing it on save", async () => {
+    const user = userEvent.setup();
+    const patches: { body: unknown }[] = [];
+    // Neither the org list ("Acme") nor the partner list holds p-offpage.
+    const d = deal({
+      id: "x",
+      version: 4,
+      partner_org_id: "p-offpage",
+      partner_attribution: "sourced",
+    });
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([d], {
+        single: d,
+        onPatch: (body) => patches.push({ body }),
+      }),
+    );
+
+    render(<DealScreen id="x" />);
+    await user.click(await screen.findByTestId("edit-record"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patches.length).toBe(1));
+    const body = patches[0].body as {
+      partner_org_id: string | null;
+      partner_attribution: string | null;
+    };
+    expect(body.partner_org_id).toBe("p-offpage");
+    expect(body.partner_attribution).toBe("sourced");
+  });
+
+  // Same guarantee when the partner list never arrives at all — a failed or
+  // still-pending /partners read must not read as "this deal has no partner".
+  it("keeps the partner when the partner list fails outright", async () => {
+    const user = userEvent.setup();
+    const patches: { body: unknown }[] = [];
+    const d = deal({
+      id: "x",
+      version: 4,
+      partner_org_id: "p-offpage",
+      partner_attribution: "influenced",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/partners")) {
+          return jsonResponse({ title: "Boom" }, 500);
+        }
+        return stubBackend([d], {
+          single: d,
+          onPatch: (body) => patches.push({ body }),
+        })(request);
+      }),
+    );
+
+    render(<DealScreen id="x" />);
+    await user.click(await screen.findByTestId("edit-record"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patches.length).toBe(1));
+    const body = patches[0].body as {
+      partner_org_id: string | null;
+      partner_attribution: string | null;
+    };
+    expect(body.partner_org_id).toBe("p-offpage");
+    expect(body.partner_attribution).toBe("influenced");
   });
 
   // The facts run together without a separator: three adjacent spans in a
