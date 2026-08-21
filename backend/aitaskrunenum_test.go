@@ -1,0 +1,114 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package backendarch
+
+// The ai_task.state_changed payload's closed vocabularies must equal the
+// ai_task_run column CHECKs they are projected into.
+//
+// This binding has no Go half to lean on, and that is deliberate: crmcontracts
+// is one package shared with the whole generated API surface, where
+// oapi-codegen would name an inline enum's constants after its VALUES —
+// 'Failed', 'Queued', 'Records' — and 'Failed' is already taken there. So the
+// generated struct carries plain strings, and the contract's enum is held to
+// the schema HERE instead. Both sides are derived: the enum from the YAML, the
+// set from the migration's CHECK. A value added to one and not the other is a
+// payload the projection accepts and the INSERT rejects, which surfaces as a
+// wedged consumer group rather than as a validation error.
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
+
+func TestTheAiTaskPayloadEnumsMatchTheProjectionsChecks(t *testing.T) {
+	for _, b := range []struct{ property, column string }{
+		{"state", "state"},
+		{"quantity_unit", "quantity_unit"},
+	} {
+		want := aiTaskRunCheckValues(t, b.column)
+		got := aiTaskPayloadEnum(t, b.property)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: the payload enum is %v but ai_task_run.%s admits %v — a value on one side only is an event the projection accepts and the INSERT rejects",
+				b.property, got, b.column, want)
+		}
+	}
+}
+
+// aiTaskPayloadEnum reads one property's enum out of the internal payload
+// contract, sorted so the comparison is about membership and not authoring
+// order.
+func aiTaskPayloadEnum(t *testing.T, property string) []string {
+	t.Helper()
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]struct {
+					Enum []string `yaml:"enum"`
+				} `yaml:"properties"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	raw, err := os.ReadFile("api/internal-events.yaml")
+	if err != nil {
+		t.Fatalf("reading the internal payload contract: %v", err)
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parsing the internal payload contract: %v", err)
+	}
+	schema, ok := doc.Components.Schemas["InternalEventAiTaskStateChanged"]
+	if !ok {
+		t.Fatal("api/internal-events.yaml declares no InternalEventAiTaskStateChanged")
+	}
+	prop, ok := schema.Properties[property]
+	if !ok || len(prop.Enum) == 0 {
+		t.Fatalf("InternalEventAiTaskStateChanged.%s declares no enum", property)
+	}
+	out := slices.Clone(prop.Enum)
+	slices.Sort(out)
+	return out
+}
+
+// aiTaskRunCheckValues extracts one column's `IN (...)` membership set from the
+// ai_task_run migration, found by its constraint rather than by a filename an
+// author renumbers on the way to a merge. The search is confined to the CREATE
+// TABLE body so the rank function's own `state text` parameter cannot answer
+// for the column.
+func aiTaskRunCheckValues(t *testing.T, column string) []string {
+	t.Helper()
+	matches, err := filepath.Glob("migrations/core/*_ai_task_run.up.sql")
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("expected exactly one ai_task_run migration, found %v (err %v)", matches, err)
+	}
+	raw, err := os.ReadFile(matches[0]) // #nosec G304 -- the path comes from this test's own glob
+	if err != nil {
+		t.Fatalf("reading %s: %v", matches[0], err)
+	}
+	body := string(raw)
+	start := strings.Index(body, "CREATE TABLE ai_task_run")
+	end := strings.Index(body, "CREATE INDEX")
+	if start < 0 || end <= start {
+		t.Fatalf("%s does not hold a CREATE TABLE ai_task_run body followed by its indexes", matches[0])
+	}
+	body = body[start:end]
+
+	// Anchored at the column, then the first IN list that follows it — which is
+	// its own CHECK, since a column definition ends at the next one.
+	re := regexp.MustCompile(`(?s)\b` + regexp.QuoteMeta(column) + `\s+text\b.*?IN \(([^)]*)\)`)
+	m := re.FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("no CHECK naming ai_task_run.%s in %s", column, matches[0])
+	}
+	var out []string
+	for _, v := range strings.Split(m[1], ",") {
+		out = append(out, strings.Trim(strings.TrimSpace(v), "'"))
+	}
+	slices.Sort(out)
+	return out
+}

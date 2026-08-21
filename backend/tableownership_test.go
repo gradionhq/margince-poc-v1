@@ -253,6 +253,10 @@ var tableOwners = map[string]string{
 	// agents (incl. the runner subpackage)
 	"agent_run":  "internal/modules/agents",
 	"runner_job": "internal/modules/agents",
+	// The AI-activity projection. Derived read-model state written by exactly
+	// one consumer, so it carries no audit or outbox row of its own — the
+	// events that FEED it carry the write shape at their own writers.
+	"ai_task_run": "internal/modules/aiactivity",
 	// automation (the deterministic trigger-and-action catalog)
 	"workflow_run": "internal/modules/automation",
 	"automation":   "internal/modules/automation",
