@@ -3,12 +3,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { MarginceCoreState } from "./margince-core";
-import { type CoreFrame, createCoreRenderer } from "./margince-core-gl";
+import {
+  type CoreFrame,
+  type CoreRenderer,
+  createCoreRenderer,
+} from "./margince-core-gl";
 import {
   asHero,
   type CoreBehaviour,
   EASE,
   FEED_INGEST,
+  FRAME_MS,
   MAX_STEP,
   PHASE_SEED,
   rowFor,
@@ -96,7 +101,7 @@ function step(dials: Dials, target: CoreBehaviour): boolean {
 }
 
 /** What the hook's callers can change under a running loop. */
-type Wanted = {
+export type Wanted = {
   behaviour: CoreBehaviour;
   paper: number;
 };
@@ -108,11 +113,24 @@ type Loop = Readonly<{
   stop: () => void;
 }>;
 
-function runCoreLoop(
+/**
+ * Where the pixels go.
+ *
+ * The GPU is the one true boundary this file has, and the loop's contract with
+ * it (one advance per frame, one draw per budget, a draw on the frame that
+ * parks) is a claim about timing that only a stand-in can be asked about: a
+ * real context reports how it looks, never how often it was asked.
+ */
+export type CoreRendererFactory = (
+  canvas: HTMLCanvasElement,
+) => CoreRenderer | null;
+
+export function runCoreLoop(
   canvas: HTMLCanvasElement,
   wanted: { current: Wanted },
+  makeRenderer: CoreRendererFactory = createCoreRenderer,
 ): Loop | null {
-  const renderer = createCoreRenderer(canvas);
+  const renderer = makeRenderer(canvas);
   if (!renderer) {
     return null;
   }
@@ -126,6 +144,7 @@ function runCoreLoop(
   let paper = wanted.current.paper;
   let handle = 0;
   let last = 0;
+  let drawnAt = 0;
   let stopped = false;
 
   const measure = () => {
@@ -164,11 +183,31 @@ function runCoreLoop(
   });
 
   const tick = (now: number) => {
+    // The Core never truly rests: its quietest state still drifts, so this loop
+    // runs for as long as the app is open, on every screen. At the display's own
+    // rate that is a fragment-heavy shader redrawn sixty times a second forever,
+    // which costs a laptop real battery and costs a software renderer (CI, a
+    // machine with no GPU) enough to slow the page around it. The motion here is
+    // a slow drift, and a slow drift does not need every frame: the loop keeps
+    // asking the browser for one, and DRAWS on the ones far enough apart.
+    //
+    // The budget covers the DRAW alone. `advance` eases the dials one step per
+    // call, so skipping the call would stretch every transition by however much
+    // the display outruns the budget: the orb would take twice as long to reach
+    // a state on a 60 Hz screen as the motion is written for, which is a
+    // different animation rather than a cheaper one.
+    handle = requestAnimationFrame(tick);
     const drifting = advance(now);
-    renderer.draw(shown());
-    // Scheduled AFTER the frame that decides it, so a park is a park: the next
-    // callback is never already in flight when the loop stops wanting one.
-    handle = drifting && !stopped ? requestAnimationFrame(tick) : 0;
+    if (now - drawnAt >= FRAME_MS || !drifting) {
+      drawnAt = now;
+      renderer.draw(shown());
+    }
+    // Parked only after the frame that decides it, so a park is a park: the
+    // next callback is never already in flight when the loop stops wanting one.
+    if (!drifting || stopped) {
+      cancelAnimationFrame(handle);
+      handle = 0;
+    }
   };
 
   const wake = () => {
@@ -177,6 +216,7 @@ function runCoreLoop(
     }
     measure();
     last = 0;
+    drawnAt = 0;
     handle = requestAnimationFrame(tick);
   };
 

@@ -121,6 +121,17 @@ export const EASE = {
   tintCol: 0.06,
 } as const;
 
+/**
+ * The least time between two drawn frames, in milliseconds.
+ *
+ * Thirty a second. The Core's fastest motion is a ribbon drifting across its own
+ * shell over seconds, so the frames between these are frames nobody can tell
+ * apart, and the loop runs for as long as the app is open on every screen. The
+ * phase is integrated from real elapsed time, so drawing half as often slows
+ * nothing down: it draws the same motion with half the work.
+ */
+export const FRAME_MS = 1000 / 30;
+
 /** The largest step the phase may take, in seconds of motion per frame. */
 export const MAX_STEP = 0.05;
 

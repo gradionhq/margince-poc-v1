@@ -566,14 +566,27 @@ describe("AgentRail", () => {
     ).toBe("true");
   });
 
-  // The state switcher is review-only scaffolding, and only renders behind
-  // the preview switch: it must be absent from every ordinary render.
-  it("carries no state switcher when the preview switch is off", async () => {
+  // The state switcher is review-only scaffolding, and it is ON by default
+  // while the surface is under design (app/ui-preview.ts). What has to stay
+  // true is that an installation can take it away, which is the posture this
+  // asserts: the switch turned off leaves no way to put the section into a
+  // state no read can reach.
+  it("carries no state switcher when the preview switch is turned off", async () => {
+    vi.stubEnv("VITE_UI_PREVIEW_TASKBAR", "0");
     const user = userEvent.setup();
     stubAgentRailApi();
     const { container } = render(ROUTE);
     await openPanel(user, container);
     expect(panel().querySelector(".archips")).toBeNull();
+  });
+
+  it("carries the state switcher by default, so a reviewer finds it without a flag", async () => {
+    const user = userEvent.setup();
+    stubAgentRailApi();
+    const { container } = render(ROUTE);
+    await openPanel(user, container);
+    expect(panel().querySelector(".archips")).toBeTruthy();
+    expect(screen.getByRole("button", { name: LABELS.runPlay })).toBeTruthy();
   });
 
   it("lets a review-only chip override the derived state with its invented line, once the preview switch is on", async () => {

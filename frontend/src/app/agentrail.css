@@ -202,7 +202,9 @@
   /* The viewport cap is for a hero standing in a content column; the rail's own
      width and height are the only caps this one needs. */
   --coreCap: 100%;
-  --coreHalo: 0.4;
+  /* Most of the halo off. At this size the ball IS the signal, and a bloom wide
+     enough to suit a hero reaches the destinations above it. */
+  --coreHalo: 0.18;
   flex: none;
 }
 
