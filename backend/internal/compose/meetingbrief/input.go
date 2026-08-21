@@ -28,8 +28,13 @@ type Input struct {
 	// several places that could straddle a midnight.
 	Now time.Time
 
-	Company   string
-	Deal      *DealIn
+	Company string
+	Deal    *DealIn
+	// Project is the body of work the meeting belongs to, when it is filed
+	// under one. It is what gives a DELIVERY meeting a goal: months after
+	// close-won there is often no open deal, and the section that leads the
+	// brief fell silent exactly when the engagement was the whole point.
+	Project   *ProjectIn
 	Attendees []AttendeeIn
 	// Commitments are the room's open promises and questions, ours and theirs,
 	// flattened across attendees because the reader asks "what is outstanding
@@ -37,6 +42,10 @@ type Input struct {
 	Commitments []ClaimIn
 	// Recent is the newest captured conversation with the lead attendee first.
 	Recent []ActIn
+	// PriorMeetings are the last times this same room met, newest first. It is
+	// what a recurring delivery review opens wanting: not the state of play,
+	// but what was agreed here last time.
+	PriorMeetings []PriorMeetingIn
 	// LastTouchAt is the newest conversation with anyone in the room before
 	// this meeting. Nil means nothing was ever captured with any of them.
 	LastTouchAt *time.Time
@@ -50,6 +59,33 @@ type DealIn struct {
 	AmountMinor int64
 	Currency    string
 	CloseDate   *time.Time
+}
+
+// PriorMeetingIn is one earlier meeting with somebody from this room.
+type PriorMeetingIn struct {
+	ID       string
+	Subject  string
+	StartsAt time.Time
+}
+
+// foldPriorMeetings maps the read rows into the brief's own shape.
+func foldPriorMeetings(rows []priorMeeting) []PriorMeetingIn {
+	out := make([]PriorMeetingIn, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, PriorMeetingIn{
+			ID: row.ID.String(), Subject: row.Subject, StartsAt: row.StartsAt,
+		})
+	}
+	return out
+}
+
+// ProjectIn is the engagement this meeting is part of.
+type ProjectIn struct {
+	ID            string
+	Name          string
+	Key           string
+	Phase         string
+	TargetEndDate *time.Time
 }
 
 // AttendeeIn is one person in the room.
@@ -102,6 +138,15 @@ func FromMeeting(room meeting, perAttendee map[ids.UUID][]crmcontracts.Conversat
 			Currency:    room.Deal.Currency,
 			CloseDate:   room.Deal.CloseDate,
 			AmountMinor: derefInt(room.Deal.AmountMinor),
+		}
+	}
+	if room.Project != nil {
+		in.Project = &ProjectIn{
+			ID:            room.Project.ID.String(),
+			Name:          room.Project.Name,
+			Key:           room.Project.Key,
+			Phase:         room.Project.Phase,
+			TargetEndDate: room.Project.TargetEndDate,
 		}
 	}
 	for _, attendee := range room.Attendees {

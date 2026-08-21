@@ -1935,7 +1935,7 @@ export const de = {
   "today.source.nextSteps": "offene Aufgaben",
   "today.source.nextMeeting": "der Kalender",
   "today.source.deals": "Deals",
-  "today.meeting.prepare": "Termin vorbereiten",
+  "today.meeting.prepare": "An die Teilnehmer schreiben",
   "today.source.people": "die Kontakte",
   "today.source.standing": "wer am Zug ist und die Signale",
   "today.source.activities": "was gesprochen wurde",
@@ -5476,6 +5476,8 @@ export const de = {
   "person.research.evidenceOrOmit":
     "KI-unterstützt · nur mit Beleg · ausschließlich öffentliche Informationen",
   "person.meeting.title": "Meeting-Briefing",
+  "person.meeting.brief": "Briefing öffnen",
+  "person.meeting.empty": "Zu diesem Meeting ist noch nichts erfasst.",
   "person.meeting.loading": "Briefing wird zusammengestellt…",
   "person.meeting.assembledNow":
     "Soeben aus den aktuellen Daten zusammengestellt",
@@ -5486,7 +5488,7 @@ export const de = {
   "person.meeting.deal_state": "Stand des Deals",
   "person.meeting.risks": "Risiken und Warnsignale",
   "person.meeting.talking_points": "Vorgeschlagene Gesprächspunkte",
-  "person.meeting.company_context": "Unternehmenskontext",
+  "person.meeting.company_context": "Letztes Treffen",
 
   "co.strip.healthSummary": "Zustand",
   "co.strip.healthSummary.failingOf": "{failing} von {rated} gefährdet",

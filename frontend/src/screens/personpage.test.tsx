@@ -385,3 +385,78 @@ describe("the page's one primary action", () => {
     expect(screen.queryByText(CONSENT_REFUSED)).toBeNull();
   });
 });
+
+// The seam the meeting brief regressed at: the page decides WHICH meeting the
+// drawer briefs. Mounting the tab alone proves only that a callback fires with
+// an id — the page could still ignore it and ask for the next meeting, which
+// is exactly the bug the drawer used to have. So this asserts the URL that
+// actually goes out.
+describe("which meeting the brief drawer asks about", () => {
+  const heldMeeting = {
+    id: "a-held",
+    kind: "meeting" as const,
+    subject: "Depot walkthrough",
+    occurred_at: "2026-08-09T08:00:00Z",
+    is_done: false,
+    ...CAPTURED,
+  };
+
+  const withMeetings: Person360 = {
+    ...view,
+    activities: { data: [heldMeeting], page: { has_more: false } },
+    next_meeting: {
+      activity_id: "a-booked",
+      starts_at: "2026-08-20T13:00:00Z",
+      subject: "Contract review",
+      participants: [{ person_id: "p-1", full_name: "Dana Buyer" }],
+    },
+  };
+
+  it("requests the brief for the meeting the reader picked", async () => {
+    const asked: string[] = [];
+    installFetchStub({
+      "GET /me": meRoute({ person: ["read", "update"], activity: ["read"] }),
+      "GET /people/p-1/360": () => jsonResponse(withMeetings),
+      "GET /people/p-1/brief": () =>
+        jsonResponse({
+          person_id: "p-1",
+          sentences: [],
+          generated_by: "rules",
+        }),
+      "GET /people/p-1/consent/guard": () =>
+        jsonResponse({ person_id: "p-1", entries: [] }),
+      "GET /channel-providers": () => jsonResponse({ data: [] }),
+      "GET /activities/a-held/meeting-brief": () => {
+        asked.push("a-held");
+        return jsonResponse({
+          activity_id: "a-held",
+          generated_at: "2026-08-13T09:00:00Z",
+          generated_by: "deterministic",
+          sections: [],
+        });
+      },
+      "GET /activities/a-booked/meeting-brief": () => {
+        asked.push("a-booked");
+        return jsonResponse({
+          activity_id: "a-booked",
+          generated_at: "2026-08-13T09:00:00Z",
+          generated_by: "deterministic",
+          sections: [],
+        });
+      },
+    });
+    render(
+      <StoryProviders>
+        <PersonPageV2 id="p-1" tab="meetings" />
+      </StoryProviders>,
+    );
+
+    const actions = await screen.findAllByRole("button", { name: "Brief me" });
+    // The booked meeting leads the tab and the held one follows it, so the
+    // second verb is the one that used to be unreachable.
+    await userEvent.setup().click(actions[1]);
+
+    await waitFor(() => expect(asked.length).toBe(1));
+    expect(asked).toEqual(["a-held"]);
+  });
+});

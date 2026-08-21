@@ -71,6 +71,17 @@ type ListActivitiesInput struct {
 	// what the partial index behind it is built on. Done-ness is part of
 	// that question rather than a second dial — see openTaskAssigneeClause.
 	AssigneeID *ids.UserID
+	// WithinProjectID narrows to one body of work, EXCLUDING what belongs to
+	// another project and keeping what belongs to none.
+	//
+	// It is not a second spelling of EntityType="project"+EntityID, and the
+	// difference is the whole point. That pair asks "what is filed under this
+	// project"; this asks "what is on this account, minus the other
+	// engagement" — the anchor stays the person or company, and the general
+	// correspondence that carries no project at all stays with it. A reader
+	// preparing for an ERP meeting still wants the relationship's history;
+	// they do not want the datacentre migration.
+	WithinProjectID *ids.ProjectID
 }
 
 // ListActivities is the timeline read: newest first, optionally scoped to

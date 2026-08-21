@@ -83,15 +83,15 @@ var anchorLinkColumn = map[string]string{
 // An ACTIVITY anchor takes the other road (graphactivity.go): it names no
 // neighborhood of its own, so it is dereferenced to the records it is about
 // and the walk below runs around one of those.
-func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID ids.UUID, maxItems int) ([]graphSection, error) {
+func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID ids.UUID, maxItems int, within projectScope) ([]graphSection, error) {
 	var sections []graphSection
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		if anchorType == string(datasource.EntityActivity) {
-			sections, err = s.assembleActivityWithin(ctx, tx, anchorID, maxItems)
+			sections, err = s.assembleActivityWithin(ctx, tx, anchorID, maxItems, within)
 			return err
 		}
-		sections, err = s.assembleRecordWithin(ctx, tx, anchorType, anchorID, maxItems)
+		sections, err = s.assembleRecordWithin(ctx, tx, anchorType, anchorID, maxItems, within)
 		return err
 	})
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 // assembleRecordWithin is the record half of the walk, on a transaction the
 // caller owns — so an activity anchor can dereference to a record and walk it
 // without opening a second transaction against the same read.
-func (s *Store) assembleRecordWithin(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, maxItems int) ([]graphSection, error) {
+func (s *Store) assembleRecordWithin(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, maxItems int, within projectScope) ([]graphSection, error) {
 	// A record graph anchor is any searchable record type except activity
 	// itself (an activity is a link, not a thing links hang off).
 	var branch *searchBranch
@@ -164,7 +164,7 @@ func (s *Store) assembleRecordWithin(ctx context.Context, tx pgx.Tx, anchorType 
 		return sections, nil
 	}
 
-	touches, openTasks, activityIDs, err := anchorTimeline(ctx, tx, linkCol, anchorID, maxItems, now)
+	touches, openTasks, activityIDs, err := anchorTimeline(ctx, tx, linkCol, anchorID, maxItems, now, within)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func anchorProfile(ctx context.Context, tx pgx.Tx, branch *searchBranch, anchorT
 // anchorTimeline is hop 1: the anchor's activity timeline, scope-walked
 // and ranked by recency × trust (§10.7.2 with similarity = 0), split
 // into recent touches and open tasks.
-func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids.UUID, maxItems int, now time.Time) (touches, openTasks []graphItem, activityIDs []ids.ActivityID, err error) {
+func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids.UUID, maxItems int, now time.Time, within projectScope) (touches, openTasks []graphItem, activityIDs []ids.ActivityID, err error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	anchorPos := arg(anchorID)
@@ -223,6 +223,9 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 		WHERE l.%s = $%d AND a.archived_at IS NULL`, linkCol, anchorPos)
 	if scope != "" {
 		activitySQL += " AND " + scope
+	}
+	if narrow := within.clause("a", arg); narrow != "" {
+		activitySQL += " AND " + narrow
 	}
 	activitySQL += fmt.Sprintf(" ORDER BY a.occurred_at DESC LIMIT %d", graphExpansionLimit)
 	rows, err := tx.Query(ctx, activitySQL, args...)

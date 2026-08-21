@@ -4,6 +4,7 @@
 package meetingbrief
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ const (
 	dealID     = "0198f000-0000-7000-8000-000000000002"
 	personID   = "0198f000-0000-7000-8000-000000000003"
 	activityID = "0198f000-0000-7000-8000-000000000004"
+	projectID  = "0198f000-0000-7000-8000-000000000005"
 )
 
 func at(day int) time.Time {
@@ -212,5 +214,129 @@ func TestAColdRoomStillGetsAHeader(t *testing.T) {
 	}
 	if header.Sentences[1].Text != "Nothing has been captured with anyone in this room before." {
 		t.Errorf("quiet line is %q", header.Sentences[1].Text)
+	}
+}
+
+// A delivery meeting is the case the project lines exist for: the engagement
+// runs for months after close-won, and the deal that started it is long shut.
+func deliveryInput() Input {
+	in := fullInput()
+	// No open deal, and no promise or question either, so the goal has nothing
+	// left to say unless the project speaks.
+	in.Deal = nil
+	in.Commitments = nil
+	in.Project = &ProjectIn{
+		ID: projectID, Name: "ERP rollout", Key: "ERP-27",
+		Phase: "delivering", TargetEndDate: ptr(at(28)),
+	}
+	return in
+}
+
+func TestADeliveryMeetingWithNoOpenDealStillLeadsWithAGoal(t *testing.T) {
+	// The section the package calls the antidote to "the canonical prep
+	// failure" used to fall silent exactly here, because its last fallback was
+	// the deal's next stage and a delivery meeting has no deal.
+	goal := sectionOf(t, Deterministic(deliveryInput()), crmcontracts.MeetingBriefSectionKindGoal)
+	if len(goal.Sentences) == 0 {
+		t.Fatal("a delivery meeting got no goal; the section exists to prevent exactly that")
+	}
+	if !strings.Contains(goal.Sentences[0].Text, "ERP rollout") {
+		t.Errorf("goal = %q, want it to name the engagement", goal.Sentences[0].Text)
+	}
+	if goal.Sentences[0].Nature != natureRecommendation {
+		t.Error("the goal is an ask, so it must be labelled a recommendation")
+	}
+}
+
+func TestTheHeaderNamesTheEngagementAndItsKey(t *testing.T) {
+	header := sectionOf(t, Deterministic(deliveryInput()), crmcontracts.MeetingBriefSectionKindHeader)
+	var found string
+	for _, sentence := range header.Sentences {
+		if strings.Contains(sentence.Text, "ERP rollout") {
+			found = sentence.Text
+		}
+	}
+	if found == "" {
+		t.Fatal("the header never names the project; on a two-engagement account that is what says you are in the right room")
+	}
+	// The key is what a reader sees in subject lines all day, so it rides along.
+	if !strings.Contains(found, "ERP-27") {
+		t.Errorf("header project line = %q, want the key beside the name", found)
+	}
+}
+
+func TestAProjectWithNoTargetDateClaimsNoDeadline(t *testing.T) {
+	// A deadline nobody set is the invented context the grounding rule forbids.
+	in := deliveryInput()
+	in.Project.TargetEndDate = nil
+	goal := sectionOf(t, Deterministic(in), crmcontracts.MeetingBriefSectionKindGoal)
+	if strings.Contains(goal.Sentences[0].Text, "target") {
+		t.Errorf("goal = %q, want no target named when the record carries none", goal.Sentences[0].Text)
+	}
+}
+
+func TestAMeetingWithNoProjectSaysNothingAboutOne(t *testing.T) {
+	// Most meetings belong to no project, and a brief that mentioned one
+	// anyway would be describing a body of work nobody filed it under.
+	// Counted, not string-matched. An assertion that only rejects the fixture's
+	// own project name would pass against an unconditional zero-value line —
+	// a bare "." in the header — or a project fabricated under another name.
+	unprojected := sectionOf(t, Deterministic(fullInput()), crmcontracts.MeetingBriefSectionKindHeader)
+	projected := sectionOf(t, Deterministic(deliveryInput()), crmcontracts.MeetingBriefSectionKindHeader)
+	// The delivery fixture drops the deal and adds a project, so the two
+	// headers carry the same number of lines: meeting, one record line, last
+	// touch. Any EXTRA line on the unprojected one is a project line it should
+	// not have.
+	if len(unprojected.Sentences) != len(projected.Sentences) {
+		t.Fatalf("header lines: unprojected %d, projected %d — want the same shape",
+			len(unprojected.Sentences), len(projected.Sentences))
+	}
+	for _, sentence := range unprojected.Sentences {
+		if strings.Contains(sentence.Text, "ERP") {
+			t.Errorf("unprojected meeting header mentions a project: %q", sentence.Text)
+		}
+	}
+}
+
+func TestTheLastSectionSaysWhenThisRoomLastMet(t *testing.T) {
+	in := fullInput()
+	in.PriorMeetings = []PriorMeetingIn{
+		{ID: activityID, Subject: "Kickoff", StartsAt: at(3)},
+	}
+	section := sectionOf(t, Deterministic(in), crmcontracts.MeetingBriefSectionKindCompanyContext)
+	if len(section.Sentences) != 1 {
+		t.Fatalf("prior meetings = %d sentences, want 1", len(section.Sentences))
+	}
+	// Days, not a date: the reader is placing it against today.
+	if !strings.Contains(section.Sentences[0].Text, "7 days ago") {
+		t.Errorf("line = %q, want the gap in days", section.Sentences[0].Text)
+	}
+	if !strings.Contains(section.Sentences[0].Text, "Kickoff") {
+		t.Errorf("line = %q, want the meeting named — a gap alone says which conversation?", section.Sentences[0].Text)
+	}
+}
+
+func TestAFirstMeetingWithARoomInventsNoHistory(t *testing.T) {
+	// A section with nothing to say is ABSENT, and background invented for a
+	// room nobody has met is the filler the brief's first rule forbids.
+	in := fullInput()
+	in.PriorMeetings = nil
+	for _, section := range Deterministic(in) {
+		if section.Kind == crmcontracts.MeetingBriefSectionKindCompanyContext &&
+			len(section.Sentences) > 0 {
+			t.Errorf("a first meeting got history: %q", section.Sentences[0].Text)
+		}
+	}
+}
+
+func TestEveryPriorMeetingCitesTheMeetingItNames(t *testing.T) {
+	// The reader's next move is to open the earlier meeting, so the line must
+	// carry the record rather than only describing it.
+	in := fullInput()
+	in.PriorMeetings = []PriorMeetingIn{{ID: activityID, Subject: "Kickoff", StartsAt: at(3)}}
+	section := sectionOf(t, Deterministic(in), crmcontracts.MeetingBriefSectionKindCompanyContext)
+	cited := section.Sentences[0].Evidence
+	if len(cited) != 1 || cited[0].EntityID != activityID || cited[0].EntityType != citeActivity {
+		t.Errorf("evidence = %+v, want the earlier meeting's own activity", cited)
 	}
 }

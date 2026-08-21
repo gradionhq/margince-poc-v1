@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // attendeeCap bounds who is named. This is "who is in the room" for prep, not
@@ -39,7 +40,14 @@ type meeting struct {
 	Subject   string
 	StartsAt  time.Time
 	Deal      *dealRow
+	Project   *projectRow
 	Attendees []attendeeRow
+	// Room is every attendee this caller may see, uncapped. Attendees above is
+	// the DISPLAY list and stops at attendeeCap, so a reader is not scanning
+	// names — but "who was in this room" is a different question from "who do
+	// we name", and history shared only with the ninth person is still this
+	// room's history.
+	Room []ids.UUID
 }
 
 // dealRow is the deal this meeting is linked to, if the caller may read it.
@@ -53,6 +61,17 @@ type dealRow struct {
 	AmountMinor *int64
 	Currency    string
 	CloseDate   *time.Time
+}
+
+// projectRow is the body of work this meeting belongs to, if the meeting is
+// filed under one and the caller may read it. Absent is the ordinary case:
+// most meetings carry no project, and the brief simply says nothing about one.
+type projectRow struct {
+	ID            ids.UUID
+	Name          string
+	Key           string
+	Phase         string
+	TargetEndDate *time.Time
 }
 
 // attendeeRow is one person in the room, with what a reader needs to open a
@@ -95,6 +114,10 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 	if err != nil {
 		return meeting{}, err
 	}
+	projectScope, err := projectJoinPredicate(ctx, "prj", arg)
+	if err != nil {
+		return meeting{}, err
+	}
 	// The last-touch sub-select reads ACTIVITIES, so it takes the activity row
 	// scope like every other activity read on this page. Without it the brief
 	// reports when an attendee last spoke to us using a conversation this
@@ -125,9 +148,12 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 	var dealID *ids.UUID
 	var stage, currency *string
 	var attendees []byte
-	err = tx.QueryRow(ctx, fmt.Sprintf(meetingQuery, dealScope, personScope, idPos, touchScope, edgeJoin), args...).
+	var project projectRow
+	var projectID *ids.UUID
+	err = tx.QueryRow(ctx, fmt.Sprintf(meetingQuery, dealScope, personScope, idPos, touchScope, edgeJoin, projectScope), args...).
 		Scan(&out.ID, &out.StartsAt, &subject,
 			&dealID, &deal.Name, &stage, &deal.AmountMinor, &currency, &deal.CloseDate,
+			&projectID, &project.Name, &project.Key, &project.Phase, &project.TargetEndDate,
 			&attendees)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// The visibility probe passed, so the row exists and the caller may
@@ -142,15 +168,26 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 	if subject != nil {
 		out.Subject = *subject
 	}
+	if projectID != nil {
+		project.ID = *projectID
+		out.Project = &project
+	}
 	if dealID != nil {
 		deal.ID = *dealID
 		deal.Stage = deref(stage)
 		deal.Currency = deref(currency)
 		out.Deal = &deal
 	}
-	out.Attendees, err = decodeAttendees(attendees)
+	full, err := decodeAttendees(attendees)
 	if err != nil {
 		return meeting{}, err
+	}
+	for _, attendee := range full {
+		out.Room = append(out.Room, attendee.PersonID)
+	}
+	out.Attendees = full
+	if len(out.Attendees) > attendeeCap {
+		out.Attendees = out.Attendees[:attendeeCap]
 	}
 	return out, nil
 }
@@ -166,6 +203,7 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 const meetingQuery = `
 	SELECT a.id, a.occurred_at, a.subject,
 	       d.id, COALESCE(d.name, ''), d.stage_name, d.amount_minor, d.currency, d.expected_close_date,
+	       pr.id, COALESCE(pr.name, ''), COALESCE(pr.key, ''), COALESCE(pr.phase, ''), pr.target_end_date,
 	       COALESCE((
 	         SELECT json_agg(json_build_object(
 	                  'person_id', p.id,
@@ -178,6 +216,17 @@ const meetingQuery = `
 	                    WHERE pp.person_id = p.id AND pa.archived_at IS NULL
 	                      AND pa.id <> a.id AND pa.occurred_at <= a.occurred_at
 	                      AND %[4]s
+	                      -- Scoped with the rest of the brief. This is the number
+	                      -- a reader trusts most, and it is the one that leaks:
+	                      -- narrow the deal and leave this alone and the brief
+	                      -- says "last spoke 3 days ago" counting a conversation
+	                      -- about the other engagement entirely.
+	                      AND (pr.id IS NULL OR EXISTS (
+	                            SELECT 1 FROM activity_link tl
+	                            WHERE tl.activity_id = pa.id AND tl.project_id = pr.id)
+	                          OR NOT EXISTS (
+	                            SELECT 1 FROM activity_link tf
+	                            WHERE tf.activity_id = pa.id AND tf.project_id IS NOT NULL))
 	                  ))
 	                ORDER BY p.full_name, p.id)
 	         FROM (SELECT DISTINCT ap.person_id FROM activity_participant ap
@@ -190,12 +239,25 @@ const meetingQuery = `
 	       ), '[]'::json)
 	FROM activity a
 	LEFT JOIN LATERAL (
+	  SELECT prj.id, prj.name, prj.key, prj.phase, prj.target_end_date
+	  FROM activity_link pl
+	  JOIN project prj ON prj.id = pl.project_id AND prj.archived_at IS NULL
+	  WHERE pl.activity_id = a.id AND pl.project_id IS NOT NULL AND %[6]s
+	  LIMIT 1
+	) pr ON TRUE
+	LEFT JOIN LATERAL (
 	  SELECT dd.id, dd.name, s.name AS stage_name, dd.amount_minor, dd.currency, dd.expected_close_date
 	  FROM activity_link dl
 	  JOIN deal dd ON dd.id = dl.deal_id AND dd.archived_at IS NULL
 	  LEFT JOIN stage s ON s.id = dd.stage_id
 	  WHERE dl.activity_id = a.id AND dl.deal_id IS NOT NULL AND %[1]s
-	  ORDER BY dd.expected_close_date NULLS LAST, dd.id
+	  -- The meeting's own project decides WHICH deal this brief is about. An
+	  -- account running two engagements carries two open deals, and picking by
+	  -- close date alone named whichever happened to land first — a header
+	  -- confidently about the other body of work. Nulls sort last, so an
+	  -- unattributed meeting keeps the old ordering exactly.
+	  ORDER BY (pr.id IS NOT NULL AND dd.project_id = pr.id) DESC,
+	           dd.expected_close_date NULLS LAST, dd.id
 	  LIMIT 1
 	) d ON TRUE
 	WHERE a.id = $%[3]d AND a.kind = 'meeting' AND a.archived_at IS NULL`
@@ -225,6 +287,30 @@ func seatJoinPredicate(ctx context.Context, alias string, arg func(any) int) (st
 // scopeFor renders one object's row-scope clause, substituting the
 // narrows-nothing predicate for the helper's empty string. An empty clause
 // means the caller is unbounded for that object, never that the gate is skipped.
+// projectJoinPredicate admits the meeting's engagement, or matches it away.
+//
+// TWO GATES, not one, and conflating them is what this function exists to
+// prevent. Row scope (scopeFor below) decides WHICH projects a caller may see;
+// the OBJECT grant decides whether they may see projects at all. Since projects
+// became workspace-readable, row scope returns an unrestricted clause to
+// everyone — so a caller holding no project grant would have read the
+// engagement's name, key, phase and target date straight off a meeting they
+// could otherwise open.
+//
+// A refusal becomes a never-match rather than an error, the way the seat edge
+// beside it does: the project decorates a brief it does not select, so a caller
+// without the grant gets the brief with no project line — the same shape as a
+// meeting filed under nothing — rather than losing a brief they may read.
+func projectJoinPredicate(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	if err := auth.Require(ctx, "project", principal.ActionRead); err != nil {
+		if errors.Is(err, apperrors.ErrPermissionDenied) {
+			return "FALSE", nil
+		}
+		return "", err
+	}
+	return scopeFor(ctx, "project", alias, arg)
+}
+
 func scopeFor(ctx context.Context, object, alias string, arg func(any) int) (string, error) {
 	clause, err := auth.ScopeClauseFor(ctx, object, alias, arg)
 	if err != nil {
@@ -236,17 +322,17 @@ func scopeFor(ctx context.Context, object, alias string, arg func(any) int) (str
 	return clause, nil
 }
 
-// decodeAttendees reads the sub-select's JSON into the room.
+// decodeAttendees reads the sub-select's JSON into the room, UNCAPPED.
 //
-// The cap lands here, beside the type it bounds; the sub-select already carries
-// the row-scope predicate that decides which names may appear at all.
+// The display cap is applied by the caller, which also keeps the full set: a
+// list bounded here would make "who was in this room" unanswerable, and the
+// prior-meeting history is matched on the room rather than on the names the
+// brief prints. The sub-select already carries the row-scope predicate that
+// decides which names may appear at all.
 func decodeAttendees(raw []byte) ([]attendeeRow, error) {
 	var decoded []attendeeRow
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, fmt.Errorf("decode the meeting attendees: %w", err)
-	}
-	if len(decoded) > attendeeCap {
-		decoded = decoded[:attendeeCap]
 	}
 	return decoded, nil
 }

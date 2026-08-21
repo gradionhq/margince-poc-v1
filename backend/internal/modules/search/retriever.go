@@ -62,7 +62,8 @@ func (r *Retriever) AssembleContext(ctx context.Context, anchor datasource.Entit
 	if maxItems <= 0 {
 		maxItems = 5
 	}
-	assembled, err := r.store.assembleGraph(ctx, string(anchor.Type), anchor.ID, maxItems)
+	assembled, err := r.store.assembleGraph(ctx, string(anchor.Type), anchor.ID, maxItems,
+		projectScope{projectID: opts.ProjectID})
 	if err != nil {
 		return retrieval.Context{}, fmt.Errorf("search: assemble context: %w", err)
 	}
