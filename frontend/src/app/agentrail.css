@@ -792,8 +792,11 @@
   border-radius: var(--r-full);
   background: var(--success);
 }
+/* A source it cannot reach is `error`, so the dot beside it is the error tone.
+   Amber here would be the panel disagreeing with the orb above it about how bad
+   the same fact is. */
 .arconn.down i {
-  background: var(--warn);
+  background: var(--orbRed);
 }
 
 /* The state switcher: review scaffolding, and dressed as scaffolding. It sits

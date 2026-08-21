@@ -106,7 +106,9 @@ default.
   partial: the company record page consumes the mark today while the other record
   screens still render the older primitives directly. Then the **Margince Core**
   (`margince-core*`, WDS-CORE-1..4 — one primitive, a closed five-state
-  vocabulary, a required non-GPU rendering of every state, `aria-hidden`;
+  vocabulary (`idle`, `ingest`, `working`, `warning`, `error`), drawn by a
+  WebGL2 shader with a required static rendering of every state for a host
+  without one, `aria-hidden`;
   callers pass `state` and size it through `--coreSize` / `--coreGlass` and
   never restyle it), `motion.ts` (reduced motion jumps to the END state, never
   to nothing), composed surfaces, and `conformance.test.ts` — the drift gates.
@@ -116,8 +118,8 @@ default.
   groups — a label is presentation and never a route id: `deals` presents as
   Pipeline, `inbox` as Approvals, `ai` as Ask Margince), `theme.ts` (light/dark
   resolved and applied BEFORE React mounts, so an unauthenticated screen can be
-  dark at all), the hash router, the ⌘K palette, and the agent dock (the one floating AI
-  affordance, carrying the record-scoped ask). See
+  dark at all), the hash router, the ⌘K palette, and the agent section at the foot of the rail
+  (`agentrail.tsx`, the one AI affordance in the chrome). See
   [docs/explanation/frontend-architecture.md](../docs/explanation/frontend-architecture.md).
 - `src/screens/` — one file per surface, or one directory when a surface is a
   state machine (`onboarding-conversation/`); unbuilt routes render the honest

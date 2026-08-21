@@ -434,9 +434,11 @@ describe("AgentRail", () => {
         ),
     });
     const { container } = render(ROUTE);
-    await waitFor(() =>
-      expect(container.querySelector(".arline")).toBeTruthy(),
-    );
+    // The LINE has to settle before the state is worth asserting: `.arline` is
+    // in the markup from the first render, so waiting for the element alone
+    // would let this pass before the 500 ever reached React Query, which is the
+    // one moment the assertion is supposed to be about.
+    await settlesOnLine(container, LABELS.allClear);
     expect(block(container).getAttribute("data-core-state")).toBe("idle");
   });
 
