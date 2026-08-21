@@ -73,6 +73,39 @@ bootstrap_admin:
 #   retention:
 #     default_policy: retain_only
 
+# The tier→model binding a FRESH installation is bootstrapped with (optional).
+#
+# Declared here so a deployment names its models in the file it already reviews,
+# rather than having to call an API after first boot — which is what keeps an
+# infrastructure-as-code install declarative. Consumed exactly once, like every
+# other seed: the database is authoritative afterwards, and an admin re-points a
+# lane through PUT /v1/ai/routing without a restart.
+#
+# Omitted, the installation binds nothing and its AI lanes are simply absent.
+# That is a state, not a fault — nothing guesses which vendor your text goes to.
+#
+# Held to the same bar the routing file always was, at BOOTSTRAP, which is the
+# one moment somebody is watching: an unknown tier, a cloud provider under the
+# sovereign profile, or an embeddings width outside [1,2000] fails the boot
+# rather than surfacing at the first model call.
+#
+# Credentials are NOT here and never will be. A binding names providers; each
+# one's BYOK key is read from its conventional environment variable
+# (GEMINI_API_KEY, ANTHROPIC_API_KEY, …), so this section is safe to commit.
+#
+# seeds:
+#   ai_routing:
+#     profile: eu_hosted          # eu_hosted | sovereign | cloud_frontier
+#     tiers:
+#       local_small: { provider: gemini, model: gemini-3.1-flash-lite }
+#       cheap_cloud: { provider: gemini, model: gemini-3.1-flash-lite }
+#       premium:     { provider: gemini, model: gemini-3.5-flash }
+#       frontier:    { provider: gemini, model: gemini-3.1-pro-preview }
+#     embeddings:
+#       provider: gemini
+#       model: gemini-embedding-001
+#       dimensions: 1536
+
 # Entitlement (optional). The token is verified offline against the validation
 # module bundled in the binary — no callout, so an air-gapped installation proves
 # its entitlement like any other. A file reference, never an inline value: the

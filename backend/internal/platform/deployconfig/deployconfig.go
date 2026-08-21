@@ -177,18 +177,6 @@ func (b BootstrapAdmin) passwordRef() Secret {
 	return Secret{kind: secretFromFile, arg: b.PasswordFile, field: "bootstrap_admin.password_file"}
 }
 
-// Seeds externalizes the workspace defaults bootstrap previously seeded
-// from code. Every key is optional — an omitted key seeds the built-in
-// default, so a minimal file behaves exactly like the historical
-// bootstrap. Values are consumed once, at organization creation.
-type Seeds struct {
-	Pipeline           *PipelineSeed    `yaml:"pipeline"`
-	ConsentPurposes    []ConsentPurpose `yaml:"consent_purposes"`
-	Retention          *RetentionSeed   `yaml:"retention"`
-	StarterAutomations *bool            `yaml:"starter_automations"`
-	BookingPage        *bool            `yaml:"booking_page"`
-}
-
 // RetentionSeed selects the retention POSTURE a fresh installation is
 // bootstrapped into (GCS-PARAM-7). It does not select the policy rows: those stay
 // the data-model's pins (DM-SEED-1..6) under either posture, so an installation

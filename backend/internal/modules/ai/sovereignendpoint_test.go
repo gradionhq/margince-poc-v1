@@ -236,3 +236,57 @@ func TestEveryLocalProviderWithAnEndpointIsChecked(t *testing.T) {
 		}
 	}
 }
+
+// A malformed base_url is refused WITHOUT its value reaching the message.
+//
+// The value is the point, not the refusal. A base_url may carry userinfo
+// (http://user:token@host), this error lands in a boot log, and for a binding
+// declared in margince.yaml it comes from the one file whose whole promise is
+// that it carries no credential. Both malformed shapes are covered because
+// they take different exits and only one of them can lean on url.Redacted.
+func TestAMalformedBaseURLIsRefusedWithoutEchoingItsCredential(t *testing.T) {
+	const password = "s3cr3t-token"
+	for _, tc := range []struct {
+		name    string
+		baseURL string
+		names   string
+	}{
+		// A control character is a parse failure, so this exits before
+		// url.URL exists and cannot redact anything — it must therefore say
+		// nothing about the value at all.
+		{"unparseable", "http://user:" + password + "@host\x7f/", "cannot be parsed"},
+		// This one parses, so the host check is what refuses it, and
+		// Redacted() is what keeps the password out.
+		{"no host", "http://user:" + password + "@", "names no host"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			host, err := hostOf(tc.baseURL)
+			if err == nil {
+				t.Fatalf("hostOf(%q) returned host %q and no error", tc.baseURL, host)
+			}
+			if strings.Contains(err.Error(), password) {
+				t.Errorf("the refusal carries the credential: %v", err)
+			}
+			if !strings.Contains(err.Error(), tc.names) {
+				t.Errorf("the refusal %q does not say %q, so an operator cannot tell which shape was wrong", err, tc.names)
+			}
+		})
+	}
+}
+
+// The third exit redacts too. A scheme this adapter cannot dial is refused by
+// naming the scheme, not the value — and a value with an unusable scheme is as
+// likely to carry a pasted credential as one with no host.
+func TestAnUndialableSchemeIsRefusedWithoutEchoingItsCredential(t *testing.T) {
+	const password = "s3cr3t-token"
+	host, err := hostOf("ftp://user:" + password + "@example.test/")
+	if err == nil {
+		t.Fatalf("hostOf accepted an ftp base_url, returning %q", host)
+	}
+	if strings.Contains(err.Error(), password) {
+		t.Errorf("the refusal carries the credential: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ftp") {
+		t.Errorf("the refusal %q does not name the scheme the operator has to change", err)
+	}
+}
