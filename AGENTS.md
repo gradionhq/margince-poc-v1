@@ -354,10 +354,11 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `extensions/<name>/` — the stable extension tier (ADR-0120): each unit
   is its own Go module importing ONLY the marker-allowlisted
   `backend/pkg/**` surface; presence under `extensions/` is the
-  enablement. The vanilla tree ships six first-party units: `de` (the
+  enablement. The vanilla tree ships four first-party units: `de` (the
   German jurisdiction pack — GoBD calendar-year retention floors),
-  `dispact-connector`, `notes`, `yogi` (one served 🟢/read agent tool — the
-  worked example of the governed-tool kind), `zalo-oa` and `zalo-personal`.
+  `notes`, `relay-probe` (the provider-facing reference — capture, a
+  merge-key declaration and a transport) and `yogi` (one served 🟢/read
+  agent tool — the worked example of the governed-tool kind).
   Read `extensions/` for the live list rather than trusting this sentence — a
   count in prose goes stale the first time somebody adds a unit. `make composition` (run by every build lane)
   generates the ignored `build/composition/` wiring; `composition/` at

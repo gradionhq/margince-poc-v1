@@ -4,7 +4,7 @@ This page explains what happens to a message **after** a connector fetched it fr
 provider, and before it appears in the CRM.
 
 The path is the same for every source: Gmail, IMAP, Microsoft Graph, Telegram, or an extension unit
-like `dispact-connector`. How a connector talks to its provider is that connector's own business, and
+like `relay-probe`. How a connector talks to its provider is that connector's own business, and
 is covered in [capture-connectors.md](capture-connectors.md).
 
 A record has one of two **shapes**, and the shape decides which steps run:
@@ -426,7 +426,7 @@ was entitled to.
 | AI task names and routing | `internal/modules/ai/tasks_gen.go` (generated), `internal/compose/brain.go` |
 | Company triage trigger | `backend/internal/compose/capturedomaintriage.go` |
 | Job schedules and timeouts | `backend/api/jobs.yaml` |
-| An example connector | `extensions/dispact-connector/` |
+| An example connector | `extensions/relay-probe/` |
 
 ### Decisions
 
