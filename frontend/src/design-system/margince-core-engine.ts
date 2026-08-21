@@ -173,13 +173,18 @@ function runCoreLoop(
     // machine with no GPU) enough to slow the page around it. The motion here is
     // a slow drift, and a slow drift does not need every frame: the loop keeps
     // asking the browser for one, and DRAWS on the ones far enough apart.
+    //
+    // The budget covers the DRAW alone. `advance` eases the dials one step per
+    // call, so skipping the call would stretch every transition by however much
+    // the display outruns the budget: the orb would take twice as long to reach
+    // a state on a 60 Hz screen as the motion is written for, which is a
+    // different animation rather than a cheaper one.
     handle = requestAnimationFrame(tick);
-    if (now - drawnAt < FRAME_MS) {
-      return;
-    }
-    drawnAt = now;
     const drifting = advance(now);
-    renderer.draw(shown());
+    if (now - drawnAt >= FRAME_MS || !drifting) {
+      drawnAt = now;
+      renderer.draw(shown());
+    }
     // Parked only after the frame that decides it, so a park is a park: the
     // next callback is never already in flight when the loop stops wanting one.
     if (!drifting || stopped) {

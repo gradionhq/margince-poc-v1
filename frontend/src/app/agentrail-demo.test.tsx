@@ -5,6 +5,7 @@
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Button } from "../design-system/atoms";
 import { useDemoRun } from "./agentrail-demo";
 
 // The scripted run is review scaffolding, and it is still code that runs in a
@@ -18,9 +19,7 @@ function Run() {
   const demo = useDemoRun();
   return (
     <div>
-      <button type="button" onClick={demo.toggle}>
-        toggle
-      </button>
+      <Button onClick={demo.toggle}>toggle</Button>
       <span data-testid="state">{demo.state ?? "-"}</span>
       <span data-testid="said">{demo.said ?? "-"}</span>
       <span data-testid="playing">{String(demo.playing)}</span>
@@ -30,10 +29,19 @@ function Run() {
 
 const shown = (id: string) => screen.getByTestId(id).textContent ?? "";
 
-/** Clicks the control the way the panel's own button does. */
+/**
+ * Clicks the control the way the panel's own button does.
+ *
+ * A bare dispatch inside `act`, not `userEvent`: user-event awaits its own
+ * `setTimeout` between the events of one click, and the run under test re-arms
+ * every beat from an effect. Handing user-event this suite's fake clock makes
+ * the two advance each other and the click never resolves. Nothing here turns
+ * on pointer or focus order — the subject is the beat chain — so the deciding
+ * property is that a click lands at a moment this test chose.
+ */
 function toggle() {
   act(() => {
-    screen.getByText("toggle").click();
+    screen.getByRole("button", { name: "toggle" }).click();
   });
 }
 
