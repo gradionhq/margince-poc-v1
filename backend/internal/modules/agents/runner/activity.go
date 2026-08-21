@@ -43,7 +43,27 @@ const (
 	RunStaleAfter = 30 * time.Minute
 )
 
-// runProjectionState maps agent_run.status onto the projection's vocabulary.
+// The projection's own state vocabulary, named here because this module writes
+// it. They are deliberately NOT the runner's column values — runner_job says
+// "done" where agent_run says "completed" — and a reader needs one word for one
+// idea.
+const (
+	stateQueued   = "queued"
+	stateRunning  = "running"
+	stateDone     = "done"
+	stateDegraded = "degraded"
+	stateFailed   = "failed"
+)
+
+// ProjectionStateFor is the exported reader of the mapping below, so a
+// root-package fitness test can hold it TOTAL over the column's CHECK without
+// this module exporting a map for anyone to edit.
+func ProjectionStateFor(status string) (string, bool) {
+	state, ok := runProjectionState[status]
+	return state, ok
+}
+
+// runProjectionState maps agent_run.status onto that vocabulary.
 //
 // TOTAL over the column's CHECK, and held there by a fitness test rather than
 // by care: a status this map does not carry would emit an empty state, which
@@ -55,20 +75,12 @@ const (
 // behalf; what differs is who it is waiting for, and the approvals inbox is the
 // surface that answers that. Neither v1 spec can stage a confirmation, so the
 // distinction has no producer today either.
-// ProjectionStateFor is the exported reader of that map, so a root-package
-// fitness test can hold it TOTAL over the column's CHECK without this module
-// exporting the map itself for anyone to edit.
-func ProjectionStateFor(status string) (string, bool) {
-	state, ok := runProjectionState[status]
-	return state, ok
-}
-
 var runProjectionState = map[string]string{
-	"running":           "running",
-	"awaiting_approval": "running",
-	"completed":         "done",
-	"degraded":          "degraded",
-	"failed":            "failed",
+	"running":           stateRunning,
+	"awaiting_approval": stateRunning,
+	"completed":         stateDone,
+	"degraded":          stateDegraded,
+	"failed":            stateFailed,
 }
 
 // occurrence is one trigger occurrence, as the projection needs to hear about

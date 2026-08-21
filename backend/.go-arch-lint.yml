@@ -260,8 +260,12 @@ deps:
     # names an emitter writes into the AI-activity projection are held to the
     # generated task set here because a module may not import a sibling to
     # assert that about itself.
+    # aitaskrunenum_test.go reads aiactivity.StateStalled and runneractivity-
+    # parity_test.go reads runner.ProjectionStateFor: both hold a module's own
+    # vocabulary to a set that lives OUTSIDE it — the contract's enum and a
+    # migration's CHECK — and only the root may see all three at once.
     # Root carries test files only, so this grants no production edge.
-    mayDependOn: [contracts, compose, ai, collections, platform, activities]
+    mayDependOn: [contracts, compose, ai, collections, platform, activities, aiactivity, agents]
     canUse: [yaml, jsonschema]
   cmd:
     mayDependOn: [compose, identity, people, privacy, deals, activities, aiactivity, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, platform, migrations]

@@ -66,7 +66,7 @@ func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string,
 			return scanErr
 		}
 		return announceActivity(ctx, tx, occurrence{
-			spec: spec.Name, triggerRef: triggerRef, state: "running",
+			spec: spec.Name, triggerRef: triggerRef, state: stateRunning,
 			passportID: &passportID, startedAt: &startedAt,
 		})
 	})
@@ -154,7 +154,7 @@ func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason FailureRe
 		if err != nil {
 			return err
 		}
-		o.state = "failed"
+		o.state = stateFailed
 		return announceActivity(ctx, tx, o)
 	})
 }
@@ -209,7 +209,7 @@ func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason F
 				rows.Close()
 				return err
 			}
-			o.state = "failed"
+			o.state = stateFailed
 			swept = append(swept, id)
 			sweptOccurrences = append(sweptOccurrences, o)
 		}
@@ -313,7 +313,7 @@ func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, pas
 			return fmt.Errorf("runner: enqueue job: %w", err)
 		}
 		return announceActivity(ctx, tx, occurrence{
-			spec: specName, triggerRef: triggerRef, state: "queued", passportID: passportID,
+			spec: specName, triggerRef: triggerRef, state: stateQueued, passportID: passportID,
 		})
 	})
 }
@@ -383,7 +383,7 @@ func (s *Store) FinishJob(ctx context.Context, jobID ids.UUID, runID *ids.UUID, 
 		if runID != nil || failReason == "" {
 			return nil
 		}
-		o.state = "failed"
+		o.state = stateFailed
 		o.startedAt = &settledAt
 		o.finishedAt = &settledAt
 		o.degradeReason = &failReason

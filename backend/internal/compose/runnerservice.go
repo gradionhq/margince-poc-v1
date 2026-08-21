@@ -104,6 +104,14 @@ func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain complet
 // schedule must still run when the accounting for last week's crash cannot.
 func (s *RunnerService) Tick(ctx context.Context, now time.Time) error {
 	now = now.UTC()
+	// The pass's own identity, bound once for everything it does.
+	//
+	// It is not decoration: seeding, sweeping and finishing all announce their
+	// occurrence to the AI-activity projection now, and an announcement carries
+	// the write shape — a ledger row and an outbox row, both of which take their
+	// actor from the context. A pass with no actor bound could not write either,
+	// and the rail would silently never learn that the 06:00 brief was queued.
+	ctx = schedulerContext(ctx)
 	s.reapAbandonedRuns(ctx)
 	for _, spec := range runner.Catalog() {
 		if due := spec.DueAt(now); !now.Before(due) {
@@ -122,6 +130,19 @@ func (s *RunnerService) Tick(ctx context.Context, now time.Time) error {
 		s.executeJob(ctx, job)
 	}
 	return nil
+}
+
+// schedulerActor is who the scheduling pass is. The runs it seeds are executed
+// under their own passports later; this names only the pass that placed them.
+const schedulerActor = "system:agent_scheduler"
+
+// schedulerContext binds the pass's actor and one correlation id, so every row
+// a single tick writes groups under the tick that wrote it.
+func schedulerContext(ctx context.Context) context.Context {
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: schedulerActor,
+	})
 }
 
 // stuckRunGrace is how far past its wall clock a 'running' row must be before
