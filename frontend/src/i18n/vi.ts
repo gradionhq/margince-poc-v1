@@ -1533,6 +1533,16 @@ export const vi = {
   "deals.confirmTerminal":
     "Thao tác này chốt deal ở trạng thái {status}. Hãy xác nhận trước — chưa có gì xảy ra cho đến khi bạn xác nhận.",
   "deals.lostReason": "Lý do thua",
+  "deals.winNoEvidence":
+    "Thương vụ này chưa có hợp đồng đã ký đính kèm, hãy cho biết nó được chốt bằng cách nào. Câu trả lời được lưu trên thương vụ và được tính trong báo cáo.",
+  "deals.winReason": "Chốt bằng cách nào?",
+  "deals.winReasonPick": "Chọn cách chốt",
+  "deals.winReasonImported": "Nhập từ hệ thống khác",
+  "deals.winReasonPurchaseOrder": "Theo đơn đặt hàng",
+  "deals.winReasonVerbal": "Bằng lời, trực tiếp hoặc qua điện thoại",
+  "deals.winReasonRenewalByEmail": "Gia hạn qua email",
+  "deals.winReasonOther": "Trường hợp khác",
+  "deals.winReasonDetail": "Cụ thể là gì?",
   "deals.confirm": "Xác nhận",
   "deals.cancel": "Huỷ",
   "deals.advanced": "Đã chuyển sang {stage}",

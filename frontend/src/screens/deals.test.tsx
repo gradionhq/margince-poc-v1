@@ -34,6 +34,19 @@ afterEach(() => {
   localStorage.clear();
 });
 
+// Drops deal d1 on a stage column the way the board's drag does. jsdom carries
+// no drag-and-drop, so the drop handler is dispatched directly — the click path
+// the reader takes on touch is the stepper, which its own tests cover.
+function dropOnStage(stageId: string) {
+  const column = document.querySelector(
+    `[data-stage="${stageId}"]`,
+  ) as HTMLElement;
+  const dataTransfer = { getData: () => "d1", setData: () => {} };
+  const dropEvent = new Event("drop", { bubbles: true });
+  Object.assign(dropEvent, { dataTransfer });
+  column.dispatchEvent(dropEvent);
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -321,6 +334,11 @@ function stubBackend(
   deals: Deal[],
   opts: {
     onAdvance?: (body: unknown, ifMatch: string | null) => void;
+    // Makes the stub enforce the server's win-evidence rule: a win naming
+    // neither a contract nor a reason is refused 422 the way the real one
+    // refuses it. Off by default, so every existing test keeps the deal that
+    // wins on the first confirm.
+    demandsWinEvidence?: boolean;
     single?: Deal;
     onPatch?: (body: unknown, ifMatch: string | null) => void;
     onDelete?: () => void;
@@ -407,6 +425,28 @@ function stubBackend(
         ? await request.json()
         : JSON.parse(String(init?.body));
       opts.onAdvance?.(body, request?.headers.get("If-Match") ?? null);
+      if (
+        opts.demandsWinEvidence &&
+        body.status === "won" &&
+        !body.won_without_contract_reason
+      ) {
+        return jsonResponse(
+          {
+            code: "validation_error",
+            details: {
+              errors: [
+                {
+                  field: "won_without_contract_reason",
+                  code: "win_evidence_required",
+                  message:
+                    "a won deal needs a signed contract with its paper attached, or a reason why there is none",
+                },
+              ],
+            },
+          },
+          422,
+        );
+      }
       return jsonResponse(deal({ stage_id: body.to_stage_id }));
     }
     if (method === "GET" && /\/deals\/[^/?]+(\?.*)?$/.test(url)) {
@@ -879,6 +919,108 @@ describe("DealsScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(advances).toHaveLength(1));
     expect(advances[0]).toEqual([{ to_stage_id: "s3", status: "won" }, "4"]);
+  });
+
+  // A deal genuinely won on a purchase order or a phone call has no contract to
+  // point at, and before this the confirm dialog offered no way to say so: the
+  // win was refused, the reason the server wanted appeared in no field, and the
+  // deal stayed open. The dialog now asks the question the refusal implies.
+  it("a win the server refuses for want of evidence asks how it was won, and sends the answer", async () => {
+    const advances: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        demandsWinEvidence: true,
+        onAdvance: (body) => advances.push(body),
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    dropOnStage("s3");
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+
+    // The first confirm asks for nothing: a deal WITH a contract wins here, and
+    // only the server knows which this is.
+    expect(screen.queryByText("How was it won?")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    // Refused — the dialog stays open and grows the question rather than
+    // dropping the reader back on a board that has snapped the card home.
+    await waitFor(() =>
+      expect(screen.getByText("How was it won?")).toBeTruthy(),
+    );
+    expect(screen.getByText("Move to Won?")).toBeTruthy();
+    expect(advances).toHaveLength(1);
+
+    // Confirm stays refused until the question is answered.
+    expect(
+      screen.getByRole("button", { name: "Confirm" }).hasAttribute("disabled"),
+    ).toBe(true);
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "How was it won?" }),
+      "On a purchase order",
+    );
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(advances).toHaveLength(2));
+    expect(advances[1]).toEqual({
+      to_stage_id: "s3",
+      status: "won",
+      won_without_contract_reason: "purchase_order",
+    });
+  });
+
+  // "Something else" is the one member that explains nothing on its own, so the
+  // server demands a detail after it. Sending the reason without one would be a
+  // refusal the reader could have been spared.
+  it('picking "Something else" holds Confirm until the detail says what it was', async () => {
+    const advances: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      stubBackend([deal({})], {
+        demandsWinEvidence: true,
+        onAdvance: (body) => advances.push(body),
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DealsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    dropOnStage("s3");
+    await waitFor(() => expect(screen.getByText("Move to Won?")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() =>
+      expect(screen.getByText("How was it won?")).toBeTruthy(),
+    );
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "How was it won?" }),
+      "Something else",
+    );
+
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    expect(confirm.hasAttribute("disabled")).toBe(true);
+
+    await user.type(screen.getByLabelText("What was it?"), "a barter deal");
+    expect(confirm.hasAttribute("disabled")).toBe(false);
+    await user.click(confirm);
+
+    await waitFor(() => expect(advances).toHaveLength(2));
+    expect(advances[1]).toEqual({
+      to_stage_id: "s3",
+      status: "won",
+      won_without_contract_reason: "other",
+      won_without_contract_detail: "a barter deal",
+    });
   });
 
   it("the advance-confirm dot reads the live catalog tier, not a hardcode", async () => {

@@ -1541,6 +1541,16 @@ export const de = {
   "deals.confirmTerminal":
     "Damit wird der Deal als {status} geschlossen. Erst bestätigen — bis dahin passiert nichts.",
   "deals.lostReason": "Verlustgrund",
+  "deals.winNoEvidence":
+    "Für diesen Deal ist kein unterschriebener Vertrag hinterlegt. Bitte geben Sie an, wie er gewonnen wurde. Die Angabe bleibt am Deal und wird in Berichten gezählt.",
+  "deals.winReason": "Wie wurde er gewonnen?",
+  "deals.winReasonPick": "Bitte auswählen",
+  "deals.winReasonImported": "Aus einem anderen System importiert",
+  "deals.winReasonPurchaseOrder": "Per Bestellung",
+  "deals.winReasonVerbal": "Mündlich, persönlich oder telefonisch",
+  "deals.winReasonRenewalByEmail": "Per E-Mail verlängert",
+  "deals.winReasonOther": "Etwas anderes",
+  "deals.winReasonDetail": "Was war es?",
   "deals.confirm": "Bestätigen",
   "deals.cancel": "Abbrechen",
   "deals.advanced": "Nach {stage} verschoben",

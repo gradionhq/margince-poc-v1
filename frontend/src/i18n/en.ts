@@ -1545,6 +1545,16 @@ export const en = {
   "deals.confirmTerminal":
     "This closes the deal as {status}. Confirm first — nothing happens until you do.",
   "deals.lostReason": "Lost reason",
+  "deals.winNoEvidence":
+    "This deal has no signed contract attached, so tell us how it was won. The answer is kept on the deal and counted in reports.",
+  "deals.winReason": "How was it won?",
+  "deals.winReasonPick": "Pick how it was won",
+  "deals.winReasonImported": "Imported from another system",
+  "deals.winReasonPurchaseOrder": "On a purchase order",
+  "deals.winReasonVerbal": "Verbally, in person or by phone",
+  "deals.winReasonRenewalByEmail": "Renewed by email",
+  "deals.winReasonOther": "Something else",
+  "deals.winReasonDetail": "What was it?",
   "deals.confirm": "Confirm",
   "deals.cancel": "Cancel",
   "deals.advanced": "Moved to {stage}",
