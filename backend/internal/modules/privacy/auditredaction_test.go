@@ -73,6 +73,14 @@ func TestRedactionKeepsGovernanceAndDropsContent(t *testing.T) {
 		image:    `{"body":false,"is_done":true}`,
 		wantKeys: []string{"body", "is_done"},
 	}, {
+		// JSON null is the shape a bare Unmarshal-into-bool admits, and it would
+		// survive with NO marker — the only way a non-boolean body could pass
+		// unannounced.
+		name:     "a null body is dropped like any other non-boolean",
+		image:    `{"body":null,"is_done":true}`,
+		wantKeys: []string{"is_done", "content_state"},
+		gone:     []string{"body"},
+	}, {
 		// Fail closed: a key nobody classified is content until proven otherwise.
 		name:     "an unrecognised key is dropped rather than trusted",
 		image:    `{"audience":"selected","some_new_field":"whatever this is"}`,

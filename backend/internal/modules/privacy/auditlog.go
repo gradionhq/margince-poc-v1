@@ -12,6 +12,7 @@ package privacy
 // that would misread as "nothing happened".
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -122,15 +123,32 @@ const auditActivityJoin = `
 // here is dropped, so a new writer that starts recording content into an audit
 // image cannot leak it by default.
 //
-// Each entry carries a predicate on the VALUE, not just the key, because a key
-// alone is not a safety property. `body` is the case that forces it: the writer
-// reduces it to a presence flag and says so in a comment, but nothing bound the
-// reader to that — one plausible edit turning `delta["body"] = true` into the
-// body itself would have handed an out-of-audience admin the confidential text
-// of a limited conversation through this endpoint, passing every gate. The
-// predicate makes the guard independent of the writer, which is what the
-// rulebook means by restructuring a gap away rather than rationalising it in a
-// comment.
+// ⚠️ SCOPE, and it is narrower than "the audience is honoured on this endpoint":
+// this map is only ever consulted for an audit row whose entity_type is
+// `activity`. Other entity types that hang off an activity — `attachment`
+// (whose image carries the user-supplied filename), `attachment_extraction`,
+// `transcript_read`, `scheduled_send` — are NOT joined to their activity and
+// are NOT redacted, so a reader outside the audience still receives those
+// images whole. That is a live gap, tracked separately; it is named here rather
+// than left to be inferred, because the key that used to hint at it
+// (`category`, which only an attachment image carries) was removed from this
+// map as dead surface and removing it erased the only fingerprint.
+//
+// Each entry carries a predicate on the VALUE, because a key alone is not a
+// safety property. `body` is the case that forced it: the writer reduces it to a
+// presence flag and says so in a comment, but nothing bound the READER to that —
+// one plausible edit turning `delta["body"] = true` into the body itself would
+// have handed an out-of-audience admin the confidential text of a limited
+// conversation through this endpoint, passing every gate in the tree.
+//
+// Be precise about what that buys, because the mechanism invites overclaiming:
+// `body` is the ONLY entry actually constrained. The other fourteen are
+// anyValue, so the same "a writer starts nesting content under this key"
+// scenario applies unchanged to `kind`, `source_system` or a timestamp. Those
+// are judged safe by what the activity read surface already answers for them,
+// which is a claim about TODAY'S writers rather than a guard — the same kind of
+// claim `body` had before it was gated. Tightening them is a one-line predicate
+// each if a writer ever earns it.
 //
 // TestRedactionKeepsGovernanceAndDropsContent pins both directions, including
 // a `body` carrying something other than a boolean.
@@ -156,10 +174,17 @@ var auditImageGovernanceKeys = map[string]func(json.RawMessage) bool{
 // today just `body` — stand out at a glance in the map above.
 func anyValue(json.RawMessage) bool { return true }
 
-// isJSONBool admits only a literal JSON boolean. Anything else — a string, an
-// object, a number — means the writer stopped recording presence and started
-// recording content, and the value is dropped rather than published.
+// isJSONBool admits only a literal JSON `true` or `false`.
+//
+// The null check is not redundant: json.Unmarshal into a bool accepts JSON null
+// and leaves the bool at its zero value, so a bare Unmarshal would admit
+// `"body": null` — the one shape where a non-boolean body survives redaction,
+// and worse, survives it with no marker to say anything was examined. No writer
+// emits it today; the point is that the guard must not depend on that.
 func isJSONBool(raw json.RawMessage) bool {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return false
+	}
 	var flag bool
 	return json.Unmarshal(raw, &flag) == nil
 }
