@@ -3921,7 +3921,13 @@ export interface paths {
         put?: never;
         /** Apply a tag to an entity (person/org/deal/lead). */
         post: operations["applyTag"];
-        delete?: never;
+        /**
+         * Take one tag off one entity, leaving the tag itself in place.
+         * @description Undo for applyTag. archiveTag retires a tag from the whole workspace, which is not the
+         *     same act and not a way back from a mistaken tagging. Idempotent: removing a tagging that
+         *     is not there succeeds, because the caller asked for a state that is already true.
+         */
+        delete: operations["removeTag"];
         options?: never;
         head?: never;
         patch?: never;
@@ -13212,6 +13218,16 @@ export interface components {
             organization_id?: string | null;
             /**
              * Format: uuid
+             * @description The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.
+             */
+            partner_org_id?: string | null;
+            /**
+             * @description `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+             * @enum {string|null}
+             */
+            partner_attribution?: "sourced" | "influenced" | null;
+            /**
+             * Format: uuid
              * @description The body of work this deal belongs to; must name the same company as the deal.
              */
             project_id?: string | null;
@@ -13894,6 +13910,44 @@ export interface components {
         /** @description Every messaging transport this installation has registered (ADR-0107/A158). */
         ChannelProviderDirectory: {
             data: components["schemas"]["ChannelProviderEntry"][];
+            /**
+             * @description The provenance ids the composed EXTENSION UNITS land records under, and what to call
+             *     them: `ext:<unit>:<system>`, which a unit's ingress stamps on every record it lands
+             *     and which `CaptureTraceEntry.connector` therefore carries for any of that unit's
+             *     records that arrived on no channel.
+             *
+             *     It does NOT publish every non-transport connector a trace can name. A core
+             *     connector's own source system — `gmail`, `imap`, `graph`, `gcal` — appears in neither
+             *     array, because none of them is a registered transport either; a client that cannot
+             *     resolve a connector id renders the id, which reads as the name of the thing it names.
+             *     Treat a directory miss as ordinary, not as an anomaly to report.
+             *
+             *     These are published BESIDE `data` rather than inside it because they are not
+             *     `ProviderRef` values and must not be mistaken for one: nothing sends on one, no
+             *     `activity.channel_provider` names one, and the id does not satisfy that pattern.
+             *     A reader resolving a trace still needs them from this same directory — one resolver,
+             *     or the raw `ext:` form reaches a member as if it were a name.
+             *
+             *     Absent on an installation whose composed units declare no ingress; an empty answer
+             *     and no answer mean the same thing.
+             */
+            capture_sources?: components["schemas"]["CaptureSourceEntry"][];
+        };
+        /** @description One capture provenance id that is not a transport, as the directory publishes it. */
+        CaptureSourceEntry: {
+            /**
+             * @description The provenance id itself, in the spelling `CaptureTraceEntry.connector` carries —
+             *     `ext:<unit>:<system>` for a record an extension unit landed. The grammar is
+             *     `capture_trace.connector`'s, which is a transport id's widened for exactly this
+             *     provenance.
+             */
+            source: string;
+            /**
+             * @description Human-readable name for it — show this where the id would otherwise appear. Derived
+             *     and never operator-configured, on the same terms as `ChannelProviderEntry.label`, so
+             *     it is safe to cache alongside the rest of the directory.
+             */
+            label: string;
         };
         /** @description One registered transport, as the directory publishes it. */
         ChannelProviderEntry: {
@@ -16094,6 +16148,15 @@ export interface components {
             on_behalf_of?: string | null;
             /** @description Resolved display name for on_behalf_of. */
             on_behalf_of_name?: string | null;
+            /**
+             * @description The NAME of the tool a delegated change was typed through — "Claude",
+             *     "Cursor" — resolved from the OAuth client behind the row's passport.
+             *     Null when the passport was minted by hand in Settings (there is no
+             *     registered client to name), when the client row is gone, and for
+             *     every write that was not delegated. A reader that has it should say
+             *     "via {agent_client}" where it would otherwise say "via an agent".
+             */
+            agent_client?: string | null;
             action: string;
             /** Format: date-time */
             occurred_at: string;
@@ -16231,6 +16294,11 @@ export interface components {
         ContextItem: {
             ref: components["schemas"]["ContextEntityRef"];
             summary?: string | null;
+            /**
+             * Format: date-time
+             * @description When an event item happened, null when the item is not an event. A reader states a date from THIS rather than from one written inside a summary's prose — a note recalling "October" for a September email is the reading that otherwise reaches the customer. It is an instant in UTC; render it in the reader's zone before naming a calendar day.
+             */
+            occurred_at?: string | null;
             evidence?: components["schemas"]["ContextEvidence"][];
         };
         ContextSection: {
@@ -26333,6 +26401,32 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Taggable"];
                 };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    removeTag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyTagRequest"];
+            };
+        };
+        responses: {
+            /** @description Removed (or was not applied). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];

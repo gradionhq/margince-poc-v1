@@ -897,7 +897,11 @@ function AddEmploymentModal({
                 organization_id: org.id,
                 role: role.trim() || undefined,
                 is_current_primary: isCurrent,
-                source: "ui",
+                // `manual` is the one word for a first-party write by a
+                // person — through this form or through an assistant. It used
+                // to say "ui", which named the screen rather than the origin,
+                // and would have re-created the spelling the backfill removed.
+                source: "manual",
               },
               { onSuccess: close },
             );

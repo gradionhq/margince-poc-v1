@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // The archived-tenant gate (0272) refuses, and refuses for the right reason.
 //
@@ -78,8 +78,7 @@ func seedArchivedTenantHolding(ctx context.Context, t *testing.T, conn *pgx.Conn
 func TestTheArchivedResidueGateRefusesAndNamesWhatItFound(t *testing.T) {
 	ctx := context.Background()
 	conn := connect(t, mustOwnerDSN(t))
-	resetSchema(t, conn)
-	migrateAll(t, conn)
+	headSchema(t, conn)
 
 	table := seedArchivedTenantHolding(ctx, t, conn)
 
@@ -106,8 +105,7 @@ func TestTheArchivedResidueGateRefusesAndNamesWhatItFound(t *testing.T) {
 func TestTheArchivedResidueGateAdmitsOnceTheResidueIsCleared(t *testing.T) {
 	ctx := context.Background()
 	conn := connect(t, mustOwnerDSN(t))
-	resetSchema(t, conn)
-	migrateAll(t, conn)
+	headSchema(t, conn)
 
 	seedArchivedTenantHolding(ctx, t, conn)
 	if _, err := conn.Exec(ctx, gateSQL(t)); err == nil {
@@ -130,8 +128,7 @@ func TestTheArchivedResidueGateAdmitsOnceTheResidueIsCleared(t *testing.T) {
 func TestTheArchivedResidueGateExemptsTheAppendOnlyLedgers(t *testing.T) {
 	ctx := context.Background()
 	conn := connect(t, mustOwnerDSN(t))
-	resetSchema(t, conn)
-	migrateAll(t, conn)
+	headSchema(t, conn)
 
 	var ws string
 	if err := conn.QueryRow(ctx, `

@@ -59,7 +59,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// a counter it then never paid — the exact half-a-control this change exists
 	// to remove.
 	registry := registryWithGate(InstallationDB(pool), gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send,
-		companyEnricher{}, srv.retrievalEmbedder, srv.log, agents.WithQuotaCharger(srv.quotaMeter))
+		companyEnricher{}, srv.retrievalEmbedder, nil, srv.log, agents.WithQuotaCharger(srv.quotaMeter))
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode
@@ -146,7 +146,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// organization exists cannot live behind it. See handlers_setup.go.
 	setupLimit := newSetupLimiter()
 	mux.HandleFunc("GET /setup/status", setupStatus(identitySvc, setupLimit))
-	mux.HandleFunc("POST /setup/claim", setupClaim(identitySvc, pool, srv.bootstrapSeeds, setupLimit))
+	mux.HandleFunc("POST /setup/claim", setupClaim(identitySvc, pool, srv.bootstrapSeeds, setupLimit, log))
 	mux.HandleFunc("/metrics", requireMetricsToken(srv.metricsToken, httpserver.Metrics(pool,
 		func(ctx context.Context) (int64, error) { return events.OutboxBacklog(ctx, pool) },
 		events.PublishedTotal,

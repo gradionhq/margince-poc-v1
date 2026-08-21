@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/offlinedemo"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -200,6 +201,12 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// contract — one adapter serving two seams, so the two ensures cannot
 		// drift onto different dedupe implementations.
 		WithChannelEnsurer(ensurer).
+		// The project attribution ladder's subject-key rung, answered by the
+		// module that owns the project table — composed here for the same
+		// reason the counterparty resolver is: capture must not import a
+		// sibling, and which project a subject names is a question about
+		// another module's records.
+		WithProjectAttribution(deals.NewStore(InstallationDB(pool), DealsInstallation())).
 		// The 24-hour trace's payload posture. It rides the Sink because the
 		// Sink is where a payload would be written, and it is a deployment
 		// decision rather than a workspace one -- there is no API that flips it.

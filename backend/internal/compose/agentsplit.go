@@ -42,6 +42,7 @@ const opRenameCustomField = "renameCustomField"
 const (
 	opAddListMember       = "addListMember"
 	opApplyTag            = "applyTag"
+	opRemoveTag           = "removeTag"
 	opAddOfferLineItem    = "addOfferLineItem"
 	opUpdateOfferLineItem = "updateOfferLineItem"
 	opRemoveOfferLineItem = "removeOfferLineItem"
@@ -75,6 +76,7 @@ const (
 // human-owned and silently convert every agent rename into a 🟡 staging.
 var actionShapedUpdateOps = map[string]bool{
 	opApplyTag:            true,
+	opRemoveTag:           true,
 	opAddListMember:       true,
 	opAddOfferLineItem:    true,
 	opUpdateOfferLineItem: true,

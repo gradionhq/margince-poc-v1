@@ -3,6 +3,7 @@ import { Bell } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { routeHash } from "../app/router";
 import {
   Badge,
   Button,
@@ -10,6 +11,7 @@ import {
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { calendarDay, dueInstant } from "../format/calendarday";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -21,6 +23,11 @@ import {
   useSorMode,
 } from "./common";
 import { CreateRecordModal, NewRecordButton } from "./create";
+import {
+  SCHEDULED_SCREEN,
+  useScheduledSends,
+  waitingCount,
+} from "./scheduledsends";
 
 // Tasks (B-EP09.12d): open tasks grouped overdue / today / upcoming / undated
 // by due_at, with complete and snooze (+1 day) actions. Both the grouping and
@@ -137,6 +144,50 @@ function ReminderControl({
 // One open task, with its complete / snooze / reminder actions. Extracted so
 // the grouped render tree above stays legible instead of nesting these
 // handlers deeply.
+/**
+ * The scheduled queue's front door.
+ *
+ * A message the rep told the product to send later is work of theirs that has
+ * not happened yet, which is exactly what this page is for — and a queue with no
+ * address on any surface a rep visits is a queue nobody can stop.
+ *
+ * It appears only when something is actually waiting. An always-present row
+ * reading "0 messages waiting to send" is a line every rep learns to skip, and
+ * a page with nothing behind it is worse than no offer at all — the reader
+ * follows it and finds an empty list.
+ *
+ * A failed or still-running read offers nothing rather than guessing: a count
+ * this page cannot vouch for is a claim about the rep's own unsent mail.
+ */
+function ScheduledSendsLink() {
+  const t = useT();
+  const query = useScheduledSends();
+  const waiting = query.data ? waitingCount(query.data) : 0;
+  if (waiting === 0) {
+    return null;
+  }
+  return (
+    <Callout
+      tone="info"
+      actions={
+        <a
+          className="link-button"
+          href={routeHash({ screen: SCHEDULED_SCREEN })}
+        >
+          {t("tasks.scheduledOpen")}
+        </a>
+      }
+    >
+      {t(
+        waiting === 1
+          ? "tasks.scheduledWaiting.one"
+          : "tasks.scheduledWaiting.other",
+        { count: waiting },
+      )}
+    </Callout>
+  );
+}
+
 function TaskRow({
   task,
   overdue,
@@ -227,6 +278,9 @@ export function TasksScreen() {
   // shared CreateAction choreography (which navigates) does not fit; the
   // modal + refreshed list is the whole story.
   const create = useMutation({
+    // No single record: a task here is created loose, on the standalone
+    // tasks screen rather than off a 360.
+    mutationKey: ["task-new"],
     mutationFn: async (values: Record<string, string>) => {
       const { error } = await api.POST("/activities", {
         body: {
@@ -288,6 +342,7 @@ export function TasksScreen() {
           onClick={() => setCreating(true)}
         />
       </div>
+      <ScheduledSendsLink />
       <CreateRecordModal
         open={creating}
         onClose={() => setCreating(false)}

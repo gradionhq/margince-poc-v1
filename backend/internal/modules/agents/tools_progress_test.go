@@ -103,8 +103,8 @@ func TestProgressDealAdvancesThenLogsTheLinkedNote(t *testing.T) {
 	if len(p.advances) != 1 || p.advances[0].DealID != dealID || p.advances[0].ToStageID != stageID {
 		t.Fatalf("advances = %+v, want the one requested move", p.advances)
 	}
-	if p.advances[0].Source != toolSource {
-		t.Fatalf("advance source = %q, want %q", p.advances[0].Source, toolSource)
+	if p.advances[0].Source != ToolSource {
+		t.Fatalf("advance source = %q, want %q", p.advances[0].Source, ToolSource)
 	}
 	if len(p.creates) != 1 {
 		t.Fatalf("creates = %d, want the one note", len(p.creates))

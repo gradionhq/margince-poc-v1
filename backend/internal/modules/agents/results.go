@@ -253,7 +253,18 @@ type ContextItem struct {
 	RecordType datasource.EntityType `json:"record_type"`
 	RecordID   ids.UUID              `json:"record_id"`
 	Summary    string                `json:"summary"`
-	Evidence   []ContextEvidence     `json:"evidence"`
+	// OccurredAt is when an event item happened, absent when the item is not
+	// an event. It is here so a briefing states a date from the RECORD rather
+	// than from whatever a note's prose recalls — a loss post-mortem written
+	// months later said "im Oktober" for an email dated 2025-09-13, and a
+	// briefing with only the prose repeats that to the customer.
+	//
+	// An INSTANT, serialized in UTC. Naming a calendar day from it is a claim
+	// that needs a timezone (tools_commitments.go says the same of due dates),
+	// so a reader converts to the acting user's zone — whoami reports it —
+	// before saying "on the 13th".
+	OccurredAt *time.Time        `json:"occurred_at,omitempty"`
+	Evidence   []ContextEvidence `json:"evidence"`
 }
 
 // ContextSection groups items by what they are — recent activity, open tasks,

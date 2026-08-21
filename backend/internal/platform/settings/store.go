@@ -232,16 +232,29 @@ func Set[T any](ctx context.Context, s *Store, e *Entry[T], v T) error {
 // human has since changed. Runs inside the caller's bootstrap transaction and
 // takes no RBAC gate — bootstrap runs before any human exists, and the caller
 // IS the boot path.
-func Seed(ctx context.Context, tx pgx.Tx, def Definition, raw json.RawMessage) error {
+//
+// It reports whether the row was STORED, and that is not a courtesy. DO NOTHING
+// is deliberate and stays, but "no row existed" is not the only way to reach it:
+// `setting` is not tenant-scoped, so a re-bootstrap creates a new workspace while
+// the previous installation's rows survive, and every value the operator just put
+// in margince.yaml is discarded. The columns that once carried a second copy of
+// these values are gone, so nothing downstream can notice the divergence.
+//
+// What Seed does NOT do is decide what should happen then — that is a product
+// question, open on #863. It refuses only to be silent about it, which is why
+// the boolean is returned rather than logged: platform plumbing owns no domain
+// and holds no logger.
+func Seed(ctx context.Context, tx pgx.Tx, def Definition, raw json.RawMessage) (stored bool, err error) {
 	if err := def.ValidateJSON(raw); err != nil {
-		return err
+		return false, err
 	}
-	if _, err := tx.Exec(ctx,
+	tag, err := tx.Exec(ctx,
 		`INSERT INTO setting (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
-		def.Key(), raw); err != nil {
-		return fmt.Errorf("settings: seeding %s: %w", def.Key(), err)
+		def.Key(), raw)
+	if err != nil {
+		return false, fmt.Errorf("settings: seeding %s: %w", def.Key(), err)
 	}
-	return nil
+	return tag.RowsAffected() == 1, nil
 }
 
 // hasRow reports whether the setting has a stored row at all, which is a
@@ -327,11 +340,13 @@ func ResetConfig(ctx context.Context, tx pgx.Tx, reg *Registry) error {
 	return nil
 }
 
-// SeedValue is the typed form of Seed, for a caller holding the entry.
-func SeedValue[T any](ctx context.Context, tx pgx.Tx, e *Entry[T], v T) error {
+// SeedValue is the typed form of Seed, for a caller holding the entry. It
+// reports what Seed reports: whether the value was stored, or discarded because
+// a row was already there.
+func SeedValue[T any](ctx context.Context, tx pgx.Tx, e *Entry[T], v T) (stored bool, err error) {
 	raw, err := json.Marshal(v)
 	if err != nil {
-		return fmt.Errorf("settings: encoding seed for %s: %w", e.Key(), err)
+		return false, fmt.Errorf("settings: encoding seed for %s: %w", e.Key(), err)
 	}
 	return Seed(ctx, tx, e, raw)
 }

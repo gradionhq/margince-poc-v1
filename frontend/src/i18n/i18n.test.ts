@@ -29,9 +29,6 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // An em dash standing in for a figure nobody can compute yet. A glyph, not a
   // word — the sentence explaining it is the detail line beside it.
   "co.strip.financeUnknown",
-  // A currency figure and nothing else. Vietnamese groups digits the way en
-  // does, so the only locale that differs here is de, which does.
-  "agent.exampleCost",
   // Brand and provider names: proper nouns, not translated in any locale.
   "connectors.provGmail",
   "connectors.provGcal",
@@ -88,7 +85,6 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "quotas.contributing.deal",
   "deals.unit",
   "history.actorAgent",
-  "agent.title",
 
   // The alphabetical sort view: the Vietnamese alphabet also runs A to Z, so
   // the label names the same range in either catalog.

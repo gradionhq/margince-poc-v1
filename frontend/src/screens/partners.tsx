@@ -27,6 +27,7 @@ import {
   useListQuery,
 } from "./listquery";
 import { PartnerCommissions } from "./partnercommissions";
+import { PartnerDeals } from "./partnerdeals";
 
 // The Partner tab (company 360, P-6): an org IS a partner iff it has a
 // `partner` row (data-model.md §4.3) — GET /organizations/{id}/partner's 404
@@ -484,6 +485,10 @@ export function PartnerTab({
               partner={partner}
               onSaved={invalidateAfterSave}
             />
+            {/* The work, then the money it produced. These deals belong to the
+                CUSTOMERS, so the account's own Deals tab never shows them and
+                this is the only page they surface on. */}
+            <PartnerDeals organizationId={organizationId} />
             {/* What the tier above has actually produced. A margin tier with no
                 money beside it is a number nobody can check. */}
             <PartnerCommissions organizationId={organizationId} />

@@ -236,8 +236,14 @@ func TestAnUnprovisionedBootMintsAndAnnouncesTheToken(t *testing.T) {
 	if perm := info.Mode().Perm(); perm&0o077 != 0 {
 		t.Errorf("the setup token file is mode %#o — group or other can read the credential that claims this installation", perm)
 	}
-	if !strings.Contains(logged.String(), string(raw)) {
-		t.Error("the log line does not carry the token the file holds — an operator reading one gets a different credential than the other")
+	// The log names the file; it does not repeat what the file holds. Asserted
+	// on the token VALUE rather than on the attribute key, because a line that
+	// logs the same secret under a different key passes a key-shaped assertion.
+	if strings.Contains(logged.String(), string(raw)) {
+		t.Error("the boot log carries the setup token even though the file write succeeded — the log is read by everyone the log store admits and keeps the credential in a searchable index long after the claim")
+	}
+	if !strings.Contains(logged.String(), tokenPath) {
+		t.Errorf("the boot log does not name the token file %q, so an operator reading the log cannot find the credential at all", tokenPath)
 	}
 
 	// A second boot must not replace it: the operator may already have read and
@@ -252,4 +258,70 @@ func TestAnUnprovisionedBootMintsAndAnnouncesTheToken(t *testing.T) {
 	if string(again) != string(raw) {
 		t.Error("a restart replaced the outstanding setup token, invalidating the one already handed to an operator")
 	}
+}
+
+// TestTheSetupTokenReachesTheLogOnlyWhenTheFileCouldNotBeWritten is the other
+// direction of the two-channel rule, and the reason the channel exists: with the
+// file unavailable the log is the operator's only way back into their own
+// installation, so it carries the credential itself.
+//
+// The logged value is proven to BE the credential by claiming with it, not by
+// matching the attribute key. A test that greps for "setup_token" passes against
+// a line that logs a truncated value, a placeholder, or the hash.
+func TestTheSetupTokenReachesTheLogOnlyWhenTheFileCouldNotBeWritten(t *testing.T) {
+	e := apptest.SetupApp(t)
+	ctx := context.Background()
+	if _, err := e.Owner.Exec(ctx, `UPDATE workspace SET archived_at = now() WHERE archived_at IS NULL`); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	t.Chdir(dir)
+	// Get to the path first, which is what makes the write fail: the writer
+	// opens O_EXCL and refuses any existing final component.
+	if err := os.MkdirAll(filepath.Join(dir, "config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config", "margince-setup-token"), []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var logged strings.Builder
+	log := slog.New(slog.NewJSONHandler(&logged, nil))
+	if err := compose.EnsureInstallation(ctx, e.Pool, log, deployconfig.Config{Version: 1}); err != nil {
+		t.Fatalf("a boot whose token file could not be written must still serve, so the operator can claim: %v", err)
+	}
+
+	announced := loggedAttr(t, logged.String(), "setup_token")
+	if announced == "" {
+		t.Fatal("the token file could not be written and the log carries no token either — the installation is unclaimable")
+	}
+	if !strings.Contains(logged.String(), "write_error") {
+		t.Error("the log discloses the token without the write failure that forced it, so a reader cannot tell a fallback from a leak")
+	}
+
+	srv := httptest.NewServer(compose.New(e.Pool, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	t.Cleanup(srv.Close)
+	if status := claimStatus(t, srv, claimBody(announced)); status != http.StatusCreated {
+		t.Errorf("claiming with the token the log announced returned %d, want 201 — the fallback logged something that is not the credential", status)
+	}
+}
+
+// loggedAttr answers the value of a top-level attribute across JSON log records,
+// so an assertion can be made about what was logged rather than about the text
+// the handler happened to render.
+func loggedAttr(t *testing.T, records, key string) string {
+	t.Helper()
+	for _, line := range strings.Split(strings.TrimSpace(records), "\n") {
+		if line == "" {
+			continue
+		}
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("the boot log is not JSON: %v", err)
+		}
+		if value, ok := record[key].(string); ok {
+			return value
+		}
+	}
+	return ""
 }

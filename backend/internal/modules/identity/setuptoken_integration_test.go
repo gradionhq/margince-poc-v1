@@ -55,7 +55,7 @@ func TestClaimCreatesTheOrganizationAndSpendsTheToken(t *testing.T) {
 		t.Fatalf("outstanding = %v, %v — a freshly minted token must read as claimable", outstanding, err)
 	}
 
-	if _, err := svc.ClaimInstallation(ctx, token, claimInput("claimed"), nil); err != nil {
+	if _, _, err := svc.ClaimInstallation(ctx, token, claimInput("claimed"), nil); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestClaimIsAttributedToTheAdminItCreates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wsID, err := svc.ClaimInstallation(ctx, token, claimInput("attributed"), nil)
+	wsID, _, err := svc.ClaimInstallation(ctx, token, claimInput("attributed"), nil)
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestConfiguredBootstrapStaysASystemEvent(t *testing.T) {
 	svc := newSetupService(t)
 	ctx := context.Background()
 
-	wsID, created, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
+	wsID, created, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
 		return claimInput("configured"), nil
 	}, nil)
 	if err != nil || !created {
@@ -133,7 +133,7 @@ func TestAWrongTokenIsRefusedAndLeavesTheInstallationClaimable(t *testing.T) {
 	if _, err := svc.MintSetupToken(ctx); err != nil {
 		t.Fatal(err)
 	}
-	_, err := svc.ClaimInstallation(ctx, "not-the-token", claimInput("wrongtoken"), nil)
+	_, _, err := svc.ClaimInstallation(ctx, "not-the-token", claimInput("wrongtoken"), nil)
 	if !errors.Is(err, ErrSetupTokenMismatch) {
 		t.Fatalf("claim with a wrong token returned %v, want ErrSetupTokenMismatch", err)
 	}
@@ -164,13 +164,13 @@ func TestClaimingAProvisionedInstallationIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
+	if _, _, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
 		return claimInput("incumbent"), nil
 	}, nil); err != nil {
 		t.Fatalf("seeding the provisioned installation: %v", err)
 	}
 
-	if _, err := svc.ClaimInstallation(ctx, token, claimInput("second"), nil); !errors.Is(err, ErrAlreadyProvisioned) {
+	if _, _, err := svc.ClaimInstallation(ctx, token, claimInput("second"), nil); !errors.Is(err, ErrAlreadyProvisioned) {
 		t.Fatalf("claiming a provisioned installation returned %v, want ErrAlreadyProvisioned", err)
 	}
 	// And minting a fresh one is refused too, so nothing can re-open the claim
@@ -193,7 +193,7 @@ func TestASecondTokenIsNotMintedWhileOneIsOutstanding(t *testing.T) {
 	}
 	// The first token must still be the credential: a boot that replaced it
 	// would invalidate what an operator had already read out of the log.
-	if _, err := svc.ClaimInstallation(ctx, first, claimInput("firsttoken"), nil); err != nil {
+	if _, _, err := svc.ClaimInstallation(ctx, first, claimInput("firsttoken"), nil); err != nil {
 		t.Fatalf("the originally minted token no longer claims: %v", err)
 	}
 }
@@ -252,7 +252,7 @@ func TestAConfiguredBootstrapRetiresAnOutstandingToken(t *testing.T) {
 	if _, err := svc.MintSetupToken(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
+	if _, _, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
 		return claimInput("configuredafter"), nil
 	}, nil); err != nil {
 		t.Fatalf("configured bootstrap: %v", err)
@@ -288,7 +288,7 @@ func TestAClaimCannotSetAnEmptyOrShortAdminPassword(t *testing.T) {
 			}
 			in := claimInput("weakpw")
 			in.AdminPassword = tc.password
-			if _, err := svc.ClaimInstallation(ctx, token, in, nil); err == nil {
+			if _, _, err := svc.ClaimInstallation(ctx, token, in, nil); err == nil {
 				t.Fatal("the claim created a root account with a password below the floor")
 			}
 			// And the refusal must not have spent the credential: an operator

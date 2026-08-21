@@ -2062,23 +2062,15 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     ).toBeTruthy();
   });
 
-  it("shows a manual signal from the breakdown, and lets a rep enter one with a reason", async () => {
+  it("shows a manual signal from the breakdown, and offers the questions that add one", async () => {
     // S-E13.6 / ADR-0105 §4: the human half of the score reads its exact
     // stored band and provenance, rather than guessing them from points.
-    let putBody: unknown = null;
-    stubFetchWithMe(async (url, method, request) => {
-      if (method === "PUT" && url.includes("/manual-signals")) {
-        putBody = JSON.parse(await request.text());
-        return jsonResponse({
-          factor: "employees",
-          band: "51-200",
-          points: 8,
-          signal_kind: "assumption",
-          reason: "Their careers page lists ~80 open roles",
-          set_by: "u-9",
-          set_at: "2026-06-04T00:00:00Z",
-        });
-      }
+    //
+    // What the FORM sends is pinned in leadsignals.test.tsx, which drives every
+    // one of its states. What only this test can prove is that the panel reaches
+    // the lead page at all: the stored signal, its reason and its author render
+    // here, and the questions that add another are offered beside them.
+    stubFetchWithMe(async (url) => {
       if (url.includes("/users")) {
         return jsonResponse({
           data: [{ id: "u-9", email: "lena@x.test", display_name: "Lena F." }],
@@ -2107,34 +2099,12 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     await waitFor(() =>
       expect(screen.getByText("CFO named a Q4 line item")).toBeTruthy(),
     );
-
-    await userEvent.click(screen.getByLabelText("Factor"));
-    await userEvent.click(
-      await screen.findByRole("option", { name: "Employees" }),
-    );
-    await userEvent.click(screen.getByLabelText("Value"));
-    await userEvent.click(
-      await screen.findByRole("option", { name: "51–200" }),
-    );
-    await userEvent.click(screen.getByLabelText("How reliable is this?"));
-    await userEvent.click(
-      await screen.findByRole("option", { name: "Estimated" }),
-    );
-    const save = screen.getByRole("button", { name: "Add to the score" });
-    expect((save as HTMLButtonElement).disabled).toBe(true);
-    await userEvent.type(
-      screen.getByLabelText("Why (recorded with the score)"),
-      "Their careers page lists ~80 open roles",
-    );
-    await userEvent.click(save);
-    await waitFor(() => expect(putBody).not.toBeNull());
-    expect(putBody).toEqual({
-      factor: "employees",
-      band: "51-200",
-      signal_kind: "assumption",
-      confidence: 0.9,
-      reason: "Their careers page lists ~80 open roles",
-    });
+    for (const question of ["Website traffic?", "Company size?", "Budget?"]) {
+      expect(screen.getByLabelText(question)).toBeTruthy();
+    }
+    expect(
+      screen.getByRole("button", { name: "Add to the score" }),
+    ).toBeTruthy();
   });
 
   it("a closed lead shows its manual signals read-only, with the reason", async () => {

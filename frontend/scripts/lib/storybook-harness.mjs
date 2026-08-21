@@ -26,13 +26,21 @@ const MIME = {
 // buildStaticStorybook builds storybook-static if it is absent, or
 // unconditionally when force is set (fe-uat forces a fresh build so it renders
 // the current diff). Runs in frontend/ — this repo has no pnpm workspace.
-export function buildStaticStorybook(repoRoot, staticDir, { force = false } = {}) {
+export function buildStaticStorybook(
+  repoRoot,
+  staticDir,
+  { force = false } = {},
+) {
   if (existsSync(join(staticDir, "index.json")) && !force) return;
   console.log("Building static Storybook (~10-60s)…");
-  const r = spawnSync("pnpm", ["exec", "storybook", "build", "-o", "storybook-static"], {
-    cwd: join(repoRoot, "frontend"),
-    stdio: "inherit",
-  });
+  const r = spawnSync(
+    "pnpm",
+    ["exec", "storybook", "build", "-o", "storybook-static"],
+    {
+      cwd: join(repoRoot, "frontend"),
+      stdio: "inherit",
+    },
+  );
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
@@ -54,11 +62,15 @@ export function serveStaticStorybook(staticDir) {
       res.writeHead(404).end();
       return;
     }
-    res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
+    res.writeHead(200, {
+      "content-type": MIME[extname(file)] ?? "application/octet-stream",
+    });
     createReadStream(file).pipe(res);
   });
   return new Promise((r) =>
-    server.listen(0, () => r({ port: server.address().port, close: () => server.close() })),
+    server.listen(0, () =>
+      r({ port: server.address().port, close: () => server.close() }),
+    ),
   );
 }
 
@@ -73,5 +85,7 @@ export async function loadPlaywright() {
 
 // readStoryIndex returns the story entries from the built storybook-static index.
 export function readStoryIndex(staticDir) {
-  return Object.values(JSON.parse(readFileSync(join(staticDir, "index.json"), "utf8")).entries);
+  return Object.values(
+    JSON.parse(readFileSync(join(staticDir, "index.json"), "utf8")).entries,
+  );
 }

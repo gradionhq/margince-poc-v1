@@ -91,10 +91,8 @@ export const vi = {
   "shell.searchEverything": "Tìm kiếm mọi thứ…",
   "shell.breadcrumbAria": "Đường dẫn",
   "shell.approvals": "Phê duyệt",
-  "shell.license.seats": "{used}/{granted} chỗ",
   "shell.license.none": "Chưa có giấy phép",
   "shell.license.refused": "Giấy phép bị từ chối",
-  "shell.license.aria": "Giấy phép và số chỗ",
   "shell.approvalsWaiting": "Phê duyệt — {count} đang chờ",
   "shell.signOutAria": "Đăng xuất",
   "shell.collapse": "Thu gọn thanh bên",
@@ -109,19 +107,6 @@ export const vi = {
   "shell.navTop": "Điều hướng",
   "shell.sectionSwitch": "{name} — chuyển mục",
   "attention.selected": "Đã chọn {n}",
-  "agent.title": "Margince AI",
-  "agent.regionAria": "Trạng thái Margince AI",
-  "agent.configured": "Đã cấu hình",
-  "agent.exampleActivity": "Đang bổ sung thông tin cho 4 contact mới",
-  "agent.exampleRouting": "Cục bộ + đám mây",
-  "agent.exampleCost": "€2.41",
-  "agent.fixture": "Dữ liệu ví dụ",
-  "agent.approvals": "Phê duyệt đang chờ",
-  "agent.toolsTitle": "Công cụ tác nhân",
-  "agent.toolsSummary": "{auto} tự động · {confirm} xác nhận",
-  "agent.activityLabel": "Hoạt động",
-  "agent.routingLabel": "Định tuyến",
-  "agent.spendLabel": "Chi tiêu hôm nay",
   "locale.name.en": "English",
   "locale.name.de": "Deutsch",
   "locale.name.vi": "Tiếng Việt",
@@ -161,13 +146,6 @@ export const vi = {
   "action.booking": "Trang đặt lịch",
 
   "common.close": "Đóng",
-  "ask.panelAria": "Hỏi về những gì bạn đang xem",
-  "ask.context": "Hỏi về {context}",
-  "ask.scope": "Agent chỉ đọc được những gì bạn thấy được.",
-  "ask.inputAria": "Câu hỏi của bạn",
-  "ask.placeholder": "Hỏi về những gì bạn đang xem…",
-  "ask.send": "Hỏi",
-  "ask.sendEmpty": "Hãy viết câu hỏi trước.",
 
   "explain.open": "Giải thích con số này",
   "explain.title": "Con số này được dựng thế nào",
@@ -207,7 +185,8 @@ export const vi = {
   "share.unknownRecord": "Đây không phải bản ghi có thể chia sẻ.",
   "share.grantAccess": "Cấp quyền truy cập",
   "share.subject": "Người hoặc nhóm",
-  "share.alreadyGranted": "đã được cấp quyền",
+  "share.holdsRead": "Đang có quyền đọc",
+  "share.holdsWrite": "Đang có quyền ghi",
   "share.kindPerson": "Người",
   "share.kindTeam": "Nhóm",
   "share.access": "Mức truy cập",
@@ -232,6 +211,15 @@ export const vi = {
     "Quyền truy cập kéo dài đến khi bạn thu hồi — nó không tự kết thúc.",
   "share.reason": "Lý do",
   "share.grant": "Cấp quyền truy cập",
+  "share.update": "Cập nhật quyền truy cập",
+  "share.unchanged":
+    "Không có gì thay đổi. {name} đã có quyền {access} với bản ghi này.",
+  "share.downgradeTitle": "Giảm quyền truy cập?",
+  "share.downgradeBody":
+    "{name} đang có quyền {from} với bản ghi này. Nếu tiếp tục, họ chỉ còn quyền {to}. Cả hai chiều đều được ghi vào sổ kiểm toán.",
+  "share.downgradeConfirm": "Giảm xuống {to}",
+  "share.seatCeiling":
+    "Chỗ ngồi này chỉ đọc nên không thể nhận quyền ghi trên một bản ghi. Hãy nâng cấp chỗ ngồi trước, hoặc chỉ cấp quyền đọc.",
   "share.whoHasAccess": "Ai có quyền truy cập",
   "share.grantedBy": "cấp bởi",
   "share.revoke": "Thu hồi",
@@ -275,14 +263,25 @@ export const vi = {
   "rollup.computedAt": "Tính lúc {when}",
 
   "nav.partners": "Đối tác",
+  "deal.partnerSourced": "qua",
+  "deal.partnerInfluenced": "có hỗ trợ từ",
   "deal.partnerAttribution": "Đối tác đã làm gì",
   "deal.attributionUnset": "Chưa nêu (tính là mang deal về)",
   "deal.attributionSourced": "Mang deal về cho chúng ta",
   "deal.attributionInfluenced": "Hỗ trợ deal đã có",
+  "partnerDeals.panelTitle": "Deal đã mang về",
+  "partnerDeals.panelSub": "Các deal ở công ty khác đến từ đối tác này",
+  "partnerDeals.none": "Chưa mang về deal nào",
+  "partnerDeals.column.deal": "Thuộc deal",
+  "partnerDeals.column.customer": "Khách hàng",
+  "partnerDeals.column.attribution": "Vai trò của họ",
+  "partnerDeals.column.amount": "Giá trị deal",
+  "partnerDeals.column.status": "Trạng thái",
   "commission.panelTitle": "Hoa hồng",
   "commission.panelSub":
     "Đối tác này đã kiếm được bao nhiêu từ các deal họ mang về",
   "commission.none": "Chưa kiếm được gì",
+  "commission.column.deal": "Thuộc deal",
   "commission.column.amount": "Đã kiếm",
   "commission.column.rate": "Tỷ lệ",
   "commission.column.basis": "Giá trị deal",
@@ -1402,21 +1401,28 @@ export const vi = {
   "lead.signalsTitle": "Bạn biết gì về lead này",
   "lead.signalUnset": "Chưa nhập",
   "lead.signalClear": "Rút lại",
-  "lead.signalFactor": "Yếu tố",
-  "lead.signalBand": "Giá trị",
   "lead.signalBandPick": "Chọn giá trị",
-  "lead.signalKind": "Chất lượng bằng chứng",
+  "lead.signalMore": "Thêm…",
+  "lead.signalProvenanceHint":
+    "Nếu không thay đổi, câu trả lời được lưu là ước tính và không nêu độ tin cậy.",
   "lead.signalEvidenceQuality": "Thông tin này đáng tin đến mức nào?",
   "lead.signalConfidence": "Độ tin cậy",
+  "lead.signalConfidenceUnstated": "Không nêu",
   "lead.signalConfidenceValue": "Độ tin cậy {value}%",
   "lead.signalRecordedAt": "Đã ghi nhận {at}",
   "lead.signalSuperseded": "Trước đây {value}; đã được thay bằng {source}",
   "lead.signalAutomaticSource": "nguồn tự động",
-  "lead.signalReason": "Lý do (được ghi cùng điểm)",
+  "lead.signalReason": "Bạn biết điều này từ đâu?",
+  "lead.signalReasonHint":
+    "Không bắt buộc. Nội dung bạn viết sẽ được lưu cùng điểm.",
+  "lead.signalReasonUnstated": "Không nêu nguồn. Nhập thủ công.",
   "lead.signalSave": "Đưa vào điểm",
   "lead.signal.web_traffic": "Lưu lượng web",
   "lead.signal.employees": "Nhân sự",
   "lead.signal.budget_hint": "Ngân sách",
+  "lead.signal.ask.web_traffic": "Lưu lượng website?",
+  "lead.signal.ask.employees": "Quy mô công ty?",
+  "lead.signal.ask.budget_hint": "Ngân sách?",
   "lead.signal.fact": "Đã xác minh",
   "lead.signal.assumption": "Ước tính",
   "lead.signal.judgement": "Đánh giá của tôi",
@@ -1516,6 +1522,16 @@ export const vi = {
   "deals.confirmTerminal":
     "Thao tác này chốt deal ở trạng thái {status}. Hãy xác nhận trước — chưa có gì xảy ra cho đến khi bạn xác nhận.",
   "deals.lostReason": "Lý do thua",
+  "deals.winNoEvidence":
+    "Thương vụ này chưa có hợp đồng đã ký đính kèm, hãy cho biết nó được chốt bằng cách nào. Câu trả lời được lưu trên thương vụ và được tính trong báo cáo.",
+  "deals.winReason": "Chốt bằng cách nào?",
+  "deals.winReasonPick": "Chọn cách chốt",
+  "deals.winReasonImported": "Nhập từ hệ thống khác",
+  "deals.winReasonPurchaseOrder": "Theo đơn đặt hàng",
+  "deals.winReasonVerbal": "Bằng lời, trực tiếp hoặc qua điện thoại",
+  "deals.winReasonRenewalByEmail": "Gia hạn qua email",
+  "deals.winReasonOther": "Trường hợp khác",
+  "deals.winReasonDetail": "Cụ thể là gì?",
   "deals.confirm": "Xác nhận",
   "deals.cancel": "Huỷ",
   "deals.advanced": "Đã chuyển sang {stage}",
@@ -2081,6 +2097,10 @@ export const vi = {
   "compose.sendConfirmTitle": "Gửi email này?",
   "compose.sendBody":
     "Bạn đang gửi email này ngay bây giờ. Đây là hành động gửi ra ngoài, không đảo ngược được.",
+  "compose.schedule": "Hẹn giờ",
+  "compose.scheduleConfirmTitle": "Hẹn giờ gửi email này?",
+  "compose.scheduleBody":
+    "Email không đi ngay lúc này. Nó chờ đến thời điểm bạn đã chọn, và các bước kiểm tra đồng ý cùng hộp thư sẽ chạy lại khi đó. Trước khi nó đi, bạn có thể chuyển thời điểm hoặc thu hồi nó ở “Tin nhắn đã hẹn giờ”.",
   "compose.sendMessageConfirmTitle": "Gửi tin nhắn này?",
   "compose.sendMessageBody":
     "Bạn đang gửi tin nhắn này ngay bây giờ. Đây là hành động gửi ra ngoài, không đảo ngược được.",
@@ -2125,6 +2145,9 @@ export const vi = {
   "tasks.reminder": "Lời nhắc",
   "tasks.setReminder": "Đặt lời nhắc",
   "tasks.clearReminder": "Xoá lời nhắc",
+  "tasks.scheduledWaiting.one": "Có một tin nhắn đang chờ gửi.",
+  "tasks.scheduledWaiting.other": "Có {count} tin nhắn đang chờ gửi.",
+  "tasks.scheduledOpen": "Tin nhắn đã hẹn giờ",
 
   "reports.sub": "deal theo giai đoạn — chưa trọng số cạnh có trọng số",
   "reports.currency": "Tiền tệ",
@@ -2373,6 +2396,7 @@ export const vi = {
   "audit.unknownMember": "Thành viên không xác định",
   "audit.viaAgent": "qua một agent",
   "audit.viaConnector": "qua một connector",
+  "audit.viaNamed": "qua {client}",
   "audit.noHumanAuthority": "Không ghi nhận người uỷ quyền",
   "settings.auditSub":
     "mọi hành động đều được quy trách — người, Agent hay connector",
@@ -3762,10 +3786,10 @@ export const vi = {
   "setup.pageTitle": "Thiết lập Margince",
   "setup.title": "Nhận quyền quản trị bản cài đặt này",
   "setup.body":
-    "Bản cài đặt Margince này chưa có tổ chức nào. Người vận hành của bạn có mã thiết lập dùng một lần trong nhật ký máy chủ.",
+    "Bản cài đặt Margince này chưa có tổ chức nào. Người vận hành của bạn lấy mã dùng một lần từ tệp chứa mã thiết lập mà máy chủ ghi ở lần khởi động đầu tiên.",
   "setup.token": "Mã thiết lập",
   "setup.tokenHint":
-    "Lấy từ nhật ký máy chủ ở lần khởi động đầu tiên, hoặc tệp mã đặt cạnh đó.",
+    "Lấy từ tệp chứa mã thiết lập mà máy chủ ghi ở lần khởi động đầu tiên — nhật ký máy chủ nêu đường dẫn của tệp, và chứa chính mã đó nếu không ghi được tệp.",
   "setup.organization": "Tên tổ chức",
   "setup.adminName": "Tên của bạn",
   "setup.adminEmail": "Email của bạn",
@@ -3777,7 +3801,7 @@ export const vi = {
   "setup.claim": "Tạo tổ chức",
   "setup.claiming": "Đang tạo…",
   "setup.errorToken":
-    "Mã thiết lập không hợp lệ với bản cài đặt này. Hãy kiểm tra nhật ký máy chủ ở lần khởi động đầu tiên.",
+    "Mã thiết lập không hợp lệ với bản cài đặt này. Hãy kiểm tra tệp chứa mã thiết lập mà nhật ký máy chủ nêu ở lần khởi động đầu tiên.",
   "setup.errorAlready":
     "Bản cài đặt này đã có tổ chức. Hãy đăng nhập, hoặc nhờ người vận hành đặt lại.",
   "setup.errorFields":
@@ -5068,6 +5092,12 @@ export const vi = {
   "person.research.fieldsEmpty": "Chưa trường dữ liệu nào có bằng chứng.",
   "person.research.capturedBy": "Ghi nhận bởi",
   "person.action.email": "Email",
+  "person.action.write": "Soạn tin",
+  "person.action.messageOn": "Nhắn qua {transport}",
+  "person.action.noTransport":
+    "Không có địa chỉ và không có cuộc trò chuyện nào để trả lời.",
+  "person.action.consentRefused":
+    "Hiện chưa có mục đích nào cho phép viết cho họ.",
   "person.action.call": "Gọi",
   "person.action.meetings": "Xem lịch hẹn",
   "person.action.addTask": "Thêm việc",
@@ -5444,4 +5474,53 @@ export const vi = {
     "Ứng dụng trong trình duyệt và máy chủ đằng sau nó thuộc hai bản phát hành khác nhau, nên không có gì ở đây hoạt động đáng tin cậy. Hãy tải lại để lấy bản hiện tại. Nếu thông báo này vẫn còn, hãy nói với người vận hành bản cài đặt: mọi thành phần của nó phải chạy cùng một bản phát hành.",
   "release.skewVersions": "Ứng dụng {app} · Máy chủ {server}",
   "release.skewReload": "Tải lại",
+
+  // H\u00e0ng \u0111\u1ee3i ph\u00eda sau "g\u1eedi sau". D\u00f9ng "thu h\u1ed3i" ch\u1ee9 kh\u00f4ng ph\u1ea3i "xo\u00e1" hay "hu\u1ef7":
+  // ch\u01b0a c\u00f3 g\u00ec \u0111\u01b0\u1ee3c truy\u1ec1n \u0111i v\u00e0 ch\u01b0a c\u00f3 g\u00ec l\u00ean d\u00f2ng th\u1eddi gian, n\u00ean kh\u00f4ng c\u00f3
+  // l\u1ea7n g\u1eedi n\u00e0o \u0111\u1ec3 hu\u1ef7 v\u00e0 kh\u00f4ng c\u00f3 b\u1ea3n ghi n\u00e0o \u0111\u1ec3 xo\u00e1 \u2014 ng\u01b0\u1eddi vi\u1ebft l\u1ea5y tin nh\u1eafn
+  // v\u1ec1 tr\u01b0\u1edbc khi n\u00f3 \u0111i.
+  "nav.scheduled": "Tin nh\u1eafn \u0111\u00e3 h\u1eb9n gi\u1edd",
+  "sched.sub":
+    "Nh\u1eefng tin nh\u1eafn b\u1ea1n \u0111\u00e3 vi\u1ebft m\u00e0 ch\u01b0a g\u1eedi \u0111i. Ch\u1ec9 b\u1ea1n th\u1ea5y \u0111\u01b0\u1ee3c ch\u00fang.",
+  "sched.empty": "B\u1ea1n ch\u01b0a h\u1eb9n gi\u1edd tin nh\u1eafn n\u00e0o.",
+  "sched.group.held": "Đã dừng, đang chờ bạn",
+  "sched.group.heldEmpty":
+    "Kh\u00f4ng c\u00f3 tin nh\u1eafn n\u00e0o b\u1ecb d\u1eebng.",
+  "sched.group.waiting": "\u0110ang ch\u1edd g\u1eedi",
+  "sched.group.waitingEmpty":
+    "Kh\u00f4ng c\u00f3 g\u00ec \u0111ang ch\u1edd g\u1eedi.",
+  "sched.group.closed": "Kh\u00f4ng c\u00f2n ch\u1edd n\u1eefa",
+  "sched.group.closedEmpty":
+    "Ch\u01b0a c\u00f3 g\u00ec \u0111\u01b0\u1ee3c g\u1eedi \u0111i hay b\u1ecb thu h\u1ed3i.",
+  "sched.status.scheduled": "\u0110ang ch\u1edd",
+  "sched.status.released": "\u0110ang g\u1eedi \u0111i",
+  "sched.status.sent": "\u0110\u00e3 g\u1eedi",
+  "sched.status.cancelled": "\u0110\u00e3 thu h\u1ed3i",
+  "sched.status.held": "\u0110\u00e3 d\u1eebng",
+  "sched.held.consentWithdrawn":
+    "M\u1ed9t ng\u01b0\u1eddi nh\u1eadn \u0111\u00e3 r\u00fat l\u1ea1i s\u1ef1 \u0111\u1ed3ng \u00fd sau khi b\u1ea1n h\u1eb9n gi\u1edd tin nh\u1eafn n\u00e0y. N\u00f3 s\u1ebd kh\u00f4ng \u0111\u01b0\u1ee3c g\u1eedi cho \u0111\u1ebfn khi b\u1ea1n vi\u1ebft cho h\u1ecd theo m\u1ed9t m\u1ee5c \u0111\u00edch m\u00e0 h\u1ecd \u0111\u00e3 \u0111\u1ed3ng \u00fd.",
+  "sched.held.senderInactive":
+    "Ch\u1ed7 ho\u1eb7c h\u1ed9p th\u01b0 c\u1ee7a b\u1ea1n \u0111\u00e3 thay \u0111\u1ed5i sau khi h\u1eb9n gi\u1edd, n\u00ean tin nh\u1eafn kh\u00f4ng th\u1ec3 g\u1eedi d\u01b0\u1edbi t\u00ean b\u1ea1n.",
+  "sched.held.missedWindow":
+    "Th\u1eddi \u0111i\u1ec3m \u0111\u00e3 tr\u00f4i qua khi kh\u00f4ng c\u00f3 g\u00ec \u0111ang ch\u1ea1y, v\u00e0 gi\u1edd \u0111\u00e3 qu\u00e1 mu\u1ed9n \u0111\u1ec3 c\u00f2n l\u00e0 tin nh\u1eafn b\u1ea1n vi\u1ebft. H\u00e3y chuy\u1ec3n sang th\u1eddi \u0111i\u1ec3m kh\u00e1c ho\u1eb7c thu h\u1ed3i n\u00f3.",
+  "sched.held.timerExhausted":
+    "T\u00e1c v\u1ee5 \u0111\u00e1nh th\u1ee9c tin nh\u1eafn n\u00e0y \u0111\u00e3 h\u1ebft l\u1ea7n th\u1eed. H\u00e3y chuy\u1ec3n sang m\u1ed9t th\u1eddi \u0111i\u1ec3m m\u1edbi \u0111\u1ec3 th\u1eed l\u1ea1i.",
+  "sched.held.sendRefused":
+    "M\u1ed9t b\u01b0\u1edbc ki\u1ec3m tra \u0111\u00e3 t\u1eeb ch\u1ed1i tin nh\u1eafn n\u00e0y khi \u0111\u1ebfn h\u1ea1n. Kh\u00f4ng c\u00f3 g\u00ec \u0111\u01b0\u1ee3c g\u1eedi.",
+  "sched.inZone": "theo m\u00fai gi\u1edd {zone}",
+  "sched.recipientsUnknown":
+    "Tin nh\u1eafn n\u00e0y kh\u00f4ng c\u00f3 ng\u01b0\u1eddi nh\u1eadn",
+  "sched.recipientsMore": "{first} v\u00e0 {count} ng\u01b0\u1eddi n\u1eefa",
+  "sched.move": "\u0110\u1ed5i th\u1eddi \u0111i\u1ec3m",
+  "sched.moveTo": "Th\u1eddi \u0111i\u1ec3m m\u1edbi cho \u201c{subject}\u201d",
+  "sched.moveSave": "Chuy\u1ec3n",
+  "sched.moveCancel": "Gi\u1eef nguy\u00ean",
+  "sched.withdraw": "Thu h\u1ed3i",
+  "sched.withdrawTitle": "Thu h\u1ed3i tin nh\u1eafn n\u00e0y?",
+  "sched.withdrawBody":
+    "\u201c{subject}\u201d s\u1ebd kh\u00f4ng \u0111\u01b0\u1ee3c g\u1eedi, v\u00e0 kh\u00f4ng c\u00f3 g\u00ec xu\u1ea5t hi\u1ec7n tr\u00ean d\u00f2ng th\u1eddi gian. Mu\u1ed1n g\u1eedi l\u1ea1i th\u00ec ph\u1ea3i vi\u1ebft l\u1ea1i t\u1eeb \u0111\u1ea7u.",
+  "sched.withdrawConfirm": "Thu h\u1ed3i",
+  "sched.skew":
+    "Danh s\u00e1ch n\u00e0y \u0111\u00e3 l\u1ed7i th\u1eddi: tin nh\u1eafn b\u1ea1n v\u1eeba t\u00e1c \u0111\u1ed9ng \u0111\u00e3 g\u1eedi \u0111i, \u0111\u00e3 b\u1ecb thu h\u1ed3i, ho\u1eb7c \u0111\u00e3 \u0111\u01b0\u1ee3c chuy\u1ec3n sang th\u1eddi \u0111i\u1ec3m kh\u00e1c. H\u00e3y \u0111\u1ecdc l\u1ea1i danh s\u00e1ch.",
+  "sched.reload": "\u0110\u1ecdc l\u1ea1i",
 } as const satisfies Record<MessageKey, string>;

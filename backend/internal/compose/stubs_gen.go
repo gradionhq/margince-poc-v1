@@ -1531,6 +1531,10 @@ func (stubs) ArchiveTag(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 	httperr.NotImplemented(w, r, "ArchiveTag")
 }
 
+func (stubs) RemoveTag(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RemoveTag")
+}
+
 func (stubs) ApplyTag(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ApplyTag")
 }

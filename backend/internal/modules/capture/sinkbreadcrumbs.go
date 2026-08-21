@@ -58,7 +58,7 @@ func (s *Sink) logEnsureFault(ctx context.Context, rec connector.NormalizedRecor
 	detail := map[string]any{
 		fieldReason:       "counterparty_ensure_failed",
 		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		"error":           cause.Error(),
+		fieldError:        cause.Error(),
 	}
 	// A Telegram private-chat natural key embeds the customer's account id.
 	// This fault can be recorded after an erasure committed between capture and

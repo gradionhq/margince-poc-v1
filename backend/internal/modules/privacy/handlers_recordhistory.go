@@ -69,6 +69,7 @@ func recordHistoryEntryToWire(e RecordHistoryEntry) crmcontracts.AuditHistoryEnt
 		OccurredAt:        e.OccurredAt,
 		AuthorizationRule: e.AuthorizationRule,
 		OnBehalfOfName:    e.OnBehalfOfName,
+		AgentClient:       e.AgentClient,
 		Summary:           e.Summary,
 	}
 	if e.OnBehalfOf != nil {

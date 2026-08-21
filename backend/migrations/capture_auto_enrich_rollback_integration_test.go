@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // 0206's reverse carries data, and a reverse that carries data needs a test
 // that carries data through it. The forward direction dropped
@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 func TestRollingBackTheAutoEnrichColumnRestoresTheCurrentPosture(t *testing.T) {
@@ -33,7 +34,7 @@ func TestRollingBackTheAutoEnrichColumnRestoresTheCurrentPosture(t *testing.T) {
 	resetSchema(t, conn)
 	ctx := context.Background()
 
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}
@@ -79,7 +80,7 @@ func TestRollingBackTolerAtesASettingValueThisBuildCannotRead(t *testing.T) {
 	resetSchema(t, conn)
 	ctx := context.Background()
 
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}

@@ -101,7 +101,7 @@ func (t progressDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		DealID:     args.DealID,
 		ToStageID:  args.ToStageID,
 		LostReason: args.LostReason,
-		Source:     toolSource,
+		Source:     ToolSource,
 		IfVersion:  pin,
 	}); err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func (t progressDeal) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		ref, err := t.p.Create(ctx, datasource.CreateInput{
 			EntityType: datasource.EntityActivity,
 			Fields:     fields,
-			Source:     toolSource,
+			Source:     ToolSource,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("crmagents: deal advanced but logging the note failed — the move stands, retry via log_activity: %w", err)

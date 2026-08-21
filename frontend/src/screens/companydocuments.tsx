@@ -319,7 +319,10 @@ function DocumentRow({
   return (
     <Fragment>
       <PanelRow className="rec-row">
-        <span className="rec-main">
+        {/* DIVs, not spans, matching the contract row this list sits beside:
+            these halves are the row's block containers, and both set their own
+            `display: flex`, so nothing moves. */}
+        <div className="rec-main">
           {/* No pinned badge. `pinned` is a real field — the endpoint sorts on
               it and can filter by it — but nothing in this product SETS it, so
               the badge could only ever appear for a document pinned through the
@@ -351,8 +354,8 @@ function DocumentRow({
             <span>{doc.source}</span>
             <span>{formatDateTime(doc.created_at, locale, RECORD_ZONE)}</span>
           </span>
-        </span>
-        <span className="rec-end">
+        </div>
+        <div className="rec-end">
           {doc.category && <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>}
           {doc.doc_state && (
             <Badge tone={STATE_TONE[doc.doc_state]}>
@@ -368,7 +371,7 @@ function DocumentRow({
               {t(reading ? "docs.reading.hide" : "docs.reading.show")}
             </Button>
           )}
-        </span>
+        </div>
       </PanelRow>
       {/* The staged reading sits UNDER its own row rather than inside it: what
           it offers is about the document above it, and a panel wedged into a

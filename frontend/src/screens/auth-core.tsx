@@ -43,23 +43,26 @@ export type AuthPhase =
 function coreState(phase: AuthPhase): MarginceCoreState {
   if (phase === "signing-in") {
     // Work in flight, and the only work this surface ever does.
-    return "reasoning";
+    return "working";
   }
   if (phase === "success") {
-    return "applied";
+    // A finished run settles back to idle: there is no state of its own for
+    // "done".
+    return "idle";
   }
   if (phase === "error") {
     return "error";
   }
   if (phase === "unavailable") {
     // The installation cannot be reached, which is the same shape of failure as
-    // a source the agent cannot get to: nothing is wrong, nothing is reachable.
-    return "disconnected";
+    // a source the agent cannot get to: nothing is wrong, nothing is reachable,
+    // and that is a person's problem to resolve, not the agent's.
+    return "warning";
   }
   // idle and quiet both: nothing is running and nothing is staged. The surface
   // is waiting on a person, and the Core does not claim to be listening for
   // them — the agent reads captured activity, it holds no conversation.
-  return "dormant";
+  return "idle";
 }
 
 const providerKeys: Record<AssistantProfile["providers"][number], MessageKey> =

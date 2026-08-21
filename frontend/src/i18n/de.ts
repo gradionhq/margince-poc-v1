@@ -83,10 +83,8 @@ export const de = {
   "shell.searchEverything": "Alles durchsuchen…",
   "shell.breadcrumbAria": "Navigationspfad",
   "shell.approvals": "Freigaben",
-  "shell.license.seats": "{used}/{granted} Sitze",
   "shell.license.none": "Keine Lizenz",
   "shell.license.refused": "Lizenz abgelehnt",
-  "shell.license.aria": "Lizenz und Sitze",
   "shell.approvalsWaiting": "Freigaben — {count} offen",
   "shell.signOutAria": "Abmelden",
   "shell.collapse": "Seitenleiste einklappen",
@@ -101,19 +99,6 @@ export const de = {
   "shell.navTop": "Bereiche",
   "shell.sectionSwitch": "{name} — Bereich wechseln",
   "attention.selected": "{n} ausgewählt",
-  "agent.title": "Margince KI",
-  "agent.regionAria": "Margince-KI-Status",
-  "agent.configured": "Konfiguriert",
-  "agent.exampleActivity": "4 neue Kontakte werden angereichert",
-  "agent.exampleRouting": "Lokal + Cloud",
-  "agent.exampleCost": "€2,41",
-  "agent.fixture": "Beispieldaten",
-  "agent.approvals": "Freigaben offen",
-  "agent.toolsTitle": "Agent-Werkzeuge",
-  "agent.toolsSummary": "{auto} automatisch · {confirm} bestätigen",
-  "agent.activityLabel": "Aktivität",
-  "agent.routingLabel": "Routing",
-  "agent.spendLabel": "Ausgaben heute",
   "locale.name.en": "English",
   "locale.name.de": "Deutsch",
   "locale.name.vi": "Tiếng Việt",
@@ -154,13 +139,6 @@ export const de = {
   "action.booking": "Buchungsseite",
 
   "common.close": "Schließen",
-  "ask.panelAria": "Frag zu dem, was du gerade offen hast",
-  "ask.context": "Frage zu {context}",
-  "ask.scope": "Dein Agent liest nur, was du sehen kannst.",
-  "ask.inputAria": "Deine Frage",
-  "ask.placeholder": "Frag zu dem, was du gerade offen hast…",
-  "ask.send": "Fragen",
-  "ask.sendEmpty": "Formuliere zuerst eine Frage.",
 
   "explain.open": "Diese Zahl erklären",
   "explain.title": "So setzt sich die Zahl zusammen",
@@ -200,7 +178,8 @@ export const de = {
   "share.unknownRecord": "Dieser Datensatztyp kann nicht geteilt werden.",
   "share.grantAccess": "Zugriff gewähren",
   "share.subject": "Person oder Team",
-  "share.alreadyGranted": "hat bereits eine Freigabe",
+  "share.holdsRead": "Hat Lesezugriff",
+  "share.holdsWrite": "Hat Schreibzugriff",
   "share.kindPerson": "Person",
   "share.kindTeam": "Team",
   "share.access": "Zugriffsstufe",
@@ -223,6 +202,15 @@ export const de = {
     "Der Zugriff bleibt bestehen, bis Sie ihn widerrufen — er endet nicht von selbst.",
   "share.reason": "Grund",
   "share.grant": "Zugriff gewähren",
+  "share.update": "Zugriff ändern",
+  "share.unchanged":
+    "Nichts geändert. {name} hatte bereits {access}-Zugriff auf diesen Datensatz.",
+  "share.downgradeTitle": "Zugriff reduzieren?",
+  "share.downgradeBody":
+    "{name} hat {from}-Zugriff auf diesen Datensatz. Wenn Sie fortfahren, bleibt nur noch {to}-Zugriff. Beide Richtungen werden im Audit-Protokoll festgehalten.",
+  "share.downgradeConfirm": "Auf {to} reduzieren",
+  "share.seatCeiling":
+    "Dieser Sitzplatz ist nur lesend und kann daher keinen Schreibzugriff auf einen Datensatz erhalten. Erhöhen Sie zuerst die Sitzplatzstufe, oder gewähren Sie Lesezugriff.",
   "share.whoHasAccess": "Wer hat Zugriff",
   "share.grantedBy": "gewährt von",
   "share.revoke": "Widerrufen",
@@ -268,14 +256,26 @@ export const de = {
   "rollup.computedAt": "Berechnet am {when}",
 
   "nav.partners": "Partner",
+  "deal.partnerSourced": "über",
+  "deal.partnerInfluenced": "unterstützt von",
   "deal.partnerAttribution": "Was der Partner getan hat",
   "deal.attributionUnset": "Nicht angegeben (gilt als gebracht)",
   "deal.attributionSourced": "Hat den Deal gebracht",
   "deal.attributionInfluenced": "Hat bei einem bestehenden Deal geholfen",
+  "partnerDeals.panelTitle": "Gebrachte Deals",
+  "partnerDeals.panelSub":
+    "Deals bei anderen Firmen, die über diesen Partner zustande kamen",
+  "partnerDeals.none": "Noch keine Deals gebracht",
+  "partnerDeals.column.deal": "Deal",
+  "partnerDeals.column.customer": "Kunde",
+  "partnerDeals.column.attribution": "Sein Anteil",
+  "partnerDeals.column.amount": "Deal-Wert",
+  "partnerDeals.column.status": "Status",
   "commission.panelTitle": "Provision",
   "commission.panelSub":
     "Was dieser Partner an selbst gebrachten Deals verdient hat",
   "commission.none": "Noch nichts verdient",
+  "commission.column.deal": "Deal",
   "commission.column.amount": "Verdient",
   "commission.column.rate": "Satz",
   "commission.column.basis": "Deal-Wert",
@@ -1408,21 +1408,28 @@ export const de = {
   "lead.signalsTitle": "Was Sie über diesen Lead wissen",
   "lead.signalUnset": "Nicht erfasst",
   "lead.signalClear": "Zurückziehen",
-  "lead.signalFactor": "Faktor",
-  "lead.signalBand": "Wert",
   "lead.signalBandPick": "Wert wählen",
-  "lead.signalKind": "Qualität des Nachweises",
+  "lead.signalMore": "Mehr …",
+  "lead.signalProvenanceHint":
+    "Unverändert wird eine Antwort als Schätzung ohne Konfidenzangabe festgehalten.",
   "lead.signalEvidenceQuality": "Wie verlässlich ist das?",
   "lead.signalConfidence": "Konfidenz",
+  "lead.signalConfidenceUnstated": "Keine Angabe",
   "lead.signalConfidenceValue": "{value} % Konfidenz",
   "lead.signalRecordedAt": "Erfasst am {at}",
   "lead.signalSuperseded": "Zuvor {value}; ersetzt durch {source}",
   "lead.signalAutomaticSource": "eine automatische Quelle",
-  "lead.signalReason": "Warum (wird mit dem Score festgehalten)",
+  "lead.signalReason": "Woher wissen Sie das?",
+  "lead.signalReasonHint":
+    "Optional. Was Sie hier schreiben, wird mit dem Score festgehalten.",
+  "lead.signalReasonUnstated": "Keine Quelle angegeben. Manuell erfasst.",
   "lead.signalSave": "In den Score aufnehmen",
   "lead.signal.web_traffic": "Web-Traffic",
   "lead.signal.employees": "Mitarbeiter",
   "lead.signal.budget_hint": "Budget",
+  "lead.signal.ask.web_traffic": "Website-Traffic?",
+  "lead.signal.ask.employees": "Unternehmensgröße?",
+  "lead.signal.ask.budget_hint": "Budget?",
   "lead.signal.fact": "Bestätigt",
   "lead.signal.assumption": "Geschätzt",
   "lead.signal.judgement": "Meine Einschätzung",
@@ -1524,6 +1531,16 @@ export const de = {
   "deals.confirmTerminal":
     "Damit wird der Deal als {status} geschlossen. Erst bestätigen — bis dahin passiert nichts.",
   "deals.lostReason": "Verlustgrund",
+  "deals.winNoEvidence":
+    "Für diesen Deal ist kein unterschriebener Vertrag hinterlegt. Bitte geben Sie an, wie er gewonnen wurde. Die Angabe bleibt am Deal und wird in Berichten gezählt.",
+  "deals.winReason": "Wie wurde er gewonnen?",
+  "deals.winReasonPick": "Bitte auswählen",
+  "deals.winReasonImported": "Aus einem anderen System importiert",
+  "deals.winReasonPurchaseOrder": "Per Bestellung",
+  "deals.winReasonVerbal": "Mündlich, persönlich oder telefonisch",
+  "deals.winReasonRenewalByEmail": "Per E-Mail verlängert",
+  "deals.winReasonOther": "Etwas anderes",
+  "deals.winReasonDetail": "Was war es?",
   "deals.confirm": "Bestätigen",
   "deals.cancel": "Abbrechen",
   "deals.advanced": "Nach {stage} verschoben",
@@ -2101,6 +2118,10 @@ export const de = {
   "compose.sendConfirmTitle": "Diese E-Mail senden?",
   "compose.sendBody":
     "Sie senden diese E-Mail jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
+  "compose.schedule": "Einplanen",
+  "compose.scheduleConfirmTitle": "Diese E-Mail einplanen?",
+  "compose.scheduleBody":
+    "Sie geht nicht jetzt hinaus. Sie wartet auf den gewählten Zeitpunkt, und die Einwilligungs- und Postfachprüfungen laufen dann erneut. Bis sie hinausgeht, können Sie sie unter „Geplante Nachrichten“ verschieben oder zurückziehen.",
   "compose.sendMessageConfirmTitle": "Diese Nachricht senden?",
   "compose.sendMessageBody":
     "Sie senden diese Nachricht jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
@@ -2147,6 +2168,9 @@ export const de = {
   "tasks.reminder": "Erinnerung",
   "tasks.setReminder": "Erinnerung setzen",
   "tasks.clearReminder": "Erinnerung entfernen",
+  "tasks.scheduledWaiting.one": "Eine Nachricht wartet auf den Versand.",
+  "tasks.scheduledWaiting.other": "{count} Nachrichten warten auf den Versand.",
+  "tasks.scheduledOpen": "Geplante Nachrichten",
 
   "reports.sub": "Deals je Phase — ungewichtet neben gewichtet",
   "reports.currency": "Währung",
@@ -2398,6 +2422,7 @@ export const de = {
   "audit.unknownMember": "Unbekanntes Mitglied",
   "audit.viaAgent": "über einen Agenten",
   "audit.viaConnector": "über einen Connector",
+  "audit.viaNamed": "über {client}",
   "audit.noHumanAuthority": "Keine menschliche Autorisierung erfasst",
   "settings.auditSub": "jede Aktion, zugeordnet — Mensch, Agent oder Connector",
   "settings.auditAdminOnly":
@@ -3784,10 +3809,10 @@ export const de = {
   "setup.pageTitle": "Margince einrichten",
   "setup.title": "Diese Installation übernehmen",
   "setup.body":
-    "Diese Margince-Installation hat noch keine Organisation. Dein Betreiber hat ein einmaliges Einrichtungs-Token aus dem Serverprotokoll.",
+    "Diese Margince-Installation hat noch keine Organisation. Dein Betreiber hat ein einmaliges Einrichtungs-Token aus der Token-Datei, die der Server beim ersten Start geschrieben hat.",
   "setup.token": "Einrichtungs-Token",
   "setup.tokenHint":
-    "Aus dem Serverprotokoll beim ersten Start oder aus der Token-Datei daneben.",
+    "Aus der Token-Datei, die der Server beim ersten Start geschrieben hat — das Serverprotokoll nennt ihren Pfad und enthält das Token selbst, falls die Datei nicht geschrieben werden konnte.",
   "setup.organization": "Name der Organisation",
   "setup.adminName": "Dein Name",
   "setup.adminEmail": "Deine E-Mail-Adresse",
@@ -3799,7 +3824,7 @@ export const de = {
   "setup.claim": "Organisation anlegen",
   "setup.claiming": "Wird angelegt…",
   "setup.errorToken":
-    "Dieses Einrichtungs-Token gilt nicht für diese Installation. Prüfe das Serverprotokoll vom ersten Start.",
+    "Dieses Einrichtungs-Token gilt nicht für diese Installation. Prüfe die Token-Datei, die das Serverprotokoll beim ersten Start nennt.",
   "setup.errorAlready":
     "Diese Installation hat bereits eine Organisation. Melde dich an oder bitte deinen Betreiber um ein Zurücksetzen.",
   "setup.errorFields":
@@ -5110,6 +5135,12 @@ export const de = {
     "Noch trägt kein angereichertes Feld einen Beleg.",
   "person.research.capturedBy": "Erfasst von",
   "person.action.email": "E-Mail",
+  "person.action.write": "Schreiben",
+  "person.action.messageOn": "Über {transport} schreiben",
+  "person.action.noTransport":
+    "Keine Adresse und keine Unterhaltung, auf die sich antworten ließe.",
+  "person.action.consentRefused":
+    "Derzeit erlaubt kein Zweck, ihnen zu schreiben.",
   "person.action.call": "Anrufen",
   "person.action.meetings": "Termine ansehen",
   "person.action.addTask": "Aufgabe",
@@ -5487,4 +5518,50 @@ export const de = {
     "Die App in Ihrem Browser und der Server dahinter stammen aus unterschiedlichen Releases, deshalb funktioniert hier nichts verlässlich. Laden Sie neu, um die aktuelle Version zu holen. Bleibt diese Meldung, sagen Sie es der Person, die diese Installation betreibt: Jeder Teil davon muss dasselbe Release ausführen.",
   "release.skewVersions": "App {app} · Server {server}",
   "release.skewReload": "Neu laden",
+
+  // Die Warteschlange hinter „später senden“. „Zurückziehen“ statt „löschen“
+  // oder „abbrechen“: es wurde nichts übertragen und nichts erscheint in der
+  // Chronik, also gibt es keinen Versand abzubrechen und keinen Datensatz zu
+  // löschen — die Nachricht wird zurückgenommen, bevor sie geht.
+  "nav.scheduled": "Geplante Nachrichten",
+  "sched.sub":
+    "Nachrichten, die Sie geschrieben haben und die noch nicht hinausgegangen sind. Nur Sie sehen sie.",
+  "sched.empty": "Sie haben noch keine Nachricht geplant.",
+  "sched.group.held": "Angehalten, wartet auf Sie",
+  "sched.group.heldEmpty": "Nichts wurde angehalten.",
+  "sched.group.waiting": "Wartet auf den Versand",
+  "sched.group.waitingEmpty": "Nichts wartet auf den Versand.",
+  "sched.group.closed": "Wartet nicht mehr",
+  "sched.group.closedEmpty":
+    "Bisher ist nichts hinausgegangen oder zurückgezogen worden.",
+  "sched.status.scheduled": "Wartet",
+  "sched.status.released": "Geht hinaus",
+  "sched.status.sent": "Gesendet",
+  "sched.status.cancelled": "Zurückgezogen",
+  "sched.status.held": "Angehalten",
+  "sched.held.consentWithdrawn":
+    "Ein Empfänger hat seine Einwilligung zurückgezogen, nachdem Sie diese Nachricht geplant haben. Sie geht erst hinaus, wenn Sie ihm unter einem Zweck schreiben, dem er zugestimmt hat.",
+  "sched.held.senderInactive":
+    "Ihr Sitz oder Ihr Postfach hat sich nach der Planung geändert, deshalb kann die Nachricht nicht in Ihrem Namen gesendet werden.",
+  "sched.held.missedWindow":
+    "Der Zeitpunkt verstrich, während nichts lief, und ist jetzt zu spät für die Nachricht, die Sie geschrieben haben. Verschieben Sie sie oder ziehen Sie sie zurück.",
+  "sched.held.timerExhausted":
+    "Dem Auftrag, der diese Nachricht weckt, sind die Versuche ausgegangen. Verschieben Sie sie auf einen neuen Zeitpunkt, um es erneut zu versuchen.",
+  "sched.held.sendRefused":
+    "Eine Prüfung hat diese Nachricht bei Fälligkeit abgelehnt. Es wurde nichts gesendet.",
+  "sched.inZone": "in der Zone {zone}",
+  "sched.recipientsUnknown": "Kein Empfänger in dieser Nachricht",
+  "sched.recipientsMore": "{first} und {count} weitere",
+  "sched.move": "Zeitpunkt ändern",
+  "sched.moveTo": "Neuer Zeitpunkt für „{subject}“",
+  "sched.moveSave": "Verschieben",
+  "sched.moveCancel": "Belassen",
+  "sched.withdraw": "Zurückziehen",
+  "sched.withdrawTitle": "Diese Nachricht zurückziehen?",
+  "sched.withdrawBody":
+    "„{subject}“ wird nicht gesendet, und nichts erscheint in der Chronik. Sie erneut zu schreiben heißt, sie von vorn zu verfassen.",
+  "sched.withdrawConfirm": "Zurückziehen",
+  "sched.skew":
+    "Diese Liste ist nicht mehr aktuell: die Nachricht, auf die Sie eingewirkt haben, war schon hinausgegangen, zurückgezogen oder auf einen anderen Zeitpunkt verschoben. Lesen Sie die Liste erneut.",
+  "sched.reload": "Erneut lesen",
 } as const satisfies Record<MessageKey, string>;

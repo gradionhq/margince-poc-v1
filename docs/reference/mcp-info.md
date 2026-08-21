@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 43 |
+| Tools | 47 |
 | Resources | 8 |
-| Tool catalog | 121.7 KB |
+| Tool catalog | 128.4 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 31930 |
+| Approx. wire tokens | 33635 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 52.7 KB | 43% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 31.4 KB | 25% | Yes, every step |
-| Input schemas | 28.4 KB | 23% | Yes, every step |
-| _Names, annotations, punctuation_ | 9.2 KB | 7% | Partly |
-| **Description + input schema** | **59.8 KB** | **49%** | **the recurring cost** |
+| Output schemas | 56.8 KB | 44% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 32.8 KB | 25% | Yes, every step |
+| Input schemas | 28.7 KB | 22% | Yes, every step |
+| _Names, annotations, punctuation_ | 10.0 KB | 7% | Partly |
+| **Description + input schema** | **61.5 KB** | **47%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -55,53 +55,57 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (43)
+### Tools (47)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
 | [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.6 KB |
 | [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.3 KB |
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
-| [`archive_record`](#archive_record) | Archive a record |  |  | 2.4 KB |
+| [`apply_tag`](#apply_tag) | Apply a tag to a record |  |  | 2.0 KB |
+| [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
-| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 3.0 KB |
-| [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.6 KB |
-| [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.3 KB |
-| [`create_record`](#create_record) | Create a record |  |  | 2.7 KB |
+| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.9 KB |
+| [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.7 KB |
+| [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.2 KB |
+| [`create_record`](#create_record) | Create a record |  |  | 2.6 KB |
 | [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 3.0 KB |
 | [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 3.0 KB |
-| [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 2.0 KB |
+| [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 1.9 KB |
 | [`draft_email`](#draft_email) | Draft an email |  |  | 2.6 KB |
 | [`draft_follow_ups_for`](#draft_follow_ups_for) | Draft follow-ups |  |  | 2.7 KB |
-| [`enrich`](#enrich) | Enrich an organization from its website |  |  | 2.6 KB |
+| [`enrich`](#enrich) | Enrich an organization from its website |  |  | 2.5 KB |
 | [`intro_path_to`](#intro_path_to) | Find a warm introduction path | yes |  | 2.3 KB |
 | [`list_approvals`](#list_approvals) | List what is waiting for a decision | yes |  | 2.9 KB |
 | [`list_channel_providers`](#list_channel_providers) | List messaging transports | yes |  | 2.0 KB |
+| [`list_colleagues`](#list_colleagues) | List colleagues | yes |  | 1.9 KB |
 | [`list_pipelines`](#list_pipelines) | List pipelines and their stages | yes |  | 2.3 KB |
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
-| [`log_activity`](#log_activity) | Log an activity |  |  | 3.3 KB |
-| [`merge_records`](#merge_records) | Merge two records |  |  | 2.5 KB |
-| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 2.9 KB |
+| [`log_activity`](#log_activity) | Log an activity |  |  | 3.2 KB |
+| [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
+| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.0 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
-| [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.6 KB |
-| [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.5 KB |
+| [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.5 KB |
+| [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.4 KB |
 | [`query_workspace`](#query_workspace) | Query the workspace | yes |  | 3.6 KB |
 | [`read_approval`](#read_approval) | Read one staged action in full | yes |  | 2.4 KB |
 | [`read_brief`](#read_brief) | Read the morning brief | yes | [`ui://margince/account-brief.html`](#account_brief_view) | 2.8 KB |
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.3 KB |
+| [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
 | [`run_report`](#run_report) | Run a report | yes |  | 4.6 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
-| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.6 KB |
-| [`send_email`](#send_email) | Send an email |  |  | 3.1 KB |
+| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.5 KB |
+| [`send_email`](#send_email) | Send an email |  |  | 3.0 KB |
 | [`send_message`](#send_message) | Reply on a channel conversation |  |  | 2.4 KB |
 | [`update_record`](#update_record) | Update a record |  |  | 3.9 KB |
 | [`whats_slipping_this_week`](#whats_slipping_this_week) | What's slipping this week | yes | [`ui://margince/pipeline-review.html`](#pipeline_review_view) | 2.3 KB |
 | [`who_knows`](#who_knows) | Who knows this contact | yes | [`ui://margince/relationship-map.html`](#relationship_map_view) | 2.2 KB |
+| [`whoami`](#whoami) | Who this passport acts for | yes |  | 1.5 KB |
 
 ## Resources
 
@@ -504,7 +508,7 @@ Move a deal to a different stage of its pipeline. The stage is named by id, not 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -672,12 +676,12 @@ Move a project to another phase — initiative, pursuing, delivering, closed. Th
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -812,6 +816,168 @@ Move a project to another phase — initiative, pursuing, delivering, closed. Th
 
 </details>
 
+### apply_tag
+
+**Apply a tag to a record**
+
+Tag a person, company, deal or lead — by tag_id, or by tag_name, which reuses the workspace's word or adds it. Applying the same tag twice is refused as a conflict. A name matches case-insensitively; a near-miss makes a NEW word, so prefer a tag_id you already hold. (Governance: runs immediately; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "record_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "record_type": {
+      "enum": [
+        "person",
+        "organization",
+        "deal",
+        "lead"
+      ],
+      "type": "string"
+    },
+    "tag_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "tag_name": {
+      "description": "Instead of tag_id: the tag is created if the workspace has no such word",
+      "maxLength": 120,
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_type",
+    "record_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "record_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "record_type": {
+          "type": "string"
+        },
+        "tag_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "applied",
+        "record_id",
+        "record_type",
+        "tag_id"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ### archive_record
 
 **Archive a record**
@@ -825,7 +991,7 @@ Retire a record that should no longer be worked — a duplicate, a dead account,
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -834,7 +1000,7 @@ Retire a record that should no longer be worked — a duplicate, a dead account,
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -1156,12 +1322,12 @@ Hold a slot in the host's calendar and record the meeting against the records it
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
     "end": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -1170,7 +1336,7 @@ Hold a slot in the host's calendar and record the meeting against the records it
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -1205,7 +1371,7 @@ Hold a slot in the host's calendar and record the meeting against the records it
       "type": "array"
     },
     "start": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -1327,7 +1493,7 @@ Hold a slot in the host's calendar and record the meeting against the records it
 
 **Catch me up on a record**
 
-Answer "what has been going on with this?" for one person, account, deal, lead, project or captured meeting: the recent activity and the related records, assembled into one picture with the evidence each part rests on. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Use prep_for_meeting when the goal is a meeting about to happen, read_record when you only need the record's own stored fields, and search_records when you do not yet know which record you mean. Each item carries the record_type and record_id it came from — those are what a follow-up call acts on. (Governance: runs immediately; requires passport scope "read".)
+Answer "what has been going on with this?" for one person, company, deal, lead, project or meeting: the recent activity and related records in one picture, with the evidence each part rests on. Built around ONE record you name; everything it reports carries a source, and what cannot be evidenced is absent rather than inferred. prep_for_meeting when a meeting is about to happen, read_record for the record's own stored fields, search_records when you do not yet know which record you mean. Each item carries the record_type and record_id a follow-up call acts on. occurred_at is when an item happened, in UTC — prefer it over a date the prose recalls, and convert before naming a day. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -1412,6 +1578,9 @@ Answer "what has been going on with this?" for one person, account, deal, lead, 
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "occurred_at": {
+                      "type": "string"
                     },
                     "record_id": {
                       "format": "uuid",
@@ -1553,7 +1722,7 @@ Find when a host is free, so a time can be proposed to someone. It reads free/bu
       "type": "integer"
     },
     "from": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -1563,7 +1732,7 @@ Find when a host is free, so a time can be proposed to someone. It reads free/bu
       "type": "string"
     },
     "to": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     }
@@ -1712,7 +1881,7 @@ Create a person, organization, deal, lead, project, activity or relationship tha
       "type": "object"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -1872,7 +2041,7 @@ Answer one staged action for the person asking you: approve it, which lets it ha
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2086,7 +2255,7 @@ Answer every still-waiting proposal that one act staged together — the overnig
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2299,12 +2468,12 @@ Close out a lead that is not going anywhere, so it stops appearing as live work.
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2440,7 +2609,7 @@ Compose an email: a reply to a recorded thread (activity_id), or a FIRST message
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2621,7 +2790,7 @@ Draft a follow-up for each deal in a segment at once — today only the slipping
   "additionalProperties": false,
   "properties": {
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2803,7 +2972,7 @@ Learn about an organization by reading its public website, and propose what was 
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -2817,7 +2986,7 @@ Learn about an organization by reading its public website, and propose what was 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -3461,6 +3630,158 @@ Find out which messaging transports exist in THIS installation, and what each is
 
 </details>
 
+### list_colleagues
+
+**List colleagues**
+
+List the people who work HERE — colleagues holding a seat, not the contacts stored as person records. Reads only, and lists seats that can actually receive work — archived, suspended and locked-out ones are absent. `truncated` means there are more. search_records/person finds a CUSTOMER contact; this finds a colleague. user_id is what assignee_id and owner_id take. Never assign to an is_agent seat. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "q": {
+      "description": "Narrow by name or email; omit for the whole roster",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "colleagues": {
+          "items": {
+            "properties": {
+              "display_name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "is_agent": {
+                "type": "boolean"
+              },
+              "seat_type": {
+                "type": "string"
+              },
+              "user_id": {
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "display_name",
+              "email",
+              "is_agent",
+              "seat_type",
+              "user_id"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "colleagues"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ### list_pipelines
 
 **List pipelines and their stages**
@@ -3835,12 +4156,12 @@ Record something that happened — a call, a meeting, a note, a message — on t
       "type": "string"
     },
     "due_at": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -3884,7 +4205,7 @@ Record something that happened — a call, a meeting, a note, a message — on t
       "type": "array"
     },
     "occurred_at": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -4033,12 +4354,12 @@ Collapse two records for the same real person or company into one, moving the so
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -4182,7 +4503,7 @@ Collapse two records for the same real person or company into one, moving the so
 
 **Prepare for a meeting**
 
-Get ready for a specific meeting: the same assembled picture as a catch-up, plus the open items pulled out as the things to raise. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Given a meeting it works out which record that meeting is about and names the others alongside. Use catch_me_up_on when there is no meeting and the question is simply what has been happening, and check_availability when the goal is finding a time rather than preparing for one. The focus list names the open items by record_id; those are what to act on after the meeting. prepared_for names the record the prep was built around. (Governance: runs immediately; requires passport scope "read".)
+Get ready for a specific meeting: the same assembled picture as a catch-up, plus the open items pulled out as the things to raise. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Given a meeting it works out which record that meeting is about and names the others alongside. Use catch_me_up_on when there is no meeting and the question is simply what has been happening, and check_availability when the goal is finding a time rather than preparing for one. The focus list names the open items by record_id; those are what to act on after the meeting. prepared_for names the record the prep was built around. occurred_at is when an item happened, in UTC — prefer it over a date the prose recalls. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -4269,6 +4590,9 @@ Get ready for a specific meeting: the same assembled picture as a catch-up, plus
                             "type": "object"
                           },
                           "type": "array"
+                        },
+                        "occurred_at": {
+                          "type": "string"
                         },
                         "record_id": {
                           "format": "uuid",
@@ -4739,7 +5063,7 @@ Move a deal to a new stage and leave a note on its timeline saying why, in one c
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -4908,7 +5232,7 @@ Turn a lead who has genuinely engaged into a person record, carrying their histo
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -4916,7 +5240,7 @@ Turn a lead who has genuinely engaged into a person record, carrying their histo
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -5083,7 +5407,7 @@ Fill in what a lead's own data already implies — today the company name, from 
   "additionalProperties": false,
   "properties": {
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -6051,7 +6375,7 @@ Fix what an already-recorded activity is about, when a captured mail or meeting 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -6086,6 +6410,168 @@ Fix what an already-recorded activity is about, when a captured mail or meeting 
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### remove_tag
+
+**Take a tag off a record**
+
+Take one tag off one record — by tag_id or tag_name — leaving the word itself. Removing one that is not there succeeds. archive_record on a tag retires it for all. (Governance: runs immediately; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "record_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "record_type": {
+      "enum": [
+        "person",
+        "organization",
+        "deal",
+        "lead"
+      ],
+      "type": "string"
+    },
+    "tag_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "tag_name": {
+      "description": "Instead of tag_id: the tag is created if the workspace has no such word",
+      "maxLength": 120,
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_type",
+    "record_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "record_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "record_type": {
+          "type": "string"
+        },
+        "tag_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "applied",
+        "record_id",
+        "record_type",
+        "tag_id"
       ],
       "type": "object"
     },
@@ -7212,7 +7698,7 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
   "additionalProperties": false,
   "properties": {
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -7231,7 +7717,7 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -7266,7 +7752,7 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
       "type": "array"
     },
     "scheduled_at": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -7425,7 +7911,7 @@ Put a mail on the wire to a real recipient, from this workspace, and record it o
       "type": "string"
     },
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -7444,12 +7930,12 @@ Put a mail on the wire to a real recipient, from this workspace, and record it o
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
     "scheduled_at": {
-      "description": "RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused.",
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
       "format": "date-time",
       "type": "string"
     },
@@ -7609,7 +8095,7 @@ Reply on a captured chat conversation — the channels this workspace has connec
       "type": "string"
     },
     "approval_id": {
-      "description": "Set on retry after a human approved the staged call",
+      "description": "Set on retry after approval",
       "format": "uuid",
       "type": "string"
     },
@@ -7622,7 +8108,7 @@ Reply on a captured chat conversation — the channels this workspace has connec
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     }
@@ -7767,7 +8253,7 @@ Change stored field values on a record that already exists — a corrected title
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -8183,6 +8669,137 @@ Renders its result in [`ui://margince/relationship-map.html`](#relationship_map_
       "required": [
         "colleagues",
         "person_id"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### whoami
+
+**Who this passport acts for**
+
+Name the human this passport acts for: their id, display name, email and language. It reads only, and answers this call's acting user — not a directory. acting_user_id is what owner_id and assignee_id take for "me". Write stored prose in locale when it is set. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "acting_user_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "acting_user_id",
+        "display_name",
+        "email"
       ],
       "type": "object"
     },

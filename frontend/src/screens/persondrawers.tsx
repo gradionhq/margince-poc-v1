@@ -15,11 +15,12 @@ import { RichText } from "../design-system/richtext";
 import { Select } from "../design-system/select";
 import { webUrl } from "../format/weburl";
 import { useT } from "../i18n";
-import { useProviderLabel } from "./channelproviders";
 import { problemMessageOf, throwProblem } from "./common";
 import { refusalOf, SendRefusal, scheduleFields } from "./compose";
 import { useConsentPurposes } from "./consent";
 import { PersonProviderSection } from "./personprovider";
+import type { Transport } from "./persontransports";
+import { useTransports } from "./persontransports";
 
 // The three surfaces the person page opens over itself: the composer, the
 // research drawer, and the meeting brief.
@@ -249,59 +250,6 @@ function addressList(raw: string): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
-// Which ways this person can be written to, right now, in the order the
-// composer offers them.
-//
-// Mail leads when there is an address, because it is the one transport that can
-// OPEN a conversation: `POST /emails` names its addressee. A channel cannot —
-// `send-message` resolves the recipient from the conversation being answered
-// and there is deliberately no account-started twin — so a channel is offered
-// only when this person already has a conversation on it, and the most recent
-// one is the anchor a reply would continue.
-//
-// Reachability and the anchor are BOTH required, and they answer different
-// questions: reachability says the identity is live and unblocked, the anchor
-// says there is something to continue. A transport with one and not the other
-// would be a choice that fails at the send.
-function transportsFor(
-  view: Person360,
-  providerLabel: (provider: string) => string,
-  t: ReturnType<typeof useT>,
-): Transport[] {
-  const out: Transport[] = [];
-  if (view.person.emails?.[0]?.email) {
-    out.push({ id: "email", label: t("person.composer.transportEmail") });
-  }
-  const reachable = new Set(
-    (view.person.reachability ?? [])
-      .filter((channel) => channel.reachable)
-      .map((channel) => channel.provider),
-  );
-  // Most recent first, so the first row seen for a provider IS its latest
-  // conversation — the one a rep means when they pick that transport.
-  const newestFirst = [...(view.activities?.data ?? [])].sort(
-    (a, b) =>
-      new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime(),
-  );
-  for (const activity of newestFirst) {
-    const provider = activity.channel_provider;
-    if (
-      activity.kind !== "message" ||
-      !provider ||
-      !reachable.has(provider) ||
-      out.some((transport) => transport.id === provider)
-    ) {
-      continue;
-    }
-    out.push({
-      id: provider,
-      label: providerLabel(provider),
-      anchorId: activity.id,
-    });
-  }
-  return out;
-}
-
 // Whether this composer holds something the chosen transport can actually
 // carry.
 //
@@ -373,9 +321,7 @@ function ToLine({
 // complexity ceiling and this is one idea — "which way is this going" — that a
 // reader should be able to take in on its own.
 function useTransportChoice(view: Person360) {
-  const t = useT();
-  const providerLabel = useProviderLabel();
-  const transports = transportsFor(view, providerLabel, t);
+  const transports = useTransports(view);
   // The composer opens on the first way this person can be reached. An empty
   // selection resolves to that rather than being seeded, so a contact whose
   // reachability arrives after the first render does not stay stuck on the
@@ -510,17 +456,6 @@ function TransportPicker({
   );
 }
 
-type Transport = {
-  // `email` or a channel_provider id. The two live in one namespace because the
-  // composer picks one of them, and `email` is not a provider grammar match so
-  // it cannot collide with one.
-  id: string;
-  label: string;
-  // Absent for mail, which opens its own conversation. Present for every
-  // channel, because a channel reply is anchored by contract.
-  anchorId?: string;
-};
-
 // The composer's own head: who it is to, and whether it may go at all.
 //
 // Its own component because the verdict line has three states a reader must be
@@ -649,6 +584,7 @@ export function PersonComposer({
   // model budget, and a draft that arrives unasked is one the rep has to read
   // before they can ignore it. The company composer has always worked this way.
   const draft = useMutation({
+    mutationKey: ["email", personId],
     mutationFn: async () => {
       const { data, error } = await api.POST("/people/{id}/draft-email", {
         params: { path: { id: personId } },
@@ -684,6 +620,7 @@ export function PersonComposer({
   // POST /emails (the anchored /activities/{id}/send-email answers one), and it
   // carries the person as its link.
   const send = useMutation({
+    mutationKey: ["email", personId],
     mutationFn: async () => {
       // A channel reply is a different operation against a different shape —
       // see sendChannelReply.

@@ -95,15 +95,25 @@
   margin-top: 0;
 }
 
-/* A hairline row that runs full-bleed against the panel's own edges and
- * highlights on hover — the shape every list inside a panel wants. No border
- * on the first row: the header above it already draws that line. */
+/* A hairline row that runs full-bleed against the panel's own edges — the shape
+ * every list inside a panel wants. No border on the first row: the header above
+ * it already draws that line.
+ *
+ * The rule and the hover are TWO shapes, and this one is only the rule. Held
+ * together, a panel of ruled blocks a reader is meant to read lit up under the
+ * pointer and said they were all pressable, so a screen that wanted the rule
+ * alone grew its own `+ { border-top }` rather than take the hover with it. */
 .panel-row {
   padding: var(--space-3) var(--space-5);
   border-top: 1px solid var(--borderSubtle);
+}
+/* interactive: the whole row is one press target, so the fill is honest about
+ * what pointing at the row would hit. The transition belongs here too — an
+ * inert row has no state to move between. */
+.panel-row-interactive {
   transition: background var(--dur-state);
 }
-.panel-row:hover {
+.panel-row-interactive:hover {
   background: var(--bgHover);
 }
 .panel-row:first-child,

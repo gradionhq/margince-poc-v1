@@ -16,6 +16,17 @@ import {
   RecordFormBody,
 } from "./create";
 
+// The agent rail's WROTE head for an edit, keyed by `recordKey` (agentrail-
+// copy.ts). Only the four record kinds a salesperson edits by hand carry
+// one; every other screen this hook also serves (products, offer templates,
+// quotas, relationships, webhooks, pipeline stages...) gets none.
+const EDIT_MUTATION_HEAD: Readonly<Partial<Record<string, string>>> = {
+  organization: "company-edit",
+  person: "contact-edit",
+  deal: "deal-edit",
+  lead: "lead-edit",
+};
+
 // The shared post-update choreography: run the screen-supplied PATCH, then
 // refresh both the list and the specific record so the 360 reflects the new
 // version. A 409 version_skew surfaces as mutation.error (rendered by the form),
@@ -24,6 +35,7 @@ export function useUpdateRecord<Updated extends { id: string }>({
   update,
   invalidate,
   recordKey,
+  recordId,
   onDone,
 }: Readonly<{
   update: (
@@ -32,10 +44,16 @@ export function useUpdateRecord<Updated extends { id: string }>({
   ) => Promise<Updated>;
   invalidate: string;
   recordKey: string;
+  // The id of the record being edited, known up front unlike a create: used
+  // only to name the agent rail's line, never the transport.
+  recordId?: string;
   onDone: () => void;
 }>) {
   const queryClient = useQueryClient();
+  const head = EDIT_MUTATION_HEAD[recordKey];
   return useMutation({
+    mutationKey:
+      head === undefined ? undefined : recordId ? [head, recordId] : [head],
     mutationFn: ({
       values,
       rows,
@@ -250,6 +268,7 @@ export function EditAction<Updated extends { id: string }>({
     update,
     invalidate,
     recordKey,
+    recordId: record.id,
     onDone: () => setEditing(false),
   });
   const existing =

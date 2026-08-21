@@ -23,10 +23,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// projectStakeholderSource is the provenance of an edge created through
-// the project surface: a human attached it, as opposed to an import or a
-// capture run.
-const projectStakeholderSource = "ui"
+// projectStakeholderSource is the origin of an edge created through the
+// project surface: a person attached it, as opposed to an import or a capture
+// run. `manual` is that word everywhere in this schema — this constant used to
+// say "ui", which named the screen rather than the origin.
+const projectStakeholderSource = "manual"
 
 // SetProjectStakeholderInput is one idempotent attach: the same person on
 // the same project twice is a role correction, not a duplicate.

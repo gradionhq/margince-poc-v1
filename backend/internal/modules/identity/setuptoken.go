@@ -36,8 +36,8 @@ var ErrSetupTokenExists = errors.New("identity: a setup token is already outstan
 // cannot be claimed.
 //
 // An outstanding token is kept, not replaced: a boot that silently minted a
-// fresh one would invalidate the token an operator had already read out of the
-// log and handed on. Under the installation advisory lock — the same one boot
+// fresh one would invalidate the token an operator had already taken from the
+// token file and handed on. Under the installation advisory lock — the same one boot
 // and claim take — so two api replicas starting together cannot both pass the
 // EXISTS check and race each other into the unique index.
 func (s *Service) MintSetupToken(ctx context.Context) (string, error) {
@@ -67,8 +67,8 @@ type outstandingPolicy bool
 
 const (
 	// keepOutstanding — refuse rather than replace. A boot that silently minted
-	// a fresh token would invalidate the one an operator had already read out
-	// of the log and handed on.
+	// a fresh token would invalidate the one an operator had already taken from
+	// the token file and handed on.
 	keepOutstanding outstandingPolicy = false
 	// replaceOutstanding — retire first, so the old credential stops working
 	// the moment this commits rather than both being live until one is spent.
@@ -81,8 +81,9 @@ const (
 // the outbox are all tenant-scoped and NOT NULL, and a setup token exists BEFORE
 // the workspace it authorizes creating — there is no tenant to scope a record
 // to. What the lifecycle does leave behind is the boot log line announcing the
-// mint, and the system_log row the resulting claim writes inside the same
-// transaction as the organization, naming the human who presented the token.
+// mint — which names the token file rather than repeating what it holds — and
+// the system_log row the resulting claim writes inside the same transaction as
+// the organization, naming the human who presented the token.
 //
 // issueSetupToken is the whole rule both public entry points apply: under the
 // installation advisory lock, refuse a provisioned installation, settle what to
@@ -194,7 +195,7 @@ var ErrAlreadyProvisioned = errors.New("identity: installation is already provis
 //
 // The provisioned check runs BEFORE the token is consumed, so a claim aimed at
 // a live installation is refused without spending anything.
-func (s *Service) ClaimInstallation(ctx context.Context, token string, in InstallationBootstrap, seed func(ctx context.Context, tx pgx.Tx) error) (ids.WorkspaceID, error) {
+func (s *Service) ClaimInstallation(ctx context.Context, token string, in InstallationBootstrap, seed func(ctx context.Context, tx pgx.Tx) error) (wsID ids.WorkspaceID, discarded []string, err error) {
 	// Refuse a provisioned installation WITHOUT taking the lock. This route is
 	// unauthenticated and stays mounted for the life of the installation, so
 	// the common case by far is a stranger reaching a live one; making that
@@ -203,10 +204,9 @@ func (s *Service) ClaimInstallation(ctx context.Context, token string, in Instal
 	// authoritative check still happens under the lock below — this one only
 	// declines to pay for a question already answered.
 	if cached := s.installation.Load(); cached != nil {
-		return ids.WorkspaceID{}, ErrAlreadyProvisioned
+		return ids.WorkspaceID{}, nil, ErrAlreadyProvisioned
 	}
-	var wsID ids.WorkspaceID
-	err := database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
+	err = database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, installationLockKey); err != nil {
 			return fmt.Errorf("identity: taking the bootstrap advisory lock: %w", err)
 		}
@@ -220,14 +220,14 @@ func (s *Service) ClaimInstallation(ctx context.Context, token string, in Instal
 		if err := consumeSetupToken(ctx, tx, token); err != nil {
 			return err
 		}
-		wsID, err = createInstallation(ctx, tx, in, originClaimed, seed)
+		wsID, err = createInstallation(ctx, tx, in, originClaimed, seed, &discarded)
 		return err
 	})
 	if err != nil {
-		return ids.WorkspaceID{}, err
+		return ids.WorkspaceID{}, nil, err
 	}
 	s.installation.Store(&wsID)
-	return wsID, nil
+	return wsID, discarded, nil
 }
 
 // SetupTokenOutstanding reports whether this installation is waiting to be

@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // credentialWorkspaceBot and credentialPerMember are the two shapes a channel
@@ -77,10 +78,29 @@ func providerLabel(provider string) string {
 	if known, ok := coreProviderLabels[provider]; ok {
 		return known
 	}
-	// Title-case the id, treating `_` as a word break so `deal_room` reads
-	// "Deal Room" rather than "Deal_room". The grammar channel_provider
-	// enforces means this is the whole space of shapes to handle.
-	words := strings.Split(provider, "_")
+	return titleCasedID(provider)
+}
+
+// titleCasedID turns an id into a name, treating `_` and `-` as word breaks so
+// `deal_room` reads "Deal Room" rather than "Deal_room".
+//
+// BOTH separators, one function, because the two ids that need naming here use
+// one each: a provider id is snake (`zalo_oa`, channel_provider's own CHECK
+// `^[a-z][a-z0-9_]*$`) and an ingress system key is kebab (`zalo-oa`,
+// IngressSource.System's grammar). A provider id cannot contain `-` at all, so
+// the second break is inert on that path.
+//
+// An EMPTY segment stays a segment, which is the whole reason this is a Split
+// and not a Fields: `initcap(replace(provider,'_',' '))` is the label migration
+// 0247 seeds a fresh installation with, and it renders `deal__room` as
+// "Deal  Room" — two spaces. Collapsing the run here would make a fresh install
+// and a booted one disagree about that provider's name, which is exactly what
+// TestTheSeededLabelMatchesTheOneBootWrites promises cannot happen, and the
+// double underscore is legal under the column's own CHECK.
+func titleCasedID(id string) string {
+	// `-` folded onto `_` rather than split on both: one separator keeps the
+	// empty-segment behaviour above, and no id in either grammar carries both.
+	words := strings.Split(strings.ReplaceAll(id, "-", "_"), "_")
 	for i, w := range words {
 		if w == "" {
 			continue
@@ -183,4 +203,67 @@ func unitChannelFacts(reserved map[string]bool) ([]channelProviderFacts, error) 
 		}
 	}
 	return out, nil
+}
+
+// captureSourceFacts is one capture provenance id as the directory publishes
+// it: the id itself, and what a human reads instead of it.
+type captureSourceFacts struct {
+	source string
+	label  string
+}
+
+// captureSourceFactsFor describes every provenance id the composed UNITS land
+// records under — `ext:<unit>:<system>`, one per declared ingress source.
+//
+// IT IS NOT A TRANSPORT LIST, and that difference is why these facts exist apart
+// from channelProviderFacts. A transport is something a message can leave on;
+// this answers "which connector carried the message this row came from" for a
+// record that arrived on no channel at all — a unit's mail, note or call, whose
+// trace carries the natural key's source system (traceConnector, in
+// capture/sinktrace.go) rather than a provider. That id cannot BE a transport:
+// it fails
+// channel_provider.provider's grammar, no reply resolves against it, and
+// registering it would mint a send anchor for a transport nobody supplies.
+//
+// So the directory publishes it as what it is. Without that, a member reading
+// the capture trace of a unit's own records sees the raw `ext:` form beside the
+// same unit's channel messages reading "Dispact" — one transport under two
+// spellings, one of them provenance nobody outside this repository can parse.
+//
+// Every declared source is published whether or not the unit also supplies a
+// channel: a capture-only unit is the case with no transport entry standing
+// beside it, so it is the one that most needs naming.
+//
+// THE LABEL GOES THROUGH providerLabel, not straight to titleCasedID, and the
+// difference is only ever visible on a name the core already spells for itself:
+// a unit declaring ingress from `whatsapp` would otherwise publish "Whatsapp" in
+// the same document where `data` carries the core's "WhatsApp". Two spellings of
+// one transport in one list is the defect this whole seam exists to remove, so
+// the compiled-in spelling wins wherever there is one. A kebab system key simply
+// misses that map and falls through, which is why one call covers both.
+//
+// A system key that MATCHES a core transport is not refused, unlike a unit's
+// channel declaration (unitChannelFacts): the two claims are different. A
+// channel says "I transmit on this", and a unit claiming a core transport there
+// would re-point the core's row at the unit's own credential. An ingress source
+// says "I bring records in from this", and a unit that ingests Telegram exports
+// naming it `telegram` is telling the truth — refusing it would break the honest
+// case to prevent a reviewed first-party unit from lying about what it captures.
+// The shared label is then correct rather than a collision: the record really did
+// travel on that transport, and the reader should not have to know whether it
+// arrived on a channel or through a unit's ingress.
+//
+// The label is derived from the DECLARED system key and never
+// operator-configured, for the reason providerLabel documents.
+func captureSourceFactsFor(exts []extension.Extension) []captureSourceFacts {
+	var out []captureSourceFacts
+	for _, unit := range exts {
+		for _, src := range unit.Ingress {
+			out = append(out, captureSourceFacts{
+				source: extSourceSystem(string(unit.Name), src.System),
+				label:  providerLabel(src.System),
+			})
+		}
+	}
+	return out
 }

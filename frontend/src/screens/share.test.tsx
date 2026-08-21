@@ -75,6 +75,36 @@ const existingGrant = {
   version: 1,
 };
 
+// The same subject, holding write instead of read — the only starting point
+// from which a reduction is possible.
+const writeGrant = { ...existingGrant, access: "write" as const };
+
+// Either level: each fixture fixes its own `access` literal, so a case seeds
+// the starting point it is about.
+type SeededGrant = typeof existingGrant | typeof writeGrant;
+
+/**
+ * The grants endpoint with the POST bodies collected.
+ *
+ * `listed` is the grant the record already carries, so the screen knows what a
+ * re-assert would be measured against; the POST answers with the restated row
+ * the way an idempotent create does.
+ */
+function grantEndpoint(posts: Record<string, unknown>[], listed: SeededGrant) {
+  return (request: Request) => {
+    if (request.method === "POST") {
+      return request.json().then((body: Record<string, unknown>) => {
+        posts.push(body);
+        return jsonResponse({ ...listed, ...body }, 201);
+      });
+    }
+    return jsonResponse({
+      data: [listed],
+      page: { next_cursor: null, has_more: false },
+    });
+  };
+}
+
 function installBaseFetch(
   overrides: Record<
     string,
@@ -262,14 +292,169 @@ describe("ShareScreen", () => {
     expect(screen.queryByText("SDR Bot")).toBeNull();
   });
 
-  it("disables a subject who already has a grant on this record", async () => {
+  // POST /record-grants is idempotent on
+  // (record_type, record_id, subject_type, subject_id) and a re-assert
+  // RESTATES the grant, so an already-granted subject is offered rather than
+  // refused. The four cases below are the four things that press can mean.
+
+  it("offers a subject who already has a grant, and says which level they hold", async () => {
     installBaseFetch();
     render(<ShareScreen recordType="deal" recordId="d-1" />);
 
-    const alreadyGranted = await screen.findByRole("button", {
-      name: /Mor Adler/,
+    const row = await screen.findByRole("button", { name: /Mor Adler/ });
+    // Selectable: the only way to change a level used to be revoke-and-share.
+    // Refused in either spelling counts: `disabled` is what the row used to
+    // carry, `aria-disabled` is how Button refuses a press without dropping
+    // focus, and a row wearing either one is not pickable.
+    expect(row.hasAttribute("disabled")).toBe(false);
+    expect(row.getAttribute("aria-disabled")).toBeNull();
+    // And the row says WHICH level, so the next press is not a blind
+    // overwrite — "already has a grant" never said read from write.
+    expect(within(row).getByText("Has read")).toBeTruthy();
+  });
+
+  it("submits an upgrade for an already-granted subject without asking first", async () => {
+    const posts: Record<string, unknown>[] = [];
+    installBaseFetch({ "/record-grants": grantEndpoint(posts, existingGrant) });
+    render(<ShareScreen recordType="deal" recordId="d-1" />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Mor Adler/ }));
+    await user.click(screen.getByRole("button", { name: "Write" }));
+    await user.click(screen.getByTestId("share-grant-submit"));
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ subject_id: "u-2", access: "write" });
+    // Widening what a colleague can do is not the direction that needs a
+    // second look, so nothing interrupts it.
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("asks before reducing a level, then submits the reduced one on confirm", async () => {
+    const posts: Record<string, unknown>[] = [];
+    installBaseFetch({ "/record-grants": grantEndpoint(posts, writeGrant) });
+    render(<ShareScreen recordType="deal" recordId="d-1" />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Mor Adler/ }));
+    // Picking opens the form on what they hold (write); Read is the reduction.
+    await user.click(screen.getByRole("button", { name: "Read" }));
+    await user.click(screen.getByTestId("share-grant-submit"));
+
+    const dialog = await screen.findByRole("dialog");
+    const asked = within(dialog).getByTestId(
+      "share-downgrade-body",
+    ).textContent;
+    expect(asked).toContain("Mor Adler");
+    expect(asked).toContain("Write");
+    expect(asked).toContain("Read");
+    // Nothing has been sent while the question is still open.
+    expect(posts).toEqual([]);
+
+    await user.click(
+      within(dialog).getByRole("button", { name: "Reduce to Read" }),
+    );
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ subject_id: "u-2", access: "read" });
+  });
+
+  it("returns focus to the subject field after a reduction, whose trigger is gone", async () => {
+    const posts: Record<string, unknown>[] = [];
+    installBaseFetch({ "/record-grants": grantEndpoint(posts, writeGrant) });
+    render(<ShareScreen recordType="deal" recordId="d-1" />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Mor Adler/ }));
+    await user.click(screen.getByRole("button", { name: "Read" }));
+    await user.click(screen.getByTestId("share-grant-submit"));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Reduce to Read" }),
+    );
+
+    // The press that opened this dialog cleared the picker on success, so the
+    // control the reader came from no longer takes focus. Landing on the body
+    // would restart the surface for anyone not using a pointer.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByLabelText("Person or team"),
+      ),
+    );
+  });
+
+  it("sends nothing when the reduction is cancelled", async () => {
+    const posts: Record<string, unknown>[] = [];
+    installBaseFetch({ "/record-grants": grantEndpoint(posts, writeGrant) });
+    render(<ShareScreen recordType="deal" recordId="d-1" />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Mor Adler/ }));
+    await user.click(screen.getByRole("button", { name: "Read" }));
+    await user.click(screen.getByTestId("share-grant-submit"));
+
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posts).toEqual([]);
+  });
+
+  it("reports that nothing changed when the re-assert restates the same grant", async () => {
+    const posts: Record<string, unknown>[] = [];
+    installBaseFetch({ "/record-grants": grantEndpoint(posts, existingGrant) });
+    render(<ShareScreen recordType="deal" recordId="d-1" />);
+    const user = userEvent.setup();
+
+    // Picked and submitted untouched: same level, same (absent) expiry, same
+    // reason. The list below looks identical afterwards, so silence here would
+    // read as a change that landed.
+    await user.click(await screen.findByRole("button", { name: /Mor Adler/ }));
+    await user.click(screen.getByTestId("share-grant-submit"));
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ access: "read" });
+    const notice = await screen.findByTestId("share-unchanged");
+    expect(notice.textContent).toContain("Nothing changed");
+    expect(notice.textContent).toContain("Mor Adler");
+  });
+
+  it("names the recipient's seat for a 403 seat_tier_insufficient", async () => {
+    installBaseFetch({
+      "/record-grants": (request) => {
+        if (request.method === "POST") {
+          return jsonResponse(
+            {
+              type: "about:blank",
+              title: "Forbidden",
+              status: 403,
+              code: "seat_tier_insufficient",
+              detail: "seat tier does not admit this action",
+            },
+            403,
+          );
+        }
+        return jsonResponse({
+          data: [existingGrant],
+          page: { next_cursor: null, has_more: false },
+        });
+      },
     });
-    expect((alreadyGranted as HTMLButtonElement).disabled).toBe(true);
+    render(<ShareScreen recordType="deal" recordId="d-1" />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Priya Shah/ }));
+    await user.click(screen.getByRole("button", { name: "Write" }));
+    await user.click(screen.getByTestId("share-grant-submit"));
+
+    // The seat ceiling binds the RECIPIENT's licence, not the actor's
+    // permission, and the server's own wording sends a reader looking at
+    // their own role instead.
+    expect(await screen.findByText(/This seat is read-only/)).toBeTruthy();
+    expect(
+      screen.queryByText("seat tier does not admit this action"),
+    ).toBeNull();
   });
 
   it("revoke on a row, confirmed, fires DELETE /record-grants/{id}", async () => {

@@ -285,6 +285,15 @@
   flex-shrink: 0;
 }
 
+/* A refused verb explains itself in a SENTENCE, in the column Button renders
+   for it (`.btn-with-reason`). An action row does not shrink, so a caption left
+   at its natural width would set the row's width and push the record's name off
+   the header line. Capping the measure wraps the explanation under the button it
+   belongs to, which is where a reader looks for it anyway. */
+.record-actions .btn-with-reason {
+  max-inline-size: 22ch;
+}
+
 /* On a phone the record's verbs stick to the bottom of the viewport (plan
  * §10.3). A rep scrolling an account's story is several screens from the
  * header by the time they decide to write; an action row that scrolled away

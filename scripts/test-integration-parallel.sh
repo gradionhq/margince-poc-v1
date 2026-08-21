@@ -62,6 +62,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 # shellcheck source=scripts/lib-testdb.sh
 source "$ROOT/scripts/lib-testdb.sh"
+source "$ROOT/scripts/lib-laneorder.sh"
 parse_test_dsn
 
 SHARD_IDX=0 SHARD_TOTAL=0
@@ -353,31 +354,17 @@ awk -F'|' '
 REGEX_DIR="$(mktemp -d)"
 export REGEX_DIR
 : > "$WORK"
-# Longest package first, from what the last run measured.
-#
-# Wall clock is set by when the LONGEST package finishes, so it should start at
-# t=0. Dispatched in discovery order it does not: measured, this lane's long pole
-# waited 16s of a 252s run for a slot while shorter packages held all eight. That
-# is the classic longest-processing-time-first result, and the durations to order
-# by are the ones the run below is about to print anyway.
-#
-# A package with no recorded time sorts FIRST, not last. The unknown is usually a
-# new small package, where the cost of guessing wrong is one slot occupied early;
-# guessing wrong the other way puts a new heavy package last and pays its whole
-# duration after everything else has finished. On the first run the cache is
-# absent and the order is discovery's, unchanged.
+# Longest package first, from what the last run measured — the ordering rules
+# and their rationale live in scripts/lib-laneorder.sh, which is unit-tested.
 #
 # Ordered HERE, before slots are numbered, so each package's -run slice, clone,
 # bucket and Redis db follow it rather than being handed to whoever inherits its
 # slot number.
-ORDER_HINT="$ROOT/.tmp/integration-lane-timing.txt"
-if [[ -s "$ORDER_HINT" ]]; then
-  # Only fields 1 and 2 are read; $0 is reprinted whole, because field 3 is a
-  # -run regex that contains its own pipes.
-  awk -F'|' -v hint="$ORDER_HINT" '
-    BEGIN { while ((getline l < hint) > 0) { split(l, f, "|"); secs[f[1]] = f[2] + 0 } }
-    { printf "%012.3f|%s\n", ($2 in secs ? secs[$2] : 999999), $0 }
-  ' "$GROUPED" | LC_ALL=C sort -t'|' -k1 -rn | cut -d'|' -f2- > "${GROUPED}.ordered"
+MEASURED_HINT="$ROOT/.tmp/integration-lane-timing.txt"
+BASELINE_HINT="$ROOT/scripts/integration-lane-timing.txt"
+ORDER_HINT="$(resolve_order_hint "$MEASURED_HINT" "$BASELINE_HINT")"
+if [[ -n "$ORDER_HINT" ]]; then
+  order_by_hint "$GROUPED" "$ORDER_HINT" > "${GROUPED}.ordered"
   mv "${GROUPED}.ordered" "$GROUPED"
 fi
 
@@ -609,10 +596,10 @@ fi
 # untouched. A scheduling hint that could fail a green lane would be a worse
 # trade than dispatching in discovery order forever.
 if [[ -s "$TIMING" ]] && (( SHARD_TOTAL == 0 )); then
-  hint_dir="$(dirname "$ORDER_HINT")"
+  hint_dir="$(dirname "$MEASURED_HINT")"
   if mkdir -p "$hint_dir" 2>/dev/null && hint_tmp="$(mktemp "$hint_dir/.integration-lane-timing.XXXXXX" 2>/dev/null)"; then
     cut -d'|' -f1,2 "$TIMING" > "$hint_tmp" 2>/dev/null \
-      && mv -f "$hint_tmp" "$ORDER_HINT" 2>/dev/null \
+      && mv -f "$hint_tmp" "$MEASURED_HINT" 2>/dev/null \
       || rm -f "$hint_tmp"
   fi
 fi

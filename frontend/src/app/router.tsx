@@ -11,11 +11,12 @@ import { useSyncExternalStore } from "react";
 // rest, and `navigate({ screen: "dealz" })` fails to compile instead of
 // rendering a surface that reads as unbuilt.
 //
-// Two members are also spelled as a named constant elsewhere, because the module
-// that owns the route owns the name: `ext` is app/extensions.ts's
-// EXTENSION_SCREEN and `reset-password` is screens/auth.tsx's RESET_ROUTE. Both
-// constants are literal types, so a rename there stops compiling here rather
-// than drifting.
+// Three members are also spelled as a named constant elsewhere, because the
+// module that owns the route owns the name: `ext` is app/extensions.ts's
+// EXTENSION_SCREEN, `reset-password` is screens/auth.tsx's RESET_ROUTE, and
+// `scheduled` is screens/scheduledsends.tsx's SCHEDULED_SCREEN. All three are
+// literal types used where a `Screen` is expected, so a rename there stops
+// compiling here rather than drifting.
 const SCREENS = [
   "home",
   "contacts",
@@ -30,6 +31,7 @@ const SCREENS = [
   "settings",
   "dedupe",
   "filters",
+  "scheduled",
   "offers",
   "search",
   "share",

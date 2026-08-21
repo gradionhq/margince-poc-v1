@@ -254,7 +254,7 @@ function GateColumn({
   }> =
     scan === undefined
       ? {
-          core: running === true ? "ingesting" : "dormant",
+          core: running === true ? "ingest" : "idle",
           title: name
             ? t("ob.gate.title", { name })
             : t("ob.gate.titleAnonymous"),
@@ -303,7 +303,9 @@ const BROKEN: ReadonlySet<CompanySiteRead["status"]> = new Set([
 
 function coreStateFor(read: CompanySiteRead): MarginceCoreState {
   if (SETTLED.has(read.status)) {
-    return "applied";
+    // A finished run settles back to idle: there is no state of its own for
+    // "done".
+    return "idle";
   }
   if (BROKEN.has(read.status)) {
     return "error";
@@ -313,7 +315,7 @@ function coreStateFor(read: CompanySiteRead): MarginceCoreState {
   // taking more on. Reading the phase as well as the status is what keeps this
   // orb saying the same thing as the one on the read screen itself
   // (onboarding-read.tsx), which has always drawn the distinction.
-  return read.phase === "extracting" ? "reasoning" : "ingesting";
+  return read.phase === "extracting" ? "working" : "ingest";
 }
 
 // The one phase line, from the only two fields that carry a phase. `status`

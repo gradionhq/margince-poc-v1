@@ -976,6 +976,14 @@ describe("TasksScreen (B-EP09.12d)", () => {
           );
           return jsonResponse({});
         }
+        // The page carries a link into the scheduled-send queue, and that
+        // endpoint answers with a bare ARRAY. Answered separately, or the task
+        // envelope below reads as a list of scheduled messages.
+        if (
+          String(request ? request.url : input).includes("/scheduled-sends")
+        ) {
+          return jsonResponse([]);
+        }
         return jsonResponse({
           data: [
             {

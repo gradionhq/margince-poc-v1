@@ -113,9 +113,10 @@ func followUpDrafter(provider datasource.SystemOfRecordProvider) agents.FollowUp
 		ref, err := provider.Create(ctx, datasource.CreateInput{
 			EntityType: datasource.EntityActivity,
 			Fields:     fields,
-			// The MCP provenance channel, same as every write on the tool
-			// surface; captured_by comes from the principal, never from here.
-			Source: "mcp",
+			// A person asked for this through an assistant, which is the same
+			// origin as a person asking through a form; captured_by comes from
+			// the principal, never from here, and it is what says which.
+			Source: agents.ToolSource,
 		})
 		if err != nil {
 			return ids.Nil, "", err

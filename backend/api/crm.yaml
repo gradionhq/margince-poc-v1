@@ -6119,7 +6119,13 @@ paths:
     post:
       tags: [Tags]
       operationId: createTag
-      x-mcp-tool: { verb: create_record, record_type: tag, tier: auto_execute, scope: write }
+      # No tool verb of its own. apply_tag takes a tag_name and creates the word
+      # when the workspace has none — "add tag: K5 Conference 2026" is one act
+      # to the person asking, and a create verb whose only caller is the next
+      # line of the same flow is a second call that exists for the surface's
+      # convenience rather than theirs. The tool surface still creates tags;
+      # it just does not have a verb that ONLY creates one.
+      x-agent-access: human-only
       summary: Create a tag.
       requestBody:
         required: true
@@ -6157,7 +6163,7 @@ paths:
     post:
       tags: [Tags]
       operationId: applyTag
-      x-mcp-tool: { verb: update_record, record_type: tag, tier: auto_execute, scope: write }
+      x-mcp-tool: { verb: apply_tag, record_type: tag, tier: auto_execute, scope: write }
       summary: Apply a tag to an entity (person/org/deal/lead).
       requestBody:
         required: true
@@ -6170,6 +6176,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Taggable' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Tags]
+      operationId: removeTag
+      x-mcp-tool: { verb: remove_tag, record_type: tag, tier: auto_execute, scope: write }
+      summary: Take one tag off one entity, leaving the tag itself in place.
+      description: |
+        Undo for applyTag. archiveTag retires a tag from the whole workspace, which is not the
+        same act and not a way back from a mistaken tagging. Idempotent: removing a tagging that
+        is not there succeeds, because the caller asked for a state that is already true.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplyTagRequest' }
+      responses:
+        '204': { description: Removed (or was not applied). }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -9358,7 +9381,7 @@ paths:
         may read it (needed to pick a record-share subject and to resolve subject/granter names). Excludes
         archived users. Row-scoped by workspace RLS. `User.roles` rides the row only for an admin caller,
         who is the only one who can act on it.
-      x-mcp-tool: { verb: search_records, record_type: app_user, tier: auto_execute, scope: read }
+      x-mcp-tool: { verb: list_colleagues, record_type: app_user, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -9836,7 +9859,18 @@ paths:
       description: |
         Teams available as record-share subjects, with a member count. Any authenticated member may read.
         Excludes archived teams. Row-scoped by workspace RLS.
-      x-mcp-tool: { verb: search_records, record_type: team, tier: auto_execute, scope: read }
+      # NO annotation, and that is the fix rather than an omission. It said
+      # x-mcp-tool search_records/team, and search_records has never served
+      # `team` — the parity gate checks only that the named VERB is registered,
+      # never that the verb serves the named record_type, so the false claim
+      # sat unnoticed beside the identical one on /users.
+      #
+      # An unannotated READ is admitted (agentgate.go: "a mutating route absent
+      # from the table is refused, a read absent from it is admitted"), so this
+      # stays as readable for an agent as it was on main — which the
+      # description above promises — while no longer naming a tool that does
+      # not serve it. If the surface ever wants the team roster it gets its own
+      # verb, as the colleague roster did.
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -18889,6 +18923,13 @@ components:
         pipeline_id: { type: string, format: uuid }
         stage_id: { type: string, format: uuid }
         organization_id: { type: [string, 'null'], format: uuid }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.' }
+        partner_attribution:
+          type: [string, 'null']
+          enum: [sourced, influenced, null]
+          description: >-
+            `sourced` or `influenced`. Naming a partner without this field attributes the
+            deal `sourced`; an attribution for a deal naming no partner is refused 422.
         project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this deal belongs to; must name the same company as the deal.' }
         owner_id: { type: [string, 'null'], format: uuid }
         expected_close_date: { type: [string, 'null'], format: date, description: 'Deals are born open, so a date before today is rejected 422 (INV-CLOSE-PAST, formulas §11).' }
@@ -19529,6 +19570,50 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/ChannelProviderEntry' }
+        capture_sources:
+          type: array
+          description: |
+            The provenance ids the composed EXTENSION UNITS land records under, and what to call
+            them: `ext:<unit>:<system>`, which a unit's ingress stamps on every record it lands
+            and which `CaptureTraceEntry.connector` therefore carries for any of that unit's
+            records that arrived on no channel.
+
+            It does NOT publish every non-transport connector a trace can name. A core
+            connector's own source system — `gmail`, `imap`, `graph`, `gcal` — appears in neither
+            array, because none of them is a registered transport either; a client that cannot
+            resolve a connector id renders the id, which reads as the name of the thing it names.
+            Treat a directory miss as ordinary, not as an anomaly to report.
+
+            These are published BESIDE `data` rather than inside it because they are not
+            `ProviderRef` values and must not be mistaken for one: nothing sends on one, no
+            `activity.channel_provider` names one, and the id does not satisfy that pattern.
+            A reader resolving a trace still needs them from this same directory — one resolver,
+            or the raw `ext:` form reaches a member as if it were a name.
+
+            Absent on an installation whose composed units declare no ingress; an empty answer
+            and no answer mean the same thing.
+          items: { $ref: '#/components/schemas/CaptureSourceEntry' }
+
+    CaptureSourceEntry:
+      type: object
+      description: One capture provenance id that is not a transport, as the directory publishes it.
+      required: [source, label]
+      properties:
+        source:
+          type: string
+          pattern: '^[a-z][a-z0-9_:.-]*$'
+          maxLength: 96
+          description: |
+            The provenance id itself, in the spelling `CaptureTraceEntry.connector` carries —
+            `ext:<unit>:<system>` for a record an extension unit landed. The grammar is
+            `capture_trace.connector`'s, which is a transport id's widened for exactly this
+            provenance.
+        label:
+          type: string
+          description: |
+            Human-readable name for it — show this where the id would otherwise appear. Derived
+            and never operator-configured, on the same terms as `ChannelProviderEntry.label`, so
+            it is safe to cache alongside the rest of the directory.
 
     ChannelProviderEntry:
       type: object
@@ -22049,6 +22134,15 @@ components:
         actor_name: { type: [string, 'null'], description: "Resolved display name for a human actor_id; null for machine actors and for a member whose user row no longer resolves." }
         on_behalf_of: { type: [string, 'null'], format: uuid, description: Granting human's user id for agent actions. }
         on_behalf_of_name: { type: [string, 'null'], description: Resolved display name for on_behalf_of. }
+        agent_client:
+          type: [string, 'null']
+          description: |
+            The NAME of the tool a delegated change was typed through — "Claude",
+            "Cursor" — resolved from the OAuth client behind the row's passport.
+            Null when the passport was minted by hand in Settings (there is no
+            registered client to name), when the client row is gone, and for
+            every write that was not delegated. A reader that has it should say
+            "via {agent_client}" where it would otherwise say "via an agent".
         action: { type: string }
         occurred_at: { type: string, format: date-time }
         authorization_rule: { type: [string, 'null'] }
@@ -22205,6 +22299,14 @@ components:
       properties:
         ref:      { $ref: '#/components/schemas/ContextEntityRef' }
         summary:  { type: [string, 'null'] }
+        occurred_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When an event item happened, null when the item is not an event. A reader states a
+            date from THIS rather than from one written inside a summary's prose — a note recalling
+            "October" for a September email is the reading that otherwise reaches the customer.
+            It is an instant in UTC; render it in the reader's zone before naming a calendar day.
         evidence: { type: array, items: { $ref: '#/components/schemas/ContextEvidence' } }
     ContextSection:
       type: object

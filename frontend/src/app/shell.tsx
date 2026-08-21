@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, ChevronDown, Menu, X } from "lucide-react";
+import { ChevronDown, Menu, X } from "lucide-react";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -14,10 +14,8 @@ import type { components } from "../api/schema";
 import { Button, Modal } from "../design-system/atoms";
 import { Logomark } from "../design-system/logomark";
 import { useT } from "../i18n";
-import { useLicenseEntitlement } from "../screens/license";
 import { SETTINGS_SCREEN, useSettingsSection } from "../screens/settings";
-import { AgentDock } from "./agentdock";
-import { useCan } from "./capability";
+import { AgentRail } from "./agentrail";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { SCREEN_ENTITY } from "./entity";
@@ -43,7 +41,6 @@ import { PAGE_SUB_KEYS, resolveTitle, sectionHead } from "./pagemeta";
 import { usePopoverDismiss } from "./popover";
 import { type Route, routeHash, useRoute } from "./router";
 import { TopBar } from "./topbar";
-import { uiPreviewTaskbarEnabled } from "./ui-preview";
 import { usePhoneViewport } from "./viewport";
 import "./shell.css";
 
@@ -146,91 +143,6 @@ function SkipToContent({
     >
       {t("shell.skipToContent")}
     </button>
-  );
-}
-
-// The tooltip key for the entitlement row on the collapsed rail. Like every
-// other key here it is the row's own: sharing one with a destination would light
-// that destination's tooltip when this row takes focus.
-const LICENSE_TIP_KEY = "rail-license";
-
-/**
- * What this installation is entitled to, at the foot of the sidebar.
- *
- * Seats are the one number about the INSTALLATION that changes under people
- * while they work — an invitation spends one, and the refusal when the last one
- * is gone arrives at the worst moment, in the middle of adding a colleague. The
- * foot is where a tool puts its plan for exactly this reason: it is true of the
- * whole session, it is small, and it is one click from the surface that explains
- * it.
- *
- * Absent for a principal whose roles do not grant `license:read` — silently, not
- * as a refusal. A read they may not have is not a fact being withheld from them;
- * it is a fact that is none of their work, and a rail row saying so would be a
- * permission boundary drawn on every screen they open. The grant is read from
- * the session snapshot the shell already holds, so the request is never made at
- * all for those readers.
- */
-function RailLicense({
-  collapsed,
-  tipOpen,
-  onTip,
-}: Readonly<{
-  collapsed: boolean;
-  tipOpen: boolean;
-  onTip: (key: string | null) => void;
-}>) {
-  const t = useT();
-  const mayRead = useCan("license", "read");
-  const query = useLicenseEntitlement(mayRead);
-  const entitlement = query.data;
-  if (!mayRead || !entitlement) {
-    return null;
-  }
-  // Four postures, and the copy says which: a cap to count against, a license
-  // that caps nothing, no license at all, and one the installation refused. The
-  // number is never invented — an absent `seats_granted` is not a grant of zero.
-  const capped =
-    entitlement.state === "valid" && entitlement.seats_granted !== undefined;
-  const label = capped
-    ? t("shell.license.seats", {
-        used: entitlement.seats_used,
-        granted: entitlement.seats_granted ?? 0,
-      })
-    : entitlement.state === "valid"
-      ? t("license.state.licensed")
-      : entitlement.state === "rejected"
-        ? t("shell.license.refused")
-        : t("shell.license.none");
-  // What a reader has to act on rather than merely know: over the cap, refused,
-  // past expiry but still accepted, or close enough to expiry to renew. Reported
-  // here and explained on the surface this leads to — nothing is enforced in the
-  // chrome.
-  const pressing =
-    entitlement.over_limit ||
-    entitlement.state === "rejected" ||
-    entitlement.license?.in_grace === true ||
-    entitlement.license?.renewal_due === true;
-  return (
-    <a
-      className={pressing ? "raillicense pressing" : "raillicense"}
-      href={routeHash({ screen: SETTINGS_SCREEN, id: "license" })}
-      // The row prints a count; the name says what is being counted, because
-      // "12/25" spoken alone is not a sentence about anything.
-      aria-label={`${t("shell.license.aria")} — ${label}`}
-      onMouseEnter={() => onTip(LICENSE_TIP_KEY)}
-      onMouseLeave={() => onTip(null)}
-      onFocus={() => onTip(LICENSE_TIP_KEY)}
-      onBlur={() => onTip(null)}
-    >
-      <BadgeCheck aria-hidden />
-      <span className="navlabel">{label}</span>
-      {collapsed && tipOpen && (
-        <span className="navtip" role="tooltip">
-          {label}
-        </span>
-      )}
-    </a>
   );
 }
 
@@ -439,15 +351,13 @@ export function WorkspaceRail({
           </span>
         </button>
         <div className="grow" />
-        {/* The foot reports what the INSTALLATION is entitled to. It is not a
-            destination and never claims the current page: it is a reading, and
-            what it leads to is a settings tab. */}
+        {/* The foot is the agent. It is the one thing in the chrome that reports
+            rather than navigates, and it never claims the current page. What the
+            installation is ENTITLED to used to sit here as its own grey row, and
+            it now reaches a reader through the Core instead: a licence fault
+            turns the orb amber, which is a thing somebody notices. */}
         <div className="railfoot">
-          <RailLicense
-            collapsed={collapsed}
-            tipOpen={tip === LICENSE_TIP_KEY}
-            onTip={setTip}
-          />
+          <AgentRail route={route} />
         </div>
       </nav>
     </>
@@ -870,20 +780,6 @@ export function Shell({
           )}
           {children}
         </div>
-        {/* The agent stands at the foot of the content column, centred, on every
-            screen — one floating affordance rather than a status chip in the
-            chrome and an Ask button in the opposite corner, which is what the
-            product carried before and what left a reader asking which of the two
-            was the agent. It is positioned against `.main` rather than the
-            viewport, so it centres on the column it belongs to and moves with
-            the sidebar instead of drifting off-centre when the sidebar opens.
-            ONE agent surface at a time: the taskbar preview draws the competing
-            proposal at the foot of the VIEWPORT (App.tsx, app/ui-preview.ts), so
-            the switch that raises it takes this one down rather than standing
-            two agents on the same edge. */}
-        {uiPreviewTaskbarEnabled() ? null : (
-          <AgentDock route={route} approvalsWaiting={counts?.inbox} />
-        )}
       </main>
     </div>
   );

@@ -12,7 +12,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { AgentTaskbar } from "./app/agenttaskbar";
 import {
   EXTENSION_SCREEN,
   type ExtensionScreenRegistry,
@@ -26,7 +25,6 @@ import {
 import { SPA_RELEASE } from "./app/release";
 import { navigate, parseHash, routeHash, type Screen } from "./app/router";
 import { Shell, type ShellCounts, useRoute } from "./app/shell";
-import { uiPreviewTaskbarEnabled } from "./app/ui-preview";
 import { UnsavedGuard } from "./app/unsaved";
 import {
   Card,
@@ -185,6 +183,13 @@ const PreferenceCenterScreen = lazy(
 const ReportsScreen = lazy(
   routed(() =>
     import("./screens/reports").then((m) => ({ default: m.ReportsScreen })),
+  ),
+);
+const ScheduledSendsScreen = lazy(
+  routed(() =>
+    import("./screens/scheduledsends").then((m) => ({
+      default: m.ScheduledSendsScreen,
+    })),
   ),
 );
 const SearchScreen = lazy(
@@ -401,6 +406,15 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     // unknown segment falls back to contacts inside the screen rather than
     // rendering a page with no vocabulary to offer.
     filters: ({ id }) => <FiltersScreen id={id} />,
+    // No segments: the queue is one page, and a single scheduled message has
+    // nothing to show that its row does not already carry.
+    //
+    // The literal rather than the screen's own SCHEDULED_SCREEN, which is the
+    // one place that constant is NOT used: importing it here would pull the
+    // module into the startup graph and the lazy() above would load a chunk the
+    // browser already has. The key is still typed against `Screen`, so a rename
+    // fails here too.
+    scheduled: () => <ScheduledSendsScreen />,
     offers: ({ id }) =>
       id ? (
         <OfferScreen id={id} />
@@ -666,7 +680,6 @@ function AuthedApp({
   }, [authed, company.isSuccess, described, route.screen]);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const taskbarPreview = uiPreviewTaskbarEnabled();
   const commands = useBuiltinCommands();
   usePaletteHotkey(useCallback(() => setPaletteOpen((open) => !open), []));
 
@@ -735,11 +748,6 @@ function AuthedApp({
         onClose={() => setPaletteOpen(false)}
         commands={commands}
       />
-      {/* One agent surface at a time. The dock is the shipped one and the shell
-          mounts it at the foot of the content column; this preview switch swaps
-          it for the bar being judged against it (app/ui-preview.ts), so the two
-          proposals are never on screen together. */}
-      {taskbarPreview && <AgentTaskbar route={route} />}
     </>
   );
 }

@@ -123,6 +123,18 @@ func WithTranscriptRead(inserter *jobs.Runner) Option {
 		s.transcriptReadHandlers = transcriptReadHandlers{
 			start: engine.start, report: engine.report, latest: engine.latestReport,
 		}
+		// The same reading, started when the transcript ARRIVES rather than
+		// when somebody asks. One option turns both on: a deployment that can
+		// read a transcript on request can read one that lands, and the lane
+		// held zero rows for as long as asking was the only way in.
+		s.transcriptOnLanding = TranscriptReadOnLanding(inserter)
+		// And on the REST transport too. POST /v1/activities is a door a
+		// transcript actually arrives through, and wiring only the tool
+		// surface would have left it storing transcripts nothing ever reads —
+		// the same silence this option exists to end.
+		//nolint:staticcheck // QF1008 wants s.WithTranscriptEnqueue(…), but Server
+		// embeds several Handlers types and the promoted selector is ambiguous.
+		s.activitiesHandlers = s.activitiesHandlers.WithTranscriptEnqueue(s.transcriptOnLanding)
 	}
 }
 
@@ -156,4 +168,24 @@ func (h transcriptReadHandlers) GetLatestTranscriptRead(w http.ResponseWriter, r
 		return
 	}
 	h.latest(w, r, id)
+}
+
+// TranscriptReadOnLanding is the same enqueue the REST start uses, shaped for
+// the activities store to call when a transcript is written.
+//
+// Spelled once and shared, so the two paths cannot queue different jobs for
+// the same act: the reading a landed transcript starts is the reading somebody
+// asks for, arriving earlier.
+func TranscriptReadOnLanding(enqueue transcriptReadEnqueuer) activities.TranscriptReadEnqueue {
+	if enqueue == nil {
+		return nil
+	}
+	return func(ctx context.Context, tx pgx.Tx, read activities.TranscriptRead) error {
+		return enqueue.EnqueueTx(ctx, tx, TranscriptProposeArgs{
+			Workspace:        storekit.MustWorkspace(ctx),
+			ActivityID:       read.ActivityID.UUID,
+			TranscriptReadID: read.ID,
+			RequestedBy:      read.RequestedBy,
+		}, transcriptProposeInsertOpts())
+	}
 }

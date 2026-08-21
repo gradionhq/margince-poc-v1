@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // Integration lane (make test-integration): exercises the real schema on
 // Postgres 16 — apply/reverse/re-apply, the version bump (data-model §1.3a),
@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // ownerDSN administers the throwaway test database; appDSNFmt is the
@@ -53,11 +54,11 @@ func connect(t *testing.T, dsn string) *pgx.Conn {
 
 func migrateAll(t *testing.T, conn *pgx.Conn) {
 	t.Helper()
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core migrations: %v", err)
 	}
-	custom, err := Custom()
+	custom, err := migrations.Custom()
 	if err != nil {
 		t.Fatalf("loading custom migrations: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestMigrations_applyReverseReapply(t *testing.T) {
 	resetSchema(t, conn)
 	ctx := context.Background()
 
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}
@@ -186,8 +187,7 @@ func withGUC(t *testing.T, conn *pgx.Conn, wsID string, fn func(pgx.Tx) error) e
 func TestVersionBumpAndSkewSemantics(t *testing.T) {
 	ownerDSN, appDSN := dsns(t)
 	owner := connect(t, ownerDSN)
-	resetSchema(t, owner)
-	migrateAll(t, owner)
+	headSchema(t, owner)
 	ws := seedWorkspace(t, owner, "tenant-v")
 
 	app := connect(t, appDSN)
@@ -236,8 +236,7 @@ func TestVersionBumpAndSkewSemantics(t *testing.T) {
 func TestAuditLogIsAppendOnly(t *testing.T) {
 	ownerDSN, appDSN := dsns(t)
 	owner := connect(t, ownerDSN)
-	resetSchema(t, owner)
-	migrateAll(t, owner)
+	headSchema(t, owner)
 	ws := seedWorkspace(t, owner, "tenant-audit")
 
 	app := connect(t, appDSN)
@@ -287,7 +286,7 @@ func TestSignalVisibilityBackfillNarrowsOnlyWhatAProducerWrote(t *testing.T) {
 	resetSchema(t, conn)
 	ctx := context.Background()
 
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}

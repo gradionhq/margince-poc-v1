@@ -20,9 +20,17 @@ package overlay
 // Connect can seal a credential and the guard sees an active connection),
 // then overrides the live-incumbent resolver with compose.
 // WithOverlayIncumbentResolver pointing at an overlay/fake.Adapter — no
-// mocked provider, no real HubSpot account, no network call (T11): the
-// fake stands in for the vaulted hubspot.Adapter WithKeyvault would
-// otherwise build from the connection's own region+token.
+// mocked provider and no real HubSpot account: the fake stands in for the
+// adapter WithKeyvault would otherwise build from the connection's own
+// region+token.
+//
+// "No network call" used to be asserted here and was not true — Connect
+// reached api.hubapi.com twice per test through the Service's own factory,
+// which this resolver does not reach (#1996). It is true now, and by
+// construction rather than by claim: under this build tag compose binds a
+// refusing incumbent (compose/overlayincumbent_refusing.go), and a HubSpot
+// client built anyway cannot leave the machine
+// (overlay/hubspot/httpclient_integration.go).
 
 import (
 	"context"

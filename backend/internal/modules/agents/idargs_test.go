@@ -229,6 +229,9 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 	RegisterResolveTool(r, seamProbeProvider{}, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
 		return nil, errSeamReached
 	})
+	RegisterWhoamiTool(r, func(context.Context) (ActingIdentity, error) { return ActingIdentity{}, nil })
+	RegisterColleaguesTool(r, func(context.Context, string) ([]Colleague, bool, error) { return nil, false, nil })
+	RegisterTagTools(r, stubTags{})
 	RegisterListTool(r, seamProbeProvider{}, probeVocabulary{})
 	RegisterBriefTool(r, func(context.Context) (ReadBriefResult, error) {
 		return ReadBriefResult{}, errSeamReached

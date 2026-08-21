@@ -44,10 +44,21 @@ func New(ctx context.Context, cfg Config) (Store, error) {
 	if cfg.Endpoint == "" || cfg.Bucket == "" {
 		return nil, fmt.Errorf("blobstore: endpoint and bucket are required")
 	}
-	region := cfg.Region
-	if region == "" {
-		region = "us-east-1"
+	// The region is chosen, never defaulted. ensureBucket passes it to
+	// MakeBucket, so an unset value does not stay inert — it decides where a
+	// bucket holding attachment bytes is CREATED, and any default here resolves
+	// that toward one jurisdiction for every operator who did not think about it.
+	// ADR-0051 makes object storage sovereign by default and ADR-0027 makes every
+	// installation operator-run; a silent fallback contradicts both in exactly
+	// the case where it matters and reports nothing afterwards.
+	//
+	// For MinIO the value is arbitrary and any string will do, which is why
+	// refusing costs a self-hosted operator one line of configuration and saves
+	// an S3 one from discovering the answer in a bucket listing.
+	if cfg.Region == "" {
+		return nil, fmt.Errorf("blobstore: region is required — it decides where the bucket holding attachments is created, so it is not defaulted; set MARGINCE_BLOBSTORE_REGION (for MinIO any value works, e.g. us-east-1)")
 	}
+	region := cfg.Region
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: cfg.UseSSL,

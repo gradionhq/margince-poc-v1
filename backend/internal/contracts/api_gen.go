@@ -3255,6 +3255,24 @@ func (e CreateDataSubjectRequestKind) Valid() bool {
 	}
 }
 
+// Defines values for CreateDealRequestPartnerAttribution.
+const (
+	CreateDealRequestPartnerAttributionInfluenced CreateDealRequestPartnerAttribution = "influenced"
+	CreateDealRequestPartnerAttributionSourced    CreateDealRequestPartnerAttribution = "sourced"
+)
+
+// Valid indicates whether the value is a known member of the CreateDealRequestPartnerAttribution enum.
+func (e CreateDealRequestPartnerAttribution) Valid() bool {
+	switch e {
+	case CreateDealRequestPartnerAttributionInfluenced:
+		return true
+	case CreateDealRequestPartnerAttributionSourced:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateImportRunRequestConnector.
 const (
 	CreateImportRunRequestConnectorCsv CreateImportRunRequestConnector = "csv"
@@ -10358,16 +10376,16 @@ func (e ListDealsParamsStatus) Valid() bool {
 
 // Defines values for ListDealsParamsPartnerAttribution.
 const (
-	ListDealsParamsPartnerAttributionInfluenced ListDealsParamsPartnerAttribution = "influenced"
-	ListDealsParamsPartnerAttributionSourced    ListDealsParamsPartnerAttribution = "sourced"
+	Influenced ListDealsParamsPartnerAttribution = "influenced"
+	Sourced    ListDealsParamsPartnerAttribution = "sourced"
 )
 
 // Valid indicates whether the value is a known member of the ListDealsParamsPartnerAttribution enum.
 func (e ListDealsParamsPartnerAttribution) Valid() bool {
 	switch e {
-	case ListDealsParamsPartnerAttributionInfluenced:
+	case Influenced:
 		return true
-	case ListDealsParamsPartnerAttributionSourced:
+	case Sourced:
 		return true
 	default:
 		return false
@@ -12213,13 +12231,21 @@ type AuditHistoryEntry struct {
 	ActorId string `json:"actor_id"`
 
 	// ActorName Resolved display name for a human actor_id; null for machine actors and for a member whose user row no longer resolves.
-	ActorName         *string                    `json:"actor_name,omitempty"`
-	ActorType         AuditHistoryEntryActorType `json:"actor_type"`
-	After             *map[string]interface{}    `json:"after,omitempty"`
-	AuthorizationRule *string                    `json:"authorization_rule,omitempty"`
-	Before            *map[string]interface{}    `json:"before,omitempty"`
-	Id                openapi_types.UUID         `json:"id"`
-	OccurredAt        time.Time                  `json:"occurred_at"`
+	ActorName *string                    `json:"actor_name,omitempty"`
+	ActorType AuditHistoryEntryActorType `json:"actor_type"`
+	After     *map[string]interface{}    `json:"after,omitempty"`
+
+	// AgentClient The NAME of the tool a delegated change was typed through — "Claude",
+	// "Cursor" — resolved from the OAuth client behind the row's passport.
+	// Null when the passport was minted by hand in Settings (there is no
+	// registered client to name), when the client row is gone, and for
+	// every write that was not delegated. A reader that has it should say
+	// "via {agent_client}" where it would otherwise say "via an agent".
+	AgentClient       *string                 `json:"agent_client,omitempty"`
+	AuthorizationRule *string                 `json:"authorization_rule,omitempty"`
+	Before            *map[string]interface{} `json:"before,omitempty"`
+	Id                openapi_types.UUID      `json:"id"`
+	OccurredAt        time.Time               `json:"occurred_at"`
 
 	// OnBehalfOf Granting human's user id for agent actions.
 	OnBehalfOf *openapi_types.UUID `json:"on_behalf_of,omitempty"`
@@ -12683,6 +12709,20 @@ type CaptureSettings struct {
 	MailSharing bool `json:"mail_sharing"`
 }
 
+// CaptureSourceEntry One capture provenance id that is not a transport, as the directory publishes it.
+type CaptureSourceEntry struct {
+	// Label Human-readable name for it — show this where the id would otherwise appear. Derived
+	// and never operator-configured, on the same terms as `ChannelProviderEntry.label`, so
+	// it is safe to cache alongside the rest of the directory.
+	Label string `json:"label"`
+
+	// Source The provenance id itself, in the spelling `CaptureTraceEntry.connector` carries —
+	// `ext:<unit>:<system>` for a record an extension unit landed. The grammar is
+	// `capture_trace.connector`'s, which is a transport id's widened for exactly this
+	// provenance.
+	Source string `json:"source"`
+}
+
 // CaptureTraceEntry defines model for CaptureTraceEntry.
 type CaptureTraceEntry struct {
 	// ActivityId The timeline row this message became. Present only where one exists AND the caller may read it — an entry whose activity moved out of their row scope still lists, with no link, rather than handing back an existence proof.
@@ -12768,7 +12808,27 @@ type ChannelConnectionListResponse struct {
 
 // ChannelProviderDirectory Every messaging transport this installation has registered (ADR-0107/A158).
 type ChannelProviderDirectory struct {
-	Data []ChannelProviderEntry `json:"data"`
+	// CaptureSources The provenance ids the composed EXTENSION UNITS land records under, and what to call
+	// them: `ext:<unit>:<system>`, which a unit's ingress stamps on every record it lands
+	// and which `CaptureTraceEntry.connector` therefore carries for any of that unit's
+	// records that arrived on no channel.
+	//
+	// It does NOT publish every non-transport connector a trace can name. A core
+	// connector's own source system — `gmail`, `imap`, `graph`, `gcal` — appears in neither
+	// array, because none of them is a registered transport either; a client that cannot
+	// resolve a connector id renders the id, which reads as the name of the thing it names.
+	// Treat a directory miss as ordinary, not as an anomaly to report.
+	//
+	// These are published BESIDE `data` rather than inside it because they are not
+	// `ProviderRef` values and must not be mistaken for one: nothing sends on one, no
+	// `activity.channel_provider` names one, and the id does not satisfy that pattern.
+	// A reader resolving a trace still needs them from this same directory — one resolver,
+	// or the raw `ext:` form reaches a member as if it were a name.
+	//
+	// Absent on an installation whose composed units declare no ingress; an empty answer
+	// and no answer mean the same thing.
+	CaptureSources *[]CaptureSourceEntry  `json:"capture_sources,omitempty"`
+	Data           []ChannelProviderEntry `json:"data"`
 }
 
 // ChannelProviderEntry One registered transport, as the directory publishes it.
@@ -13706,8 +13766,11 @@ type ContextEvidence struct {
 // ContextItem defines model for ContextItem.
 type ContextItem struct {
 	Evidence *[]ContextEvidence `json:"evidence,omitempty"`
-	Ref      ContextEntityRef   `json:"ref"`
-	Summary  *string            `json:"summary,omitempty"`
+
+	// OccurredAt When an event item happened, null when the item is not an event. A reader states a date from THIS rather than from one written inside a summary's prose — a note recalling "October" for a September email is the reading that otherwise reaches the customer. It is an instant in UTC; render it in the reader's zone before naming a calendar day.
+	OccurredAt *time.Time       `json:"occurred_at,omitempty"`
+	Ref        ContextEntityRef `json:"ref"`
+	Summary    *string          `json:"summary,omitempty"`
 }
 
 // ContextResponse defines model for ContextResponse.
@@ -14048,7 +14111,13 @@ type CreateDealRequest struct {
 	Name              string              `json:"name"`
 	OrganizationId    *openapi_types.UUID `json:"organization_id,omitempty"`
 	OwnerId           *openapi_types.UUID `json:"owner_id,omitempty"`
-	PipelineId        openapi_types.UUID  `json:"pipeline_id"`
+
+	// PartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+	PartnerAttribution *CreateDealRequestPartnerAttribution `json:"partner_attribution,omitempty"`
+
+	// PartnerOrgId The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.
+	PartnerOrgId *openapi_types.UUID `json:"partner_org_id,omitempty"`
+	PipelineId   openapi_types.UUID  `json:"pipeline_id"`
 
 	// ProjectId The body of work this deal belongs to; must name the same company as the deal.
 	ProjectId            *openapi_types.UUID    `json:"project_id,omitempty"`
@@ -14056,6 +14125,9 @@ type CreateDealRequest struct {
 	StageId              openapi_types.UUID     `json:"stage_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
+
+// CreateDealRequestPartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+type CreateDealRequestPartnerAttribution string
 
 // CreateImportRunRequest defines model for CreateImportRunRequest.
 type CreateImportRunRequest struct {
@@ -26139,6 +26211,9 @@ type UpdateStageJSONRequestBody = UpdateStageRequest
 // CreateTagJSONRequestBody defines body for CreateTag for application/json ContentType.
 type CreateTagJSONRequestBody = CreateTagRequest
 
+// RemoveTagJSONRequestBody defines body for RemoveTag for application/json ContentType.
+type RemoveTagJSONRequestBody = ApplyTagRequest
+
 // ApplyTagJSONRequestBody defines body for ApplyTag for application/json ContentType.
 type ApplyTagJSONRequestBody = ApplyTagRequest
 
@@ -26409,6 +26484,22 @@ func (a *CreateDealRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "owner_id")
 	}
 
+	if raw, found := object["partner_attribution"]; found {
+		err = json.Unmarshal(raw, &a.PartnerAttribution)
+		if err != nil {
+			return fmt.Errorf("error reading 'partner_attribution': %w", err)
+		}
+		delete(object, "partner_attribution")
+	}
+
+	if raw, found := object["partner_org_id"]; found {
+		err = json.Unmarshal(raw, &a.PartnerOrgId)
+		if err != nil {
+			return fmt.Errorf("error reading 'partner_org_id': %w", err)
+		}
+		delete(object, "partner_org_id")
+	}
+
 	if raw, found := object["pipeline_id"]; found {
 		err = json.Unmarshal(raw, &a.PipelineId)
 		if err != nil {
@@ -26497,6 +26588,20 @@ func (a CreateDealRequest) MarshalJSON() ([]byte, error) {
 		object["owner_id"], err = json.Marshal(a.OwnerId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	if a.PartnerAttribution != nil {
+		object["partner_attribution"], err = json.Marshal(a.PartnerAttribution)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'partner_attribution': %w", err)
+		}
+	}
+
+	if a.PartnerOrgId != nil {
+		object["partner_org_id"], err = json.Marshal(a.PartnerOrgId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'partner_org_id': %w", err)
 		}
 	}
 
@@ -33421,6 +33526,9 @@ type ServerInterface interface {
 	// Archive a tag.
 	// (DELETE /tags/{id})
 	ArchiveTag(w http.ResponseWriter, r *http.Request, id Id)
+	// Take one tag off one entity, leaving the tag itself in place.
+	// (DELETE /tags/{id}/apply)
+	RemoveTag(w http.ResponseWriter, r *http.Request, id Id)
 	// Apply a tag to an entity (person/org/deal/lead).
 	// (POST /tags/{id}/apply)
 	ApplyTag(w http.ResponseWriter, r *http.Request, id Id)
@@ -35827,6 +35935,12 @@ func (_ Unimplemented) CreateTag(w http.ResponseWriter, r *http.Request) {
 // Archive a tag.
 // (DELETE /tags/{id})
 func (_ Unimplemented) ArchiveTag(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Take one tag off one entity, leaving the tag itself in place.
+// (DELETE /tags/{id}/apply)
+func (_ Unimplemented) RemoveTag(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -53008,6 +53122,40 @@ func (siw *ServerInterfaceWrapper) ArchiveTag(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// RemoveTag operation middleware
+func (siw *ServerInterfaceWrapper) RemoveTag(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveTag(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ApplyTag operation middleware
 func (siw *ServerInterfaceWrapper) ApplyTag(w http.ResponseWriter, r *http.Request) {
 
@@ -56433,6 +56581,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/tags/{id}", wrapper.ArchiveTag)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/tags/{id}/apply", wrapper.RemoveTag)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/tags/{id}/apply", wrapper.ApplyTag)

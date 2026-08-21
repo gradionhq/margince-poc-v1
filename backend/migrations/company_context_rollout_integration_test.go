@@ -3,13 +3,14 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 import (
 	"context"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 func TestCompanyContextBackfillAddsOnlyMissingAnchorProvenance(t *testing.T) {
@@ -17,7 +18,7 @@ func TestCompanyContextBackfillAddsOnlyMissingAnchorProvenance(t *testing.T) {
 	conn := connect(t, ownerDSN)
 	resetSchema(t, conn)
 	ctx := context.Background()
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}

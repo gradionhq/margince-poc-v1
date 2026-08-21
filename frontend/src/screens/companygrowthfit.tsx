@@ -178,7 +178,7 @@ export function GrowthFitPanel({
         </>
       )}
       {reassess.error && (
-        <PanelBody className="co-worth-block">
+        <PanelBody>
           <p className="co-part-error">{problemMessageOf(reassess.error, t)}</p>
         </PanelBody>
       )}
@@ -196,7 +196,11 @@ function GrowthFitVerdict({ fit }: Readonly<{ fit: GrowthFit }>) {
   const { present, expected } = fit.data_completeness;
   return (
     <>
-      <PanelBody className="co-worth-block">
+      {/* Each part of the reading is a PanelBody, and the hairline between two
+          consecutive parts is panel.css's seam rule — the panel owns where one
+          answer ends and the next begins, so no part draws a border of its
+          own. */}
+      <PanelBody>
         <p className="co-growth-fit-band">
           <Badge tone={BAND_TONES[fit.band]}>{t(BAND_LABELS[fit.band])}</Badge>{" "}
           {/* Both counts, always. A proportion without its denominator is not a
@@ -226,7 +230,7 @@ function GrowthFitVerdict({ fit }: Readonly<{ fit: GrowthFit }>) {
           judgment the assembly declined to make — never drawn as zeroes, which
           would be a claim about the company rather than about the reading. */}
       {fit.sub_scores && fit.sub_scores.length > 0 && (
-        <PanelBody className="co-worth-block">
+        <PanelBody>
           <ul className="co-growth-fit-scores">
             {fit.sub_scores.map((sub) => (
               <li key={sub.dimension} className="co-growth-fit-score">
@@ -240,11 +244,13 @@ function GrowthFitVerdict({ fit }: Readonly<{ fit: GrowthFit }>) {
                 </span>
                 {/* Flat, like the health meters beside it: the gradient's
                     second colour reads as a warning creeping in at the high
-                    end, and a high dimension score is the GOOD end here. */}
+                    end, and a high dimension score is the GOOD end here. Dense
+                    for the same reason they are — one product, one bar. */}
                 <Meter
                   value={sub.score}
                   max={100}
                   flat
+                  dense
                   label={t(SUB_SCORE_LABELS[sub.dimension])}
                 />
                 {/* The reason travels WITH the bar. A number and no sentence is
@@ -311,13 +317,7 @@ function GrowthFitReasons({
           alone in a half-width column is a column of empty space claiming the
           other argument exists and was left blank. */}
       {sides.length > 0 && (
-        <PanelBody
-          className={
-            sides.length > 1
-              ? "co-worth-block co-worth-split"
-              : "co-worth-block"
-          }
-        >
+        <PanelBody className={sides.length > 1 ? "co-worth-split" : undefined}>
           {sides.map((group) => (
             <div key={group.key} className="co-worth-column">
               <Eyebrow as="h3">{t(group.key)}</Eyebrow>
@@ -357,7 +357,7 @@ function GrowthFitRow({
 }: Readonly<{ label: MessageKey; children: ReactNode }>) {
   const t = useT();
   return (
-    <PanelBody className="co-worth-block co-worth-row">
+    <PanelBody className="co-worth-row">
       <Eyebrow as="h3" className="co-worth-row-label">
         {t(label)}
       </Eyebrow>

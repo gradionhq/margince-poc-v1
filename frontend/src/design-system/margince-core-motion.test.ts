@@ -2,170 +2,92 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { describe, expect, it } from "vitest";
-import {
-  BEHAVIOUR,
-  breath,
-  type CoreMotion,
-  DOTS,
-  dotTarget,
-} from "./margince-core-motion";
+import type { MarginceCoreState } from "./margince-core";
+import { BEHAVIOUR, FEED_INGEST, still } from "./margince-core-motion";
 
-// The Core's state vocabulary is carried by MOVEMENT first (WDS-CORE-2), and a
-// movement is the one thing a story cannot show and a screenshot cannot catch: on
-// a still frame `ingesting` and `reasoning` are two greens. So the formations are
-// asserted here as arithmetic — what a design note claims about a state ("two
-// halves reaching across", "one mass", "a check mark") is checked against the
-// numbers the renderer actually receives.
-//
-// Nothing here touches the DOM. `dotTarget` is pure, which is what makes the
-// choreography testable at all: the engine's job is easing and scheduling, and
-// that is asserted separately.
+/** The closed vocabulary, spelled out once so the count below cannot drift
+ *  quietly if a state is renamed rather than added or removed. */
+const STATES: readonly MarginceCoreState[] = [
+  "idle",
+  "ingest",
+  "working",
+  "warning",
+  "error",
+];
 
-/** Every dot's placement for a state at one moment. */
-function formation(motion: CoreMotion, time: number) {
-  return Array.from({ length: DOTS }, (_, index) =>
-    dotTarget(motion, index, time, breath(time)),
-  );
-}
-
-/** How far apart the two furthest dots are — the formation's own width. */
-function spread(motion: CoreMotion, time: number): number {
-  const dots = formation(motion, time);
-  let widest = 0;
-  for (const a of dots) {
-    for (const b of dots) {
-      widest = Math.max(widest, Math.hypot(a.x - b.x, a.y - b.y));
-    }
-  }
-  return widest;
-}
-
-/** A coarse sample of a whole cycle, since every formation is periodic. */
-const SAMPLES = Array.from({ length: 60 }, (_, step) => 11.3 + step * 0.37);
-
-describe("the Core's formations", () => {
-  it("places every dot inside the ball, in every state, all cycle long", () => {
-    // The dots live in a clipped well: a placement past the glass is not a
-    // dramatic gesture, it is a dot vanishing at the edge and reappearing. The
-    // bound is the working radius the motion table is written in, with the room
-    // the largest excursion legitimately needs.
-    for (const [state, behaviour] of Object.entries(BEHAVIOUR)) {
-      for (const time of SAMPLES) {
-        for (const dot of formation(behaviour.motion, time)) {
-          expect(
-            Math.hypot(dot.x, dot.y),
-            `${state} at t=${time.toFixed(2)}`,
-          ).toBeLessThanOrEqual(110);
-        }
-      }
-    }
+describe("the Core's motion table", () => {
+  it("covers exactly the five states of the closed vocabulary, no more", () => {
+    expect(Object.keys(BEHAVIOUR).sort()).toEqual([...STATES].sort());
   });
 
-  it("never scales a dot to nothing, or inside out", () => {
-    // A zero scale is a dot that blinks out; a negative one flips it through
-    // itself, which the goo filter renders as a hole in the mass. Both are the
-    // kind of fault that only shows at one moment in a long cycle.
-    for (const [state, behaviour] of Object.entries(BEHAVIOUR)) {
-      for (const time of SAMPLES) {
-        for (const dot of formation(behaviour.motion, time)) {
-          expect(
-            dot.sx,
-            `${state} sx at t=${time.toFixed(2)}`,
-          ).toBeGreaterThanOrEqual(0);
-          expect(
-            dot.sy,
-            `${state} sy at t=${time.toFixed(2)}`,
-          ).toBeGreaterThanOrEqual(0);
-          // The ceiling is generous because `applied`'s sx is not a scale but a
-          // LENGTH in dot widths — its long stroke is a little over three of
-          // them. What this bound is really for is a runaway multiplication,
-          // which shows up as a dot the size of the page rather than as one a
-          // third too wide.
-          expect(dot.sx).toBeLessThan(4);
-          expect(dot.sy).toBeLessThan(4);
-        }
-      }
-    }
-  });
-
-  it("gathers into one mass for error, and only for error", () => {
-    // `fail` is the collapse: four dots in one place, no orbit, no resolution. If
-    // another state gathered this tightly the two would be indistinguishable, and
-    // one of them is the state that says the run is over.
-    expect(spread("fail", 20)).toBeLessThan(1);
-    for (const [state, behaviour] of Object.entries(BEHAVIOUR)) {
-      if (behaviour.motion === "fail") {
-        continue;
-      }
-      const widest = Math.max(
-        ...SAMPLES.map((time) => spread(behaviour.motion, time)),
-      );
-      expect(widest, `${state} must not collapse`).toBeGreaterThan(20);
-    }
-  });
-
-  it("splits disconnected into two halves that keep reaching", () => {
-    // The design is two masses on opposite sides, closing and snapping — so the
-    // two dots on a side stay on that side, and the gap between the sides has to
-    // change over the cycle. A fixed gap would be a broken connection that never
-    // tries.
-    const gaps = SAMPLES.map((time) => {
-      const dots = formation("severed", time);
-      expect(dots[0].x).toBeLessThan(0);
-      expect(dots[1].x).toBeLessThan(0);
-      expect(dots[2].x).toBeGreaterThan(0);
-      expect(dots[3].x).toBeGreaterThan(0);
-      return dots[2].x - dots[1].x;
+  it("gives every state a distinct motion signature", () => {
+    // Colour may carry state only because motion carries it first: two states
+    // differing only in hue are two states a colour-blind reader cannot tell
+    // apart, and the tuple below is the whole of what the eye reads before it
+    // reads a hue at all.
+    const signatures = STATES.map((state) => {
+      const { level, speed, pulse, ingest } = BEHAVIOUR[state];
+      return JSON.stringify([level, speed, pulse, ingest]);
     });
-
-    expect(Math.max(...gaps) - Math.min(...gaps)).toBeGreaterThan(20);
+    expect(new Set(signatures).size).toBe(signatures.length);
   });
 
-  it("draws applied as strokes that grow and clear", () => {
-    // The check mark is the one formation with rotation, and it has to RESET: a
-    // mark that grows and stays is a badge, and the state is a moment. The short
-    // stroke and the long one carry the two angles.
-    const angles = new Set(
-      formation("resolve", 12).map((dot) => Math.round(dot.rotation)),
-    );
-    expect(angles.has(45)).toBe(true);
-    expect([...angles].some((angle) => angle < 0)).toBe(true);
-
-    const lengths = SAMPLES.map((time) => formation("resolve", time)[1].sx);
-    expect(Math.min(...lengths)).toBeLessThan(0.1);
-    expect(Math.max(...lengths)).toBeGreaterThan(2);
-  });
-
-  it("holds flagged apart without ever orbiting it", () => {
-    // Tension, not progress: the dots shiver around fixed angles. The test is
-    // that no dot travels far — a formation that circles reads as work in flight,
-    // which is the opposite of what this state says.
-    const paths = Array.from({ length: DOTS }, (_, index) =>
-      SAMPLES.map((time) => dotTarget("alert", index, time, 0.5)),
-    );
-    for (const [index, path] of paths.entries()) {
-      const xs = path.map((dot) => dot.x);
-      const ys = path.map((dot) => dot.y);
-      const travel = Math.hypot(
-        Math.max(...xs) - Math.min(...xs),
-        Math.max(...ys) - Math.min(...ys),
-      );
-      expect(travel, `dot ${index} must stay put`).toBeLessThan(30);
+  it("tints only the two states that stop", () => {
+    const stops: readonly MarginceCoreState[] = ["warning", "error"];
+    const live: readonly MarginceCoreState[] = ["idle", "ingest", "working"];
+    for (const state of stops) {
+      expect(BEHAVIOUR[state].tint, `${state} must tint`).toBeGreaterThan(0);
+    }
+    for (const state of live) {
+      expect(BEHAVIOUR[state].tint, `${state} must not tint`).toBe(0);
     }
   });
 
-  it("breathes unevenly, which is what reads as alive", () => {
-    // A sine spends equal time either side of its midpoint; this curve does not,
-    // and the asymmetry IS the effect — the inhale is quicker than the exhale. A
-    // regression to a plain sine would look mechanical and pass any test that
-    // only checked the range.
-    const samples = Array.from({ length: 400 }, (_, step) =>
-      breath(step * 0.05),
-    );
+  it("reserves full intake for ingest alone", () => {
+    for (const [state, behaviour] of Object.entries(BEHAVIOUR)) {
+      if (state === "ingest") {
+        expect(behaviour.ingest).toBe(1);
+      } else {
+        expect(behaviour.ingest, state).toBeLessThan(1);
+      }
+    }
+  });
 
-    expect(Math.min(...samples)).toBeGreaterThanOrEqual(0);
-    expect(Math.max(...samples)).toBeLessThanOrEqual(1);
-    const above = samples.filter((value) => value > 0.5).length;
-    expect(above / samples.length).toBeGreaterThan(0.5);
+  it("makes working the fastest state and idle the least energetic", () => {
+    const speeds = STATES.map((state) => BEHAVIOUR[state].speed);
+    expect(BEHAVIOUR.working.speed).toBe(Math.max(...speeds));
+
+    const levels = STATES.map((state) => BEHAVIOUR[state].level);
+    expect(BEHAVIOUR.idle.level).toBe(Math.min(...levels));
+  });
+
+  it("holds a still state at its live level, tint and tintCol, with everything that moves zeroed", () => {
+    // A reader with reduced motion still has to be told WHICH of the five
+    // states this is, so the still frame keeps the state's own colour and
+    // energy and only drops the dials that are motion by definition.
+    for (const state of STATES) {
+      const live = BEHAVIOUR[state];
+      const held = still(state);
+      expect(held.level).toBe(live.level);
+      expect(held.tint).toBe(live.tint);
+      expect(held.tintCol).toEqual(live.tintCol);
+      expect(held.speed).toBe(0);
+      expect(held.pulse).toBe(0);
+      expect(held.ingest).toBe(0);
+    }
+  });
+
+  it("sets the fed intake floor strictly between rest and ingest's own", () => {
+    expect(FEED_INGEST).toBeGreaterThan(0);
+    expect(FEED_INGEST).toBeLessThan(BEHAVIOUR.ingest.ingest);
+  });
+
+  it("keeps every tint colour channel in the 0..1 range a shader uniform expects", () => {
+    for (const [state, behaviour] of Object.entries(BEHAVIOUR)) {
+      for (const channel of behaviour.tintCol) {
+        expect(channel, state).toBeGreaterThanOrEqual(0);
+        expect(channel, state).toBeLessThanOrEqual(1);
+      }
+    }
   });
 });
