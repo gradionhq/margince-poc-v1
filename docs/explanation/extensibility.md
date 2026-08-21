@@ -11,7 +11,7 @@ already ships four:
 | `extensions/de` | The German jurisdiction pack — statutory retention floors, and nothing else |
 | `extensions/yogi` | The reference unit that serves one governed agent tool |
 | `extensions/notes` | The reference extension for a unit that owns data: its own table under RLS, six governed operations, its own RBAC object, a stored signing key it signs with and never emits, and a scheduled heartbeat |
-| `extensions/dispact-connector` | The reference unit that reaches the outside world: it captures messages from its provider and carries replies back out on its own transport |
+| `extensions/relay-probe` | The reference unit that reaches the outside world: it captures messages from its provider and carries replies back out on its own transport |
 
 This page is for a contributor who wants the whole idea first, then the detail. Start here; to
 actually *build* a unit, jump to [how-to/add-an-extension.md](../how-to/add-an-extension.md).
@@ -182,7 +182,7 @@ blast radius before enabling it:
 
 The returned `extension.Extension` literal and every field the manifest derives must be literal
 values; an unrecognized field fails generation with its position rather than producing a manifest
-that silently omits a request. That is why a unit spells `"dispact"` twice rather than sharing a
+that silently omits a request. That is why a unit spells `"relay"` twice rather than sharing a
 constant between its ingress source and its channel — the reader is static and resolves no
 constants, and a test holds the two strings equal. The manifest is committed with the unit and
 drift-gated like the contract; its digest rides in `composition.json` per unit.
@@ -357,7 +357,7 @@ validated to the full identifier budget, so a name chosen today stays valid for 
   Authority is the mirror image of `tx.Core()`'s: an ingest is refused from an ATTENDED invocation, and
   it runs on the LIVE authority of the member named in `on` — who must currently hold one of this unit's
   user-scoped secrets, because depositing a credential with a unit is the act that says "act for me
-  here". `extensions/dispact-connector` is the unit that exercises the path end to end.
+  here". `extensions/relay-probe` is the unit that exercises the path end to end.
 
 - **Its own messaging transport** — a `Channel` declares a provider the unit can carry messages on, so
   a rep's reply to a captured conversation leaves through the unit, on the member's own credential,
@@ -497,7 +497,7 @@ the whole path).
 | The first-party German pack | `extensions/de/de.go` |
 | The reference served-tool unit | `extensions/yogi/yogi.go` |
 | The reference extension (every capability) | `extensions/notes/notes.go` |
-| The reference connector: ingress, merge key, transport | `extensions/dispact-connector/dispact.go`, `record.go`, `send.go` |
+| The reference connector: ingress, merge key, transport | `extensions/relay-probe/relayprobe.go`, `record.go`, `send.go` |
 | Its screen, in the unit's own workspace package | `extensions/notes/frontend/screen.tsx` |
 | That screen's tests, and the lane that runs them | `extensions/notes/frontend/screen.test.tsx`, `frontend/vitest.ext.config.ts` |
 | The reference fixture | `fixtures/extensions/crm-hello/crmhello.go` |

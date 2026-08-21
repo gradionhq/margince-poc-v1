@@ -110,6 +110,28 @@ export default defineConfig({
         find: "@composition/copy",
         replacement: join(compositionDir, "extlocales.gen.ts"),
       },
+      // The host surface, by the three subpaths frontend/package.json's "exports"
+      // map publishes. These exist because a unit's frontend/ is no longer a
+      // member of the ROOT workspace, so pnpm no longer links
+      // extensions/<unit>/frontend/node_modules/@margince/frontend into place.
+      // Membership moved to the generated composed workspace
+      // (build/composition-frontend/workspace/) — that install resolves a unit's
+      // OWN dependencies, and the host it must NOT install, because
+      // frontend/node_modules belongs to the root workspace. So the surface is
+      // an alias and the unit's dependencies are a membership; each half does
+      // the thing the other cannot.
+      {
+        find: "@margince/frontend/design-system",
+        replacement: join(frontendRoot, "src", "surface", "design-system.ts"),
+      },
+      {
+        find: "@margince/frontend/api",
+        replacement: join(frontendRoot, "src", "surface", "api.ts"),
+      },
+      {
+        find: "@margince/frontend/app",
+        replacement: join(frontendRoot, "src", "surface", "index.ts"),
+      },
       // Every enabled unit's screen package, by the name the generated registry
       // imports it under. The compile-time half is tsconfig.composed.json's
       // "@margince-ext/*" mapping.
@@ -134,7 +156,19 @@ export default defineConfig({
     // gen-composition refuses these as DIRECT dependencies of a unit; this is
     // the half that holds when one of a unit's own dependencies pulls a second
     // copy in transitively.
-    dedupe: ["react", "react-dom", "@tanstack/react-query"],
+    dedupe: [
+      "react",
+      "react-dom",
+      "@tanstack/react-query",
+      // The test lane's half of the same argument, and it is load-bearing now
+      // that a unit installs its own dev dependencies in the composed
+      // workspace: a unit's node_modules holds its own @testing-library and
+      // vitest, and two copies of a test renderer mean a unit's render tree is
+      // not the one the lane's environment set up.
+      "@testing-library/react",
+      "@testing-library/user-event",
+      "vitest",
+    ],
   },
   server: {
     allowedHosts,

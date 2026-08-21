@@ -11,6 +11,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -202,4 +204,137 @@ func writeVerbDescriptor(b *strings.Builder, v extension.Verb) {
 	fmt.Fprintf(b, "        version: %s,\n", tsString(v.Version))
 	fmt.Fprintf(b, "        rbacObject: %s,\n", tsString(v.RbacObject))
 	b.WriteString("      },\n")
+}
+
+// composedFrontendWorkspaceDir is the second composition root, and it is
+// deliberately OUTSIDE build/composition/.
+//
+// verifyNoExtraFiles (main.go) walks build/composition/ and rejects every file
+// the Go generator did not write, non-regular files included. A pnpm install
+// inside that tree writes node_modules — a directory pnpm builds out of
+// symlinks — plus a lockfile, so putting a workspace there would make
+// `make check-composition` fail on the install rather than on a real drift.
+// build/composition-frontend/ already exists for exactly this reason: it holds
+// what a NODE tool produces, verified by the frontend lane that can reproduce
+// it rather than by this one.
+const composedFrontendWorkspaceDir = "build/composition-frontend/workspace"
+
+// The host SPA is deliberately NOT a member of this workspace, and the reason is
+// mechanical: pnpm writes node_modules BESIDE each member, wherever the member
+// lives. A workspace naming ../../../frontend would install into
+// frontend/node_modules — the same directory the ROOT workspace owns and
+// installs with --frozen-lockfile — so the two would resolve independently and
+// prune each other's trees on alternate runs.
+//
+// A unit declares "@margince/frontend": "workspace:*", and pnpm refuses that
+// specifier outright when no member answers to the name
+// (ERR_PNPM_WORKSPACE_PKG_NOT_FOUND). So the root manifest overrides it to
+// `link:` the host directory: a link RESOLVES the dependency and installs
+// nothing, which is exactly the distinction — the unit gets its declaration
+// satisfied, and frontend/node_modules stays the root workspace's to own.
+//
+// At build time a unit reaches the host through vite.config.ts's aliases on the
+// three subpaths frontend/package.json's "exports" map publishes, with matching
+// paths entries in tsconfig.composed.json. That half was measured to work on its
+// own; what it could not do is resolve a unit's OWN dependencies, which is what
+// this workspace is for.
+//
+// THE HOSTED PACKAGES ARE LINKED FOR THE SAME REASON, and it is the same rule
+// resolve.dedupe and gen-composition's hostedFrameworkDeps state: exactly one
+// copy of anything holding state the host owns. Installed rather than linked,
+// a unit gets its own @types/react, and tsc then reports "Two different types
+// with this name exist, but they are unrelated" against the host's design
+// system — measured, and the reason these four entries exist. The runtime three
+// carry the same hazard for the same reason (one hook dispatcher, one
+// QueryClient context); a unit's test-only dev deps are its own, because
+// resolve.dedupe pins the render tree at run time.
+//
+// The link targets are inside frontend/node_modules, so the ROOT install must
+// have run first. The make lanes order it that way, and a dangling link here
+// fails loudly at the next resolve rather than silently resolving twice.
+
+// emitComposedFrontendWorkspace writes a pnpm workspace whose members are the
+// host SPA and each enabled unit's frontend layer.
+//
+// WHY THIS EXISTS. A unit's frontend/ used to be a member of the ROOT workspace
+// (pnpm-workspace.yaml's `extensions/*/frontend` glob), which meant an
+// installation that enabled a frontend-bearing unit of its own could not install
+// without rewriting the tracked root pnpm-lock.yaml — an upstream-owned file.
+// Measured, not assumed: `pnpm install --frozen-lockfile` with such a unit
+// present fails ERR_PNPM_OUTDATED_LOCKFILE naming the unit's manifest.
+//
+// Membership cannot simply be dropped. It is also what installs and resolves a
+// unit's OWN dependencies from inside the unit's directory: without it the
+// composed typecheck lane cannot resolve a unit's peers or its dev deps, and a
+// tsconfig `paths` mapping is no substitute — a path mapping is project-wide and
+// hijacks the host's own resolution. So membership moves rather than goes: the
+// members live in a generated workspace under ignored build output, whose
+// lockfile nobody tracks and whose install cannot touch the root's.
+//
+// The file set is REPLACED on every call, so a unit removed from extensions/
+// stops being a member. An accumulating list would leave the next install
+// resolving a member that is not there.
+func emitComposedFrontendWorkspace(dir string, units []string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- build output stays readable to another UID
+		return err
+	}
+	// A root that is private and owns no dependencies. It exists to BE a
+	// workspace root: anything it depended on would be a second copy of what the
+	// host already owns, which is the hazard resolve.dedupe exists to prevent.
+	manifest := []byte(`{
+  "name": "@margince/composed-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "//": "GENERATED by tools/gen-composition. The composed frontend workspace root: its members are every enabled unit's frontend layer. Do not edit; do not commit (build/ is ignored). The overrides this workspace needs live in pnpm-workspace.yaml, NOT here: pnpm 11 stopped reading the \"pnpm\" field of package.json."
+}
+`)
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), manifest, 0o644); err != nil { // #nosec G306 -- generated build artifact
+		return err
+	}
+
+	// Sorted, for the same reason go.work's members are: the emitted bytes must
+	// not depend on the order the tree was walked in.
+	members := make([]string, len(units))
+	copy(members, units)
+	sort.Strings(members)
+
+	var b strings.Builder
+	b.WriteString("# GENERATED by tools/gen-composition. Do not edit.\n")
+	b.WriteString("#\n")
+	b.WriteString("# The composed frontend workspace: every enabled unit's frontend layer, and\n")
+	b.WriteString("# only those. Members are reached by relative path out of this generated\n")
+	b.WriteString("# directory rather than copied, so an edit in extensions/<unit>/frontend/ is\n")
+	b.WriteString("# what the next install resolves. The host SPA is not a member — see above.\n")
+	b.WriteString("packages:\n")
+	for _, unit := range members {
+		fmt.Fprintf(&b, "  - ../../../extensions/%s/frontend\n", unit)
+	}
+	// esbuild ships a platform binary and needs its install script to run — the
+	// same carve-out the root workspace states, for the same reason.
+	b.WriteString("\nallowBuilds:\n  esbuild: true\n")
+
+	// The overrides live HERE and not in the root package.json's "pnpm" field,
+	// and the difference is not cosmetic: pnpm 11 ignores that field outright
+	// ("The \"pnpm\" field in package.json is no longer read by pnpm"), so the
+	// overrides silently stopped applying and the install failed on the
+	// workspace:* specifier again. pnpm 10 and 11 both read them from here.
+	//
+	// A unit declares "@margince/frontend": "workspace:*", which pnpm refuses
+	// when no member answers to the name (ERR_PNPM_WORKSPACE_PKG_NOT_FOUND). The
+	// override resolves it to a `link:`, which satisfies the declaration and
+	// installs nothing — so frontend/node_modules stays the root workspace's to
+	// own. The other four are the packages whose state the host owns: installed
+	// rather than linked, a unit gets its own @types/react and tsc reports two
+	// unrelated types of the same name against the host's design system.
+	b.WriteString("\noverrides:\n")
+	for _, override := range [][2]string{
+		{"@margince/frontend", "link:../../../frontend"},
+		{"react", "link:../../../frontend/node_modules/react"},
+		{"react-dom", "link:../../../frontend/node_modules/react-dom"},
+		{"@tanstack/react-query", "link:../../../frontend/node_modules/@tanstack/react-query"},
+		{"@types/react", "link:../../../frontend/node_modules/@types/react"},
+	} {
+		fmt.Fprintf(&b, "  %q: %q\n", override[0], override[1])
+	}
+	return os.WriteFile(filepath.Join(dir, "pnpm-workspace.yaml"), []byte(b.String()), 0o644) // #nosec G306 -- generated build artifact
 }

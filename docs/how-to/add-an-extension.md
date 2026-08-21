@@ -14,7 +14,7 @@ specifically, the live capability is retention floors; the running example below
 An extension is its own Go module reaching the core through only the marker-allowlisted
 `backend/pkg/**` surface. **Presence under `extensions/` is the enablement** — there is no flag to
 flip. `extensions/notes` is the **reference unit** for a unit that owns data or serves routes — copy it
-first. `extensions/dispact-connector` is the reference for a unit that faces an outside provider:
+first. `extensions/relay-probe` is the reference for a unit that faces an outside provider:
 capture, a merge-key declaration, and a transport replies leave on. `extensions/de` (a jurisdiction
 pack), `extensions/yogi` (one served agent tool) and `fixtures/extensions/crm-hello` (the
 walking-skeleton) are the smaller shapes.
@@ -478,7 +478,7 @@ provider, and the core stamps it into every landed record's provenance:
 
 ```go
 Ingress: []extension.IngressSource{{
-	System: "dispact",                                    // lower kebab, ≤32 chars, STABLE
+	System: "relay",                                      // lower kebab, ≤32 chars, STABLE
 	Lands:  []extension.RecordKind{extension.KindActivity},
 	Merges: []extension.MergeKey{extension.MergeKeyEmail}, // optional; see below
 }},
@@ -524,7 +524,7 @@ A `Channel` declares a messaging provider your unit can carry messages on, so a 
 conversation you captured leaves through your unit rather than a surface of your own:
 
 ```go
-Channels: []extension.Channel{{Provider: "dispact", Send: send, Live: live}},
+Channels: []extension.Channel{{Provider: "relay", Send: send, Live: live}},
 ```
 
 ```go

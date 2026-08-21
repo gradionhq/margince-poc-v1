@@ -161,6 +161,29 @@ func generate(root string) error {
 	if err := materializeWorkSum(root, outRoot); err != nil {
 		return err
 	}
+	// The composed frontend workspace, written OUTSIDE outRoot on purpose — see
+	// composedFrontendWorkspaceDir. It is not in composed.Files and therefore not
+	// in composition.json's digests, for the same reason build/composition-frontend/
+	// is not: this tree gets a pnpm install, and verifyNoExtraFiles would reject
+	// the node_modules that install writes.
+	//
+	// Not verified here does not mean unguarded: a stale member list fails the
+	// composed frontend lanes loudly, because a unit whose layer is not a member
+	// cannot resolve its own dependencies.
+	// Only units that actually ship a frontend layer. A member naming a
+	// directory that does not exist is a claim pnpm currently tolerates by
+	// ignoring it, which is not a property to depend on — and `de` and `yogi`
+	// ship no frontend/ at all.
+	unitNames := make([]string, 0, len(composed.Manifests))
+	for _, m := range composed.Manifests {
+		if m.Unit.Frontend == nil {
+			continue
+		}
+		unitNames = append(unitNames, m.Unit.Name)
+	}
+	if err := emitComposedFrontendWorkspace(filepath.Join(root, filepath.FromSlash(composedFrontendWorkspaceDir)), unitNames); err != nil {
+		return err
+	}
 	m, err := currentManifest(root, composed.Files)
 	if err != nil {
 		return err

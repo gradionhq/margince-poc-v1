@@ -7,11 +7,15 @@
 # units the installation enabled.
 packages:
   - frontend
-  # Every enabled unit's frontend layer, if it has one. This glob is why adding
-  # a unit touches no file here: presence under extensions/ IS the enablement,
-  # on this side exactly as on the Go side, where build/composition/go.work
-  # gains its `use` line from the same scan.
-  - extensions/*/frontend
+  # A unit's frontend layer is NOT a member here, and that is the point. It was,
+  # through an `extensions/*/frontend` glob — which meant an installation that
+  # enabled a frontend-bearing unit of its own could not run
+  # `pnpm install --frozen-lockfile` without rewriting this tracked lockfile, an
+  # upstream-owned file. Membership did not go away; it moved to the GENERATED
+  # workspace under build/composition-frontend/workspace/, emitted by
+  # tools/gen-composition from the same extensions/ scan the Go side uses, whose
+  # lockfile is ignored build output. Presence under extensions/ is still the
+  # enablement — it is just resolved in the composed lane rather than this one.
 
 # esbuild ships a platform binary and needs its install script to run.
 allowBuilds:

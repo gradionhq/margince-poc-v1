@@ -357,7 +357,7 @@ the allowlisted `pkg/extension` surface. So it asks, with the same declared clas
 under:
 
 ```go
-// zalo-oa: an unreachable provider needs nobody, so the tick runs again instead of dying.
+// An unreachable provider needs nobody, so the tick runs again instead of dying.
 return extension.Reschedule(classProviderUnavailable, pollRetryDelay, cause)
 ```
 

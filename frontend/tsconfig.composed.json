@@ -57,6 +57,18 @@
       //
       // Workspace membership still earns its keep: it is what installs and
       // resolves a unit's OWN dependencies, from inside the unit's directory.
+      // The host surface, the compile-time half of vite.config.ts's three
+      // "@margince/frontend/*" aliases. A unit's frontend/ is not a member of
+      // the root workspace, so tsc cannot reach the surface through a linked
+      // package — one entry per subpath frontend/package.json's "exports" map
+      // publishes. A unit's own dependencies are NOT mapped here and must not
+      // be: a paths mapping is project-wide, so mapping react would hijack this
+      // project's own resolution of it (measured — core's src/ then loses
+      // @types/react). Those resolve from the unit's node_modules, installed by
+      // the composed workspace.
+      "@margince/frontend/design-system": ["./src/surface/design-system.ts"],
+      "@margince/frontend/api": ["./src/surface/api.ts"],
+      "@margince/frontend/app": ["./src/surface/index.ts"],
       "@margince-ext/*": ["../extensions/*/frontend"]
     }
   },

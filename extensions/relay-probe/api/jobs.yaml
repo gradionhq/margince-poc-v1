@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: BUSL-1.1
+# SPDX-FileCopyrightText: 2026 Gradion
+#
+# relay-probe's scheduled poll, declared in the contract the core job
+# kinds live in. gen-composition merges it into build/composition/api/jobs.yaml
+# and reads the pair back out of the MERGED document, so what the worker
+# registers and what this file says cannot disagree.
+#
+# TWO kinds, not one: a cadenced DISPATCHER that enumerates the live fleet and a
+# workspace CHILD that polls one tenant's connected members. A kind that both
+# ticks and carries a tenant has no honest answer for whose data the tick
+# touched, so the generator forbids it.
+overlay: 1.0.0
+info:
+  title: relay-probe
+  version: "1.0.0"
+actions:
+  - target: $.kinds['ext_relay_probe_poll_inbox']
+    update:
+      job: poll_inbox
+      role: dispatcher
+      queue: default
+      # Two minutes. A chat message reaching the CRM timeline within a couple of
+      # minutes is what a rep experiences as "it is just there"; polling harder
+      # spends a provider's rate budget to shave a delay nobody is watching for,
+      # and the natural key means a slower tick loses nothing.
+      cadence: 120s
+      # Wide enough for the whole fleet of one workspace's connections, each of
+      # which may page up to four times and ingest what it found. The client's
+      # own per-request timeout is what keeps one hung provider call from
+      # spending all of it.
+      timeout: 300s
+      # 🟢 write: the tick writes this unit's own connection rows, and hands
+      # records to core capture through the governed ingress port — which runs
+      # on the connected member's live authority, not on the job's. It cannot
+      # be confirm-first (a job has no caller to confirm it) and it cannot be
+      # outbound (autonomous outbound authority on a clock), and the job seam
+      # refuses both outright.
+      tier: auto_execute
+      scope: write
+
+  - target: $.kinds['ext_relay_probe_poll_inbox_ws']
+    update:
+      job: poll_inbox
+      role: worker
+      queue: default
+      timeout: 300s
+      # Small on purpose, like every other fan-out child's: the real retry cadence
+      # is the dispatcher's next tick, two minutes away.
+      #
+      # A FLEET-WIDE PROVIDER OUTAGE NO LONGER SPENDS AN ATTEMPT AT ALL. The tick
+      # postpones itself instead of failing (pollfailure.go), and River decrements
+      # the attempt count on a postponement, so this cap is now about the failures
+      # that DO need somebody — including members failing for DIFFERENT reasons,
+      # which is several problems with several owners rather than one outage.
+      max_attempts: 3
+      # No tier and no scope: the pair resolves as ONE governed job, so its
+      # governance is declared once, on the dispatcher above.

@@ -207,7 +207,22 @@ fe-test:
 ## ran with none of them from a unit. They were typechecked and never executed.
 fe-test-ext: composition
 	@[ -f build/composition/frontend/extlocales.gen.ts ] || { echo "fe-test-ext: build/composition/frontend/extlocales.gen.ts is missing after 'make composition' — a unit screen's suite would resolve the empty-tree copy registry and fail on every string" >&2; exit 1; }
-	cd frontend && pnpm install --frozen-lockfile && pnpm build && \
+	@# The ROOT install first, and the order is load-bearing: the composed
+	@# workspace links react, react-dom, @tanstack/react-query and @types/react
+	@# out of frontend/node_modules so a unit cannot get a second copy of what
+	@# the host owns, and those link targets have to exist.
+	cd frontend && pnpm install --frozen-lockfile
+	@# Then the composed workspace, which is what resolves a unit's OWN
+	@# dependencies — its dev deps and its peers — from inside the unit's
+	@# directory. The root workspace no longer holds unit layers as members
+	@# (pnpm-workspace.yaml says why), so without this a unit's screen resolves
+	@# neither its test renderer nor its peers at all.
+	@#
+	@# No --frozen-lockfile: this lockfile is GENERATED, under ignored build
+	@# output, and regenerating it is the point. The root install above keeps
+	@# --frozen-lockfile, which is the property this whole change buys.
+	cd build/composition-frontend/workspace && pnpm install
+	cd frontend && pnpm build && \
 		MARGINCE_COMPOSITION_FRONTEND=../build/composition/frontend pnpm test:ext
 
 ## ds-purity — design-system token purity (no raw hex/rgb outside tokens.css).
@@ -427,8 +442,23 @@ fe-typecheck:
 ## about. Part of `make check-fe`, so the merge gate covers both lanes.
 fe-typecheck-composed: composition
 	@[ -f build/composition/frontend/extensions.gen.ts ] || { echo "fe-typecheck-composed: build/composition/frontend/extensions.gen.ts is missing after 'make composition' — the composed frontend lane has nothing to typecheck against" >&2; exit 1; }
+	@# The ROOT install first, and the order is load-bearing: the composed
+	@# workspace links react, react-dom, @tanstack/react-query and @types/react
+	@# out of frontend/node_modules so a unit cannot get a second copy of what
+	@# the host owns, and those link targets have to exist.
+	cd frontend && pnpm install --frozen-lockfile
+	@# Then the composed workspace, which is what resolves a unit's OWN
+	@# dependencies — its dev deps and its peers — from inside the unit's
+	@# directory. The root workspace no longer holds unit layers as members
+	@# (pnpm-workspace.yaml says why), so without this a unit's screen resolves
+	@# neither its test renderer nor its peers at all.
+	@#
+	@# No --frozen-lockfile: this lockfile is GENERATED, under ignored build
+	@# output, and regenerating it is the point. The root install above keeps
+	@# --frozen-lockfile, which is the property this whole change buys.
+	cd build/composition-frontend/workspace && pnpm install
 	@[ -f build/composition/api/crm.yaml ] || { echo "fe-typecheck-composed: build/composition/api/crm.yaml is missing after 'make composition' — the composed lane has no merged contract to type the client against" >&2; exit 1; }
-	cd frontend && pnpm install --frozen-lockfile && pnpm gen:composed-types
+	cd frontend && pnpm gen:composed-types
 	@[ -f build/composition-frontend/schema.d.ts ] || { echo "fe-typecheck-composed: pnpm gen:composed-types produced no schema.d.ts — the composed lane would silently typecheck against the committed contract" >&2; exit 1; }
 	cd frontend && pnpm exec tsc -p tsconfig.composed.json
 	# And the composed lane's TESTS, which no other project compiles: the app

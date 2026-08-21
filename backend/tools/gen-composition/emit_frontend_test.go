@@ -213,3 +213,126 @@ func TestStubMatchesVanillaRefusesAnEditToAnyStub(t *testing.T) {
 		}
 	})
 }
+
+// The composed frontend workspace is emitted, not tracked: it lives under the
+// gitignored build/ tree, so an installation staging a frontend-bearing unit
+// writes only there and never touches the tracked root lockfile.
+func TestEmitsAComposedFrontendWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	if err := emitComposedFrontendWorkspace(dir, []string{"notes", "relay-probe"}); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	for _, want := range []string{"package.json", "pnpm-workspace.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
+			t.Errorf("missing %s: %v", want, err)
+		}
+	}
+	ws, err := os.ReadFile(filepath.Join(dir, "pnpm-workspace.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unit := range []string{"notes", "relay-probe"} {
+		if !strings.Contains(string(ws), unit) {
+			t.Errorf("workspace does not name %s", unit)
+		}
+	}
+	// The host SPA must NOT be a member: pnpm installs beside each member, so a
+	// workspace naming ../../../frontend would write the same frontend/node_modules
+	// the root workspace owns and installs with --frozen-lockfile.
+	for _, line := range strings.Split(string(ws), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "- ") && strings.HasSuffix(strings.TrimSpace(line), "/frontend") &&
+			!strings.Contains(line, "/extensions/") {
+			t.Errorf("the host SPA is a member (%q) — its node_modules is the root workspace's to own", strings.TrimSpace(line))
+		}
+	}
+	// The emitted manifest must be PRIVATE and depend on nothing. It exists to
+	// be a workspace root, and a root with dependencies of its own would install
+	// a second copy of whatever the host already owns.
+	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pkg struct {
+		Private      bool              `json:"private"`
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		t.Fatalf("package.json does not parse: %v", err)
+	}
+	if !pkg.Private {
+		t.Error("package.json is not private — a composed workspace root is not a publishable artifact")
+	}
+	if len(pkg.Dependencies) != 0 {
+		t.Errorf("package.json declares %d dependencies — the root owns none", len(pkg.Dependencies))
+	}
+}
+
+// A member naming a directory that does not exist is a claim, and pnpm only
+// tolerates it by ignoring it. The caller passes frontend-bearing units only;
+// this holds the emitter to writing exactly what it was given.
+func TestTheWorkspaceNamesOnlyTheUnitsItWasGiven(t *testing.T) {
+	dir := t.TempDir()
+	if err := emitComposedFrontendWorkspace(dir, []string{"notes"}); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	ws, err := os.ReadFile(filepath.Join(dir, "pnpm-workspace.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var members int
+	for _, line := range strings.Split(string(ws), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "- ") {
+			members++
+		}
+	}
+	if members != 1 {
+		t.Errorf("workspace names %d members, want exactly the 1 it was given", members)
+	}
+}
+
+// The overrides must be in pnpm-workspace.yaml and NOT in the root package.json's
+// "pnpm" field: pnpm 11 stopped reading that field, so an override written there
+// is silently dropped and the install fails on a unit's workspace:* specifier.
+// This is the regression a laptop on pnpm 10 cannot see.
+func TestTheOverridesAreWhereBothPnpmVersionsReadThem(t *testing.T) {
+	dir := t.TempDir()
+	if err := emitComposedFrontendWorkspace(dir, []string{"notes"}); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	ws, err := os.ReadFile(filepath.Join(dir, "pnpm-workspace.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"overrides:", "@margince/frontend", "link:", "@types/react"} {
+		if !strings.Contains(string(ws), want) {
+			t.Errorf("pnpm-workspace.yaml does not carry %q — an override pnpm 11 can read", want)
+		}
+	}
+	pkg, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(pkg), `"overrides"`) {
+		t.Error("package.json declares overrides — pnpm 11 ignores that field, so they would silently not apply")
+	}
+}
+
+// A second emission must replace the member list rather than accumulate it: a
+// unit removed from extensions/ must leave the composed workspace, or the next
+// install resolves a member that is not there.
+func TestReEmittingTheWorkspaceReplacesTheMembers(t *testing.T) {
+	dir := t.TempDir()
+	if err := emitComposedFrontendWorkspace(dir, []string{"notes", "relay-probe"}); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	if err := emitComposedFrontendWorkspace(dir, []string{"notes"}); err != nil {
+		t.Fatalf("re-emit: %v", err)
+	}
+	ws, err := os.ReadFile(filepath.Join(dir, "pnpm-workspace.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(ws), "relay-probe") {
+		t.Error("a removed unit is still a member of the composed workspace")
+	}
+}

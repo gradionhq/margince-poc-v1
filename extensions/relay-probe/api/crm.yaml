@@ -1,0 +1,294 @@
+# SPDX-License-Identifier: BUSL-1.1
+# SPDX-FileCopyrightText: 2026 Gradion
+#
+# relay-probe's contract fragment. The FILENAME names the core contract it
+# extends (crm.yaml); gen-composition merges it into
+# build/composition/api/crm.yaml, and that merged file is what the operator
+# manifest, the client types, the mounted routes and the docs read. So this
+# document — not the Go — is where every operation's risk tier, Passport scope,
+# RBAC object, prose and I/O schemas are declared.
+#
+# THREE OPERATIONS, all about the CALLER's own connection. None of them takes a
+# user id, and that absence is the load-bearing part of this document: the
+# ingress port treats a deposited user-scoped credential as the member's consent
+# to be acted for, so an operation that let one member connect, inspect or
+# disconnect ANOTHER would forge that consent through this unit's own front
+# door. The member is taken from the invocation, exactly as captured_by is.
+#
+# One RBAC object, ext_relay_probe_connection, held by no seeded role: a
+# connection reaches into a member's messages, so granting it is a decision an
+# operator makes rather than one an install makes for them.
+overlay: 1.0.0
+info:
+  title: relay-probe
+  version: "1.0.0"
+actions:
+  - target: $.paths['/ext/relay-probe/connect']
+    update:
+      # PUT, because connecting the same account twice is the same connection:
+      # the row is upserted on (workspace, member) and the token replaced. A
+      # POST would publish "create another one" for an operation that cannot.
+      put:
+        operationId: relayProbeConnect
+        summary: Connect this member's Relay account and deposit their token.
+        tags: [Extensions]
+        x-rbac-object: ext_relay_probe_connection
+        # update rather than create: the operation is an upsert, and a grant
+        # that admitted only creation would refuse a member re-pasting a
+        # rotated token.
+        x-rbac-action: update
+        x-mcp-tool:
+          verb: relay_connect
+          version: 1.0.0
+          title: Connect a Relay account
+          # 🟢 write: it writes the unit's own connection row and seals a
+          # credential in the unit's own namespace. Nothing leaves the
+          # workspace, and the token is never returned by any operation.
+          tier: auto_execute
+          scope: write
+          description: >-
+            Connect the calling person's own Relay account so their directed
+            messages — direct messages, mentions and thread replies — land on
+            this CRM's timeline. It takes the deployment URL and a personal
+            access token from that person's Relay profile, and always connects
+            the account of whoever is calling: there is no way to connect
+            somebody else's. The token is sealed and no operation ever reads it
+            back. Connecting does not import message history; the first poll
+            brings in what has arrived recently and then keeps up.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [base_url, token]
+                # No user member, deliberately. See the header.
+                properties:
+                  base_url:
+                    type: string
+                    format: uri
+                    maxLength: 2048
+                    description: >-
+                      The Relay deployment this member's token authenticates
+                      against, e.g. https://workspace.example.com. It must be
+                      https and name a host rather than an address.
+                  token:
+                    type: string
+                    minLength: 1
+                    maxLength: 512
+                    description: >-
+                      The personal access token from that member's Relay
+                      profile. It is sealed by the installation's custodian and
+                      is never returned.
+        responses:
+          '200':
+            description: The stored connection.
+            content:
+              application/json:
+                schema:
+                  # Restated rather than $ref'd, and the same rule the sibling
+                  # unit's fragment records: a fragment is merged into the core
+                  # document, and this generator resolves no references — an
+                  # unresolved one would be advertised to a model as the shape.
+                  # Two copies to reconcile by hand is the cost; a unit writing
+                  # into the core's component space is what it buys out of.
+                  type: object
+                  additionalProperties: false
+                  required: [id, user_id, base_url, status, high_water_mark, version]
+                  description: >-
+                    One member's Relay connection: where their account is, how far the
+                    poll has read, and whether it still works. It carries no token — the
+                    credential is sealed in the unit's secret namespace and no operation
+                    returns it.
+                  properties:
+                    id: { type: string, format: uuid }
+                    user_id:
+                      type: string
+                      format: uuid
+                      description: >-
+                        The member whose account this is, and whose live authority every
+                        record landed from it runs under.
+                    base_url: { type: string, format: uri }
+                    status:
+                      type: string
+                      enum: [connected, reauth_required]
+                      description: >-
+                        `connected` is working; `reauth_required` means the provider
+                        rejected the token, so the poll has parked rather than retrying a
+                        credential that will not start working on its own.
+                    account_label:
+                      type: string
+                      description: What the provider says this account is called.
+                    provider_workspace_id:
+                      type: string
+                      description: The Relay workspace the connected inbox belongs to.
+                    high_water_mark:
+                      type: integer
+                      format: int64
+                      description: >-
+                        The newest notification this connection has decided about —
+                        landed, skipped or filtered alike.
+                    backfill_before:
+                      type: integer
+                      format: int64
+                      description: >-
+                        Where a poll that ran out of page budget stopped, and where the
+                        next one resumes. Zero means there is no gap. While it is set the
+                        watermark deliberately does not move.
+                    last_polled_at: { type: string, format: date-time }
+                    last_error_class:
+                      type: string
+                      description: >-
+                        What went wrong on the last poll, in this unit's own vocabulary
+                        (`token_rejected`, `provider_unavailable`, …). The provider's own
+                        message is deliberately not carried.
+                    version: { type: integer }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+          # Declared because this operation genuinely answers it: a base URL
+          # that is not https, names an address rather than a host, or carries
+          # credentials is refused before any request is made with the token,
+          # and so is an empty or oversized one. `extension.ErrInvalid` is what
+          # the unit raises and 422 is what the seam maps it to.
+          '422': { $ref: '#/components/responses/ValidationError' }
+
+  - target: $.paths['/ext/relay-probe/status']
+    update:
+      # GET, and it takes no arguments at all: the connection it reports is the
+      # caller's own, so there is nothing to name.
+      get:
+        operationId: relayProbeStatus
+        summary: Report the calling member's own Relay connection.
+        tags: [Extensions]
+        x-rbac-object: ext_relay_probe_connection
+        x-rbac-action: read
+        x-mcp-tool:
+          verb: relay_status
+          version: 1.0.0
+          title: Relay connection status
+          # 🟢 read: it reads one row of the unit's own table and changes
+          # nothing.
+          tier: auto_execute
+          scope: read
+          description: >-
+            Report whether the calling person has connected their Relay
+            account, and what the scheduled poll last did with it: how far
+            through their inbox it has read, when it last ran, and whether their
+            token still works. It reports that person's own connection only, and
+            never returns the token.
+        responses:
+          '200':
+            description: The caller's connection, or the absence of one.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [connected]
+                  properties:
+                    connected:
+                      type: boolean
+                      description: >-
+                        Whether this member has a connected account. False is
+                        the ordinary state before anyone connects, not an error.
+                    connection:
+                      # The same connection object the connect operation
+                      # returns, member for member. See the note there.
+                      type: object
+                      additionalProperties: false
+                      required: [id, user_id, base_url, status, high_water_mark, version]
+                      description: >-
+                        One member's Relay connection: where their account is, how far the
+                        poll has read, and whether it still works. It carries no token — the
+                        credential is sealed in the unit's secret namespace and no operation
+                        returns it.
+                      properties:
+                        id: { type: string, format: uuid }
+                        user_id:
+                          type: string
+                          format: uuid
+                          description: >-
+                            The member whose account this is, and whose live authority every
+                            record landed from it runs under.
+                        base_url: { type: string, format: uri }
+                        status:
+                          type: string
+                          enum: [connected, reauth_required]
+                          description: >-
+                            `connected` is working; `reauth_required` means the provider
+                            rejected the token, so the poll has parked rather than retrying a
+                            credential that will not start working on its own.
+                        account_label:
+                          type: string
+                          description: What the provider says this account is called.
+                        provider_workspace_id:
+                          type: string
+                          description: The Relay workspace the connected inbox belongs to.
+                        high_water_mark:
+                          type: integer
+                          format: int64
+                          description: >-
+                            The newest notification this connection has decided about —
+                            landed, skipped or filtered alike.
+                        backfill_before:
+                          type: integer
+                          format: int64
+                          description: >-
+                            Where a poll that ran out of page budget stopped, and where the
+                            next one resumes. Zero means there is no gap. While it is set the
+                            watermark deliberately does not move.
+                        last_polled_at: { type: string, format: date-time }
+                        last_error_class:
+                          type: string
+                          description: >-
+                            What went wrong on the last poll, in this unit's own vocabulary
+                            (`token_rejected`, `provider_unavailable`, …). The provider's own
+                            message is deliberately not carried.
+                        version: { type: integer }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/relay-probe/disconnect']
+    update:
+      # DELETE: it removes the connection and the deposited credential. Both
+      # together — a row that stayed behind would be a connection the poll
+      # skips and the port would still accept records for, because what the
+      # port reads as consent is the credential rather than this table.
+      delete:
+        operationId: relayProbeDisconnect
+        summary: Disconnect the calling member's Relay account.
+        tags: [Extensions]
+        x-rbac-object: ext_relay_probe_connection
+        x-rbac-action: delete
+        x-mcp-tool:
+          verb: relay_disconnect
+          version: 1.0.0
+          title: Disconnect a Relay account
+          # 🟢 write: it deletes the unit's own row and the sealed credential
+          # beside it. What was already captured stays — those activities are
+          # the CRM's record of interactions that happened.
+          tier: auto_execute
+          scope: write
+          description: >-
+            Stop polling the calling person's Relay account and delete the
+            token they deposited. It disconnects that person's own account only.
+            Messages already captured stay on the timeline — they are the
+            record of interactions that happened, not a copy of the inbox.
+        responses:
+          '200':
+            description: Whether a connection was removed.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [disconnected]
+                  properties:
+                    disconnected:
+                      type: boolean
+                      description: >-
+                        True when a connection was removed. False means there
+                        was none, which is not an error.
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
