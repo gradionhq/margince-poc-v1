@@ -247,9 +247,10 @@ function stateBadge(state: ConnectionState, t: Translate): ReactNode {
  * grant even when the passport it names is already dead). A revoked row offers
  * nothing, because there is nothing left to end.
  *
- * Both verbs take the ellipsis form while the confirm's own button keeps the
- * plain one: two buttons reading "Disconnect" one dialog apart are ambiguous
- * for a reader and for a name-based query.
+ * Each verb names the CLIENT it would end, via `aria-label`, because the
+ * confirm inside the dialog it opens is named for the act alone: two buttons
+ * reading "Disconnect" one dialog apart are ambiguous for a reader and for a
+ * name-based query, and only a distinct name separates them.
  */
 function endVerb(
   passport: Connection,

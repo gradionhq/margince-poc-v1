@@ -351,13 +351,14 @@ describe("ConnectedAgentsCard", () => {
     render(<ConnectedAgentsCard />);
     await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
 
-    // The row's verb takes the ellipsis form; the confirm's own button keeps
-    // the plain one. Two buttons reading "Disconnect" one dialog apart are
-    // ambiguous for a reader and for a name-based query.
+    // The row's verb names the client it would disconnect; the confirm inside
+    // the dialog names the act alone. Two buttons reading "Disconnect" one
+    // dialog apart are ambiguous for a reader and for a name-based query, so
+    // the query below is the one that proves they are still separable.
     const opener = screen.getByRole("button", {
       name: "Disconnect Claude Code",
     });
-    expect(opener.textContent).toBe("Disconnect…");
+    expect(opener.textContent).toBe("Disconnect");
     await userEvent.click(opener);
     expect(screen.getByText(/ends the whole connection/)).toBeTruthy();
     const dialog = screen.getByRole("dialog");

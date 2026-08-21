@@ -12,9 +12,9 @@ import { ChangePasswordCard } from "./passwordcard";
 // out. Both are cheaper to hold here than to discover in the product.
 //
 // The three fields live in a dialog the row's verb opens, so every case here
-// opens it first — and the row's verb carries the ellipsis form of the label
-// while the dialog's submit carries the plain one, which is what keeps two
-// buttons that say the same thing tellable apart.
+// opens it first — and the two buttons are named for what each one does, the
+// row's for opening the form and the dialog's for saving what was typed into
+// it, which is what keeps them tellable apart while both are mounted.
 
 function renderCard() {
   const client = new QueryClient({
@@ -30,14 +30,14 @@ function renderCard() {
 }
 
 const submitButton = () =>
-  screen.getByRole("button", { name: /^change password$/i });
+  screen.getByRole("button", { name: /^save new password$/i });
 
 // The dialog, opened. Every case needs it, and `userEvent.setup()` is called
 // once per test by the caller rather than here: one instance carries the shared
 // input-device state, and a second one forgets which keys the first left held.
 async function openForm(user: ReturnType<typeof userEvent.setup>) {
   renderCard();
-  await user.click(screen.getByRole("button", { name: /change password…/i }));
+  await user.click(screen.getByRole("button", { name: /^change password$/i }));
   return screen.getByRole("dialog");
 }
 
@@ -199,7 +199,9 @@ describe("ChangePasswordCard", () => {
     await fill("a fine new password");
     await screen.findByRole("status");
 
-    await user.click(screen.getByRole("button", { name: /change password…/i }));
+    await user.click(
+      screen.getByRole("button", { name: /^change password$/i }),
+    );
     await fill("another fine password");
     await screen.findByRole("alert");
     expect(screen.queryByRole("status")).toBeNull();

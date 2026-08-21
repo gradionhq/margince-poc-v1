@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHash, routeHash } from "./router";
+import { parseHash, routeHash, routeIdentity } from "./router";
 
 // The hash router's parse/serialize round-trip, pinned so a 3rd path segment
 // (the share screen's #/share/<type>/<id>) can be added without silently
@@ -88,5 +88,87 @@ describe("routeHash", () => {
   it("round-trips share hashes through parse and back", () => {
     const hash = "#/share/organization/o-1";
     expect(routeHash(parseHash(hash))).toBe(hash);
+  });
+});
+
+// What a screen's subtree is keyed on (App.tsx), so these are the claims that
+// decide whether a navigation is a remount or a re-render.
+describe("routeIdentity", () => {
+  it("drops the person page's tab: six tabs, one identity", () => {
+    const overview = routeIdentity({
+      screen: "contacts",
+      id: "p-1",
+      id2: "overview",
+    });
+    expect(overview).toBe("#/contacts/p-1");
+    for (const tab of [
+      "timeline",
+      "deals",
+      "meetings",
+      "research",
+      "documents",
+    ]) {
+      expect(routeIdentity({ screen: "contacts", id: "p-1", id2: tab })).toBe(
+        overview,
+      );
+    }
+  });
+
+  it("keeps the person apart from the next person", () => {
+    expect(
+      routeIdentity({ screen: "contacts", id: "p-1", id2: "deals" }),
+    ).not.toBe(routeIdentity({ screen: "contacts", id: "p-2", id2: "deals" }));
+  });
+
+  it("keeps the contacts list apart from a person on it", () => {
+    expect(routeIdentity({ screen: "contacts" })).toBe("#/contacts");
+    expect(routeIdentity({ screen: "contacts", id: "p-1" })).toBe(
+      "#/contacts/p-1",
+    );
+  });
+
+  // Every other screen's segments name the thing, not a view of it, so its
+  // identity is the address it already had. Settings is the one worth stating:
+  // its sidebar looks like a tab strip and is not one — each entry is a page,
+  // and the admin half lives a segment deeper.
+  it("leaves a settings address whole, admin half included", () => {
+    expect(routeIdentity({ screen: "settings", id: "profile" })).toBe(
+      "#/settings/profile",
+    );
+    expect(
+      routeIdentity({ screen: "settings", id: "admin", id2: "users" }),
+    ).toBe("#/settings/admin/users");
+  });
+
+  it("leaves both of a share address's record segments in", () => {
+    expect(routeIdentity({ screen: "share", id: "deal", id2: "d-1" })).toBe(
+      "#/share/deal/d-1",
+    );
+  });
+
+  it("leaves a four-segment flow address whole", () => {
+    expect(
+      routeIdentity({
+        screen: "onboarding",
+        id: "connect",
+        id2: "ok",
+        id3: "graph",
+      }),
+    ).toBe("#/onboarding/connect/ok/graph");
+  });
+
+  // The identity is an address the router can read back, not a private
+  // encoding: whatever it returns has to parse to the screen it names, or the
+  // key and the view could disagree about what is on screen.
+  it("returns an address that parses back to the same screen", () => {
+    for (const hash of [
+      "#/contacts/p-1/deals",
+      "#/settings/admin/users",
+      "#/share/deal/d-1",
+      "#/home",
+    ]) {
+      const route = parseHash(hash);
+      expect(parseHash(routeIdentity(route)).screen).toBe(route.screen);
+    }
   });
 });

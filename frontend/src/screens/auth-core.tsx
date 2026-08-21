@@ -1,10 +1,4 @@
-import {
-  BookOpenText,
-  Check,
-  LockKeyhole,
-  PenLine,
-  ShieldCheck,
-} from "lucide-react";
+import { Check, ShieldCheck } from "lucide-react";
 import { type ReactNode, useId } from "react";
 import type { components } from "../api/schema";
 import { ThemeToggle } from "../app/theme-toggle";
@@ -195,27 +189,29 @@ function LegalFooter() {
 }
 
 /**
- * The identity region (ADR-0076 Decision 2).
+ * The identity region: the system introducing itself, in its own voice.
  *
- * Everything here is one of exactly four kinds of sentence, and the list is
- * closed: the system's presence and name, a limit on its own behaviour in the
- * first person, a server-read fact about this installation, nothing else. The
- * test is one line — *a sentence that would still be true and still desirable on
- * a marketing page is out of bounds*.
+ * ORDER, top to bottom, and every row of it is load-bearing: the Core, the
+ * disclosure, the greeting, what the system is for, what it does, the one
+ * promise, the handover, then the server-read runtime line. The Core leads
+ * because it is the thing that is PRESENT; the copy explains what is present. An
+ * earlier order opened with a sentence and buried the Core in the middle, which
+ * is a paragraph with an illustration rather than a system introducing itself.
  *
- * The four limits are the VOICE-RULE-6 register: architectural guarantees the
- * system enforces, stated absolutely. They are not bullets selling a feature,
- * which is the distinction the July login spec collapsed and ADR-0076 restored.
+ * The five copy rows are ONE paragraph somebody is saying, not a list of claims,
+ * so they are read in sequence or not at all — the greeting means nothing after
+ * the promise. That is why they are five sibling paragraphs in a fixed order
+ * rather than a collection something could reorder or filter.
  *
- * ORDER, top to bottom, and it is the artifact's: the Core, then the system's
- * name, then what it says about itself, then the scope of that, then the limits,
- * then the server-read runtime line. The Core leads because it is the thing that
- * is PRESENT; the copy explains what is present. The previous order opened with
- * the sentence and buried the Core in the middle, which is a paragraph with an
- * illustration rather than a system introducing itself.
+ * Two bounds this region used to hold and deliberately no longer does: it
+ * admitted only limits on the system's own behaviour plus server-read facts
+ * about the installation, so there was no greeting; and it carried no copy the
+ * task depended on, so there was no handover. The handover line's whole job is
+ * to point at the form in the other half of the screen, which is why it is the
+ * last thing said.
  *
- * NO CONTROLS AND NO COPY THE TASK DEPENDS ON. That is what stops this region
- * competing with the form, and it is structural rather than a matter of taste.
+ * STILL NO CONTROLS. That is what keeps the region from competing with the form,
+ * and it is structural rather than a matter of taste.
  */
 export function IdentityRegion({
   profile,
@@ -245,23 +241,30 @@ export function IdentityRegion({
             {t("auth.coreDisclosure")}
           </p>
 
-          <TypedStatement text={t("auth.coreBoundary")} />
+          {/* The greeting is what gets typed, and it is the only row that does:
+              a system saying its own name as it arrives is what the motion is
+              ABOUT. Everything under it fades up complete, so a reader who looks
+              down mid-reveal finds finished sentences rather than four
+              paragraphs assembling themselves. */}
+          <TypedStatement text={t("auth.coreGreeting")} />
 
-          <p className="auth-scope">{t("auth.coreScope")}</p>
+          <p className="auth-purpose">{t("auth.corePurpose")}</p>
 
-          {/* Four, from the artifact's five, and two of the five did not travel.
-              "Enriches records from sources it names" is a capability claim and
-              Decision 2 admits only limits. "Switch it off, the CRM still works"
-              IS a limit, but it is already the second half of the runtime line
-              below when the AI is unconfigured, and that is where it belongs: it
-              is a server-read fact about this installation, not a standing
-              promise. Saying it twice on one screen weakens both. */}
-          <ul className="auth-limits">
-            <Limit icon={<LockKeyhole />} text={t("auth.corePermission")} />
-            <Limit icon={<BookOpenText />} text={t("auth.coreCites")} />
-            <Limit icon={<ShieldCheck />} text={t("auth.coreWaits")} />
-            <Limit icon={<PenLine />} text={t("auth.coreMarks")} />
-          </ul>
+          <p className="auth-scope">{t("auth.coreWork")}</p>
+
+          {/* The badge marks the promise as the one absolute on this screen, and
+              it is the treatment the region's older list of limits carried,
+              because this sentence is that same register. A paragraph rather
+              than a one-item list: a <ul> of one tells a screen reader there is
+              a list to walk when there is a sentence to read. */}
+          <p className="auth-promise">
+            <span className="auth-promise-icon" aria-hidden>
+              <ShieldCheck />
+            </span>
+            {t("auth.corePromise")}
+          </p>
+
+          <p className="auth-handover">{t("auth.coreHandover")}</p>
         </div>
 
         {/* Absent rather than guessed: a runtime line the frontend invented is
@@ -361,16 +364,5 @@ function RuntimePosture({ profile }: Readonly<{ profile: AssistantProfile }>) {
           .join(" · ")}
       </span>
     </div>
-  );
-}
-
-function Limit({ icon, text }: Readonly<{ icon: ReactNode; text: string }>) {
-  return (
-    <li>
-      <span className="auth-limit-icon" aria-hidden>
-        {icon}
-      </span>
-      {text}
-    </li>
   );
 }

@@ -527,6 +527,13 @@
      reach past the sphere, and they belong to this side of the rule. */
   border-right: 1px solid var(--borderSubtle);
   overflow: hidden;
+  /* `overflow: hidden` makes this a scroll container, and a scroll container's
+     automatic minimum size is ZERO — so the surface's auto grid row stopped
+     asking for the height the words need and clipped whatever did not fit in
+     what was left. `min-height: min-content` gives the row its content back, and
+     the surface scrolls instead, which is the rule this file opens with: the
+     identity region shows ALL of itself or none of it. */
+  min-height: min-content;
   min-width: 0;
   display: grid;
   /* Two `auto` rows — the Core, then the region — CENTRED as one cluster, not
@@ -628,16 +635,18 @@
 }
 /* The staggered reveal (motion budget, ADR-0076 Decision 5).
    Each row is COMPLETE TEXT fading up, not text being assembled: only the
-   statement is typed, and everything else must already be readable. 130 ms
-   between rows, so the eye gets an order to read in rather than five things
+   greeting is typed, and everything else must already be readable. 110 ms
+   between rows, so the eye gets an order to read in rather than seven things
    arriving at once — at 80 ms the stagger was there in the code and invisible on
-   the screen, which is the worst of both. The last row lands at 520 + 700 =
-   1220 ms, and the sequence is paced to finish under the typed statement rather
-   than racing it. */
+   the screen, which is the worst of both, and at the 130 ms two rows fewer could
+   carry, seven rows outlast the sentence they belong to. The last row lands at
+   660 + 700 = 1360 ms, inside the same budget the typed greeting spends. */
 .auth-kicker,
 .auth-statement,
+.auth-purpose,
 .auth-scope,
-.auth-limits,
+.auth-promise,
+.auth-handover,
 .auth-identity-foot {
   animation: auth-rise 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
@@ -645,16 +654,22 @@
   animation-delay: 0ms;
 }
 .auth-statement {
-  animation-delay: 130ms;
+  animation-delay: 110ms;
+}
+.auth-purpose {
+  animation-delay: 220ms;
 }
 .auth-scope {
-  animation-delay: 260ms;
+  animation-delay: 330ms;
 }
-.auth-limits {
-  animation-delay: 390ms;
+.auth-promise {
+  animation-delay: 440ms;
+}
+.auth-handover {
+  animation-delay: 550ms;
 }
 .auth-identity-foot {
-  animation-delay: 520ms;
+  animation-delay: 660ms;
 }
 /* (a) identity: the system's presence and name. Mono, small, unmissable — and
    words only. The status dot that used to lead this line said nothing the line
@@ -668,8 +683,9 @@
   text-transform: uppercase;
   color: var(--accent);
 }
-/* (b) the boundary, in the first person. Not a heading — the h1 belongs to the
-   task (§6.4), and this is a paragraph however large it is set. */
+/* (b) the greeting, in the first person: the system saying its own name. Not a
+   heading — the h1 belongs to the task (§6.4), and this is a paragraph however
+   large it is set. */
 .auth-statement {
   position: relative;
   /* Tight to the kicker above it: the two are one unit — who is speaking, and
@@ -712,9 +728,22 @@
     opacity: 0;
   }
 }
-/* The scope of that context, and the reason it is a separate line rather than a
-   second clause: the statement says what has to happen first, this says what the
-   context IS. Bounded on purpose ("nothing else") so it stays a limit. */
+/* The purpose line: what the greeting is a preamble to, and the sentence a
+   reader who reads exactly one line here should get. Set above body size and
+   tight under the greeting, because the two are one thought. */
+.auth-purpose {
+  margin-top: var(--space-3);
+  max-width: 36ch;
+  font-family: var(--f-display);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--textPrimary);
+  text-wrap: pretty;
+}
+/* What the work actually is, in body copy: three clauses a reader can skim. It
+   is a separate line rather than a second clause of the purpose because the
+   purpose is the claim and this is the evidence for it. */
 .auth-scope {
   margin-top: var(--space-3);
   max-width: 42ch;
@@ -762,60 +791,65 @@
   height: 12px;
   color: var(--online);
 }
-/* Two columns at width, one column when there is no room — never three of four,
-   which is what hiding them would be.
+/* The promise, and the margin is the boundary between two REGISTERS rather than
+   decoration: everything above is the system describing itself, and this is the
+   one thing it guarantees. Sitting it tight under the line above made it read as
+   that paragraph's last clause.
 
-   The margin is the boundary between two REGISTERS, not decoration: everything
-   above is prose the system says about itself, and the limits are an enumerated
-   list. Sitting them tight under the scope line made the first limit read as the
-   paragraph's last clause. */
-.auth-limits {
-  list-style: none;
-  margin-top: var(--space-6);
-  /* A wrapping ROW, not a grid of tracks. A grid gives every limit the width of
-     the longest one and leaves the short ones trailing air; flowing them lets each
-     take the room its own words need and wrap onto the next line when they run
-     out — which is also what keeps German, 20-35% longer than English, from being
-     clipped by the column's `overflow: hidden` instead of wrapping. */
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-2);
-}
-.auth-limits li {
-  min-width: 0;
+   A flex ROW, so the badge and the sentence are one object and the sentence
+   wraps beside the badge instead of under it — which is what keeps German,
+   20-35% longer than English, readable in the same column. */
+.auth-promise {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+  /* Centred as a BOX with its sentence set left, not centred line by line: the
+     badge sits at the start of the row, and centred lines beside it read as a
+     caption that lost its picture. */
+  max-width: 42ch;
+  margin-inline: auto;
   font-size: 12px;
   line-height: 1.4;
   color: var(--textContent);
+  text-align: left;
+  text-wrap: pretty;
+}
+/* The handover, and the last thing the region says. Quieter than the promise
+   above it on purpose: it is not a claim about the system, it is the sentence
+   that gives the screen back to the reader and points at the form. */
+.auth-handover {
+  margin-top: var(--space-4);
+  font-size: 14px;
+  line-height: 1.5;
+  /* Quieter than the sentences above, but still body-weight text: it is the one
+     line on this half of the screen that asks the reader to do something, and
+     meta grey put it below the runtime line it sits above. */
+  color: var(--textContent);
 }
 /*
- * The badge is centred on its limit by the ROW (`.auth-limits li` aligns its items
- * centre), so it carries no offset of its own. It used to: the row was top-aligned
- * and the badge shifted down by half the difference between the line box and
- * itself, to sit on the first line of a wrapping limit. Both mechanisms at once is
- * a badge centred and then pushed off centre.
+ * The badge is centred on its sentence by the ROW (`.auth-promise` aligns its
+ * items centre), so it carries no offset of its own: a badge the row centres and
+ * the badge then nudges is centred twice, which lands it off centre.
  *
- * What that costs, stated: a limit long enough to wrap gets its badge beside the
- * MIDDLE of the paragraph rather than beside its first line. The limits are short
- * by design — one clause each — and they flow as a wrapping row now rather than
- * being squeezed into fixed columns, so a wrapped one is the exception; if a
- * translation makes it the rule, the row is what changes, in one place.
+ * What that costs, stated: a sentence long enough to wrap gets its badge beside
+ * the MIDDLE of the paragraph rather than beside its first line. Two lines is the
+ * shape this is tuned for; a translation that needs three is what would change
+ * the row, in one place.
  */
-.auth-limit-icon {
-  --limitIcon: 22px;
+.auth-promise-icon {
+  --promiseIcon: 22px;
   flex: none;
   display: grid;
   place-items: center;
-  width: var(--limitIcon);
-  height: var(--limitIcon);
+  width: var(--promiseIcon);
+  height: var(--promiseIcon);
   border-radius: var(--r-sm);
   color: var(--accent);
   background: var(--accentSurface);
 }
-.auth-limit-icon svg {
+.auth-promise-icon svg {
   width: 12px;
   height: 12px;
 }
@@ -926,15 +960,15 @@
   .auth-statement {
     font-size: 23px;
   }
-  .auth-limits {
-    /* minmax(0, …) already lets these tracks shrink, so the stacked layout never
-       clipped — but it shrinks them to unreadable rather than collapsing, so it
-       gets the same auto-fit treatment for the same reason. */
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
-    gap: var(--space-3) var(--space-4);
+  .auth-promise {
     /* Tighter than the wide layout's: the same 24px that separates two registers
        in a tall column is a hole in a stacked one. */
     margin-top: var(--space-4);
+    /* Beside the badge rather than centred under it: the stacked column reads
+       top-down as one narrow measure, and a centred short line in it reads as a
+       caption for the paragraph above. */
+    justify-content: start;
+    text-align: left;
   }
 }
 
@@ -1021,8 +1055,10 @@
   .auth-task-in,
   .auth-kicker,
   .auth-statement,
+  .auth-purpose,
   .auth-scope,
-  .auth-limits,
+  .auth-promise,
+  .auth-handover,
   .auth-identity-foot
 ) {
   animation: none;
@@ -1034,8 +1070,10 @@
   .auth-task-in,
   .auth-kicker,
   .auth-statement,
+  .auth-purpose,
   .auth-scope,
-  .auth-limits,
+  .auth-promise,
+  .auth-handover,
   .auth-identity-foot {
     animation: none;
   }
@@ -1050,7 +1088,7 @@
 @media (forced-colors: active) {
   .auth-identity,
   .auth-runtime-state,
-  .auth-limit-icon {
+  .auth-promise-icon {
     forced-color-adjust: auto;
   }
 }

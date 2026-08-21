@@ -105,10 +105,10 @@ export function VoiceCorpusIntake({
           description={t("settings.voice.dropHint")}
           control={
             <>
-              {/* The ellipsis form, because it opens a dialog rather than
-                  performing the add; the button inside that dialog keeps the
-                  plain verb. Two controls reading the same is ambiguous for a
-                  reader and for getByRole. */}
+              {/* Named for what it does — it opens the paste form rather than
+                  performing the add, and the button inside that form is named
+                  for the add itself. Two controls reading the same is ambiguous
+                  for a reader and for getByRole. */}
               <Button
                 small
                 variant={first ? "primary" : undefined}

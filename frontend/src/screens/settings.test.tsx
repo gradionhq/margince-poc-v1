@@ -89,10 +89,10 @@ describe("SettingsScreen RBAC surfaces", () => {
     // The identity block, and the three verbs/answers that belong to it.
     expect(within(card).getByText("ada@acme.test")).toBeTruthy();
     expect(
-      within(card).getByRole("button", { name: "Change password…" }),
+      within(card).getByRole("button", { name: "Change password" }),
     ).toBeTruthy();
     expect(
-      within(card).getByRole("button", { name: "Edit signature…" }),
+      within(card).getByRole("button", { name: "Edit signature" }),
     ).toBeTruthy();
     expect(
       within(card).getByRole("combobox", { name: "Language" }),

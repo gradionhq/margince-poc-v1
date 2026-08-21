@@ -253,9 +253,9 @@ function InviteAction({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
 
   return (
     <>
-      {/* The ellipsis form, because it opens a dialog rather than inviting
-          anybody: the dialog's own submit reads "Invite", and two buttons with
-          one name are ambiguous for a reader and for `getByRole`. */}
+      {/* Named for what it opens, not for what it does: this button invites
+          nobody, and the dialog's own submit reads "Invite". Two buttons with
+          one name are ambiguous for a reader and for `getByRole` alike. */}
       <Button small onClick={() => setOpen(true)}>
         {t("users.inviteOpen")}
       </Button>

@@ -23,7 +23,13 @@ import {
   usePaletteHotkey,
 } from "./app/palette";
 import { SPA_RELEASE } from "./app/release";
-import { navigate, parseHash, routeHash, type Screen } from "./app/router";
+import {
+  navigate,
+  parseHash,
+  routeHash,
+  routeIdentity,
+  type Screen,
+} from "./app/router";
 import { Shell, type ShellCounts, useRoute } from "./app/shell";
 import { UnsavedGuard } from "./app/unsaved";
 import {
@@ -466,6 +472,11 @@ const screenOfAddress = (address: string) => {
   return SCREEN_VIEWS[route.screen](route);
 };
 
+// What the held address is ABOUT, which is what the screen below is keyed on.
+// Parsed from the same string for the same reason as the view above it.
+const identityOfAddress = (address: string) =>
+  routeIdentity(parseHash(address));
+
 function ScreenView({
   screen,
   id,
@@ -494,17 +505,30 @@ function ScreenView({
   // it into the retry card instead of a blank frame.
   return (
     <Suspense fallback={<ScreenPending />}>
-      {/* Keyed by the whole shown route, which makes an address change a
-          REMOUNT rather than a re-render. Two reasons, and the second is the
-          load-bearing one. A screen carries state about the record it was
-          opened for — an expanded section, a half-typed note, a scroll
-          position — and reconciling one record's screen into another's keeps
-          all of it, which is how a note began on person A ends up on the form
-          for person B. And an arrival animation (design-system/enter.css)
-          plays when a block is INSERTED: without a key the DOM nodes are
-          reused, so walking from one record to the next would be the one
-          navigation in the product where the page changes with no motion at
-          all.
+      {/* Keyed by what the address is ABOUT (app/router.tsx's routeIdentity),
+          which makes moving to another THING a REMOUNT rather than a
+          re-render. Two reasons, and the second is the load-bearing one. A
+          screen carries state about the record it was opened for — an expanded
+          section, a half-typed note, a scroll position — and reconciling one
+          record's screen into another's keeps all of it, which is how a note
+          begun on person A ends up on the form for person B. And an arrival
+          animation (design-system/enter.css) plays when a block is INSERTED:
+          without a key the DOM nodes are reused, so walking from one record to
+          the next would be the one navigation in the product where the page
+          changes with no motion at all.
+
+          The identity, NOT the whole address, and that distinction is the
+          difference between a tab and a destination. A tab segment names a view
+          of the thing already on screen, so remounting on it threw away a page
+          the reader had not left: the header, the readings, the rail and the tab
+          strip they had just clicked all re-animated, and every query on the
+          page re-observed and refetched.
+
+          Two things deliberately still key on the WHOLE address. The guard below
+          does, because a half-typed note is worth asking about however small the
+          move is; and the shell's scroll reset does, because a panel swapped
+          under a reader who had scrolled past the tab strip should still open at
+          its top.
 
           A Fragment rather than a wrapper element: the key belongs to the
           subtree, and the shell's content column must keep the screen's own
@@ -524,7 +548,11 @@ function ScreenView({
           the reader, and the failure mode of getting that wrong is broken
           navigation for everybody. */}
       <UnsavedGuard address={shownAddress} onKeep={navigateToAddress}>
-        {(held) => <Fragment key={held}>{screenOfAddress(held)}</Fragment>}
+        {(held) => (
+          <Fragment key={identityOfAddress(held)}>
+            {screenOfAddress(held)}
+          </Fragment>
+        )}
       </UnsavedGuard>
     </Suspense>
   );

@@ -538,8 +538,8 @@ export const en = {
   "overlay.userMap.you": "You",
   "overlay.userMap.matchEmail": "Matched by email",
   "overlay.userMap.matchManual": "Manual override",
-  "overlay.userMap.map": "Map…",
-  "overlay.userMap.change": "Change…",
+  "overlay.userMap.map": "Map",
+  "overlay.userMap.change": "Change",
   "overlay.userMap.unmap": "Unmap",
   "overlay.userMap.cancel": "Cancel",
   "overlay.userMap.pickerLabel": "Search {principal} users",
@@ -2230,7 +2230,7 @@ export const en = {
   "settings.signatureHint":
     "Plain text. Leave it empty to send unsigned. The AI never writes a sign-off — this is the one that goes out.",
   "settings.signatureSaving": "Saving…",
-  "settings.signatureEdit": "Edit signature…",
+  "settings.signatureEdit": "Edit signature",
   "settings.signatureNone": "No sign-off set",
   "settings.signatureCancel": "Cancel",
   "settings.languageHelp": "Lasts for this session.",
@@ -2298,14 +2298,14 @@ export const en = {
   "agents.connectedOn": "connected {date}",
   "agents.lentFrom": "lent from “{label}”",
   "agents.disconnect": "Disconnect",
-  "agents.disconnectOpen": "Disconnect…",
+  "agents.disconnectOpen": "Disconnect",
   "agents.disconnectNamed": "Disconnect {client}",
   "agents.disconnected": "disconnected",
   "agents.lapsed": "credential expired",
   "agents.renewing": "renewing",
   "agents.renewsBy": "credential renews by {date}",
   "agents.expiredOn": "credential expired {date}",
-  "agents.revokeGrantOpen": "End connection…",
+  "agents.revokeGrantOpen": "End connection",
   "agents.revokeGrantNamed": "End the connection to {client}",
   "agents.disconnectConfirm":
     "This ends the whole connection, not just one credential: the agent loses access on its next call and cannot renew. Reconnecting means lending a passport again.",
@@ -2406,9 +2406,9 @@ export const en = {
     "Non-production only — irreversible on this installation.",
   "settings.resetDataDesc":
     "Reset this installation to its first-boot state. Domain and configuration data is wiped; the organization and its users are preserved and stay signed in.",
-  "settings.resetDataButton": "Reset data…",
+  "settings.resetDataButton": "Reset data",
   "settings.resetDataLabel": "Reset all data",
-  "settings.resetDataConfirmButton": "Reset data",
+  "settings.resetDataConfirmButton": "Reset everything",
   "settings.resetDataConfirmTitle": "Reset all data?",
   "settings.resetDataConfirmBody":
     "Type your organization's name to confirm. This cannot be undone.",
@@ -2646,7 +2646,7 @@ export const en = {
   "stage.semOpen": "Open",
   "stage.semWon": "Won",
   "stage.semLost": "Lost",
-  "stage.remove": "Remove…",
+  "stage.remove": "Remove",
   "stage.removeConfirm": "Remove stage",
   "stage.removeTitle": "Remove this stage?",
   "stage.removeBody":
@@ -3084,8 +3084,9 @@ export const en = {
 
   // The "Add a connection" affordance (Task 1): one verb in the card's header
   // opens a dialog listing the providers still addable, each with the sentence
-  // it needs. `addOpen` takes the ellipsis form so the header verb and the
-  // dialog's own picks never read as the same button.
+  // it needs. `addOpen` names the act of OPENING that list, and the picks inside
+  // it name the act of connecting — so no two buttons on the surface read the
+  // same while both are on screen.
   "connectors.addConnection": "Add a connection",
   "connectors.addOpen": "Connect an account",
   "connectors.connect": "Connect",
@@ -3160,8 +3161,8 @@ export const en = {
   "consumerMail.kind.extra": "Consumer mail — never a company",
   "consumerMail.kind.never": "A real company — ignore the shipped list",
   "consumerMail.add": "Add",
-  // The header verb, in the ellipsis form: the dialog it opens keeps the plain
-  // one, so no two buttons on this surface read the same.
+  // The header verb names the whole act it opens a dialog for; the dialog's own
+  // submit is the bare verb, so no two buttons on this surface read the same.
   "consumerMail.addOpen": "Add a domain",
   "consumerMail.remove": "Remove",
   "consumerMail.none": "Nothing added. The shipped list decides every domain.",
@@ -3797,20 +3798,27 @@ export const en = {
   "auth.loginSub":
     "Accounts come from your administrator. There is no self-signup.",
   "auth.coreDisclosure": "Margince · AI system",
-  "auth.coreBoundary":
-    "I can only use your context after Margince verifies that it's you.",
-  // The scope of the context the statement above is about. Bounded on purpose:
-  // "nothing else" is what keeps it a limit rather than a list of capabilities,
-  // which is what the artifact's version of this line was.
-  "auth.coreScope":
-    "That context is your mail, your calendar, and what I can read on the open web. Nothing else, and nothing without your permission.",
-  "auth.corePermission": "I use your permissions.",
-  "auth.coreCites": "I cite what I find.",
-  "auth.coreWaits": "I wait before taking external action.",
-  // The fourth limit. The mockup's five became four, and one that did not
-  // travel says why: "enriches records from sources it names" is a capability
-  // claim, and ADR-0076 Decision 2 admits only limits. This one is a limit.
-  "auth.coreMarks": "I mark every value I wrote.",
+  // Five lines, one voice, and the ORDER is load-bearing: greeting, what the
+  // system is for, what it does, the one promise, then the handover to the form.
+  // They read as a paragraph somebody is saying, so reordering them breaks a
+  // sentence rather than a layout.
+  //
+  // This region used to admit only limits on the system's own behaviour and
+  // server-read facts about the installation — no greeting, and nothing the task
+  // depended on. Both of those bounds are lifted here on purpose: the greeting
+  // is the first thing said, and the last line exists to point at the form in
+  // the other half of the screen.
+  "auth.coreGreeting": "Hi, I’m Margince.",
+  "auth.corePurpose": "I’m here to take care of the work around your work.",
+  "auth.coreWork":
+    "I’ll keep your CRM up to date, spot what needs attention, and prepare the next step—so you can focus on customers.",
+  // The one limit left, and the only sentence here a reader has to be able to
+  // rely on: nothing leaves the installation until a person says so. It keeps
+  // the icon badge the four older limits carried, because it is the same
+  // register — an absolute the system enforces, not a feature.
+  "auth.corePromise":
+    "And don’t worry: I’ll never send an email or message without asking you first.",
+  "auth.coreHandover": "First, let me make sure it’s really you…",
   "auth.coreConfigured": "Configured",
   "auth.coreUnconfigured": "AI not configured",
   "auth.coreStillWorks": "The CRM still works.",
@@ -3899,9 +3907,9 @@ export const en = {
   "password.signsYouOut":
     "Changing it signs you out everywhere, including here. Sign in again with the new password.",
   "password.changing": "Changing your password…",
-  "password.open": "Change password…",
+  "password.open": "Change password",
   "password.cancel": "Cancel",
-  "password.submit": "Change password",
+  "password.submit": "Save new password",
   "password.done": "Password changed. Sign in again with the new one.",
   // Deliberately says nothing about WHICH field: this is the fallback for a
   // refusal the server did not explain, and naming the current password would
@@ -4504,10 +4512,10 @@ export const en = {
   "settings.voice.addPlaceholder":
     "Paste an email, post, or anything you've written…",
   "settings.voice.addSource": "Add sample",
-  "settings.voice.addSourceOpen": "Paste writing…",
+  "settings.voice.addSourceOpen": "Paste writing",
   "settings.voice.pasteCancel": "Cancel",
   "settings.voice.addFirstLabel": "Your first writing sample",
-  "settings.voice.addFirstOpen": "Paste your first sample…",
+  "settings.voice.addFirstOpen": "Paste your first sample",
   "settings.voice.addFirstCta": "Add it and start my Voice DNA",
   "settings.voice.browseFiles": "Choose files",
   "settings.voice.dropHint":

@@ -272,6 +272,7 @@ seed-demo:
 	MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
 	MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
 	MARGINCE_BLOBSTORE_BUCKET=margince-dev \
+	MARGINCE_BLOBSTORE_REGION=us-east-1 \
 	$(MAKE) -C backend seed-demo DATASET="$(DATASET)" SEED_ARGS="$(SEED_ARGS)"
 
 ## verify-demo — re-run the demo seeder's verify pass against a running stack,

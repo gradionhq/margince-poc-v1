@@ -521,8 +521,8 @@ export const de = {
   "overlay.userMap.you": "Du",
   "overlay.userMap.matchEmail": "Über E-Mail zugeordnet",
   "overlay.userMap.matchManual": "Manuell gesetzt",
-  "overlay.userMap.map": "Zuordnen…",
-  "overlay.userMap.change": "Ändern…",
+  "overlay.userMap.map": "Zuordnen",
+  "overlay.userMap.change": "Ändern",
   "overlay.userMap.unmap": "Zuordnung aufheben",
   "overlay.userMap.cancel": "Abbrechen",
   "overlay.userMap.pickerLabel": "{principal}-Nutzer suchen",
@@ -2229,7 +2229,7 @@ export const de = {
   "settings.signatureHint":
     "Nur Text. Leer lassen heißt: ohne Signatur senden. Die KI schreibt nie eine Grußformel — diese hier geht raus.",
   "settings.signatureSaving": "Wird gespeichert…",
-  "settings.signatureEdit": "Signatur bearbeiten…",
+  "settings.signatureEdit": "Signatur bearbeiten",
   "settings.signatureNone": "Keine Grußformel gesetzt",
   "settings.signatureCancel": "Abbrechen",
   "settings.languageHelp": "Gilt für diese Sitzung.",
@@ -2295,14 +2295,14 @@ export const de = {
   "agents.connectedOn": "verbunden {date}",
   "agents.lentFrom": "verliehen aus „{label}“",
   "agents.disconnect": "Trennen",
-  "agents.disconnectOpen": "Trennen…",
+  "agents.disconnectOpen": "Trennen",
   "agents.disconnectNamed": "{client} trennen",
   "agents.disconnected": "getrennt",
   "agents.lapsed": "Credential abgelaufen",
   "agents.renewing": "wird erneuert",
   "agents.renewsBy": "Credential erneuert bis {date}",
   "agents.expiredOn": "Credential abgelaufen {date}",
-  "agents.revokeGrantOpen": "Verbindung beenden…",
+  "agents.revokeGrantOpen": "Verbindung beenden",
   "agents.revokeGrantNamed": "Verbindung zu {client} beenden",
   "agents.disconnectConfirm":
     "Das beendet die ganze Verbindung, nicht nur ein Credential: der Agent verliert den Zugriff beim nächsten Aufruf und kann nicht erneuern. Für eine neue Verbindung verleihst du wieder einen Passport.",
@@ -2402,9 +2402,9 @@ export const de = {
     "Nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen.",
   "settings.resetDataDesc":
     "Setzt diese Installation auf den Zustand nach der Ersteinrichtung zurück. Fach- und Konfigurationsdaten werden gelöscht; die Organisation und ihre Nutzer bleiben erhalten und angemeldet.",
-  "settings.resetDataButton": "Daten zurücksetzen…",
+  "settings.resetDataButton": "Daten zurücksetzen",
   "settings.resetDataLabel": "Alle Daten zurücksetzen",
-  "settings.resetDataConfirmButton": "Daten zurücksetzen",
+  "settings.resetDataConfirmButton": "Alles zurücksetzen",
   "settings.resetDataConfirmTitle": "Alle Daten zurücksetzen?",
   "settings.resetDataConfirmBody":
     "Gib zur Bestätigung den Namen deiner Organisation ein. Dies kann nicht rückgängig gemacht werden.",
@@ -2648,7 +2648,7 @@ export const de = {
   "stage.semOpen": "Offen",
   "stage.semWon": "Gewonnen",
   "stage.semLost": "Verloren",
-  "stage.remove": "Entfernen…",
+  "stage.remove": "Entfernen",
   "stage.removeConfirm": "Phase entfernen",
   "stage.removeTitle": "Diese Phase entfernen?",
   "stage.removeBody":
@@ -3789,17 +3789,16 @@ export const de = {
   "auth.loginSub":
     "Konten legt eine Admin-Person an. Selbst registrieren kannst du dich nicht.",
   "auth.coreDisclosure": "Margince · KI-System",
-  "auth.coreBoundary":
-    "Ich kann deinen Kontext erst nutzen, nachdem Margince bestätigt hat, dass du es bist.",
-  // "Postfach", nicht "Mailbox": eine Mailbox ist im Deutschen der
-  // Anrufbeantworter. Auf einer Zeile, die den Umfang des Zugriffs offenlegt,
-  // benennt das eine andere Datenquelle als die englische Fassung.
-  "auth.coreScope":
-    "Dieser Kontext ist dein Postfach, dein Kalender und was ich öffentlich im Web lesen kann. Nichts anderes und nichts ohne deine Freigabe.",
-  "auth.corePermission": "Ich nutze deine Berechtigungen.",
-  "auth.coreCites": "Ich belege, was ich finde.",
-  "auth.coreWaits": "Vor externen Aktionen warte ich auf deine Freigabe.",
-  "auth.coreMarks": "Ich markiere jeden Wert, den ich geschrieben habe.",
+  "auth.coreGreeting": "Hallo, ich bin Margince.",
+  "auth.corePurpose": "Ich kümmere mich um die Arbeit rund um deine Arbeit.",
+  // Gedankenstrich mit Leerzeichen, nicht der englische Geviertstrich ohne:
+  // im Deutschen ist das die einzige Setzung, die nicht wie ein Bindestrich
+  // zwischen zwei Wörtern liest.
+  "auth.coreWork":
+    "Ich halte dein CRM aktuell, erkenne, was Aufmerksamkeit braucht, und bereite den nächsten Schritt vor – damit du dich um Kunden kümmern kannst.",
+  "auth.corePromise":
+    "Und keine Sorge: Ich sende nie eine E-Mail oder Nachricht, ohne dich vorher zu fragen.",
+  "auth.coreHandover": "Zuerst stelle ich sicher, dass du es wirklich bist …",
   "auth.coreConfigured": "Konfiguriert",
   "auth.coreUnconfigured": "KI nicht konfiguriert",
   // "auch ohne", nicht "weiterhin": "weiterhin" ist zeitlich und liest sich neben
@@ -3872,9 +3871,9 @@ export const de = {
   "password.signsYouOut":
     "Die Änderung meldet dich überall ab, auch hier. Melde dich mit dem neuen Passwort erneut an.",
   "password.changing": "Passwort wird geändert…",
-  "password.open": "Passwort ändern…",
+  "password.open": "Passwort ändern",
   "password.cancel": "Abbrechen",
-  "password.submit": "Passwort ändern",
+  "password.submit": "Neues Passwort speichern",
   "password.done": "Passwort geändert. Melde dich mit dem neuen an.",
   "password.errorGeneric":
     "Das Passwort konnte nicht geändert werden. Versuche es erneut.",
@@ -4490,10 +4489,10 @@ export const de = {
   "settings.voice.addPlaceholder":
     "Füg eine E-Mail, einen Post oder etwas Geschriebenes ein…",
   "settings.voice.addSource": "Probe hinzufügen",
-  "settings.voice.addSourceOpen": "Text einfügen…",
+  "settings.voice.addSourceOpen": "Text einfügen",
   "settings.voice.pasteCancel": "Abbrechen",
   "settings.voice.addFirstLabel": "Deine erste Schreibprobe",
-  "settings.voice.addFirstOpen": "Erste Probe einfügen…",
+  "settings.voice.addFirstOpen": "Erste Probe einfügen",
   "settings.voice.addFirstCta": "Hinzufügen und Voice DNA starten",
   "settings.voice.browseFiles": "Dateien auswählen",
   "settings.voice.dropHint":

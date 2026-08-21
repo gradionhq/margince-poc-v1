@@ -223,7 +223,7 @@ export const OwnerPicker: Story = {
   render: () => card(everyReason),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const mapButtons = await canvas.findAllByRole("button", { name: "Map…" });
+    const mapButtons = await canvas.findAllByRole("button", { name: "Map" });
     await userEvent.click(mapButtons[0]);
     const picker = await screen.findByRole("dialog");
     await userEvent.type(
@@ -240,7 +240,7 @@ export const TruncatedDirectory: Story = {
   render: () => card(everyReason, { truncated: true }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const mapButtons = await canvas.findAllByRole("button", { name: "Map…" });
+    const mapButtons = await canvas.findAllByRole("button", { name: "Map" });
     await userEvent.click(mapButtons[0]);
     await screen.findByText(/longer than this list/);
   },
@@ -250,7 +250,7 @@ export const DirectoryUnreadable: Story = {
   render: () => card(everyReason, { ownersFail: true }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const mapButtons = await canvas.findAllByRole("button", { name: "Map…" });
+    const mapButtons = await canvas.findAllByRole("button", { name: "Map" });
     await userEvent.click(mapButtons[0]);
     await screen.findByText(/could not be read/);
   },

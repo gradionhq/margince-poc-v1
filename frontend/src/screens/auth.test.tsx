@@ -112,21 +112,32 @@ describe("AuthScreen login", () => {
     render(<AuthScreen onAuthed={vi.fn()} />);
 
     expect(screen.getByText("Margince · AI system")).toBeTruthy();
-    // The statement is TYPED now (ADR-0076 Decision 5), so the visible layer
-    // holds a partial string for the first second and there are three nodes
-    // carrying this sentence. Assert on the `.sr-only` one: it is what a screen
-    // reader is handed, it is complete on the first render, and reading the
-    // visible layer instead would be asserting on a race.
+    // The greeting is TYPED (ADR-0076 Decision 5), so the visible layer holds a
+    // partial string for the first second and there are three nodes carrying it.
+    // Assert on the `.sr-only` one: it is what a screen reader is handed, it is
+    // complete on the first render, and reading the visible layer instead would
+    // be asserting on a race.
+    expect(
+      screen.getByText("Hi, I’m Margince.", { selector: ".sr-only" }),
+    ).toBeTruthy();
+    // The rest of the region's paragraph, in the order it is said. All four,
+    // because the copy is one voice speaking and a region that lost the promise
+    // or the handover would still pass an assertion on the first line alone.
+    expect(
+      screen.getByText("I’m here to take care of the work around your work."),
+    ).toBeTruthy();
     expect(
       screen.getByText(
-        "I can only use your context after Margince verifies that it's you.",
-        { selector: ".sr-only" },
+        "I’ll keep your CRM up to date, spot what needs attention, and prepare the next step—so you can focus on customers.",
       ),
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "That context is your mail, your calendar, and what I can read on the open web. Nothing else, and nothing without your permission.",
+        "And don’t worry: I’ll never send an email or message without asking you first.",
       ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("First, let me make sure it’s really you…"),
     ).toBeTruthy();
     expect(await screen.findByText("Configured")).toBeTruthy();
     expect(
