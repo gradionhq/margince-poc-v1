@@ -5,15 +5,11 @@ package aiactivity
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// humanActorPrefix is how an envelope spells a person's id — the ONE place this
-// projection understands that spelling, so widening it later is one edit.
-const humanActorPrefix = "human:"
 
 // ResolveActor derives who an occurrence belongs to FROM THE ENVELOPE, never
 // from the payload. An emitter chooses its payload; it cannot choose the
@@ -33,13 +29,9 @@ func ResolveActor(a events.Actor) (scope string, user ids.UUID, err error) {
 		if a.OnBehalfOf != nil && !a.OnBehalfOf.IsZero() {
 			return "", ids.Nil, fmt.Errorf("aiactivity: human actor %q also names on_behalf_of %s — no writer produces that, and guessing which half owns the work files it under the wrong person", a.ID, a.OnBehalfOf)
 		}
-		id, ok := strings.CutPrefix(a.ID, humanActorPrefix)
+		parsed, ok := principal.HumanUserID(a.ID)
 		if !ok {
-			return "", ids.Nil, fmt.Errorf("aiactivity: human actor id %q is not %q<uuid>", a.ID, humanActorPrefix)
-		}
-		parsed, err := ids.Parse(id)
-		if err != nil {
-			return "", ids.Nil, fmt.Errorf("aiactivity: human actor id %q carries no uuid: %w", a.ID, err)
+			return "", ids.Nil, fmt.Errorf("aiactivity: human actor id %q is not %q<uuid>", a.ID, principal.HumanIDPrefix)
 		}
 		return ScopePersonal, parsed, nil
 	}

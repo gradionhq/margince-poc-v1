@@ -49,12 +49,16 @@ func emitExtractionActivity(ctx context.Context, tx pgx.Tx, ledgerID ids.UUID, r
 		AiTask:        &task,
 		Attempt:       read.Attempt,
 		State:         read.Status,
-		QueuedAt:      read.CreatedAt,
-		StartedAt:     read.StartedAt,
-		FinishedAt:    read.FinishedAt,
-		LeaseSeconds:  &lease,
-		SubjectType:   ptrOrNil("attachment"),
-		SubjectId:     contractUUID(read.AttachmentID),
+		// The instant THIS attempt was enqueued, not the occurrence's first.
+		// The projection ages a live row from here, and a reading re-queued an
+		// hour after it was created is past its lease before any worker sees it
+		// if it carries created_at instead.
+		QueuedAt:     read.AttemptAt,
+		StartedAt:    read.StartedAt,
+		FinishedAt:   read.FinishedAt,
+		LeaseSeconds: &lease,
+		SubjectType:  ptrOrNil("attachment"),
+		SubjectId:    contractUUID(read.AttachmentID),
 		// StatusDetail is this module's own closed vocabulary on the failure
 		// path and a rep-facing sentence on the empty-but-correct one. It is
 		// never a provider's message — FinishExtractionRead's callers own that

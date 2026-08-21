@@ -74,7 +74,11 @@ components:
         queued_at:
           type: string
           format: date-time
-          description: When the occurrence was first enqueued.
+          description: >-
+            When the CURRENT attempt was enqueued. Not the occurrence's first
+            enqueue: a live row ages from the instant its attempt became
+            current, and a re-queued occurrence dated by its original creation
+            is past its lease before any worker sees it.
         started_at:
           type: string
           format: date-time

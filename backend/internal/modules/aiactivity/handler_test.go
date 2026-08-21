@@ -37,21 +37,18 @@ func TestAnEventOfAnotherTypeIsIgnored(t *testing.T) {
 	}
 }
 
-// An undecodable payload is an error, not a silent skip: ACKing it would drop
-// a state change nothing else will resend, and the row would keep displaying
-// whatever it last held.
-func TestAnUndecodablePayloadIsRefused(t *testing.T) {
-	err := testConsumer().HandleEvent(context.Background(), events.Envelope{
-		Type: eventType, EventID: ids.NewV7(), Payload: json.RawMessage(`{"attempt":"one"}`),
-	})
-	if err == nil {
-		t.Fatal("a payload that does not decode must not be ACKed as handled")
-	}
-}
-
-// The actor rule refuses before the write, so an unattributable occurrence
-// never reaches the table as a workspace-scoped one.
-func TestAnUnattributableActorStopsTheProjection(t *testing.T) {
+// A deterministic refusal is DROPPED with a loud log, never returned.
+//
+// Both halves matter and they pull against each other. The event must not
+// reach the table — an unattributable occurrence filed as workspace work is one
+// person's work turned into a system sweep nobody can find. But it must also
+// not stay pending: the subscriber leaves a failed entry for the reclaim pass,
+// which would hand the same unparseable bytes to every replica forever and
+// wedge a lane whose whole job is keeping a display current.
+//
+// The store here has no database handle at all, so a handler that reached it
+// would fail loudly rather than let either case pass by accident.
+func TestADeterministicRefusalIsDroppedRatherThanRetriedForever(t *testing.T) {
 	body, err := json.Marshal(crmcontracts.InternalEventAiTaskStateChanged{
 		Source: "attachment_extraction", OccurrenceKey: "k", Kind: "document_extract",
 		Attempt: 1, State: "queued",
@@ -59,12 +56,27 @@ func TestAnUnattributableActorStopsTheProjection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshaling the payload: %v", err)
 	}
-	err = testConsumer().HandleEvent(context.Background(), events.Envelope{
-		Type: eventType, EventID: ids.NewV7(), Payload: body,
-		Actor: events.Actor{Type: "human", ID: "human:nonsense"},
-	})
-	if err == nil {
-		t.Fatal("an unparseable human actor must stop the projection, not become an ownerless row")
+	cases := []struct {
+		name string
+		env  events.Envelope
+	}{{
+		name: "a payload that does not decode",
+		env: events.Envelope{
+			Type: eventType, EventID: ids.NewV7(), Payload: json.RawMessage(`{"attempt":"one"}`),
+		},
+	}, {
+		name: "a human actor carrying no uuid",
+		env: events.Envelope{
+			Type: eventType, EventID: ids.NewV7(), Payload: body,
+			Actor: events.Actor{Type: "human", ID: "human:nonsense"},
+		},
+	}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := testConsumer().HandleEvent(context.Background(), tc.env); err != nil {
+				t.Fatalf("a deterministic refusal must be acked away, got %v — the entry would re-deliver forever", err)
+			}
+		})
 	}
 }
 

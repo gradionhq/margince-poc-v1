@@ -61,6 +61,11 @@ CREATE TABLE ai_task_run (
   passport_id    uuid NULL REFERENCES passport(id) ON DELETE SET NULL,
 
   state          text NOT NULL CHECK (state IN ('queued','running','done','degraded','failed')),
+
+  -- When the CURRENT attempt was enqueued, which is what a live row ages from
+  -- and what the live feed orders by. Deliberately not the occurrence's first
+  -- enqueue: a re-queued occurrence dated by its original creation is past its
+  -- lease before any worker sees it.
   queued_at      timestamptz NOT NULL,
   started_at     timestamptz NULL,
   finished_at    timestamptz NULL,

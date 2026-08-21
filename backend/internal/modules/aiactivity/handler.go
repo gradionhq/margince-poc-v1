@@ -6,7 +6,6 @@ package aiactivity
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -49,13 +48,25 @@ func (c *Consumer) HandleEvent(ctx context.Context, env events.Envelope) error {
 	if env.Type != eventType {
 		return nil
 	}
+	// A payload that does not decode and an actor that does not parse are both
+	// DETERMINISTIC refusals: the same bytes will refuse identically on every
+	// redelivery. Returning an error would leave the entry pending, and the
+	// reclaim pass would hand it back to every replica forever — poisoning a
+	// lane whose whole job is to keep a display current. So they are logged at
+	// ERROR and acked away, the same disposition the subscriber itself takes
+	// for an undecodable envelope. Only a DATABASE failure is returned below,
+	// because that one can succeed on the next attempt.
 	var p crmcontracts.InternalEventAiTaskStateChanged
 	if err := json.Unmarshal(env.Payload, &p); err != nil {
-		return fmt.Errorf("aiactivity: decoding %s payload of event %s: %w", env.Type, env.EventID, err)
+		c.log.Error("aiactivity: dropping an event whose payload does not decode",
+			"event_id", env.EventID, "type", env.Type, "error", err)
+		return nil
 	}
 	scope, user, err := ResolveActor(env.Actor)
 	if err != nil {
-		return err
+		c.log.Error("aiactivity: dropping an event whose actor cannot be attributed",
+			"event_id", env.EventID, "source", p.Source, "occurrence_key", p.OccurrenceKey, "error", err)
+		return nil
 	}
 
 	applied, err := c.store.ApplyStateChange(c.projectionContext(ctx, env), change(p, scope, user, env))

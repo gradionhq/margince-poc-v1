@@ -37,7 +37,7 @@ type InternalEventAiTaskStateChanged struct {
 	// QuantityUnit What quantity counts.
 	QuantityUnit *string `json:"quantity_unit,omitempty"`
 
-	// QueuedAt When the occurrence was first enqueued.
+	// QueuedAt When the CURRENT attempt was enqueued. Not the occurrence's first enqueue: a live row ages from the instant its attempt became current, and a re-queued occurrence dated by its original creation is past its lease before any worker sees it.
 	QueuedAt time.Time `json:"queued_at"`
 
 	// Source The subsystem that owns the occurrence — 'attachment_extraction', 'agent_runner', 'capture_sync'. Identity, not display: two sources must never collide on one occurrence key.

@@ -23,9 +23,10 @@ package integration
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -36,14 +37,30 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// testWriter sends a consumer's log lines to the running test.
+type testWriter struct{ t *testing.T }
+
+func (w testWriter) Write(p []byte) (int, error) {
+	w.t.Log(strings.TrimRight(string(p), "\n"))
+	return len(p), nil
+}
+
 // readingFixture is one real attachment on one real deal, plus the store that
 // moves its reading and the consumer that projects what the moves announce.
 type readingFixture struct {
 	env      *Env
 	ctx      context.Context
 	store    *activities.Store
+	handlers activities.Handlers
 	consumer *aiactivity.Consumer
+	deal     ids.UUID
 	readID   ids.UUID
+	// delivered is how far the fixture's subscriber has got. Without it drain
+	// replays the WHOLE history on every call, and a replay of the original
+	// human-attributed event papers over anything a later event got wrong —
+	// which is how a test asserting attribution passes against a repair path
+	// that files the row to nobody.
+	delivered int
 }
 
 func newReadingFixture(t *testing.T) *readingFixture {
@@ -61,11 +78,17 @@ func newReadingFixture(t *testing.T) *readingFixture {
 		t.Fatalf("StartExtractionReadQueued: %v", err)
 	}
 	return &readingFixture{
-		env:   e,
-		ctx:   ctx,
-		store: store,
+		env:      e,
+		ctx:      ctx,
+		store:    store,
+		handlers: handlers,
+		deal:     deal,
+		// The consumer logs INTO THE TEST, not into a discard. A deterministic
+		// refusal is acked away by design, so a test whose logger swallows it
+		// sees only a row that never appeared — which is a failure two steps
+		// away from its cause.
 		consumer: aiactivity.NewConsumer(aiactivity.NewStore(e.DB()),
-			slog.New(slog.NewTextHandler(io.Discard, nil))),
+			slog.New(slog.NewTextHandler(testWriter{t}, nil))),
 		readID: read.ID,
 	}
 }
@@ -80,7 +103,8 @@ func (f *readingFixture) drain(t *testing.T) {
 			SELECT envelope FROM event_outbox
 			 WHERE envelope->>'type' = 'ai_task.state_changed'
 			   AND envelope->'payload'->>'occurrence_key' = $1
-			 ORDER BY seq`, f.readID.String())
+			 ORDER BY seq
+			 OFFSET $2`, f.readID.String(), f.delivered)
 		if err != nil {
 			return err
 		}
@@ -108,6 +132,7 @@ func (f *readingFixture) drain(t *testing.T) {
 		if err := f.consumer.HandleEvent(context.Background(), env); err != nil {
 			t.Fatalf("the projection refused envelope %s: %v", env.EventID, err)
 		}
+		f.delivered++
 	}
 }
 
@@ -119,7 +144,8 @@ type projectedOccurrence struct {
 	Attempt     int
 	ActorScope  string
 	ActorUserID *ids.UUID
-	StaleAfter  *string
+	StartedAt   *time.Time
+	StaleAfter  *time.Time
 	SubjectType *string
 }
 
@@ -128,11 +154,11 @@ func (f *readingFixture) projection(t *testing.T) projectedOccurrence {
 	var got projectedOccurrence
 	err := f.env.Pool.QueryRow(context.Background(), `
 		SELECT kind, ai_task, state, attempt, actor_scope, actor_user_id,
-		       stale_after::text, subject_type
+		       started_at, stale_after, subject_type
 		  FROM ai_task_run WHERE source = $1 AND occurrence_key = $2`,
 		"attachment_extraction", f.readID.String()).
 		Scan(&got.Kind, &got.AITask, &got.State, &got.Attempt, &got.ActorScope,
-			&got.ActorUserID, &got.StaleAfter, &got.SubjectType)
+			&got.ActorUserID, &got.StartedAt, &got.StaleAfter, &got.SubjectType)
 	if err != nil {
 		t.Fatalf("reading the projected occurrence: %v", err)
 	}
@@ -212,6 +238,6 @@ func TestAFinishedReadingSettlesInTheProjection(t *testing.T) {
 		t.Fatalf("state = %s, want done", got.State)
 	}
 	if got.StaleAfter != nil {
-		t.Fatalf("a settled occurrence carries stale_after %s; it is not claiming to work, so it has nothing to go stale", *got.StaleAfter)
+		t.Fatalf("a settled occurrence carries stale_after %v; it is not claiming to work, so it has nothing to go stale", *got.StaleAfter)
 	}
 }

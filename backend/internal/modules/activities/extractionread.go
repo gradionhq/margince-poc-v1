@@ -74,11 +74,17 @@ type ExtractionRead struct {
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
 	CreatedAt   time.Time
-	// Attempt is which claim of this reading is current. It rises on every
-	// return to the queue — a release or a re-arm — because each of those makes
-	// the next claim a NEW attempt at the same reading, and the AI-activity
+	// Attempt is which claim of this reading is current, and AttemptAt is when
+	// it became current. Attempt rises whenever a live claim is superseded — a
+	// release, a re-arm, or a lease-expiry reclaim — because each of those makes
+	// what follows a NEW attempt at the same reading, and the AI-activity
 	// projection cannot order two events for one reading on status alone.
-	Attempt int
+	//
+	// AttemptAt is what a live occurrence AGES from. created_at is that instant
+	// for the first attempt only: a reading re-queued an hour later and dated by
+	// created_at is past its lease before any worker sees it.
+	Attempt   int
+	AttemptAt time.Time
 }
 
 // Live reports whether the reading is still expected to move on its own — the
@@ -88,13 +94,13 @@ func (r ExtractionRead) Live() bool {
 }
 
 const extractionReadColumns = `id, attachment_id, status, status_detail, fields,
-	requested_by, started_at, finished_at, created_at, attempt`
+	requested_by, started_at, finished_at, created_at, attempt, attempt_at`
 
 func scanExtractionRead(r pgx.Row) (ExtractionRead, error) {
 	var read ExtractionRead
 	var raw []byte
 	err := r.Scan(&read.ID, &read.AttachmentID, &read.Status, &read.StatusDetail, &raw,
-		&read.RequestedBy, &read.StartedAt, &read.FinishedAt, &read.CreatedAt, &read.Attempt)
+		&read.RequestedBy, &read.StartedAt, &read.FinishedAt, &read.CreatedAt, &read.Attempt, &read.AttemptAt)
 	if err != nil {
 		return read, err
 	}
@@ -208,7 +214,7 @@ func (s *Store) rearmIfAbandonedExtraction(
 	rearmed, err := scanExtractionRead(tx.QueryRow(ctx, `
 		UPDATE attachment_extraction
 		   SET status = 'queued', started_at = NULL, status_detail = NULL,
-		       attempt = attempt + 1
+		       attempt = attempt + 1, attempt_at = now()
 		 WHERE id = $1
 		   AND status IN ('queued','running')
 		   AND COALESCE(started_at, created_at) < now() - ($2 * interval '1 microsecond')
@@ -256,9 +262,20 @@ func (s *Store) BeginExtractionRead(ctx context.Context, readID ids.UUID, reclai
 		// RETURNING hands the worker the CLAIMED row's own identity, so the
 		// reading is attributed to whoever the row says asked for it rather than
 		// to a job payload that could in principle disagree with it.
+		// The RECLAIM arm begins a new attempt; the ordinary arm does not.
+		//
+		// Both are one statement, so the CASE reads the row's OLD status — and
+		// that distinction is load-bearing. Taking a queued reading is the
+		// attempt that was already queued. Taking one away from a dead holder is
+		// a SECOND claim on the same attempt number, and a projection ordering
+		// on (attempt, state) cannot tell that from a redelivery of the first:
+		// it would keep the dead worker's started_at and its expired lease, and
+		// render an actively-running retry as stalled for its whole run.
 		out, err = scanExtractionRead(tx.QueryRow(ctx, `
 			UPDATE attachment_extraction
-			   SET status = 'running', status_detail = NULL, started_at = now()
+			   SET status = 'running', status_detail = NULL, started_at = now(),
+			       attempt    = attempt + CASE WHEN status = 'running' THEN 1 ELSE 0 END,
+			       attempt_at = CASE WHEN status = 'running' THEN now() ELSE attempt_at END
 			 WHERE id = $1
 			   AND (status = 'queued'
 			     OR (status = 'running' AND started_at < now() - ($2 * interval '1 microsecond')))
@@ -449,7 +466,7 @@ func (s *Store) ReleaseExtractionRead(ctx context.Context, readID ids.UUID, clai
 		released, err := scanExtractionRead(tx.QueryRow(ctx, `
 			UPDATE attachment_extraction
 			   SET status = 'queued', started_at = NULL, status_detail = NULL,
-			       attempt = attempt + 1
+			       attempt = attempt + 1, attempt_at = now()
 			 WHERE id = $1 AND status = 'running' AND started_at = $2
 			RETURNING `+extractionReadColumns, readID, claimedAt))
 		if errors.Is(err, pgx.ErrNoRows) {
