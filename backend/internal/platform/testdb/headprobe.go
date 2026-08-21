@@ -107,6 +107,24 @@ const preflightSQL = `
 // An error is reserved for a database that could not be asked. Everything the
 // probe can actually establish about the schema resolves to reuse-or-rebuild,
 // because rebuilding is always correct.
+//
+// WHAT THIS PROVES, exactly, because the difference is the whole risk. It proves
+// that the LEDGER records this binary's own migrations, by content, and that the
+// tables a reset acts on hold no rows. It does NOT compare the live catalog
+// against what those migrations build — a column somebody added to the template
+// by hand is invisible here. That comparison cannot be made cheaply, and not for
+// want of trying: the only way to know what a migration set builds is to build
+// it, which is the rebuild being skipped. backend/migrations' own head-schema
+// digest has the same shape and the same limit.
+//
+// What bounds it is the clone, not the probe. A reusable database is a file copy
+// of margince_test taken for ONE package and dropped after it, and the lane
+// rebuilds that template from scratch on every full run (scripts/lib-testdb.sh
+// build_template); `make test-db-up` is the same thing by hand. So the window in
+// which hand-made DDL can survive is the window in which somebody edits the
+// template and then does not rebuild it — and the version, name and content
+// checks below already refuse every way the migration SET can differ, which is
+// how that template would ordinarily go stale.
 func reusableClone(ctx context.Context, owner *pgx.Conn) (bool, string, error) {
 	declared, ok := lookupCloneDB()
 	if !ok {

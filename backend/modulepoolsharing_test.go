@@ -26,6 +26,7 @@ package backendarch
 // hole, which is what the liveness floor below is for.
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -40,13 +41,29 @@ import (
 // is not the whole module.
 const modulesTree = "internal/modules"
 
-// databasePath is the product pool constructor's package, and testdbPath is the
-// lane's shared one. Both are matched by import path rather than by whichever
-// identifier a file binds them to.
+// databasePath is the product pool constructor's package, pgxpoolPath is the
+// driver's own, and testdbPath is the lane's shared one. All matched by import
+// path rather than by whichever identifier a file binds them to.
 const (
 	databasePath = "github.com/gradionhq/margince/backend/internal/platform/database"
+	pgxpoolPath  = "github.com/jackc/pgx/v5/pgxpool"
 	testdbPath   = "github.com/gradionhq/margince/backend/internal/platform/testdb"
 )
+
+// poolConstructors is every way a file can obtain a pool of its own, and the
+// list is the gate rather than a convenience.
+//
+// database.NewPool alone was not enough, and that was not a hypothesis: the
+// tree ALREADY held a module suite reaching pgxpool.NewWithConfig directly
+// (people/ensurechannel_contention), which a gate spelled against the product
+// constructor read straight past. A gate that refuses one spelling of a mistake
+// while a second spelling sits unjudged in the same tree is the shape this file
+// exists to prevent, one level up.
+var poolConstructors = []struct{ pkg, symbol string }{
+	{databasePath, "NewPool"},
+	{pgxpoolPath, "New"},
+	{pgxpoolPath, "NewWithConfig"},
+}
 
 // ownPools ratifies module suites that build a pool of their own, each bound to
 // what its exception costs.
@@ -61,12 +78,16 @@ var ownPools = gatekit.Waive(map[string]string{
 		"clock. It is a per-test instrument, bound to one test's transaction and closed with it; sharing it " +
 		"would apply that timeout to every other test in the package, and testdb.Pool keys by DSN so it " +
 		"would be a second shared pool rather than the lane's.",
+	"internal/modules/people/ensurechannel_contention_integration_test.go": "the same instrument one module " +
+		"over, built through pgxpool directly because the bound rides ConnConfig rather than the DSN: a " +
+		"lock_timeout of 250ms so that a contended account lock decides the outcome instead of the clock. " +
+		"Per-test and closed with the test, and it re-registers the typed ids the product pool would have.",
 })
 
 // TestModuleSuitesTakeTheProcessSharedPool fails when a module integration test
 // builds its own pool instead of taking testdb's.
 func TestModuleSuitesTakeTheProcessSharedPool(t *testing.T) {
-	var offenders, sharing []string
+	var offenders, sharing, unguarded []string
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(modulesTree, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, "_integration_test.go") {
@@ -79,8 +100,16 @@ func TestModuleSuitesTakeTheProcessSharedPool(t *testing.T) {
 		}
 		if gatekit.References(file, testdbPath, "Pool") {
 			sharing = append(sharing, path)
+			// Taking the shared pool without the quiescence gate is the SECOND
+			// half of this obligation and it fails quietly. Closing the pool per
+			// test used to break a goroutine a test left running; a shared pool
+			// has no such moment, so the straggler writes into the database the
+			// NEXT test just reset and the wrong suite reports it.
+			if !gatekit.References(file, testdbPath, "AssertPoolsQuiesced") {
+				unguarded = append(unguarded, path)
+			}
 		}
-		if !gatekit.References(file, databasePath, "NewPool") {
+		if !opensItsOwnPool(file) {
 			return nil
 		}
 		if !ownPools.Waived(t, path) {
@@ -101,6 +130,14 @@ func TestModuleSuitesTakeTheProcessSharedPool(t *testing.T) {
 			len(offenders), strings.Join(offenders, "\n\t"))
 	}
 
+	if len(unguarded) > 0 {
+		t.Errorf("%d module integration suite(s) take testdb.Pool without registering "+
+			"testdb.AssertPoolsQuiesced — register it where the pool is handed out, before the test adds "+
+			"any cleanup of its own, so it runs last (t.Cleanup is LIFO) and sees a package that has "+
+			"genuinely stopped:\n\t%s",
+			len(unguarded), strings.Join(unguarded, "\n\t"))
+	}
+
 	// The floor. A gate whose subjects have all moved out of its tree reports
 	// nothing and reads exactly like a clean one, and this gate's tree is the
 	// one thing it asserts silently: that module suites are where the shared
@@ -115,4 +152,15 @@ func TestModuleSuitesTakeTheProcessSharedPool(t *testing.T) {
 	// And the waiver must stay live: one describing a file that no longer builds
 	// its own pool is a claim about code that is gone.
 	ownPools.AssertAllMatched(t)
+}
+
+// opensItsOwnPool reports whether a file builds a pool of its own, by any of the
+// spellings available to it.
+func opensItsOwnPool(file *ast.File) bool {
+	for _, c := range poolConstructors {
+		if gatekit.References(file, c.pkg, c.symbol) {
+			return true
+		}
+	}
+	return false
 }

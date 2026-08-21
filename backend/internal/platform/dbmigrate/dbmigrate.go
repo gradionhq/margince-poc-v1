@@ -69,6 +69,12 @@ type Namespace struct {
 // The parts are length-prefixed so no concatenation of one migration can be
 // read as another: without it a version ending in a digit and a name starting
 // with one would hash the same as the pair that splits them differently.
+//
+// Up STAMPS this and judges nothing. Making the production migrate path REFUSE
+// a version whose recorded digest no longer matches — the way assertLedgerMatches
+// already refuses a renamed one — decides how a live installation fails at boot,
+// which is a product call rather than a test-lane one: #2141 carries it, with
+// Down (running the wrong rollback) as the sharper half.
 func Digest(m Migration) string {
 	var framed strings.Builder
 	for _, part := range []string{m.Version, m.Name, m.UpSQL, m.DownSQL} {

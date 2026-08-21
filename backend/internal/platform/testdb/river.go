@@ -25,6 +25,15 @@ import (
 // when it reuses an already-migrated clone. Probing the table answers both
 // cases without either caller having to say which one it is.
 //
+// Presence is not currency, and on the reuse path this does not establish it —
+// it inherits it. A reused clone is a file copy of margince_test, and the lane
+// brings that template to head with THIS binary before any package starts:
+// scripts/lib-testdb.sh migrate_template shells out to cmd/migrate up, which
+// applies River's migrations alongside core and custom. So the tables this
+// finds are as current as the template, and the template is as current as the
+// run. A database reached any other way takes the rebuild instead, where the
+// drop leaves nothing for the probe to find.
+//
 // The ledger cannot stand in for the table, and it is worth saying why the two
 // can be trusted to agree now. Reset used to EMPTY river_migration while the
 // tables stood: River read that as "unmigrated", replayed its first migration
