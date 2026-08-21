@@ -36,7 +36,8 @@ func TestSchema_amountMinorBaseIsDatabaseGenerated(t *testing.T) {
 	ctx := context.Background()
 
 	var isGenerated, generationExpr string
-	if err := owner.QueryRow(ctx, `
+	if err := owner.QueryRow(
+		ctx, `
 		SELECT is_generated, generation_expression
 		FROM information_schema.columns
 		WHERE table_schema = 'public' AND table_name = 'deal' AND column_name = 'amount_minor_base'`,
@@ -56,7 +57,8 @@ func TestSchema_amountMinorBaseIsDatabaseGenerated(t *testing.T) {
 	// Postgres's STORED-generated marker (the only kind it currently
 	// supports), cross-checking the information_schema view above.
 	var attgenerated string
-	if err := owner.QueryRow(ctx, `
+	if err := owner.QueryRow(
+		ctx, `
 		SELECT attgenerated FROM pg_attribute
 		WHERE attrelid = 'deal'::regclass AND attname = 'amount_minor_base' AND NOT attisdropped`,
 	).Scan(&attgenerated); err != nil {
@@ -80,7 +82,8 @@ func TestSchema_organizationOpenPipelineRollupIsSecurityInvoker(t *testing.T) {
 	ctx := context.Background()
 
 	var reloptions []string
-	if err := owner.QueryRow(ctx, `
+	if err := owner.QueryRow(
+		ctx, `
 		SELECT COALESCE(reloptions, '{}') FROM pg_class
 		WHERE relname = 'organization_open_pipeline_rollup' AND relnamespace = 'public'::regnamespace`,
 	).Scan(&reloptions); err != nil {
@@ -276,13 +279,18 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// GetDedupeCandidate). All six entries rest on that read, held by
 	// TestDedupeQueueHidesPairsOutsideTheCallersRowScope and, per entity type and
 	// per side, TestDedupeQueueHidesAPairTheCallerCanOnlyHalfSee.
-	"dedupe_candidate.left_person_id":           "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
-	"dedupe_candidate.right_person_id":          "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
-	"dedupe_candidate.left_org_id":              "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
-	"dedupe_candidate.right_org_id":             "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
-	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query",
-	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query",
-	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own connector-activity query (PO-DDL-12), never from a request body — it runs as the system principal, so what holds this is the absence of a caller, not a scope clause",
+	"dedupe_candidate.left_person_id":  "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
+	"dedupe_candidate.right_person_id": "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
+	"dedupe_candidate.left_org_id":     "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
+	"dedupe_candidate.right_org_id":    "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
+	"dedupe_candidate.left_lead_id":    "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query",
+	"dedupe_candidate.right_lead_id":   "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query",
+	// Two writers, two different things holding them, so both are named: the
+	// enrich pass has no caller to scope against, and the research accept has
+	// one. This census is keyed by COLUMN, so it cannot notice a second writer
+	// of an already-waived column — the text is the only control, and a waiver
+	// naming one writer would read as covering both.
+	"person_profile_field.person_id":            "server-derived for the enrich pass — it resolves the person from its own connector-activity query (PO-DDL-12) as the system principal, so what holds it is the absence of a caller; gated for SaveResearchClaims, whose person id IS the request path's — auth.EnsureWritableLive inside the write's own transaction",
 	"capture_auto_enrich_state.organization_id": "server-derived: the auto-enrich sweep keys the cursor on an org id its own ListDueOrgs read produced (CAP-PARAM-7), never from a request body — a background pass with no caller to scope against",
 	// The signature pass's read cursor (PO-F-2a): both ids come from the
 	// pass's own SignatureCandidates query — the person it just read for and

@@ -430,6 +430,12 @@ binding every column to the wrong value. That is not hypothetical: it shipped in
 `people/researchclaim.go`, and the accept path was dead for two days because no
 test executed the statement.
 
+The `%s` in that pattern is the COLUMN, and it carries its own rule: a compile-
+time literal, or a catalog name quoted with `pgx.Identifier.Sanitize` — the one
+spelling this repo uses (`storekit/customcolumns.go`). Never a string off a
+request body. Values are always `$N`; only identifiers are ever formatted, and
+an identifier a caller chose is an injection with a placeholder's manners.
+
 **4. A comment may not claim to be the only implementation unless a test holds
 it.** "the one spelling of X", "the only writer of Y", "the same anonymization
 the eraser performs" — if no test fails when a second one appears, delete the
