@@ -144,7 +144,7 @@ func (e *env) systemLogActions(t *testing.T, ws ids.UUID) []string {
 	}
 	rows, err := e.owner.Query(ctx, `
 		SELECT action, coalesce('/' || (detail->>'outcome'), '')
-		  FROM system_log WHERE workspace_id = $1 ORDER BY occurred_at, id`, ws)
+		  FROM system_log ORDER BY occurred_at, id`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,8 +400,7 @@ func TestSecretsLeaveAnAuditTrail(t *testing.T) {
 	}
 	var leaked bool
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT EXISTS (SELECT 1 FROM system_log WHERE workspace_id = $1 AND detail::text LIKE '%sekrit%')`,
-		e.ws).Scan(&leaked); err != nil {
+		`SELECT EXISTS (SELECT 1 FROM system_log WHERE detail::text LIKE '%sekrit%')`).Scan(&leaked); err != nil {
 		t.Fatal(err)
 	}
 	if leaked {

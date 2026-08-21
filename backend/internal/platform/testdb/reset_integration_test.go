@@ -154,8 +154,8 @@ func TestResetEmptiesEveryDataTableIncludingTheAppendOnlyOnes(t *testing.T) {
 	// this row is the one that proves the reset suppresses the append-only guards
 	// and not merely the FK triggers.
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-		VALUES ($1, 'human', 'human:probe', 'create', 'workspace', $1)`, ws); err != nil {
+		INSERT INTO audit_log (actor_type, actor_id, action, entity_type, entity_id)
+		VALUES ('human', 'human:probe', 'create', 'workspace', $1)`, ws); err != nil {
 		t.Fatalf("seeding audit_log: %v", err)
 	}
 	// TWO rows, so the sequence lands on a value the restart must visibly move.

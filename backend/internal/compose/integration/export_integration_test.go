@@ -113,10 +113,10 @@ func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 		VALUES ($1, 'person', $2, 'rep3.pdf', 'blob/rep3', 'manual', 'human:x')`, f.rep3Person)
 
 	// Audit rows targeting each rep's person (audit_log is record-mutations-only).
-	e.SeedID(t, `INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-		VALUES ($1, $2, 'human', $3, 'create', 'person', $4)`, e.WS, "human:"+e.Rep1.String(), f.rep1Person)
-	e.SeedID(t, `INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-		VALUES ($1, $2, 'human', $3, 'create', 'person', $4)`, e.WS, "human:"+e.Rep3.String(), f.rep3Person)
+	e.SeedID(t, `INSERT INTO audit_log (id, actor_type, actor_id, action, entity_type, entity_id)
+		VALUES ($1, 'human', $2, 'create', 'person', $3)`, "human:"+e.Rep1.String(), f.rep1Person)
+	e.SeedID(t, `INSERT INTO audit_log (id, actor_type, actor_id, action, entity_type, entity_id)
+		VALUES ($1, 'human', $2, 'create', 'person', $3)`, "human:"+e.Rep3.String(), f.rep3Person)
 	return f
 }
 

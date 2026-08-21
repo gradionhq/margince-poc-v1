@@ -80,19 +80,18 @@ const releaseLedgerFact = "release-version"
 
 // lastObservedReleaseQuery reads the release the api recorded most recently.
 //
-// THE WORKSPACE PREDICATE IS THE SCOPE, not a formality. Row-level security used
-// to supply it: every workspace_id table carried the same tenant-isolation policy
-// and an unscoped statement returned zero rows. Migration 0217 retired that, and
-// says plainly what it cost — a statement that forgets its scope now returns
-// another tenant's rows and no test fails by construction. So the predicate the
-// policy used to apply is written here, in the spelling storekit already uses,
-// and it is deny-on-unset for the same reason: an unbound GUC makes it NULL,
-// which matches nothing.
+// It carries no scope, because ADR-0091 §8 phase D took the tenant column off
+// system_log and there is nothing left to scope by: one installation serves one
+// organization (ADR-0061), and this ledger records that installation's releases.
 //
-// The reachable case is not two live organizations, which the installation
-// resolver refuses outright. It is an ARCHIVED workspace: the resolver skips it,
-// its rows stay, and a newer release row of its own would otherwise decide what
-// release this installation is running.
+// The residue this DOES admit, named because it is not hypothetical: an
+// installation that merged an ARCHIVED predecessor still holds that
+// predecessor's release rows — 0272 exempts the ledgers from the residue gate
+// by name, precisely because their immutability trigger makes clearing them
+// impossible — and this read can no longer tell them from its own. What keeps
+// the guard honest is that RecordInstallationRelease writes the same unscoped
+// ledger, so the api's own row is the newest as soon as it boots. The window is
+// a worker booting against residue before that api boot, which is #2196.
 //
 // occurred_at leads the ordering, with id as the deterministic tiebreak, for the
 // reason extensioninventory spells out: uuidv7 ids are monotonic only within one
@@ -103,7 +102,6 @@ const lastObservedReleaseQuery = `
 	SELECT COALESCE(detail->>'release_version', '')
 	  FROM system_log
 	 WHERE action = $1
-	   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	 ORDER BY occurred_at DESC, id DESC LIMIT 1`
 
 // RecordInstallationRelease records the release this api was built from as the
@@ -114,7 +112,7 @@ const lastObservedReleaseQuery = `
 // everywhere, and here it also protects the record: a locally built api run
 // against a real installation must not erase the release a real one wrote.
 //
-// Pre-bootstrap there is no workspace to record against. The observation is
+// Pre-bootstrap there is no installation to record against. The observation is
 // skipped and the first boot after bootstrap records it — which is early enough,
 // because the worker cannot get past its own dependency probe on a database the
 // api has not migrated yet.

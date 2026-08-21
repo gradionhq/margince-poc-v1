@@ -398,17 +398,15 @@ func TestFreshnessReaderShedDegradesToMirrorAndEmitsBudgetDegraded(t *testing.T)
 		t.Fatalf("mirror.budget_degraded outbox rows = %d, want exactly 1", eventCount)
 	}
 
-	// system_log carries FORCE ROW LEVEL SECURITY (migrations/core/0074):
-	// unlike event_outbox (a global, RLS-free infra table), this read
-	// must run inside database.WithWorkspaceTx so the tenant GUC is set,
-	// or RLS silently answers zero rows for a query that looks correct.
+	// Read inside database.WithWorkspaceTx because that is this package's
+	// house shape for a pool read, not because the row is scoped: core 0217
+	// retired row-level security and ADR-0091 §8 phase D took system_log's
+	// tenant column, so the count is the installation's.
 	var systemLogCount int
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(
 			context.Background(),
-			`SELECT count(*) FROM system_log WHERE workspace_id = $1 AND action = 'mirror.budget_degraded'`,
-			ws,
-		).Scan(&systemLogCount)
+			`SELECT count(*) FROM system_log WHERE action = 'mirror.budget_degraded'`).Scan(&systemLogCount)
 	}); err != nil {
 		t.Fatalf("querying system_log: %v", err)
 	}

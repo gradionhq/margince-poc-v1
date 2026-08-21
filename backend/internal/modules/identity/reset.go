@@ -189,7 +189,7 @@ func (h Handlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 // either way (enumeration resistance); only the presence of an email in
 // an inbox may differ.
 func (s *Service) CreatePasswordReset(ctx context.Context, email string) (string, error) {
-	wsID, ok := workspaceFrom(ctx)
+	_, ok := workspaceFrom(ctx)
 	if !ok {
 		// Pre-bootstrap there is no account to reset; the neutral no-op
 		// answer is the same one an unknown address gets.
@@ -235,7 +235,7 @@ func (s *Service) CreatePasswordReset(ctx context.Context, email string) (string
 			return err
 		}
 		minted = true
-		return logAuthEvent(ctx, tx, wsID, userID, "password_reset_requested", "reset token issued")
+		return logAuthEvent(ctx, tx, userID, "password_reset_requested", "reset token issued")
 	})
 	if err != nil || !minted {
 		return "", err
@@ -248,7 +248,7 @@ func (s *Service) CreatePasswordReset(ctx context.Context, email string) (string
 // account. Unknown, used, and expired tokens all answer
 // apperrors.ErrNotFound — the caller writes one neutral refusal.
 func (s *Service) RedeemPasswordReset(ctx context.Context, rawToken, newPassword string) error {
-	wsID, ok := workspaceFrom(ctx)
+	_, ok := workspaceFrom(ctx)
 	if !ok {
 		return apperrors.ErrNotFound
 	}
@@ -306,7 +306,7 @@ func (s *Service) RedeemPasswordReset(ctx context.Context, rawToken, newPassword
 		if err := endCredentialAuthority(passwordOwnerCtx(ctx, userID), tx, userID, passwordResetRevokeReason); err != nil {
 			return err
 		}
-		return logAuthEvent(ctx, tx, wsID, userID, "password_reset", "password reset completed; every borrowed credential revoked")
+		return logAuthEvent(ctx, tx, userID, "password_reset", "password reset completed; every borrowed credential revoked")
 	})
 }
 
@@ -375,9 +375,9 @@ func OperatorResetPassword(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID,
 		return err
 	}
 	_, err = tx.Exec(ctx,
-		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
-		 VALUES ($1, 'system', 'operator-cli', 'password_reset', jsonb_build_object('detail', 'operator password reset; every borrowed credential revoked', 'user_id', $2::text))`,
-		wsID, userID.String())
+		`INSERT INTO system_log (actor_type, actor_id, action, detail)
+		 VALUES ('system', 'operator-cli', 'password_reset', jsonb_build_object('detail', 'operator password reset; every borrowed credential revoked', 'user_id', $1::text))`,
+		userID.String())
 	return err
 }
 

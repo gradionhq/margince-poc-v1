@@ -76,14 +76,23 @@ const (
 )
 
 // No audit_log or event_outbox row accompanies these writes, which is the one
-// place in this package the standard write shape does not reach. It is a schema
-// fact rather than a choice: audit_log.workspace_id, system_log.workspace_id and
-// the outbox are all tenant-scoped and NOT NULL, and a setup token exists BEFORE
-// the workspace it authorizes creating — there is no tenant to scope a record
-// to. What the lifecycle does leave behind is the boot log line announcing the
-// mint — which names the token file rather than repeating what it holds — and
-// the system_log row the resulting claim writes inside the same transaction as
-// the organization, naming the human who presented the token.
+// place in this package the standard write shape does not reach.
+//
+// The reason was a schema fact — both ledgers carried a NOT NULL tenant column
+// and a setup token exists BEFORE the organization it authorizes creating — and
+// that fact is gone: ADR-0091 §8 phase D took the column off both. What still
+// stands in the way is the ACTOR: a setup token is minted with no authenticated
+// principal, and storekit.Audit and LogSystem both refuse a caller without one
+// before any SQL runs.
+//
+// So this is now a gap with a reachable fix rather than a schema consequence,
+// and it is tracked as #2198 rather than argued away here: minting, rotating
+// and retiring the credential that lets any bearer claim an unprovisioned
+// installation as admin leaves no ledger row. What the lifecycle does leave
+// behind is the boot log line announcing the mint — which names the token file
+// rather than repeating what it holds — and the system_log row the resulting
+// claim writes inside the same transaction as the organization, naming the
+// human who presented the token.
 //
 // issueSetupToken is the whole rule both public entry points apply: under the
 // installation advisory lock, refuse a provisioned installation, settle what to

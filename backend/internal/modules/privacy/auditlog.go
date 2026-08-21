@@ -4,7 +4,7 @@
 package privacy
 
 // The audit-log read surface (GET /audit-log): the Settings governance
-// view over the append-only audit_log table. Reading the workspace's
+// view over the append-only audit_log table. Reading the installation's
 // full attributable history deliberately crosses row scope, and it is
 // the admin's alone — distinct from the per-record history in
 // recordhistory.go, which every member may read on records they can
@@ -49,12 +49,11 @@ type AuditFilter struct {
 // AuditEntry mirrors one audit_log row (contract AuditLogEntry). ID
 // stays ids.UUID — the audit row is a ledger line, not a first-class
 // entity — and EntityID stays untyped as the envelope's polymorphic
-// target; the concrete workspace/passport/on-behalf ids type cleanly.
+// target; the concrete passport/on-behalf ids type cleanly.
 type AuditEntry struct {
-	ID          ids.UUID
-	WorkspaceID ids.WorkspaceID
-	ActorType   string
-	ActorID     string
+	ID        ids.UUID
+	ActorType string
+	ActorID   string
 	// ActorName and OnBehalfOfName are resolved on the read path, not stored:
 	// the ledger row keeps the identifier that was true when it was written,
 	// and a display name is looked up when somebody reads it. Both are nil
@@ -81,7 +80,7 @@ type AuditPage struct {
 	HasMore    bool
 }
 
-// ListAuditLog reads the workspace's audit history, newest first.
+// ListAuditLog reads the installation's audit history, newest first.
 //
 // Human-only: an agent reading the log that records its own governance would
 // observe exactly the oversight trail that bounds it. The agent gate refuses
@@ -308,7 +307,7 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 	var page AuditPage
 	err = db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx,
-			`SELECT a.id, a.workspace_id, a.actor_type, a.actor_id, a.passport_id, a.on_behalf_of,
+			`SELECT a.id, a.actor_type, a.actor_id, a.passport_id, a.on_behalf_of,
 			        a.action, a.entity_type, a.entity_id, a.before, a.after, a.authorization_rule,
 			        a.evidence, a.occurred_at,
 			        actor_user.display_name, obo.display_name,
@@ -328,7 +327,7 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 			// widen to their kind — a NULL column stays a nil typed pointer.
 			var passportID, onBehalfOf *ids.UUID
 			var contentReadable bool
-			if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.ActorType, &e.ActorID,
+			if err := rows.Scan(&e.ID, &e.ActorType, &e.ActorID,
 				&passportID, &onBehalfOf, &e.Action, &e.EntityType, &e.EntityID,
 				&e.Before, &e.After, &e.AuthorizationRule, &e.Evidence, &e.OccurredAt,
 				&e.ActorName, &e.OnBehalfOfName, &contentReadable); err != nil {
