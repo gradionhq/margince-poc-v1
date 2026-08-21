@@ -66,13 +66,13 @@ func TestAnUnresolvableRefFallsBackToTheEnvironment(t *testing.T) {
 	ws := ids.From[ids.WorkspaceKind](ids.NewV7())
 	// A ref sealed under a DIFFERENT workspace. The vault refuses it, which is
 	// the isolation guarantee working, not a fault to propagate.
-	elsewhere := sealed(t, vault, ids.From[ids.WorkspaceKind](ids.NewV7()), "another tenant's key")
+	elsewhere := sealed(t, vault, ids.From[ids.WorkspaceKind](ids.NewV7()), "another workspace's key")
 	env := config.Static(map[string]string{"OPENAI_API_KEY": "still-here"})
 
 	got := SealedKeys(ctx, vault, ws, map[string]string{providerOpenAI: elsewhere}, env)("OPENAI_API_KEY")
 
-	if got == "another tenant's key" {
-		t.Fatal("a ref sealed under another workspace resolved; tenant isolation is broken")
+	if got == "another workspace's key" {
+		t.Fatal("a ref sealed under another workspace resolved; workspace isolation is broken")
 	}
 	if got != "still-here" {
 		t.Errorf("resolved %q, want the environment's value", got)
