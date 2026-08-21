@@ -6135,8 +6135,9 @@ export interface paths {
          *     `granted_by` all take the values of the new request, so a field the caller omits is cleared and
          *     accountability moves to the re-asserting principal. `id` and `created_at` do not move — it is the
          *     same share, not a new one. Because a re-assert restates the whole grant — its TERM as well as its
-         *     width — asserting one requires authority to change the RECORD, at every access level: a caller
-         *     whose only claim on the record is a grant may neither pass it on nor restate it
+         *     width — asserting one requires authority to CHANGE the record, at every access level: own/team
+         *     scope, an unbounded scope, or a live `write` grant. A caller whose only claim is a `read` share
+         *     may therefore neither pass it on nor restate its terms, while a `write` share carries both
          *     (scope-intersection, ADR-0039: a granter can never share wider than they hold).
          *     Audited (`action: record_share`). Bounded:
          *     flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
@@ -16029,9 +16030,21 @@ export interface components {
              * @description Every audit_log row names the record it mutated (NOT NULL since 0075).
              */
             entity_id: string;
+            /**
+             * @description The record image before the change. For an `activity` row this read
+             *     REDACTS content the caller's audience does not admit: keys naming
+             *     the mutation (audience, member_count, relink target, changed field
+             *     names) are answered as stored, anything else is dropped, and
+             *     `content_state: withheld` is added to say so. An image that needed
+             *     no redaction is answered unchanged and carries no such key. The row
+             *     itself is always present — actor, action, entity and timestamp are
+             *     never withheld — because a compliance trail with holes in it is its
+             *     own defect.
+             */
             before?: {
                 [key: string]: unknown;
             } | null;
+            /** @description The record image after the change, redacted on the same terms as `before`. */
             after?: {
                 [key: string]: unknown;
             } | null;

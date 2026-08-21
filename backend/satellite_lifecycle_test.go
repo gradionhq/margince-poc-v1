@@ -134,39 +134,20 @@ func personSatellites(t *testing.T) map[string]map[string]bool {
 		if err != nil {
 			t.Fatal(err)
 		}
-		current := ""
-		for _, line := range strings.Split(string(raw), "\n") {
-			if m := createTableLine.FindStringSubmatch(line); m != nil {
-				if personSatelliteName.MatchString(m[1]) {
-					current = m[1]
-					columns[current] = map[string]bool{}
-				}
-				continue
-			}
-			if strings.HasPrefix(line, ");") {
-				current = ""
-				continue
-			}
-			if current != "" {
-				if m := columnLine.FindStringSubmatch(line); m != nil {
-					columns[current][m[1]] = true
-				}
-				continue
-			}
-			m := alterColumn.FindStringSubmatch(line)
-			if m == nil || columns[m[1]] == nil {
-				continue
-			}
-			if strings.EqualFold(m[2], "ADD") {
-				columns[m[1]][m[3]] = true
-			} else {
-				delete(columns[m[1]], m[3])
-			}
-		}
+		// One parser, shared with capture_privacy_vocabulary_test.go. A second
+		// copy of it would leave whichever gate did not get a fix — RENAME
+		// COLUMN, a CREATE TABLE closed some other way — judging a schema that
+		// stopped existing, and the two gates would disagree silently.
+		foldColumns(string(raw), columns)
 	}
+	// The name filter moved here from the fold. foldColumns keeps every table it
+	// reads, because the capture-privacy gate that shares it needs the whole
+	// schema — so the person_* narrowing this gate governs is applied at
+	// SELECTION rather than while parsing. Both halves still bind: a table is a
+	// governed satellite only if it is named person_* AND carries person_id.
 	satellites := map[string]map[string]bool{}
 	for table, cols := range columns {
-		if cols["person_id"] {
+		if personSatelliteName.MatchString(table) && cols["person_id"] {
 			satellites[table] = cols
 		}
 	}

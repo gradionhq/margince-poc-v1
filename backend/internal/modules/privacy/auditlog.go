@@ -13,6 +13,7 @@ package privacy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -106,31 +107,98 @@ const auditActivityJoin = `
 		LEFT JOIN activity ` + auditActivityAlias + `
 		  ON a.entity_type = 'activity' AND ` + auditActivityAlias + `.id = a.entity_id`
 
-// withholdAuditImage blanks the record images on one entry, keeping the row.
+// auditImageGovernanceKeys are the keys an activity's audit image may carry
+// that describe the MUTATION rather than the activity's content — who the
+// audience became, which record a relink pointed at, which fields moved.
 //
-// The images are REPLACED rather than nulled. A nil image is what a row that
-// never carried one looks like, so nulling would give a reader two readings of
-// one value — "nothing was recorded" and "you may not see what was recorded" —
-// and the compliance question those readers ask is exactly which of the two it
-// is. The marker uses the same word the activity read surface already answers
-// with, so present-but-withheld has one spelling across the product.
+// The audience governs an activity's CONTENT. It has no claim over the record
+// of an administrative act performed on that activity, and withholding one
+// destroys governance data rather than protecting anything: the row recording
+// "this conversation was limited to its participants, naming 3 members" carries
+// nothing a reader outside the audience is not entitled to, and is precisely
+// what a compliance reader is looking for.
 //
-// Only before/after are touched. Evidence is context ABOUT the mutation — which
-// retention policy fired, which rule admitted it (storekit.go) — not the record
-// content the audience governs, and withholding it would blank the governance
-// trail the audience limit has no claim over.
-func withholdAuditImage(e *AuditEntry) {
-	if e.Before != nil {
-		e.Before = auditWithheldImage
-	}
-	if e.After != nil {
-		e.After = auditWithheldImage
-	}
+// The list is an ALLOWLIST and the redaction is fail-closed: a key that is not
+// here is dropped, so a new writer that starts recording content into an audit
+// image cannot leak it by default. TestRedactionKeepsGovernanceAndDropsContent
+// pins both directions.
+var auditImageGovernanceKeys = map[string]bool{
+	"audience": true, "member_count": true,
+	"entity_type": true, "entity_id": true, "replaced": true,
+	"merged_into_id": true,
+	"category":       true, "amount_minor": true, "currency": true, "rate_bps": true,
+	"occurred_at": true, "due_at": true, "remind_at": true,
+	"assignee_id": true, "is_done": true,
+	// body is written as a presence flag, never as text — the writer reduces it
+	// deliberately and says so — so it survives redaction as the boolean it is.
+	"body": true,
 }
 
-// auditWithheldImage is the stand-in an out-of-audience reader gets. Built once
-// from the contract's own enum so a rename of the wire spelling reaches here.
-var auditWithheldImage = []byte(`{"content_state":"` + string(crmcontracts.ActivityContentStateWithheld) + `"}`)
+// withholdAuditImage redacts the record images on one entry, keeping the row and
+// keeping everything the audience has no claim over.
+//
+// It does NOT blank the whole image. Doing that destroyed the audit record of
+// the audience change itself, which is the one act a reader most needs to see
+// and the one carrying no content at all.
+//
+// What is dropped is replaced by a marker rather than silently omitted, because
+// an absent key and a withheld one are different answers to the compliance
+// question being asked, and a reader cannot tell them apart otherwise. The
+// marker reuses the wire spelling the activity read surface already answers
+// with, so present-but-withheld has one spelling across the product.
+//
+// Evidence is untouched. It is context ABOUT the mutation — which retention
+// policy fired, which rule admitted it — not the record content the audience
+// governs.
+func withholdAuditImage(e *AuditEntry) {
+	e.Before = redactAuditImage(e.Before)
+	e.After = redactAuditImage(e.After)
+}
+
+// redactAuditImage keeps the governance keys of one image and marks the rest
+// withheld. A nil or unreadable image is returned unchanged: there is nothing to
+// redact, and inventing a marker for a row that carried no image would answer a
+// question the ledger never asked.
+func redactAuditImage(raw []byte) []byte {
+	if len(raw) == 0 {
+		return raw
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		// Not an object — a scalar or an array image. It cannot be partially
+		// redacted, so it is withheld whole rather than passed through.
+		return auditWithheldImage
+	}
+	kept := make(map[string]json.RawMessage, len(fields))
+	withheld := false
+	for key, value := range fields {
+		if auditImageGovernanceKeys[key] {
+			kept[key] = value
+			continue
+		}
+		withheld = true
+	}
+	if !withheld {
+		return raw
+	}
+	kept[auditContentStateKey] = json.RawMessage(`"` + string(crmcontracts.ActivityContentStateWithheld) + `"`)
+	redacted, err := json.Marshal(kept)
+	if err != nil {
+		// Re-marshalling values that were just unmarshalled cannot fail, but a
+		// silent pass-through here would be the disclosure itself, so the
+		// unreachable branch withholds rather than trusting that.
+		return auditWithheldImage
+	}
+	return redacted
+}
+
+// auditContentStateKey names the marker key, spelled once so the reader, the
+// contract and the tests cannot disagree about it.
+const auditContentStateKey = "content_state"
+
+// auditWithheldImage is the whole-image stand-in, used only where an image
+// cannot be partially redacted.
+var auditWithheldImage = []byte(`{"` + auditContentStateKey + `":"` + string(crmcontracts.ActivityContentStateWithheld) + `"}`)
 
 func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPage, error) {
 	// Human is spelled out rather than delegated to auth.RequireHuman, which
@@ -174,9 +242,13 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 	// holes in it is its own defect: the row, its actor, its action and its
 	// timestamp are all still answered, and only the IMAGE is withheld.
 	//
-	// The arm is rendered against the joined activity, so a non-activity row —
-	// and an activity row whose record is gone — has nothing to withhold and
-	// reads as before.
+	// A non-activity row has no audience to answer to and is untouched. An
+	// activity row whose record is GONE is withheld, not passed through: the
+	// join failing is not evidence that the caller may read the image, and a
+	// predicate spelled `id IS NULL OR audience` would answer "readable" for
+	// exactly the rows whose audience can no longer be checked. Nothing purges
+	// activity rows today, so this is the latent direction — but it is the
+	// direction that re-opens the disclosure silently, and no test would notice.
 	audience, err := auth.ActivityAudienceArm(ctx, auditActivityAlias, argN)
 	if err != nil {
 		return AuditPage{}, err
@@ -189,7 +261,8 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 			        a.action, a.entity_type, a.entity_id, a.before, a.after, a.authorization_rule,
 			        a.evidence, a.occurred_at,
 			        actor_user.display_name, obo.display_name,
-			        (`+auditActivityAlias+`.id IS NULL OR (`+audience+`)) AS content_readable
+			        (a.entity_type <> 'activity'
+			          OR (`+auditActivityAlias+`.id IS NOT NULL AND (`+audience+`))) AS content_readable
 			 FROM audit_log a`+auditActorNameJoins+auditActivityJoin+`
 			 WHERE `+where+`
 			 ORDER BY a.occurred_at DESC, a.id DESC

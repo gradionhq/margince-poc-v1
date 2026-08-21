@@ -12297,13 +12297,25 @@ type AuditLogEntry struct {
 	// a machine, and their human authority is `on_behalf_of_name`. Null
 	// when no user row resolves — a deactivated or deleted member still has
 	// audit rows, and an honest identifier is better than an invented name.
-	ActorName *string                 `json:"actor_name,omitempty"`
-	ActorType AuditLogEntryActorType  `json:"actor_type"`
-	After     *map[string]interface{} `json:"after,omitempty"`
+	ActorName *string                `json:"actor_name,omitempty"`
+	ActorType AuditLogEntryActorType `json:"actor_type"`
+
+	// After The record image after the change, redacted on the same terms as `before`.
+	After *map[string]interface{} `json:"after,omitempty"`
 
 	// AuthorizationRule Which RBAC/scope rule allowed it.
-	AuthorizationRule *string                 `json:"authorization_rule,omitempty"`
-	Before            *map[string]interface{} `json:"before,omitempty"`
+	AuthorizationRule *string `json:"authorization_rule,omitempty"`
+
+	// Before The record image before the change. For an `activity` row this read
+	// REDACTS content the caller's audience does not admit: keys naming
+	// the mutation (audience, member_count, relink target, changed field
+	// names) are answered as stored, anything else is dropped, and
+	// `content_state: withheld` is added to say so. An image that needed
+	// no redaction is answered unchanged and carries no such key. The row
+	// itself is always present — actor, action, entity and timestamp are
+	// never withheld — because a compliance trail with holes in it is its
+	// own defect.
+	Before *map[string]interface{} `json:"before,omitempty"`
 
 	// EntityId Every audit_log row names the record it mutated (NOT NULL since 0075).
 	EntityId   openapi_types.UUID `json:"entity_id"`
