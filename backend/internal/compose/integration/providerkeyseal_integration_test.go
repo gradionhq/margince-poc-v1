@@ -14,8 +14,13 @@ package integration
 // copy of the same secret in the vault.
 
 import (
+	"context"
+	"errors"
 	"log/slog"
+	"os"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -136,5 +141,83 @@ func TestAProviderAddedAfterTheFirstSealIsRecorded(t *testing.T) {
 		if stored[provider] != second[provider] {
 			t.Errorf("%s recorded as %q, want %q", provider, stored[provider], second[provider])
 		}
+	}
+}
+
+// refusingVault seals everything except one nominated secret, so the test can
+// fail exactly one provider and watch what happens to the other.
+//
+// A stub rather than the memory vault because the behaviour under test is a
+// FAILURE, and the memory vault has no way to produce one. It delegates every
+// other method so the parts that are not under test stay real.
+type refusingVault struct {
+	keyvault.Vault
+	refuse string
+}
+
+func (v refusingVault) Put(ctx context.Context, ws ids.WorkspaceID, secret []byte) (keyvault.Ref, error) {
+	if string(secret) == v.refuse {
+		return "", errors.New("keyvault: the custodian refused this write")
+	}
+	return v.Vault.Put(ctx, ws, secret)
+}
+
+// One provider's vault failure is not the others'.
+//
+// The comment in SealProviderKeys says exactly this and nothing proved it. It
+// matters because the alternative is silent and total: a boot that abandoned
+// the whole seal on the first refusal would leave every provider on the
+// environment, and the log line naming one vendor would be the only clue that
+// the other three had not moved either.
+func TestAProviderThatCannotBeSealedLeavesTheOthersSealed(t *testing.T) {
+	e := SetupSearch(t)
+	ctx := e.adminRoutingCtx()
+	ws := ids.From[ids.WorkspaceKind](e.WS)
+	vault := refusingVault{Vault: keyvault.NewMemory(), refuse: "a-gemini-key"}
+
+	refs := compose.SealProviderKeys(ctx, e.Pool, vault, ws, sealingEnv(), slog.New(slog.DiscardHandler))
+
+	if _, sealed := refs["gemini"]; sealed {
+		t.Error("gemini is recorded as sealed although the vault refused it; the environment is the only place its key still is")
+	}
+	if refs["anthropic"] == "" {
+		t.Fatal("anthropic was not sealed, so one vendor's refusal cost the others their move out of the environment")
+	}
+	// Recorded, not just returned — the next boot must not re-seal anthropic.
+	stored, err := settings.Get(ctx, compose.NewSettingsStore(e.Pool), ai.ProviderKeys)
+	if err != nil {
+		t.Fatalf("reading the recorded refs: %v", err)
+	}
+	if stored["anthropic"] != refs["anthropic"] {
+		t.Errorf("recorded %q, sealed %q", stored["anthropic"], refs["anthropic"])
+	}
+	// And the refused one resolves from the environment, which is the whole
+	// reason the failure is survivable.
+	if got := ai.SealedKeys(ctx, vault, ws, stored, sealingEnv())("GEMINI_API_KEY"); got != "a-gemini-key" {
+		t.Errorf("the refused provider resolves to %q, want its environment value", got)
+	}
+}
+
+// A database that cannot answer at boot costs the installation its seal, not
+// its boot. The environment still holds every key, so falling back to it is a
+// working posture — and it is the posture every installation had before the
+// vault existed.
+func TestAnUnreadableSettingRowFallsBackToTheEnvironment(t *testing.T) {
+	e := SetupSearch(t)
+	ctx := e.adminRoutingCtx()
+
+	// A pool that is closed is how a database looks when it has gone away
+	// mid-boot: every query fails immediately rather than hanging.
+	dead, err := pgxpool.New(context.Background(), os.Getenv("MARGINCE_TEST_APP_DSN"))
+	if err != nil {
+		t.Fatalf("opening the pool to close: %v", err)
+	}
+	dead.Close()
+
+	refs := compose.SealProviderKeys(ctx, dead, keyvault.NewMemory(),
+		ids.From[ids.WorkspaceKind](e.WS), sealingEnv(), slog.New(slog.DiscardHandler))
+
+	if refs != nil {
+		t.Errorf("returned %v from a database that cannot be read; the caller would treat those as sealed", refs)
 	}
 }
