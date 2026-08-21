@@ -86,11 +86,26 @@ func TestTheComposedMCPMountPublishesTheQueryVocabulary(t *testing.T) {
 		t.Error("the published deal vocabulary has no derived organization hop")
 	}
 
-	// The declared-but-unanswerable operator arrives declared (SEARCH-AC-17).
-	if !slices.ContainsFunc(doc.Unavailable, func(u vocabularyUnavailable) bool {
-		return u.Op == "within_radius" && u.Answers == search.CodeDistanceRankingUnavailable
+	// SEARCH-AC-17 inverted, which is what #2171 earned. within_radius was
+	// declared permanently unavailable while no record carried coordinates;
+	// companies are geocoded on ingestion now, so the operator ANSWERS — and
+	// declaring it unavailable would send a caller to a text match on a city
+	// name, the exact wrong answer the declaration existed to prevent.
+	//
+	// Both halves, because either alone passes for the wrong reason: an empty
+	// unavailable list would also be produced by dropping the operator
+	// altogether, and a published operator would also appear if the deployment
+	// still refused it.
+	if slices.ContainsFunc(doc.Unavailable, func(u vocabularyUnavailable) bool {
+		return u.Op == "within_radius"
 	}) {
-		t.Error("within_radius is not published as unavailable, so a caller cannot tell it apart from one that works")
+		t.Errorf("within_radius is still published as unavailable, so a caller is told to avoid an operator that answers: %+v", doc.Unavailable)
+	}
+	org := targetVocabulary(t, doc, "organization")
+	if !slices.ContainsFunc(org.Fields, func(f vocabularyField) bool {
+		return f.Kind == "geo" && slices.Contains(f.Ops, "within_radius")
+	}) {
+		t.Errorf("the organization vocabulary offers no geo field admitting within_radius, so nothing tells a caller the operator is theirs to use: %+v", org.Fields)
 	}
 }
 
@@ -230,9 +245,16 @@ func readVocabulary(e *apptest.AppEnv, t *testing.T, bearer string) vocabularyDo
 // the custom-field test, a workspace column) plus a derived hop.
 func dealVocabulary(t *testing.T, doc vocabularyDoc) vocabularyTarget {
 	t.Helper()
-	i := slices.IndexFunc(doc.Targets, func(target vocabularyTarget) bool { return target.Target == "deal" })
+	return targetVocabulary(t, doc, "deal")
+}
+
+// targetVocabulary reads one published target by name, failing where the reason
+// is legible rather than leaving a later assertion to inspect a zero value.
+func targetVocabulary(t *testing.T, doc vocabularyDoc, name string) vocabularyTarget {
+	t.Helper()
+	i := slices.IndexFunc(doc.Targets, func(target vocabularyTarget) bool { return target.Target == name })
 	if i < 0 {
-		t.Fatal(`the published vocabulary has no "deal" target`)
+		t.Fatalf("the published vocabulary has no %q target", name)
 	}
 	return doc.Targets[i]
 }
