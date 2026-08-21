@@ -113,6 +113,7 @@ workspace/
 # Agent debris that has slipped into the repo before — never product:
 #   - the pnpm content-addressable store (machine-local build cache)
 #   - a repo-root scratch dir (real scratch belongs in the session temp dir)
+#   - Codex visualization exports (conversation artifacts, not product source)
 #   - screenshots dropped at the repo root. Root-ANCHORED so tracked product
 #     assets like frontend/src/assets/*.png are unaffected.
 #   - screen RECORDINGS, by the same rule and for the same reason. Proving an
@@ -126,6 +127,7 @@ workspace/
 /.pnpm-store/
 /node_modules/
 /scratchpad/
+/.codex/visualizations/
 /*.png
 /*.jpg
 /*.jpeg
