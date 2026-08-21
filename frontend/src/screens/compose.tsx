@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { type ReactNode, useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
@@ -1611,16 +1611,22 @@ export function ChannelReplyAction({
 // `links` to gate on regardless. It is offered unconditionally.
 //
 // It owns the two open states so the timeline mapper stays presentational.
+//
+// `extra` is how a surface adds a verb only it can serve — the person page's
+// meeting brief opens a drawer this file cannot see. It renders before Relink
+// so the row's own subject-matter verbs lead and the corrective ones follow.
 export function TimelineActions({
   activity,
   entityType,
   entityId,
   personId,
+  extra,
 }: Readonly<{
   activity: Activity;
   entityType: RelinkKind;
   entityId: string;
   personId?: string;
+  extra?: (activity: Activity) => ReactNode;
 }>) {
   const t = useT();
   const [relink, setRelink] = useState(false);
@@ -1634,6 +1640,7 @@ export function TimelineActions({
         entityId={entityId}
         personId={personId}
       />
+      {extra?.(activity)}
       <Button small onClick={() => setRelink(true)}>
         {t("compose.relink")}
       </Button>

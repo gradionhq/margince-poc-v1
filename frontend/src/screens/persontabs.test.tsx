@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { components } from "../api/schema";
@@ -164,5 +165,76 @@ describe("the meetings tab", () => {
     // filter that let it through here would make this tab a second, worse
     // spelling of that one.
     expect(screen.queryByText("Fleet renewal")).toBeNull();
+  });
+
+  it("offers a brief for the booked meeting and for one already held", async () => {
+    // The backend assembles a brief for ANY meeting activity. Reaching it only
+    // through the next meeting's prep moment left every other meeting on the
+    // record with a brief nothing could ask for.
+    const briefed: string[] = [];
+    withProviders(
+      <PersonMeetingsTab
+        view={view}
+        onBriefMeeting={(id) => briefed.push(id)}
+      />,
+    );
+    const actions = screen.getAllByRole("button", { name: "Brief me" });
+    expect(actions.length).toBe(2);
+    await userEvent.setup().click(actions[0]);
+    expect(briefed.length).toBe(1);
+  });
+
+  it("offers no brief for a meeting the reader may find but not read", () => {
+    // The timeline carries discoverable-but-withheld rows on purpose, so the
+    // reader knows a conversation happened. The brief endpoint applies the
+    // stricter content gate, so a verb here would promise what their own grant
+    // refuses — and answer 404 when they took it up.
+    const withWithheld: Person360 = {
+      ...view,
+      activities: {
+        data: [
+          activity({
+            id: "a-secret",
+            kind: "meeting",
+            subject: "Board session",
+            occurred_at: "2026-08-10T08:00:00Z",
+            content_state: "withheld",
+          }),
+        ],
+        page: { has_more: false },
+      },
+      next_meeting: undefined,
+    };
+    withProviders(
+      <PersonMeetingsTab view={withWithheld} onBriefMeeting={() => {}} />,
+    );
+    // The row is DRAWN — the reader learns a meeting happened — and carries no
+    // verb. Asserting the subject would be wrong: a withheld row redacts it,
+    // which is the whole point of the state.
+    expect(screen.queryByText(/Nothing logged/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Brief me" })).toBeNull();
+  });
+
+  it("offers no brief when the surface cannot open one", () => {
+    // Without the callback the verb would be a button that does nothing, which
+    // teaches a reader the feature is broken rather than absent.
+    withProviders(<PersonMeetingsTab view={view} />);
+    expect(screen.queryByRole("button", { name: "Brief me" })).toBeNull();
+  });
+
+  it("names the meeting the reader picked, not the soonest one", async () => {
+    // The defect this replaces: the drawer always read next_meeting, so a
+    // brief opened from a past meeting described a different room.
+    const briefed: string[] = [];
+    withProviders(
+      <PersonMeetingsTab
+        view={view}
+        onBriefMeeting={(id) => briefed.push(id)}
+      />,
+    );
+    const actions = screen.getAllByRole("button", { name: "Brief me" });
+    // The booked meeting leads the tab; the held one follows it.
+    await userEvent.setup().click(actions[1]);
+    expect(briefed).toEqual(["a-2"]);
   });
 });

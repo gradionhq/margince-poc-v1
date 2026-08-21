@@ -1963,7 +1963,7 @@ export const en = {
   "today.source.nextSteps": "open tasks",
   "today.source.nextMeeting": "the calendar",
   "today.source.deals": "deals",
-  "today.meeting.prepare": "Prepare meeting",
+  "today.meeting.prepare": "Write to the room",
   "today.source.people": "the contacts",
   "today.source.standing": "whose move it is and the signals",
   "today.source.activities": "what was said",
@@ -5515,6 +5515,8 @@ export const en = {
   "person.research.evidenceOrOmit":
     "AI-assisted · evidence-or-omit · public information only",
   "person.meeting.title": "Meeting brief",
+  "person.meeting.brief": "Brief me",
+  "person.meeting.empty": "There is nothing recorded for this meeting yet.",
   "person.meeting.loading": "Assembling the brief…",
   "person.meeting.assembledNow": "Assembled just now, from the latest data",
   "person.meeting.header": "At a glance",
