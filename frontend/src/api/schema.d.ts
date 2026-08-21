@@ -13273,7 +13273,10 @@ export interface components {
             currency?: string | null;
             /** Format: uuid */
             organization_id?: string | null;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The partner who brought this deal. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it. Null clears the attribution.
+             */
             partner_org_id?: string | null;
             /**
              * @description `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
