@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -95,4 +96,53 @@ func TestADealMayOnlyNameARealPartner(t *testing.T) {
 			t.Error("the partner named on update did not reach the row")
 		}
 	})
+}
+
+// Merging one company into another repoints its deals' partners with raw SQL,
+// outside the store and so outside the check above. That is safe only because
+// the merge carries the partner row to the survivor as well — this holds it to
+// that, because a merge that moved the deals and left the programme behind
+// would orphan every attribution silently, which is the exact failure the
+// check exists to prevent.
+func TestMergingAPartnerLeavesItsDealsNamingAPartner(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	admin := e.As(e.AdminUser, nil, commissionAdminPerms)
+
+	tier := "tier2_20"
+	source := e.SeedPartnerOrg(t, "Partner Source", &tier, nil)
+	target := e.SeedOrg(t, "Plain Target", nil)
+	sourceID := ids.From[ids.OrganizationKind](source)
+
+	deal := ids.From[ids.DealKind](e.SeedDeal(t, "Sourced by the merged partner", pipeline, open, &e.Rep1))
+	if _, err := e.Deals.UpdateDeal(admin, deal, deals.UpdateDealInput{
+		PartnerOrganizationID: &sourceID,
+	}); err != nil {
+		t.Fatalf("attributing the deal to the source partner: %v", err)
+	}
+
+	if _, err := e.People.MergeOrganization(e.Admin(), orgIDOf(source), orgIDOf(target)); err != nil {
+		t.Fatalf("merging the partner into the plain company: %v", err)
+	}
+
+	// The deal now names the survivor, and the survivor carries the programme
+	// — so the attribution the merge produced is one the store would accept.
+	moved, err := e.Deals.GetDeal(admin, deal, storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("reading the merged deal: %v", err)
+	}
+	if moved.PartnerOrgId == nil || ids.UUID(*moved.PartnerOrgId) != target {
+		t.Fatalf("partner = %v, want the survivor %v", moved.PartnerOrgId, target)
+	}
+
+	// The survivor is asked through the store rather than by reading the table:
+	// re-naming it must be ACCEPTED, which is the same question the check asks
+	// and the one that matters — a merge that left an attribution the product
+	// would now refuse has broken the invariant even if the row looks fine.
+	survivor := orgIDOf(target)
+	if _, err := e.Deals.UpdateDeal(admin, deal, deals.UpdateDealInput{
+		PartnerOrganizationID: &survivor,
+	}); err != nil {
+		t.Errorf("re-naming the survivor as partner → %v; the merge left an attribution the store refuses", err)
+	}
 }

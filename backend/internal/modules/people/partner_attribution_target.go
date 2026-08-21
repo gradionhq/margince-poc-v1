@@ -26,9 +26,15 @@ import (
 // contract has always said the target "must have a `partner` row"; this is what
 // makes that true rather than aspirational.
 //
-// It runs in the caller's transaction so the answer cannot go stale between the
-// check and the write — a partner archived in the moment between the two would
-// otherwise leave exactly the row this refuses.
+// The row is LOCKED, not merely read. Running in the caller's transaction is
+// not enough on its own: a plain SELECT takes no lock, so an archive could
+// commit between the check and the write and leave a fresh deal naming an
+// archived partner — the state this exists to refuse. FOR KEY SHARE is the
+// weakest lock that conflicts with the archive's own write, so an unrelated
+// edit to the partner (a tier change, a stage move) still runs alongside a deal
+// being attributed. Whichever side takes it first the outcome is right: the
+// archive waits and then sees the deal, or this check waits and re-evaluates
+// against the committed archived_at and refuses.
 //
 // Archived partners are refused with the same answer as absent ones. A
 // programme that has been retired is not one a NEW deal may be attributed to,
@@ -37,7 +43,8 @@ func EnsureOrganizationIsPartner(ctx context.Context, tx pgx.Tx, organizationID 
 	var exists bool
 	if err := tx.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM partner
-		                 WHERE organization_id = $1 AND archived_at IS NULL)`,
+		                 WHERE organization_id = $1 AND archived_at IS NULL
+		                 FOR KEY SHARE)`,
 		organizationID).Scan(&exists); err != nil {
 		return fmt.Errorf("check organization is a partner: %w", err)
 	}

@@ -21275,12 +21275,14 @@ type UpdateDealRequest struct {
 	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// PartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
-	PartnerAttribution   *UpdateDealRequestPartnerAttribution `json:"partner_attribution,omitempty"`
-	PartnerOrgId         *openapi_types.UUID                  `json:"partner_org_id,omitempty"`
-	ProjectId            *openapi_types.UUID                  `json:"project_id,omitempty"`
-	Status               *UpdateDealRequestStatus             `json:"status,omitempty"`
-	WaitUntil            *openapi_types.Date                  `json:"wait_until,omitempty"`
-	AdditionalProperties map[string]interface{}               `json:"-"`
+	PartnerAttribution *UpdateDealRequestPartnerAttribution `json:"partner_attribution,omitempty"`
+
+	// PartnerOrgId The partner who brought this deal. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it. Null clears the attribution.
+	PartnerOrgId         *openapi_types.UUID      `json:"partner_org_id,omitempty"`
+	ProjectId            *openapi_types.UUID      `json:"project_id,omitempty"`
+	Status               *UpdateDealRequestStatus `json:"status,omitempty"`
+	WaitUntil            *openapi_types.Date      `json:"wait_until,omitempty"`
+	AdditionalProperties map[string]interface{}   `json:"-"`
 }
 
 // UpdateDealRequestForecastCategory defines model for UpdateDealRequest.ForecastCategory.
