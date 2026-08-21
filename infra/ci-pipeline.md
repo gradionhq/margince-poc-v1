@@ -514,7 +514,7 @@ Wiring details:
 
 `ci.yml` is the merge gate, and `_lane-integration.yml` / `_lane-frontend.yml` are
 part of it — called by it, never triggered on their own (see
-[Two lanes are called](#two-lanes-are-called-not-inlined)). Six workflows sit
+[Two lanes are called](#two-lanes-are-called-not-inlined)). Seven workflows sit
 beside the gate, deliberately outside it:
 
 - **`cache-warm.yml`** — the Go build cache's only writer, on `main` every three
@@ -526,6 +526,32 @@ beside the gate, deliberately outside it:
   branch plus the default branch, and a queue ref is throwaway). See
   [The shared Go build cache](#the-shared-go-build-cache) for why it is scheduled
   rather than per-push.
+
+- **`main-health.yml`** — every two hours on `main`: the backend gate plus the
+  real-Postgres lane (called, not copied — it `uses:` `_lane-integration.yml`),
+  and `main`'s SonarCloud analysis published from the coverage that lane produces.
+  **It is not a gate and never will be**: it reports on a tree that has already
+  landed.
+
+  It exists because of a deliberate asymmetry. A merge can land over a red `ci` —
+  a repository-role bypass is sanctioned here, to keep the fastest contributor
+  fast — so breakage on `main` will keep happening and nothing in this workflow
+  tries to prevent it. What it changes is the **delay and the attribution**:
+  without it, a breakage is discovered when somebody else's unrelated pull request
+  goes red for a reason they did not cause. On failure it files one issue per
+  broken lane carrying the commits that landed since the health check was last
+  green, with authors ([`scripts/main-health-range.sh`](../scripts/main-health-range.sh)).
+  That range is a deliberate over-approximation: naming a dozen candidates is
+  useful, guessing one sends the wrong person looking.
+
+  It is also the **only** publisher of `main`'s SonarCloud analysis. The
+  push-to-`main` scan is gone and the `merge_group` scan that replaced it only
+  runs while the queue rule is enabled, which it is not — and a stored analysis
+  does not vanish when it stops being refreshed, it FREEZES, while the nightly
+  quality-gate job goes on reporting that frozen verdict as current.
+
+  The cadence is the knob: two hours costs ~11 jobs a run and narrows the suspect
+  range to roughly a dozen commits at eight merges an hour.
 
 - **`scheduled.yml`** — daily on `main`, the checks whose answer changes when
   nothing is being merged. `ci.yml` asks "is this diff sound?" and runs because a
