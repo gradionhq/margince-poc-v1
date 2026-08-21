@@ -10,11 +10,13 @@ package deals
 // constraint violation.
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -40,6 +42,18 @@ func TestMigrationAdmitsExactlyTheAttributionsTheStoreAccepts(t *testing.T) {
 	}
 	if err := validPartnerAttribution("partner_of"); err == nil {
 		t.Error("a value outside the two-word vocabulary was accepted; the CHECK would reject the row")
+	}
+}
+
+// unreachablePartnerCheck is the seam for a path that must not reach it: every
+// case below is refused, or leaves the pair alone, BEFORE the partner is
+// resolved. A call here means the refusal moved after the database read it was
+// meant to happen instead of.
+func unreachablePartnerCheck(t *testing.T) EnsurePartner {
+	t.Helper()
+	return func(context.Context, pgx.Tx, ids.OrganizationID) error {
+		t.Error("the partner check ran on a path that never names a valid partner")
+		return nil
 	}
 }
 
@@ -122,7 +136,7 @@ func TestAttributionWithoutAPartnerIsRefused(t *testing.T) {
 	sourced := attributionSourced
 	in := UpdateDealInput{PartnerAttribution: &sourced}
 
-	err := applyPartnerAttributionPatch(t.Context(), nil, crmcontracts.Deal{}, in, p)
+	err := applyPartnerAttributionPatch(t.Context(), nil, crmcontracts.Deal{}, in, p, unreachablePartnerCheck(t))
 
 	var unpaired *PartnerAttributionUnpairedError
 	if !errors.As(err, &unpaired) {
@@ -144,7 +158,7 @@ func TestAnUnknownAttributionIsRefusedBeforeTheDatabaseSeesIt(t *testing.T) {
 	// does not depend on a transaction being present.
 	in := UpdateDealInput{PartnerAttribution: &bogus}
 
-	err := applyPartnerAttributionPatch(t.Context(), nil, dealNamingPartner(attributionSourced), in, p)
+	err := applyPartnerAttributionPatch(t.Context(), nil, dealNamingPartner(attributionSourced), in, p, unreachablePartnerCheck(t))
 
 	var invalid *PartnerAttributionValueError
 	if !errors.As(err, &invalid) {
@@ -161,7 +175,7 @@ func TestAnUnknownAttributionIsRefusedBeforeTheDatabaseSeesIt(t *testing.T) {
 func TestTouchingNeitherHalfLeavesThePairAlone(t *testing.T) {
 	p := storekit.NewPatch()
 
-	if err := applyPartnerAttributionPatch(t.Context(), nil, dealNamingPartner(attributionSourced), UpdateDealInput{}, p); err != nil {
+	if err := applyPartnerAttributionPatch(t.Context(), nil, dealNamingPartner(attributionSourced), UpdateDealInput{}, p, unreachablePartnerCheck(t)); err != nil {
 		t.Fatalf("an update naming neither half: %v", err)
 	}
 	if len(p.After()) != 0 {

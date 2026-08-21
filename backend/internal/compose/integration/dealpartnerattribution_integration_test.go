@@ -40,7 +40,7 @@ func execDirect(t *testing.T, e *Env, sql string, args ...any) error {
 func seedDealWithPartner(t *testing.T, e *Env) (ids.DealID, ids.OrganizationID) {
 	t.Helper()
 	pipeline, open, _ := DealFixture(t, e)
-	partnerOrg := orgIDOf(e.SeedOrg(t, "Northgate Partners", nil))
+	partnerOrg := orgIDOf(e.SeedPartnerOrg(t, "Northgate Partners", nil, nil))
 	deal := ids.From[ids.DealKind](e.SeedDeal(t, "Northgate rollout", pipeline, open, &e.Rep1))
 	if _, err := e.Deals.UpdateDeal(e.Admin(), deal, deals.UpdateDealInput{
 		PartnerOrganizationID: &partnerOrg,

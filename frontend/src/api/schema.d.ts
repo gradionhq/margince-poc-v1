@@ -13161,7 +13161,7 @@ export interface components {
             organization_id?: string | null;
             /**
              * Format: uuid
-             * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.
+             * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a live `partner` row — naming one that does not is refused 422 (`not_a_partner`), because commission prices from the margin tier on that row, and an attribution without one could never earn anything. Null when the caller may not read that organization, in which case `masked_fields` names it.
              */
             partner_org_id?: string | null;
             /**
@@ -13242,7 +13242,7 @@ export interface components {
             organization_id?: string | null;
             /**
              * Format: uuid
-             * @description The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.
+             * @description The partner this deal is attributed to at birth. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it.
              */
             partner_org_id?: string | null;
             /**

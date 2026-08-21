@@ -40,7 +40,7 @@ func seedDealReferenceFixture(t *testing.T, e *Env) dealReferenceFixture {
 	// EnsureLinkTarget gate; capture privacy lands afterwards, which is the
 	// order a connector-captured contact reaches this state in anyway.
 	privateOrg := e.SeedOrg(t, "Meridian Labs", &e.Rep3)
-	partnerOrg := e.SeedOrg(t, "Northgate Partners", &e.Rep3)
+	partnerOrg := e.SeedPartnerOrg(t, "Northgate Partners", nil, &e.Rep3)
 	openOrg := e.SeedOrg(t, "Kestrel Foods", nil)
 
 	hiddenRefs := ids.From[ids.DealKind](e.SeedDeal(t, "Meridian renewal", pipeline, open, &e.Rep1))

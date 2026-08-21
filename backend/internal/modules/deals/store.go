@@ -71,7 +71,16 @@ type Installation struct {
 	// WithX setter because every construction site already passes this struct,
 	// and a seam a caller can forget is one that silently stops shielding.
 	StampCorrespondence StampCorrespondence
+	// EnsurePartner refuses a partner_org_id that names a company with no
+	// partner programme. `people` owns that table, so the edge is injected
+	// here rather than read across the module boundary (ADR-0054).
+	EnsurePartner EnsurePartner
 }
+
+// EnsurePartner answers whether an organization may be named as a deal's
+// partner, inside the caller's own transaction so the answer cannot go stale
+// between the check and the write.
+type EnsurePartner func(ctx context.Context, tx pgx.Tx, organizationID ids.OrganizationID) error
 
 // NewStore binds the store to the pool every tenant query runs through, and
 // to the seam that answers the installation's own values.
@@ -100,7 +109,21 @@ func (i Installation) orRefusing() Installation {
 	if i.StampCorrespondence == nil {
 		i.StampCorrespondence = refusingStamp()
 	}
+	if i.EnsurePartner == nil {
+		i.EnsurePartner = refusingEnsurePartner()
+	}
 	return i
+}
+
+// refusingEnsurePartner is what an un-injected partner check becomes: it
+// refuses every attribution rather than admitting every one. A seam that failed
+// OPEN here would silently restore the hole it exists to close.
+func refusingEnsurePartner() EnsurePartner {
+	return func(context.Context, pgx.Tx, ids.OrganizationID) error {
+		return errors.New("deals: the EnsurePartner seam was not injected; " +
+			"construct this store with installseam.Deals(), which binds people's " +
+			"EnsureOrganizationIsPartner")
+	}
 }
 
 func refusing(field string) InstallationValue {

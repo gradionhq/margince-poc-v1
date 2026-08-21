@@ -99,7 +99,7 @@ func (s *Store) dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontr
 	if in.Currency != nil {
 		p.Set("currency", current.Currency, *in.Currency)
 	}
-	if err := applyDealLinkPatches(ctx, tx, current, in, p); err != nil {
+	if err := applyDealLinkPatches(ctx, tx, current, in, p, s.installation.EnsurePartner); err != nil {
 		return nil, err
 	}
 	if in.ExpectedClose != nil {
@@ -133,6 +133,7 @@ func (s *Store) dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontr
 // disclosing that the row exists.
 func applyDealLinkPatches(ctx context.Context, tx pgx.Tx,
 	current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch,
+	ensurePartner EnsurePartner,
 ) error {
 	if in.OrganizationID != nil {
 		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
@@ -149,7 +150,7 @@ func applyDealLinkPatches(ctx context.Context, tx pgx.Tx,
 		}
 		p.Set("project_id", current.ProjectId, *in.ProjectID)
 	}
-	return applyPartnerAttributionPatch(ctx, tx, current, in, p)
+	return applyPartnerAttributionPatch(ctx, tx, current, in, p, ensurePartner)
 }
 
 // applyPartnerAttributionPatch writes the partner link and what that partner
@@ -165,6 +166,7 @@ func applyDealLinkPatches(ctx context.Context, tx pgx.Tx,
 // leaves the link alone and moves only the claim.
 func applyPartnerAttributionPatch(ctx context.Context, tx pgx.Tx,
 	current crmcontracts.Deal, in UpdateDealInput, p *storekit.Patch,
+	ensurePartner EnsurePartner,
 ) error {
 	if in.PartnerAttribution != nil {
 		if err := validPartnerAttribution(*in.PartnerAttribution); err != nil {
@@ -191,6 +193,11 @@ func applyPartnerAttributionPatch(ctx context.Context, tx pgx.Tx,
 		return nil
 	}
 	if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.PartnerOrganizationID.UUID); err != nil {
+		return err
+	}
+	// Visible is not enough: it must actually BE a partner, or the deal reads
+	// as credited to somebody the accrual can never price.
+	if err := ensurePartner(ctx, tx, *in.PartnerOrganizationID); err != nil {
 		return err
 	}
 	p.Set("partner_org_id", current.PartnerOrgId, *in.PartnerOrganizationID)

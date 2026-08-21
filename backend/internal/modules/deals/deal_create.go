@@ -255,6 +255,14 @@ func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInpu
 	if err := ensureBirthLinksVisible(ctx, tx, in); err != nil {
 		return crmcontracts.Deal{}, err
 	}
+	// Visible is not enough for the partner: it must actually BE one, or the
+	// deal reads as credited and can never earn anything (the accrual prices
+	// from the partner row's margin tier).
+	if in.PartnerOrganizationID != nil {
+		if err := s.installation.EnsurePartner(ctx, tx, *in.PartnerOrganizationID); err != nil {
+			return crmcontracts.Deal{}, err
+		}
+	}
 
 	id := ids.New[ids.DealKind]()
 	cfCols, cfHolders, args := storekit.InsertFragments(active, in.CustomFields, []any{

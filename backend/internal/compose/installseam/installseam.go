@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
 
 // Deals is the installation seam the deals module reads through.
@@ -27,5 +28,8 @@ func Deals() deals.Installation {
 		// activities owns `activity`, so the stamp's write lives there and the
 		// edge is injected here (ADR-0054).
 		StampCorrespondence: activities.StampCorrespondenceForDeal,
+		// people owns `partner`, so the "is this company a partner" read lives
+		// there and the edge is injected here for the same reason.
+		EnsurePartner: people.EnsureOrganizationIsPartner,
 	}
 }
