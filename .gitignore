@@ -36,6 +36,7 @@ coverage.out
 !/extensions/notes
 !/extensions/de
 !/extensions/yogi
+!/extensions/relay-probe
 !/extensions/dispact-connector
 !/extensions/zalo-oa
 !/extensions/zalo-personal

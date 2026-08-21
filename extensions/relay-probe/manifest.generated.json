@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "name": "relay-probe",
+  "version": "1.0.0",
+  "risk_tiers": [
+    {
+      "id": "job/poll_inbox",
+      "unit": "relay-probe",
+      "kind": "extension_job",
+      "contract": "jobs.yaml",
+      "operation": "extension.job.tick",
+      "operation_id": "ext_relay_probe_poll_inbox",
+      "route": "",
+      "method": "",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:47161c1869e2857e4f4b804dda535873e505538f260ec3614f1e912da5bd4c85",
+      "digest": "sha256:8b4168eacb589cfb10599620940545b1491bd4240b5e814519328b420b1b22db"
+    },
+    {
+      "id": "tool/relay_connect",
+      "unit": "relay-probe",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "relayProbeConnect",
+      "route": "/ext/relay-probe/connect",
+      "method": "PUT",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:085c48ea20e06e8d00b00522730810eb3ddda39ac42916791ae2358cb0befc7d",
+      "digest": "sha256:01ea2e543b8c0272caee541f9df590de32da2b6cec22da2da971d8fd057f8934"
+    },
+    {
+      "id": "tool/relay_disconnect",
+      "unit": "relay-probe",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "relayProbeDisconnect",
+      "route": "/ext/relay-probe/disconnect",
+      "method": "DELETE",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:ffc3942676eb8280dffa6d3789f9026782aac96fc3d2c0866f7cc3486ac953b4",
+      "digest": "sha256:2e46984e872869c32374ccc1b65f3b7ee2701505db0681f8ba58ccd2ce3d7c95"
+    },
+    {
+      "id": "tool/relay_status",
+      "unit": "relay-probe",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "relayProbeStatus",
+      "route": "/ext/relay-probe/status",
+      "method": "GET",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:061d41e687873657e48ff6ff9d4f2b457e81364636418d6564acabc63d2d1ac1",
+      "digest": "sha256:cb3470a1cf5c129637ffcfee8dd4701ed4b439215e42350b7609af6b9b5d6128"
+    }
+  ],
+  "secrets": [
+    {
+      "key": "api-token",
+      "scope": "user"
+    }
+  ],
+  "ingress": [
+    {
+      "system": "relay",
+      "lands": [
+        "activity"
+      ],
+      "merges": [
+        "email"
+      ]
+    }
+  ],
+  "channels": [
+    {
+      "provider": "relay",
+      "supplies_transport": true
+    }
+  ]
+}
