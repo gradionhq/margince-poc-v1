@@ -42,6 +42,17 @@ const streamOverlay = "overlay"
 // every one of those depend on which units an installation happens to ship.
 const extensionStreamEntity = "extension"
 
+// aiTaskStreamEntity is the stream every ai_task.state_changed rides.
+//
+// It is deliberately NOT in streamEntities, which is what coreStreams() — and
+// therefore every all-stream group — expands to. An AI task's state change is
+// an internal projection feed: the automation engine has no trigger for it, the
+// webhook deliverer has no public type to name it by, and the audit stream's
+// agent-actor slice already sees the work itself through the events that
+// mutated records. Enumerated by Streams() all the same, because a stream the
+// purge does not unlink is one that outlives a data reset.
+const aiTaskStreamEntity = "aitask"
+
 // ExtensionEventVersion is the payload schema version every extension event
 // carries, and it is 1 forever.
 //
@@ -97,11 +108,11 @@ var streamEntities = []string{
 // left out here is one the data reset does not unlink and no operator can see,
 // which is a worse outcome than the entries it would leave behind.
 func Streams() []string {
-	out := make([]string, 0, len(streamEntities)+1)
+	out := make([]string, 0, len(streamEntities)+2)
 	for _, e := range streamEntities {
 		out = append(out, StreamPrefix+e)
 	}
-	out = append(out, StreamPrefix+extensionStreamEntity)
+	out = append(out, StreamPrefix+extensionStreamEntity, StreamPrefix+aiTaskStreamEntity)
 	sort.Strings(out)
 	return out
 }
@@ -298,21 +309,32 @@ var catalog = map[string]struct {
 	// rides the same overlay-mode-only stream as the mirror it gates.
 	"incumbent.connected":    {streamOverlay, 1},
 	"incumbent.disconnected": {streamOverlay, 1},
+
+	// The AI-activity projection feed (ai_task_run). One type with the state
+	// inside, like voice.build_changed: a new state must never need a new type.
+	"ai_task.state_changed": {aiTaskStreamEntity, 1},
 }
 
-// pipelineEventTypes are the capture-pipeline events that may ride the bus
-// WITHOUT a subject entity ref. A pipeline step can be subject-less by
-// nature — capture.skipped names NOTHING (an excluded personal message
-// creates no row), yet the spec still requires it on the bus as the
-// machine-checkable "personal mail is never ingested" proof (capture.md
-// AC1.3, EVT-SEM-10). These events carry no entity handle, but they DO keep
-// the ledger trace link (audit_log OR system_log) so the outcome stays
-// attributable — Validate enforces the trace, only the entity is relaxed.
+// pipelineEventTypes are the events that may ride the bus WITHOUT a subject
+// entity ref, because the thing they report names no record.
+//
+// Two families qualify, for the same reason. A capture pipeline step can be
+// subject-less by nature — capture.skipped names NOTHING (an excluded personal
+// message creates no row), yet the spec still requires it on the bus as the
+// machine-checkable "personal mail is never ingested" proof (capture.md AC1.3,
+// EVT-SEM-10). An AI task's state change names no record either: the occurrence
+// it reports is operational state, and the row that will hold it does not exist
+// until the projection this event feeds writes it — so there is nothing for a
+// consumer to read back under its own scope, which is what an entity ref is
+// for. These events carry no entity handle, but they DO keep the ledger trace
+// link (audit_log OR system_log) so the outcome stays attributable — Validate
+// enforces the trace, only the entity is relaxed.
 var pipelineEventTypes = map[string]struct{}{
-	"capture.received":   {},
-	"capture.normalized": {},
-	"capture.failed":     {},
-	"capture.skipped":    {},
+	"capture.received":      {},
+	"capture.normalized":    {},
+	"capture.failed":        {},
+	"capture.skipped":       {},
+	"ai_task.state_changed": {},
 }
 
 // IsPipelineEvent reports whether an event type is an entity-less
@@ -421,6 +443,12 @@ func Groups() []Group {
 		// where deal.stage_changed carries both the win and the reopen that
 		// reverses one.
 		{Name: "cg:commissions", Streams: forEntities(dealStreamEntity)},
+		// The AI-activity projection (ai_task_run): what the rail and the
+		// activity feed read. Its own group because a projection backlog must
+		// not be able to stall anything that spends money or moves a record,
+		// and because it is the only group on the aitask stream — an
+		// all-stream group would carry this traffic for nothing.
+		{Name: "cg:ai-activity", Streams: forEntities(aiTaskStreamEntity)},
 		// Filling a contact from what their employer's site already published
 		// (ADR-0072 arc). Its own group for the same reason as the matcher
 		// above: the deep read fills a published person DURING the crawl, so

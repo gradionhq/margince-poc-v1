@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -40,7 +41,10 @@ func TestStreamsMatchSpecList(t *testing.T) {
 	// The families, plus the extension tier's one stream — enumerated here
 	// because the data reset unlinks exactly what this returns, and a stream
 	// missing from it is one a reset silently leaves behind.
-	want := append(append([]string{}, coreFamilyStreams...), "gw:events:crm:extension")
+	// The aitask stream joins them for the same reason and only that reason:
+	// it is enumerable and resettable, while staying outside coreStreams() so
+	// no all-stream group subscribes to an internal projection feed.
+	want := append(append([]string{}, coreFamilyStreams...), "gw:events:crm:extension", "gw:events:crm:aitask")
 	sort.Strings(want)
 	if got := Streams(); !reflect.DeepEqual(got, want) {
 		t.Errorf("Streams() = %v, want the events.md stream set plus the extension stream %v", got, want)
@@ -168,7 +172,11 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 		// Turning a won deal into what its partner earned. Its own group
 		// because accrual is money: a projection rebuild must not be able to
 		// stall it, and a failure to accrue must not read as a failure to index.
-		"cg:commissions":     {"gw:events:crm:deal"},
+		"cg:commissions": {"gw:events:crm:deal"},
+		// The AI-activity projection (ai_task_run). Its own group, and the only
+		// group on the aitask stream: a projection backlog must not be able to
+		// stall a consumer that spends money or moves a record.
+		"cg:ai-activity":     {"gw:events:crm:aitask"},
 		"cg:overnight-agent": {"gw:events:crm:activity", "gw:events:crm:approval", "gw:events:crm:deal", "gw:events:crm:lead"},
 		"cg:workflows":       all,
 		"cg:capture":         {"gw:events:crm:capture"},
@@ -180,7 +188,7 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 
 	groups := Groups()
 	if len(groups) != len(want) {
-		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, the ADR-0078 consumers (graph-edge projection, LinkedIn matcher), the ADR-0101 provider-enrichment consumer, the audience-rescope corrector, and the commission accrual", len(groups), len(want))
+		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, the ADR-0078 consumers (graph-edge projection, LinkedIn matcher), the ADR-0101 provider-enrichment consumer, the audience-rescope corrector, the commission accrual, and the AI-activity projection", len(groups), len(want))
 	}
 	for _, g := range groups {
 		if !reflect.DeepEqual(g.Streams, want[g.Name]) {
@@ -269,5 +277,45 @@ func TestValidateRejectsTheDishonestEnvelopes(t *testing.T) {
 	}
 	if err := valid().Validate(); err != nil {
 		t.Errorf("Validate rejected the valid fixture: %v", err)
+	}
+}
+
+func TestAiTaskStateChangedRoutesToItsOwnStream(t *testing.T) {
+	stream, err := StreamFor("ai_task.state_changed")
+	if err != nil {
+		t.Fatalf("StreamFor: %v", err)
+	}
+	if want := StreamPrefix + "aitask"; stream != want {
+		t.Fatalf("stream = %q, want %q", stream, want)
+	}
+	if !IsPipelineEvent("ai_task.state_changed") {
+		t.Fatal("ai_task.state_changed must be an entity-less pipeline event: an AI task names no domain record")
+	}
+}
+
+// The aitask stream is enumerable by the ops surface and the purge, and it is
+// NOT part of what an all-stream group subscribes to. Both halves matter: a
+// stream missing from Streams() is one no operator can see and no reset
+// unlinks, while a stream inside coreStreams() is auto-subscribed by
+// cg:workflows, cg:read-model, cg:audit-stream and cg:webhooks — which would
+// make an internal projection feed a webhook-subscribable public event.
+func TestTheAiTaskStreamIsEnumerableButNotSubscribedByAllStreamGroups(t *testing.T) {
+	stream := StreamPrefix + "aitask"
+	if !slices.Contains(Streams(), stream) {
+		t.Fatal("Streams() must enumerate the aitask stream")
+	}
+	if slices.Contains(coreStreams(), stream) {
+		t.Fatal("coreStreams() must not carry the aitask stream: every all-stream group would subscribe to an internal projection feed")
+	}
+	for _, g := range Groups() {
+		if g.Name == "cg:ai-activity" {
+			if !slices.Contains(g.Streams, stream) {
+				t.Fatalf("cg:ai-activity must subscribe to %s", stream)
+			}
+			continue
+		}
+		if slices.Contains(g.Streams, stream) {
+			t.Fatalf("group %s must not carry the aitask stream", g.Name)
+		}
 	}
 }
