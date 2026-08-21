@@ -10,15 +10,15 @@
   "totals": {
     "tools": 51,
     "resources": 8,
-    "tool_catalog_bytes": 139763,
+    "tool_catalog_bytes": 139903,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 35717,
+    "approx_wire_tokens_total": 35752,
     "largest_tool_bytes": 4709,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
       "description_bytes": 34645,
       "input_schema_bytes": 30637,
-      "output_schema_bytes": 63486,
+      "output_schema_bytes": 63626,
       "description_plus_input_schema_bytes": 65282
     }
   },
@@ -127,6 +127,12 @@
                   },
                   "type": "array"
                 },
+                "sections_omitted": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "stakeholders": {
                   "items": {
                     "properties": {
@@ -155,6 +161,7 @@
                 "deal_id",
                 "our_side",
                 "risks",
+                "sections_omitted",
                 "stakeholders"
               ],
               "type": "object"
@@ -863,6 +870,9 @@
           "properties": {
             "data": {
               "properties": {
+                "coverage_withheld": {
+                  "type": "boolean"
+                },
                 "deals": {
                   "items": {
                     "properties": {
@@ -926,6 +936,7 @@
                 }
               },
               "required": [
+                "coverage_withheld",
                 "deals",
                 "deals_scanned",
                 "truncated"

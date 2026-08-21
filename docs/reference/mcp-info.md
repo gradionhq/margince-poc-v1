@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 51 |
 | Resources | 8 |
-| Tool catalog | 136.5 KB |
+| Tool catalog | 136.6 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 35717 |
+| Approx. wire tokens | 35752 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,7 +28,7 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 62.0 KB | 45% | **No** — a result's shape, never listed to a model |
+| Output schemas | 62.1 KB | 45% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 33.8 KB | 24% | Yes, every step |
 | Input schemas | 29.9 KB | 21% | Yes, every step |
 | _Names, annotations, punctuation_ | 10.7 KB | 7% | Partly |
@@ -59,12 +59,12 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
-| [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.6 KB |
+| [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.7 KB |
 | [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.3 KB |
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
 | [`apply_tag`](#apply_tag) | Apply a tag to a record |  |  | 2.0 KB |
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
-| [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
+| [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.5 KB |
 | [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.9 KB |
 | [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.7 KB |
 | [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.2 KB |
@@ -376,6 +376,12 @@ Answer "is this deal covered?": which roles on the account we have a relationshi
           },
           "type": "array"
         },
+        "sections_omitted": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "stakeholders": {
           "items": {
             "properties": {
@@ -404,6 +410,7 @@ Answer "is this deal covered?": which roles on the account we have a relationshi
         "deal_id",
         "our_side",
         "risks",
+        "sections_omitted",
         "stakeholders"
       ],
       "type": "object"
@@ -1162,6 +1169,9 @@ Answer "where are our relationships thin?": across the caller's OPEN deals, the 
   "properties": {
     "data": {
       "properties": {
+        "coverage_withheld": {
+          "type": "boolean"
+        },
         "deals": {
           "items": {
             "properties": {
@@ -1225,6 +1235,7 @@ Answer "where are our relationships thin?": across the caller's OPEN deals, the 
         }
       },
       "required": [
+        "coverage_withheld",
         "deals",
         "deals_scanned",
         "truncated"
