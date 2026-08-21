@@ -110,9 +110,9 @@ afterEach(() => {
 });
 
 // The invite form is a dialog the roster header's verb opens, so a case about
-// what happens AFTER an invite has to open it first. The header verb carries the
-// ellipsis form of the label and the dialog's submit the plain one, which is
-// what keeps the two tellable apart.
+// what happens AFTER an invite has to open it first. The header verb names the
+// whole act ("Invite a member") and the dialog's submit the bare one
+// ("Invite"), which is what keeps the two tellable apart.
 async function openInvite() {
   await userEvent.click(
     screen.getByRole("button", { name: /invite a member/i }),

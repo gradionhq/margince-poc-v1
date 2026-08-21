@@ -311,8 +311,8 @@ func TestReconnectAuditsThePreviousRegion(t *testing.T) {
 	var before, after []byte
 	queryRowWS(ctx, t, pool, `
 		SELECT before, after FROM audit_log
-		WHERE workspace_id = $1 AND entity_type = 'incumbent_connection' AND action = 'update'`,
-		[]any{ws}, &before, &after)
+		WHERE entity_type = 'incumbent_connection' AND action = 'update'`,
+		nil, &before, &after)
 	if !strings.Contains(string(before), `"region": "eu1"`) {
 		t.Errorf("reconnect audit before = %s, want it to carry the previous region eu1", before)
 	}

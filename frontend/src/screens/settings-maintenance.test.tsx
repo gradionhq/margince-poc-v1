@@ -163,7 +163,7 @@ describe("ResetDataCard (danger zone)", () => {
     // The org name is shown so the admin can copy it into the input.
     expect(within(dialog).getByText("Acme Inc")).toBeTruthy();
     const confirmButton = within(dialog).getByRole("button", {
-      name: /reset data/i,
+      name: /reset everything/i,
     });
     expect(confirmButton).toHaveProperty("disabled", true);
 
@@ -200,7 +200,7 @@ describe("ResetDataCard (danger zone)", () => {
     const input = within(dialog).getByRole("textbox");
     await user.type(input, "Wrong Name");
     await user.click(
-      within(dialog).getByRole("button", { name: /reset data/i }),
+      within(dialog).getByRole("button", { name: /reset everything/i }),
     );
     expect(
       await screen.findByText(
@@ -246,7 +246,7 @@ describe("ResetDataCard (danger zone)", () => {
     const input = within(dialog).getByRole("textbox");
     await user.type(input, orgName);
     await user.click(
-      within(dialog).getByRole("button", { name: /reset data/i }),
+      within(dialog).getByRole("button", { name: /reset everything/i }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   }
@@ -355,7 +355,7 @@ describe("ResetDataCard (danger zone)", () => {
     const input = within(dialog).getByRole("textbox");
     await user.type(input, "Acme Inc");
     await user.click(
-      within(dialog).getByRole("button", { name: /reset data/i }),
+      within(dialog).getByRole("button", { name: /reset everything/i }),
     );
 
     expect(

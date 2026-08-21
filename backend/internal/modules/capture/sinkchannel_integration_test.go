@@ -177,7 +177,7 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 	// gate fault would each be a mail gate having judged this message.
 	var breadcrumbs []string
 	rows, err := owner.Query(ctx,
-		`SELECT action FROM system_log WHERE workspace_id = $1 ORDER BY action`, ws)
+		`SELECT action FROM system_log ORDER BY action`)
 	if err != nil {
 		t.Fatalf("reading the operational ledger: %v", err)
 	}

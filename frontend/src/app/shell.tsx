@@ -292,6 +292,13 @@ export function WorkspaceRail({
     (item) => item.screen === route.screen && !MOBILE_PRIMARY.has(item.screen),
   );
 
+  // The agent is APP-level chrome: there is one of it, and it belongs to the
+  // whole session rather than to any destination. A drilled-in level is
+  // navigation INSIDE one destination, so an agent standing under it would read
+  // as that destination's own — re-parented under a sub-level, and a second one
+  // the moment a reader walks back out.
+  const leveled = level.parent !== undefined;
+
   return (
     <>
       {/* The scrim dims the page the sheet covers and gives the eye the layer
@@ -300,11 +307,7 @@ export function WorkspaceRail({
       {sheetOpen && <div className="railscrim" aria-hidden="true" />}
       <nav
         ref={nav}
-        className={railClasses({
-          collapsed,
-          sheetOpen,
-          leveled: level.parent !== undefined,
-        })}
+        className={railClasses({ collapsed, sheetOpen, leveled })}
         aria-label={t("shell.railAria")}
         onKeyDown={dismissTip}
       >
@@ -355,10 +358,15 @@ export function WorkspaceRail({
             rather than navigates, and it never claims the current page. What the
             installation is ENTITLED to used to sit here as its own grey row, and
             it now reaches a reader through the Core instead: a licence fault
-            turns the orb amber, which is a thing somebody notices. */}
-        <div className="railfoot">
-          <AgentRail route={route} />
-        </div>
+            turns the orb amber, which is a thing somebody notices.
+            The whole foot goes on a drilled-in level, element and all: an empty
+            box left behind would still hold the band and the rule that divide a
+            reading from the rows above it. */}
+        {!leveled && (
+          <div className="railfoot">
+            <AgentRail route={route} />
+          </div>
+        )}
       </nav>
     </>
   );

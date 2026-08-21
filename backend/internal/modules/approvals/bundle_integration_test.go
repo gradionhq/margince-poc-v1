@@ -157,7 +157,7 @@ func TestABundleIsDecidedOnceAndRecordedPerMember(t *testing.T) {
 		}
 	}
 	if n := e.count(t, `SELECT count(*) FROM audit_log
-		WHERE workspace_id = $1 AND entity_type = 'approval' AND action = 'approve'`, e.ws); n != 3 {
+		WHERE entity_type = 'approval' AND action = 'approve'`); n != 3 {
 		t.Errorf("approve audit rows = %d, want one per member", n)
 	}
 	// Scoped by SUBJECT: the envelope carries no tenant (ADR-0091 §6), and this
@@ -202,7 +202,7 @@ func TestABundleMemberAlreadyDecidedKeepsItsVerdictAndItsSiblingsStillDecide(t *
 		t.Errorf("the already-rejected member is now %s — a bundle approve overwrote a human's verdict", status)
 	}
 	if n := e.count(t, `SELECT count(*) FROM audit_log
-		WHERE workspace_id = $1 AND entity_id = $2 AND action = 'approve'`, e.ws, rejected.UUID); n != 0 {
+		WHERE entity_id = $1 AND action = 'approve'`, rejected.UUID); n != 0 {
 		t.Errorf("the already-decided member collected %d approve audit rows, want none", n)
 	}
 }

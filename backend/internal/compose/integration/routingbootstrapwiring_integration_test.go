@@ -27,6 +27,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 )
 
@@ -75,7 +76,12 @@ seeds:
 		t.Fatalf("bootstrapping with a declared binding: %v", err)
 	}
 
-	stored, err := compose.ResolveRouting(ctx, e.Pool, "", nil, slog.New(slog.DiscardHandler))
+	// config.Static(nil), never a nil Lookup. ResolveRouting hands the lookup
+	// down to the key vault, which CALLS it — a nil one panics deep inside
+	// keyvault with an address, several frames from the test that supplied it.
+	// No production caller passes nil; this one did, and it stayed invisible
+	// until a change downstream started dereferencing it.
+	stored, err := compose.ResolveRouting(ctx, e.Pool, "", config.Static(nil), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("reading the binding the bootstrap stored: %v", err)
 	}

@@ -268,9 +268,9 @@ func createInstallation(ctx context.Context, tx pgx.Tx, in InstallationBootstrap
 		actorType, actorID = "human", userID.String()
 	}
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
-		 VALUES ($1, $2, $3, 'installation_bootstrap', jsonb_build_object('admin_user_id', $4::text))`,
-		wsID, actorType, actorID, userID.String()); err != nil {
+		`INSERT INTO system_log (actor_type, actor_id, action, detail)
+		 VALUES ($1, $2, 'installation_bootstrap', jsonb_build_object('admin_user_id', $3::text))`,
+		actorType, actorID, userID.String()); err != nil {
 		return ids.WorkspaceID{}, err
 	}
 

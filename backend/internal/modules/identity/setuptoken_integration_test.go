@@ -78,7 +78,7 @@ func TestClaimIsAttributedToTheAdminItCreates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wsID, _, err := svc.ClaimInstallation(ctx, token, claimInput("attributed"), nil)
+	_, _, err = svc.ClaimInstallation(ctx, token, claimInput("attributed"), nil)
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestClaimIsAttributedToTheAdminItCreates(t *testing.T) {
 		return tx.QueryRow(ctx,
 			`SELECT actor_type, actor_id, detail->>'admin_user_id'
 			   FROM system_log
-			  WHERE workspace_id = $1 AND action = 'installation_bootstrap'`, wsID).
+			  WHERE action = 'installation_bootstrap'`).
 			Scan(&actorType, &actorID, &adminID)
 	}); err != nil {
 		t.Fatalf("reading the bootstrap record: %v", err)
@@ -105,8 +105,7 @@ func TestClaimIsAttributedToTheAdminItCreates(t *testing.T) {
 func TestConfiguredBootstrapStaysASystemEvent(t *testing.T) {
 	svc := newSetupService(t)
 	ctx := context.Background()
-
-	wsID, created, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
+	_, created, _, err := svc.BootstrapInstallation(ctx, func() (InstallationBootstrap, error) {
 		return claimInput("configured"), nil
 	}, nil)
 	if err != nil || !created {
@@ -115,7 +114,7 @@ func TestConfiguredBootstrapStaysASystemEvent(t *testing.T) {
 	var actorType string
 	if err := database.WithInfraTx(ctx, svc.db.Pool(), func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT actor_type FROM system_log WHERE workspace_id = $1 AND action = 'installation_bootstrap'`, wsID).Scan(&actorType)
+			`SELECT actor_type FROM system_log WHERE action = 'installation_bootstrap'`).Scan(&actorType)
 	}); err != nil {
 		t.Fatal(err)
 	}

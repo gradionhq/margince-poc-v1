@@ -114,12 +114,12 @@ func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string
 
 	id := ids.NewV7()
 	_, err = tx.Exec(ctx,
-		// The tenant comes from the TRANSACTION's binding, not from the caller:
-		// the ledger row must name the workspace its domain row landed in, and
-		// the GUC is the one thing that decides both. Read from ctx they could
-		// disagree, and the disagreement would be invisible.
-		`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, entity_type, entity_id, before, after, evidence, authorization_rule)
-		 VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		// No tenant column. It came from the TRANSACTION's binding until
+		// ADR-0091 §8 phase D reached the ledgers — the last two tables that
+		// carried one — so an audit row now names WHAT happened and WHO did it,
+		// and the installation is the only answer to where.
+		`INSERT INTO audit_log (id, actor_type, actor_id, passport_id, on_behalf_of, action, entity_type, entity_id, before, after, evidence, authorization_rule)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		id, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
 		action, entityType, entityID, beforeJSON, afterJSON, evidenceJSON,
 		auth.AuthzRule(p, entityType, action))
@@ -134,7 +134,7 @@ func AuditWithEvidence(ctx context.Context, tx pgx.Tx, action, entityType string
 // is an evidence parameter threaded through every core write path — hundreds of
 // call sites, all of which would have to keep passing it — and a parameter that
 // every site must remember is one a new site forgets. Resolving it here is how
-// Audit already resolves the actor and the workspace, so attribution follows a
+// Audit already resolves the actor, so attribution follows a
 // core write wherever it happens, including inside a tx-accepting seam a unit
 // reached through the port.
 //
@@ -163,10 +163,10 @@ func withExtensionAttribution(ctx context.Context, evidence map[string]any) (map
 // LogSystem writes one append-only system_log row inside the current
 // transaction — the ledger for a SYSTEM / non-entity operational event
 // (login, bulk export, capture skip) that mutates no record and so has no
-// place in audit_log (the P12 record-mutation spine). Actor and workspace
-// are derived exactly as Audit derives them — from the authenticated
-// principal and the workspace GUC — so a caller with no actor bound is a
-// programming error, refused before any SQL runs. It returns the row id so
+// place in audit_log (the P12 record-mutation spine). The actor is derived
+// exactly as Audit derives it — from the authenticated principal — so a
+// caller with no actor bound is a programming error, refused before any SQL
+// runs. It returns the row id so
 // an entity-less pipeline event can carry it as trace.audit_log_id (the
 // repurposed "ledger row id", events.md §2). detail is nil-safe: nil writes
 // SQL NULL.
@@ -177,9 +177,9 @@ func LogSystem(ctx context.Context, tx pgx.Tx, action string, detail map[string]
 	}
 	id := ids.NewV7()
 	_, err = tx.Exec(ctx,
-		// The tenant is the transaction's, like every other ledger row here.
-		`INSERT INTO system_log (id, workspace_id, actor_type, actor_id, passport_id, on_behalf_of, action, detail)
-		 VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, $3, $4, $5, $6, $7)`,
+		// No tenant column, for the same reason as the audit row above.
+		`INSERT INTO system_log (id, actor_type, actor_id, passport_id, on_behalf_of, action, detail)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		id, string(p.Type), p.ID, UUIDOrNil(p.PassportID), UUIDOrNil(p.OnBehalfOf),
 		action, JSONArg(detail))
 	return id, err
@@ -327,13 +327,14 @@ func UUIDOrNil(id ids.UUID) *ids.UUID {
 	return &id
 }
 
-// MustWorkspace is the workspace the caller's context names, for the domain
-// INSERTs that still stamp a `workspace_id` column of their own.
+// MustWorkspace is the installation's workspace as the caller's context names
+// it — for the job envelopes, blob keys and audit ENTITY ids that still name a
+// workspace, not for a tenant column: ADR-0091 §8 phase D has taken the last of
+// those off the schema, the ledgers included.
 //
-// The ledger writes above no longer use it: they take the tenant from the
-// TRANSACTION's binding, which is the only thing that can agree with the
-// domain row by construction. These callers follow when the column itself
-// goes (ADR-0091 §8 phase D).
+// It survives that phase rather than following it, because what its callers
+// need is an identifier for the installation, which the collapse of
+// WithWorkspaceTx into a plain Tx (§5) is what actually retires.
 func MustWorkspace(ctx context.Context) ids.UUID {
 	wsID, _ := principal.WorkspaceID(ctx)
 	return wsID

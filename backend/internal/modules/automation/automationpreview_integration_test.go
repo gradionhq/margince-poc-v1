@@ -86,7 +86,7 @@ func TestPreviewMatchesCurrentRecordsWithoutApplying(t *testing.T) {
 	moveAt(board.wonStage, now.AddDate(0, 0, -2))
 
 	ctx := fx.humanCtx(fx.rep1, principal.RowScopeOwn)
-	auditBefore := fx.count(t, `SELECT count(*) FROM audit_log WHERE workspace_id = $1`, fx.ws)
+	auditBefore := fx.count(t, `SELECT count(*) FROM audit_log`)
 	outboxBefore := fx.count(t, `SELECT count(*) FROM event_outbox`)
 
 	res, err := store.Preview(ctx, autoID, AutomationPreviewInput{})
@@ -111,7 +111,7 @@ func TestPreviewMatchesCurrentRecordsWithoutApplying(t *testing.T) {
 
 	// The dry-run is a READ: no audit row, no outbox event, no task
 	// minted, no run recorded.
-	if after := fx.count(t, `SELECT count(*) FROM audit_log WHERE workspace_id = $1`, fx.ws); after != auditBefore {
+	if after := fx.count(t, `SELECT count(*) FROM audit_log`); after != auditBefore {
 		t.Fatalf("preview wrote %d audit rows — a preview is a read", after-auditBefore)
 	}
 	if after := fx.count(t, `SELECT count(*) FROM event_outbox`); after != outboxBefore {

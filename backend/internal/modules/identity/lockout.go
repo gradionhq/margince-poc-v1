@@ -163,7 +163,7 @@ func detachedForFailure(ctx context.Context) (context.Context, context.CancelFun
 	return context.WithTimeout(context.WithoutCancel(ctx), failureRecordTimeout)
 }
 
-func (s *Service) recordFailedLogin(ctx context.Context, wsID ids.WorkspaceID, email string) error {
+func (s *Service) recordFailedLogin(ctx context.Context, email string) error {
 	ctx, cancel := detachedForFailure(ctx)
 	defer cancel()
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
@@ -205,10 +205,10 @@ func (s *Service) recordFailedLogin(ctx context.Context, wsID ids.WorkspaceID, e
 		// sha256) keeps a brute-force against one target correlatable across
 		// attempts (identical hash) without retaining the PII.
 		_, err = tx.Exec(ctx,
-			`INSERT INTO system_log (workspace_id, actor_type, actor_id, action, detail)
-			 VALUES ($1, 'human', 'human:unauthenticated', 'login',
-			         jsonb_build_object('outcome', $2::text, 'email_hash', $3::text))`,
-			wsID, outcome, storekit.SuppressionHash(email))
+			`INSERT INTO system_log (actor_type, actor_id, action, detail)
+			 VALUES ('human', 'human:unauthenticated', 'login',
+			         jsonb_build_object('outcome', $1::text, 'email_hash', $2::text))`,
+			outcome, storekit.SuppressionHash(email))
 		return err
 	})
 }

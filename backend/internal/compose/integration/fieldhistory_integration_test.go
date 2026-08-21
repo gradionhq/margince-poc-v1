@@ -33,7 +33,7 @@ import (
 
 // seedAuditActionRow inserts a raw audit row with a controlled verb and
 // before/after payload — the projection's input. INSERT is the one verb
-// the append-only trigger admits, and the workspace tx satisfies RLS.
+// the append-only trigger admits.
 // before/after are marshaled to jsonb bytes explicitly: pgx does not
 // accept a bare map[string]any for a jsonb column without a registered
 // type, the same reason storekit.Audit marshals before binding.
@@ -53,10 +53,9 @@ func seedAuditActionRow(t *testing.T, e *Env, action, entityType string, entityI
 	ctx := principal.WithWorkspaceID(t.Context(), e.WS)
 	err = database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action,
+			`INSERT INTO audit_log (id, actor_type, actor_id, action,
 			                        entity_type, entity_id, before, after, occurred_at)
-			 VALUES ($1, $2, $3, 'user-1', $4, $5, $6, $7, $8, $9)`,
-			rowID, e.WS, actorType, action, entityType, entityID, beforeJSON, afterJSON, occurredAt)
+			 VALUES ($1, $2, 'user-1', $3, $4, $5, $6, $7, $8)`, rowID, actorType, action, entityType, entityID, beforeJSON, afterJSON, occurredAt)
 		return err
 	})
 	if err != nil {

@@ -374,8 +374,9 @@ describe("UsersAdminCard", () => {
 
   // The invite form is a dialog the row's verb opens — three inputs, a team
   // fieldset and an access preview are not an answer that fits in a row's right
-  // column. So every invite case opens it first, and the row's verb carries the
-  // ellipsis form of the label while the dialog's submit carries the plain one.
+  // column. So every invite case opens it first, and the row's verb names the
+  // whole act ("Invite a member") while the dialog's submit carries the bare
+  // one ("Invite").
   const openInvite = async () => {
     await userEvent.click(
       screen.getByRole("button", { name: /invite a member/i }),

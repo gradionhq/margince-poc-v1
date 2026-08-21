@@ -142,7 +142,7 @@ function fileInput(): HTMLInputElement {
 // The paste box lives in the dialog the row's verb opens, so a test whose
 // subject is that box opens it first and scopes its queries to the dialog.
 async function openPaste(): Promise<HTMLElement> {
-  await userEvent.click(screen.getByRole("button", { name: "Paste writing…" }));
+  await userEvent.click(screen.getByRole("button", { name: "Paste writing" }));
   return screen.getByRole("dialog");
 }
 

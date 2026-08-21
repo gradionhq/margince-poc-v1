@@ -83,8 +83,7 @@ func (e *storeEnv) reconcileFaults(t *testing.T) int {
 	t.Helper()
 	var n int
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM system_log WHERE workspace_id = $1 AND action = 'comms_identity_reconcile_failed'`,
-		e.ws).Scan(&n); err != nil {
+		`SELECT count(*) FROM system_log WHERE action = 'comms_identity_reconcile_failed'`).Scan(&n); err != nil {
 		t.Fatalf("counting reconcile-fault breadcrumbs: %v", err)
 	}
 	return n
@@ -116,8 +115,7 @@ func TestRecordSentRefusesAnIdentityNoMessageCouldCarry(t *testing.T) {
 	var detail string
 	if err := e.owner.QueryRow(context.Background(), `
 		SELECT detail->>'provider_message_id' FROM system_log
-		 WHERE workspace_id = $1 AND action = 'comms_identity_reconcile_failed'`,
-		e.ws).Scan(&detail); err != nil {
+		 WHERE action = 'comms_identity_reconcile_failed'`).Scan(&detail); err != nil {
 		t.Fatalf("reading the refusal breadcrumb back: %v", err)
 	}
 	if len(detail) > 200 {

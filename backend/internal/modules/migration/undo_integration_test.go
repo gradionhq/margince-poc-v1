@@ -99,8 +99,8 @@ func markHumanTouched(ctx context.Context, t *testing.T, db interface {
 	t.Helper()
 	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, occurred_at)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'human', 'human:tester', $2, $3, $4, now())`,
+			INSERT INTO audit_log (id, actor_type, actor_id, action, entity_type, entity_id, occurred_at)
+			VALUES ($1, 'human', 'human:tester', $2, $3, $4, now())`,
 			ids.NewV7(), action, ObjectLead, nativeID)
 		return err
 	})

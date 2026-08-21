@@ -144,10 +144,9 @@ func seedUnrelatedAuditRow(ctx context.Context, t *testing.T, pool *pgxpool.Pool
 	t.Helper()
 	var row auditImage
 	queryRowWS(ctx, t, pool, `
-		INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, before, after)
-		VALUES ($1, $2, 'human', 'human:test', 'create', 'person', $3, NULL, '{"first_name":"Grace"}'::jsonb)
-		RETURNING id, before, after`,
-		[]any{ids.NewV7(), ws, ids.NewV7()}, &row.id, &row.before, &row.after)
+		INSERT INTO audit_log (id, actor_type, actor_id, action, entity_type, entity_id, before, after)
+		VALUES ($1, 'human', 'human:test', 'create', 'person', $2, NULL, '{"first_name":"Grace"}'::jsonb)
+		RETURNING id, before, after`, []any{ids.NewV7(), ids.NewV7()}, &row.id, &row.before, &row.after)
 	return row
 }
 
@@ -159,8 +158,8 @@ func readConnectionCreateAudit(ctx context.Context, t *testing.T, pool *pgxpool.
 	var row auditImage
 	queryRowWS(ctx, t, pool, `
 		SELECT id, before, after FROM audit_log
-		WHERE workspace_id = $1 AND entity_type = 'incumbent_connection' AND action = 'create'`,
-		[]any{ws}, &row.id, &row.before, &row.after)
+		WHERE entity_type = 'incumbent_connection' AND action = 'create'`,
+		nil, &row.id, &row.before, &row.after)
 	if len(row.after) == 0 {
 		t.Fatal("connect audit row has no after image to begin with — fixture is broken")
 	}
@@ -285,8 +284,8 @@ func assertAuditTrailRetained(ctx context.Context, t *testing.T, pool *pgxpool.P
 	// overlay does could touch it even if it tried).
 	var disconnectCount int
 	queryRowWS(ctx, t, pool,
-		`SELECT count(*) FROM audit_log WHERE workspace_id = $1 AND entity_type = 'incumbent_connection' AND action = 'archive' AND after IS NOT NULL`,
-		[]any{ws}, &disconnectCount)
+		`SELECT count(*) FROM audit_log WHERE entity_type = 'incumbent_connection' AND action = 'archive' AND after IS NOT NULL`,
+		nil, &disconnectCount)
 	if disconnectCount != 1 {
 		t.Errorf("disconnect audit rows with a retained after image = %d, want 1", disconnectCount)
 	}

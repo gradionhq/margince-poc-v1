@@ -131,10 +131,9 @@ func seedDelegatedAuditRow(t *testing.T, e *Env, person, human, passport ids.UUI
 	ctx := principal.WithWorkspaceID(t.Context(), e.WS)
 	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, on_behalf_of, passport_id,
+			`INSERT INTO audit_log (id, actor_type, actor_id, on_behalf_of, passport_id,
 			                        action, entity_type, entity_id, occurred_at)
-			 VALUES ($1, $2, 'agent', $3, $4, $5, 'update', 'person', $6, $7)`,
-			ids.NewV7(), e.WS, "agent:"+passport.String(), human, passport, person, at)
+			 VALUES ($1, 'agent', $2, $3, $4, 'update', 'person', $5, $6)`, ids.NewV7(), "agent:"+passport.String(), human, passport, person, at)
 		return err
 	})
 	if err != nil {

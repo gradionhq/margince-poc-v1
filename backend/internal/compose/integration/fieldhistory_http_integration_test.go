@@ -130,10 +130,9 @@ func seedAgentFieldHistoryRow(t *testing.T, e *Env, entityType string, entityID,
 	ctx := principal.WithWorkspaceID(t.Context(), e.WS)
 	err = database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, passport_id, action,
+			`INSERT INTO audit_log (id, actor_type, actor_id, passport_id, action,
 			                        entity_type, entity_id, before, after, evidence, occurred_at)
-			 VALUES ($1, $2, 'agent', 'agent:test', $3, 'update', $4, $5, $6, $7, $8, $9)`,
-			rowID, e.WS, passportID, entityType, entityID, beforeJSON, afterJSON, evidenceJSON, occurredAt)
+			 VALUES ($1, 'agent', 'agent:test', $2, 'update', $3, $4, $5, $6, $7, $8)`, rowID, passportID, entityType, entityID, beforeJSON, afterJSON, evidenceJSON, occurredAt)
 		return err
 	})
 	if err != nil {
