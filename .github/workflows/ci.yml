@@ -139,10 +139,18 @@ jobs:
               - 'extensions/**'
               - 'fixtures/**'
               - 'composition/**'
-              # Only the merge gate itself. patch.yml and sbom.yml run no
+              # Only the merge gate itself. release.yml and sbom.yml run no
               # backend gate, so editing one cannot invalidate a gate result —
               # and each proves itself when it runs.
+              #
+              # The gate is three files now: this caller plus the lane workflows
+              # it invokes. The lanes are globbed rather than named one by one so
+              # a lane added later is covered the day it is committed — the same
+              # reason the classifier's other scopes are derived rather than
+              # listed, and the difference between a scope that stays honest and
+              # one that silently stops covering a new file.
               - '.github/workflows/ci.yml'
+              - '.github/workflows/_lane-*.yml'
               # The composite actions ci.yml calls. go-build-cache decides what
               # every Go job restores, so an edit to it changes what the gates
               # compile — the same claim on this scope that ci.yml itself has.
@@ -562,250 +570,27 @@ jobs:
         working-directory: .
         run: make check-host-ports
 
-  # The real-Postgres lane, sharded across independent runners. One runner
-  # already fans packages out onto per-package clone DBs, but the heaviest
-  # package (compose/integration, minutes of serial tests) floors any
-  # package-level split — so each shard runs a deterministic per-TEST slice of
-  # every package (scripts/test-integration-parallel.sh, INTEGRATION_SHARD)
-  # against its own Postgres/Redis/MinIO. The `integration` fan-in below
-  # reconciles the slices back into one verdict and one coverage profile.
+  # The real-Postgres lane. Its jobs live in
+  # .github/workflows/_lane-integration.yml — the shard matrix, the unit-coverage
+  # pass and the fan-in that reconciles them — because that cluster was a third of
+  # this file and none of it is edited when the merge gate changes.
   #
-  # Runs in parallel with deterministic-gates, not behind it: gating the
-  # longest lane on the build gate serialized the two slowest jobs and
-  # dominated PR wall-clock. Still backend-gated like deterministic-gates, so
-  # they skip together on non-backend PRs; a broken build is still caught by
-  # deterministic-gates itself, and sonarcloud gates its scan on that result
-  # directly (below) so a red build never posts a green coverage check.
-  integration-shards:
-    name: integration shard (${{ matrix.shard }}/${{ strategy.job-total }})
-    timeout-minutes: 30
-    needs: [changes]
-    # backend_db, not backend: this is the many-Postgres lane, and the two
-    # paths that differ (the agent rulebooks) cannot change what it proves.
-    # It moves in lockstep with the `integration` fan-in below, which asserts
-    # on this job's result and would read a skip as a failure if only one moved.
-    if: needs.changes.outputs.backend_db == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    strategy:
-      # A red shard must not cancel its siblings: one CI run should report
-      # every failing test, not the first shard to trip.
-      fail-fast: false
-      # Six, not twelve. The slice is per-TEST, so a shard's own tests are the
-      # small half of what it costs: measured on a green run, a shard spent ~146s
-      # restoring the build cache and ~275s compiling, against ~40s running the
-      # tests it was assigned. Twelve shards paid those fixed costs twelve times
-      # to divide the one cost that was already small.
-      #
-      # Halving doubles a shard's test slice — about +40s — and removes six
-      # cache-restore-plus-compile pairs, which is roughly half the lane's
-      # runner-minutes for about a minute of wall clock. Raise it again only
-      # against a measurement showing the TEST half has grown enough to matter;
-      # the compile half is addressed by building once rather than by sharding
-      # harder.
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-      # The `integration` flavour: a shard compiles ~26 of the 31 tagged packages
-      # with `-tags=integration -cover -coverpkg=./...`, and because the slice is
-      # per-TEST rather than per-package, EVERY shard compiles nearly the whole
-      # lane. Sharding therefore divides the test execution N ways and
-      # multiplies the compile by N — which is why N is six rather than twelve
-      # (see the matrix above): past a point, another shard buys a smaller slice
-      # of the cheap half and pays another copy of the expensive one.
-      - name: Restore the Go build cache
-        id: go-cache
-        uses: ./.github/actions/go-build-cache
-        with:
-          flavor: integration
-      # The same compose stack dev machines use (infra/docker-compose.dev.yml:
-      # Postgres + Redis + MinIO, digest-pinned there) plus scripts/db-init.sql
-      # for the cluster-level margince_app role — migration 0015 GRANTs to it,
-      # and the parallel lane's clones inherit those grants. One stack
-      # definition instead of hand-mirrored GH service containers; the lane's
-      # database admin goes through cmd/migrate's db verbs on the test DSN
-      # (scripts/lib-testdb.sh db_admin), so no host psql is assumed.
-      - name: Start the dev infra stack (compose + app role)
-        run: make db-up
-      # INTEGRATION_SHARD_OUT collects the slice manifests + binary coverage
-      # pods the fan-in reconciles and merges — so the scan is NOT a second
-      # Postgres/Redis/MinIO stack running the whole lane a second time.
-      - name: Integration shard (slice + coverage)
-        env:
-          INTEGRATION_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-          INTEGRATION_SHARD_OUT: ${{ runner.temp }}/shard-out
-          # The tests are DB-bound, not CPU-bound: on the 4-core runner the
-          # nproc-derived default leaves the slice mostly waiting on Postgres.
-          INTEGRATION_JOBS: 16
-        run: make test-integration
-      # `!cancelled()` and not the default success(): a RED shard is exactly when
-      # somebody needs this artifact, and on failure the script writes the
-      # failing packages' logs + a failure-summary.txt into the same directory.
-      # Uploading only on green kept the evidence for the runs that did not need
-      # it and destroyed it with the runner for the runs that did.
-      - name: Upload the shard manifest + coverage pods
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: integration-shard-${{ matrix.shard }}
-          path: ${{ runner.temp }}/shard-out
-          if-no-files-found: error
-          retention-days: 1
-
-  # Unit coverage for SonarCloud. The shards run only the integration-tagged
-  # packages, but the unit-only packages need a `-cover` pass of their own —
-  # otherwise SonarCloud sees them at a false ~0% new-code coverage and the
-  # gate fails on well-unit-tested code. Untagged tests never open a real DB
-  # (the test-lanes gate enforces it), so this pass needs no services; it runs
-  # beside the shards and the fan-in merges its pods with theirs.
-  integration-unit-coverage:
-    name: integration unit coverage
-    timeout-minutes: 30
-    needs: [changes]
-    if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          # Full history: this job runs the backend unit lane, which includes
-          # the RBAC legacy-cohort gates. Those derive the initial commit's
-          # object vocabulary and grants by reading 2cb50021 — a fixture the
-          # migration replay seeds from, so it must not be hand-editable. They
-          # FAIL on a shallow checkout rather than degrading to an empty cohort,
-          # because a gate that quietly checks nothing looks exactly like a
-          # passing one.
-          fetch-depth: 0
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-      # The `plain` flavour, not `integration`: this pass is untagged. Coverage
-      # instrumentation means its own package builds miss, but the dependency
-      # builds underneath — the bulk of a cold compile — hit.
-      - name: Restore the Go build cache
-        uses: ./.github/actions/go-build-cache
-        with:
-          flavor: plain
-      - name: Unit tests with binary coverage
-        run: |
-          mkdir -p "$RUNNER_TEMP/covdata-unit"
-          go test ./... -cover -coverpkg=./... -covermode=atomic -args -test.gocoverdir="$RUNNER_TEMP/covdata-unit"
-      - name: Upload the unit coverage pods
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: integration-covdata-unit
-          path: ${{ runner.temp }}/covdata-unit
-          if-no-files-found: error
-          retention-days: 1
-
-  # The fan-in: THIS is the required "integration" check, under the same name
-  # the single-runner lane carried, so branch protection needs no change. It
-  # must RUN and FAIL when a shard fails — `needs` alone would leave it
-  # skipped, and a skipped required check counts as passing — hence the
-  # !cancelled() guard plus the explicit result assertion in the first step.
-  # Then it proves the slices add up (scripts/test-integration-reconcile.sh:
-  # every shard present, same discovery, union complete + disjoint) and merges
-  # every binary coverage pod (shards + unit) into the one text profile the
-  # sonarcloud job consumes.
+  # The lane itself carries no conditional: this call site owns the decision,
+  # which is what makes `needs.integration.result == 'skipped'` mean "the caller
+  # skipped the whole lane" rather than "something inside it quietly did not run".
+  #
+  # backend_db, not backend: this is the many-Postgres lane, and the two paths
+  # that differ (the agent rulebooks) cannot change what it proves. The whole
+  # cluster moves together now — previously the unit-coverage pass hung off the
+  # wider `backend` scope, so a rulebook-only change ran it and then discarded its
+  # pods, because the fan-in that consumes them had skipped.
+  #
+  # Runs in parallel with the Go gate, not behind it: gating the longest lane on
+  # the build gate serialized the two slowest jobs and dominated PR wall-clock.
   integration:
-    name: integration (RLS + erasure + HTTP e2e)
-    timeout-minutes: 20
-    needs: [changes, integration-shards, integration-unit-coverage]
-    # `always()`, for the reason spelled out on the `frontend` fan-in below: a
-    # skipped required check counts as passing, and `!cancelled()` is false for
-    # every job once a run is cancelled — so cancelling mid-lane would have
-    # skipped this check and greened it. The assertion below sees `cancelled`.
-    #
-    # backend_db, in lockstep with integration-shards: the assertion below
-    # demands `success` from that job, so a run where the shards skipped and
-    # this did not would fail on the string "skipped" — a docs PR reported as
-    # a broken integration lane.
-    if: >-
-      always()
-      && needs.changes.outputs.backend_db == 'true'
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Every shard and the unit pass are green
-        working-directory: .
-        env:
-          SHARDS_RESULT: ${{ needs.integration-shards.result }}
-          UNIT_RESULT: ${{ needs.integration-unit-coverage.result }}
-        run: |
-          [ "$SHARDS_RESULT" = "success" ] || { echo "integration shards: $SHARDS_RESULT"; exit 1; }
-          [ "$UNIT_RESULT" = "success" ] || { echo "unit coverage pass: $UNIT_RESULT"; exit 1; }
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-      - name: Download the shard + unit artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: integration-*
-          path: ${{ runner.temp }}/shards
-      - name: Reconcile the slices and merge coverage
-        working-directory: .
-        run: ./scripts/test-integration-reconcile.sh "$RUNNER_TEMP/shards" backend/coverage.out
-      - name: Upload Go coverage
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: go-coverage
-          path: backend/coverage.out
-          if-no-files-found: ignore
-          retention-days: 1
-      # The extension migration gate (ADR-0069) — the ONE gate in the tier that
-      # is not textual: it applies each unit's migrations as that unit's own
-      # restricted ext_<name> role against a throwaway database and checks the
-      # resulting catalog against the allowlist.
-      #
-      # It lives HERE, on the integration lane, and not in check-backend where
-      # it started. From the first unit that ships a migrations/ layer the gate
-      # needs a cluster, and deterministic-gates is the fastest merge gate and
-      # container-free: arming it there would put a compose-stack start on every
-      # backend PR forever, to buy locality once. This lane is already the slow,
-      # cluster-bearing path.
-      #
-      # It ARMS ITSELF off the same condition the script tests, so the first
-      # migrations/ layer to land gets the cluster with no workflow edit and
-      # nobody having to remember. `make db-up` is the same compose stack the
-      # shards use (infra/docker-compose.dev.yml + scripts/db-init.sql for the
-      # cluster-level margince_app role migration 0015 GRANTs to), not a
-      # hand-mirrored service container. No margince_test template is built:
-      # the gate deliberately migrates a FRESH database under the root
-      # workspace rather than cloning the shared template, because a template
-      # migrated under the COMPOSED workspace already holds the very
-      # ext.ext_<name>_* objects the gate is about to apply.
-      #
-      # If the glob matches and the cluster is missing, the script FAILS with a
-      # named error rather than skipping — a gate that quietly checks nothing
-      # looks exactly like a passing one.
-      - name: Extension migration gate (armed by the tree)
-        working-directory: .
-        run: |
-          if ls -d extensions/*/migrations >/dev/null 2>&1; then
-            echo "an enabled unit declares migrations/ — starting the test cluster"
-            make db-up
-          else
-            echo "no enabled unit declares a migrations/ layer — the gate stays hermetic"
-          fi
-          make check-ext-migrations
-
+    needs: [changes]
+    if: needs.changes.outputs.backend_db == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    uses: ./.github/workflows/_lane-integration.yml
 
   vuln:
     name: govulncheck
@@ -1115,174 +900,16 @@ jobs:
         if: failure()
         run: cat "$RUNNER_TEMP/api.log" || true
 
-  # The frontend lane, run as THREE jobs that start together. Serially it was
-  # ~340s, of which the vitest suite alone was ~207s: the cheap greps, the type
-  # gates and the bundle all sat behind a test run that could not tell them
-  # anything. They share no state, so they share no queue either, and a Biome
-  # failure now reports in about a minute instead of six.
+  # The SPA lane. Its four jobs live in
+  # .github/workflows/_lane-frontend.yml (fe-quality, fe-unit, fe-bundle and the
+  # fan-in that carries their verdict).
   #
-  # The suite itself is NOT split further. Sharding it would need the shards'
-  # coverage merged, and the v8 provider enumerates a file's BRDA branch records
-  # from the ranges that actually executed — so two shards that both load a file
-  # describe its branches differently and the union inflates the denominator
-  # (measured: 12979/16413 merged against a true 9667/11231). Line coverage
-  # merges exactly; condition coverage does not, and a coverage number that is
-  # quietly wrong is worse than a slower lane. Issue #966 carries the numbers
-  # and the istanbul-provider fix that would unblock it.
-  #
-  # `frontend` itself is the fan-in below — the name is a required status check,
-  # and it stays the one that reports.
-  fe-quality:
-    name: fe-quality (ds gates + drift + biome + composed tsc)
-    timeout-minutes: 20
-    needs: [changes]
-    if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-        with:
-          version: 11
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      # Go, in a FRONTEND job (ADR-0069). The composed SPA lane needs
-      # build/composition/frontend/ — which only gen-composition can produce.
-      # There is no Node-only shortcut: the registry is derived from the merged
-      # contracts, which the Go generator owns. Without a toolchain here the
-      # composed lane would have to be dropped from the merge gate, and the
-      # vanilla lane alone cannot catch a descriptor shape the SPA no longer
-      # compiles against. This is the only one of the three that composes, which
-      # is why the unit and bundle jobs below carry no Go setup.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-      - run: make fe-quality
-
-  fe-unit:
-    name: fe-unit (vitest + coverage)
-    timeout-minutes: 20
-    needs: [changes]
-    if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-        with:
-          version: 11
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      # FE_COVERAGE=1 instruments the ONE vitest run this lane already performs,
-      # so the lcov the sonarcloud job downloads is a by-product of the run that
-      # decides the verdict rather than a second execution of the same suite.
-      - run: make fe-unit FE_COVERAGE=1
-      - name: Upload FE coverage
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: fe-coverage
-          path: frontend/coverage/lcov.info
-          if-no-files-found: ignore
-          retention-days: 1
-
-  fe-bundle:
-    name: fe-bundle (vite build + storybook)
-    timeout-minutes: 20
-    needs: [changes]
-    if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-        with:
-          version: 11
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      # The production bundle and the Storybook catalog: a story that fails to
-      # compile or register is caught deterministically here. The change-scoped
-      # render capture (make fe-uat) stays a coordinator lane, not a required gate.
-      - run: make fe-bundle
-
-  # The fan-in. This job does no work — it exists to carry the name, because
-  # `frontend (biome + vitest + tsc + build)` is a REQUIRED status check and the
-  # three jobs above are not. Splitting the lane without it would retire the
-  # check every PR waits on.
-  #
-  # `always()` rather than the default, which is `success()` of every need: a job
-  # skipped because a dependency failed reports as SKIPPED, and GitHub counts a
-  # skipped required check as PASSING. Left alone, a red unit suite would have
-  # merged. `!cancelled()` is not enough either — it is false for every job the
-  # moment a run is cancelled, so cancelling the workflow while the long unit job
-  # was still going would skip this check and green the lane. `always()` runs it
-  # in both cases, and the assertion below sees `cancelled` and fails.
+  # As with the integration lane, the conditional lives HERE and not inside the
+  # lane, so a skip always means the caller skipped the lane.
   frontend:
-    name: frontend (biome + vitest + tsc + build)
-    timeout-minutes: 20
-    needs: [changes, fe-quality, fe-unit, fe-bundle]
-    if: >-
-      always()
-      && needs.changes.outputs.frontend == 'true'
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      # Each result carries its own job name rather than being matched to a
-      # separate name list by position: two lists kept in step would silently
-      # stop checking a fourth lane that was added to one and not the other.
-      - name: Every frontend lane passed
-        env:
-          RESULTS: >-
-            fe-quality=${{ needs.fe-quality.result }}
-            fe-unit=${{ needs.fe-unit.result }}
-            fe-bundle=${{ needs.fe-bundle.result }}
-        run: |
-          set -euo pipefail
-          [ -n "${RESULTS// /}" ] || { echo "no lane results to check" >&2; exit 1; }
-          failed=""
-          for result in $RESULTS; do
-            case "$result" in
-              *=success) ;;
-              *) failed="$failed $result" ;;
-            esac
-          done
-          if [ -n "$failed" ]; then
-            echo "the frontend lane did not pass:$failed" >&2
-            exit 1
-          fi
-          echo "fe-quality, fe-unit and fe-bundle all passed"
+    needs: [changes]
+    if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    uses: ./.github/workflows/_lane-frontend.yml
 
   # The UAT lane: the AC-<screen>-N screen-acceptance criteria as named
   # Playwright tests, plus the axe WCAG 2.2 AA gate, the 390px
