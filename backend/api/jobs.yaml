@@ -813,8 +813,11 @@ kinds:
       The AI-activity projection is fed by an at-least-once bus, and a consumer
       group that falls behind the stream's trim horizon loses events for good —
       XAUTOCLAIM recovers pending entries, not trimmed ones. This pass
-      re-publishes the current state of every live source occurrence, so a lost
-      event costs a delay rather than a permanently wrong display.
+      re-publishes the current state of live source occurrences — at most
+      aiActivityReconcileBatch (500) per run, rotating on the source's own
+      last-announced marker so a deep backlog drains rather than reselecting
+      its own head — and a lost event therefore costs a delay rather than a
+      permanently wrong display.
 
       Fifteen minutes because the display it repairs is a LIVE one. A reading's
       own lease is five minutes, so a row the projection missed entirely is

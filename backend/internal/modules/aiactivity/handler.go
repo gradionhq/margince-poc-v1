@@ -137,8 +137,13 @@ func staleAfter(p crmcontracts.InternalEventAiTaskStateChanged) *time.Time {
 	if p.State != "queued" && p.State != "running" {
 		return nil
 	}
+	// A RUNNING attempt ages from its claim; a queued one ages from when it was
+	// queued, whatever else the payload carries. Reading started_at whenever it
+	// is present would let one emitter's leftover claim timestamp mark a
+	// freshly queued attempt stale on arrival — and the source that stopped
+	// clearing it would have no way to say so.
 	from := p.QueuedAt
-	if p.StartedAt != nil {
+	if p.State == "running" && p.StartedAt != nil {
 		from = *p.StartedAt
 	}
 	out := from.Add(time.Duration(*p.LeaseSeconds) * time.Second)

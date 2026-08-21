@@ -28,11 +28,14 @@ import (
 	"go/token"
 	"io/fs"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
@@ -68,6 +71,7 @@ func payloadEventTypes(t *testing.T) map[string]string {
 		collectEventTypeMethods(file, out)
 	}
 	assertEveryPublicTypeWasDerived(t, out, generated)
+	assertEveryInternalTypeWasDerived(t, out)
 	return out
 }
 
@@ -122,6 +126,64 @@ func assertEveryPublicTypeWasDerived(t *testing.T, out map[string]string, genera
 			"payloads, so both gates would pass over every type it lost",
 			len(out), generated, len(crmcontracts.PublicEventVersions), slices.Sorted(slices.Values(missing)))
 	}
+}
+
+// assertEveryInternalTypeWasDerived is the same floor for the internal family,
+// and it cannot lean on the same source.
+//
+// gen-payloads emits no versions map for that family on purpose — every family
+// compiles into ONE Go package, and only the public contract has gates that
+// read one — so there is no generated set to compare against. The CONTRACT is
+// the set instead: every schema in api/internal-events.yaml carrying an
+// x-event-type must have produced an EventType() this walk could read. Without
+// it a generator shape change drops the whole internal family out of both gates
+// silently, which is the collapse the public floor exists to catch.
+func assertEveryInternalTypeWasDerived(t *testing.T, out map[string]string) {
+	t.Helper()
+	declared := internalContractEventTypes(t)
+	if len(declared) == 0 {
+		t.Fatal("api/internal-events.yaml declares no x-event-type at all; this floor would pass vacuously")
+	}
+	derived := slices.Collect(maps.Values(out))
+	missing := make([]string, 0)
+	for _, eventType := range declared {
+		if !slices.Contains(derived, eventType) {
+			missing = append(missing, eventType)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("api/internal-events.yaml declares %v with no EventType() this walk could read; "+
+			"the internal family has dropped out of the ownership census and the orphan sweep at once",
+			slices.Sorted(slices.Values(missing)))
+	}
+}
+
+// internalContractEventTypes reads the internal family's event types from the
+// contract itself, which is the only place that set is written down.
+func internalContractEventTypes(t *testing.T) []string {
+	t.Helper()
+	// Decoded loosely rather than into a tagged struct: the key is an OpenAPI
+	// extension, `x-event-type`, and a yaml tag naming it fails the repo's
+	// snake_case tag rule — a rule about OUR wire shapes, which this is not.
+	var doc struct {
+		Components struct {
+			Schemas map[string]map[string]any `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	raw, err := os.ReadFile("api/internal-events.yaml")
+	if err != nil {
+		t.Fatalf("reading the internal payload contract: %v", err)
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parsing the internal payload contract: %v", err)
+	}
+	out := make([]string, 0, len(doc.Components.Schemas))
+	for _, schema := range doc.Components.Schemas {
+		if eventType, ok := schema["x-event-type"].(string); ok && eventType != "" {
+			out = append(out, eventType)
+		}
+	}
+	return out
 }
 
 // emitSite is one place a module builds an event payload.

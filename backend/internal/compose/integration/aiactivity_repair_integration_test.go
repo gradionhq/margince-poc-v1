@@ -13,6 +13,7 @@ package integration
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,4 +218,70 @@ func (f *readingFixture) lastAnnounced(t *testing.T) string {
 		t.Fatalf("reading the rotation marker: %v", err)
 	}
 	return id.String()
+}
+
+// The reconcile pass's two reads are INDEXABLE, which is the whole reason the
+// predicate is a union of two arms rather than one OR.
+//
+// Asserted with seq scans disabled, which tests the right thing: on a table
+// this small the planner would pick a seq scan whichever way the query is
+// written, so "did it choose the index" would pass over an unusable predicate.
+// What must hold is that an index CAN answer each arm — an
+// `status IN (...) OR finished_at > $1` cannot use either partial index, and on
+// a real reading history every fifteen-minute pass would scan and sort the lot
+// until it exceeded the job's own timeout and rolled back every repair it had
+// staged.
+func TestTheReconcilePassesArmsCanEachBeAnsweredByAnIndex(t *testing.T) {
+	f := newReadingFixture(t)
+	ctx := context.Background()
+	for _, arm := range []struct {
+		name, query, wantIndex string
+	}{{
+		name:      "live",
+		query:     `SELECT id FROM attachment_extraction WHERE status IN ('queued','running') ORDER BY activity_announced_at ASC NULLS FIRST LIMIT 1`,
+		wantIndex: "idx_attachment_extraction_activity_live",
+	}, {
+		name:      "settled inside the window",
+		query:     `SELECT id FROM attachment_extraction WHERE status IN ('done','failed') AND finished_at > now() - interval '24 hours' LIMIT 1`,
+		wantIndex: "idx_attachment_extraction_activity_settled",
+	}} {
+		t.Run(arm.name, func(t *testing.T) {
+			plan := explain(ctx, t, f, arm.query)
+			if !strings.Contains(plan, arm.wantIndex) {
+				t.Fatalf("the %s arm plans as:\n%s\nwant it to reach %s", arm.name, plan, arm.wantIndex)
+			}
+		})
+	}
+}
+
+// explain returns the plan for one statement with sequential scans disabled,
+// so the plan says what an index COULD answer rather than what the planner
+// prefers over a nearly empty table.
+func explain(ctx context.Context, t *testing.T, f *readingFixture, query string) string {
+	t.Helper()
+	conn, err := f.env.Pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquiring a connection to plan on: %v", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SET enable_seqscan = off`); err != nil {
+		t.Fatalf("disabling seq scans: %v", err)
+	}
+	rows, err := conn.Query(ctx, "EXPLAIN "+query)
+	if err != nil {
+		t.Fatalf("planning %q: %v", query, err)
+	}
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatalf("reading the plan: %v", err)
+		}
+		plan.WriteString(line + "\n")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("reading the plan: %v", err)
+	}
+	return plan.String()
 }

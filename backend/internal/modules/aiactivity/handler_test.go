@@ -108,6 +108,14 @@ func TestStaleAfterIsTheLeaseOnTopOfWhicheverInstantMadeTheAttemptCurrent(t *tes
 		in:   crmcontracts.InternalEventAiTaskStateChanged{State: "done", QueuedAt: queued, StartedAt: &started, LeaseSeconds: &lease},
 		want: nil,
 	}, {
+		// A queued attempt carrying a leftover claim timestamp — the shape an
+		// emitter that forgot to clear started_at would produce. It ages from
+		// when it was QUEUED regardless, because the alternative is a fresh
+		// attempt marked stale on arrival by a claim that is over.
+		name: "queued ignores a leftover started_at",
+		in:   crmcontracts.InternalEventAiTaskStateChanged{State: "queued", QueuedAt: queued, StartedAt: &started, LeaseSeconds: &lease},
+		want: ptr(queued.Add(300 * time.Second)),
+	}, {
 		name: "a source that declares no lease has none",
 		in:   crmcontracts.InternalEventAiTaskStateChanged{State: "running", QueuedAt: queued, StartedAt: &started},
 		want: nil,

@@ -236,7 +236,7 @@ broken and nothing at runtime says a word about it.
 | `cg:audience-rescope` | narrow the derived signals citing a message whose audience changed | **live** (worker) |
 | `cg:linkedin-match` | attach a LinkedIn ghost as its contact or employer appears | **live** (worker) |
 | `cg:commissions` | accrue a partner's commission on a won deal, and reverse it on a reopen | **live** (worker) |
-| `cg:ai-activity` | project every AI-backed occurrence into `ai_task_run`, the table the rail reads | **live** (worker) |
+| `cg:ai-activity` | project every AI-backed occurrence into `ai_task_run`, the table the rail will read once the read moves onto it | **live** (worker) |
 | `cg:person-auto-enrich` | fill a contact from what their employer's site already published | **live** (worker) |
 | `cg:person-data` | fill a contact from a licensed provider, spending credits | **live** (worker) |
 | `cg:overnight-agent` | on `approval.decided`, resume the parked Surface-B run with the human's answer | **live** (worker; only when a model is configured) |
