@@ -28,10 +28,19 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// Argon2id parameters, mirroring backend/internal/modules/identity/internal/
-// password/password.go. That package sits behind a nested `internal` and
-// cannot be imported here, so the values are restated — if they change there,
-// they must change here, and a demo user failing to log in is the signal.
+// Argon2id parameters, mirroring the product's. That package sits behind a
+// nested `internal` and is in another module besides, so it cannot be imported
+// here and the values are restated.
+//
+// A restatement drifts, and this one drifts SILENTLY: Verify parses the cost
+// out of the PHC hash itself, so a hash written at any parameters verifies
+// successfully and nothing re-hashes on login. Lower these and every demo user
+// still signs in perfectly while their stored hash is weak — permanently,
+// because the weakness lives in rows already written.
+//
+// TestSeedDemoHashesAtTheParametersTheProductShips is what actually holds the
+// two in step. It reads both files rather than importing either, which is all
+// the module boundary allows.
 const (
 	argonTime    = 2
 	argonMemory  = 19 * 1024
