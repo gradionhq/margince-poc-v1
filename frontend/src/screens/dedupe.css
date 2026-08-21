@@ -25,8 +25,8 @@
 
 /* A notice about the queue — a failed read, a refused decision, a decision that
    landed — sits directly in `.wrap`, which carries no row gap of its own, so it
-   brings its own step of air (the spelling `.dsr-refusal` and
-   `.connector-add-note` already use for a Callout in the same position). */
+   brings its own step of air (the spelling `.dsr-refusal` already uses for a
+   Callout in the same position). */
 .dedupe-notice {
   margin-top: var(--space-3);
 }

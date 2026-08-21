@@ -125,9 +125,8 @@ var readAuthorityOnAWritePath = gatekit.Waive(map[string]string{
 	// cannot see must still block the write — so narrowing the clause would not
 	// tighten the refusal, only strip a legitimate caller of the ids that tell
 	// them what to go and look at.
-	"internal/modules/deals:ensureProjectKeyFree":         "whether a key collision may name the project already holding it. The unique index is the authority that refuses either way; this clause decides only disclosure",
-	"internal/modules/deals:refuseIfOccupied":             "the stage-removal refusal's naming clause: which of the deals still sitting on the stage may be listed back. Every occupant blocks the removal, visible or not",
-	"internal/modules/people:refuseWhenBothCarryProjects": "the organization-merge precondition, and its own comment states the split this waiver rests on: the decision counts EVERY live project on both endpoints, and the clause governs only which of them the refusal may name",
+	"internal/modules/deals:ensureProjectKeyFree": "whether a key collision may name the project already holding it. The unique index is the authority that refuses either way; this clause decides only disclosure",
+	"internal/modules/deals:refuseIfOccupied":     "the stage-removal refusal's naming clause: which of the deals still sitting on the stage may be listed back. Every occupant blocks the removal, visible or not",
 
 	// The `add` verb again (#1405), in its rendered-clause form: each of these
 	// writes the row that HANGS OFF the record — a link, a participant, an
@@ -139,10 +138,8 @@ var readAuthorityOnAWritePath = gatekit.Waive(map[string]string{
 	"internal/modules/capture:projectScopeClause":              "the project-attribution ladder's row predicate, narrowing which projects a captured message may be FILED UNDER. Read authority is the whole of what it needs: the project is referenced, never changed — the rows written are the activity_link edge and the activity's own version bump, and both are gated on activity:update in linkActivityToProject. A `read` share on a project is exactly the authority to see mail land on it, so requiring write here would refuse a filing to the colleague the project was deliberately shared with",
 
 	// Read predicates whose mutating callers take the write probe elsewhere.
-	"internal/modules/contracts:VisibleClause": "the contracts module's READ predicate, shared by the list, the single read and the company-value rollup. A contract owns no owner_id and inherits its whole row scope from its anchor, so this one clause used to stand in front of every mutation too; the patch, archive, status change, cancellation and renewal now go through writableContract, which takes auth.EnsureWritable on that same anchor",
-
-	// A gap named rather than reasoned away.
-	"internal/modules/people:applySitePersonFieldsTx": "the probe is on the ORGANIZATION whose published site was read, and it is a read of that company. The person this then fills is resolved from the org's employment edges and carries NO row-scope probe of its own — which is a separate defect, filed as #1406, not a property that makes this probe correct. This waiver goes when that issue does",
+	"internal/modules/contracts:VisibleClause":        "the contracts module's READ predicate, shared by the list, the single read and the company-value rollup. A contract owns no owner_id and inherits its whole row scope from its anchor, so this one clause used to stand in front of every mutation too; the patch, archive, status change, cancellation and renewal now go through writableContract, which takes auth.EnsureWritable on that same anchor",
+	"internal/modules/people:applySitePersonFieldsTx": "the probe this gate sees is on the ORGANIZATION whose published site was read, and reading it is all this does: the company is the page's subject, never the record that changes. What changes is the PERSON, and it now takes auth.EnsureWritableLive on its own id immediately after the employment-edge match resolves it — the Live spelling because both callers are system principals, for whom the plain probe returns nil on an empty clause and would gate nothing",
 })
 
 // writeAuthorityProbes are the platform/auth spellings that ask the narrower

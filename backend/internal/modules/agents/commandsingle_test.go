@@ -35,6 +35,7 @@ import (
 // canned record, which cannot express a merge's two halves or a missing row.
 type tallyingProvider struct {
 	datasource.SystemOfRecordProvider
+	archivesWhatNativeDoes
 	records map[datasource.EntityRef]datasource.Record
 	reads   int
 }

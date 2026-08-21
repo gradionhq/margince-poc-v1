@@ -1,21 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import { useCanUpsert, useCanWrite } from "../app/capability";
 import { isOption } from "../app/options";
-import { Button, Field, TextInput } from "../design-system/atoms";
+import {
+  Button,
+  Disclosure,
+  EmptyState,
+  Field,
+  Modal,
+  TextInput,
+} from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
-import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { SEARCH_DEBOUNCE_MS } from "./listquery";
 import "./consumer-mail-domains.css";
 
-// The workspace's own consumer-mail list (CAP-PARAM-5). Mail from a consumer
+// This installation's own consumer-mail list (CAP-PARAM-5). Mail from a consumer
 // domain still creates the person; what it never creates is a company. The
 // shipped baseline is a third-party dataset of some 8 700 domains, right far
 // more often than a hand-typed list and still wrong sometimes in both
@@ -25,7 +32,7 @@ import "./consumer-mail-domains.css";
 // whose mail it governs. The write split mirrors the server's: any seat with
 // capture_settings:create adds a consumer domain the baseline missed (`extra`),
 // while `never` carve-outs and removal stay on capture_settings:update
-// (admin/ops) — those controls disable rather than hide.
+// (admin/ops) — those controls are refused rather than hidden.
 
 // The two things an entry can say, as ONE list: the type is derived from it and
 // the control's options are built from it, so the offered choices, their labels
@@ -121,9 +128,11 @@ function useSettledSearch(typed: string): string {
 
 // The shipped baseline, searchable in place: an operator deciding whether a
 // domain needs an entry first sees what the shipped list already says about
-// it. Results render only once a filter is typed — the first 50 of 8 700
-// alphabetical rows answer no question anyone is asking.
-function BaselineSection() {
+// it. It is a lookup rather than a setting, so it sits in the card's
+// disclosure — one line until asked for — and results render only once a filter
+// is typed, because the first 50 of 8 700 alphabetical rows answer no question
+// anyone is asking.
+function BaselineRow() {
   const t = useT();
   const [q, setQ] = useState("");
   // The field shows what is being typed; the SEARCH is what has settled. `q`
@@ -135,79 +144,72 @@ function BaselineSection() {
   const query = useConsumerMailBaseline(needle);
   const result = query.data;
   return (
-    <PanelBody className="consumer-mail-baseline">
-      {/* A real heading, one level under the panel's own title, rather than a
-          paragraph styled to look like one — a reader navigating by heading can
-          reach the shipped list without scrolling the card. */}
-      <Eyebrow as="h3">{t("consumerMail.baselineTitle")}</Eyebrow>
-      {result && (
-        <p className="t-small">
-          {t("consumerMail.baselineCount", { total: result.total })}
-        </p>
-      )}
-      {/* Field, not a bare aria-label: it owns the id and draws a real
-          `<label for>`, so the words above the box are also the box's click
-          target and its accessible name. */}
-      <Field label={t("consumerMail.baselineSearchLabel")}>
-        {(control) => (
-          <TextInput
-            {...control}
-            data-testid="consumer-mail-baseline-search"
-            placeholder={t("consumerMail.baselinePlaceholder")}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
+    <SettingList>
+      <SettingRow
+        label={t("consumerMail.baselineSearchLabel")}
+        description={
+          result && t("consumerMail.baselineCount", { total: result.total })
+        }
+        layout="stack"
+        // The function form, so the words the row draws are also the name the
+        // box announces — one string, written once.
+        control={(control) => (
+          <div className="consumer-mail-baseline settingrow-measure">
+            <TextInput
+              {...control}
+              data-testid="consumer-mail-baseline-search"
+              placeholder={t("consumerMail.baselinePlaceholder")}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            {needle !== "" && result && result.matched === 0 && (
+              <p className="t-small">{t("consumerMail.baselineNone")}</p>
+            )}
+            {needle !== "" && result && result.matched > 0 && (
+              <>
+                <ul
+                  className="consumer-mail-baseline-list"
+                  data-testid="consumer-mail-baseline-list"
+                >
+                  {result.data.map((domain) => (
+                    <li key={domain} className="t-mono t-small">
+                      {domain}
+                    </li>
+                  ))}
+                </ul>
+                {result.matched > result.data.length && (
+                  <p className="t-small">
+                    {t("consumerMail.baselineMore", {
+                      shown: result.data.length,
+                      matched: result.matched,
+                    })}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         )}
-      </Field>
-      {needle !== "" && result && result.matched === 0 && (
-        <p className="t-small">{t("consumerMail.baselineNone")}</p>
-      )}
-      {needle !== "" && result && result.matched > 0 && (
-        <>
-          <ul
-            className="consumer-mail-baseline-list"
-            data-testid="consumer-mail-baseline-list"
-          >
-            {result.data.map((domain) => (
-              <li key={domain} className="t-mono t-small">
-                {domain}
-              </li>
-            ))}
-          </ul>
-          {result.matched > result.data.length && (
-            <p className="t-small">
-              {t("consumerMail.baselineMore", {
-                shown: result.data.length,
-                matched: result.matched,
-              })}
-            </p>
-          )}
-        </>
-      )}
-    </PanelBody>
+      />
+    </SettingList>
   );
 }
 
 export function ConsumerMailDomainsCard() {
   const t = useT();
   // The write split mirrors the server's two demands. `canManage`
-  // (capture_settings:update) covers what rewrites workspace posture: the
-  // `never` carve-out, overwriting an entry, removal. `canAdd` mirrors the
+  // (capture_settings:update) covers what rewrites the installation's posture:
+  // the `never` carve-out, overwriting an entry, removal. `canAdd` mirrors the
   // server's upsert admission (create OR update) — a rep holding only create
   // may still contribute a new `extra` domain, and the server demands the
   // specific grant once it knows which half the write is.
   const canManage = useCanWrite("capture_settings", "update");
   const canAdd = useCanUpsert("capture_settings");
   const query = useConsumerMailDomains();
-  const add = useAddConsumerMailDomain();
   const remove = useRemoveConsumerMailDomain();
-  const [domain, setDomain] = useState("");
-  const [kind, setKind] = useState<Kind>("extra");
-  // The denial, said once and POINTED AT — the same wiring `Switch`'s `reason`
-  // prop does for a toggle (design-system README), spelled with an id and
-  // `aria-describedby` for the controls that are not switches. A reason
-  // floating below the form is a reason a screen reader never reads out with
-  // the control it explains.
+  const [adding, setAdding] = useState(false);
+  // The denial, said once and POINTED AT — `Button`'s `reasonId` refuses the
+  // control and names the one sentence already on the page, so several refused
+  // verbs say it once instead of printing it beside each of them.
   //
   // Two grants, so two sentences, and a reader gets exactly one of them: no
   // create at all means nothing on this card writes, while create-without-
@@ -219,75 +221,176 @@ export function ConsumerMailDomainsCard() {
     : canManage
       ? undefined
       : t("consumerMail.addOnly");
-  // Named only on the controls the denial actually disables: pointing an
-  // enabled field at "you may only add" describes a refusal that is not
-  // happening to it.
-  const addDescribedBy = canAdd ? undefined : denialId;
-  const manageDescribedBy = canManage ? undefined : denialId;
 
   return (
-    <Panel title={t("consumerMail.title")}>
-      <PanelBody className="form-stack">
-        <p className="t-caption">{t("consumerMail.sub")}</p>
-        <form
-          className="consumer-mail-add"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!canAdd || domain.trim() === "") return;
-            add.mutate(
-              { domain: domain.trim(), kind },
-              { onSuccess: () => setDomain("") },
-            );
-          }}
+    <Panel
+      title={t("consumerMail.title")}
+      // Two inputs submitted together — the domain and what it IS — so the form
+      // lives behind this verb, and the verb rides in the header rather than in
+      // a row of its own: a row states a setting and its answer, and a row whose
+      // label repeats its own button says the same thing twice a hand apart.
+      // Refused, never hidden — `reasonId` names the sentence under the rows,
+      // which is the one that knows WHICH of the two grants is missing.
+      titleAction={
+        <Button
+          small
+          reasonId={canAdd ? undefined : denialId}
+          onClick={() => setAdding(true)}
         >
-          <Field label={t("consumerMail.domainLabel")}>
-            {(control) => (
-              <TextInput
-                {...control}
-                data-testid="consumer-mail-domain-input"
-                placeholder={t("consumerMail.domainPlaceholder")}
-                value={domain}
-                disabled={!canAdd}
-                aria-describedby={addDescribedBy}
-                onChange={(e) => setDomain(e.target.value)}
-              />
-            )}
-          </Field>
-          {/* The kind stays on the update grant: `never` overrides the shipped
-              baseline for the whole workspace, so a create-only seat submits the
-              initial `extra` and never reaches the carve-out. */}
-          <Field label={t("consumerMail.kindLabel")}>
-            {(control) => (
-              <Select
-                {...control}
-                className="consumer-mail-kind"
-                value={kind}
-                disabled={!canManage}
-                aria-describedby={manageDescribedBy}
-                onChange={(value) => {
-                  if (isOption(value, KINDS)) {
-                    setKind(value);
-                  }
-                }}
-                options={KINDS.map((value) => ({
-                  value,
-                  label: t(kindLabel[value]),
-                }))}
-              />
-            )}
-          </Field>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!canAdd || add.isPending}
-            aria-describedby={addDescribedBy}
-          >
-            {t("consumerMail.add")}
-          </Button>
-        </form>
+          {t("consumerMail.addOpen")}
+        </Button>
+      }
+    >
+      {/* `form-stack` stays: the denial sentence and the failure Callout under
+          the rows are non-row children, and the list owns only the intervals
+          BETWEEN its rows. */}
+      <PanelBody className="form-stack">
+        <p className="settings-panel-sub">{t("consumerMail.sub")}</p>
+        <SettingList>
+          {/* The entries are the subject of this card rather than an answer to
+              a question beside them, so they take the row's full width. */}
+          <SettingRow
+            label={t("consumerMail.addedTitle")}
+            layout="stack"
+            control={
+              <QueryGate query={query}>
+                {(entries) =>
+                  entries.length === 0 ? (
+                    // `empty`, and only `empty`: nothing has been added, so the
+                    // shipped list decides every domain. The row caps and
+                    // left-aligns it already (settingrow.css).
+                    <EmptyState>
+                      <p className="t-small">{t("consumerMail.none")}</p>
+                    </EmptyState>
+                  ) : (
+                    // One entry per row, in the row language the rest of this
+                    // tab speaks: the domain names itself on the left, what it
+                    // IS stands as the row's answer, and the verb that takes it
+                    // back sits at one x down the list. It was a hand-rolled
+                    // `<ul>` of four-item flex rows — and the mail glyph on
+                    // every one of them distinguished nothing, since every row
+                    // on this card is a mail domain.
+                    <SettingList testId="consumer-mail-domain-list">
+                      {entries.map((entry) => (
+                        <SettingRow
+                          key={entry.id}
+                          label={entry.domain}
+                          value={t(kindLabel[entry.kind])}
+                          control={
+                            <Button
+                              variant="ghost"
+                              small
+                              aria-label={t("consumerMail.remove")}
+                              disabled={remove.isPending}
+                              reasonId={canManage ? undefined : denialId}
+                              onClick={() => remove.mutate(entry.id)}
+                            >
+                              <Trash2 aria-hidden size={16} />
+                            </Button>
+                          }
+                        />
+                      ))}
+                    </SettingList>
+                  )
+                }
+              </QueryGate>
+            }
+          />
+          {/* The shipped list is the SECOND question this card answers — what
+              the baseline already says, against what this installation adds to
+              it — and a reader consults it while deciding, not on every visit.
+              A disclosure, so it costs one line until it is asked for. */}
+          <Disclosure summary={t("consumerMail.baselineTitle")}>
+            <BaselineRow />
+          </Disclosure>
+        </SettingList>
         {denial && (
           <p className="t-small" id={denialId}>
             {denial}
+          </p>
+        )}
+        {remove.isError && (
+          <Callout tone="danger" live="alert">
+            {problemMessageOf(remove.error, t)}
+          </Callout>
+        )}
+        {adding && (
+          <AddConsumerMailDialog
+            canManage={canManage}
+            onClose={() => setAdding(false)}
+          />
+        )}
+      </PanelBody>
+    </Panel>
+  );
+}
+
+// Mounted only while it is open, so a domain somebody started typing and
+// abandoned is gone the next time the dialog opens rather than waiting there.
+function AddConsumerMailDialog({
+  canManage,
+  onClose,
+}: Readonly<{ canManage: boolean; onClose: () => void }>) {
+  const t = useT();
+  const add = useAddConsumerMailDomain();
+  const headingId = useId();
+  // The kind stays on the update grant: `never` overrides the shipped baseline
+  // for the whole installation, so a create-only seat submits the initial
+  // `extra` and never reaches the carve-out. The sentence saying so lives in
+  // here with the control it refuses — a reason outside the dialog is a reason
+  // a reader inside it never gets.
+  const carveOutDenialId = useId();
+  const [domain, setDomain] = useState("");
+  const [kind, setKind] = useState<Kind>("extra");
+  const typed = domain.trim();
+  return (
+    <Modal open onClose={onClose} labelledBy={headingId}>
+      <h2 id={headingId} className="t-h2 modal-title">
+        {t("consumerMail.addTitle")}
+      </h2>
+      <form
+        className="form-stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (typed === "") {
+            return;
+          }
+          add.mutate({ domain: typed, kind }, { onSuccess: onClose });
+        }}
+      >
+        <Field label={t("consumerMail.domainLabel")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              data-testid="consumer-mail-domain-input"
+              placeholder={t("consumerMail.domainPlaceholder")}
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("consumerMail.kindLabel")}>
+          {(control) => (
+            <Select
+              {...control}
+              value={kind}
+              disabled={!canManage}
+              aria-describedby={canManage ? undefined : carveOutDenialId}
+              onChange={(value) => {
+                if (isOption(value, KINDS)) {
+                  setKind(value);
+                }
+              }}
+              options={KINDS.map((value) => ({
+                value,
+                label: t(kindLabel[value]),
+              }))}
+            />
+          )}
+        </Field>
+        {!canManage && (
+          <p className="t-small" id={carveOutDenialId}>
+            {t("consumerMail.addOnly")}
           </p>
         )}
         {add.isError && (
@@ -295,58 +398,20 @@ export function ConsumerMailDomainsCard() {
             {problemMessageOf(add.error, t)}
           </Callout>
         )}
-        <QueryGate query={query}>
-          {(entries) =>
-            entries.length === 0 ? (
-              <p className="t-small">{t("consumerMail.none")}</p>
-            ) : (
-              <ul
-                className="consumer-mail-list"
-                data-testid="consumer-mail-domain-list"
-              >
-                {entries.map((entry) => (
-                  <li
-                    key={entry.id}
-                    className="consumer-mail-row"
-                    data-kind={entry.kind}
-                  >
-                    <Mail aria-hidden size={16} />
-                    <span className="consumer-mail-row-domain">
-                      {entry.domain}
-                    </span>
-                    <span className="t-small">
-                      {entry.kind === "never"
-                        ? t("consumerMail.kind.never")
-                        : t("consumerMail.kind.extra")}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      small
-                      aria-label={t("consumerMail.remove")}
-                      disabled={!canManage || remove.isPending}
-                      aria-describedby={manageDescribedBy}
-                      onClick={() => remove.mutate(entry.id)}
-                    >
-                      <Trash2 aria-hidden size={16} />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )
-          }
-        </QueryGate>
-        {remove.isError && (
-          <Callout tone="danger" live="alert">
-            {problemMessageOf(remove.error, t)}
-          </Callout>
-        )}
-      </PanelBody>
-      {/* The shipped list is a SECOND section of this card, not a footnote
-          inside the first: what the baseline already says, against what this
-          workspace adds to it. Its own body, so the boundary is the full-bleed
-          seam panel.css draws between two of them rather than a line that stops
-          20px short of the card's edges. */}
-      <BaselineSection />
-    </Panel>
+        <div className="form-actions">
+          <Button small type="button" onClick={onClose}>
+            {t("create.cancel")}
+          </Button>
+          <Button
+            small
+            type="submit"
+            variant="primary"
+            disabled={add.isPending || typed === ""}
+          >
+            {t("consumerMail.add")}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

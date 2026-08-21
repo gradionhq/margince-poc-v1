@@ -156,6 +156,16 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"conversation_claim.task_activity_id":   "PENDING WRITER: no code writes this table yet. The task an extracted commitment creates is written through the tasks substrate's own gated path, and this entry is replaced with that gate when the routing edge lands",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
+	"organization_geocode_state.organization_id": "child row: the sidecar for an organization's own coordinate lookup, and no caller ever names the organization it keys on. " +
+		"The row is created by enqueueGeocode inside UpdateOrganization's transaction, for the id that write was already addressing (people/organization.go), " +
+		"and touched afterwards only by AddressForGeocode and recordGeocodeAfter (people/geocode.go). " +
+		"The worker runs under the SYSTEM principal, which passes row scope, so what decides the tenant is an explicit app.workspace_id predicate rather than the job args. " +
+		"That predicate is present on the two statements that could DISCLOSE: AddressForGeocode's read joins the sidecar through organization and filters " +
+		"o.workspace_id, and recordGeocodeAfter's UPDATE organization carries the same clause. It is NOT present on the two INSERT ... ON CONFLICT statements " +
+		"that write the sidecar itself, and the table has no workspace column of its own (migration 1787320001), so a job carrying an organization id from another " +
+		"workspace would update zero organization rows and still write that organization's attempt ledger. That is a write, never a read, and it is latent — " +
+		"enqueueGeocode only ever mints the id its own workspace-checked write was addressing — but it is this exception's real cost and it is filed as #2167. " +
+		"Drop the workspace clause from AddressForGeocode and the FK becomes a cross-tenant READ with nothing else in the way.",
 	"activity_link.activity_id":  "child row: written only inside LogActivity for the new activity",
 	"lead_score_history.lead_id": "child row: one point in a lead's own score series, appended only from inside the lead's gated write paths — CreateLead/CreateLeadTx (lead:create), UpdateLead (lead:update) and RecomputeLeadScore (lead:update), each of which has already admitted the caller before the append runs in its transaction",
 	// comms_outbound is delivery machinery for one activity, not a

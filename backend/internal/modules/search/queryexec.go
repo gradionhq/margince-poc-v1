@@ -15,7 +15,6 @@ package search
 import (
 	"context"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -79,6 +78,11 @@ type QueryRow struct {
 	// Score is the similarity rank score, and zero on a plan that asked for
 	// no ranking — an exact answer has no order to justify.
 	Score float64
+	// DistanceKM is how far this record is from a radius predicate's center,
+	// in kilometres. A POINTER, so a caller can tell "no radius was asked
+	// about" from "this one is at the centre" — the zero value is a real
+	// distance and would answer the wrong question.
+	DistanceKM *float64
 	// Evidence is the hop record that admitted this row, when the plan took a
 	// traversal. It is what makes a hop legible as a reason rather than as an
 	// invisible filter.
@@ -108,6 +112,20 @@ type QueryExecutor struct {
 	embedder Embedder
 	columns  ColumnReader
 	budget   time.Duration
+	// places turns a place NAME into a point, from what this workspace has
+	// already looked up. Nil is a real composition — a deployment that has
+	// geocoded nothing, or one wired before this seam existed — and a radius
+	// predicate naming a place then answers the honest unavailable note.
+	//
+	// It cannot reach a geocoder, by construction: see PlaceResolver.
+	places PlaceResolver
+}
+
+// WithPlaces wires the place cache a radius predicate resolves its center
+// against. Without it, only a center given as explicit coordinates can bind.
+func (e *QueryExecutor) WithPlaces(places PlaceResolver) *QueryExecutor {
+	e.places = places
+	return e
 }
 
 // NewQueryExecutor builds the executor over this module's own store, its
@@ -141,6 +159,25 @@ func (e *QueryExecutor) Execute(ctx context.Context, plan ValidatedPlan) (QueryR
 	if err != nil {
 		return QueryResult{}, err
 	}
+	// The center is resolved HERE rather than at validation, because whether
+	// "Stuttgart" is a place this workspace knows depends on what it has looked
+	// up — a per-call fact, not a property of the plan. A name nothing has
+	// resolved answers the same honest note a plan carrying no coordinates
+	// always did.
+	geo, geoNote, err := e.bindGeoPredicate(ctx, plan)
+	if err != nil {
+		return QueryResult{}, err
+	}
+	if geoNote != nil {
+		result.Coverage = CoveragePartialDegraded
+		result.Notes = []QueryNote{{
+			Code:   geoNote.Code,
+			Path:   geoNote.Path,
+			Detail: unavailableDetail(geoNote.Code),
+		}}
+		return result, nil
+	}
+	binding.geo = geo
 	ranked, degraded, err := e.rankCandidates(ctx, plan)
 	if err != nil {
 		if budgetSpent(ctx, err) {
@@ -176,7 +213,15 @@ func (e *QueryExecutor) Execute(ctx context.Context, plan ValidatedPlan) (QueryR
 			Detail: fmt.Sprintf("more records match than the page of %d carries; narrow the plan to see the rest", plan.Limit),
 		})
 	}
-	result.Rows = orderByRank(rows, ranked, plan.Limit)
+	// A distance-ordered answer is ALREADY in the order it should be: SQL sorted
+	// it nearest-first, and orderByRank would sort it back into similarity order
+	// and undo the decision. It still needs its scores attached, which is all
+	// scoreOnly does.
+	if binding.geo != nil {
+		result.Rows = scoreOnly(rows, ranked, plan.Limit)
+	} else {
+		result.Rows = orderByRank(rows, ranked, plan.Limit)
+	}
 	result.Coverage = coverageOf(plan, answerShape{truncated: truncated, degraded: degraded})
 	return result, nil
 }
@@ -261,9 +306,16 @@ func scanPlanRows(queried pgx.Rows, plan ValidatedPlan, binding planBinding) ([]
 		row := QueryRow{Type: plan.Target.Target}
 		var title, hopTitle *string
 		var hopID *ids.UUID
+		var distance *float64
 		targets := []any{&row.ID, &title}
 		if binding.hop != nil {
 			targets = append(targets, &hopID, &hopTitle)
+		}
+		// Appended in the SAME order compileStatement adds it to the
+		// projection — after the hop columns. The two lists are positional and
+		// nothing but this pairing keeps them aligned, which is why both say so.
+		if binding.geo != nil {
+			targets = append(targets, &distance)
 		}
 		if err := queried.Scan(targets...); err != nil {
 			return nil, fmt.Errorf("search: reading the query plan's answer: %w", err)
@@ -271,6 +323,7 @@ func scanPlanRows(queried pgx.Rows, plan ValidatedPlan, binding planBinding) ([]
 		if title != nil {
 			row.Title = *title
 		}
+		row.DistanceKM = distance
 		if hopID != nil {
 			evidence := QueryEvidence{Relation: binding.hop.relation.Name, Type: binding.hop.relation.Target, ID: *hopID}
 			if hopTitle != nil {
@@ -329,88 +382,6 @@ func rankedIDs(ranked []Hit) []ids.UUID {
 // orderByRank puts the answer in the ranking's order and scores each row with
 // the rank it came back with. An exact answer is already in the statement's
 // order and keeps it.
-func orderByRank(rows []QueryRow, ranked []Hit, limit int) []QueryRow {
-	if len(ranked) == 0 {
-		return rows
-	}
-	position := make(map[ids.UUID]int, len(ranked))
-	score := make(map[ids.UUID]float64, len(ranked))
-	for i, hit := range ranked {
-		position[hit.ID], score[hit.ID] = i, hit.Score
-	}
-	slices.SortFunc(rows, func(a, b QueryRow) int { return position[a.ID] - position[b.ID] })
-	for i := range rows {
-		rows[i].Score = score[rows[i].ID]
-	}
-	if len(rows) > limit {
-		rows = rows[:limit]
-	}
-	return rows
-}
-
-// unavailableNotes renders the validator's unavailable predicates as the notes
-// the answer carries instead of rows.
-func unavailableNotes(plan ValidatedPlan) []QueryNote {
-	notes := make([]QueryNote, 0, len(plan.Unavailable))
-	for _, unavailable := range plan.Unavailable {
-		notes = append(notes, QueryNote{
-			Code: unavailable.Code, Path: unavailable.Path,
-			Detail: unavailableDetail(unavailable.Code),
-		})
-	}
-	if len(notes) == 0 {
-		return nil
-	}
-	return notes
-}
-
-// unavailableDetail is the advice one unavailable code carries. It switches on
-// the CODE rather than sharing a sentence: "ask for a city instead" is the
-// right next step for a radius and nonsense for anything else, and a second
-// code inheriting it would send a caller somewhere unrelated.
-func unavailableDetail(code string) string {
-	const cannotAnswer = "this deployment cannot answer that predicate, so no rows are returned"
-	if code == CodeDistanceRankingUnavailable {
-		return cannotAnswer + "; records carry no normalized coordinates yet — " +
-			"ask for a city or region as an exact predicate instead"
-	}
-	return cannotAnswer
-}
-
-// answerShape is what answering the plan turned out to cost — the whole of
-// what the verdict is decided from, beyond the plan itself.
-type answerShape struct {
-	// truncated: more rows matched than the page carries.
-	truncated bool
-	// degraded: a lane could not run as asked.
-	degraded bool
-	// abandoned: the statement ran out of its time budget, so there are no
-	// rows at all rather than a short page of them.
-	abandoned bool
-}
-
-// CoverageClasses is the CLOSED set coverageOf can answer with.
-//
-// It is exported so the surface that publishes these words can be held to
-// publishing all of them: the tool restates them on its own side (it may not
-// import this package) and refuses a class it does not know, so a fourth class
-// added here without the wire learning about it would become a refused call at
-// runtime rather than a build failure. The composition layer sees both and
-// compares the two sets.
-func CoverageClasses() []string {
-	return []string{CoverageCompleteExact, CoverageRankedSemantic, CoveragePartialDegraded}
-}
-
-// coverageOf decides the verdict. Degradation dominates ranking and ranking
-// dominates completeness, so the only answer that ever claims to be complete
-// is one that ran exactly, whole, and undegraded. An abandoned statement is
-// the same verdict from the other end — it never ran whole at all — which is
-// why it needs no class of its own.
-//
-// Truncation is a verdict on the EXACT lane only. A ranked answer is a top-N
-// by construction — that is what ranked_semantic says — so counting its bound
-// as a degradation would leave the verdict unreachable and tell a caller
-// nothing they did not ask for.
 func coverageOf(plan ValidatedPlan, shape answerShape) string {
 	switch {
 	case shape.degraded || shape.truncated || shape.abandoned:

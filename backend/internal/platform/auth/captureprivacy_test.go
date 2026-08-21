@@ -119,12 +119,15 @@ func TestAnExplicitShareStillWidensAnOwnerPrivateRow(t *testing.T) {
 }
 
 func TestTablesWithoutCapturePrivacyAreUnchanged(t *testing.T) {
-	// deal, lead and project carry no visibility column; adding the arm to
-	// them would filter on a column that does not exist.
+	// deal and lead carry no visibility column at all, and project carries one
+	// that migration 1787320003 narrowed to 'workspace' — nothing auto-creates
+	// a project, so an owner-private one was a state no writer could reach.
+	// Rendering the arm for any of the three would filter on a state the
+	// database refuses, which reads as a guarantee while proving nothing.
 	for _, table := range []string{"deal", "lead", "project"} {
 		sql := rendered(human(principal.RowScopeTeam), table)
 		if strings.Contains(sql, "visibility") {
-			t.Errorf("%s predicate reads a visibility column it does not have: %s", table, sql)
+			t.Errorf("%s predicate reads a visibility state it cannot hold: %s", table, sql)
 		}
 	}
 }
@@ -146,9 +149,9 @@ func TestSubjectRightsPredicateDropsOnlyTheCapturePrivacyArm(t *testing.T) {
 	// Art. 15 and Art. 17 owe the subject everything the controller holds,
 	// including an unpromoted capture. The crossing lifts capture privacy
 	// and nothing else: a person is workspace-readable anyway (tableclass.go),
-	// so the subject-rights read renders TRUE, while a commercial table keeps
-	// the caller's own/team scope. Erasure's WRITE arm is the write-authority
-	// probe, which still binds (writescope.go).
+	// so the subject-rights read renders TRUE, while a table outside that read
+	// class keeps the caller's own/team scope. Erasure's WRITE arm is the
+	// write-authority probe, which still binds (writescope.go).
 	p := human(principal.RowScopeTeam)
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -157,8 +160,11 @@ func TestSubjectRightsPredicateDropsOnlyTheCapturePrivacyArm(t *testing.T) {
 			"applies capture privacy (a SAR would omit an unpromoted capture) or narrows "+
 			"a workspace-readable record", sql)
 	}
-	if sql := predicateFor(p, "project", arg, withoutCapturePrivacy)("t"); !strings.Contains(sql, "t.owner_id") {
-		t.Errorf("the subject-rights project predicate dropped the owner scope; a rep "+
-			"could reach a colleague's projects: %s", sql)
+	// "list" is neither shareable nor an identity table, so it is the honest
+	// witness that the crossing lifts capture privacy alone and leaves a
+	// scoped table's owner arm standing.
+	if sql := predicateFor(p, "list", arg, withoutCapturePrivacy)("t"); !strings.Contains(sql, "t.owner_id") {
+		t.Errorf("the subject-rights predicate over a scoped table dropped the owner "+
+			"scope; the crossing must lift capture privacy and nothing else: %s", sql)
 	}
 }

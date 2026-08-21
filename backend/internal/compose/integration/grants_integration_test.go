@@ -87,18 +87,24 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 // first `write` grant to a subject who already holds `read` used to be refused
 // by the unique constraint; the upsert accepts it, so the only thing standing
 // between a read share and a write one is this rule.
-// ADR-0039's scope-intersection rule, which is narrower-or-equal rather than
-// a ban on sharing a share: "a granter can never share wider than they hold."
-// UC-E11-08 F1 puts a screen state on it — "Can't grant write — you only have
-// read here" — so passing `read` on is a supported flow and only `write` is
-// refused.
+// ADR-0039's scope-intersection rule: "a granter can never share wider than
+// they hold." The rule is now applied at EVERY access level, and this test says
+// so deliberately, because it is a CHANGE: passing `read` on from a read share
+// used to be a supported flow, with a screen state of its own.
+//
+// What changed the reading is that a grant assertion is an upsert on
+// (record_type, record_id, subject_type, subject_id) and restates the whole
+// grant — access, expiry, reason and granted_by all take the new request's
+// values. So a caller admitted at `read` is not only passing on sight they
+// hold; on an existing grant they are rewriting its TERMS, including terms
+// somebody else set. Narrower-or-equal is a claim about the access column, and
+// the row carries more than that column.
 //
 // The gate that admits any of this is EnsureLinkTarget, and the visibility arm
 // counts every live grant regardless of access, so a read-share holder passes
-// it. Without a separate probe they could hand on the authority their own
-// sharer withheld — and the upsert makes that reachable on a second call where
-// the unique constraint used to end it.
-func TestAReadShareCanBePassedOnButNotWidened(t *testing.T) {
+// it. The probe behind it is what decides, and it now asks the same question
+// whatever access is being asserted: can this caller change the row themselves.
+func TestAShareIsPassedOnOnlyByACallerWhoCouldChangeTheRow(t *testing.T) {
 	e := SetupSearch(t)
 	// Owned by rep3 in team2, so rep1 in team1 has no path to it but a share.
 	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by) VALUES ($1, 'Out Of Scope', $2, 'manual', 'human:x')`, e.Rep3)
@@ -122,22 +128,29 @@ func TestAReadShareCanBePassedOnButNotWidened(t *testing.T) {
 		t.Fatalf("owner shares read → %v", err)
 	}
 
-	// Holding `read`, rep1 may pass `read` on…
-	if err := share(rep, colleague, "read"); err != nil {
-		t.Errorf("passing read on from a read share → %v, want allowed (UC-E11-08 F1)", err)
+	// Holding only `read`, rep1 is refused at BOTH access levels, and in both
+	// directions: onto a colleague, and onto themselves by re-asserting their
+	// own grant. `read` is the arm that changed — it was allowed before.
+	if err := share(rep, colleague, "read"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("passing read on from a read share → %v, want permission-denied: "+
+			"the assertion restates the whole grant, including its term", err)
 	}
-	// …and is refused `write`, in both directions: onto a colleague, and onto
-	// themselves by re-asserting their own grant.
 	if err := share(rep, colleague, "write"); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("granting write from a read share → %v, want permission-denied", err)
 	}
 	if err := share(rep, e.Rep1, "write"); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("re-asserting one's own read grant as write → %v, want permission-denied", err)
 	}
+	if err := share(rep, e.Rep1, "read"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("re-asserting one's own read grant as read → %v, want permission-denied: "+
+			"this is the assertion that could restate the grant's expiry", err)
+	}
 
-	// The allow arm for `write`, without which the refusals above would pass
-	// against a probe that refused every write: once the owner upgrades rep1,
-	// the same caller may pass write on. Same record, one column different.
+	// The allow arm, without which every refusal above would pass against a
+	// probe that simply refused everything: once the owner upgrades rep1 to
+	// write, the same caller may pass write on. Same record, same caller, one
+	// column different — so what the refusals measure is the authority, not the
+	// call.
 	if err := share(owner, e.Rep1, "write"); err != nil {
 		t.Fatalf("owner upgrades the share to write → %v", err)
 	}
@@ -355,4 +368,220 @@ func meUserID(t *testing.T, e *relEnv) string {
 		t.Fatalf("me → %d", status)
 	}
 	return me.User.ID
+}
+
+// A grant assertion restates the whole grant — access, expiry, reason and
+// granted_by all take the new request's values, which is documented and
+// deliberate. That makes the assertion a write of the grant's TERM, not only of
+// its width, so the authority it needs is authority over the record.
+//
+// The two record types here are the ones that make the rule non-trivial. On
+// `deal` (and `lead`) every seat reads every row, so any rule phrased as "the
+// caller must have some claim on this record" is satisfied by everyone and
+// closes nothing. Write authority is owner- or grant-scoped even there, which
+// is why that is the question asked.
+func TestARecordsTermsAreRestatedOnlyByACallerWhoCouldChangeIt(t *testing.T) {
+	e := SetupSearch(t)
+	svc := identity.NewService(e.Pool)
+	colleague := e.SeedID(t, `INSERT INTO app_user (id, email, display_name) VALUES ($1, 'termcolleague@search.test', 'Term Colleague')`)
+
+	pipeline := e.SeedID(t, `INSERT INTO pipeline (id, name) VALUES ($1, 'Terms')`)
+	stage := e.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position) VALUES ($1, $2, 'Open', 1)`, pipeline)
+	org := e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Terms GmbH', 'manual', 'human:x')`)
+
+	// Both owned by rep3 in team2. rep1 in team1 holds no owner or team claim
+	// on either, and on the deal that is the ONLY thing standing between them
+	// and the row — the read is workspace-wide.
+	deal := e.SeedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, owner_id, source, captured_by)
+	                     VALUES ($1, 'Terms Deal', $2, $3, $4, 'manual', 'human:x')`, pipeline, stage, e.Rep3)
+	project := e.SeedID(t, `INSERT INTO project (id, name, organization_id, owner_id, source, captured_by)
+	                        VALUES ($1, 'Terms Project', $2, $3, 'manual', 'human:x')`, org, e.Rep3)
+
+	// The same seat shape grantingPrincipal mints, widened to the two record
+	// types under test: read and update on each, and nothing else, so a refusal
+	// below can only come from the rule this test is about.
+	seat := func(user ids.UUID, scope principal.RowScope, teams []ids.UUID) context.Context {
+		ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+		return principal.WithActor(ctx, principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
+			TeamIDs: teams,
+			Permissions: principal.Permissions{
+				Objects: map[string]principal.ObjectGrant{
+					"deal":    {Read: true, Update: true},
+					"project": {Read: true, Update: true},
+				},
+				RowScope: scope,
+			},
+		})
+	}
+	owner := seat(e.Rep3, principal.RowScopeOwn, nil)
+	rep := seat(e.Rep1, principal.RowScopeTeam, []ids.UUID{e.Team1})
+
+	for _, record := range []struct {
+		recordType string
+		id         ids.UUID
+	}{{"deal", deal}, {"project", project}} {
+		t.Run(record.recordType, func(t *testing.T) {
+			until := time.Now().Add(time.Hour).UTC()
+			share := func(as context.Context, subject ids.UUID, access string, expires *time.Time) error {
+				_, err := svc.CreateRecordGrant(as, identity.CreateGrantInput{
+					RecordType: record.recordType, RecordID: record.id,
+					SubjectType: "user", SubjectID: subject, Access: access,
+					ExpiresAt: expires,
+				})
+				return err
+			}
+
+			// The owner shares, on a term of their choosing.
+			if err := share(owner, e.Rep1, "read", &until); err != nil {
+				t.Fatalf("owner shares read until a deadline → %v", err)
+			}
+
+			// The holder cannot restate it — not onto themselves, and not onto
+			// anybody else. Their whole claim on the row is the grant they are
+			// restating.
+			if err := share(rep, e.Rep1, "read", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+				t.Errorf("the holder restating their own grant → %v, want permission-denied", err)
+			}
+			if err := share(rep, colleague, "read", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+				t.Errorf("the holder passing the record on → %v, want permission-denied", err)
+			}
+
+			// Read the column back. A refusal raised AFTER the upsert ran is
+			// indistinguishable from one raised instead of it, and the whole
+			// question here is whether the stored term moved.
+			var stored *time.Time
+			if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+				return tx.QueryRow(context.Background(),
+					`SELECT expires_at FROM record_grant
+					  WHERE record_type = $1 AND record_id = $2 AND subject_id = $3`,
+					record.recordType, record.id, e.Rep1).Scan(&stored)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if stored == nil {
+				t.Fatal("the grant's expiry was cleared by a caller who cannot change the record")
+			}
+			if !stored.Truncate(time.Second).Equal(until.Truncate(time.Second)) {
+				t.Errorf("the stored expiry is %v, want the term its owner set (%v)", stored, until)
+			}
+
+			// The allow arm. Without it every refusal above would pass against a
+			// probe that refused everyone, which would break sharing rather than
+			// gate it: the owner still restates their own grant, expiry and all.
+			if err := share(owner, e.Rep1, "read", nil); err != nil {
+				t.Errorf("the record's owner restating the grant they made → %v, want allowed", err)
+			}
+			if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+				return tx.QueryRow(context.Background(),
+					`SELECT expires_at FROM record_grant
+					  WHERE record_type = $1 AND record_id = $2 AND subject_id = $3`,
+					record.recordType, record.id, e.Rep1).Scan(&stored)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if stored != nil {
+				t.Errorf("the owner's own re-assert left the expiry at %v — the documented "+
+					"reset, which this change must not break, did not happen", stored)
+			}
+		})
+	}
+}
+
+// The two arms that make the rule's REACH visible, and neither is about the
+// share's beneficiary — which every other case in this file is.
+//
+// REACHING the assertion needs no prior relationship to the record: the object
+// grant (the default rep role holds it on every type here) and the VISIBILITY
+// probe, which on deal and lead degrades to "does this row exist" because those
+// tables are read by every seat and the scope clause renders empty.
+//
+// What refuses is the separate write-authority probe inside EnsureCanGrant, and
+// that one does NOT degrade — its predicate is owner-or-live-write-grant on
+// every table. The distinction is the whole rule: a caller can always reach the
+// door, and is turned away at it.
+func TestAStrangerToTheRecordCannotRestateItsGrants(t *testing.T) {
+	e := SetupSearch(t)
+	svc := identity.NewService(e.Pool)
+
+	pipeline := e.SeedID(t, `INSERT INTO pipeline (id, name) VALUES ($1, 'Stranger')`)
+	stage := e.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position) VALUES ($1, $2, 'Open', 1)`, pipeline)
+	deal := e.SeedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, owner_id, source, captured_by)
+	                     VALUES ($1, 'Stranger Deal', $2, $3, $4, 'manual', 'human:x')`, pipeline, stage, e.Rep3)
+	beneficiary := e.SeedID(t, `INSERT INTO app_user (id, email, display_name) VALUES ($1, 'beneficiary@search.test', 'Beneficiary')`)
+	worker := e.SeedID(t, `INSERT INTO app_user (id, email, display_name, seat_type) VALUES ($1, 'worker@search.test', 'Worker', 'full')`)
+
+	seat := func(user ids.UUID, scope principal.RowScope, teams []ids.UUID) context.Context {
+		ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+		return principal.WithActor(ctx, principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
+			TeamIDs: teams,
+			Permissions: principal.Permissions{
+				Objects:  map[string]principal.ObjectGrant{"deal": {Read: true, Update: true}},
+				RowScope: scope,
+			},
+		})
+	}
+	owner := seat(e.Rep3, principal.RowScopeOwn, nil)
+	// Rep1 holds NO grant on this deal and never did. The only thing they have
+	// is the object permission every rep seat carries.
+	stranger := seat(e.Rep1, principal.RowScopeTeam, []ids.UUID{e.Team1})
+
+	share := func(as context.Context, subject ids.UUID, access string, expires *time.Time) error {
+		_, err := svc.CreateRecordGrant(as, identity.CreateGrantInput{
+			RecordType: "deal", RecordID: deal,
+			SubjectType: "user", SubjectID: subject, Access: access,
+			ExpiresAt: expires,
+		})
+		return err
+	}
+	readBack := func(t *testing.T, subject ids.UUID) (string, *time.Time) {
+		t.Helper()
+		var access string
+		var expires *time.Time
+		if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(),
+				`SELECT access, expires_at FROM record_grant
+				  WHERE record_type = 'deal' AND record_id = $1 AND subject_id = $2`,
+				deal, subject).Scan(&access, &expires)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return access, expires
+	}
+
+	until := time.Now().Add(time.Hour).UTC()
+	if err := share(owner, beneficiary, "read", &until); err != nil {
+		t.Fatalf("owner shares read with a deadline → %v", err)
+	}
+
+	t.Run("a stranger cannot clear somebody else's deadline", func(t *testing.T) {
+		if err := share(stranger, beneficiary, "read", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Errorf("a caller holding no grant on this deal restated one → %v, want permission-denied", err)
+		}
+		if _, expires := readBack(t, beneficiary); expires == nil {
+			t.Error("the deadline was cleared by a caller with no relationship to the record")
+		}
+	})
+
+	t.Run("a stranger cannot downgrade a colleague's write grant", func(t *testing.T) {
+		// The mirror of what mayRevoke already refuses. Its own comment gives
+		// the reason: "anyone the record was ever shared with — read-only —
+		// could delete a colleague's write grant on it, which is not an
+		// escalation but is a way to take work away from people who are doing
+		// it." Revoking was gated. Re-asserting `read` over a stored `write`
+		// reaches the same end through SET access = EXCLUDED.access, and was
+		// not — the write-seat check returns early for a non-write assert, and
+		// so did the authority probe.
+		if err := share(owner, worker, "write", nil); err != nil {
+			t.Fatalf("owner shares write with a colleague → %v", err)
+		}
+		if err := share(stranger, worker, "read", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Errorf("a stranger downgraded a colleague's write grant → %v, want permission-denied", err)
+		}
+		if access, _ := readBack(t, worker); access != "write" {
+			t.Errorf("the colleague's grant reads %q — their write authority was taken "+
+				"by a caller who cannot change the record", access)
+		}
+	})
 }

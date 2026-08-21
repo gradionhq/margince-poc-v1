@@ -845,6 +845,8 @@ paths:
         Sets `archived_at`, removes from default lists, retains in audit; the row is
         still fetchable by id (features/01 §1.1 AC). No hard delete by default.
       x-mcp-tool: { verb: archive_record, record_type: person, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived person (now carries a non-null `archived_at`).
@@ -854,6 +856,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /people/{id}/merge:
     parameters:
@@ -1732,6 +1735,8 @@ paths:
       operationId: archiveOrganization
       summary: Archive (soft-delete) an organization.
       x-mcp-tool: { verb: archive_record, record_type: organization, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived organization.
@@ -1739,6 +1744,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Organization' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /organizations/{id}/merge:
     parameters:
@@ -2944,6 +2950,8 @@ paths:
       operationId: archiveDeal
       summary: Archive (soft-delete) a deal.
       x-mcp-tool: { verb: archive_record, record_type: deal, tier: confirmation_required, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived deal.
@@ -2951,6 +2959,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Deal' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /deals/{id}/advance:
     parameters:
@@ -3666,6 +3675,8 @@ paths:
       operationId: archiveActivity
       x-mcp-tool: { verb: archive_record, record_type: activity, tier: confirmation_required, scope: write }
       summary: Archive (soft-delete) an activity.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived activity.
@@ -3673,6 +3684,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Activity' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /activities/{id}/audience:
     parameters:
@@ -5455,6 +5467,8 @@ paths:
       operationId: archiveRelationship
       x-mcp-tool: { verb: archive_record, record_type: relationship, tier: confirmation_required, scope: write }
       summary: Archive (soft-delete) a relationship.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
       responses:
         '200':
           description: Archived relationship.
@@ -5462,6 +5476,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Relationship' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   # ------------------------------ /lists ------------------------------------
   /lists:
@@ -9296,14 +9311,19 @@ paths:
       summary: Share one record with a user or team (human-only).
       description: |
         Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
-        scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
-        policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
+        scope. Enforced by the application visibility WHERE clause: the grant arm is rendered into the
+        row-scope predicate and into the write-authority arm, and the tenant predicate is bound by the
+        `WithWorkspaceTx` GUC contract. There is no row-level-security backstop — core RLS was retired
+        and `record_grant` carries no policy — so the application predicate is the whole of the
+        enforcement. Idempotent on `(record_type, record_id, subject_type, subject_id)` —
         a re-assert RESTATES the grant rather than amending it: `access`, `expires_at`, `reason` and
         `granted_by` all take the values of the new request, so a field the caller omits is cleared and
         accountability moves to the re-asserting principal. `id` and `created_at` do not move — it is the
-        same share, not a new one. A grant can never exceed the granting principal's own access
-        (scope-intersection, ADR-0039: a granter can never share wider than they hold — a caller
-        holding only `read` on the record may pass `read` on and is refused `write`).
+        same share, not a new one. Because a re-assert restates the whole grant — its TERM as well as its
+        width — asserting one requires authority to CHANGE the record, at every access level: own/team
+        scope, an unbounded scope, or a live `write` grant. A caller whose only claim is a `read` share
+        may therefore neither pass it on nor restate its terms, while a `write` share carries both
+        (scope-intersection, ADR-0039: a granter can never share wider than they hold).
         Audited (`action: record_share`). Bounded:
         flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
 
@@ -12128,6 +12148,35 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /me/agent-activity:
+    get:
+      tags: [AI]
+      operationId: getMyAgentActivity
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: What the agent is doing for THIS person, right now and lately.
+      description: |
+        The scheduled agent runs this account authorized, as facts rather than sentences:
+        the kind, the state, and when. The client renders the sentence in the reader's own
+        locale, so this never returns prose.
+
+        Personal by construction: a run is this caller's when the passport it executes under
+        is bound to them (`passport.on_behalf_of`). A run whose passport was deleted is
+        nobody's and is absent — never attributed to whoever asks. No RBAC object gates it,
+        because there is no wider set to withhold.
+
+        `recent` is BOUNDED (since local midnight, at most 10). An unbounded per-person run
+        history is a per-person activity ledger, which this installation does not keep.
+
+        Read-only; no audit or event row (EVT-NOEVT-3).
+      responses:
+        '200':
+          description: The caller's own agent activity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentActivity' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /organizations/{id}/contracts:
     get:
       tags: [Contracts]
@@ -12857,8 +12906,16 @@ paths:
     post:
       tags: [Import]
       operationId: createImportRun
-      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
-      x-agent-access: human-only
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      # Open to an agent because this call writes NO domain rows (AC-M5): it
+      # validates a mapping against the estate and produces a report, which is
+      # exactly the work an assistant helping with a migration should do. What
+      # COMMITS is approveImportRun, and that stays confirm-first.
+      x-mcp-tool:
+        verb: preview_import
+        record_type: import_run
+        tier: auto_execute
+        scope: write
       summary: Create an import run from an uploaded source and a column mapping, and dry-run it.
       description: |
         IEM-WIRE-3. Takes the connector, the `source_ref` from
@@ -12895,8 +12952,14 @@ paths:
     get:
       tags: [Import]
       operationId: getImportRun
-      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
-      x-agent-access: human-only
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      # A read. An assistant that staged the run has to be able to see what
+      # became of it, or it is helping with a migration it cannot observe.
+      x-mcp-tool:
+        verb: read_import_run
+        record_type: import_run
+        tier: auto_execute
+        scope: read
       summary: Read one import run's lifecycle state.
       description: |
         IEM-WIRE-6. A run that stopped part-way reports `failed` **with its
@@ -12921,8 +12984,15 @@ paths:
     get:
       tags: [Import]
       operationId: getImportRunReport
-      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
-      x-agent-access: human-only
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      # The report is the whole point of a dry run. An assistant that cannot
+      # read it cannot tell a person what the import is about to do, which is
+      # the one thing worth asking an assistant about a migration.
+      x-mcp-tool:
+        verb: read_import_report
+        record_type: import_run
+        tier: auto_execute
+        scope: read
       summary: Read the run's report — what will happen, or what did.
       description: |
         IEM-WIRE-4. Available from `awaiting_approval` onward, and it is the
@@ -12949,8 +13019,16 @@ paths:
     post:
       tags: [Import]
       operationId: approveImportRun
-      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
-      x-agent-access: human-only
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      # CONFIRMATION_REQUIRED, and it is the reason the three above can be
+      # auto_execute. This is the call that writes the estate, so an agent may
+      # ask for it and a person must approve it — the approval carries the run
+      # id, so what gets committed is the run whose report the person read.
+      x-mcp-tool:
+        verb: commit_import
+        record_type: import_run
+        tier: confirmation_required
+        scope: write
       summary: Approve a validated import run and commit it.
       description: |
         IEM-WIRE-5, and one of the three audited gates. Valid **only** from
@@ -18889,7 +18967,7 @@ components:
         pipeline_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null pipeline FK. Overlay mode: NULL — an overlay-mirror deal has no native Margince pipeline row; the incumbent''s own pipeline id rides `raw` and the code-declared stage→semantic mapping drives tier resolution (overlay-augmentation OVA-MAP-6). A zero/placeholder UUID here is forbidden (dangling FK).' }
         stage_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null stage FK; must belong to pipeline_id. Overlay mode: NULL (see pipeline_id; the incumbent dealstage id rides `raw`, OVA-MAP-6).' }
         organization_id: { type: [string, 'null'], format: uuid, description: 'Primary org; never a raw lead. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
-        partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a live `partner` row — naming one that does not is refused 422 (`not_a_partner`), because commission prices from the margin tier on that row, and an attribution without one could never earn anything. Null when the caller may not read that organization, in which case `masked_fields` names it.' }
         partner_attribution:
           type: [string, 'null']
           enum: [sourced, influenced, null]
@@ -18950,7 +19028,7 @@ components:
         pipeline_id: { type: string, format: uuid }
         stage_id: { type: string, format: uuid }
         organization_id: { type: [string, 'null'], format: uuid }
-        partner_org_id: { type: [string, 'null'], format: uuid, description: 'The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.' }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'The partner this deal is attributed to at birth. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it.' }
         partner_attribution:
           type: [string, 'null']
           enum: [sourced, influenced, null]
@@ -18971,7 +19049,7 @@ components:
         amount_minor: { type: [integer, 'null'], format: int64 }
         currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
         organization_id: { type: [string, 'null'], format: uuid }
-        partner_org_id: { type: [string, 'null'], format: uuid }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'The partner who brought this deal. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it. Null clears the attribution.' }
         partner_attribution:
           type: [string, 'null']
           enum: [sourced, influenced, null]
@@ -19292,7 +19370,7 @@ components:
     Project:
       type: object
       description: A project — the body of work a client relationship is made of. Mirrors the `project` table.
-      required: [id, name, organization_id, phase, source, captured_by, created_at, updated_at]
+      required: [id, name, phase, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -19300,10 +19378,18 @@ components:
           type: [string, 'null']
           pattern: '^[A-Za-z][A-Za-z0-9_-]{1,23}$'
           description: 'The short handle a human writes in a subject line. Letter-led and bounded so it can never be a bare number, which would match dates, amounts and order numbers. Unique among LIVE projects; archiving frees it.'
+        masked_fields:
+          type: array
+          readOnly: true
+          items: { type: string }
+          description: >-
+            The fields of THIS row the caller may not read (a field mask). A named field is null
+            because it is withheld, not because it is empty; absent or empty means nothing is
+            withheld.
         organization_id:
-          type: string
+          type: [string, 'null']
           format: uuid
-          description: 'The anchor company — required and singular. A company has many projects; a project has one company.'
+          description: 'The anchor company — singular, and always set on the row. A company has many projects; a project has one company. Null on the wire when the caller may not read that company, in which case `masked_fields` names it: a project is readable across the workspace while the company it hangs off can still be an unpromoted capture.'
         owner_id: { type: [string, 'null'], format: uuid }
         phase:
           type: string
@@ -22004,8 +22090,33 @@ components:
           enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold, expire, resolve, restrict, pin, accrue, pay]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
-        before: { type: [object, 'null'], additionalProperties: true }
-        after: { type: [object, 'null'], additionalProperties: true }
+        before:
+          type: [object, 'null']
+          additionalProperties: true
+          description: |
+            The record image before the change. For an `activity` row this read
+            REDACTS content the caller's audience does not admit. What survives
+            is what the activity READ surface answers on a withheld row — the
+            record's markers (`kind`, `direction`, `occurred_at`,
+            `source_system`) and the record of the mutation itself (`audience`,
+            `member_count`, a relink's `entity_type`/`entity_id`/`replaced`, a
+            merge's `merged_into_id`, and a task's `due_at`, `remind_at`,
+            `assignee_id`, `is_done`). `body` survives only as the presence flag
+            its writer records, never as text. What does not survive is content:
+            `subject`, body text, and the provider message id. Every
+            non-surviving key is REMOVED ENTIRELY, not emptied or renamed, and
+            `content_state: withheld` is added to say something was removed.
+            So a change that touched only withheld content answers as
+            `{"content_state": "withheld"}` alone: a client cannot infer which
+            field moved, and must not present the absence as "nothing changed".
+            An image needing no redaction is answered unchanged and carries no
+            such key. The row itself is always present — actor, action, entity
+            and timestamp are never withheld — because a compliance trail with
+            holes in it is its own defect.
+        after:
+          type: [object, 'null']
+          additionalProperties: true
+          description: The record image after the change, redacted on the same terms as `before`.
         authorization_rule: { type: [string, 'null'], description: Which RBAC/scope rule allowed it. }
         evidence: { type: [object, 'null'], additionalProperties: true, description: e.g. which inbound email/meeting triggered a promotion. }
         occurred_at: { type: string, format: date-time }
@@ -22349,6 +22460,55 @@ components:
         sections: { type: array, items: { $ref: '#/components/schemas/ContextSection' } }
 
     # ---- Agents: governed tool surface ----
+    AgentActivity:
+      type: object
+      additionalProperties: false
+      required: [as_of, running, recent]
+      properties:
+        as_of: { type: string, format: date-time, description: 'When the server read this.' }
+        running:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityItem' }
+          description: 'Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read.'
+        recent:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/ActivityItem' }
+          description: 'Runs that FINISHED since midnight in the server''s own timezone (not the reader''s, and not UTC unless the server runs on it), newest-finished first, at most 10.'
+    ActivityItem:
+      type: object
+      additionalProperties: false
+      required: [id, kind, state, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [morning_brief, overnight_at_risk_sweep]
+          description: 'The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.'
+        state:
+          type: string
+          enum: [queued, running, awaiting_approval, done, degraded, failed]
+          description: |
+            `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
+            state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
+            exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
+            auto-execute only) and is declared for the states the runner itself can reach.
+        started_at: { type: string, format: date-time, description: 'When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.' }
+        finished_at: { type: [string, 'null'], format: date-time }
+        degrade_reason:
+          type: [string, 'null']
+          maxLength: 500
+          description: |
+            One of the runner's own closed reasons for stopping early, shown in the panel detail and
+            never interpolated into a reader-facing line. It is NEVER a model provider's or a parser's
+            own message: those carry vendor text and can echo credential material, and this field
+            reaches an ordinary rep. The underlying cause goes to the operator log instead.
+        summary:
+          type: [string, 'null']
+          maxLength: 2000
+          description: |
+            The run's own final summary when it produced one. OPTIONAL — the runner never validates
+            that `final` carries it. Model-authored, so it is truncated to `maxLength` on the way out.
     AgentTool:
       type: object
       # title and description are required because registration guarantees
@@ -22425,6 +22585,7 @@ components:
             - custom_field
             - data_subject_request
             - deal
+            - import_run
             - lead
             - list
             - offer

@@ -6126,14 +6126,19 @@ export interface paths {
         /**
          * Share one record with a user or team (human-only).
          * @description Grants `read` or `write` on a single record to a user or team otherwise out of their own/team/all
-         *     scope. Enforced by widening BOTH the application visibility WHERE clause AND the RLS backstop
-         *     policy (`data-model §1.3c/§2.5`). Idempotent on `(record_type, record_id, subject_type, subject_id)` —
+         *     scope. Enforced by the application visibility WHERE clause: the grant arm is rendered into the
+         *     row-scope predicate and into the write-authority arm, and the tenant predicate is bound by the
+         *     `WithWorkspaceTx` GUC contract. There is no row-level-security backstop — core RLS was retired
+         *     and `record_grant` carries no policy — so the application predicate is the whole of the
+         *     enforcement. Idempotent on `(record_type, record_id, subject_type, subject_id)` —
          *     a re-assert RESTATES the grant rather than amending it: `access`, `expires_at`, `reason` and
          *     `granted_by` all take the values of the new request, so a field the caller omits is cleared and
          *     accountability moves to the re-asserting principal. `id` and `created_at` do not move — it is the
-         *     same share, not a new one. A grant can never exceed the granting principal's own access
-         *     (scope-intersection, ADR-0039: a granter can never share wider than they hold — a caller
-         *     holding only `read` on the record may pass `read` on and is refused `write`).
+         *     same share, not a new one. Because a re-assert restates the whole grant — its TERM as well as its
+         *     width — asserting one requires authority to CHANGE the record, at every access level: own/team
+         *     scope, an unbounded scope, or a live `write` grant. A caller whose only claim is a `read` share
+         *     may therefore neither pass it on nor restate its terms, while a `write` share carries both
+         *     (scope-intersection, ADR-0039: a granter can never share wider than they hold).
          *     Audited (`action: record_share`). Bounded:
          *     flat explicit grants only — no sharing hierarchies, criteria-rules, or grant-of-grant delegation.
          *
@@ -7811,6 +7816,38 @@ export interface paths {
          *     stored here is exactly what arrives under every message the caller sends.
          */
         put: operations["saveMyEmailSignature"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/agent-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the agent is doing for THIS person, right now and lately.
+         * @description The scheduled agent runs this account authorized, as facts rather than sentences:
+         *     the kind, the state, and when. The client renders the sentence in the reader's own
+         *     locale, so this never returns prose.
+         *
+         *     Personal by construction: a run is this caller's when the passport it executes under
+         *     is bound to them (`passport.on_behalf_of`). A run whose passport was deleted is
+         *     nobody's and is absent — never attributed to whoever asks. No RBAC object gates it,
+         *     because there is no wider set to withhold.
+         *
+         *     `recent` is BOUNDED (since local midnight, at most 10). An unbounded per-person run
+         *     history is a per-person activity ledger, which this installation does not keep.
+         *
+         *     Read-only; no audit or event row (EVT-NOEVT-3).
+         */
+        get: operations["getMyAgentActivity"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -13161,7 +13198,7 @@ export interface components {
             organization_id?: string | null;
             /**
              * Format: uuid
-             * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.
+             * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a live `partner` row — naming one that does not is refused 422 (`not_a_partner`), because commission prices from the margin tier on that row, and an attribution without one could never earn anything. Null when the caller may not read that organization, in which case `masked_fields` names it.
              */
             partner_org_id?: string | null;
             /**
@@ -13242,7 +13279,7 @@ export interface components {
             organization_id?: string | null;
             /**
              * Format: uuid
-             * @description The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.
+             * @description The partner this deal is attributed to at birth. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it.
              */
             partner_org_id?: string | null;
             /**
@@ -13273,7 +13310,10 @@ export interface components {
             currency?: string | null;
             /** Format: uuid */
             organization_id?: string | null;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The partner who brought this deal. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it. Null clears the attribution.
+             */
             partner_org_id?: string | null;
             /**
              * @description `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
@@ -13627,11 +13667,13 @@ export interface components {
             name: string;
             /** @description The short handle a human writes in a subject line. Letter-led and bounded so it can never be a bare number, which would match dates, amounts and order numbers. Unique among LIVE projects; archiving frees it. */
             key?: string | null;
+            /** @description The fields of THIS row the caller may not read (a field mask). A named field is null because it is withheld, not because it is empty; absent or empty means nothing is withheld. */
+            readonly masked_fields?: string[];
             /**
              * Format: uuid
-             * @description The anchor company — required and singular. A company has many projects; a project has one company.
+             * @description The anchor company — singular, and always set on the row. A company has many projects; a project has one company. Null on the wire when the caller may not read that company, in which case `masked_fields` names it: a project is readable across the workspace while the company it hangs off can still be an unpromoted capture.
              */
-            organization_id: string;
+            organization_id?: string | null;
             /** Format: uuid */
             owner_id?: string | null;
             /**
@@ -16020,9 +16062,31 @@ export interface components {
              * @description Every audit_log row names the record it mutated (NOT NULL since 0075).
              */
             entity_id: string;
+            /**
+             * @description The record image before the change. For an `activity` row this read
+             *     REDACTS content the caller's audience does not admit. What survives
+             *     is what the activity READ surface answers on a withheld row — the
+             *     record's markers (`kind`, `direction`, `occurred_at`,
+             *     `source_system`) and the record of the mutation itself (`audience`,
+             *     `member_count`, a relink's `entity_type`/`entity_id`/`replaced`, a
+             *     merge's `merged_into_id`, and a task's `due_at`, `remind_at`,
+             *     `assignee_id`, `is_done`). `body` survives only as the presence flag
+             *     its writer records, never as text. What does not survive is content:
+             *     `subject`, body text, and the provider message id. Every
+             *     non-surviving key is REMOVED ENTIRELY, not emptied or renamed, and
+             *     `content_state: withheld` is added to say something was removed.
+             *     So a change that touched only withheld content answers as
+             *     `{"content_state": "withheld"}` alone: a client cannot infer which
+             *     field moved, and must not present the absence as "nothing changed".
+             *     An image needing no redaction is answered unchanged and carries no
+             *     such key. The row itself is always present — actor, action, entity
+             *     and timestamp are never withheld — because a compliance trail with
+             *     holes in it is its own defect.
+             */
             before?: {
                 [key: string]: unknown;
             } | null;
+            /** @description The record image after the change, redacted on the same terms as `before`. */
             after?: {
                 [key: string]: unknown;
             } | null;
@@ -16333,6 +16397,53 @@ export interface components {
             anchor: components["schemas"]["ContextEntityRef"];
             sections: components["schemas"]["ContextSection"][];
         };
+        AgentActivity: {
+            /**
+             * Format: date-time
+             * @description When the server read this.
+             */
+            as_of: string;
+            /** @description Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read. */
+            running: components["schemas"]["ActivityItem"][];
+            /** @description Runs that FINISHED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-finished first, at most 10. */
+            recent: components["schemas"]["ActivityItem"][];
+        };
+        ActivityItem: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
+             * @enum {string}
+             */
+            kind: "morning_brief" | "overnight_at_risk_sweep";
+            /**
+             * @description `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
+             *     state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
+             *     exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
+             *     auto-execute only) and is declared for the states the runner itself can reach.
+             * @enum {string}
+             */
+            state: "queued" | "running" | "awaiting_approval" | "done" | "degraded" | "failed";
+            /**
+             * Format: date-time
+             * @description When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.
+             */
+            started_at: string;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /**
+             * @description One of the runner's own closed reasons for stopping early, shown in the panel detail and
+             *     never interpolated into a reader-facing line. It is NEVER a model provider's or a parser's
+             *     own message: those carry vendor text and can echo credential material, and this field
+             *     reaches an ordinary rep. The underlying cause goes to the operator log instead.
+             */
+            degrade_reason?: string | null;
+            /**
+             * @description The run's own final summary when it produced one. OPTIONAL — the runner never validates
+             *     that `final` carries it. Model-authored, so it is truncated to `maxLength` on the way out.
+             */
+            summary?: string | null;
+        };
         AgentTool: {
             /** @description The tool name (tools/list identity). */
             name: string;
@@ -16387,7 +16498,7 @@ export interface components {
              * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
              * @enum {string}
              */
-            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
             /**
              * @description The autonomy tier, identical on REST and MCP (ADR-0055).
              * @enum {string}
@@ -19758,7 +19869,16 @@ export interface operations {
     archivePerson: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -19779,6 +19899,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updatePerson: {
@@ -20771,7 +20892,16 @@ export interface operations {
     archiveOrganization: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -20790,6 +20920,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updateOrganization: {
@@ -22002,7 +22133,16 @@ export interface operations {
     archiveDeal: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -22021,6 +22161,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updateDeal: {
@@ -23120,7 +23261,16 @@ export interface operations {
     archiveActivity: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -23139,6 +23289,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updateActivity: {
@@ -25456,7 +25607,16 @@ export interface operations {
     archiveRelationship: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
@@ -25475,6 +25635,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     updateRelationship: {
@@ -33109,6 +33270,27 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getMyAgentActivity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's own agent activity. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentActivity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     listOrganizationContracts: {

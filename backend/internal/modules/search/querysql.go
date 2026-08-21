@@ -79,6 +79,13 @@ type planBinding struct {
 	// fetch is the row ceiling for the exact lane: the limit plus one, so a
 	// truncated answer is detectable rather than merely suspected.
 	fetch int
+	// geo is the bound radius predicate on the ROOT target, when the plan
+	// carries one this deployment can answer. It is on the binding rather than
+	// read from the plan because binding it needs the place cache and the
+	// deployment's own columns — the same reason `columns` is here.
+	//
+	// Nil for every plan without a radius, which is nearly all of them.
+	geo *geoBinding
 }
 
 // planCompiler accumulates the statement's bound arguments.
@@ -109,8 +116,18 @@ func (c *planCompiler) compileStatement(ctx context.Context, plan ValidatedPlan,
 	if scope != "" {
 		where = append(where, scope)
 	}
-	predicates, refusals := c.predicates("t", binding.columns, plan.Target, "where", plan.Plan.Where)
+	predicates, refusals := c.predicates("t", binding.columns, plan.Target, "where", plan.Plan.Where, true)
 	where = append(where, predicates...)
+
+	// The radius, when the plan carries one this deployment can answer. The
+	// clause path above skips it — a place has no expression to compare — so it
+	// is rendered here, where the bound center and columns are in hand.
+	distance := ""
+	if binding.geo != nil {
+		var geoWhere []string
+		distance, geoWhere = c.radius("t", *binding.geo)
+		where = append(where, geoWhere...)
+	}
 
 	join, hopSelect, hopRefusals, hopAdmitted, err := c.lateralHop(ctx, plan, binding)
 	if err != nil || !hopAdmitted {
@@ -124,8 +141,28 @@ func (c *planCompiler) compileStatement(ctx context.Context, plan ValidatedPlan,
 		where = append(where, c.idsIn("t.id", binding.candidates))
 	}
 
-	sql := fmt.Sprintf("SELECT t.id, %s AS title%s FROM %s t%s WHERE %s",
-		binding.branch.title, hopSelect, binding.branch.table, join, strings.Join(where, " AND "))
+	// The distance rides the projection so the answer can say how far, and so
+	// the ORDER BY below can name it without computing it twice. It is appended
+	// AFTER the hop columns, which keeps the scan targets in
+	// scanPlanRows appending in the same order they are added here.
+	distanceSelect := ""
+	if distance != "" {
+		distanceSelect = ", " + distance + " AS distance_km"
+	}
+	sql := fmt.Sprintf("SELECT t.id, %s AS title%s%s FROM %s t%s WHERE %s",
+		binding.branch.title, hopSelect, distanceSelect, binding.branch.table, join,
+		strings.Join(where, " AND "))
+
+	// THE THIRD LANE. A radius orders by distance, nearest first, in BOTH the
+	// exact and the similarity lanes — asking "within 50km" is asking about
+	// nearness, so distance orders the answer and similarity only decides who
+	// qualifies for it (Lars, 2026-08-21). This is the one case where the
+	// similarity lane takes a SQL ORDER BY, which is why orderByRank has to
+	// leave a distance-ordered answer alone.
+	if distance != "" {
+		return sql + fmt.Sprintf(" ORDER BY distance_km ASC, t.id DESC LIMIT $%d",
+			c.arg(binding.fetch)), true, nil
+	}
 	if len(binding.candidates) > 0 {
 		// The similarity lane is already bounded by the ranked candidate set,
 		// and its order is the retriever's rather than the table's, so it is
@@ -168,7 +205,7 @@ func (c *planCompiler) lateralHop(ctx context.Context, plan ValidatedPlan, bindi
 	if scope != "" {
 		where = append(where, scope)
 	}
-	predicates, refusals := c.predicates("h", hop.columns, plan.HopVocabulary, "traverse.where", plan.Plan.Traverse.Where)
+	predicates, refusals := c.predicates("h", hop.columns, plan.HopVocabulary, "traverse.where", plan.Plan.Traverse.Where, false)
 	where = append(where, predicates...)
 
 	// ORDER BY keeps the evidence deterministic when several hop rows match;
@@ -197,13 +234,37 @@ func (c *planCompiler) edgeCondition(hop hopBinding) string {
 // predicates renders one where-list, reporting a refusal per clause it cannot
 // bind rather than the first — a caller told about one of three operand faults
 // makes three round trips to learn what one answer could have carried.
-func (c *planCompiler) predicates(alias string, columns *storage, vocab TargetVocabulary, path string, clauses []Predicate) ([]string, []apperrors.FieldRefusal) {
+// root says whether these predicates are the ones on the record being searched
+// for, as opposed to a traversal's. It decides one thing: whether a radius is
+// bound elsewhere (root) or has nowhere to go (a hop).
+func (c *planCompiler) predicates(alias string, columns *storage, vocab TargetVocabulary, path string, clauses []Predicate, root bool) ([]string, []apperrors.FieldRefusal) {
 	var (
 		fragments []string
 		refusals  []apperrors.FieldRefusal
 	)
 	for i, clause := range clauses {
 		at := path + "[" + strconv.Itoa(i) + "]"
+		if clause.Op == OpWithinRadius {
+			// Rendered by planCompiler.radius instead, from the bound centre
+			// and the deployment's coordinate columns. A place has no single
+			// column to compare, so the ordinary `field op value` path below
+			// cannot express it — it would refuse with unknown_field.
+			//
+			// ONLY ON THE ROOT TARGET. The same loop compiles a traversal's
+			// predicates, and there the radius is NOT bound anywhere: skipping
+			// it would drop the predicate silently and return every related
+			// record, answering a wider question in the shape of the right
+			// answer. So a hop radius refuses, loudly, until the binding covers
+			// it — see the note at the top of querygeo.go.
+			if !root {
+				refusals = append(refusals, apperrors.FieldRefusal{
+					Field: at + ".op", Code: CodeDistanceRankingUnavailable,
+					Message: "a radius inside a traversal is not answered yet; " +
+						"ask for it on the record you are searching for instead",
+				})
+			}
+			continue
+		}
 		fragment, refusal := c.clause(alias, columns, vocab, at, clause)
 		if refusal != nil {
 			refusals = append(refusals, *refusal)

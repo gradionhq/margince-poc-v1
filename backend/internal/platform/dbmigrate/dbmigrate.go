@@ -15,9 +15,12 @@ package dbmigrate
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -44,6 +47,43 @@ type Namespace struct {
 	// Name keys the tracking table: schema_migrations_<name>.
 	Name       string
 	Migrations []Migration
+}
+
+// Digest is the content fingerprint of one migration, recorded alongside its
+// tracking row so a later reader can tell "this database applied version X"
+// from "this database applied the migration this binary calls X".
+//
+// The ledger's version and name cannot answer that. assertLedgerMatches below
+// catches a RENUMBER because the name moved; nothing catches an EDIT, and
+// scripts/lib-testdb.sh says so outright about the level above ("records a
+// version, not a checksum"). Every consumer that wants to trust an
+// already-migrated database — testdb's head probe is the first — needs the
+// content, so it is stamped once, here, rather than derived differently by
+// each of them.
+//
+// Both halves of the pair are covered, not just UpSQL. A down-migration is
+// executable content this binary would run against a database it decided was
+// current, and the suites in backend/migrations do run it; a digest that
+// ignored it would call two binaries identical while their rollbacks differ.
+//
+// The parts are length-prefixed so no concatenation of one migration can be
+// read as another: without it a version ending in a digit and a name starting
+// with one would hash the same as the pair that splits them differently.
+//
+// Up STAMPS this and judges nothing. Making the production migrate path REFUSE
+// a version whose recorded digest no longer matches — the way assertLedgerMatches
+// already refuses a renamed one — decides how a live installation fails at boot,
+// which is a product call rather than a test-lane one: #2141 carries it, with
+// Down (running the wrong rollback) as the sharper half.
+func Digest(m Migration) string {
+	var framed strings.Builder
+	for _, part := range []string{m.Version, m.Name, m.UpSQL, m.DownSQL} {
+		framed.WriteString(strconv.Itoa(len(part)))
+		framed.WriteString(":")
+		framed.WriteString(part)
+	}
+	sum := sha256.Sum256([]byte(framed.String()))
+	return hex.EncodeToString(sum[:])
 }
 
 // advisoryLockKey serializes concurrent migrators cluster-wide; the value
@@ -144,8 +184,8 @@ func Up(ctx context.Context, conn *pgx.Conn, namespaces ...Namespace) (applied i
 					return err
 				}
 				_, err := tx.Exec(ctx,
-					fmt.Sprintf(`INSERT INTO %s (version, name) VALUES ($1, $2)`, table),
-					m.Version, m.Name)
+					fmt.Sprintf(`INSERT INTO %s (version, name, content_digest) VALUES ($1, $2, $3)`, table),
+					m.Version, m.Name, Digest(m))
 				return err
 			}); err != nil {
 				return applied, fmt.Errorf("pgmigrate: %s %s_%s: %w", ns.Name, m.Version, m.Name, err)
@@ -238,12 +278,26 @@ func trackingTable(ctx context.Context, conn *pgx.Conn, namespace string) (strin
 	table := "schema_migrations_" + namespace
 	_, err := conn.Exec(ctx, fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s (
-			version    text PRIMARY KEY,
-			name       text NOT NULL,
-			applied_at timestamptz NOT NULL DEFAULT now()
+			version        text PRIMARY KEY,
+			name           text NOT NULL,
+			applied_at     timestamptz NOT NULL DEFAULT now(),
+			content_digest text
 		)`, table))
 	if err != nil {
 		return "", fmt.Errorf("pgmigrate: creating %s: %w", table, err)
+	}
+	// The tracking tables are created by this function and never by a
+	// migration, so a database that already has one predates the column and
+	// CREATE TABLE IF NOT EXISTS will not add it. This does.
+	//
+	// NULLABLE, and it stays that way: a row written before the digest existed
+	// records a version whose content nobody can now recover, and back-filling
+	// it here would stamp a fingerprint over content this binary never applied
+	// — which is precisely the divergence the column exists to expose. A NULL
+	// means "unverifiable", and every reader must treat it as such.
+	if _, err := conn.Exec(ctx, fmt.Sprintf(
+		`ALTER TABLE %s ADD COLUMN IF NOT EXISTS content_digest text`, table)); err != nil {
+		return "", fmt.Errorf("pgmigrate: adding %s.content_digest: %w", table, err)
 	}
 	return table, nil
 }

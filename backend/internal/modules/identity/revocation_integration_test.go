@@ -35,10 +35,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// identityDB connects once per test binary to the already-migrated
-// database (`make migrate` — the integration lane's precondition, same
-// as every module-local fixture); every test then bootstraps its own
-// workspace, so the suites stay independent.
+// identityDB connects once per test binary and brings the database to head
+// through testdb.EnsureSchema — the lane's one migrate-once mechanism, which on
+// a lane clone is a probe rather than a rebuild; every test then bootstraps its
+// own installation, so the suites stay independent.
+//
+// The pool is testdb's process-shared one. What that buys is not the pool
+// object but the connections: the lane's per-pool ceiling reaches a suite only
+// through that constructor (scripts/lib-testdb.sh, #1744).
 var identityDB struct {
 	once  sync.Once
 	owner *pgx.Conn
@@ -62,11 +66,23 @@ func setupIdentityDB(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 			return
 		}
 		identityDB.owner = owner
-		identityDB.pool, identityDB.err = database.NewPool(ctx, appDSN)
+		// To head before anything else touches this database: testdb.Pool
+		// refuses until EnsureSchema has run, and EnsureSchema still REBUILDS
+		// whenever it cannot prove the database is a fresh lane clone — so a
+		// seed written before it would be dropped rather than reset.
+		if identityDB.err = testdb.EnsureSchema(ctx, owner); identityDB.err != nil {
+			return
+		}
+		identityDB.pool, identityDB.err = testdb.Pool(ctx, appDSN)
 	})
 	if identityDB.err != nil {
 		t.Fatal(identityDB.err)
 	}
+	// Registered where the pool is handed out, before the test adds any cleanup
+	// of its own, so it runs last and sees a package that has genuinely stopped.
+	// The pool outlives the test now, so a goroutine still holding a connection
+	// would go on writing into the database the NEXT test just reset.
+	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	// Every test in this package bootstraps its own installation into ONE
 	// shared connection, and what used to keep their rows apart was
 	// deny-on-unset RLS. With tenant isolation retired (ADR-0091 §8 phase A)

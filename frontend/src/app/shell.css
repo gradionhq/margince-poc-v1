@@ -78,12 +78,6 @@
      150–200ms). The column also animates a geometric property, so every frame
      re-lays-out the content beside it — a shorter run is cheaper as well as
      better. */
-  /* The band the floating agent stands in, measured from the foot of the content
-     column: its own offset plus the 40px trigger (app/agentdock.css). The
-     scroller keeps it clear so a page's last row is never under the dock —
-     stated here rather than on each screen family, which is how a list ended up
-     with a lane and a scrolling page ended up relying on its own end rhythm. */
-  --agentLane: calc(var(--space-6) + 40px);
   /* The reading column, for the pages that want one. Read DOWN — a settings
      form, a company or contact record with its rail of facts beside prose — and
      a measured line is the point; a label a monitor away from its control is
@@ -176,9 +170,14 @@
   flex: 1;
   overflow-y: auto;
   padding-top: var(--pageGapTop);
-  /* The page's own end rhythm is `.wrap`'s; this is what is left of the agent's
-     lane after it. */
-  padding-bottom: calc(var(--agentLane) - var(--pageGutter));
+  /* No bottom padding: `.wrap` carries the page's own end rhythm, and a second
+     band under it — reserved for the agent dock's lane — read as a screenful of
+     whitespace at the end of every page. The dock overlaps the last rows
+     instead; keeping a page's end legible under it is the dock's problem, not
+     every page's. The phone rule below is a different one and stays: there the
+     navigation is a floating BAR, and content sliding under it is unreachable
+     rather than merely covered. */
+  padding-bottom: 0;
   /* A column, so the page's heading is a row above the screen's own block and a
      full-height screen (a list, a board) can still take the rest of the space
      rather than measuring itself against a scroller it does not start at. */
@@ -818,10 +817,6 @@
   /* No top padding: the scroller carries the air under the strip for every
      screen, named or not. */
   padding: 0 var(--pageGutter) var(--space-4);
-}
-.main-gridded .pagetitle {
-  max-width: var(--pageColumn);
-  margin: 0 auto;
 }
 .pagetitle-text {
   display: flex;

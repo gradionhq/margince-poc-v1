@@ -11,23 +11,31 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-func TestReadClassesPartitionTheShareableTables(t *testing.T) {
-	// Every shareable table is exactly one of identity or commercial, and the
-	// tables carrying capture privacy are identity tables — the one narrowing
-	// that survives the shared-identity read.
+func TestEveryShareableTableIsWorkspaceReadable(t *testing.T) {
+	// Every record type a manual grant can widen is read by every seat today.
+	// A record type that arrives scoped-read must say so here rather than land
+	// silently: the write arm, not the read arm, is what keeps a row its
+	// owner's. A table free of capture privacy renders the predicate away
+	// entirely; person and organization keep an owner arm because an
+	// owner-private capture still answers to its owner alone.
+	rep := human(principal.RowScopeOwn)
 	for table := range shareableTables {
-		if identityTables[table] == commercialTables[table] {
-			t.Errorf("%s is in neither or both read classes", table)
+		if !identityTables[table] {
+			t.Errorf("shareable table %s is not workspace-readable; if that is deliberate, "+
+				"say so here and pin the scoped predicate it keeps", table)
+			continue
+		}
+		if ownerPrivateTables[table] {
+			continue
+		}
+		if sql := rendered(rep, table); sql != "TRUE" {
+			t.Errorf("%s predicate for a rep = %q, want TRUE — a table with no capture "+
+				"privacy left has nothing to narrow a workspace read with", table, sql)
 		}
 	}
 	for table := range identityTables {
 		if !shareableTables[table] {
 			t.Errorf("identity table %s is not shareable", table)
-		}
-	}
-	for table := range commercialTables {
-		if !shareableTables[table] {
-			t.Errorf("commercial table %s is not shareable", table)
 		}
 	}
 	for table := range ownerPrivateTables {
@@ -61,13 +69,31 @@ func TestIdentityTablesAreReadByEverySeat(t *testing.T) {
 	}
 }
 
-func TestCommercialTablesKeepTheRowScope(t *testing.T) {
+func TestAProjectIsReadByEverySeat(t *testing.T) {
+	// A consultant delivering a project they neither own nor were granted has
+	// to reach it: the predicate collapses to TRUE and the list paths render
+	// no clause at all. Nothing narrows a project read — it carries no
+	// capture privacy either, since migration 1787320003 narrowed its
+	// visibility CHECK to 'workspace'.
 	rep := human(principal.RowScopeOwn)
-	if sql := rendered(rep, "project"); !strings.Contains(sql, "t.owner_id = $") {
-		t.Errorf("project predicate for a rep lost the owner scope: %s", sql)
+	if sql := rendered(rep, "project"); sql != "TRUE" {
+		t.Errorf("project predicate for a rep = %q, want TRUE — a rep 404s on the "+
+			"project they are working but do not own", sql)
 	}
-	if UnboundedFor(rep, "project") {
-		t.Error("UnboundedFor(rep, project) = true")
+	if !UnboundedFor(rep, "project") {
+		t.Error("UnboundedFor(rep, project) = false; list paths would still narrow to the owner")
+	}
+}
+
+func TestAProjectStaysTheOwnersToWrite(t *testing.T) {
+	// The read widening must not reach the write arm: seeing a project is not
+	// permission to edit one.
+	rep := human(principal.RowScopeOwn)
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	sql := writeAuthorityPredicate(rep, "project", arg)
+	if !strings.Contains(sql, "owner_id = $") || !strings.Contains(sql, "rg.access = 'write'") {
+		t.Errorf("project write arm for a rep widened with the read class: %s", sql)
 	}
 }
 
@@ -132,5 +158,47 @@ func TestTheContentGateIsTheDiscoverGateNarrowedByAudience(t *testing.T) {
 	}
 	if systemContent != ActivityAvailableClause("a") {
 		t.Errorf("system content gate = %q, want the availability test alone", systemContent)
+	}
+}
+
+// The row-scope vocabulary's two arithmetic claims, pinned so they cannot rot
+// into assertions nobody checks.
+func TestTheOwnerScopedSetIsNotEveryOwnedTable(t *testing.T) {
+	// Every shareable table must be row-scoped, or EnsureCanGrant answers
+	// "not a row-scoped table" — a 500 — for a record type the product
+	// deliberately allows sharing. The two sets are edited in different places
+	// and nothing else notices when they drift apart.
+	for table := range shareableTables {
+		if !ownerScopedTables[table] {
+			t.Errorf("%s is shareable but not row-scoped: EnsureCanGrant would fail it "+
+				"as an unknown table rather than judging the caller's authority", table)
+		}
+	}
+
+	// ownerScopedTables is deliberately SMALLER than "every table with an
+	// owner_id". The comment on it states the numbers; this is what stops them
+	// becoming folklore. attributionOnlyOwners are the tables whose owner_id
+	// names the measured or attributed subject rather than an access owner —
+	// quota's doc.go carries the ruling for the case that matters.
+	attributionOnlyOwners := []string{
+		"quota", "webhook_subscription", "capture_pending_counterparty",
+		"organization_domain_disposition", "signal", "email_signature",
+	}
+	for _, table := range attributionOnlyOwners {
+		if ownerScopedTables[table] {
+			t.Errorf("%s carries owner_id as an ATTRIBUTION, not an access owner, and has "+
+				"entered the row-scope vocabulary — on quota that silently narrows the "+
+				"leaderboard read every seat is supposed to get", table)
+		}
+	}
+	if got, want := len(ownerScopedTables), 9; got != want {
+		t.Errorf("ownerScopedTables holds %d tables, want %d — if that is a deliberate "+
+			"change, the count in its own comment moves with it", got, want)
+	}
+	if got, want := len(attributionOnlyOwners)+len(ownerScopedTables), 15; got != want {
+		t.Errorf("the row-scoped set (%d) plus the attribution-only owners (%d) is %d, "+
+			"want the 15 tables that carry owner_id — a new owner_id column belongs in "+
+			"exactly one of the two, and choosing is the point",
+			len(ownerScopedTables), len(attributionOnlyOwners), got)
 	}
 }

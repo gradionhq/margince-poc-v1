@@ -51,11 +51,17 @@ describe("the units offered on a settings page", () => {
   it("names the unit and links to its own screen", () => {
     unitsForSecretScope.mockReturnValue([DISPACT]);
     renderCard("user");
-    // The link is NAMED by the unit, not by a shared verb: a list of "Open"
-    // links reads as "Open, Open, Open" to a screen reader, and the unit name
-    // is the one word that tells them apart.
-    const link = screen.getByRole("link", { name: "dispact-connector" });
+    // The row draws the unit's name; the link's VISIBLE text is the verb. Its
+    // accessible NAME still carries the unit, because a list of links all
+    // announced as "Open" tells a screen-reader user nothing about which unit
+    // each one leads to.
+    const link = screen.getByRole("link", {
+      name: "Open the dispact-connector page",
+    });
     expect(link.getAttribute("href")).toBe("#/ext/dispact-connector");
+    // The name is the row's, so it is on the page as text a reader can see
+    // rather than only inside the link's accessible name.
+    expect(screen.getByText("dispact-connector")).toBeTruthy();
   });
 
   it("asks for the scope of the page it was placed on", () => {
@@ -81,7 +87,9 @@ describe("the units offered on a settings page", () => {
     renderCard("user");
     expect(screen.getAllByRole("link")).toHaveLength(2);
     expect(
-      screen.getByRole("link", { name: "notes" }).getAttribute("href"),
+      screen
+        .getByRole("link", { name: "Open the notes page" })
+        .getAttribute("href"),
     ).toBe("#/ext/notes");
   });
 });

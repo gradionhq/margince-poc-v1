@@ -1,7 +1,7 @@
 import { Landmark } from "lucide-react";
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
-import { Badge, Button } from "../design-system/atoms";
+import { Badge, Button, TableScroll } from "../design-system/atoms";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Meter, Sparkline } from "../design-system/readings";
@@ -396,9 +396,10 @@ function RecentInvoices({ summary }: Readonly<{ summary: FinanceSummary }>) {
     // settlement dates read as one life of one invoice rather than three
     // columns a reader has to line up by eye. It is still every date the
     // server sent, which is what an invoice is checkable against. The table
-    // scrolls sideways inside its panel rather than widening the record page,
-    // the containment DataTable gives every list built from it (atoms.tsx).
-    <div className="table-scroll">
+    // scrolls sideways inside its panel rather than widening the record page:
+    // `TableScroll` is the one spelling of that box, the same one DataTable
+    // puts every list it draws inside (atoms.tsx).
+    <TableScroll label={t("finance.recentInvoices")}>
       <table className="table fin-table">
         <thead>
           <tr>
@@ -414,7 +415,7 @@ function RecentInvoices({ summary }: Readonly<{ summary: FinanceSummary }>) {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }
 

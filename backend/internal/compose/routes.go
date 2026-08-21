@@ -59,7 +59,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	// a counter it then never paid — the exact half-a-control this change exists
 	// to remove.
 	registry := registryWithGate(InstallationDB(pool), gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send,
-		companyEnricher{}, srv.retrievalEmbedder, nil, srv.log, agents.WithQuotaCharger(srv.quotaMeter))
+		companyEnricher{}, srv.retrievalEmbedder, nil, importsFor(&srv), srv.log, agents.WithQuotaCharger(srv.quotaMeter))
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode
@@ -74,7 +74,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{
 		BaseURL: httpserver.BaseURL,
 		Middlewares: []crmcontracts.MiddlewareFunc{
-			agentGate(registry, staging, provider, provider, fieldOwnership{pool: pool}, gate),
+			agentGate(registry, staging, provider, provider, fieldOwnership{pool: pool}, importsFor(&srv), gate),
 			idempotency(pool, replayProbes(staging.svc, contracts.NewStore(InstallationDB(pool)))),
 			// Outermost: an overlay-mode SoR write is refused before it can
 			// be recorded under an idempotency key or staged as an agent

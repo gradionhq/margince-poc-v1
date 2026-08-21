@@ -4,8 +4,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
-import { FieldBuilder, FieldTable } from "./customfields";
-import { StoryProviders } from "./story-utils";
+import { CustomFieldsAdmin, FieldBuilder, FieldTable } from "./customfields";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // The custom-fields admin sub-components rendered with direct props so the
 // fe-uat render lane exercises them without a network round-trip. FieldBuilder
@@ -15,7 +20,7 @@ import { StoryProviders } from "./story-utils";
 // screenshot three times and proved nothing about any of the three branches.
 // FieldTable is fully prop-driven, so its states are pinned by fixtures.
 const meta: Meta = {
-  title: "Settings/Organization/Data model/Custom fields",
+  title: "Settings/Admin settings/Data model/Custom fields",
   parameters: { layout: "padded" },
 };
 export default meta;
@@ -72,6 +77,7 @@ export const BuilderText: Story = {
         object="organization"
         pending={false}
         onSubmit={noop}
+        onCancel={noop}
         onToast={noop}
       />
     </StoryProviders>
@@ -92,6 +98,7 @@ export const BuilderTextDark: Story = {
         object="organization"
         pending={false}
         onSubmit={noop}
+        onCancel={noop}
         onToast={noop}
       />
     </StoryProviders>
@@ -107,6 +114,7 @@ export const BuilderCurrency: Story = {
         object="deal"
         pending={false}
         onSubmit={noop}
+        onCancel={noop}
         onToast={noop}
       />
     </StoryProviders>
@@ -128,6 +136,7 @@ export const BuilderPicklist: Story = {
         object="deal"
         pending={false}
         onSubmit={noop}
+        onCancel={noop}
         onToast={noop}
       />
     </StoryProviders>
@@ -153,6 +162,7 @@ export const BuilderRefusal: Story = {
         object="organization"
         pending={false}
         onSubmit={noop}
+        onCancel={noop}
         onToast={noop}
       />
     </StoryProviders>
@@ -254,4 +264,84 @@ export const NoPermission: Story = {
       />
     </StoryProviders>
   ),
+};
+
+// The whole card, in the row language the settings page speaks: the object
+// picker answers its row from the right column, the field table is the subject
+// so it takes the full width, and the builder — several inputs confirmed
+// together — sits behind a verb. Nothing here was capturable before: every
+// story above mounts a sub-component, so the card's own composition, and the
+// hairline rhythm the SettingList draws between its rows, went unreviewed.
+const CARD_ROUTES = {
+  "GET /me": meRoute(
+    { custom_field: ["read", "create", "update"] },
+    { roles: ["admin"] },
+  ),
+  "GET /custom-fields": () => jsonResponse({ data: dealFields }),
+  "GET /audit-log": () => jsonResponse({ data: [] }),
+};
+
+export const CardRows: Story = {
+  render: () => {
+    installFetchStub(CARD_ROUTES);
+    return (
+      <StoryProviders>
+        <CustomFieldsAdmin />
+      </StoryProviders>
+    );
+  },
+};
+
+// The same card in dark, because the row hairline is a token
+// (`--borderSubtle`) that has to stay visible against the panel ground in both
+// themes — a rule that disappears turns a list of decisions back into a wall.
+export const CardRowsDark: Story = {
+  globals: { theme: "dark" },
+  render: () => {
+    installFetchStub(CARD_ROUTES);
+    return (
+      <StoryProviders>
+        <CustomFieldsAdmin />
+      </StoryProviders>
+    );
+  },
+};
+
+// The verb pressed: the builder is a dialog now, so what a reviewer has to see
+// is the form over the card rather than an inline disclosure pushing the change
+// trail down the page.
+export const CardAddDialog: Story = {
+  render: () => {
+    installFetchStub(CARD_ROUTES);
+    return (
+      <StoryProviders>
+        <CustomFieldsAdmin />
+      </StoryProviders>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Add a field",
+      }),
+    );
+  },
+};
+
+// A seat that may read the catalogue and change nothing: the add row is absent
+// (an action-only affordance makes no claim about the data by not being there)
+// and the posture line says so once for the whole section.
+export const CardReadOnly: Story = {
+  render: () => {
+    installFetchStub({
+      ...CARD_ROUTES,
+      "GET /me": meRoute({ custom_field: ["read"] }),
+    });
+    return (
+      <StoryProviders>
+        <CustomFieldsAdmin />
+      </StoryProviders>
+    );
+  },
 };

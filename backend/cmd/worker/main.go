@@ -27,6 +27,7 @@ import (
 	// build/composition/ in a composed build, the committed vanilla stub
 	// in a bare one — same import path either way.
 	"github.com/gradionhq/margince/composition"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -35,8 +36,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/buildinfo"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
@@ -66,15 +69,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	cfg, deployCfg, logger := boot.cfg, boot.deploy, boot.log
 	config.WarnUndeclared(logger, cfg.unknownVars)
 
-	// Before a pool exists, because the license needs no database and an
-	// operator mistake must not leave a worker running on a license the api
-	// refuses to boot on. The RUNNING posture is the api's to watch: it is the
-	// role that serves it, and two roles re-resolving one calendar answer would
-	// report the same lapse twice.
-	if _, err := compose.EnsureLicense(ctx, logger, deployCfg, cfg.posture, config.FromOS); err != nil {
-		return err
-	}
-
 	pool, err := database.NewPool(ctx, cfg.dsn)
 	if err != nil {
 		return err
@@ -95,6 +89,22 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// (compose/releaseversion.go carries why). Ahead of the composition record
 	// below, because a role that must not run must not write either.
 	if err := compose.AssertInstallationRelease(ctx, pool, logger, buildinfo.ReleaseVersion); err != nil {
+		return err
+	}
+
+	// Before this role does any work, so an operator mistake never leaves a
+	// worker running on a license the api refuses to boot on. The RUNNING
+	// posture is the api's to watch: it is the role that serves it, and two
+	// roles re-resolving one calendar answer would report the same lapse twice.
+	//
+	// After the pool rather than before it, which it used to be: an installation
+	// that has sealed its token holds it in the key vault, and the vault is a
+	// table. That makes this a WRITE — the first boot to resolve a declared
+	// token seals it and stamps an audit row — so it also has to sit after the
+	// release assertion above, which exists to stop a role that must not run
+	// from writing. AssertRuntimeRole comes earlier still, so a pool connecting
+	// as the wrong role fails as that rather than as a license nobody can read.
+	if err := ensureLicense(ctx, logger, pool, deployCfg, cfg.posture); err != nil {
 		return err
 	}
 
@@ -290,4 +300,20 @@ func runGroupSubscriber(ctx context.Context, rdb *redis.Client, group kevents.Gr
 	if err := sub.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("subscriber "+group.Name, "err", err)
 	}
+}
+
+// ensureLicense resolves this worker's entitlement, building the key vault it
+// may have to read the token out of.
+//
+// A vault that is configured but malformed is a boot error here rather than a
+// silent fallback, the same posture every other keyvault.FromEnv site takes: an
+// installation whose root key no longer opens its own secrets has a problem
+// that outlives the license question.
+func ensureLicense(ctx context.Context, logger *slog.Logger, pool *pgxpool.Pool, deployCfg deployconfig.Config, posture runtimeenv.Environment) error {
+	vault, _, err := keyvault.FromEnv(ctx, pool, config.FromOS)
+	if err != nil {
+		return fmt.Errorf("worker: keyvault: %w", err)
+	}
+	_, err = compose.EnsureLicense(ctx, logger, pool, vault, deployCfg, posture, config.FromOS)
+	return err
 }

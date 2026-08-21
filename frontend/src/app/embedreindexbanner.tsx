@@ -60,7 +60,9 @@ export function EmbedReindexBanner() {
     <Callout
       className="appbanner"
       live="status"
-      actions={<a href="#/settings/maintenance">{t("reindexbanner.link")}</a>}
+      actions={
+        <a href="#/settings/admin/maintenance">{t("reindexbanner.link")}</a>
+      }
     >
       {t("reindexbanner.needed")}
     </Callout>

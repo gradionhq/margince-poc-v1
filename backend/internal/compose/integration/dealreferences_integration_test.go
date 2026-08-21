@@ -40,7 +40,7 @@ func seedDealReferenceFixture(t *testing.T, e *Env) dealReferenceFixture {
 	// EnsureLinkTarget gate; capture privacy lands afterwards, which is the
 	// order a connector-captured contact reaches this state in anyway.
 	privateOrg := e.SeedOrg(t, "Meridian Labs", &e.Rep3)
-	partnerOrg := e.SeedOrg(t, "Northgate Partners", &e.Rep3)
+	partnerOrg := e.SeedPartnerOrg(t, "Northgate Partners", nil, &e.Rep3)
 	openOrg := e.SeedOrg(t, "Kestrel Foods", nil)
 
 	hiddenRefs := ids.From[ids.DealKind](e.SeedDeal(t, "Meridian renewal", pipeline, open, &e.Rep1))
@@ -90,18 +90,43 @@ func TestADealDoesNotNameRecordsItsReaderCannotRead(t *testing.T) {
 	}
 	assertMaskNames(t, got, "organization_id", "partner_org_id")
 
-	// The project is out of the reader's row scope; its anchor company is not.
+	// A project is read by every seat HOLDING THE OBJECT GRANT, and this rep
+	// holds no project grant at all (AccountRepPerms). Row scope is not the
+	// only gate on a reference: object RBAC answers whether the caller may
+	// read that KIND of record, and a deal must not become the door to an id
+	// from a table its reader may not open.
 	proj, err := e.Deals.GetDeal(rep, fx.hiddenProj, 0)
 	if err != nil {
 		t.Fatalf("a rep reading a deal whose project is another team's: %v", err)
 	}
 	if proj.ProjectId != nil {
-		t.Errorf("project_id = %v, want withheld: the project is outside the reader's row scope", proj.ProjectId)
+		t.Errorf("project_id = %v, want withheld: this rep holds no project.read grant",
+			proj.ProjectId)
 	}
 	if proj.OrganizationId == nil || ids.UUID(*proj.OrganizationId) != fx.openOrg {
 		t.Errorf("organization_id = %v, want the workspace-visible company the reader CAN open", proj.OrganizationId)
 	}
 	assertMaskNames(t, proj, "project_id")
+
+	// Add the project grant and the SAME deal names its project, though the
+	// project belongs to another team: no own/team arm narrows a project read,
+	// and it cannot be capture-private (migration 1787320003). Without this
+	// half the assertion above would pass against a mask that withheld every
+	// project from everybody.
+	withProject := AccountRepPerms
+	withProject.Objects = make(map[string]principal.ObjectGrant, len(AccountRepPerms.Objects)+1)
+	for object, grant := range AccountRepPerms.Objects {
+		withProject.Objects[object] = grant
+	}
+	withProject.Objects["project"] = principal.ObjectGrant{Read: true}
+	granted, err := e.Deals.GetDeal(e.As(e.Rep1, []ids.UUID{e.Team1}, withProject), fx.hiddenProj, 0)
+	if err != nil {
+		t.Fatalf("a rep holding project.read reading the same deal: %v", err)
+	}
+	if granted.ProjectId == nil {
+		t.Error("project_id is withheld from a rep who holds project.read; a project " +
+			"carries no owner scope and no capture privacy")
+	}
 
 	// A reader who can see all three still receives all three.
 	full, err := e.Deals.GetDeal(e.Admin(), fx.hiddenProj, 0)
@@ -132,9 +157,15 @@ func TestTheDealListWithholdsTheSameReferencesAsTheGet(t *testing.T) {
 			}
 			assertMaskNames(t, d, "organization_id", "partner_org_id")
 		case fx.hiddenProj.UUID:
+			// This rep holds no project.read grant, so the page withholds the
+			// id for the same reason the single-row read does — the list is
+			// where an existence oracle is cheapest, so it must not be the
+			// looser door.
 			if d.ProjectId != nil {
-				t.Errorf("the list handed out another team's project: %v", d.ProjectId)
+				t.Errorf("the list handed out a project id to a rep holding no project grant: %v",
+					d.ProjectId)
 			}
+			assertMaskNames(t, d, "project_id")
 		}
 	}
 	if !seen[fx.hiddenRefs.UUID] || !seen[fx.hiddenProj.UUID] {
@@ -148,7 +179,9 @@ func TestTheDealListWithholdsTheSameReferencesAsTheGet(t *testing.T) {
 func assertMaskNames(t *testing.T, d crmcontracts.Deal, want ...string) {
 	t.Helper()
 	if d.MaskedFields == nil {
-		t.Errorf("masked_fields is absent, want %v named — a withheld null must say it was withheld", want)
+		if len(want) > 0 {
+			t.Errorf("masked_fields is absent, want %v named — a withheld null must say it was withheld", want)
+		}
 		return
 	}
 	got := map[string]bool{}
@@ -205,7 +238,7 @@ func TestEveryDealMutationResponseWithholdsTheSameReferences(t *testing.T) {
 			return e.Deals.AdvanceDeal(rep, fx.hiddenRefs, deals.AdvanceDealInput{ToStageID: fx.wonStage, WonWithoutContractReason: &wonWithout})
 		}},
 		{"archiving the deal", func() (crmcontracts.Deal, error) {
-			return e.Deals.ArchiveDeal(rep, fx.hiddenRefs)
+			return e.Deals.ArchiveDeal(rep, fx.hiddenRefs, nil)
 		}},
 	}
 	for _, tc := range cases {

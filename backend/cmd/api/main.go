@@ -37,6 +37,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 )
@@ -115,7 +116,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	rdb, closeRedis := sharedRedisClient(cfg, logger)
 	defer closeRedis()
 
-	surfaceOpts, resetLane, err := declaredSurfaceOptions(cfg, deployCfg, pool, schemaPool, rdb, logger, stdout)
+	surfaceOpts, resetLane, err := declaredSurfaceOptions(ctx, cfg, deployCfg, pool, schemaPool, rdb, logger, stdout)
 	if err != nil {
 		return err
 	}
@@ -286,7 +287,7 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("api: %w", err)
 	}
-	kvOpts, err := keyvaultOptions(pool, stdout, overlayBackfillLimit)
+	kvOpts, err := keyvaultOptions(ctx, pool, stdout, overlayBackfillLimit)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -321,14 +322,20 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 // canonical external base — with email enabled, a missing
 // --public-base-url is a boot error, never a link derived from a
 // request Host.
-func passwordResetOptions(deployCfg deployconfig.Config, publicBaseURL string, stdout io.Writer) ([]compose.Option, error) {
+func passwordResetOptions(ctx context.Context, deployCfg deployconfig.Config, pool *pgxpool.Pool, publicBaseURL string, logger *slog.Logger, stdout io.Writer) ([]compose.Option, error) {
 	if !deployCfg.Email.Enabled {
 		return nil, nil
 	}
 	if publicBaseURL == "" {
 		return nil, errors.New("api: email.enabled requires --public-base-url/MARGINCE_PUBLIC_BASE_URL (the reset link's canonical base)")
 	}
-	smtpPassword, err := deployCfg.Email.SMTPPassword(config.FromOS)
+	vault, _, err := keyvault.FromEnv(ctx, pool, config.FromOS)
+	if err != nil {
+		return nil, fmt.Errorf("api: keyvault: %w", err)
+	}
+	// The relay password is sealed into the vault on the boot that first sees
+	// it, and read back from there once the deployment stops declaring it.
+	smtpPassword, err := compose.SealedSMTPPassword(ctx, pool, vault, deployCfg, config.FromOS, logger)
 	if err != nil {
 		return nil, err
 	}

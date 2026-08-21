@@ -37,7 +37,11 @@ func (s *Store) GetProject(ctx context.Context, id ids.ProjectID, archived store
 		if err := auth.EnsureVisible(ctx, tx, projectObject, id.UUID); err != nil {
 			return err
 		}
-		out, err = readProject(ctx, tx, id, archived, active)
+		p, err := readProject(ctx, tx, id, archived, active)
+		if err != nil {
+			return err
+		}
+		out, err = maskProjectForCaller(ctx, tx, p)
 		return err
 	})
 	return out, err
@@ -93,7 +97,8 @@ func (s *Store) ListProjects(ctx context.Context, in ListProjectsInput) ([]crmco
 	where := appendProjectFilters(pre.where, in, pre.arg)
 
 	return runListPage(ctx, s, pre, projectObject, projectColumns, active, where, scanProjectPage,
-		func(p crmcontracts.Project) (time.Time, ids.UUID) { return p.CreatedAt, ids.UUID(p.Id) })
+		func(p crmcontracts.Project) (time.Time, ids.UUID) { return p.CreatedAt, ids.UUID(p.Id) },
+		func(tx pgx.Tx, page []crmcontracts.Project) error { return maskProjects(ctx, tx, page) })
 }
 
 // scanProjectPage drains one list query's rows: each project plus, under a
@@ -190,7 +195,8 @@ func scanProject(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmco
 	}
 
 	p.Id = openapi_types.UUID(id)
-	p.OrganizationId = openapi_types.UUID(orgID)
+	anchor := openapi_types.UUID(orgID)
+	p.OrganizationId = &anchor
 	p.OwnerId = uuidPtr(ownerID)
 	projectPhase := crmcontracts.ProjectPhase(phase)
 	p.Phase = &projectPhase

@@ -1,55 +1,23 @@
 /* The consumer-mail carve-out surface (Settings → Capture). Split out of
    settings.css, which consumer-mail-domains.tsx used to import whole for one
    rule; the layout that used to ride in inline style objects lives here now,
-   so the whole card reads on the shared spacing scale in one place. */
+   so the whole card reads on the shared spacing scale in one place.
 
-/* The add row reads as one line: domain, kind, submit. It wraps rather than
-   compresses, so a narrow column stacks the three instead of squeezing the
-   field they are about. */
-.consumer-mail-add {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-2);
-}
+   The add form's own layout is gone from here on purpose: the domain and what
+   it IS are two inputs submitted together, so they live in a Modal where
+   `.form-stack` owns the rhythm.
 
-/* The domain field grows into whatever the row has left; the picker beside it
-   is sized by its own options and the submit by its word. */
-.consumer-mail-add > .field:first-child {
-  flex: 1 1 200px;
-}
+   The entry rows are gone too, and for the same kind of reason: one entry is
+   one row of the settings row language, so `SettingList` draws the hairline
+   between them and `SettingRow` puts the domain, what it IS and the remove verb
+   at the one x every other answer on these pages sits at. A card that laid its
+   own four-track flex row out was a third rhythm on a tab that already had the
+   row language. What is left here is the one thing still this card's own — the
+   shipped-list lookup. */
 
-/* A control surface fills its column by default, which is right under a field
-   label and wrong in a row — the kind picker takes the width of its own
-   options so it stays beside the domain it qualifies. */
-.consumer-mail-kind {
-  width: auto;
-}
-
-.consumer-mail-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.consumer-mail-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
-}
-
-/* The domain takes the row's slack so its kind and the remove verb sit at the
-   far end, in the same place on every row. */
-.consumer-mail-row-domain {
-  flex: 1;
-}
-
-/* The shipped list sits below the workspace's own entries as its own band of
-   the card: a different question — what the baseline already says — asked on
-   the same card as what this workspace adds to it. It is a PanelBody, so the
-   rule above it and the interval around it are panel.css's; all this owns is
-   how its own lines stack. */
+/* The shipped-list lookup: a search box with its matches under it, inside the
+   card's disclosure. It is the control of ONE stacked setting row, so the row
+   gives it the width and all this owns is how its own lines stack. */
 .consumer-mail-baseline {
   display: flex;
   flex-direction: column;

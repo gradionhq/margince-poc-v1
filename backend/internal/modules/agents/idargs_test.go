@@ -116,6 +116,24 @@ func (seamProbeProvider) AdvanceDeal(context.Context, datasource.AdvanceDealInpu
 	return datasource.EntityRef{}, errSeamReached
 }
 
+// The RecordArchiverV2 half. It is on the SHARED stub rather than on the
+// archive suites alone because the production seam answers all three questions
+// for every provider this tree ships: a stub that speaks only v1 is a fork's
+// bespoke adapter, and staging is refused for one of those on purpose. A suite
+// that means to probe THAT case uses its own v1-only stub and says so.
+func (seamProbeProvider) ArchivableTypes(context.Context) ([]datasource.EntityType, error) {
+	return []datasource.EntityType{
+		datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityDeal,
+		datasource.EntityProject, datasource.EntityRelationship, datasource.EntityActivity,
+	}, nil
+}
+
+func (seamProbeProvider) RefuseArchive(context.Context, datasource.EntityRef) error { return nil }
+
+func (p seamProbeProvider) ArchiveAt(ctx context.Context, in datasource.ArchiveInput) (datasource.EntityRef, error) {
+	return p.Archive(ctx, in.Ref)
+}
+
 func (seamProbeProvider) Archive(context.Context, datasource.EntityRef) (datasource.EntityRef, error) {
 	return datasource.EntityRef{}, errSeamReached
 }
@@ -232,6 +250,7 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 	RegisterWhoamiTool(r, func(context.Context) (ActingIdentity, error) { return ActingIdentity{}, nil })
 	RegisterColleaguesTool(r, func(context.Context, string) ([]Colleague, bool, error) { return nil, false, nil })
 	RegisterTagTools(r, stubTags{})
+	RegisterImportTools(r, stubImports{})
 	RegisterListTool(r, seamProbeProvider{}, probeVocabulary{})
 	RegisterBriefTool(r, func(context.Context) (ReadBriefResult, error) {
 		return ReadBriefResult{}, errSeamReached

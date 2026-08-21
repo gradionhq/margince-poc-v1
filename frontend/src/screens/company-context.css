@@ -1,94 +1,30 @@
 /* The company-profile surface (Settings → General).
  *
- * What used to live here was five surfaces this app draws nowhere else — a
- * gradient hero with a 180px decorative circle, two 20px/--r-lg boxes with
- * their own shadow, a bordered comparison article with a 3px accent rail, and
- * the shell around them. Against Card's 16px/--r-md and Panel's 20px/--r-sm
- * they read as a different product. They are Panels now, so this sheet is only
- * what a panel does not already know: how this screen's own rows and grids sit
+ * Almost nothing is left here on purpose. The profile is a `SettingList` of
+ * rows, its editor is a `Modal`, and the provenance under every value is the
+ * design system's own `EvidenceMark` — so the field grid, the website row, the
+ * kicker line and the trust plate this sheet used to lay out are gone with the
+ * markup that needed them. What remains is what no primitive knows: how this
+ * screen's own panels stack, and how the comparison rows of a website read sit
  * inside one. */
 
-/* The page's two panels — the profile and the review the refresh opens. Owned
- * here rather than by the settings page, because this card is also rendered on
- * its own. */
+/* The page's panels — what we know, where we read it from, and the review a
+ * refresh opens. Owned here rather than by the settings page, because these
+ * cards are also rendered on their own. */
 .company-context-shell {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
 }
 
-/* What this surface is, and which rollout stage it is on, as one line under the
- * panel's title — off the tinted header band, where a neutral badge reads. */
-.company-context-kicker {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+/* The confirmed-statement count in the profile panel's footer band, holding the
+ * left so the rollout badge beside it lands at the panel's own right edge.
+ * `.panel-foot` is already the flex row; this is only which end each fact takes. */
+.company-context-count {
+  margin-right: auto;
 }
-
-/* The trust line on the panel's recessed plate: the claim on the left, the
- * count of confirmed statements at the far right. PanelPlate draws the plate;
- * this is only what sits on it. */
-.company-context-trust {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--textSecondary);
-  font-size: var(--fs-sm);
-}
-.company-context-trust svg,
-.company-context-trust strong {
+.company-context-count strong {
   color: var(--accent);
-}
-.company-context-trust strong {
-  margin-left: auto;
-}
-
-/* A field group under its own level-3 heading. The three subjects read as three
- * on the heading and the air above it — the form-stack's gap plus SectionHeader's
- * own interval — rather than on a line, because a group is one section of this
- * body and a line drawn inside a body can only ever stop short of the card's
- * edges. A seam is full-bleed or it is not drawn; this one takes the air. */
-.company-context-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.company-context-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-
-/* A field holding prose takes the full width: two columns of a three-line
- * textarea is a form that reads as a wall. */
-.company-context-fields > .field:has(.textarea) {
-  grid-column: 1 / -1;
-}
-
-/* Where a value came from, under the value: the source badge and the link to
- * the page it was read off. */
-.company-context-source {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.company-context-source a {
-  color: var(--accent);
-}
-
-/* The website and the control that reads it are one row — the field is the
- * whole width of the form, and the button keeps its own. */
-.company-context-website {
-  width: 100%;
-}
-.company-context-website-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-.company-context-website-row .input {
-  flex: 1;
 }
 
 /* One proposed change, as a full-bleed row of the review panel: its name and
@@ -135,15 +71,4 @@
  * 24px, larger than the page's own h1, for a number nobody acts on. */
 .company-context-coverage strong {
   color: var(--accent);
-}
-
-@media (max-width: 760px) {
-  .company-context-fields {
-    grid-template-columns: 1fr;
-  }
-
-  .company-context-website-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
@@ -43,22 +44,63 @@ import (
 // Both serving roles ask this question, and neither serves without an answer: an
 // api that refuses to boot beside a worker that shrugs would be a licensing
 // posture nobody could describe.
-func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Config, env runtimeenv.Environment, lookup config.Lookup) (*licensecheck.Watcher, error) {
+func EnsureLicense(ctx context.Context, log *slog.Logger, pool *pgxpool.Pool, vault keyvault.Vault, cfg deployconfig.Config, env runtimeenv.Environment, lookup config.Lookup) (*licensecheck.Watcher, error) {
 	// The SOURCE is handed over, not a token: the watcher re-reads it, so a
 	// license the operator renews in place takes effect on the next re-check
 	// instead of waiting for a restart.
-	watcher, err := licensecheck.NewWatcher(ctx, cfg.License.TokenSource(lookup), time.Now, log, env)
+	//
+	// The source reads the deployment's declaration first and the key vault
+	// where there is none, so an installation that has sealed its token and
+	// dropped the variable keeps booting — and one whose vault it cannot open
+	// is told THAT, rather than being told it has no license.
+	source := SealedLicenseTokenSource(ctx, pool, vault, cfg, lookup, log)
+	watcher, err := licensecheck.NewWatcher(ctx, source, time.Now, log, env)
 	if err != nil {
 		// The setting to correct is named HERE, where the token's source is
 		// known: platform's check is handed a token, not a configuration file.
-		return nil, fmt.Errorf("%w — correct or remove %s and start again",
-			err, cfg.License.TokenOrigin(lookup))
+		return nil, fmt.Errorf("%w — %s", err, correctTheToken(cfg, lookup))
 	}
 	if err := refuseUnlicensedProduction(watcher.Posture(), env); err != nil {
 		return nil, err
 	}
-	logLicensePosture(ctx, log, watcher.Posture(), cfg.License.TokenOrigin(lookup))
+	logLicensePosture(ctx, log, watcher.Posture(), licenseTokenOrigin(cfg, lookup, watcher.Posture()))
 	return watcher, nil
+}
+
+// correctTheToken is the second half of a refused-license error: what to do.
+//
+// It is not one sentence for both sources. "Remove the key vault and start
+// again" — which naming the origin uniformly would produce — is advice that
+// destroys the only copy of the license along with every connector credential
+// the installation holds, to fix a token the operator can simply re-declare.
+func correctTheToken(cfg deployconfig.Config, lookup config.Lookup) string {
+	if origin := cfg.License.TokenOrigin(lookup); origin != deployconfig.TokenOriginNone {
+		return "correct or remove " + origin + " and start again"
+	}
+	return "this token came from the key vault, where it was sealed from a declaration since deleted: " +
+		"re-declare license.token and the next boot re-seals it"
+}
+
+// licenseTokenOrigin names where the token came from, for the boot log and for
+// the refusal that tells an operator what to correct.
+//
+// deployconfig can only speak for the deployment file and the environment; it
+// has never heard of the vault, and an installation that sealed its token and
+// dropped the declaration would otherwise be told its token came from "none" —
+// while running on one. Naming the vault is the difference between an operator
+// who knows where to look and one who goes looking in the file that no longer
+// mentions it. A grep token rather than prose, because every other value of
+// this field is one.
+func licenseTokenOrigin(cfg deployconfig.Config, lookup config.Lookup, posture licensecheck.Posture) string {
+	if origin := cfg.License.TokenOrigin(lookup); origin != deployconfig.TokenOriginNone {
+		return origin
+	}
+	if posture.State == licensecheck.StateAbsent {
+		// Nothing declared and nothing sealed. Naming the vault here would
+		// describe an installation that had a token, which this one does not.
+		return deployconfig.TokenOriginNone
+	}
+	return "keyvault"
 }
 
 // refuseUnlicensedProduction stops a production boot that configured no license.

@@ -1,0 +1,175 @@
+# The SPA lane, as a callable unit.
+#
+# Called by ci.yml. It carries NO `if:` of its own — the caller decides whether
+# this lane runs, which is what makes `needs.frontend.result == 'skipped'` mean
+# exactly one thing: the caller skipped it. See _lane-integration.yml for the
+# full reasoning; the short version is that an internal conditional would let a
+# job inside skip while the lane still reported success, and the `ci` aggregate
+# reads a skip as "this area was out of scope".
+#
+# The three jobs run CONCURRENTLY because they share no state. Serially the lane
+# was ~340s, of which vitest alone was ~207s, so the greps, the type gates and
+# the bundle all sat behind a test run that could not tell them anything. A Biome
+# failure now reports in about a minute instead of six.
+#
+# The suite itself is NOT split further. Sharding it would need the shards'
+# coverage merged, and the v8 provider enumerates a file's BRDA branch records
+# from the ranges that actually executed — so two shards that both load a file
+# describe its branches differently and the union inflates the denominator
+# (measured: 12979/16413 merged against a true 9667/11231). Line coverage merges
+# exactly; condition coverage does not, and a coverage number that is quietly
+# wrong is worse than a slower lane. Issue #966 carries the numbers and the
+# istanbul-provider fix that would unblock it.
+#
+# Every job sets `working-directory: .` for itself: a calling workflow's
+# `defaults` do not inherit, so nothing here may rely on ci.yml's.
+name: _lane-frontend
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  fe-quality:
+    name: fe-quality (ds gates + drift + biome + composed tsc)
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      # Go, in a FRONTEND job (ADR-0069). The composed SPA lane needs
+      # build/composition/frontend/ — which only gen-composition can produce.
+      # There is no Node-only shortcut: the registry is derived from the merged
+      # contracts, which the Go generator owns. Without a toolchain here the
+      # composed lane would have to be dropped from the merge gate, and the
+      # vanilla lane alone cannot catch a descriptor shape the SPA no longer
+      # compiles against. This is the only one of the three that composes, which
+      # is why the unit and bundle jobs below carry no Go setup.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: make fe-quality
+
+  fe-unit:
+    name: fe-unit (vitest + coverage)
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      # FE_COVERAGE=1 instruments the ONE vitest run this lane already performs,
+      # so the lcov the sonarcloud job downloads is a by-product of the run that
+      # decides the verdict rather than a second execution of the same suite.
+      - run: make fe-unit FE_COVERAGE=1
+      - name: Upload FE coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fe-coverage
+          path: frontend/coverage/lcov.info
+          if-no-files-found: ignore
+          retention-days: 1
+
+  fe-bundle:
+    name: fe-bundle (vite build + storybook)
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      # The production bundle and the Storybook catalog: a story that fails to
+      # compile or register is caught deterministically here. The change-scoped
+      # render capture (make fe-uat) stays a coordinator lane, not a required gate.
+      - run: make fe-bundle
+
+  # The fan-in. This job does no work — it exists to carry the verdict for the
+  # three jobs above, and its result is what the caller's `frontend` job reports
+  # and therefore what the `ci` aggregate reads.
+  #
+  # `always()` rather than the default, which is `success()` of every need: a job
+  # skipped because a dependency failed reports as SKIPPED, and a skip is what the
+  # aggregate reads as "legitimately out of scope". Left alone, a red unit suite
+  # would have merged. `!cancelled()` is not enough either — it is false for every
+  # job the moment a run is cancelled, so cancelling the workflow while the long
+  # unit job was still going would skip this check and green the lane. `always()`
+  # runs it in both cases, and the assertion below sees `cancelled` and fails.
+  frontend:
+    name: frontend (biome + vitest + tsc + build)
+    timeout-minutes: 20
+    needs: [fe-quality, fe-unit, fe-bundle]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      # Each result carries its own job name rather than being matched to a
+      # separate name list by position: two lists kept in step would silently
+      # stop checking a fourth lane that was added to one and not the other.
+      - name: Every frontend lane passed
+        env:
+          RESULTS: >-
+            fe-quality=${{ needs.fe-quality.result }}
+            fe-unit=${{ needs.fe-unit.result }}
+            fe-bundle=${{ needs.fe-bundle.result }}
+        run: |
+          set -euo pipefail
+          [ -n "${RESULTS// /}" ] || { echo "no lane results to check" >&2; exit 1; }
+          failed=""
+          for result in $RESULTS; do
+            case "$result" in
+              *=success) ;;
+              *) failed="$failed $result" ;;
+            esac
+          done
+          if [ -n "$failed" ]; then
+            echo "the frontend lane did not pass:$failed" >&2
+            exit 1
+          fi
+          echo "fe-quality, fe-unit and fe-bundle all passed"

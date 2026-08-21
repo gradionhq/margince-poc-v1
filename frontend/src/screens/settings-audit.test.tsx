@@ -62,7 +62,12 @@ describe("AuditLogCard", () => {
   // filtered list in this product draws them. Two cards made the filter row a
   // subject in the page outline, level with the trail it narrows, and left a
   // reader scanning two boxes to answer one question.
-  it("puts the filters inside the log's own card, under the log's own name", async () => {
+  //
+  // Inside that one card the dials are the SECONDARY half — a reader arrives to
+  // read what happened and narrows it second — so they sit in a disclosure that
+  // is closed on arrival. Closed, not gone: the fields are in the card, under a
+  // summary that says what opening it gets you.
+  it("puts the filters inside the log's own card, in a disclosure closed on arrival", async () => {
     vi.stubGlobal("fetch", auditLogBackend());
     render(<AuditLogCard />);
     await screen.findByText("update");
@@ -72,13 +77,18 @@ describe("AuditLogCard", () => {
     const card = actorFilter.closest("section");
     expect(card).not.toBeNull();
     expect(entryAction.closest("section")).toBe(card);
-    // One card, named for the log. The filters are labelled INSIDE it, at a
-    // level that says they belong to it rather than stand beside it.
+    // One card, named for the log.
     expect(card).toContainElement(
       screen.getByRole("heading", { level: 2, name: "Audit log" }),
     );
-    expect(card).toContainElement(
-      screen.getByRole("heading", { level: 3, name: "Filters" }),
+    // And the dials inside it, behind a summary rather than above the trail:
+    // the group is a <details> that has not been opened.
+    const disclosure = actorFilter.closest("details");
+    expect(disclosure).not.toBeNull();
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(card).toContainElement(disclosure);
+    expect(disclosure?.querySelector("summary")?.textContent).toContain(
+      "Filters",
     );
   });
 

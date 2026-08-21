@@ -52,10 +52,11 @@ func TestTheWriteArmCountsOnlyAWriteGrant(t *testing.T) {
 func TestTheVisibilityArmStillCountsEveryLiveGrant(t *testing.T) {
 	// The mirror of the test above, and the reason it exists: write satisfies
 	// read, so narrowing the VISIBILITY arm to `write` would stop a read share
-	// from opening the record at all — the feature, not the defect. deal and
-	// lead are absent: every seat reads them whole (tableclass.go), so there
-	// is nothing left for a grant to widen.
-	for _, table := range []string{"person", "organization", "project"} {
+	// from opening the record at all — the feature, not the defect. Only the
+	// capture-private tables are left to check: every seat reads deal, lead
+	// and project whole (tableclass.go), so a grant has nothing to widen there
+	// and the arm is not rendered at all.
+	for _, table := range []string{"person", "organization"} {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		sql := VisiblePredicate(human(principal.RowScopeTeam), table, arg)("t")
@@ -105,21 +106,46 @@ func TestTheWriteProbeDecidesWhatItCanBeforeItQueries(t *testing.T) {
 	})
 }
 
-func TestOnlyAWriteGrantIsProbedBeforeItIsGranted(t *testing.T) {
-	ctx := principal.WithActor(context.Background(), human(principal.RowScopeOwn))
+func TestEveryGrantIsProbedBeforeItIsGranted(t *testing.T) {
 	id := ids.NewV7()
 
-	// Passing on `read` needs no probe: EnsureLinkTarget has already proven the
-	// caller can see the record, and sight they hold is theirs to pass on
-	// (UC-E11-08 F1). Nil transaction again, so a probe would panic.
-	if err := EnsureCanGrant(ctx, nil, "person", id, "read"); err != nil {
-		t.Errorf("sharing read from a visible record → %v, want allowed without a probe", err)
-	}
 	// A record type no grant can name is refused before anything is read,
-	// because the record type arrives in a request body.
-	if err := EnsureCanGrant(ctx, nil, "list", id, "write"); err == nil {
+	// because the record type arrives in a request body. The nil transaction is
+	// the assertion: reaching a probe would panic.
+	bounded := principal.WithActor(context.Background(), human(principal.RowScopeOwn))
+	if err := EnsureCanGrant(bounded, nil, "list", id); err == nil {
 		t.Error("a grant on a non-shareable record type was accepted")
 	}
+
+	// An unbounded caller may change any row, so there is nothing for the probe
+	// to find and it short-circuits before the transaction is touched. This is
+	// the one caller that still needs no query — and it is what keeps the
+	// legitimate path (an admin extending or re-opening somebody's share) free
+	// of a round trip.
+	unbounded := principal.WithActor(context.Background(), human(principal.RowScopeAll))
+	if err := EnsureCanGrant(unbounded, nil, "person", id); err != nil {
+		t.Errorf("an unbounded caller sharing a person → %v, want allowed without a probe", err)
+	}
+
+	// A bounded caller gets no such exemption at ANY access level. There is no
+	// longer a branch on access: the probe is the only path out of this
+	// function for them, which is what the panic recovered here proves. The
+	// behaviour it then applies is asserted against a real row in
+	// compose/integration's grants suite.
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("a bounded caller returned without probing the row — " +
+					"the access-level exemption is back")
+			}
+		}()
+		// Not discarded: if this ever RETURNS instead of reaching the probe,
+		// that is the exemption coming back by another route, and it should be
+		// reported rather than swallowed by the recover below.
+		if err := EnsureCanGrant(bounded, nil, "person", id); err != nil {
+			t.Errorf("a bounded caller was answered without a query → %v", err)
+		}
+	}()
 }
 
 func TestTheWriteArmKeepsTheOwnerScopeItNarrows(t *testing.T) {

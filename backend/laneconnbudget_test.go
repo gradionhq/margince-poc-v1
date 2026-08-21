@@ -31,6 +31,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -38,9 +39,13 @@ import (
 )
 
 const (
-	ciWorkflowPath  = "../.github/workflows/ci.yml"
-	laneScriptPath  = "../scripts/lib-testdb.sh"
-	composeInfraYML = "../infra/docker-compose.dev.yml"
+	ciWorkflowPath = "../.github/workflows/ci.yml"
+	// What the report calls the source of INTEGRATION_JOBS. It is read from the
+	// caller AND the lanes it invokes, so naming one file would send the reader
+	// to a file that may not hold the number.
+	gateWorkflowLabel = "../.github/workflows/{ci,_lane-*}.yml"
+	laneScriptPath    = "../scripts/lib-testdb.sh"
+	composeInfraYML   = "../infra/docker-compose.dev.yml"
 )
 
 // laneTerm reads one `NAME=<int>` assignment from the lane script. Anchored to
@@ -60,6 +65,36 @@ func laneTerm(t *testing.T, script, name string) int {
 	return n
 }
 
+// gateWorkflows returns the merge gate as one body of text: the caller plus every
+// lane workflow it invokes.
+//
+// The shard that sets INTEGRATION_JOBS moved out of ci.yml and into the
+// integration lane. Reading the whole gate rather than one file of it means this
+// arithmetic follows the declaration wherever it lives — the alternative is a
+// gate that fails because the number it needs is one file over, which reads as a
+// real finding and is not one.
+func gateWorkflows(t *testing.T) string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(filepath.Dir(ciWorkflowPath), "ci.yml"))
+	if err != nil {
+		t.Fatalf("listing the gate caller: %v", err)
+	}
+	lanes, err := filepath.Glob(filepath.Join(filepath.Dir(ciWorkflowPath), "_lane-*.yml"))
+	if err != nil {
+		t.Fatalf("listing lane workflows: %v", err)
+	}
+	paths = append(paths, lanes...)
+	if len(paths) == 0 {
+		t.Fatalf("no merge-gate workflow found beside %s; this gate would read an empty string and its arithmetic would be silently smaller rather than wrong", ciWorkflowPath)
+	}
+	var joined strings.Builder
+	for _, path := range paths {
+		joined.WriteString(readRepoFile(t, path))
+		joined.WriteString("\n")
+	}
+	return joined.String()
+}
+
 // ciIntegrationJobs reads the INTEGRATION_JOBS the integration shard runs with.
 // It is read from the workflow rather than from the script's nproc-derived
 // default because CI is the environment that oversubscribes: the default is
@@ -69,11 +104,11 @@ func ciIntegrationJobs(t *testing.T, workflow string) int {
 	re := regexp.MustCompile(`(?m)^\s*INTEGRATION_JOBS:\s*(\d+)\s*$`)
 	m := re.FindStringSubmatch(workflow)
 	if m == nil {
-		t.Fatalf("%s sets no INTEGRATION_JOBS — this gate sizes the cluster for the concurrency CI actually uses, and cannot do that from a workflow that no longer names it", ciWorkflowPath)
+		t.Fatalf("the merge-gate workflows set no INTEGRATION_JOBS — this gate sizes the cluster for the concurrency CI actually uses, and cannot do that from a gate that no longer names it")
 	}
 	n, err := strconv.Atoi(m[1])
 	if err != nil || n <= 0 {
-		t.Fatalf("%s sets INTEGRATION_JOBS=%q, which is not a positive count", ciWorkflowPath, m[1])
+		t.Fatalf("the merge-gate workflows set INTEGRATION_JOBS=%q, which is not a positive count", m[1])
 	}
 	return n
 }
@@ -138,7 +173,7 @@ func fits(demand, maxConns int) bool { return demand <= maxConns }
 
 func TestTheLaneFitsInsideTheClusterItRunsAgainst(t *testing.T) {
 	script := readRepoFile(t, laneScriptPath)
-	jobs := ciIntegrationJobs(t, readRepoFile(t, ciWorkflowPath))
+	jobs := ciIntegrationJobs(t, gateWorkflows(t))
 	perPool := laneTerm(t, script, "LANE_POOL_MAX_CONNS")
 	perPackage := laneTerm(t, script, "LANE_CONNS_PER_PACKAGE")
 	fixed := laneTerm(t, script, "LANE_FIXED_CONNS")
@@ -167,7 +202,7 @@ Raise max_connections in %s to at least %d, or lower a term. Do not leave them
 apart: they were unrelated numbers once, and the lane failed at connect time in a
 different package set every run (#1109).`,
 			demand, composeInfraYML, maxConns,
-			jobs, ciWorkflowPath,
+			jobs, gateWorkflowLabel,
 			perPackage, laneScriptPath,
 			fixed, laneScriptPath,
 			demand, maxConns,

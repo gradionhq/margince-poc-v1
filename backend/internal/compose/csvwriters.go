@@ -336,7 +336,7 @@ func (w *csvWriters) Reverse(ctx context.Context, object string, nativeID ids.UU
 		if org.ArchivedAt != nil {
 			return nil
 		}
-		if _, err := w.people.ArchiveOrganization(ctx, ids.From[ids.OrganizationKind](nativeID)); err != nil {
+		if _, err := w.people.ArchiveOrganization(ctx, ids.From[ids.OrganizationKind](nativeID), nil); err != nil {
 			return fmt.Errorf("import undo: reversing organization %s: %w", nativeID, err)
 		}
 		return nil

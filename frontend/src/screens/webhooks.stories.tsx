@@ -109,7 +109,7 @@ async function openRowActions(canvasElement: HTMLElement) {
 }
 
 const meta: Meta<typeof WebhooksCard> = {
-  title: "Settings/Organization/Integrations/Webhooks",
+  title: "Settings/Admin settings/Integrations/Webhooks",
   component: WebhooksCard,
 };
 export default meta;
@@ -119,11 +119,13 @@ export const Active: Story = {
   render: cardStory(baseRoutes()),
 };
 
-// A subscription row is the densest line in the settings tree: a state badge, a
-// `.t-mono` target URL nobody promised would be short, three event-type chips,
-// and four verbs (Edit, Rotate secret, View deliveries, Archive). At 390px that
-// row has to wrap into a readable block rather than push the card's scroll width
-// past the viewport — and there has been no render of it at any narrow width.
+// A subscription row is the densest line in the settings tree: a `.t-mono`
+// target URL nobody promised would be short as its label, a state badge and
+// three event-type chips as its value, and three verbs as its control. Below
+// 640px `SettingRow` gives up the two-column alignment and stacks, so what to
+// check here is that the row reads as one block in reading order —
+// label, description, answer, verbs — rather than pushing the card's scroll
+// width past the viewport.
 //
 // No `layout` override: the canvas frame's 2rem gutter puts the card at ~326px,
 // which is the column the overflow measurements on this branch were taken in.
@@ -131,6 +133,35 @@ export const ActivePhone: Story = {
   globals: { viewport: { value: "phone" } },
   tags: ["uat-phone"],
   render: cardStory(baseRoutes()),
+};
+
+// The event set is the row's ANSWER, in the right column beside the verbs that
+// change it — which is the one place putting it there can go wrong. Twenty event
+// types is a legitimate subscription, and uncapped that badge run squeezes the
+// target URL out of the label column and takes the one-x alignment the whole row
+// language exists to hold with it. `.webhook-answer` caps the measure and wraps
+// instead; what to check is that the URL still reads and the verbs still sit at
+// the card's right edge.
+export const ManyEventTypes: Story = {
+  render: cardStory(
+    baseRoutes([
+      {
+        ...activeSubscription,
+        event_types: [
+          "deal.stage_changed",
+          "deal.created",
+          "deal.won",
+          "deal.lost",
+          "lead.promoted",
+          "lead.created",
+          "offer.accepted",
+          "offer.rejected",
+          "person.merged",
+          "organization.updated",
+        ],
+      },
+    ]),
+  ),
 };
 
 export const PausedSubscription: Story = {
@@ -271,6 +302,12 @@ export const ArchiveConfirm: Story = {
 // from a subscription row's "View deliveries" toggle — mixed statuses, the
 // dead-lettered group, honest has_more (LoadMoreButton), and the replay
 // confirm.
+//
+// The log is a SIBLING row of the subscription rather than content nested inside
+// it: it is the subject, not an answer, so it takes the card's full width below
+// the row that opened it. What that buys is the table's own measure; what it
+// costs is that attribution now rests on adjacency alone, which is what
+// `DeliveriesOpenBetweenTwoSubscriptions` below exists to look at.
 
 const activeDelivery = {
   id: "del-active",
@@ -337,6 +374,31 @@ const openDeliveries = async () => {
 export const DeliveriesPanelOpen: Story = {
   render: cardStory(deliveriesRoutes),
   play: openDeliveries,
+};
+
+// The attribution case. With the log in its own row, a card holding two
+// subscriptions puts it BETWEEN them — hairline above, hairline below — and
+// nothing but proximity says which of the two it reports on. Its "Delivery
+// attempts" label and the open toggle on the row above are the whole of that
+// signal, so this is the render to judge them on: a reader landing here must not
+// be able to read the log as the paused subscription's.
+export const DeliveriesOpenBetweenTwoSubscriptions: Story = {
+  render: cardStory({
+    ...baseRoutes([activeSubscription, pausedSubscription]),
+    "GET /webhook-subscriptions/sub-active/deliveries": () =>
+      jsonResponse({
+        data: [activeDelivery, deadLetteredDelivery],
+        page: { next_cursor: null, has_more: false },
+      }),
+  }),
+  // Not `openDeliveries`: two subscriptions mean two toggles, and a lookup by
+  // testid alone rejects on the pair rather than picking one. The first row is
+  // the one whose log is stubbed.
+  play: async () => {
+    const toggles = await screen.findAllByTestId("view-deliveries");
+    await userEvent.click(toggles[0]);
+    await screen.findByTestId("dead-letter-group");
+  },
 };
 
 // The eight-column delivery table inside its `.table-scroll` box at 390px. The

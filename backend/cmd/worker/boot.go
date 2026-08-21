@@ -190,7 +190,7 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	// need: an adapter to call and the vault that unseals its credential.
 	// keyvault.FromEnv is resolved here rather than passed down because this
 	// is the first lane in this role that needs it.
-	providerVault, vaultConfigured, err := keyvault.FromEnv(pool, config.FromOS)
+	providerVault, vaultConfigured, err := keyvault.FromEnv(ctx, pool, config.FromOS)
 	if err != nil {
 		return lanes, fmt.Errorf("worker: keyvault: %w", err)
 	}
@@ -322,7 +322,7 @@ func startRunnerLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	// the workspace's own vaulted incumbent token; wire the FromEnv
 	// vault-backed resolver so an autonomous run can write back (nil vault
 	// → clean errNoWriteIncumbent, never a crash).
-	runnerVault, _, rverr := keyvault.FromEnv(pool, config.FromOS)
+	runnerVault, _, rverr := keyvault.FromEnv(ctx, pool, config.FromOS)
 	if rverr != nil {
 		return rverr
 	}
@@ -437,7 +437,7 @@ func relayUntilSignal(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool,
 // (keyvault.FromEnv); a mid-backfill failure is logged and non-fatal — capture
 // keeps resolving from the auth column and the next boot retries.
 func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdout io.Writer, logger *slog.Logger) error {
-	vault, configured, err := keyvault.FromEnv(pool, config.FromOS)
+	vault, configured, err := keyvault.FromEnv(ctx, pool, config.FromOS)
 	if err != nil {
 		return fmt.Errorf("worker: keyvault: %w", err)
 	}

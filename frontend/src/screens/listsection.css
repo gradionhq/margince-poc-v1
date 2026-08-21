@@ -39,6 +39,20 @@
   padding-bottom: 0;
 }
 
-.listsection-intro > p {
+/* The intro's own gap owns the interval between the description and the
+   read-only line under it, and the body below brings its own top padding — so
+   the shared card-description class gives up its 16px here. Named against that
+   class rather than against "any p", or the two rules tie on specificity and
+   the winner depends on which sheet the bundler emitted last. */
+.listsection-intro > p,
+.listsection-intro > p.settings-panel-sub {
   margin: 0;
+}
+
+/* A table row's verbs, side by side in their own cell. Two screens had spelled
+   this as an inline `style` on the cell's wrapper — the same two lines, twice,
+   in the shape a sheet exists to hold. */
+.listsection-rowverbs {
+  display: flex;
+  gap: var(--space-2);
 }

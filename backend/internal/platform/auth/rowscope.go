@@ -91,12 +91,12 @@ var shareableTables = map[string]bool{
 	tablePerson: true, tableOrganization: true, tableDeal: true, tableLead: true, tableProject: true,
 }
 
-// ownerPrivateTables carry a `visibility` column (migration 0095): a row
-// is either 'workspace' — everyone in the workspace, the default — or
-// 'owner', the capturing user's alone until a human edit or approval
-// promotes it. Connector auto-create writes 'owner' (ADR-0063 §7), so
-// this is the trust boundary around an unpromoted inbox: the contacts a
-// mailbox sync invented are not yet the workspace's contacts.
+// ownerPrivateTables carry capture privacy (migration 0095): a row is either
+// 'workspace' — everyone in the workspace, the default — or 'owner', the
+// capturing user's alone until a human edit or approval promotes it. Connector
+// auto-create writes 'owner' (ADR-0063 §7), so this is the trust boundary
+// around an unpromoted inbox: the contacts a mailbox sync invented are not yet
+// the workspace's contacts.
 //
 // Capture privacy is a property of the ROW, not a scope tier, so it does
 // NOT yield to row_scope=all. An admin reading a colleague's unpromoted
@@ -104,6 +104,16 @@ var shareableTables = map[string]bool{
 // prevent (founder decision, 2026-07-31: the importing user only, not
 // even Admin). Only the system principal — provisioning, the relay, the
 // privacy engines — reads these tables unfiltered.
+//
+// project is deliberately NOT here, and its absence is enforced rather than
+// assumed. 0131 gave the table a visibility column as part of the record
+// vocabulary it copied, but nothing auto-creates a project — capture reads
+// them and never inserts one — so 'owner' was a state no writer could reach.
+// Migration 1787320003 narrowed the CHECK to 'workspace' so the schema can no
+// longer hold what this map does not enforce.
+// TestEveryTableThatCanHoldAnOwnerRowIsOwnerPrivate keeps the two in step: add
+// 'owner' back to a table's CHECK and that test demands this map learn about
+// it, so the pair cannot drift into a silent disclosure again.
 var ownerPrivateTables = map[string]bool{tablePerson: true, tableOrganization: true}
 
 // UnboundedFor reports whether the actor reads the named tables with NO
@@ -126,8 +136,20 @@ func UnboundedFor(p principal.Principal, tables ...string) bool {
 }
 
 // ownerScopedTables is the closed set of table names the row-scope
-// primitives interpolate into SQL — exactly the tables carrying an
-// owner_id column. Several callers pass a table name derived from
+// primitives interpolate into SQL. It is NOT every table carrying an
+// owner_id column: fifteen carry one and nine are here, because on the
+// other six that column names the MEASURED or ATTRIBUTED subject rather
+// than an access owner. quota states the ruling in its own doc.go — its
+// owner_id/team_id name who the quota is ABOUT, so it stays out of this
+// set and anyone holding quota.read sees every target, which is the
+// leaderboard read working as specified. Deriving this set from the
+// column would add quota back and silently narrow that read: an
+// availability regression wearing a security fix's clothes.
+//
+// TestTheOwnerScopedSetIsNotEveryOwnedTable pins both halves of that
+// arithmetic, so the counts above cannot rot into a claim nobody checks.
+//
+// Several callers pass a table name derived from
 // client input (link entity types, grant record types, search anchors);
 // they allowlist at their own seam, but the primitive rejects unknown
 // names itself so a new caller that forwards an unvalidated string is
@@ -404,6 +426,15 @@ func EnsureVisible(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) er
 // record is still readable through the archived filter, so naming one is not a
 // disclosure. A caller that must not name a soft-deleted row wants the strict
 // probe per row and its ErrNotFound.
+//
+// The OBJECT grant is checked first, and it has to be: row scope answers which
+// rows of a table a seat reads, never whether they may read that table at all.
+// A seat holding no `project.read` must not learn a project id from a deal it
+// is entitled to, and while a project was row-scoped the owner predicate hid
+// that by accident. Every caller of the single-row EnsureVisible reaches it
+// through a store entry point that called auth.Require first; a subset caller
+// is projecting a FOREIGN table's ids and has made no such check, so it is
+// made here.
 func VisibleSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.UUID) (map[ids.UUID]bool, error) {
 	if !ownerScopedTables[table] {
 		return nil, fmt.Errorf("auth: %q is not a row-scoped table", table)
@@ -413,6 +444,14 @@ func VisibleSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.UU
 		return nil, err
 	}
 	out := make(map[ids.UUID]bool, len(rowIDs))
+	// No grant on the referenced type: every id is withheld, and the caller
+	// cannot tell that from the rows simply not being there.
+	if err := Require(ctx, table, principal.ActionRead); err != nil {
+		if errors.Is(err, apperrors.ErrPermissionDenied) {
+			return out, nil
+		}
+		return nil, err
+	}
 	// The caller reads this table with no predicate at all. EnsureVisible
 	// returns nil for each of these without issuing a query, and so does this.
 	if UnboundedFor(p, table) {

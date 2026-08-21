@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import { ConsumerMailDomainsCard } from "./consumer-mail-domains";
 
 // The workspace's own consumer-mail list. The server's write split: adding a
@@ -50,8 +51,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The card's create verb lives in the panel header now, in the ellipsis form —
+// the dialog it opens keeps the plain "Add", so naming it by the catalog key is
+// what stops this query matching the submit button instead.
 const addButton = () =>
-  screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
+  screen.getByRole("button", {
+    name: en["consumerMail.addOpen"],
+  }) as HTMLButtonElement;
 
 // The per-row remove control is icon-only; its accessible name is the label.
 const removeButton = () =>

@@ -1,24 +1,25 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import { type CSSProperties, useId, useState } from "react";
+import { useId, useState } from "react";
 import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
-import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  TableScroll,
+} from "../design-system/atoms";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Select } from "../design-system/select";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { formatDateTime, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { ExportScenarioDialog } from "./aiexport";
 import { QueryGate, QueryStates, throwProblem, useMe } from "./common";
-
-// The gap under a panel's own subtitle. `Panel` has no `sub` prop, so the line
-// is the body's first paragraph and owes its own separation from the content
-// under it; it is a token rather than a number so it moves with the scale, and
-// it lives here rather than in a screen sheet because it belongs to the panel
-// shape, not to this surface. It folds away the day `Panel` takes a `sub`.
-const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
+import "./aicalls.css";
 
 // A string response is shown verbatim (real newlines); an object is
 // pretty-printed. Either way the .code-block surface wraps and scrolls it.
@@ -45,7 +46,7 @@ export function CallDetailPanel({
   return (
     <QueryStates query={query}>
       {query.data && (
-        <Card as="div" inset>
+        <Card as="div" inset className="aicalls-detail">
           <p>
             {t("aicalls.detail.identity", {
               served: query.data.served_model,
@@ -88,10 +89,7 @@ export function CallDetailPanel({
             <p>{t("aicalls.payload.none")}</p>
           ) : (
             <>
-              <div
-                className="form-stack"
-                style={{ marginTop: "var(--space-3)" }}
-              >
+              <div className="form-stack">
                 <div className="field">
                   <span className="code-label t-eyebrow">
                     {t("aicalls.detail.request")}
@@ -169,9 +167,7 @@ export function AiCallsCard() {
     return (
       <Panel title={t("aicalls.title")}>
         <PanelBody>
-          <p className="t-sub" style={PANEL_SUB}>
-            {t("aicalls.sub")}
-          </p>
+          <p className="settings-panel-sub">{t("aicalls.sub")}</p>
           <QueryGate query={me}>
             {() => (
               <EmptyState>
@@ -188,76 +184,100 @@ export function AiCallsCard() {
   return (
     <Panel title={t("aicalls.title")}>
       <PanelBody>
-        <p className="t-sub" style={PANEL_SUB}>
-          {t("aicalls.sub")}
-        </p>
+        <p className="settings-panel-sub">{t("aicalls.sub")}</p>
         <QueryStates query={query}>
-          <Select
-            // The column header names what this filters on; the control sits above
-            // the table with nothing beside it, so without a name of its own a
-            // screen reader reaches an unnamed combobox.
-            aria-label={t("aicalls.col.task")}
-            value={task}
-            onChange={setTask}
-            // "All tasks" is a real option, not the select's placeholder: a
-            // reader who filtered to one task has to be able to come back.
-            // A task name is a wire value the server owns, so it is its own
-            // label — there is nothing to translate.
-            options={[
-              { value: "", label: t("aicalls.filter.all") },
-              ...tasks.map((value) => ({ value, label: value })),
-            ]}
-          />
-          {calls.length === 0 ? (
-            <EmptyState>{t("aicalls.empty")}</EmptyState>
-          ) : (
-            // Six columns of trace, none of them droppable — a call is only
-            // diagnosable with its model, its tokens and its latency side by
-            // side. The table scrolls sideways inside the card instead of the
-            // page scrolling, the same containment DataTable gives every list
-            // built from it (atoms.tsx).
-            <div className="table-scroll">
-              <table className="table">
-                <thead>
-                  <tr>
-                    {/* The disclosure column. Named rather than left blank: a
-                      table that announces five headers for six cells makes the
-                      reader count. */}
-                    <th className="sr-only">{t("aicalls.col.detail")}</th>
-                    <th>{t("aicalls.col.when")}</th>
-                    <th>{t("aicalls.col.task")}</th>
-                    <th>{t("aicalls.col.model")}</th>
-                    <th>{t("aicalls.col.tokens")}</th>
-                    <th>{t("aicalls.col.latency")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {calls.map((call) => (
-                    <FragmentRow
-                      key={call.id}
-                      call={call}
-                      expanded={expanded === call.id}
-                      captureEnabled={captureEnabled}
-                      onToggle={() =>
-                        setExpanded(expanded === call.id ? null : call.id)
-                      }
-                      when={formatDateTime(call.occurred_at, locale, zone)}
-                      tokens={`${formatNumber(call.tokens_in, locale)} / ${formatNumber(call.tokens_out, locale)}`}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {query.hasNextPage && (
-            <Button
-              small
-              disabled={query.isFetchingNextPage}
-              onClick={() => void query.fetchNextPage()}
-            >
-              {t("aicalls.loadMore")}
-            </Button>
-          )}
+          <SettingList>
+            <SettingRow
+              label={t("aicalls.col.task")}
+              control={(control) => (
+                <Select
+                  {...control}
+                  className="settingrow-measure"
+                  value={task}
+                  onChange={setTask}
+                  // "All tasks" is a real option, not the select's placeholder: a
+                  // reader who filtered to one task has to be able to come back.
+                  // A task name is a wire value the server owns, so it is its own
+                  // label — there is nothing to translate.
+                  options={[
+                    { value: "", label: t("aicalls.filter.all") },
+                    ...tasks.map((value) => ({ value, label: value })),
+                  ]}
+                />
+              )}
+            />
+            <SettingRow
+              label={t("aicalls.callsLabel")}
+              layout="stack"
+              control={
+                // A column, because the page that follows the trace is under it
+                // rather than beside it; `.settingrow-control` is a flex ROW, so
+                // the two would otherwise sit shoulder to shoulder.
+                <div className="form-stack settingrow-measure">
+                  {calls.length === 0 ? (
+                    <EmptyState>{t("aicalls.empty")}</EmptyState>
+                  ) : (
+                    // Six columns of trace, none of them droppable — a call is
+                    // only diagnosable with its model, its tokens and its latency
+                    // side by side. `TableScroll` is the one spelling of that
+                    // containment, the same box DataTable puts every list it
+                    // draws inside (atoms.tsx).
+                    <TableScroll label={t("aicalls.callsLabel")}>
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            {/* The disclosure column. Named rather than left
+                              blank: a table that announces five headers for six
+                              cells makes the reader count. */}
+                            <th className="sr-only">
+                              {t("aicalls.col.detail")}
+                            </th>
+                            <th>{t("aicalls.col.when")}</th>
+                            <th>{t("aicalls.col.task")}</th>
+                            <th>{t("aicalls.col.model")}</th>
+                            <th>{t("aicalls.col.tokens")}</th>
+                            <th>{t("aicalls.col.latency")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {calls.map((call) => (
+                            <FragmentRow
+                              key={call.id}
+                              call={call}
+                              expanded={expanded === call.id}
+                              captureEnabled={captureEnabled}
+                              onToggle={() =>
+                                setExpanded(
+                                  expanded === call.id ? null : call.id,
+                                )
+                              }
+                              when={formatDateTime(
+                                call.occurred_at,
+                                locale,
+                                zone,
+                              )}
+                              tokens={`${formatNumber(call.tokens_in, locale)} / ${formatNumber(call.tokens_out, locale)}`}
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                    </TableScroll>
+                  )}
+                  {query.hasNextPage && (
+                    <div>
+                      <Button
+                        small
+                        disabled={query.isFetchingNextPage}
+                        onClick={() => void query.fetchNextPage()}
+                      >
+                        {t("aicalls.loadMore")}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              }
+            />
+          </SettingList>
         </QueryStates>
       </PanelBody>
     </Panel>
@@ -291,8 +311,17 @@ function FragmentRow({
           (screens/privacy.tsx) is the shape this follows. */}
       <tr>
         <td>
+          {/* NOT a `Disclosure`: that primitive is a `<details>` element, and
+              what opens here is the NEXT table row, which no element can
+              contain from inside a cell of the row above it. So the trigger
+              stays a real button carrying the expanded state in ARIA, and the
+              chevron is turned by that same attribute, by the catalog's own
+              `.expander-chevron` — `iconOnly` because the glyph is its whole
+              label, which is what makes the control square instead of a pill
+              around 14px. */}
           <Button
             small
+            iconOnly
             variant="ghost"
             aria-expanded={expanded}
             aria-controls={expanded ? panelId : undefined}
@@ -301,17 +330,16 @@ function FragmentRow({
             aria-label={t("aicalls.expandCall", { task: call.task, when })}
             onClick={onToggle}
           >
-            <ChevronDown
-              aria-hidden
-              size={14}
-              style={{ transform: expanded ? "rotate(180deg)" : undefined }}
-            />
+            {/* No `size=`: `.btn-sm svg` already sizes a button's icon child
+                (base.css), and a size at the call site is the drift that rule
+                exists to stop. */}
+            <ChevronDown className="expander-chevron" aria-hidden />
           </Button>
         </td>
         <td>{when}</td>
         <td>
           {call.task}
-          <div style={{ display: "flex", gap: "var(--space-1)" }}>
+          <div className="aicalls-badges">
             {call.cache_hit && <Badge>{t("aicalls.badge.cacheHit")}</Badge>}
             {call.degraded && (
               <Badge tone="warn">{t("aicalls.badge.degraded")}</Badge>

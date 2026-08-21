@@ -86,11 +86,32 @@ func TestTheComposedMCPMountPublishesTheQueryVocabulary(t *testing.T) {
 		t.Error("the published deal vocabulary has no derived organization hop")
 	}
 
-	// The declared-but-unanswerable operator arrives declared (SEARCH-AC-17).
-	if !slices.ContainsFunc(doc.Unavailable, func(u vocabularyUnavailable) bool {
-		return u.Op == "within_radius" && u.Answers == search.CodeDistanceRankingUnavailable
+	// within_radius ANSWERS now (#2171: a company carries coordinates), so the
+	// deployment-wide unavailable list is empty and the operator is published
+	// where a caller can find it. SEARCH-AC-17's guarantee is unchanged and
+	// this is still the test of it — a caller must be able to tell an operator
+	// that works from one that does not — but the two halves have swapped,
+	// so asserting the old half would now pin the wrong answer.
+	if slices.ContainsFunc(doc.Unavailable, func(u vocabularyUnavailable) bool {
+		return u.Op == search.OpWithinRadius
 	}) {
-		t.Error("within_radius is not published as unavailable, so a caller cannot tell it apart from one that works")
+		t.Error("within_radius is still published as unavailable; it answers for a locatable target, and declaring it broken sends a caller to a text match on a city name instead")
+	}
+	// The other half: it has to be REACHABLE, or "not declared unavailable"
+	// would be satisfied by an operator nobody can discover.
+	org := targetVocabulary(t, doc, "organization")
+	if !slices.ContainsFunc(org.Fields, func(f vocabularyField) bool {
+		return slices.Contains(f.Ops, search.OpWithinRadius)
+	}) {
+		t.Error("no organization field publishes within_radius, so the operator answers but no caller can find it")
+	}
+	// And it stays absent where it cannot be answered at all: a deal is never
+	// anywhere, which is a fact about the record type rather than about this
+	// deployment, so it is refused per call rather than declared here.
+	if slices.ContainsFunc(deal.Fields, func(f vocabularyField) bool {
+		return slices.Contains(f.Ops, search.OpWithinRadius)
+	}) {
+		t.Error("the deal vocabulary publishes within_radius; a deal is never anywhere, so offering it invites a query that can only be refused")
 	}
 }
 
@@ -230,9 +251,17 @@ func readVocabulary(e *apptest.AppEnv, t *testing.T, bearer string) vocabularyDo
 // the custom-field test, a workspace column) plus a derived hop.
 func dealVocabulary(t *testing.T, doc vocabularyDoc) vocabularyTarget {
 	t.Helper()
-	i := slices.IndexFunc(doc.Targets, func(target vocabularyTarget) bool { return target.Target == "deal" })
+	return targetVocabulary(t, doc, "deal")
+}
+
+// targetVocabulary is the published entry for one record type, or a fatal
+// naming the one that is missing — an absent target would otherwise make every
+// assertion about its fields pass against a zero value.
+func targetVocabulary(t *testing.T, doc vocabularyDoc, target string) vocabularyTarget {
+	t.Helper()
+	i := slices.IndexFunc(doc.Targets, func(candidate vocabularyTarget) bool { return candidate.Target == target })
 	if i < 0 {
-		t.Fatal(`the published vocabulary has no "deal" target`)
+		t.Fatalf("the published vocabulary has no %q target", target)
 	}
 	return doc.Targets[i]
 }

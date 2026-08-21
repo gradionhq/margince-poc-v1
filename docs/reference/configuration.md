@@ -28,9 +28,10 @@ configurable logger.
 | `--redis` | `MARGINCE_REDIS` | `localhost:16379` | Redis address (event bus) |
 | `--inline-relay` | — | `true` | run the outbox relay in-process; set `false` when `cmd/worker` runs it |
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets at rest; unset = the mutating `/webhook-subscriptions` paths (create/rotate, replay) answer 503, never an unsigned fallback; the read surface still lists |
+| `--geocode-base-url` | `MARGINCE_GEOCODE_BASE_URL` | — | Nominatim base URL, on the worker role. Unset = no geocoding: company addresses keep no coordinates and every `within_radius` query answers unavailable. `public` uses OpenStreetMap's own service, which is POC-only — its terms hold a client that runs on a schedule to 4 requests a minute, single-threaded, with caching, so any real volume wants a self-hosted instance. |
 | `--metrics-token` | `MARGINCE_METRICS_TOKEN` | — | shared secret `/metrics` requires as a Bearer credential. This is the access control the fleet-wide-exposition note below calls for: unset (the default) `/metrics` answers **404**, rather than serving per-workspace job telemetry to anyone who asks. Set it wherever the scraper can present it |
 | `--hubspot-app-secret` | `MARGINCE_HUBSPOT_APP_SECRET` | — | the HubSpot app client secret. Verifies inbound overlay-webhook v3 signatures and, when set, mounts `/webhooks/hubspot`; unset, that route is absent rather than present-and-unverified |
-| `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the cold-start read-back, per-org enrichment, the Morning-Brief L2 re-order, and AI-drafted offer regeneration |
+| `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to a routing file, read **only** to seed an installation that has no stored model binding yet. The binding lives in the database once set and is changed through `PUT /v1/ai/routing` without a restart, so on a provisioned installation this flag is not read at all. What a bound installation lights up is unchanged: the cold-start read-back, per-org enrichment, the Morning-Brief L2 re-order, and AI-drafted offer regeneration |
 | `--ai-fake` | — | `false` | offline fake model (dev/test only); drives the same AI surfaces as `--ai-routing` |
 | `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host — and for the Gmail/Graph OAuth callback |
 | — (env-only) | `MARGINCE_OVERLAY_BACKFILL_LIMIT` | `0` (uncapped) | same knob `cmd/worker` reads (below) — `cmd/api` also boots on it (an invalid value is a boot error here too) so the on-connect/Connect-time seeding path sees the same cap the periodic sweep does |
@@ -298,7 +299,7 @@ api's boot line says so; `cmd/worker` is load-bearing for E10 retry. See
 | `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required for a marketing send originated by this role's Surface-B agent run — without it that send refuses rather than emit a forgeable link |
 | `--config` | `MARGINCE_CONFIG` | `margince.yaml` | the deployment configuration file; the worker reads it for the `ai.capture_payloads` posture the Surface-B runner honors (capture applies to **both** the api and worker roles — the worker runs the richest content source, the agent runs). A missing file boots with capture off |
 | `--redis` | `MARGINCE_REDIS` | `localhost:16379` | Redis address (event bus) |
-| `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the Surface-B runner + embeddings |
+| `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to a routing file, read **only** to seed an installation with no stored binding — see the api row. A bound installation runs the Surface-B runner + embeddings from the database, and this role re-reads it on an interval so it never serves a binding the api has replaced |
 | `--ai-fake` | — | `false` | run the Surface-B runner on the offline fake model |
 | `--runner-interval` | — | `30s` | Surface-B scheduler tick — the River periodic schedule of the `agent_scheduler` dispatcher, which enqueues one `agent_scheduler_workspace` job per live workspace. It paces the fan-out, not an agent's own schedule: the catalog's daily due hour decides when a brief runs |
 | `--retention-interval` | — | `24h` | retention evaluator pass interval — the River periodic schedule of the `privacy_retention` dispatcher, which enqueues one `privacy_retention_workspace` job per workspace |
@@ -454,18 +455,96 @@ line (argv is world-readable) or in any log or error. A connector credential
 is sealed with AES-256-GCM under this key and stored as ciphertext in the
 operational `vault_secret` table; the `connector_connection` row carries only
 an opaque, workspace-scoped `credential_ref`, never the credential bytes.
-Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset and the vault is absent: every
+Leave `MARGINCE_KEYVAULT_ROOT_KEY` unset **on an installation that has sealed
+nothing** and the vault is absent: every
 connector's connect path (gmail, gcal, graph, imap all connect through the
 same operation, sealing to the vault) refuses loudly rather than store a
 credential in the clear. Set it and the api gains the
 `/readyz` keyvault probe and the vault-backed path, and the worker migrates
 any legacy `auth`-bytea rows onto the vault at boot (idempotent). A key that
 is SET but not exactly 32 bytes (base64-decoded) is a boot error — never a
-silent fallback.
+silent fallback — and so is leaving it unset on an installation that already
+holds sealed ciphertext, which is the redeploy-dropped-the-variable case and is
+refused rather than degraded (see below).
 
 | Env | Default | Meaning |
 |---|---|---|
 | `MARGINCE_KEYVAULT_ROOT_KEY` | — | base64 (std) of 32 bytes; set to enable the vault. Generate: `openssl rand -base64 32` |
+
+### The vault also holds the two deployment credentials
+
+Connector credentials were the vault's first tenants; two more moved in and
+they arrive by a different route. The **outbound-relay password**
+(`email.smtp.password`) and the **license token** (`license.token`) are still
+DECLARED by the deployment, but on the first boot that sees one the value is
+sealed into the vault and the installation records where it went. Nothing is
+required of the operator to make that happen, and the boot log says when it
+has:
+
+```
+sealed a deployment credential into the key vault; the deployment configuration
+that declared it can be deleted  credential_name="the license token" declared_at=license.token
+```
+
+Once that line appears the declaration may be deleted and the installation keeps
+booting on the sealed copy. Nothing here can delete it for you: a process cannot
+edit its own deployment.
+
+**Delete the declaration, not just what it points at.** Dropping the variable or
+unmounting the file while the `license:` block or the `password:` line is still
+in `margince.yaml` fails the boot in `deployconfig`, before the vault is ever
+consulted — a `${file:…}` that is gone cannot be read, and a `${env:…}` that is
+unset is a named source that yielded nothing, which has always been an error
+rather than an absence. Remove the whole `license:` block, or the `password:`
+line from `email.smtp`. Then the variable or the file can go too.
+
+**There is no unseal.** Rotating works; *removing* does not. Deleting
+`email.smtp.password` used to switch the installation back to an unauthenticated
+relay, and it no longer does — the sealed copy keeps answering, because "declared
+nothing" and "declared nothing on purpose" are the same input to the resolver.
+Nothing in the product deletes either ref today. If you need a relay that takes
+no credential, say so on
+[issue #2162](https://github.com/gradionhq/margince-poc-v1/issues/2162), which
+tracks the supported way to do it. The license is unaffected in practice: an
+installation removing its license is one that has stopped paying, and a
+production boot refuses an absent license regardless.
+
+**Rotation moves into the vault only for reading, never for writing.** There is
+no product surface that changes either credential, and no seeded role holds the
+grant to write one, so the sealed copy is only ever a mirror of what the
+deployment declares. That is why the DECLARATION still wins when both exist: to
+rotate, put the new value back where it used to be — the variable or the file —
+and the next boot re-seals it. The superseded ciphertext is deliberately left
+in place rather than destroyed: a re-seal is triggered by the declaration alone,
+which is exactly what a stale variable or a botched pipeline gets wrong, and
+destroying what it supersedes would let one bad boot irreversibly take out the
+only copy of a credential nobody meant to replace. What it costs is one
+unreferenced blob per rotation — encrypted at rest, reachable by nobody. This is
+the
+opposite precedence to a BYOK provider key, which the vault wins because the
+routing surface can change one.
+
+**A vault that cannot be opened says so**, in two places, because there are two
+ways to lose it and they need different sentences.
+
+*The root key is gone.* An installation holding sealed ciphertext with
+`MARGINCE_KEYVAULT_ROOT_KEY` unset **refuses to boot**, naming the variable.
+This is asked once, where the vault is built, rather than by each reader —
+because the loss is not the license's or the relay's, it is every credential the
+installation holds at once, connector tokens included. An installation that has
+sealed nothing is unaffected and boots with no vault exactly as before. The key
+is not recoverable from the ciphertext, or from us: restore the one this
+installation sealed with.
+
+*The root key is wrong.* A sealed reference that will not open refuses the boot
+naming the vault and the root key, rather than reporting an installation that
+has a license as having none — which is what "absent" used to mean on that path,
+and a completely different problem for whoever is paged.
+
+One consequence for the **worker**: its license check now runs after its
+database pool, because a sealed token lives in a table. It still happens before
+the worker does any work, so an operator mistake never leaves a worker running
+on a license the api refuses to boot on.
 
 ## Custom-field schema pool (api) — runtime DDL
 
@@ -528,6 +607,7 @@ place keeps the api reading a password file that is no longer written. Use
 | `MARGINCE_ENV` | api (`runtimeenv.Parse`) | Read at boot and parsed **fail-closed**: only the exact values `dev` or `test` yield a non-production posture; unset, `production`, `staging`, or any unrecognized value ⇒ production. It decides two **licensing** questions and nothing else: which issuers the installation honours, and whether it may run unlicensed at all (a production role refuses to boot with no license). No destructive capability keys off it. `staging` was retired deliberately: a staging installation carries real internal users, so it takes the production posture. The Makefile exports `dev`; production must not set it. |
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
+| `MARGINCE_TEST_CLONE_DB` | integration tests | names the throwaway clone this package's process was handed, set by `scripts/test-integration-parallel.sh` and `scripts/test-integration-one.sh` beside the two DSNs. It is what lets `testdb.EnsureSchema` reuse a database the lane copied from an already-migrated template instead of dropping the schema and re-applying every migration onto it (~1.3 s per package process). The value is a database NAME and not a flag: the skip additionally requires it to equal `current_database()`, which refuses the serial lane (it runs on the template itself, where the rebuild is what keeps one package's residue out of every later clone) and any suite that made its own database mid-process. Unset means rebuild, so a lane that forgets it is slower and never wrong. |
 | `MARGINCE_TEST_POOL_MAX_CONNS` | integration tests | ceiling for EACH pool the harness opens from the clone DSNs, set by `scripts/test-integration-parallel.sh` to the per-pool number its connection budget was sized for. Unset (the one-package lane, a suite run by hand) the pool keeps `database.NewPool`'s own 16, because one package oversubscribes nothing. It is an env var rather than a DSN parameter because `pgx.ParseConfig` — which `cmd/migrate` and every bare `pgx` connection a fixture opens use — forwards an unrecognised `pool_*` key to the server as a startup parameter and dies with `FATAL: unrecognized configuration parameter`. A non-numeric or non-positive value fails loudly: a ceiling that silently fails to apply leaves the lane's budget describing a limit nothing enforces. |
 | `MARGINCE_TEST_BLOBSTORE_ENDPOINT`, `MARGINCE_TEST_BLOBSTORE_ACCESS_KEY`, `MARGINCE_TEST_BLOBSTORE_SECRET_KEY`, `MARGINCE_TEST_BLOBSTORE_BUCKET` | integration tests | the object store the blobstore lane runs against; exported by the Makefile at the `make db-up` MinIO, on its own `margince-test` bucket. The endpoint being unset **fails** the lane rather than skipping it — a skipped storage gate reads exactly like a passing one. |
 | `MARGINCE_AICERT` | `make e2e-ai` | the AI-certification lane's runtime switch. The `e2e_llm` build tag keeps this paid, live lane out of every ordinary lane; once the tag is set, an empty value here **fails** rather than skips, so the lane can never report success for having done nothing. |
@@ -822,7 +902,8 @@ that stops matching its recorded digest fails `make check`.
 
 | field | default | effect |
 |---|---|---|
-| `token_file` | *(none)* | Path to a file holding the license token. A **file reference, never an inline value**: it is a credential, and this file gets read, copied and pasted into support threads. Overridden by `MARGINCE_LICENSE` when that variable is set to a non-empty value — the same variable name the validation module itself reads, so a container that already exports the license needs no `license:` block at all. |
+| `token` | *(none)* | The token as a reference — `${file:/run/secrets/margince-license}` or `${env:SOME_VAR}`. The preferred spelling, and the one a refusal recommends. An inline value is refused at decode time. |
+| `token_file` | *(none)* | The original spelling, still honoured so an existing deployment boots unchanged. Path to a file holding the license token. A **file reference, never an inline value**: it is a credential, and this file gets read, copied and pasted into support threads. Overridden by `MARGINCE_LICENSE` when that variable is set to a non-empty value — the same variable name the validation module itself reads, so a container that already exports the license needs no `license:` block at all. |
 
 Three postures, and what each one does at boot:
 
@@ -831,6 +912,12 @@ Three postures, and what each one does at boot:
 | **no token configured** | **refuses to boot in production**; boots with a warning when `MARGINCE_ENV` is `dev` or `test` | `margince_license_posture{state="absent"} 1` |
 | **token verified** | boots | `margince_license_posture{state="valid"} 1`, plus `margince_license_seats` when the license grants a seat count |
 | **token refused** | **refuses to boot** (api and worker alike), naming the module's own reason and the setting to correct | — |
+
+On the first boot that resolves a token it is sealed into the key vault, after
+which the declaration above may be removed — see
+[the vault also holds the two deployment credentials](#the-vault-also-holds-the-two-deployment-credentials)
+for what that changes about rotation, and for the boot refusal an unreachable
+vault produces instead of an "absent" posture.
 
 **A production installation serves on a license or it does not serve.** The
 posture decides it, and `MARGINCE_ENV` is fail-closed, so an installation that

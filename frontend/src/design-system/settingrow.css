@@ -1,0 +1,287 @@
+/* SettingList / SettingRow — the settings page's row language.
+ *
+ * A settings card is a list of DECISIONS, and a reader scanning one is asking
+ * the same question of every row: what is this, and what is it set to. That
+ * only works if the answer is always in the same place, which is what this
+ * sheet buys — the naming and the description on the left at one x, the
+ * control on the right at one other, and a hairline between rows so a long
+ * card reads as a list rather than as a wall.
+ *
+ * The rows are laid out by the LIST, not by each row: a row that spaced itself
+ * would space itself differently in the next card that used it, which is how
+ * this tree previously grew a settings page whose gaps came from four
+ * different places. */
+
+.settinglist {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The hairline belongs BETWEEN rows, so it rides on the following sibling
+ * rather than on every row: a trailing rule under the last row draws a line
+ * with nothing under it, and inside a Panel it lands a pixel above the panel's
+ * own edge, where the two read as one thick border. */
+.settinglist > * + * {
+  border-top: 1px solid var(--borderSubtle);
+}
+
+/* One decision. `align-items: center` is what puts a lone switch on the
+ * label's optical line; a row whose control is taller than its text (a button
+ * with a value beside it, a segmented control) centres on the same axis rather
+ * than each row picking its own. */
+.settingrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+}
+
+/* A row that gives its control the full width below the naming: a table, a
+ * toggle matrix, a log. The control is not an answer to a question that fits
+ * beside it, so nothing is gained by squeezing it into the right column. */
+.settingrow-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+/* The naming half. `min-width: 0` so a long description wraps instead of
+ * pushing the control off the right edge — a flex item's default
+ * `min-width: auto` is the reason a description ever did that. */
+.settingrow-naming {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* The description under the label. Not `.t-caption`'s bottom margin: this
+ * sits in a flex column that owns the interval, and a margin on top of the gap
+ * reads as a row with a different rhythm from the one above it.
+ *
+ * --textMeta, never --textMuted. --textMuted is the placeholder-grade ink,
+ * about 1.4:1 on the light card — decoration rather than text.
+ * This line is what tells a reader what the setting DOES, so it is the one that
+ * has to be readable; --textMeta is the canonical AA small-text role. Three
+ * other sheets in this tree already carry the same note, which is how many
+ * times the wrong token has been reached for. */
+.settingrow-description {
+  margin: 0;
+  color: var(--textMeta);
+  font-size: 13px;
+  line-height: 1.45;
+  /* A per-item list names its item here, and an item's name is routinely an
+   * identifier with nothing to break on — an address, a slug, a domain. One
+   * 60-char address painted 488px wide out of a 252px column on a phone. Prose
+   * is unaffected: this only breaks a word that has no break of its own, which
+   * is why `.settingrow-value` beside it has always carried it. */
+  overflow-wrap: anywhere;
+}
+
+/* The control half, held to the right. `flex: 0 0 auto` rather than a width:
+ * a switch is switch-wide and a button is as wide as its label, and a fixed
+ * column would make the two disagree about where the row's right edge is —
+ * the edge is the CARD's, which both of them reach on their own. */
+.settingrow-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  flex: 0 0 auto;
+}
+
+/* A stacked row's control fills the row instead of hugging the right edge — and
+ * so does whatever it holds. The subject of a stacked row is a table, a matrix
+ * or a log, and a flex item's default `flex: 0 1 auto` sizes it to its CONTENT:
+ * an empty state ended up as a 120px grey box against a 1200px card, and a
+ * matrix that could have scrolled inside its own width pushed the page sideways
+ * instead. Two cards had already worked around this in their own sheets by the
+ * time it was noticed, which is the signal that the rule belongs to the row.
+ *
+ * A COLUMN, because a stacked row routinely holds a subject and a sentence about
+ * it (a matrix and the two notices under it, a log and its count line): side by
+ * side they would sit shoulder to shoulder and neither would get the width. */
+.settingrow-stack > .settingrow-control {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* `min-width: 0` on the children as well, or a wide table refuses to shrink
+ * below its content and the stretch above buys nothing. */
+.settingrow-stack > .settingrow-control > * {
+  min-width: 0;
+}
+
+/* A verb is the exception to the stretch: a button that fills a 1200px card
+ * reads as a banner. Stacked rows hold subjects, not verbs, so this is the
+ * safety rail for the row that holds both. */
+.settingrow-stack > .settingrow-control > .btn {
+  align-self: flex-start;
+}
+
+/* An empty state standing in the list where the rows would be, for a card whose
+ * whole subject is missing — no passport minted, no agent connected. Same
+ * reading as the cap below, and it needs its own selector because the slab is a
+ * sibling of the rows rather than a row's control. `panel.css` caps the third
+ * parent an empty state turns up in; three spellings, one reading. */
+.settinglist > .empty,
+.settinglist > * > .empty {
+  padding: var(--space-4) var(--space-5);
+  text-align: left;
+}
+
+/* A hairline is never drawn against a filled SLAB.
+ *
+ * The list draws its rule on the following sibling, and a `Disclosure` carries a
+ * `border-top` of its own — so where an empty state or a callout is the sibling
+ * ABOVE, the line landed flush on that box's rounded bottom and read as a line
+ * hanging off it rather than as the interval to the section below. A filled box
+ * is bounded by its own fill; that edge IS the separation, which is the same
+ * reason a panel drops its head rule against a tinted header band.
+ *
+ * Three surfaces had it — connected agents (where the founder saw it), the
+ * extension-access read-only notice, and the LinkedIn account-read failure — so
+ * it is the row language's rule and not any card's. */
+.settinglist > .empty + *,
+.settinglist > .callout + * {
+  border-top: 0;
+}
+
+/* An empty subject inside a row is a SENTENCE, not a stage.
+ *
+ * `.empty` is page furniture — 36px of air above and below, sized for the middle
+ * of a screen with nothing on it. Inside a settings row it drew a 90px grey slab
+ * to say "Nothing here yet", which reads as the loudest thing on a card whose
+ * other rows are one line each. The words are the whole content, so the box pays
+ * for a row's interval and no more. */
+.settingrow-stack > .settingrow-control > .empty,
+.settingrow-stack > .settingrow-control > * > .empty {
+  padding: var(--space-4) var(--space-5);
+  text-align: left;
+}
+
+/* A `Switch` in a row's ANSWER column, and the refusal it stacks under itself.
+ *
+ * `Switch` lays its own `reason` out as a left-aligned column under the track,
+ * which is right for the shape it was built for: a switch that draws its own
+ * label at the LEFT of a row, where the words and the track share one edge.
+ * Here the row draws the naming and the switch is the answer, so its edge is the
+ * card's — and left-aligned inside a block as wide as its own sentence, the
+ * track ended up floating in the middle of the row while the sentence reached
+ * the card's edge, which is the one thing this column exists to prevent. Three
+ * surfaces show it (the retention posture, the first-response target, extension
+ * access), so the rule belongs to the row rather than to each of them.
+ *
+ * An INLINE row only, and at any depth inside its control: a screen routinely
+ * wraps the switch with the sentence its own mutation may need to add, and a
+ * stacked row's control is a stretch column whose subject may be a whole toggle
+ * matrix — where left is where those switches belong.
+ *
+ * The narrow reset is in the media query below, with the rest of the
+ * single-column layout: at 320px the row gives up the alignment before it gives
+ * up the reading. */
+.settingrow:not(.settingrow-stack) .settingrow-control .switchrow {
+  align-items: flex-end;
+  text-align: right;
+}
+
+/* The value the row currently holds, beside the verb that changes it —
+ * Discord's "luitpold.me  [Edit]" shape. Muted, and mono is deliberately NOT
+ * applied here: this is a value a person typed, not an identifier, and the
+ * callers that DO hold an identifier pass `PassportChip` or `.t-mono`
+ * themselves. */
+.settingrow-value {
+  color: var(--textMeta);
+  font-size: 13.5px;
+  text-align: right;
+  overflow-wrap: anywhere;
+  /* A measure, for the same reason the field below has one: a value that is a
+   * SENTENCE rather than a token — what a company sells, who it sells to —
+   * otherwise takes the row's whole width, and since the control column does
+   * not shrink it squeezes the naming beside it down to one word per line.
+   * Every short answer this row was built for (an address, a currency, a
+   * timezone) sits far inside the ceiling and is unaffected. */
+  max-width: 22rem;
+}
+
+/* A control with an intrinsic width — a dropdown over four languages, a
+ * number box — held to a legible measure so the right column does not become
+ * a 600px field on a wide screen. A floor as well as a ceiling, because a
+ * select that shrinks to its shortest option jumps width when the answer
+ * changes. */
+.settingrow-control > .field,
+.settingrow-control > .settingrow-measure {
+  min-width: 12rem;
+  max-width: 20rem;
+}
+
+.settingrow-stack > .settingrow-control > .field,
+.settingrow-stack > .settingrow-control > .settingrow-measure {
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+}
+
+/* A Disclosure standing in the list as its own row: the advanced half of a
+ * card, closed until asked for. It takes the row's vertical rhythm so the
+ * summary sits on the same beat as the labels above it, and its body is inset
+ * from the summary rather than from the card, which is what says the contents
+ * belong to the section that was opened.
+ *
+ * The atom carries a 16px `margin-bottom` for a disclosure standing alone in a
+ * body; inside a list that is 16px the list did not ask for, and it measured as
+ * 48px from the last line of an opened section to the card's inner edge where an
+ * ordinary row ends at 20. The list owns the intervals here, so the atom's own
+ * one goes. Its `border-top` stays for a disclosure with a row above it — same
+ * hairline the list would draw — and only the FIRST child gives it up, because
+ * the header above it already draws that line. */
+.settinglist > .disclosure {
+  padding: var(--space-3) 0;
+  margin-bottom: 0;
+}
+
+.settinglist > .disclosure:first-child {
+  border-top: 0;
+}
+
+.settinglist > .disclosure > .disclosure-body > .settinglist {
+  margin-top: var(--space-2);
+}
+
+/* Narrow viewport: the two columns become one. A right-aligned control in a
+ * 320px column leaves the label with three words per line, so the row gives up
+ * the alignment before it gives up the reading. */
+@media (max-width: 640px) {
+  .settingrow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settingrow-control {
+    justify-content: flex-start;
+  }
+
+  .settingrow .settingrow-control .switchrow {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .settingrow-value {
+    text-align: left;
+    /* One column: the measure that kept a sentence out of the naming's half has
+     * no other half to protect, and holding it would wrap a paragraph inside a
+     * 22rem gutter on a 320px screen. */
+    max-width: none;
+  }
+
+  .settingrow-control > .field,
+  .settingrow-control > .settingrow-measure {
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+  }
+}

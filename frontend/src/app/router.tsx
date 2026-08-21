@@ -108,6 +108,23 @@ export function navigate(route: Route): void {
   globalThis.location.hash = routeHash(route);
 }
 
+/**
+ * Go to an address WITHOUT leaving the current one in history.
+ *
+ * For a redirect, and only for a redirect: an address the product answers by
+ * sending the reader somewhere else must not be a history entry, or Back lands
+ * on it, it redirects again, and the reader cannot get out of the loop with the
+ * one key that exists for getting out of things.
+ *
+ * `location.replace` rather than `history.replaceState`, because the hash IS
+ * this router's state: `replaceState` leaves no `hashchange` behind, so the
+ * store would keep serving the old address while the URL bar showed the new
+ * one.
+ */
+export function navigateReplacing(route: Route): void {
+  globalThis.location.replace(routeHash(route));
+}
+
 function subscribe(onChange: () => void): () => void {
   globalThis.addEventListener("hashchange", onChange);
   return () => globalThis.removeEventListener("hashchange", onChange);

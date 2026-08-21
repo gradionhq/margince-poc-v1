@@ -14,6 +14,12 @@ import {
 // and which roles may reach it. Until somebody grants one, an enabled unit
 // renders "you do not hold access" for every seat — which is why this surface
 // exists and why its withheld state is worth looking at.
+//
+// Each registered object is one stacked `SettingRow` — a toggle matrix is the
+// subject of its row, never an answer that fits beside the question — and what
+// the unit BROUGHT (its objects, routes and jobs) reads last, behind a closed
+// disclosure: it is reference an operator opens to check which object gates the
+// route they care about, not a decision.
 const YOGI = {
   name: "yogi",
   version: "0.4.1",
@@ -42,10 +48,11 @@ function story(
   extensions: Record<string, unknown>[],
   roles: string[],
   objects: Record<string, unknown> = {},
+  seat: "full" | "read" = "full",
 ) {
   return () => {
     installFetchStub({
-      "GET /me": meRoute({}, { roles }),
+      "GET /me": meRoute({}, { roles, seat }),
       "GET /extensions": () => jsonResponse({ extensions }),
       // `roles`, which is what RoleDirectory names — not the `data` envelope the
       // paginated collections use. Keyed wrong, the read narrowed to an empty
@@ -67,7 +74,7 @@ function story(
 }
 
 const meta: Meta<typeof ExtensionAccessCard> = {
-  title: "Settings/Organization/People and access/Extensions and access",
+  title: "Settings/Admin settings/People and access/Extensions and access",
   component: ExtensionAccessCard,
 };
 export default meta;
@@ -91,13 +98,25 @@ export const NotAnAdmin: Story = {
   render: story([YOGI], ["rep"], { ext_yogi_briefing: READ }),
 };
 
-// The inventory and the matrix in dark. Two things here are drawn from tokens
+// An admin on a read seat: every tick is legible and none of them is pressable,
+// with the seat ceiling said once above the rows and attached to each switch as
+// its own `reason`. Worth a story of its own because it is the state that is
+// easiest to draw as an absent card, and an absent one would read as "this
+// installation composes nothing".
+export const ReadSeat: Story = {
+  render: story([YOGI], ["admin"], { ext_yogi_briefing: READ }, "read"),
+};
+
+// The inventory and the matrix in dark. Three things here are drawn from tokens
 // that mean "one step off the card ground", and dark is where a step that small
 // either survives or collapses: `.ext-chip` fills an RBAC object and a route with
-// --bgHover inside a card, and the matrix separates every role row with a single
-// --borderSubtle hairline. The Switch tracks in the cells are the third — an
-// off track and an on track have to stay two different things when the whole
-// palette darkens under them.
+// --bgHover inside a card, the matrix separates every role row with a single
+// --borderSubtle hairline, and the `SettingList` now rules between one object's
+// grid and the next with the same hairline — two rules of the same weight, one
+// inside a grid and one between two of them, which either read as a hierarchy or
+// as a wall. The Switch tracks in the cells are the fourth — an off track and an
+// on track have to stay two different things when the whole palette darkens
+// under them.
 export const UnitsWithGrantsDark: Story = {
   globals: { theme: "dark" },
   render: story([YOGI, DE], ["admin"], { ext_yogi_briefing: READ }),
@@ -108,9 +127,12 @@ export const UnitsWithGrantsDark: Story = {
 // and the role names deliberately nowrap. It is meant to scroll inside
 // `.ext-matrix-wrap` rather than push the page sideways (the no-horizontal-page-
 // scroll rule), and the scroller holds the checkboxes themselves so it stays
-// keyboard-reachable. Above it, the version Badge and the link to the unit's own
-// page share the panel head with the unit name and are supposed to wrap onto
-// their own row.
+// keyboard-reachable. This is the width at which the stacked row's
+// `.settingrow-measure` wrapper earns its place: without the `min-width: 0` it
+// carries, the grid grows to its own width inside a flex control column and the
+// PAGE scrolls instead of the table. Above it, the version Badge and the link to
+// the unit's own page share the panel head with the unit name and are supposed
+// to wrap onto their own row.
 //
 // Storybook applies the viewport from the MANAGER, by resizing the preview
 // iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at

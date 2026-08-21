@@ -148,6 +148,53 @@ describe("Switch", () => {
     });
   });
 
+  // The row language moved what used to be a switch's own `hint` into the ROW's
+  // description, and a node-form control cannot see the id the row minted for
+  // it — so without this the sentence saying what the setting DOES stopped
+  // reaching anyone who cannot see the screen, which is the one guarantee the
+  // pre-row spelling did make.
+  describe("a description the caller owns", () => {
+    it("names the caller's element alongside its own refusal", () => {
+      render(
+        <>
+          <p id="what-it-does">Captured mail is readable by the team.</p>
+          <Switch
+            label="Email sharing"
+            describedBy="what-it-does"
+            checked
+            reason="Only an admin or ops can change this."
+            onChange={() => undefined}
+          />
+        </>,
+      );
+      const named = (
+        screen.getByRole("switch").getAttribute("aria-describedby") ?? ""
+      ).split(" ");
+      // Both, and the caller's first: it describes the setting, and the refusal
+      // qualifies it.
+      expect(named[0]).toBe("what-it-does");
+      expect(named).toHaveLength(2);
+      expect(document.getElementById(named[1] ?? "")?.textContent).toBe(
+        "Only an admin or ops can change this.",
+      );
+    });
+
+    it("names it alone when the switch has nothing of its own to say", () => {
+      render(
+        <Switch
+          label="Email sharing"
+          describedBy="what-it-does"
+          checked
+          onChange={() => undefined}
+        />,
+      );
+      expect(screen.getByRole("switch")).toHaveAttribute(
+        "aria-describedby",
+        "what-it-does",
+      );
+    });
+  });
+
   it("names nothing it did not render", () => {
     render(
       <Switch label="Auto-enrich" checked={false} onChange={() => undefined} />,

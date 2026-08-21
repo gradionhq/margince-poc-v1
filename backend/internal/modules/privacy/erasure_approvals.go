@@ -211,6 +211,12 @@ func redactStagedApprovals(ctx context.Context, tx pgx.Tx, subject ids.PersonID,
 		   SET status = 'failed',
 		       pending = NULL,
 		       trace = '[]'::jsonb,
+		       -- A terminal run carries the instant it stopped, in the same
+		       -- statement that makes it terminal. Every other writer of a
+		       -- terminal status stamps it, and readers bound "what settled
+		       -- today" on it (compose/agentactivity), so a row that skipped it
+		       -- would be a run nobody can see ended.
+		       finished_at = now(),
 		       degrade_reason = 'the approval it waited on was `+subjectWithdrawal+`'
 		 WHERE status = 'awaiting_approval'
 		   AND approval_id IN (

@@ -18,6 +18,7 @@ import type { components } from "../api/schema";
 
 // Both spellings, so a hurried demo command works either way.
 const isOn = (value: unknown) => value === "1" || value === "true";
+const isOff = (value: unknown) => value === "0" || value === "false";
 
 /**
  * `VITE_UI_PREVIEW_OIDC=1` — draw the federated sign-in buttons on the login
@@ -103,7 +104,13 @@ export function uiPreviewResetEnabled(): boolean {
  * switches above.
  */
 export function uiPreviewAgentStatesEnabled(): boolean {
-  return isOn(import.meta.env.VITE_UI_PREVIEW_TASKBAR);
+  // ON BY DEFAULT, unlike every other switch in this file, and deliberately so
+  // while the agent surface is being designed: the states are what is under
+  // review, and a reviewer opening the app should not have to know an
+  // environment variable to see them. `VITE_UI_PREVIEW_TASKBAR=0` takes them
+  // away, which is what an installation would set, and this default is the
+  // first thing to flip when the surface is settled.
+  return isOff(import.meta.env.VITE_UI_PREVIEW_TASKBAR) === false;
 }
 
 let warnedAgentStates = false;

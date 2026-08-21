@@ -1,0 +1,28 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ * SPDX-FileCopyrightText: 2026 Gradion */
+
+/* Settings → AI → the per-call trace. The card's own intervals come from
+ * `SettingList` / `SettingRow` / `PanelBody`; what is left here belongs to the
+ * TABLE inside the card's stacked row, which the row language does not reach
+ * into. */
+
+/* The expanded call's detail card. Every block in it — the three identity
+ * lines, the attempt trail, the payload stack — is a bare element under the
+ * preflight reset, so with no rhythm of its own the card ran its facts together
+ * and the payload block had to state a margin for itself. The interval rides on
+ * the card, at `.form-stack`'s own step, so it holds for whichever of the
+ * card's four payload branches renders. */
+.aicalls-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The badges a call carries under its task name: cache hit, degraded, the
+ * error sentinel, a retry count. They wrap rather than widen the column — a
+ * call can carry all four, and the task cell is the narrowest of the six. */
+.aicalls-badges {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}

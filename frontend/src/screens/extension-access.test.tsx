@@ -211,16 +211,16 @@ const render = (ui: ReactNode) =>
     ui,
   );
 
-// The matrix for one object, found by the caption naming it — the only thing
-// that distinguishes two tables of identically-labelled columns.
+// The matrix for one object, found by its ACCESSIBLE NAME — the only thing that
+// distinguishes two tables of identically-labelled columns. The name comes from
+// the stacked `SettingRow`'s own label through `aria-labelledby`, so asking for
+// it by role and name is also the assertion that the wiring holds: a grid whose
+// row label came adrift would be a table announced as "read create update
+// delete" with no subject, and this lookup would stop finding it.
 function matrixFor(object: string): HTMLElement {
-  const table = screen
-    .getByText(new RegExp(`Who may do what with ${object}$`))
-    .closest("table");
-  if (!(table instanceof HTMLElement)) {
-    throw new Error(`no matrix rendered for ${object}`);
-  }
-  return table;
+  return screen.getByRole("table", {
+    name: `Who may do what with ${object}`,
+  });
 }
 
 // One cell of the matrix. `role: "switch"` is load-bearing rather than
@@ -293,16 +293,25 @@ describe("ExtensionAccessCard", () => {
     expect(
       within(unit).getByRole("link", { name: "Open the notes page" }),
     ).toBeTruthy();
-    // The two blocks inside are named, so the inventory of what the unit brought
-    // cannot be read as part of the grants underneath it …
-    expect(
-      within(unit).getByRole("heading", { name: /What this unit brings/i }),
-    ).toBeTruthy();
-    expect(
-      within(unit).getByRole("heading", { name: /Who may use it/i }),
-    ).toBeTruthy();
-    // … and each registered object keeps a matrix of its own within the card.
+    // The grants are the card's rows; the inventory of what the unit brought is
+    // its reference half, behind a disclosure that reads last and closed. So
+    // the two are still told apart — by a row label and a summary rather than
+    // by two section headings.
+    expect(within(unit).getByText("What this unit brings")).toBeTruthy();
+    // … and each registered object keeps a matrix of its own within the card,
+    // NAMED by the row that holds it: the object is what a reader landing on a
+    // tick in the middle of one has to be able to trace back to.
     expect(within(unit).getAllByRole("table").length).toBe(2);
+    expect(
+      within(unit).getByRole("table", {
+        name: "Who may do what with ext_notes_note",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(unit).getByRole("table", {
+        name: "Who may do what with ext_notes_signing_key",
+      }),
+    ).toBeTruthy();
   });
 
   it("links to the page of a unit the SPA registry resolves, naming the unit in the link", async () => {

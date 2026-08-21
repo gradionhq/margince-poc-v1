@@ -46,13 +46,6 @@
   margin-top: var(--space-4);
 }
 
-/* The connect form is spaced off the sentence that introduces it whether or not
- * anything precedes it — unlike the two health sections, which only pay for the
- * interval between themselves. */
-.overlay-connect {
-  margin-top: var(--space-4);
-}
-
 .overlay-budget-detail {
   margin-top: var(--space-1);
 }

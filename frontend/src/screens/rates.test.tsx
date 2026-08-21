@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
@@ -151,6 +152,75 @@ describe("the rate sheets", () => {
     expect(screen.getByText("0.92")).toBeTruthy();
     expect(screen.getByText("claude-opus-4-8")).toBeTruthy();
     expect(screen.getByText("6.25")).toBeTruthy();
+
+    // Each sheet is a stacked settings row, and the row is what says WHICH
+    // rates these are — the table's own headers name columns, not the sheet.
+    expect(
+      within(rateCard("Currency rates")).getByText("Rates in force"),
+    ).toBeTruthy();
+    expect(
+      within(rateCard("AI model costs")).getByText("Prices in force"),
+    ).toBeTruthy();
+  });
+
+  // The dialogs are where a rate is authored, and every box in them is named by
+  // a `Field` that owns the input's id. `getByLabelText` is the assertion that
+  // the two are wired: a label pointing at nothing cannot be found this way,
+  // which is exactly what a hand-rolled `htmlFor` gets wrong silently.
+  it("names every box in the currency-rate dialog", async () => {
+    const user = userEvent.setup();
+    mount(RATE_SETTER);
+    await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
+
+    await user.click(
+      within(rateCard("Currency rates")).getByRole("button", {
+        name: "Set rate",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText("From")).toBeTruthy();
+    expect(
+      within(dialog).getByLabelText("Rate (to base currency)"),
+    ).toBeTruthy();
+    expect(within(dialog).getByLabelText("Effective")).toBeTruthy();
+    // The currency and the rate are still required: an empty dialog cannot be
+    // saved, which is the predicate the conversion had to leave alone.
+    expect(within(dialog).getByRole("button", { name: "Save" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("names every box in the model-price dialog", async () => {
+    const user = userEvent.setup();
+    mount(RATE_SETTER);
+    await waitFor(() =>
+      expect(screen.getByText("claude-opus-4-8")).toBeTruthy(),
+    );
+
+    await user.click(
+      within(rateCard("AI model costs")).getByRole("button", {
+        name: "Add model rate",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    for (const label of [
+      "Provider",
+      "Model",
+      "Input $/M",
+      "Output $/M",
+      "Cache read $/M",
+      "Cache write $/M",
+      "Effective",
+    ]) {
+      expect(within(dialog).getByLabelText(label)).toBeTruthy();
+    }
+    // Provider, model and the two prices are required; the cache columns
+    // default to 0 and do not hold the button.
+    expect(within(dialog).getByRole("button", { name: "Save" })).toHaveProperty(
+      "disabled",
+      true,
+    );
   });
 
   it("shows write affordances for an admin", async () => {
@@ -262,6 +332,9 @@ describe("the rate sheets", () => {
     ).toBeTruthy();
     const fx = rateCard("Currency rates");
     expect(within(fx).queryByText("USD")).toBeNull();
+    // Not the table with an empty body either: the withheld card draws no
+    // sheet at all, so the row that names one is absent with it.
+    expect(within(fx).queryByText("Rates in force")).toBeNull();
     // One explanation, not two: the read-only caption belongs to a sheet the
     // reader may actually read.
     expect(within(fx).queryByText(/read-only view/i)).toBeNull();
@@ -284,6 +357,7 @@ describe("the rate sheets", () => {
     ).toBeTruthy();
     const model = rateCard("AI model costs");
     expect(within(model).queryByText("claude-opus-4-8")).toBeNull();
+    expect(within(model).queryByText("Prices in force")).toBeNull();
     expect(within(model).queryByText(/read-only view/i)).toBeNull();
     expect(urls.some((url) => url.includes("/v1/ai-model-rates"))).toBe(false);
 

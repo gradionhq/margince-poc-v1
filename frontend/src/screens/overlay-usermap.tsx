@@ -8,7 +8,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
@@ -16,6 +16,7 @@ import {
   Badge,
   Button,
   EmptyState,
+  Modal,
   SegmentedControl,
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
@@ -29,6 +30,7 @@ import {
   RecordPicker,
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -198,17 +200,27 @@ type MappingActions = Readonly<{
   saveError: string | null;
 }>;
 
-function OwnerPicker({
+// Choosing who somebody IS over there, in the dialog that decision has always
+// been in substance: a search over the incumbent's directory, and a commit.
+//
+// It used to open INSIDE the row, which is what the row language this card now
+// speaks does not have room for — a row states one answer and the verb that
+// changes it, and a search field with its own candidate list, its own truncation
+// caveat and its own failure state is not an answer. As a dialog it also stops
+// competing with the roster for width, which is what made this the widest thing
+// on a phone.
+//
+// One instance, owned by the card, mounted only while a row is picking — so it
+// cannot carry one person's typed query or half-loaded candidate list onto the
+// next person's decision.
+function OwnerPickerModal({
   directory,
   actions,
-  userId,
-}: Readonly<{
-  directory: DirectoryState;
-  actions: MappingActions;
-  userId: string;
-}>) {
+}: Readonly<{ directory: DirectoryState; actions: MappingActions }>) {
   const t = useT();
+  const headingId = useId();
   const { owners, principal, failure, truncated } = directory;
+  const userId = actions.picking;
   // RecordPicker re-runs its debounced search whenever this callback's
   // identity changes, so it has to be stable — `owners` is memoized upstream
   // for exactly this reason. The directory is one fetch and there is no
@@ -227,12 +239,14 @@ function OwnerPicker({
     },
     [owners],
   );
-  // The picker belongs to the WHOLE row rather than to the identity column: it
-  // used to open inside the left column while the button that opened it stayed
-  // in the actions column on the right, so the search field and its trigger read
-  // as two unrelated controls that happened to appear together.
+  if (userId === null) {
+    return null;
+  }
   return (
-    <div className="usermap-picker">
+    <Modal open onClose={actions.onCancelPick} labelledBy={headingId}>
+      <h2 id={headingId} className="t-h2 usermap-pick-title">
+        {t("overlay.userMap.pickTitle", { principal })}
+      </h2>
       {failure ? (
         <Callout tone="danger" live="alert">
           {failure}
@@ -257,12 +271,15 @@ function OwnerPicker({
           {actions.saveError}
         </Callout>
       )}
-      <div className="usermap-picker-cancel">
+      {/* Cancel alone: picking a candidate IS the commit, so there is no second
+          confirm to draw beside it. `.actions` is the shared dialog action band
+          every other modal in this tree ends with. */}
+      <div className="actions">
         <Button small onClick={actions.onCancelPick} disabled={actions.busy}>
           {t("overlay.userMap.cancel")}
         </Button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -367,13 +384,6 @@ function UserRow({
             </Button>
           )}
         </div>
-      )}
-      {actions.picking === entry.user_id && (
-        <OwnerPicker
-          directory={directory}
-          actions={actions}
-          userId={entry.user_id}
-        />
       )}
     </li>
   );
@@ -552,39 +562,68 @@ function UserMapBody({
       {/* The cost of the read this card performs, at the weight a standing
           advisory earns. It was the quietest type on the card — 12px meta grey,
           under everything else — which is the one thing a disclosure about
-          somebody else's money must not be. */}
+          somebody else's money must not be.
+          Outside the list on purpose: it is not a decision, and a row with no
+          answer on its right reads as a setting nobody has set. */}
       <Callout tone="info">{t("overlay.userMap.cost")}</Callout>
-      <div className="usermap-view">
-        <SegmentedControl
-          options={VIEWS}
-          value={view}
-          onChange={onView}
+      <SettingList>
+        {/* Which census, on the row language's own line: one control, one
+            answer, in the right column with every other answer on the page.
+            SegmentedControl owns its own label, so it is passed as a node
+            rather than through the row's ARIA — naming it twice would have a
+            screen reader read "Grouping Grouping". */}
+        <SettingRow
           label={t("overlay.userMap.view")}
-          labels={{
-            user: t("overlay.userMap.viewByUser"),
-            owner: t("overlay.userMap.viewByOwner", { principal }),
-          }}
-        />
-      </div>
-      {view === "user" ? (
-        <ul className="usermap-list arrive">
-          {entries.map((entry) => (
-            <UserRow
-              key={entry.user_id}
-              entry={entry}
-              self={entry.user_id === meId}
-              directory={directory}
-              actions={actions}
+          control={
+            <SegmentedControl
+              options={VIEWS}
+              value={view}
+              onChange={onView}
+              label={t("overlay.userMap.view")}
+              labels={{
+                user: t("overlay.userMap.viewByUser"),
+                owner: t("overlay.userMap.viewByOwner", { principal }),
+              }}
             />
-          ))}
-        </ul>
-      ) : (
-        <ByOwnerList
-          entries={entries}
-          directory={directory}
-          partial={partial}
+          }
         />
-      )}
+        {/* The roster is the SUBJECT of this card rather than an answer to a
+            question beside it, so it takes the full width below its naming.
+            The label says which census is on screen, which is the one thing a
+            reader scrolled past the toggle can no longer see. */}
+        <SettingRow
+          label={t(
+            view === "user"
+              ? "overlay.userMap.viewByUser"
+              : "overlay.userMap.viewByOwner",
+            { principal },
+          )}
+          layout="stack"
+          control={
+            <div className="usermap-stack">
+              {view === "user" ? (
+                <ul className="usermap-list arrive">
+                  {entries.map((entry) => (
+                    <UserRow
+                      key={entry.user_id}
+                      entry={entry}
+                      self={entry.user_id === meId}
+                      directory={directory}
+                      actions={actions}
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <ByOwnerList
+                  entries={entries}
+                  directory={directory}
+                  partial={partial}
+                />
+              )}
+            </div>
+          }
+        />
+      </SettingList>
     </>
   );
 }
@@ -777,7 +816,7 @@ export function MirrorUserMapCard() {
   return (
     <Panel title={t("overlay.userMap.title")}>
       <PanelBody>
-        <p className="t-caption">
+        <p className="settings-panel-sub">
           {t("overlay.userMap.sub", { principal: directory.principal })}
         </p>
         <UserMapNotice
@@ -804,6 +843,14 @@ export function MirrorUserMapCard() {
         )}
         {canManage && page.isSuccess && <LoadMoreButton query={page} />}
       </PanelBody>
+      {/* Both dialogs hang off the card rather than off a row, and both are
+          gated on the grant a second time: `picking` and `unmapping` are already
+          cleared when it drops, and this is the belt to that braces — a dialog
+          holding the incumbent's directory must not be one stale render away
+          from a reader who is no longer entitled to it. */}
+      {canManage && (
+        <OwnerPickerModal directory={directory} actions={actions} />
+      )}
       <UnmapConfirm
         entry={canManage ? unmapping : null}
         self={unmapping?.user_id === meId}

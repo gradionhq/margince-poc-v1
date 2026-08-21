@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import {
   LeadDisqualifyReasonsCard,
   LeadHandlingCard,
@@ -109,7 +110,7 @@ function story(allow: Parameters<typeof meRoute>[0], slaOn: boolean) {
 }
 
 const meta: Meta<typeof LeadSourcesCard> = {
-  title: "Settings/Organization/Data model/Lead vocabularies",
+  title: "Settings/Admin settings/Data model/Lead vocabularies",
   component: LeadSourcesCard,
 };
 export default meta;
@@ -118,3 +119,39 @@ type Story = StoryObj<typeof LeadSourcesCard>;
 export const Admin: Story = { render: story(ADMIN, false) };
 export const AdminWithTargetOn: Story = { render: story(ADMIN, true) };
 export const Reader: Story = { render: story(READER, false) };
+
+// The row language in dark: the hairline between two rows is a token
+// (`--borderSubtle`) and a list of decisions that loses its rules is a wall
+// again, which is the one thing this shape exists to prevent.
+export const AdminDark: Story = {
+  globals: { theme: "dark" },
+  render: story(ADMIN, true),
+};
+
+// A source is a label AND a weight, so its form is a dialog behind the row's
+// verb — the state no story could capture while the form sat inline under the
+// list.
+export const AddingSource: Story = {
+  render: story(ADMIN, false),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add a source…" }),
+    );
+  },
+};
+
+// A target outside the 15-minutes-to-7-days window the server enforces. The
+// refusal used to be `Field`'s; it is drawn by the row now, so what it looks
+// like under a label and a description is worth a frame.
+export const TargetRefused: Story = {
+  render: story(ADMIN, true),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const minutes = await canvas.findByTestId("lead-first-response-target");
+    await userEvent.clear(minutes);
+    await userEvent.type(minutes, "2");
+    await userEvent.tab();
+    await canvas.findByRole("alert");
+  },
+};

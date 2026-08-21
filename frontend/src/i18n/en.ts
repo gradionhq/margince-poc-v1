@@ -471,6 +471,8 @@ export const en = {
     "You do not have permission to change the HubSpot connection.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
+  "overlay.connectionLabel": "Connection",
+  "overlay.notConnectedYet": "Not connected",
   "overlay.regionUs": "United States",
   "overlay.token": "Private-app token",
   "overlay.tokenHint": "Sealed into the vault; never shown again.",
@@ -541,6 +543,7 @@ export const en = {
   "overlay.userMap.unmap": "Unmap",
   "overlay.userMap.cancel": "Cancel",
   "overlay.userMap.pickerLabel": "Search {principal} users",
+  "overlay.userMap.pickTitle": "Map to a {principal} user",
   "overlay.userMap.truncated":
     "The {principal} directory is longer than this list — someone you can't find here may be past the cut-off.",
   "overlay.userMap.directoryFailed":
@@ -814,6 +817,7 @@ export const en = {
   "finance.medianEarly": "Typically {days} days early",
   "finance.col.invoice": "Invoice",
   "finance.col.dates": "Issued → due",
+  "finance.recentInvoices": "Recent invoices",
   "finance.paidOn": "paid {when}",
   "finance.paidDayLate": "Paid 1 day late",
   "finance.paidDaysLate": "Paid {days} days late",
@@ -1085,18 +1089,20 @@ export const en = {
   "linkedinImport.title": "LinkedIn connections",
   "linkedinImport.sub":
     "Import your own export to see who your team already knows",
-  "linkedinImport.explainer":
-    "LinkedIn gives you a Connections.csv under Settings → Data privacy → Get a copy of your data. Uploading it here shows who on your team already knows someone at an account. The connections do NOT become contacts: they never appear in search, lists or contact pages, and nobody can write to or email them.",
   "linkedinImport.profileLabel": "Your LinkedIn profile URL",
   "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
   "linkedinImport.saveProfile": "Save profile",
+  "linkedinImport.editProfile": "Edit",
+  "linkedinImport.editProfileTitle": "Your LinkedIn profile",
+  "linkedinImport.profileNotSet": "Not recorded yet",
   "linkedinImport.connectedNote":
     "Connected. Imported connections are attributed to this profile, so the CRM can say which colleague knows someone rather than that \u201cthe company\u201d does.",
   "linkedinImport.notConnectedNote":
-    "Not connected yet. Adding your profile URL attributes any connections you import to you by name.",
+    "Recording your profile URL attributes any connections you import to you by name.",
   "linkedinImport.whichFile":
-    "The file you want is Connections.csv \u2014 the export archive holds a dozen others.",
+    "LinkedIn gives you Connections.csv under Settings \u2192 Data privacy \u2192 Get a copy of your data; the archive holds a dozen others, and this is the one. What you upload never becomes contacts: the connections stay out of search, lists and contact pages, and nobody can write to or email them.",
   "linkedinImport.choose": "Choose Connections.csv",
+  "linkedinImport.importLabel": "Connections export",
   "linkedinImport.noMatchesYet":
     "No matches yet, which is normal in a new organization: your connections are matched against contacts the CRM knows, and those arrive as your mail is read. This runs again every hour, so matches appear as the CRM fills up.",
   "linkedinImport.working": "Reading your export…",
@@ -1112,6 +1118,7 @@ export const en = {
     "None of your connections work at an account on file yet.",
   "linkedinReach.allUnresolved":
     "All {unresolved} of your connections work somewhere that is not an account on file yet.",
+  "linkedinReach.accountsLabel": "Accounts you reach",
   "linkedinReach.account": "Account",
   "linkedinReach.connections": "You know",
   "linkedinReach.onFile": "Already contacts",
@@ -1289,6 +1296,10 @@ export const en = {
   "leadSources.removeBody":
     '"{label}" is not used by any lead and will disappear from the list.',
   "leadSources.newLabel": "New source",
+  "leadSources.labelField": "Label",
+  "leadSources.addOpen": "New source",
+  "leadSources.listLabel": "Sources in the list",
+  "leadSources.discovered": "Discovered values",
   "leadSources.newPlaceholder": "Trade show",
   "leadSources.add": "Add source",
   "leadSources.discoveredSub":
@@ -1302,6 +1313,7 @@ export const en = {
   "leadReasons.inUse":
     "{count} leads carry this reason — switch it off instead.",
   "leadReasons.newLabel": "New reason",
+  "leadReasons.listLabel": "Reasons in the list",
   "leadReasons.add": "Add reason",
   "leadReasons.removeTitle": "Remove this reason?",
   "leadReasons.removeBody":
@@ -2204,8 +2216,7 @@ export const en = {
     "Mint a passport in Settings and point any MCP-capable agent at your organization. It reads only what you can see.",
   "ai.paletteHint": "Ask from anywhere with",
 
-  "settings.identity": "Profile",
-  "settings.preferences": "Preferences",
+  "settings.accountCard": "Your account",
   "unsaved.title": "You have unsaved changes",
   "unsaved.body":
     "Leaving this page now discards what you have typed. Go back to save it first.",
@@ -2219,8 +2230,10 @@ export const en = {
   "settings.signatureHint":
     "Plain text. Leave it empty to send unsigned. The AI never writes a sign-off — this is the one that goes out.",
   "settings.signatureSaving": "Saving…",
-  "settings.preferencesSub":
-    "Theme is remembered in this browser. Language lasts for this session.",
+  "settings.signatureEdit": "Edit signature…",
+  "settings.signatureNone": "No sign-off set",
+  "settings.signatureCancel": "Cancel",
+  "settings.languageHelp": "Lasts for this session.",
   "role.admin": "Admin",
   "role.management": "Management",
   "role.manager": "Team Lead",
@@ -2231,7 +2244,7 @@ export const en = {
   "rbac.masked": "Masked value",
   "settings.passports": "Agent passports",
   "settings.passportsSub":
-    "an agent acts as you, never above you — every call re-checks your RBAC",
+    "An agent acts as you, never above you: every call re-checks your RBAC.",
   // What each passport scope admits, in words. The wire carries `read`/`draft`/
   // `write`/`send`/`enrich`; a human granting them is choosing what an agent may
   // do on their behalf, and the protocol token alone does not say — "write" and
@@ -2250,11 +2263,34 @@ export const en = {
   "settings.minting": "Minting…",
   "settings.mintCancel": "Cancel",
   "settings.mintDone": "Done",
+  "settings.mintOpen": "New passport",
   "settings.passportScopes": "What this agent may do",
   "settings.passportScopesHint":
     "Pick at least one. An agent can never do more than you can.",
   "settings.passportScopesRequired":
     "Pick at least one thing this agent may do.",
+  // What the scheduled agent is doing for this reader, one line per (kind,
+  // state). First person for what Margince did, result first, and never a word
+  // that reads as finished on a run that stopped part-way.
+  "agent.activity.morningBrief.queued": "Your morning brief is queued.",
+  "agent.activity.morningBrief.running":
+    "I'm putting your morning brief together.",
+  "agent.activity.morningBrief.done": "Your morning brief is ready.",
+  "agent.activity.morningBrief.degraded":
+    "I got partway through your morning brief and stopped.",
+  "agent.activity.morningBrief.failed": "I couldn't finish your morning brief.",
+  "agent.activity.riskSweep.queued": "The overnight risk sweep is queued.",
+  "agent.activity.riskSweep.running": "I'm checking your deals for risk.",
+  "agent.activity.riskSweep.done":
+    "Done. I checked your deals for risk overnight.",
+  "agent.activity.riskSweep.degraded":
+    "I got partway through the risk sweep and stopped.",
+  "agent.activity.riskSweep.failed":
+    "I couldn't finish the overnight risk sweep.",
+  "agent.panel.runningNow": "Running now",
+  "agent.panel.finishedToday": "Finished today",
+  "agent.panel.stoppedEarly": "Why it stopped",
+
   "agents.connected": "Connected agents",
   "agents.connectedSub":
     "MCP clients holding their own credential, derived from a passport you lent",
@@ -2262,13 +2298,14 @@ export const en = {
   "agents.connectedOn": "connected {date}",
   "agents.lentFrom": "lent from “{label}”",
   "agents.disconnect": "Disconnect",
+  "agents.disconnectOpen": "Disconnect…",
   "agents.disconnectNamed": "Disconnect {client}",
   "agents.disconnected": "disconnected",
   "agents.lapsed": "credential expired",
   "agents.renewing": "renewing",
   "agents.renewsBy": "credential renews by {date}",
   "agents.expiredOn": "credential expired {date}",
-  "agents.revokeGrant": "End connection",
+  "agents.revokeGrantOpen": "End connection…",
   "agents.revokeGrantNamed": "End the connection to {client}",
   "agents.disconnectConfirm":
     "This ends the whole connection, not just one credential: the agent loses access on its next call and cannot renew. Reconnecting means lending a passport again.",
@@ -2303,6 +2340,8 @@ export const en = {
   "import.title": "Import a file",
   "import.sub":
     "Bring a CSV of prospects or companies into the estate. Nothing is written until you have read what it will do.",
+  "import.startLabel": "Import a CSV file",
+  "import.start": "Start an import",
   "import.objectLabel": "What the rows are",
   "import.object.lead": "Prospects",
   "import.object.organization": "Companies",
@@ -2368,6 +2407,8 @@ export const en = {
   "settings.resetDataDesc":
     "Reset this installation to its first-boot state. Domain and configuration data is wiped; the organization and its users are preserved and stay signed in.",
   "settings.resetDataButton": "Reset data…",
+  "settings.resetDataLabel": "Reset all data",
+  "settings.resetDataConfirmButton": "Reset data",
   "settings.resetDataConfirmTitle": "Reset all data?",
   "settings.resetDataConfirmBody":
     "Type your organization's name to confirm. This cannot be undone.",
@@ -2435,6 +2476,7 @@ export const en = {
     "Only an admin can read the full trail. It records every actor and every record they touched, so it is not shown more widely.",
   "settings.auditFilters": "Filters",
   "settings.auditEntries": "Audit log",
+  "settings.auditTrailLabel": "Recorded actions",
   "settings.auditActor": "Actor",
   "settings.auditEntity": "Entity type",
   "settings.auditEntityId": "Entity id",
@@ -2449,6 +2491,7 @@ export const en = {
   "settings.due": "due {date}",
 
   "privacy.addPurpose": "Add purpose",
+  "privacy.purposesRegistry": "Registered purposes",
   "privacy.purposesReadOnly":
     "Read-only view — only an admin or ops can add a purpose.",
   "privacy.purposeKey": "Key",
@@ -2474,6 +2517,7 @@ export const en = {
   "privacy.fulfil": "Fulfil",
   "privacy.reject": "Reject",
   "privacy.newRequest": "New request",
+  "privacy.queue": "Requests",
   "privacy.kind": "Kind",
   "privacy.person": "Person",
   "privacy.subjectRef": "Subject reference",
@@ -2498,6 +2542,7 @@ export const en = {
     "Only an admin or ops can see which records a statutory obligation is holding. It reads through the same authority as the retention ladder.",
   "restricted.empty":
     "No record is being held — every erasure so far could be completed in full.",
+  "restricted.heldLabel": "Records held now",
   "restricted.kind": "Record",
   "restricted.occurred": "Dated",
   "restricted.deals": "Transaction",
@@ -2522,6 +2567,7 @@ export const en = {
     "Releasing ERASES the record. It does not put it back in use: the erasure request this obligation suspended is still outstanding, so lifting the obligation completes it. This cannot be undone.",
   "restricted.release.confirm": "Release and erase",
   "restricted.pin.action": "Pin a record",
+  "restricted.pin.submit": "Pin",
   "restricted.pin.idHint":
     "For correspondence the automatic rule cannot recognise — supplier and purchasing mail qualifies under §257 HGB and has no deal in this product to hang off. The record id is on its audit entry.",
   "restricted.pin.idMalformed":
@@ -2600,7 +2646,7 @@ export const en = {
   "stage.semOpen": "Open",
   "stage.semWon": "Won",
   "stage.semLost": "Lost",
-  "stage.remove": "Remove",
+  "stage.remove": "Remove…",
   "stage.removeConfirm": "Remove stage",
   "stage.removeTitle": "Remove this stage?",
   "stage.removeBody":
@@ -2890,6 +2936,7 @@ export const en = {
   "dedupe.confidence": "Match confidence:",
   "dedupe.field": "Field",
   "dedupe.signal": "Signal",
+  "dedupe.evidenceTable": "Field-by-field evidence",
   "dedupe.signalAgree": "agree",
   "dedupe.signalCollide": "conflict",
   "dedupe.signalOneSided": "one side only",
@@ -2952,6 +2999,8 @@ export const en = {
   // already holds the kind of credential each one is configured with. The two
   // headings differ because the two pages mean different things — one is your
   // own account somewhere, the other is the installation's.
+  "extUnits.open": "Open",
+  "extUnits.openNamed": "Open the {name} page",
   "extUnits.user.title": "Your other accounts",
   "extUnits.user.sub":
     "Accounts this installation can connect on your behalf. Each one is yours alone — nobody else sees it, and disconnecting it affects only you.",
@@ -3033,12 +3082,23 @@ export const en = {
     "This deployment can't complete that connection yet — the provider's API isn't enabled for it. An administrator needs to enable it; the server log names which API.",
   "connectors.dismissOutcome": "Dismiss",
 
-  // The always-present "Add a connection" affordance (Task 1): the empty
-  // state and the roster footer share the same not-yet-connected provider
-  // buttons, so the copy that names them lives once here.
+  // The "Add a connection" affordance (Task 1): one verb in the card's header
+  // opens a dialog listing the providers still addable, each with the sentence
+  // it needs. `addOpen` takes the ellipsis form so the header verb and the
+  // dialog's own picks never read as the same button.
   "connectors.addConnection": "Add a connection",
-  "connectors.googleSeparateNote":
-    "Gmail and Google Calendar connect separately.",
+  "connectors.addOpen": "Connect an account",
+  "connectors.connect": "Connect",
+  "connectors.connectProvider": "Connect {provider}",
+  "connectors.rosterLabel": "Mailboxes capturing",
+  "connectors.addGmailBrings":
+    "The mail you send and receive, from Google — and the only connection Margince can send from.",
+  "connectors.addGcalBrings":
+    "Your Google calendar. It connects separately from Gmail.",
+  "connectors.addGraphBrings":
+    "Mail and calendar on a Microsoft work account, over the Graph API. Capture only.",
+  "connectors.addImapBrings":
+    "Any other mail host, with an app password. Capture only.",
   "connectors.providerNotConfigured":
     "{provider} isn't configured in this deployment.",
 
@@ -3071,6 +3131,8 @@ export const en = {
   "connectors.telegramNotConfigured":
     "Messaging channels aren't configured in this deployment.",
   "connectors.telegramConnectCta": "Connect a Telegram bot",
+  "connectors.telegramRosterLabel": "Bot carrying messages",
+  "connectors.telegramEmpty": "No bot is connected yet.",
   "connectors.telegramEditToken": "Replace token",
   "connectors.telegramDisconnectTitle": "Disconnect this bot?",
   "connectors.telegramDisconnectBody":
@@ -3090,12 +3152,17 @@ export const en = {
   "consumerMail.title": "Consumer mail domains",
   "consumerMail.sub":
     "Mail from a consumer mailbox still creates the person — it just never creates a company. Margince ships a list of these providers; add what it missed, or take back a domain it wrongly claimed.",
+  "consumerMail.addedTitle": "Added here",
+  "consumerMail.addTitle": "Add a domain",
   "consumerMail.domainLabel": "Domain",
   "consumerMail.domainPlaceholder": "provider.example",
   "consumerMail.kindLabel": "What this domain is",
   "consumerMail.kind.extra": "Consumer mail — never a company",
   "consumerMail.kind.never": "A real company — ignore the shipped list",
   "consumerMail.add": "Add",
+  // The header verb, in the ellipsis form: the dialog it opens keeps the plain
+  // one, so no two buttons on this surface read the same.
+  "consumerMail.addOpen": "Add a domain",
   "consumerMail.remove": "Remove",
   "consumerMail.none": "Nothing added. The shipped list decides every domain.",
   "consumerMail.adminOnly": "You do not have permission to change this list.",
@@ -3113,6 +3180,9 @@ export const en = {
   "blockedDomains.title": "Refused domains",
   "blockedDomains.sub":
     "Which domains this installation refuses a company, and what decided each one — a model verdict, a heuristic, or a person. Letting a domain back in re-opens the company question rather than merely clearing a flag.",
+  "blockedDomains.listTitle": "Decisions on record",
+  "blockedDomains.record": "Record a decision",
+  "blockedDomains.recordOpen": "Record a decision",
   "blockedDomains.domainLabel": "Domain",
   "blockedDomains.domainPlaceholder": "vendor.example",
   "blockedDomains.admissionLabel": "Decision",
@@ -3829,6 +3899,8 @@ export const en = {
   "password.signsYouOut":
     "Changing it signs you out everywhere, including here. Sign in again with the new password.",
   "password.changing": "Changing your password…",
+  "password.open": "Change password…",
+  "password.cancel": "Cancel",
   "password.submit": "Change password",
   "password.done": "Password changed. Sign in again with the new one.",
   // Deliberately says nothing about WHICH field: this is the fallback for a
@@ -4071,17 +4143,18 @@ export const en = {
   "cf.obj.organization": "Company",
   "cf.obj.person": "Contact",
   "cf.obj.lead": "Lead",
+  "cf.listLabel": "Fields on {object}",
   "cf.col.field": "Field",
   "cf.col.type": "Type",
   "cf.col.addedBy": "Added by",
   "cf.addedByYou": "You",
   "cf.addedByAdmin": "Admin",
   "cf.empty.deal":
-    "No custom fields on Deal yet. Add one below if you track something we didn't ship.",
+    "No custom fields on Deal yet. Add one if you track something we didn't ship.",
   "cf.empty.organization":
-    "No custom fields on Company yet. Add one below if you track something we didn't ship.",
+    "No custom fields on Company yet. Add one if you track something we didn't ship.",
   "cf.empty.person":
-    "No custom fields on Contact yet. Core fields cover the contact record; add one below if you track more.",
+    "No custom fields on Contact yet. Core fields cover the contact record; add one if you track more.",
   "cf.empty.lead":
     "No custom fields on Lead yet. A field you add here also appears once a lead is promoted to a contact.",
   "cf.type.text": "Text",
@@ -4091,6 +4164,7 @@ export const en = {
   "cf.type.picklist": "Picklist",
   "cf.type.boolean": "Yes / No",
   "cf.builder.addTo": "Add a field to {object}",
+  "cf.builder.open": "Add a field",
   "cf.builder.noCode": "no code",
   "cf.builder.intro":
     "A new field is a real column on the existing table — it filters, reports, exports, and is in the API like any core field. It is not a new object.",
@@ -4117,7 +4191,6 @@ export const en = {
   "cf.refuse.route":
     "Route it through the development path — your own engineers, an implementation partner, or Gradion services.",
   "cf.confirm": "Confirm & add field",
-  "cf.reset": "Reset",
   "cf.writing": "writing…",
   "cf.added": 'Field "{label}" added — live on 360, filters, export & API',
   "cf.edit": "Edit label",
@@ -4157,6 +4230,8 @@ export const en = {
   "captureActivity.title": "Capture activity",
   "captureActivity.sub": "What happened to your messages in the last 24 hours.",
   "captureActivity.scope.label": "Whose activity",
+  "captureActivity.outcomes": "Outcomes",
+  "captureActivity.messages": "Messages",
   "captureActivity.scope.mine": "Mine",
   "captureActivity.scope.workspace": "Shared channels",
   "captureActivity.scopeNote":
@@ -4283,6 +4358,7 @@ export const en = {
   "license.state.licensed": "Licensed",
   "license.state.uncapped": "Licensed, no seat limit",
   "license.state.unlicensed": "No license configured",
+  "license.seats.title": "Seats",
   "license.seats.used": "Seats in use",
   "license.seats.granted": "Seats granted",
   "license.seats.uncapped": "No limit",
@@ -4306,7 +4382,7 @@ export const en = {
   "license.counting":
     "Full seats that are neither deactivated nor suspended, agents included. Read-only seats are unlimited and never counted. This is the count a new member is admitted against.",
   "settings.group.you": "You",
-  "settings.group.org": "Organization",
+  "settings.group.admin": "Admin settings",
   "settings.rates.fxTitle": "Currency rates",
   "settings.rates.fxIntro":
     "Exchange rates that convert foreign-currency amounts to your base currency. New rates take effect today or later; past rates are never changed.",
@@ -4316,6 +4392,7 @@ export const en = {
     "Only an admin or ops can see what each model costs. The prices are operator information, so they are not shown more widely.",
   "settings.rates.readOnly":
     "Read-only view — you do not have permission to change rates.",
+  "settings.rates.fxTableLabel": "Rates in force",
   "settings.rates.fxAdd": "Set rate",
   "settings.rates.fxEmpty": "No currency rates yet.",
   "settings.rates.fxModalTitle": "Set a currency rate",
@@ -4323,6 +4400,7 @@ export const en = {
   "settings.rates.modelTitle": "AI model costs",
   "settings.rates.modelIntro":
     "Per-model prices in USD per 1M tokens, used to estimate AI spend. Transparency only — prices never change how models are routed.",
+  "settings.rates.modelTableLabel": "Prices in force",
   "settings.rates.modelAdd": "Add model rate",
   "settings.rates.modelEmpty": "No model rates yet.",
   "settings.rates.modelModalTitle": "Set a model price",
@@ -4363,6 +4441,7 @@ export const en = {
     "Notes on how you want to sound — kept exactly as you write them; the model never overwrites this.",
   "settings.voice.savePreferences": "Save preferences",
   "settings.voice.corpusLabel": "Writing samples",
+  "settings.voice.corpusRowLabel": "In your corpus now",
   "settings.voice.meter": "{count} of {target} words",
   "settings.voice.register.email": "email",
   "settings.voice.register.social": "social",
@@ -4412,6 +4491,8 @@ export const en = {
   "voice.history.label": "Versions and learning",
   "voice.history.empty": "No versions yet \u2014 build your voice first.",
   "voice.history.deltasLabel": "What changed",
+  "voice.history.deltasEmpty":
+    "Nothing to compare yet \u2014 a change appears here from your second build on.",
   "voice.history.deltaRow": "v{from} \u2192 v{to}",
   "voice.history.learning":
     "Learning continuously \u2014 drafts served: {drafted} \u00b7 edited before sending: {edited} \u00b7 rejected: {rejected}.",
@@ -4423,7 +4504,10 @@ export const en = {
   "settings.voice.addPlaceholder":
     "Paste an email, post, or anything you've written…",
   "settings.voice.addSource": "Add sample",
+  "settings.voice.addSourceOpen": "Paste writing…",
+  "settings.voice.pasteCancel": "Cancel",
   "settings.voice.addFirstLabel": "Your first writing sample",
+  "settings.voice.addFirstOpen": "Paste your first sample…",
   "settings.voice.addFirstCta": "Add it and start my Voice DNA",
   "settings.voice.browseFiles": "Choose files",
   "settings.voice.dropHint":
@@ -4451,6 +4535,7 @@ export const en = {
   "settings.voice.refusalUnsupported":
     "{name} is not a format the corpus can read.",
   "settings.voice.buildsTitle": "Builds",
+  "settings.voice.buildRowLabel": "Build from your samples",
   "settings.voice.building": "Building…",
   "settings.voice.rebuild": "Rebuild Voice DNA",
   "settings.voice.buildNeedsWords":
@@ -4479,7 +4564,6 @@ export const en = {
   "extAccess.brings.routes": "Routes",
   "extAccess.brings.jobs": "Background jobs",
   "extAccess.brings.none": "None",
-  "extAccess.grants.heading": "Who may use it",
   "extAccess.noObjects":
     "This unit registers no permission objects, so there is nothing to grant.",
   "extAccess.roleColumn": "Role",
@@ -4502,9 +4586,10 @@ export const en = {
   "users.teamsTitle": "Teams",
   "users.teamsSub":
     "Who may edit whose records: members of a team edit every teammate's records. Customers, contacts, leads and deals are readable by everyone.",
-  "users.teamMembers": "{count} members",
   "users.archiveTeam": "Archive team {name}",
   "users.newTeamLabel": "New team",
+  "users.newTeamOpen": "New team",
+  "users.teamNameLabel": "Team name",
   "users.newTeamPlaceholder": "e.g. DACH Sales",
   "users.createTeam": "Create team",
   "users.access.title": "What this member sees",
@@ -4547,9 +4632,11 @@ export const en = {
   "users.agentSeat": "Agent",
   "users.agentSeatRole": "Acts under a passport, not a role",
   "users.roleLabel": "Role for the new member",
+  "users.inviteOpen": "Invite a member",
   "users.invite": "Invite",
   "users.setRole": "Set role…",
   "users.setRoleFor": "Set role for {name}",
+  "users.rowActions": "Actions for {name}",
   "users.rolesHeld": "Holds {roles}. Choosing one replaces them all",
   "users.deactivate": "Deactivate",
   "users.reactivate": "Reactivate",
@@ -4580,7 +4667,6 @@ export const en = {
     "Could not reach the server. Check your connection and try again.",
   "users.link.retry": "Try again",
   "users.link.done": "Done",
-  "settings.companyKicker": "Company intelligence",
   "settings.companyTitle": "What Margince knows about your company",
   "settings.companyReadOnly":
     "Read-only view — changing the company profile needs an organization write.",
@@ -4590,12 +4676,19 @@ export const en = {
     "Confirmed knowledge only — website text never becomes instructions.",
   "settings.companyConfirmed": "confirmed statements",
   "settings.companyWebsite": "Public company website",
+  "settings.companyWebsiteHint":
+    "The public site every website read starts from.",
+  "settings.companySourceTitle": "Where we read it from",
+  "settings.companyRefreshRow": "Read the website again",
+  "settings.companyRefreshHint":
+    "We fetch your public pages and propose changes. Nothing reaches the profile until you review and apply them.",
+  "settings.companyEdit": "Edit",
+  "settings.companyEditField": "Edit {field}",
   "settings.companyWebsiteRequired": "Add a company website before refreshing.",
   "settings.companyRefresh": "Refresh from website",
   "settings.companyEssentials": "The three essentials",
   "settings.companyPositioning": "Positioning, buyers, and sales motion",
   "settings.companyIdentity": "Identity and legal details",
-  "settings.companyViewSource": "View source",
   "settings.companySave": "Save company context",
   "settings.companySaved": "Saved",
   "settings.companyRefreshUnreadable":
@@ -4667,6 +4760,8 @@ export const en = {
     "The governed surface a passport can call — same inventory an MCP client sees.",
   "tools.egress": "reaches out",
   "tools.scopeAll": "All passports",
+  "tools.inventory": "All {count} tools",
+  "tools.scopeLabel": "Scope to a passport",
   "tools.scopedTo": "Reachable by {label}",
   "tools.unreachable": "scope not granted",
 
@@ -4689,8 +4784,9 @@ export const en = {
   "aiusage.col.tokensOut": "Tokens out",
   "aiusage.col.cost": "Est. cost",
   "aiusage.costNote": "Costs are estimates at configured rates.",
+  "aiusage.monthLabel": "Month",
+  "aiusage.spendLabel": "Spend by task",
   "aiusage.days.show": "Show days",
-  "aiusage.days.hide": "Hide days",
   "aiusage.empty": "No AI calls in this window.",
   "aiusage.prevMonth": "Previous month",
   "aiusage.nextMonth": "Next month",
@@ -4717,6 +4813,7 @@ export const en = {
   "aicalls.badge.cacheHit": "cache hit",
   "aicalls.badge.degraded": "degraded",
   "aicalls.badge.retries": "retry ×{count}",
+  "aicalls.callsLabel": "Recent calls",
   "aicalls.filter.all": "All tasks",
   "aicalls.loadMore": "Load more",
   "aicalls.empty": "No AI calls recorded yet.",
@@ -4842,7 +4939,27 @@ export const en = {
     "Locked: deals have already converted against this currency, so changing it would re-mean every roll-up built on them.",
   "installationSettings.readOnly":
     "Only an admin or ops can change these settings.",
+  "installationSettings.edit": "Edit",
+  "installationSettings.editField": "Edit {field}",
   "installationSettings.save": "Save",
+  // Which vendor this installation's text is sent to. Admin/ops only, on both
+  // verbs â see the ai_routing RBAC object.
+  "aiRouting.title": "Model routing",
+  "aiRouting.sub":
+    "Which model serves each tier. Changes take effect without a restart, and every process picks them up within a minute.",
+  "aiRouting.unbound":
+    "This installation has no models bound, so its AI features are off. A deployment declares its first binding under seeds.ai_routing in margince.yaml.",
+  "aiRouting.profile.label": "Location",
+  "aiRouting.profile.help":
+    "Where inference runs. Sovereign means zero egress: only models on your own hosts, refused at save time rather than at the first call.",
+  "aiRouting.profile.eu_hosted": "EU-hosted",
+  "aiRouting.profile.sovereign": "Sovereign (no egress)",
+  "aiRouting.profile.cloud_frontier": "Cloud frontier",
+  "aiRouting.model.label": "Model",
+  "aiRouting.save": "Save routing",
+  "aiRouting.saving": "Saving the binding…",
+  "aiRouting.saved": "Routing saved. Every process is now serving it.",
+  "aiRouting.adminOnly": "Only an admin or ops can change model routing.",
   "captureSettings.title": "Enrichment",
   "captureSettings.sub":
     "How captured companies and contacts are enriched after they are created.",
@@ -4857,6 +4974,7 @@ export const en = {
     "Addresses and domains whose messages never enter the CRM. Your own rules bind only the mailboxes you connected; the organization's rules bind everyone.",
   "captureExclusions.notRetroactive":
     "Takes effect from the next message. Messages already captured stay.",
+  "captureExclusions.current": "Rules in effect",
   "captureExclusions.empty": "No exclusions.",
   "captureExclusions.scope.user": "Only me",
   "captureExclusions.scope.workspace": "Whole organization",
@@ -4868,10 +4986,12 @@ export const en = {
   "captureExclusions.placeholder.address": "name@example.com",
   "captureExclusions.placeholder.domain": "example.com",
   "captureExclusions.add": "Exclude",
+  "captureExclusions.addOpen": "New exclusion",
   "captureExclusions.remove": "Capture {value} again",
   "ownDomains.title": "Own email domains",
   "ownDomains.sub":
     "The domains that belong to this company. When colleagues write to each other, that message is not stored. Not even for you.",
+  "ownDomains.curatedTitle": "Managed here",
   "ownDomains.irreversible":
     "Adding a domain takes effect from the next message. Removing it later resumes capture from that point on. Mail skipped while it was registered is never offered again by any mailbox. Mail already captured stays.",
   "ownDomains.fromCompany": "From the company profile. Change them there:",
@@ -4881,6 +5001,7 @@ export const en = {
   "ownDomains.confirmed": "confirmed",
   "ownDomains.candidate": "seen on a connected mailbox, not confirmed yet",
   "ownDomains.add": "Add",
+  "ownDomains.addOpen": "Add a domain",
   "ownDomains.addLabel": "Add an own domain",
   "ownDomains.placeholder": "example.com",
   "ownDomains.remove": "Remove {domain}",
@@ -4921,6 +5042,7 @@ export const en = {
   "webhooks.deliveries.show": "View deliveries",
   "webhooks.deliveries.hide": "Hide deliveries",
   "webhooks.deliveries.empty": "No delivery attempts yet.",
+  "webhooks.deliveries.title": "Delivery attempts",
   "webhooks.deliveries.deadLetterGroup": "Dead-lettered ({count})",
   "webhooks.deliveries.allGroup": "Other attempts",
   "webhooks.deliveries.column.status": "Status",
@@ -4946,6 +5068,13 @@ export const en = {
     "The embedding store's reindex status — admin/ops only, including viewing it.",
   "embedreindex.withheld":
     "Only an admin or ops can see the search index. Rebuilding it spends tokens for the whole installation, so its status is not shown more widely.",
+  "embedreindex.statusLabel": "Index status",
+  "embedreindex.reindexLabel": "Reindex what changed",
+  "embedreindex.reindexHelp":
+    "Re-embeds only the records whose text changed since the last pass.",
+  "embedreindex.rebuildLabel": "Rebuild the whole index",
+  "embedreindex.rebuildHelp":
+    "Re-embeds every record from scratch. Use it when a run is stuck or the embedding model changed.",
   "embedreindex.statusIdle": "Up to date",
   "embedreindex.statusNeeded": "Reindex needed",
   "embedreindex.statusReembedding": "Reindexing…",
@@ -5418,7 +5547,6 @@ export const en = {
   "provider.spend.heldHead": "Held",
   "provider.spend.runsHead": "Lookups",
   "provider.spend.none": "Nothing has been bought yet.",
-  "provider.mode": "When to enrich",
 
   // The person page's section. The three "nothing here" states are three
   // different sentences on purpose: only one of them is something the

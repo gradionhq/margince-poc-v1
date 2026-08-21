@@ -19,6 +19,12 @@ import { OverlayCard } from "./overlay";
 // 501 reads as "this deployment never wired overlay mode", and a revoked or
 // errored connection still shows what the server actually says rather than
 // collapsing into a blank screen.
+//
+// The lifecycle is ONE settings row now: the connection's facts as its answer,
+// and the verb that changes them in its right column. Region + token are two
+// inputs submitted together, so they live inside the confirm dialog that verb
+// opens — which is why every connect assertion below presses the row's verb
+// first and then works inside the dialog.
 
 type Connection = components["schemas"]["OverlayConnection"];
 type SyncStatus = components["schemas"]["OverlaySyncStatus"];
@@ -129,8 +135,27 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Press the row's verb and hand back the token field inside the dialog it
+// opens. The verb and the dialog's own confirm share a label, so a caller that
+// needs the confirm takes the LAST match — the dialog is portalled to the end
+// of the document, the same convention connectors.test.tsx's disconnect test
+// uses.
+async function openConnectDialog(
+  user: ReturnType<typeof userEvent.setup>,
+  verb: string,
+) {
+  await user.click(await screen.findByRole("button", { name: verb }));
+  return await screen.findByLabelText("Private-app token");
+}
+
+function lastButton(name: string): HTMLElement {
+  const matches = screen.getAllByRole("button", { name });
+  return matches[matches.length - 1];
+}
+
 describe("the overlay card", () => {
   it("renders the not-connected empty state when the server has no connection", async () => {
+    const user = userEvent.setup();
     stubApi({
       "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () =>
@@ -138,7 +163,11 @@ describe("the overlay card", () => {
     });
     render(<OverlayCard />);
     expect(await screen.findByText(/No incumbent is connected/)).toBeTruthy();
-    expect(screen.getByLabelText("Private-app token")).toBeTruthy();
+    // The row states what is set now, and the token field is behind its verb
+    // rather than standing open on the card.
+    expect(screen.getByText("Not connected")).toBeTruthy();
+    expect(screen.queryByLabelText("Private-app token")).toBeNull();
+    expect(await openConnectDialog(user, "Connect HubSpot")).toBeTruthy();
   });
 
   it("says overlay is unconfigured when the server answers 501", async () => {
@@ -157,9 +186,19 @@ describe("the overlay card", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByLabelText("Private-app token")).toBeNull();
+    // No row at all: a deployment without an overlay adapter has no connection
+    // to report, so there is nothing for a verb to change.
+    expect(
+      screen.queryByRole("button", { name: "Connect HubSpot" }),
+    ).toBeNull();
   });
 
-  it("does not offer actions without any overlay grant", async () => {
+  // The row keeps its place on a denial and SAYS it is not the reader's to
+  // change — an absent verb on a card that reports a connection would read as
+  // "there is nothing to connect", a claim about the installation standing in
+  // for one about authority.
+  it("refuses the connect verb, with the reason, without any overlay grant", async () => {
+    const user = userEvent.setup();
     stubApi({
       "GET /me": meRoute({}),
       "GET /overlay/connection": () =>
@@ -167,27 +206,32 @@ describe("the overlay card", () => {
     });
     render(<OverlayCard />);
     await screen.findByText(/No incumbent is connected/);
-    expect(screen.queryByLabelText("Private-app token")).toBeNull();
     expect(
       await screen.findByText(
         /You do not have permission to change the HubSpot connection/,
       ),
     ).toBeTruthy();
+    const verb = screen.getByRole("button", { name: "Connect HubSpot" });
+    expect(verb.hasAttribute("disabled")).toBe(true);
+    // And the refusal holds: a refused verb opens nothing.
+    await user.click(verb);
+    expect(screen.queryByLabelText("Private-app token")).toBeNull();
   });
 
   // One grant at a time. connect/reconcile/disconnect are create/update/delete
   // on the same object; a fixture holding all three cannot catch a swap.
-  it("offers the connect form on the create grant alone", async () => {
+  it("offers the connect dialog on the create grant alone", async () => {
+    const user = userEvent.setup();
     stubApi({
       "GET /me": meRoute({ overlay_connection: ["read", "create"] }),
       "GET /overlay/connection": () =>
         jsonResponse({ detail: "not found" }, 404),
     });
     render(<OverlayCard />);
-    expect(await screen.findByLabelText("Private-app token")).toBeTruthy();
+    expect(await openConnectDialog(user, "Connect HubSpot")).toBeTruthy();
   });
 
-  it("withholds the connect form when only update and delete are granted", async () => {
+  it("refuses the connect verb when only update and delete are granted", async () => {
     stubApi({
       "GET /me": meRoute({ overlay_connection: ["read", "update", "delete"] }),
       "GET /overlay/connection": () =>
@@ -195,6 +239,11 @@ describe("the overlay card", () => {
     });
     render(<OverlayCard />);
     await screen.findByText(/No incumbent is connected/);
+    expect(
+      (
+        await screen.findByRole("button", { name: "Connect HubSpot" })
+      ).hasAttribute("disabled"),
+    ).toBe(true);
     expect(screen.queryByLabelText("Private-app token")).toBeNull();
   });
 
@@ -264,7 +313,12 @@ describe("the overlay card", () => {
     expect(screen.getByText("Approaching limit")).toBeTruthy();
   });
 
+  // The blast radius is stated BEFORE the only press that binds the
+  // installation, and the token is typed while that sentence is on screen —
+  // which is the whole of the confirm-first posture. Opening the dialog and
+  // filling it in must send nothing.
   it("does not connect until the confirmation is accepted", async () => {
+    const user = userEvent.setup();
     const calls = stubApi({
       "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () =>
@@ -272,27 +326,17 @@ describe("the overlay card", () => {
       "POST /overlay/connection": () => jsonResponse(activeConnection, 201),
     });
     render(<OverlayCard />);
-    await userEvent.type(
-      await screen.findByLabelText("Private-app token"),
-      "pat-secret",
-    );
-    // Submitting the form only opens the confirmation — it must not POST yet.
-    await userEvent.click(
-      screen.getByRole("button", { name: "Connect HubSpot" }),
-    );
+    const token = await openConnectDialog(user, "Connect HubSpot");
+    expect(
+      screen.getByText(/switches every seat's reads to HubSpot/),
+    ).toBeTruthy();
+    await user.type(token, "pat-secret");
     expect(
       calls.filter(
         (r) => r.url.endsWith("/overlay/connection") && r.method === "POST",
       ),
     ).toHaveLength(0);
-    expect(
-      await screen.findByText(/switches every seat's reads to HubSpot/),
-    ).toBeTruthy();
-    // Two buttons now share the label (the form's trigger, already submitted,
-    // and the modal's own confirm) — the modal's is the last one in the DOM,
-    // the same convention connectors.test.tsx's disconnect-confirm test uses.
-    const confirms = screen.getAllByRole("button", { name: "Connect HubSpot" });
-    await userEvent.click(confirms[confirms.length - 1]);
+    await user.click(lastButton("Connect HubSpot"));
     await waitFor(() =>
       expect(
         calls.filter(
@@ -302,7 +346,25 @@ describe("the overlay card", () => {
     );
   });
 
+  // An empty token cannot be submitted: the confirm is refused until the field
+  // the write needs is filled, so a press on an empty dialog is not a POST of
+  // an empty secret.
+  it("refuses the confirm until a token has been typed", async () => {
+    const user = userEvent.setup();
+    stubApi({
+      "GET /me": meRoute(OVERLAY_OPERATOR),
+      "GET /overlay/connection": () =>
+        jsonResponse({ detail: "not found" }, 404),
+    });
+    render(<OverlayCard />);
+    const token = await openConnectDialog(user, "Connect HubSpot");
+    expect(lastButton("Connect HubSpot").hasAttribute("disabled")).toBe(true);
+    await user.type(token, "pat-secret");
+    expect(lastButton("Connect HubSpot").hasAttribute("disabled")).toBe(false);
+  });
+
   it("offers Reconnect for a revoked connection, gated by the same confirm step", async () => {
+    const user = userEvent.setup();
     const calls = stubApi({
       "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () => jsonResponse(revokedConnection),
@@ -310,18 +372,14 @@ describe("the overlay card", () => {
     });
     render(<OverlayCard />);
     expect(await screen.findByText("Revoked")).toBeTruthy();
-    await userEvent.type(
-      screen.getByLabelText("Private-app token"),
-      "pat-secret",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    const token = await openConnectDialog(user, "Reconnect");
+    await user.type(token, "pat-secret");
     expect(
       calls.filter(
         (r) => r.url.endsWith("/overlay/connection") && r.method === "POST",
       ),
     ).toHaveLength(0);
-    const confirms = screen.getAllByRole("button", { name: "Reconnect" });
-    await userEvent.click(confirms[confirms.length - 1]);
+    await user.click(lastButton("Reconnect"));
     await waitFor(() =>
       expect(
         calls.filter(
@@ -332,6 +390,7 @@ describe("the overlay card", () => {
   });
 
   it("invalidates every query after a successful connect", async () => {
+    const user = userEvent.setup();
     stubApi({
       "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () =>
@@ -339,19 +398,10 @@ describe("the overlay card", () => {
       "POST /overlay/connection": () => jsonResponse(activeConnection, 201),
     });
     const { client } = render(<OverlayCard />);
-    await screen.findByLabelText("Private-app token");
-    await userEvent.type(
-      screen.getByLabelText("Private-app token"),
-      "pat-secret",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Connect HubSpot" }),
-    );
+    const token = await openConnectDialog(user, "Connect HubSpot");
+    await user.type(token, "pat-secret");
     const invalidateSpy = vi.spyOn(client, "invalidateQueries");
-    const confirms = await screen.findAllByRole("button", {
-      name: "Connect HubSpot",
-    });
-    await userEvent.click(confirms[confirms.length - 1]);
+    await user.click(lastButton("Connect HubSpot"));
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
     // Called with no arguments — the whole cache, not one targeted key —
     // because the workspace's data source itself just changed (/me included).
@@ -359,6 +409,7 @@ describe("the overlay card", () => {
   });
 
   it("surfaces a concurrent already-connected conflict instead of guessing", async () => {
+    const user = userEvent.setup();
     stubApi({
       "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () =>
@@ -373,17 +424,9 @@ describe("the overlay card", () => {
         ),
     });
     render(<OverlayCard />);
-    await userEvent.type(
-      await screen.findByLabelText("Private-app token"),
-      "pat-secret",
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Connect HubSpot" }),
-    );
-    const confirms = await screen.findAllByRole("button", {
-      name: "Connect HubSpot",
-    });
-    await userEvent.click(confirms[confirms.length - 1]);
+    const token = await openConnectDialog(user, "Connect HubSpot");
+    await user.type(token, "pat-secret");
+    await user.click(lastButton("Connect HubSpot"));
     expect(
       await screen.findByText(/an active incumbent connection already exists/),
     ).toBeTruthy();

@@ -10,6 +10,11 @@ import { ChangePasswordCard } from "./passwordcard";
 // What this card must not do is let someone press submit into a request the
 // server will refuse, and what it must not hide is that the change signs them
 // out. Both are cheaper to hold here than to discover in the product.
+//
+// The three fields live in a dialog the row's verb opens, so every case here
+// opens it first — and the row's verb carries the ellipsis form of the label
+// while the dialog's submit carries the plain one, which is what keeps two
+// buttons that say the same thing tellable apart.
 
 function renderCard() {
   const client = new QueryClient({
@@ -25,7 +30,16 @@ function renderCard() {
 }
 
 const submitButton = () =>
-  screen.getByRole("button", { name: /change password/i });
+  screen.getByRole("button", { name: /^change password$/i });
+
+// The dialog, opened. Every case needs it, and `userEvent.setup()` is called
+// once per test by the caller rather than here: one instance carries the shared
+// input-device state, and a second one forgets which keys the first left held.
+async function openForm(user: ReturnType<typeof userEvent.setup>) {
+  renderCard();
+  await user.click(screen.getByRole("button", { name: /change password…/i }));
+  return screen.getByRole("dialog");
+}
 
 afterEach(() => {
   cleanup();
@@ -33,8 +47,9 @@ afterEach(() => {
 });
 
 describe("ChangePasswordCard", () => {
-  it("warns that the change signs you out, before the button is pressed", () => {
-    renderCard();
+  it("warns that the change signs you out, before the button is pressed", async () => {
+    const user = userEvent.setup();
+    await openForm(user);
     expect(
       screen.getByText(/signs you out everywhere, including here/i),
     ).toBeInTheDocument();
@@ -43,7 +58,7 @@ describe("ChangePasswordCard", () => {
   it("will not submit until the confirmation matches", async () => {
     const user = userEvent.setup();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    renderCard();
+    await openForm(user);
 
     await user.type(
       screen.getByLabelText(/current password/i),
@@ -66,7 +81,7 @@ describe("ChangePasswordCard", () => {
   it("will not submit a new password below the server's floor", async () => {
     const user = userEvent.setup();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    renderCard();
+    await openForm(user);
 
     await user.type(
       screen.getByLabelText(/current password/i),
@@ -97,7 +112,7 @@ describe("ChangePasswordCard", () => {
     // proves nothing — four emoji is eight units, below the floor either way.
     const user = userEvent.setup();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    renderCard();
+    await openForm(user);
 
     await user.type(
       screen.getByLabelText(/current password/i),
@@ -127,7 +142,7 @@ describe("ChangePasswordCard", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 204 }),
     );
-    renderCard();
+    await openForm(user);
 
     await user.type(
       screen.getByLabelText(/current password/i),
@@ -166,8 +181,12 @@ describe("ChangePasswordCard", () => {
           headers: { "Content-Type": "application/problem+json" },
         }),
       );
-    renderCard();
+    await openForm(user);
 
+    // Reopened for the second attempt, because the first one succeeded and a
+    // successful change closes the dialog. That is the shape of the real
+    // sequence this case is about: a reader who changed their password, came
+    // back, and got refused.
     const fill = async (next: string) => {
       await user.type(
         screen.getByLabelText(/current password/i),
@@ -180,6 +199,7 @@ describe("ChangePasswordCard", () => {
     await fill("a fine new password");
     await screen.findByRole("status");
 
+    await user.click(screen.getByRole("button", { name: /change password…/i }));
     await fill("another fine password");
     await screen.findByRole("alert");
     expect(screen.queryByRole("status")).toBeNull();
@@ -197,7 +217,7 @@ describe("ChangePasswordCard", () => {
         },
       ),
     );
-    renderCard();
+    await openForm(user);
 
     await user.type(
       screen.getByLabelText(/current password/i),
@@ -231,7 +251,7 @@ describe("ChangePasswordCard", () => {
     // Never settles: the in-flight state is a state to look at rather than a
     // window this test has to race.
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
-    renderCard();
+    await openForm(user);
     await user.type(
       screen.getByLabelText(/current password/i),
       "old-password-1",
@@ -256,12 +276,12 @@ describe("ChangePasswordCard", () => {
     expect(submitButton()).toBeEnabled();
   });
 
-  it("clears the fields on success so the old password does not linger on screen", async () => {
+  it("closes the dialog on success so the typed password does not linger on screen", async () => {
     const user = userEvent.setup();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 204 }),
     );
-    renderCard();
+    await openForm(user);
 
     await user.type(
       screen.getByLabelText(/current password/i),
@@ -280,8 +300,9 @@ describe("ChangePasswordCard", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       /password changed/i,
     );
-    expect(screen.getByLabelText(/current password/i)).toHaveValue("");
-    expect(screen.getByLabelText(/^new password/i)).toHaveValue("");
-    expect(screen.getByLabelText(/confirm new password/i)).toHaveValue("");
+    // Gone, not blank: the outcome is a sentence on the row, and a reader who
+    // has just been signed out everywhere has nothing left to type here.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByLabelText(/current password/i)).toBeNull();
   });
 });

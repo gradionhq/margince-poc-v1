@@ -38,6 +38,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -99,6 +100,31 @@ func (s *Store) applySitePersonFieldsTx(ctx context.Context, tx pgx.Tx, orgID id
 	personID, ok, err := matchSitePerson(ctx, tx, orgID, in)
 	if err != nil || !ok {
 		return false, err
+	}
+	// The person is resolved from the organization's employment edges, so the
+	// probe above says nothing about it: the org gate is a gate on a DIFFERENT
+	// table. Probe the record this function is about to write, the way every
+	// sibling fill does (ApplyDiscoveredFields, SaveResearchClaims,
+	// ApplyEnrichment, ApplyDeepReadTx).
+	//
+	// Live, not the plain spelling: EnsureWritable returns nil the moment the
+	// rendered scope clause is empty, which is exactly what today's two callers
+	// — both PrincipalSystem — produce. The plain probe would therefore be a
+	// no-op on every live call site and this would read as gated while gating
+	// nothing. The Live spelling always runs the existence and archived_at
+	// query, so at minimum a matched person that has since been archived stops
+	// being written.
+	//
+	// SKIP rather than refuse. matchSitePerson's contract is already
+	// "not identifiable here → stage a lead instead", and a match the caller
+	// may not write is exactly that case: refusing would abort a whole
+	// company's site confirmation over one out-of-scope employee, while
+	// skipping leaves the lead to stage and the rest of the page to land.
+	if err := auth.EnsureWritableLive(ctx, tx, entityPerson, personID.UUID); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
+			return false, nil
+		}
+		return false, fmt.Errorf("people: probing write authority over the site person: %w", err)
 	}
 
 	sourceRef := siteFieldSource + ":" + in.SourceURL

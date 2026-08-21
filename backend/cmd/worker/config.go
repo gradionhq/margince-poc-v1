@@ -57,6 +57,7 @@ type workerConfig struct {
 	sendRateWindow       time.Duration
 	sendMaxAge           time.Duration
 	webhookKey           string
+	geocodeBaseURL       string
 	webhookRetryInterval time.Duration
 	deepReadMaxPages     int
 	deepReadMaxBytes     int
@@ -92,7 +93,7 @@ func workerFlagSet() (*flag.FlagSet, *cliflags.Env, *workerConfig, error) {
 	env.String(fs, &cfg.configPath, "config", "MARGINCE_CONFIG", "margince.yaml",
 		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors and the capture pipeline tuning (capture.freemail_extra). A missing file boots with defaults")
 	env.String(fs, &cfg.redisAddr, "redis", "MARGINCE_REDIS", "localhost:16379", "Redis address (event bus)")
-	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to ai-routing.yaml; enables the Surface-B runner")
+	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to a routing file, read ONLY to seed an installation that has no stored model binding yet. The binding lives in the database once set, so on a provisioned installation this flag is not read at all")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
 	fs.DurationVar(&cfg.runnerInterval, "runner-interval", 30*time.Second, "how often the Surface-B scheduler fans one seed-and-execute pass out per live workspace")
 	fs.DurationVar(&cfg.retentionInterval, "retention-interval", 24*time.Hour, "retention evaluator pass interval")
@@ -130,6 +131,11 @@ func workerFlagSet() (*flag.FlagSet, *cliflags.Env, *workerConfig, error) {
 	// and no tenant data — but it is unauthenticated and discloses dependency
 	// health and process capacity, so whether to expose it, and on which
 	// interface, is the operator's decision.
+	env.String(fs, &cfg.geocodeBaseURL, "geocode-base-url", "MARGINCE_GEOCODE_BASE_URL", "",
+		"Nominatim base URL; enables geocoding company addresses to coordinates, which is what "+
+			"within_radius answers from. Empty leaves it off and every radius query unavailable. "+
+			"Use 'public' for OpenStreetMap's own service — POC only: its terms hold a recurring "+
+			"client to 4 requests a minute, so any real volume wants a self-hosted instance.")
 	env.String(fs, &cfg.observeAddr, "observe-addr", "MARGINCE_OBSERVE_ADDR", "",
 		"address to serve this worker's /healthz, /readyz and /metrics on (e.g. 127.0.0.1:9101). Empty serves nothing. Process-local metrics only — the job-table and outbox gauges stay a single fleet-wide reading on the api.")
 	env.String(fs, &cfg.logLevel, "log-level", "MARGINCE_LOG_LEVEL", "info", "log level: debug|info|warn|error")

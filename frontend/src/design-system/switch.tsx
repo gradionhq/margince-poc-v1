@@ -44,6 +44,7 @@ import "./switch.css";
  * and only the server says no.
  */
 export function Switch({
+  describedBy: describedByProp,
   label,
   labelHidden,
   hint,
@@ -88,15 +89,34 @@ export function Switch({
    * switch nobody may flip cannot be mid-flip.
    */
   pending?: boolean;
+  /**
+   * An element elsewhere that describes this setting, named ALONGSIDE the
+   * switch's own hint and reason rather than instead of them.
+   *
+   * It exists for `SettingRow`. The row draws the naming for the whole
+   * decision, so a converted card moves what used to be the switch's `hint`
+   * into the row's `description` — and a `Switch` passed as a node cannot see
+   * the id the row minted for it. Without this the sentence saying what the
+   * setting DOES stopped reaching anybody who cannot see it, which is the one
+   * guarantee the pre-row spelling did make. Callers hand it the row's
+   * `aria-describedby` through the function form of `control`.
+   */
+  describedBy?: string;
   testId?: string;
 }>) {
   const hintId = useId();
   const reasonId = useId();
-  // Both ids are minted unconditionally — hooks may not depend on which
-  // optional props a caller passed — and only the ones with content are named,
-  // so a reader is never pointed at an element that does not exist.
+  // Every id is minted unconditionally — hooks may not depend on which optional
+  // props a caller passed — and only the ones with content are named, so a
+  // reader is never pointed at an element that does not exist. The caller's own
+  // id comes FIRST: it describes the setting, and the hint and the refusal
+  // qualify it.
   const describedBy =
-    [hint !== undefined ? hintId : null, reason !== undefined ? reasonId : null]
+    [
+      describedByProp,
+      hint !== undefined ? hintId : null,
+      reason !== undefined ? reasonId : null,
+    ]
       .filter(Boolean)
       .join(" ") || undefined;
 

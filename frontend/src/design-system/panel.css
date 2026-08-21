@@ -12,6 +12,16 @@
 /* One height for every header, whether it carries a title alone or a title
  * with a badge or a button beside it — a fixed min-height with centred
  * content, so the row does not grow by exactly the button's height. */
+/* The header band, and its rule runs the full width of the card.
+ *
+ * That is the one distinction that decides every rule in this file: a rule
+ * dividing the CARD from its content runs edge to edge, and a rule dividing two
+ * pieces of the content stops at the padding. The header and the footer are the
+ * card's own chrome — the same band every card on every screen of this product
+ * draws — so their rules are the first kind. Everything BELOW the header (the
+ * body seam, the row hairlines, `SettingList`'s rules) is the second, and stops
+ * where the content stops. A page that mixed the two inside one card read as two
+ * grids, which is what a sweep of the settings pages showed. */
 .panel-head {
   display: flex;
   align-items: center;
@@ -62,12 +72,14 @@
 }
 
 .panel-body {
+  position: relative;
   padding: var(--space-5);
 }
 
 /* THE SEAM RULE, and it is one rule: a boundary between two sections of a card
- * is a full-bleed hairline, and a section that wants air instead takes spacing
- * and no line at all. There is no third option, because the third option is
+ * is a hairline inset to the card's padding, and a section that wants air
+ * instead takes spacing and no line at all. There is no third option, because
+ * the third option is
  * what the tree had — twenty-odd independent `border-top: 1px solid
  * var(--borderSubtle)` declarations across the screen sheets, seven of them
  * drawn as `border-bottom` instead, six full-bleed and seven inset by the
@@ -75,14 +87,43 @@
  * could therefore show a line that reached its edges above one section and a
  * line that stopped 20px short above the next.
  *
+ * Every rule BETWEEN two pieces of content is inset — this seam, the row
+ * hairlines, and `SettingList`'s rules between its rows. The header's and the
+ * footer's are not: those bands are the card's own chrome, identical on every
+ * card in the product, and their rules divide the card from its content rather
+ * than the content from itself. A pseudo-element rather than a border, because
+ * a border cannot be inset. It is absolutely positioned inside the body it
+ * belongs to, so it never becomes a flex item of that body.
+ *
  * Declared as adjacency rather than as an opt-in class so a caller cannot
  * forget it, and so two sections that ARE adjacent cannot disagree about
- * whether they are. Two spellings of exactly this already existed — an opt-in
- * `.connector-add` with no reset, and `.cf-screen > .panel-body + .panel-body`
- * — which is two screens independently discovering the same missing rule. */
-.panel-body + .panel-body,
-.panel-row + .panel-body {
-  border-top: 1px solid var(--borderSubtle);
+ * whether they are. Two screens had already discovered the same missing rule
+ * independently and spelled it themselves, one of them without a reset — which
+ * is what a rule the caller has to remember gets you. */
+.panel-body + .panel-body::before,
+.panel-row + .panel-body::before {
+  content: "";
+  position: absolute;
+  inset: 0 var(--space-5) auto;
+  height: 1px;
+  background: var(--borderSubtle);
+}
+
+/* An empty state inside a card is a SENTENCE, not a stage.
+ *
+ * `EmptyState` is page furniture — an inset card with 36px of air above and
+ * below, sized for the middle of a screen with nothing on it. Dropped into a
+ * panel body it drew a 92px centred plate inside a 720px card to say one line
+ * ("Outbound webhooks are not enabled on this deployment"), which reads as the
+ * loudest thing on a page whose other cards are lists of one-line rows. The
+ * words are the whole content, so the plate pays for a body's interval and no
+ * more, and it reads from the left like the prose it is.
+ *
+ * `settingrow.css` holds the same cap for an empty state inside a row. Two
+ * parents, one reading. */
+.panel-body > .empty {
+  padding: var(--space-4) var(--space-5);
+  text-align: left;
 }
 
 /* A section heading INSIDE a body has a body's padding above it already, so it
@@ -95,17 +136,37 @@
   margin-top: 0;
 }
 
-/* A hairline row that runs full-bleed against the panel's own edges — the shape
- * every list inside a panel wants. No border on the first row: the header above
- * it already draws that line.
+/* A row FOLLOWING a body is a new section of the card, so it pays a section's
+ * interval rather than a row's. A body whose last line is prose and a row 12px
+ * under it read as one crowded block — measured on the provider card, where the
+ * intro's own bottom padding is deliberately zero because whatever comes next
+ * brings the body's 20px, which a row does not. Only the FIRST row after a body
+ * pays it; the rows under that one keep the list's own 12px rhythm. */
+.panel-body + .panel-row {
+  padding-top: var(--space-5);
+}
+
+/* A hairline row whose CONTENT runs edge to edge, in the panel's own margin
+ * rather than the body's — the shape every list inside a panel wants. The rule
+ * between two rows is inset to that margin, like every other rule in a card, so
+ * a panel of rows and a panel of `SettingRow`s draw their hairlines at one x.
+ * No rule on the first row: the header above it already draws that line.
  *
  * The rule and the hover are TWO shapes, and this one is only the rule. Held
  * together, a panel of ruled blocks a reader is meant to read lit up under the
  * pointer and said they were all pressable, so a screen that wanted the rule
  * alone grew its own `+ { border-top }` rather than take the hover with it. */
 .panel-row {
+  position: relative;
   padding: var(--space-3) var(--space-5);
-  border-top: 1px solid var(--borderSubtle);
+}
+
+.panel-row::before {
+  content: "";
+  position: absolute;
+  inset: 0 var(--space-5) auto;
+  height: 1px;
+  background: var(--borderSubtle);
 }
 /* interactive: the whole row is one press target, so the fill is honest about
  * what pointing at the row would hit. The transition belongs here too — an
@@ -116,11 +177,12 @@
 .panel-row-interactive:hover {
   background: var(--bgHover);
 }
-.panel-row:first-child,
-.panel-head + .panel-row {
-  border-top: 0;
+.panel-row:first-child::before,
+.panel-head + .panel-row::before {
+  content: none;
 }
 
+/* The footer band — the card's own chrome, so edge to edge like the header. */
 .panel-foot {
   display: flex;
   align-items: center;
@@ -168,7 +230,7 @@
 .panel-accent > .panel-head {
   gap: var(--space-2);
   background: var(--accentLight);
-  border-bottom-color: var(--accentMed);
+  border-bottom: 1px solid var(--accentMed);
 }
 .panel-accent > .panel-head h2 {
   display: flex;

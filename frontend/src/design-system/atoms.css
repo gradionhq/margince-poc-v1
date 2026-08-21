@@ -1174,6 +1174,29 @@
   margin-top: var(--space-3);
 }
 
+/* The chevron on a control that opens something which is NOT a `<details>` —
+   the next table row, a panel below the button. `Disclosure` owns its own; this
+   is for the two screens that had each written the turn as an inline
+   `style={{ transform: expanded ? "rotate(180deg)" : undefined }}`, which is
+   the open state spelled twice per call site: once for the reader who sees the
+   glyph and once, separately, for the one who hears `aria-expanded`. Keyed off
+   that attribute instead, the two cannot disagree.
+
+   The turn is unconditional — a reader who asked for less motion still needs
+   the chevron to point at an opened row — and only the tween is conditional. */
+.expander-chevron {
+  transition: transform var(--dur-state) var(--ease-in-out);
+}
+[aria-expanded="true"] > .expander-chevron,
+[aria-expanded="true"] .expander-chevron {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .expander-chevron {
+    transition: none;
+  }
+}
+
 /* The overflow menu: one trigger, a popover of the caller's own action
    buttons. Anchored to the trigger so it opens under it regardless of where
    the header wraps. */

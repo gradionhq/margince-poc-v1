@@ -5,49 +5,40 @@
    style objects and thirteen raw pixel values — including the two hard width
    floors that made it the narrowest surface in settings. */
 
-/* Two halves of one surface: what you can build FROM, and what is running.
-   `flex-basis` proposes the split, `min-width: 0` is what lets either half give
-   it up. The floors this replaces (240px and 280px) were wider than the card
-   interior a 390px viewport leaves, so the column had nowhere to go but
-   sideways — and took the settings page with it. */
-.auto-columns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-}
+/* Both halves of the surface are LISTS, and each is the subject of a stacked
+   SettingRow rather than a column beside its sibling — which is why the two
+   hard width floors this sheet used to carry (240px and 280px, both wider than
+   the card interior a 390px viewport leaves) are gone: a stacked row's control
+   fills the card on its own (design-system/settingrow.css). */
 
-.auto-column {
-  flex: 1 1 16rem;
-  min-width: 0;
-}
-
-/* The running instances carry more per row than the library does, so they get
-   the larger share wherever there is room for two columns at all. */
-.auto-column-wide {
-  flex: 2 1 20rem;
-}
-
+/* The read-only posture, and the outcome of a create, standing above and below
+   the rows they are about. Each is the card's own band rather than one more row,
+   so it pays for its own interval — the same interval `.settings-panel-sub`
+   pays, because `SettingList` owns the gaps BETWEEN rows and nothing above or
+   below itself. */
 .auto-readonly {
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
 }
 
-.auto-catalog {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+.auto-outcome {
+  margin-top: var(--space-4);
 }
 
-.auto-catalog-head {
-  display: flex;
+/* A catalog entry's name with its autonomy dot: the dot qualifies the name, so
+   the two are one item on the label's line rather than two things the row's
+   naming column has to align. */
+.auto-catalog-name {
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-/* The line under a name — a description, a recipe, a confirmation. Close enough
-   to read as belonging to the line above it rather than as its own paragraph. */
-.auto-note {
+/* The trigger and the action in the wire's own words, on their own line under
+   the entry's description — an identifier pair, not prose, so it does not run
+   into the sentence above it. The row's naming column owns the interval to the
+   label; this pays only for the step between the two lines it separates. */
+.auto-catalog-recipe {
+  display: block;
   margin-top: var(--space-1);
 }
 
@@ -75,20 +66,4 @@
 .auto-error {
   margin-top: var(--space-2);
   color: var(--danger);
-}
-
-.auto-form {
-  margin-top: var(--space-3);
-}
-
-.auto-recipe {
-  margin-top: var(--space-1);
-}
-
-.auto-field {
-  margin-top: var(--space-2);
-}
-
-.auto-form-actions {
-  margin-top: var(--space-3);
 }

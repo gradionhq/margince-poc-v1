@@ -5,7 +5,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { pickOption } from "../design-system/select-testing";
-import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
+import {
+  AuditLogCard,
+  PipelinesCard,
+  SettingsScreen,
+  settingsAddress,
+} from "./settings";
 import {
   installFetchStub,
   jsonResponse,
@@ -49,26 +54,50 @@ const passports = () =>
   });
 
 // IT-1 governed tool console: two tools of differing tier/egress, plus a
-// read-only passport so the play() below can show the send_email row dim
+// read-only passport so the play() below can show the send_email row struck
 // (its "send" scope isn't in the selected passport's grant). Both live on the
 // personal "Your agents" entry, which no grant gates.
+//
+// `title` and `description` are REQUIRED on AgentTool and the row draws both, so
+// a fixture without them captured a console the product cannot serve: one mono
+// name per row and nothing else, which is precisely the half that made the
+// layout look settled while the real rows carry three lines of prose. The
+// governance clause is part of the served description — the server appends it —
+// so it stays here verbatim.
 const tools = () =>
   jsonResponse({
     data: [
       {
         name: "search_records",
+        title: "Search records",
+        description:
+          'Find people, organizations, deals, leads and projects by name. (Governance: runs immediately; requires passport scope "read".)',
         required_scope: "read",
         tier: "auto_execute",
         egress: false,
       },
       {
         name: "send_email",
+        title: "Send an email",
+        description:
+          'Put a mail on the wire to a real recipient, exactly as it is given. (Governance: a person approves every call before it runs; requires passport scope "send".)',
         required_scope: "send",
         tier: "confirmation_required",
         egress: true,
       },
     ],
   });
+
+// The MCP connector's own discovery document (RFC 9728), which is what the
+// connect guide builds its four commands from. Unrouted, the stub's list-shaped
+// fallback answers with no `resource` and the guide renders its error state — so
+// every story on the agents tab that shows the guide has to say which of the two
+// worlds it is in.
+const connectorOn = () =>
+  jsonResponse({ resource: "https://crm.acme.test/mcp" });
+
+const connectorOff = () =>
+  jsonResponse({ title: "no MCP connector on this installation" }, 404);
 
 // Attribution names the PERSON and says a machine did the typing second
 // (PD-002), so the fixture carries the resolved names the read path returns and
@@ -152,7 +181,7 @@ function tab(tabId: string, routes: RouteMap) {
     installFetchStub(routes);
     return (
       <StoryProviders>
-        <SettingsScreen tab={tabId} />
+        <SettingsScreen route={settingsAddress(tabId)} />
       </StoryProviders>
     );
   };
@@ -166,13 +195,24 @@ export default meta;
 
 type Story = StoryObj<typeof SettingsScreen>;
 
+// The whole tab is ONE card now: the identity block as its subject, and the
+// password, the sign-off and the language as three rows under it, each answer at
+// the same x. It used to be four panels with four header bands.
 export const AccountTab: Story = {
   render: tab("account", { "GET /me": me() }),
 };
 
-// Theme and language sit on this tab because they belong to the person, not to
-// the sidebar. The play() opens the language listbox so the capture carries the
-// options rather than only the control's closed face.
+// And in dark, because the card is a plate (the identity block) sitting above a
+// ruled list, and the hairline between two decisions plus the avatar's tint are
+// three derived values that move between themes.
+export const AccountTabDark: Story = {
+  globals: { theme: "dark" },
+  render: tab("account", { "GET /me": me() }),
+};
+
+// Language belongs to the person, not to the sidebar. The play() opens the
+// listbox so the capture carries the options rather than only the control's
+// closed face.
 export const AccountPreferences: Story = {
   render: tab("account", { "GET /me": me() }),
   play: async ({ canvasElement }) => {
@@ -183,10 +223,56 @@ export const AccountPreferences: Story = {
   },
 };
 
-// The person's own agent authority: the autonomy table, the passports they have
-// minted, the clients holding one, and the tools those credentials reach.
+// The sign-off's editor. A textarea committed with a Save button is the settings
+// page's modal case, not its row case, so the row states what the signature
+// currently says and the verb opens the form — which is the state this captures.
+export const AccountSignatureDialog: Story = {
+  name: "Account — edit signature",
+  render: tab("account", {
+    "GET /me": me(),
+    "GET /me/email-signature": () =>
+      jsonResponse({ body: "Marek Janetzke\nGradion · +49 40 123456" }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Edit signature…" }),
+    );
+  },
+};
+
+// The person's own agent authority, and the one page the founder reads for
+// whether the four cards on it space alike: the passports minted, the clients
+// holding one (with the connect guide open, because nothing is connected), the
+// governed tools those credentials reach, and the autonomy tiers they run under.
+const agentsTabRoutes = {
+  "GET /me": me(),
+  "GET /passports": passports,
+  "GET /agent-tools": tools,
+  "GET /.well-known/oauth-protected-resource": connectorOn,
+};
+
 export const AgentsTab: Story = {
-  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  render: tab("agents", agentsTabRoutes),
+};
+
+// Dark, because the whole page is now hairlines between rows and chips against a
+// card ground — both derived values that move with the theme, and the interval
+// between two cards is only legible if the rule between two rows is.
+export const AgentsTabDark: Story = {
+  globals: { theme: "dark" },
+  render: tab("agents", agentsTabRoutes),
+};
+
+// The connector switched off: the guide has no commands to print, so its one row
+// says so and says what still works. It is the state a default install is in, and
+// it used to render as a bold line and a paragraph flush against the disclosure.
+export const AgentsConnectorOff: Story = {
+  name: "Your agents — MCP connector off",
+  render: tab("agents", {
+    ...agentsTabRoutes,
+    "GET /.well-known/oauth-protected-resource": connectorOff,
+  }),
 };
 
 // AS-2 kill-switch: PassportCard revoke is a hard DELETE behind a ConfirmModal.
@@ -194,7 +280,7 @@ export const AgentsTab: Story = {
 // (non-revoked) passport, click Revoke, leave the confirm modal open so the
 // guarded state is what the render gate captures.
 export const PassportRevokeConfirm: Story = {
-  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  render: tab("agents", agentsTabRoutes),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const revokeButton = await canvas.findByRole("button", { name: "Revoke" });
@@ -208,11 +294,11 @@ export const PassportRevokeConfirm: Story = {
 // the field ended and the choices began.
 export const PassportMintDrawer: Story = {
   name: "Mint a passport",
-  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  render: tab("agents", agentsTabRoutes),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
-      await canvas.findByRole("button", { name: "Mint passport" }),
+      await canvas.findByRole("button", { name: "New passport" }),
     );
   },
 };
@@ -223,24 +309,20 @@ export const PassportMintDrawer: Story = {
 export const PassportMintDrawerDark: Story = {
   name: "Mint a passport — dark",
   globals: { theme: "dark" },
-  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  render: tab("agents", agentsTabRoutes),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
-      await canvas.findByRole("button", { name: "Mint passport" }),
+      await canvas.findByRole("button", { name: "New passport" }),
     );
   },
 };
 
 // The governed tool console renders the inventory unfiltered by default,
-// then dims the send_email row once the read-only "Scout" passport (whose
+// then strikes the send_email row once the read-only "Scout" passport (whose
 // only granted scope is "read") is selected — its required "send" scope
 // is absent from that grant.
-const toolConsoleRoutes = {
-  "GET /me": me(),
-  "GET /passports": passports,
-  "GET /agent-tools": tools,
-};
+const toolConsoleRoutes = agentsTabRoutes;
 
 // Selects the read-only passport, so the send_email row is dimmed. Shared with
 // the dark variant below, which is about that dimming and nothing else.
@@ -330,6 +412,32 @@ export const PrivacyTabPhone: Story = {
   globals: { viewport: { value: "phone" } },
   tags: ["uat-phone"],
   render: tab("privacy", privacyRoutes),
+};
+
+// The Maintenance entry's danger zone: the ONE control on this screen that
+// destroys an installation's data, so it is gated twice — the literal admin role
+// AND the switch a deployment arms — and it is one ROW now, with the verb in the
+// right column beside what it does. The whole card is still absent on either
+// gate: an action-only surface holds no fact a reader could misread as "zero".
+export const MaintenanceDangerZone: Story = {
+  name: "Maintenance — danger zone",
+  render: tab("maintenance", {
+    "GET /me": () =>
+      jsonResponse({
+        ...meFixture({
+          roles: ["admin"],
+          allow: { embedding_reindex: ["read", "update"] },
+        }),
+        workspace_name: "Acme Inc",
+        data_reset_available: true,
+      }),
+    "GET /admin/job-health": () =>
+      jsonResponse({
+        generated_at: "2026-08-13T09:30:00Z",
+        kinds: [],
+        recent_failures: [],
+      }),
+  }),
 };
 
 // PipelinesCard (D-8, on the Data model entry) reads GET /me (roles →
@@ -458,8 +566,8 @@ const auditLogPage = {
 const auditLogMe = (roles: string[]) =>
   jsonResponse({ user: { id: "u-1", display_name: "Me" }, roles, teams: [] });
 
-export const AuditLog: Story = {
-  render: () => {
+function auditLogCard() {
+  return () => {
     globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
     installFetchStub({
       "GET /me": () => auditLogMe(["admin"]),
@@ -472,5 +580,20 @@ export const AuditLog: Story = {
         <AuditLogCard />
       </StoryProviders>
     );
+  };
+}
+
+export const AuditLog: Story = { render: auditLogCard() };
+
+// The dials, which the card no longer spends six input boxes on before the
+// trail: they sit in a disclosure that is closed on arrival, and this is what
+// opening it looks like — six rows in the same language as every other settings
+// answer, above the log they narrow.
+export const AuditLogFilters: Story = {
+  name: "Audit log — filters open",
+  render: auditLogCard(),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByText("Filters"));
   },
 };

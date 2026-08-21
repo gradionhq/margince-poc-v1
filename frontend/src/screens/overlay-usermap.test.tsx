@@ -560,6 +560,10 @@ describe("the mirror user-map card", () => {
     expect(
       screen.queryByText(/workspace is not in overlay mode/),
     ).not.toBeInTheDocument();
+    // Nor the words the admin typed for the other person: the dialog is mounted
+    // only while a row is picking, so the next row opens a genuinely fresh one
+    // rather than one carrying a query that was about somebody else.
+    expect(screen.getByLabelText(/search .* users/i)).toHaveValue("");
   });
 
   it("does not carry a failed unmap's error into the next confirmation", async () => {
@@ -659,15 +663,51 @@ describe("the mirror user-map card", () => {
       },
     });
     await userEvent.click(await screen.findByRole("button", { name: /^Map/ }));
-    await userEvent.type(screen.getByLabelText(/search .* users/i), "grace");
+    // The choice is made in a dialog, not in the row: a search field with its
+    // own candidate list, truncation caveat and failure state is not an answer
+    // the row can state beside the person it is about.
+    const picker = await screen.findByRole("dialog");
+    await userEvent.type(
+      within(picker).getByLabelText(/search .* users/i),
+      "grace",
+    );
     await userEvent.click(
-      await screen.findByRole("button", { name: /Grace Hopper/ }),
+      await within(picker).findByRole("button", { name: /Grace Hopper/ }),
     );
     await waitFor(() =>
       expect(requests(calls, "PUT", "/user-map/u2")).toHaveLength(1),
     );
     const body = await requests(calls, "PUT", "/user-map/u2")[0].json();
     expect(body).toEqual({ incumbent_user_id: "o2" });
+    // Picking IS the commit, so a mapping that landed leaves no dialog behind.
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("writes nothing when the picker is dismissed instead of used", async () => {
+    const { calls } = renderCard({
+      entries: [
+        {
+          user_id: "u2",
+          email: "amb@acme.test",
+          unmapped_reason: "no_email_match",
+        },
+      ],
+    });
+    await userEvent.click(await screen.findByRole("button", { name: /^Map/ }));
+    const picker = await screen.findByRole("dialog");
+    await userEvent.type(
+      within(picker).getByLabelText(/search .* users/i),
+      "grace",
+    );
+    await userEvent.click(
+      within(picker).getByRole("button", { name: /^Cancel$/ }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(requests(calls, "PUT", "/user-map/u2")).toHaveLength(0);
   });
 
   it("says the owner directory is truncated so a short list doesn't read as absence", async () => {

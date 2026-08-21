@@ -174,15 +174,23 @@ func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (g
 		if !subjectExists {
 			return apperrors.ErrNotFound
 		}
-		// Two rules bound a `write` grant and they judge different people.
-		// Scope-intersection (ADR-0039) judges the GRANTOR: EnsureLinkTarget
-		// above is satisfied by the grant arm, so a caller holding only a `read`
-		// share passes it, and this is what stops them passing on an authority
-		// their own sharer withheld. The seat ceiling (AAD-AC-4) judges the
-		// RECIPIENT. Both read the ASSERTED access, so both bind a re-assert
-		// exactly as they bind a first share — the upsert makes the second call
-		// a real write where the unique constraint used to end it.
-		if err := auth.EnsureCanGrant(ctx, tx, in.RecordType, in.RecordID, in.Access); err != nil {
+		// Two rules bind a grant and they judge different people.
+		//
+		// Scope-intersection (ADR-0039) judges the GRANTOR, at every access
+		// level. EnsureLinkTarget above is satisfied by the grant arm, so a
+		// caller whose only claim is a share passes IT — which is why the
+		// authority question is asked separately here. It is asked whatever
+		// access is asserted, because the upsert restates the whole grant: its
+		// TERM as well as its width, so a `read` assertion rewrites an existing
+		// grant's expiry, reason and access just as a `write` one does.
+		//
+		// The seat ceiling (AAD-AC-4) judges the RECIPIENT, and it reads the
+		// asserted access — a `read` grant to a read seat is fine.
+		//
+		// Both bind a re-assert exactly as they bind a first share: the upsert
+		// makes the second call a real write where the unique constraint used
+		// to end it.
+		if err := auth.EnsureCanGrant(ctx, tx, in.RecordType, in.RecordID); err != nil {
 			return err
 		}
 		if err := refuseWriteGrantToReadSeat(ctx, tx, in); err != nil {

@@ -35,7 +35,7 @@ func TestObjectLevelRBACDeniesUngrantedActions(t *testing.T) {
 	if _, err := e.People.UpdatePerson(reader, PersonIDOf(target), people.UpdatePersonInput{Title: strPtr("CEO")}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("read_only update → %v, want ErrPermissionDenied", err)
 	}
-	if _, err := e.People.ArchivePerson(reader, PersonIDOf(target)); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := e.People.ArchivePerson(reader, PersonIDOf(target), nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("read_only archive → %v, want ErrPermissionDenied", err)
 	}
 	// …but reading is granted, and row_scope=all sees the foreign-owned row.
@@ -46,7 +46,7 @@ func TestObjectLevelRBACDeniesUngrantedActions(t *testing.T) {
 	// A rep (no delete grant on person) cannot archive even an OWN record:
 	// object-level denial precedes row scope.
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
-	if _, err := e.People.ArchivePerson(rep, PersonIDOf(target)); !errors.Is(err, apperrors.ErrPermissionDenied) {
+	if _, err := e.People.ArchivePerson(rep, PersonIDOf(target), nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("rep archive own → %v, want ErrPermissionDenied", err)
 	}
 }

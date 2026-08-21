@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/geocode"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -171,6 +172,10 @@ type JobRunnerConfig struct {
 	// FAILS with a message the rep can see rather than sitting queued behind a
 	// worker that will never pick it up.
 	TranscriptProposeBrain completer
+	// Geocoder resolves a company's address to a point. Nil in a deployment
+	// that geocodes nothing — an offline demo, or one that has not been given
+	// a provider — and the worker records that rather than retrying forever.
+	Geocoder geocode.Client
 	// DocumentExtractBrain is the lane a queued document reading runs on. Nil =
 	// no AI configured, and the kind registers anyway so the reading FAILS with
 	// a message the rep can see rather than sitting queued behind a worker that
@@ -384,6 +389,7 @@ func addModelLaneJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig,
 		newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, cfg.DeepReadTriageBrain, log, cfg.DeepReadCaps, cfg.Blobstore),
 		deepReadTimeout(cfg.DeepReadCaps))
 	addDeclaredWorker[TranscriptProposeArgs](reg, newTranscriptProposeWorker(pool, cfg.TranscriptProposeBrain, log))
+	addDeclaredWorker[GeocodeOrganizationArgs](reg, newGeocodeWorker(pool, cfg.Geocoder))
 	addDeclaredWorker[DocumentExtractArgs](reg, newDocumentExtractWorker(pool, cfg.DocumentExtractBrain, cfg.SendBlob, log))
 	addDeclaredWorker[VoiceBuildArgs](reg, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
 	addDeclaredWorker[VoiceBuildRetryArgs](reg, &voiceBuildRetryWorker{store: ai.NewVoiceStore(InstallationDB(pool)), log: log})

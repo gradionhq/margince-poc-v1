@@ -532,6 +532,7 @@ export function RelationshipsTab({
             <EmptyState>{t("rel.empty")}</EmptyState>
           ) : (
             <DataTable
+              label={t("tab.relationships")}
               columns={[
                 {
                   key: "kind",

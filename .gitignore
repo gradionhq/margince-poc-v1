@@ -58,9 +58,15 @@ coverage.out
 /backend/migrate
 /backend/mcp
 
-# Same for the tools module. `go build ./tools/seed-demo` from backend/ drops
-# an 18 MB binary here, which a `git add -A` will happily commit — it did once.
+# Same for the tools module, and BOTH paths it lands on: `go build ./tools/...`
+# from backend/ drops the binary at the first, `go build ./...` from
+# backend/tools/ drops it beside its own source at the second. A `git add -A`
+# will happily commit either — it has done both, the second time because only
+# the first was anchored here. An anchored rule is right for a build artifact
+# whose name collides with a package directory, so the two are listed rather
+# than loosened to a bare `seed-demo`.
 /backend/seed-demo
+/backend/tools/seed-demo/seed-demo
 
 # Session working notes — local only, not part of the published repo
 /review_*.md
@@ -113,6 +119,10 @@ workspace/
 # Agent debris that has slipped into the repo before — never product:
 #   - the pnpm content-addressable store (machine-local build cache)
 #   - a repo-root scratch dir (real scratch belongs in the session temp dir)
+#   - Codex visualization exports (conversation artifacts, not product source)
+#   - agent worktrees. A dispatched agent working on an isolated copy of the repo
+#     puts it here; it is a second checkout, not product, and staging it would
+#     commit the whole tree twice.
 #   - screenshots dropped at the repo root. Root-ANCHORED so tracked product
 #     assets like frontend/src/assets/*.png are unaffected.
 #   - screen RECORDINGS, by the same rule and for the same reason. Proving an
@@ -126,6 +136,8 @@ workspace/
 /.pnpm-store/
 /node_modules/
 /scratchpad/
+/.codex/visualizations/
+/.claude/worktrees/
 /*.png
 /*.jpg
 /*.jpeg

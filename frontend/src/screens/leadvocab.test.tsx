@@ -55,7 +55,11 @@ function source(
 
 type Call = { url: string; method: string; body: unknown };
 
-function backend(allow: GrantSpec, calls: Call[] = []) {
+// `slaOn` seeds the stored first-response posture: the target box is inert
+// while the target is off, so a case about the NUMBER has to start from an
+// installation that tracks one. The stub answers the same body every read, so
+// flipping the switch inside a test would not enable the box.
+function backend(allow: GrantSpec, calls: Call[] = [], slaOn = false) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
@@ -90,7 +94,7 @@ function backend(allow: GrantSpec, calls: Call[] = []) {
       body = source("r2", "Went quiet");
     } else if (url.endsWith("/leads/settings")) {
       body = {
-        first_response_enabled: false,
+        first_response_enabled: slaOn,
         first_response_target_minutes: 240,
       };
     }
@@ -187,11 +191,19 @@ describe("LeadSourcesCard", () => {
         <LeadSourcesCard />
       </Providers>,
     );
+    // A label and a weight are committed together, so the form is a dialog the
+    // card's HEADER verb opens. The verb and the submit read differently on
+    // purpose — "New source" against "Add source" — so neither query finds the
+    // other.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "New source" }),
+    );
+    const dialog = within(screen.getByRole("dialog"));
     await userEvent.type(
-      await screen.findByTestId("lead-source-new-label"),
+      dialog.getByTestId("lead-source-new-label"),
       "Webinar",
     );
-    await userEvent.click(screen.getByRole("button", { name: "Add source" }));
+    await userEvent.click(dialog.getByRole("button", { name: "Add source" }));
     await waitFor(() =>
       expect(
         calls.some(
@@ -203,6 +215,9 @@ describe("LeadSourcesCard", () => {
         ),
       ).toBe(true),
     );
+    // The dialog goes on success: a committed source has nothing left to type
+    // into, and the list behind it is where the answer now is.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByText("7 leads")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Add to list" }));
     await waitFor(() =>
@@ -231,6 +246,7 @@ describe("LeadSourcesCard", () => {
     expect(
       screen.getByText("Only an admin or ops seat changes this list."),
     ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add a source…" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add source" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
   });
@@ -286,6 +302,35 @@ describe("LeadHandlingCard", () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it("refuses a target outside the server's bounds without writing, and says what it wants", async () => {
+    const calls: Call[] = [];
+    vi.stubGlobal("fetch", backend(ADMIN, calls, true));
+    render(
+      <Providers>
+        <LeadHandlingCard />
+      </Providers>,
+    );
+    const minutes = (await screen.findByTestId(
+      "lead-first-response-target",
+    )) as HTMLInputElement;
+    expect(minutes.disabled).toBe(false);
+    await userEvent.clear(minutes);
+    await userEvent.type(minutes, "2{Tab}");
+    // The refusal is announced and attached to the control that holds the
+    // value, so a reader who cannot see the row still hears the rule.
+    const refusal = await screen.findByRole("alert");
+    expect(refusal.textContent).toContain("between 15 and 10080");
+    expect(minutes.getAttribute("aria-invalid")).toBe("true");
+    expect(minutes.getAttribute("aria-describedby")).toContain(refusal.id);
+    expect(
+      calls.some(
+        (c) =>
+          c.method === "PATCH" &&
+          JSON.stringify(c.body).includes("first_response_target_minutes"),
+      ),
+    ).toBe(false);
   });
 
   it("refuses the flip for a reader and says why", async () => {

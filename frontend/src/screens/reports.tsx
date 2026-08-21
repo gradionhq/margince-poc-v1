@@ -320,6 +320,7 @@ function CompanyTable({
   const t = useT();
   return (
     <DataTable
+      label={t("reports.reportOpenByCompany")}
       columns={[
         {
           key: "company",
@@ -420,6 +421,7 @@ function StageTable({
   const aggregates = buildStageAggregates(rows, stages);
   return (
     <DataTable
+      label={t("reports.reportDeals")}
       columns={[
         {
           key: "stage",
@@ -477,6 +479,7 @@ function DerivationRows({ derivation }: Readonly<{ derivation: Derivation }>) {
         <p className="t-caption">{t("common.empty")}</p>
       ) : (
         <DataTable
+          label={t("explain.sources")}
           columns={derivation.columns.map((col) => ({
             key: col,
             header: col,

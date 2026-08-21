@@ -184,9 +184,12 @@ func (s *Store) SetRawTx(ctx context.Context, tx pgx.Tx, key string, next json.R
 			key, next); err != nil {
 			return fmt.Errorf("settings: writing %s: %w", key, err)
 		}
+		// Through the entry's own image, so a setting holding the address of a
+		// secret is redacted here rather than at each writer — there is only one
+		// writer today, and the next one would not know to.
 		if _, err := storekit.Audit(ctx, tx, def.AuditVerb(), def.Object(), storekit.MustWorkspace(ctx),
-			map[string]any{key: json.RawMessage(before)},
-			map[string]any{key: json.RawMessage(next)}); err != nil {
+			map[string]any{key: def.AuditImage(before)},
+			map[string]any{key: def.AuditImage(next)}); err != nil {
 			return fmt.Errorf("settings: auditing %s: %w", key, err)
 		}
 	}

@@ -2,26 +2,54 @@
    posture. One list shape for both vocabularies, so a source row and a reason
    row line up under each other. */
 
+/* No horizontal padding: the list sits inside a SettingRow now, whose column
+   is already inset by the panel body. The 16px this used to add was the inset a
+   full-bleed list under a card body needed, and keeping it would step the rows
+   in from the label that names them. */
 .lead-vocab-list {
   list-style: none;
   margin: 0;
-  padding: 0 var(--space-4);
+  padding: 0;
 }
 
 /* A row is one record: label (editable), its key, what it is worth, how many
    leads carry it, and its flags. It wraps on a narrow column rather than
-   squeezing the label it is about. */
+   squeezing the label it is about.
+
+   `--borderSubtle` is the token the row language draws its hairline from
+   (design-system/settingrow.css). This asked for `--color-border-subtle`, which
+   this product does not define — so the fallback won and every separator in both
+   vocabularies has been transparent, leaving a list of records reading as one
+   block of text. */
 .lead-vocab-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-border-subtle, transparent);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+/* The hairline belongs BETWEEN records: a rule under the last one lands a pixel
+   above the SettingList's own, where the two read as one thick border. */
+.lead-vocab-list > .lead-vocab-row:last-child {
+  border-bottom: 0;
 }
 
 .lead-vocab-row > .lead-vocab-rename {
   flex: 1 1 180px;
+  width: auto;
+}
+
+/* The intent picker, held to a measure inside the row's line. `Select`'s face is
+   an `.input`, which is `width: 100%` — and a 100% flex item takes the WHOLE
+   line, so at the settings page's 720px measure every source came out as three
+   stacked full-width boxes and the list read as a wall of grey rather than one
+   line per record. Same rule the add form's box already needed below, and the
+   same one the pinned-record field needs in retention.css. */
+.lead-vocab-row > .select-control {
+  flex: 0 1 10rem;
+  min-width: 0;
   width: auto;
 }
 
@@ -41,21 +69,46 @@
   margin-left: auto;
 }
 
-/* The add row reads as one line: label, intent, submit. */
+/* The card's own band under the rows: the read-only posture, and a write the
+   server refused. It is not one more row — the posture is true of every row in
+   the list and a refusal belongs to the card — so it pays for its own interval,
+   the same one `.settings-panel-sub` pays above the list, because `SettingList`
+   owns the gaps BETWEEN rows and nothing above or below itself. */
+.lead-vocab-notices {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+/* The add row reads as one line: the box, then the verb that submits it. One
+   input and its submit is the row case, so this form sits in a SettingRow's
+   right column — the two-input source form went to a dialog, and with it the
+   `.field` wrapper this rule used to size. */
 .lead-vocab-add {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--space-2);
 }
 
-.lead-vocab-add > .field:first-child {
-  flex: 1 1 200px;
+.lead-vocab-add > .input {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.lead-handling {
+/* The target's refusal, under the box it is about. The row above it owns the
+   label and the rule; this is only what went wrong with the value typed in, so
+   it lays out in the same column as the control rather than beside it. */
+.lead-handling-target {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  max-width: 32rem;
+  gap: var(--space-1);
+}
+
+/* The ink and the size are `.field-error`'s, from the catalog; what is left
+   here is the margin a paragraph in a flex column must not keep. */
+.lead-handling-error {
+  margin: 0;
 }

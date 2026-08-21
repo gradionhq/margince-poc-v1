@@ -15,8 +15,14 @@ import { VoiceDnaCard } from "./voice-dna";
 
 // The Settings Voice DNA card off canned profile/corpus reads — never a live
 // call. Covers the owner with no profile yet, the owner still collecting (no
-// derived voice text to show), a ready profile with a full corpus, and a
-// corpus row the build excluded from that corpus.
+// derived voice text to show), a ready profile with a full corpus, a corpus row
+// the build excluded from that corpus, and the read-only seat.
+//
+// A profile that exists is three cards, and every decision inside one is a
+// settings ROW: the preferences editor is a stacked row in the voice card, the
+// derived text sits behind a disclosure beside it, the corpus manifest takes
+// the full width of its own card with the add verbs under it, and the build
+// verb is a row whose description carries the distance still to go.
 
 type VoiceProfile = components["schemas"]["VoiceProfile"];
 type VoiceCorpusSource = components["schemas"]["VoiceCorpusSource"];
@@ -129,12 +135,20 @@ const LEARNING = {
 // The card's whole subtree reads the profile, its corpus, its version history
 // and its learning aggregate; a story serves all four so no panel renders an
 // error state it did not mean to capture.
-function voiceStory(routes: RouteMap) {
+function voiceStory(routes: RouteMap, seat: "full" | "read" = "full") {
   return () => {
     installFetchStub({
       // Every control here mutates, so the card asks useCanWrite — grant AND
-      // seat. Both halves are named because they fail the same way on screen.
-      "GET /me": meRoute({ voice_profile: ["read", "create", "update"] }),
+      // seat. Both halves are named because they fail the same way on screen,
+      // and a read-only story has to withdraw both or it is not the posture it
+      // claims to draw.
+      "GET /me": meRoute(
+        {
+          voice_profile:
+            seat === "read" ? ["read"] : ["read", "create", "update"],
+        },
+        { seat },
+      ),
       "GET /voice-profiles/vp-1/versions": () => jsonResponse(emptyPage),
       "GET /voice-profiles/vp-1/deltas": () => jsonResponse(emptyPage),
       "GET /voice-profiles/vp-1/learning": () => jsonResponse(LEARNING),
@@ -149,7 +163,9 @@ function voiceStory(routes: RouteMap) {
 }
 
 const meta: Meta = {
-  title: "Settings/You/Voice/Voice DNA",
+  // Under the tab's own name, exactly as SETTINGS_TABS spells it, so the three
+  // voice leaves sit together instead of one of them under a root of its own.
+  title: "Settings/You/Writing voice/Voice DNA",
 };
 export default meta;
 
@@ -221,4 +237,24 @@ export const ExcludedSource: Story = {
     "GET /voice-profiles/vp-1/sources": () =>
       jsonResponse({ data: [SOURCE, EXCLUDED_SOURCE], summary: SUMMARY }),
   }),
+};
+
+// A seat that may READ a voice but not change one. The posture is stated once at
+// the top and the write affordances are then absent: the preferences box is
+// readOnly with no Save under it, the corpus rows keep their facts and lose
+// their remove verbs, and the build row keeps the sentence about how far the
+// corpus still has to go while offering no verb to act on it.
+export const ReadOnly: Story = {
+  render: voiceStory(
+    {
+      "GET /voice-profiles": () =>
+        jsonResponse({ data: [COLLECTING_PROFILE], page: emptyPage.page }),
+      "GET /voice-profiles/vp-1/sources": () =>
+        jsonResponse({
+          data: [COLLECTING_SOURCE],
+          summary: COLLECTING_SUMMARY,
+        }),
+    },
+    "read",
+  ),
 };

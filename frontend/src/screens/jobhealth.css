@@ -1,0 +1,29 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ * SPDX-FileCopyrightText: 2026 Gradion */
+
+/* Settings → Maintenance → Job health. Everything the row language does not
+ * already own: the counts that wrap inside one FactList value, and the remedy
+ * that has to read as a second line rather than as more of the first.
+ *
+ * Nothing here spaces the card. The card's own intervals come from
+ * `SettingList` / `SettingRow` / `PanelBody`, and the one trailing fact the card
+ * carries — when the report was read — is `Panel`'s footer band. */
+
+/* All four states of one kind, side by side. A row of pills is one value, and
+ * at a narrow width it takes a second line instead of running the card wide:
+ * the counts are always all four (a zero is a reading an operator came for), so
+ * this is the value on this card most likely to outgrow its column. */
+.jobhealth-counts {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The remedy on its own line under the reason. What happened and what to do are
+ * two readings, and a second sentence run on after the first is read as more of
+ * the first — which is how the one line an operator at 2am is here for
+ * disappears into the one they have already understood. */
+.jobhealth-remedy {
+  display: block;
+  margin-top: var(--space-1);
+}

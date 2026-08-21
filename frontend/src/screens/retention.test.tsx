@@ -137,10 +137,14 @@ async function findRow(scope: string): Promise<HTMLElement> {
   return screen.findByTestId(`retention-row-${scope}`);
 }
 
+// The window, the action, the basis and the Enabled switch are committed
+// together, so they live in the dialog the row's Edit verb opens rather than in
+// a panel that unfolds under the row. Every assertion about the editor is
+// therefore scoped to the DIALOG, and the row keeps only what it does tonight.
 async function openEditor(scope: string): Promise<HTMLElement> {
   const row = await findRow(scope);
   await userEvent.click(within(row).getByRole("button", { name: /edit/i }));
-  return row;
+  return screen.findByRole("dialog");
 }
 
 afterEach(() => {
@@ -312,16 +316,21 @@ describe("RetentionCard rows", () => {
     backend({ retainOnly: false });
     render(<RetentionCard />);
 
-    const row = await openEditor("deal/won");
-    const days = within(row).getByLabelText(/window in days/i);
+    // The editor is a dialog the row's verb opens, so "each time it opens" is
+    // now literally that: type something, leave without saving, open it again.
+    // Escape is the way out that keeps the row's Edit button reachable —
+    // reaching for it through the dialog is what this assertion used to do, and
+    // the button was never inside it.
+    const dialog = await openEditor("deal/won");
+    const days = within(dialog).getByLabelText(/window in days/i);
     await userEvent.clear(days);
     await userEvent.type(days, "900");
+    await userEvent.keyboard("{Escape}");
 
-    const edit = within(row).getByRole("button", { name: /^edit$/i });
-    await userEvent.click(edit);
-    await userEvent.click(edit);
-
-    expect(within(row).getByLabelText(/window in days/i)).toHaveValue("2555");
+    const reopened = await openEditor("deal/won");
+    expect(within(reopened).getByLabelText(/window in days/i)).toHaveValue(
+      "2555",
+    );
   });
 
   it("patches the window and action the operator edited", async () => {
@@ -430,9 +439,31 @@ describe("the retain-only posture", () => {
     expect(posture).toHaveAccessibleDescription(
       /only an admin or ops can change retention/i,
     );
-    // And what the posture DOES stays part of that description, because a reader
-    // who cannot change it still has to know what is in force.
-    expect(posture).toHaveAccessibleDescription(/destroys nothing/i);
+  });
+
+  // The posture is ONE switch, so it answers its row from the right column like
+  // every other single control in settings — it used to sit below its own label
+  // with two sentences under it, the only control on the page off the answer
+  // column's x. What the posture DOES is the row's description, in the naming
+  // column where a sentence has the width to be one.
+  it("puts the switch in the answer column and the sentence in the naming", async () => {
+    backend({ retainOnly: false });
+    render(<RetentionCard />);
+
+    const posture = await screen.findByRole("switch", {
+      name: /retain-only posture/i,
+    });
+    const row = posture.closest(".settingrow");
+    expect(row).not.toBeNull();
+    if (row instanceof HTMLElement) {
+      expect(row.className).not.toContain("settingrow-stack");
+      expect(
+        within(row)
+          .getByText(/destroys nothing/i)
+          .closest(".settingrow-naming"),
+      ).not.toBeNull();
+      expect(posture.closest(".settingrow-control")).not.toBeNull();
+    }
   });
 
   // The posture and the ladder are separate reads, and a posture that failed
@@ -638,6 +669,21 @@ describe("authoring a policy", () => {
     expect(
       screen.queryByRole("button", { name: /add policy/i }),
     ).not.toBeInTheDocument();
+  });
+
+  // A create verb is not a settings decision, so it has no row of its own — the
+  // one it had used the button's own words for a label, saying "Add policy"
+  // twice a hand apart, and it moved down the card every time a policy was
+  // authored. It rides in the panel header instead, above a ladder that grows.
+  it("carries the verb in the card header rather than in a row of its own", async () => {
+    backend({ retainOnly: false });
+    render(<RetentionCard />);
+
+    const verb = await screen.findByRole("button", { name: /add policy/i });
+    expect(verb.closest(".panel-head")).not.toBeNull();
+    expect(verb.closest(".settingrow")).toBeNull();
+    // The words are said once on the card: the row that repeated them is gone.
+    expect(screen.getAllByText(/^Add policy$/)).toHaveLength(1);
   });
 });
 

@@ -179,18 +179,41 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 }
 
 func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
+	return p.ArchiveAt(ctx, datasource.ArchiveInput{Ref: r})
+}
+
+// ArchivableTypes is datasource.RecordArchiverV2's: the two this module's
+// switch below actually serves.
+func (p *Provider) ArchivableTypes(context.Context) ([]datasource.EntityType, error) {
+	return []datasource.EntityType{datasource.EntityDeal, datasource.EntityProject}, nil
+}
+
+// RefuseArchive is datasource.RecordArchiverV2's stage-time half: each store's
+// own authority probes, run without the write.
+func (p *Provider) RefuseArchive(ctx context.Context, r datasource.EntityRef) error {
 	switch r.Type {
 	case datasource.EntityDeal:
-		v, err := p.store.ArchiveDeal(ctx, ids.From[ids.DealKind](r.ID))
+		return p.store.RefuseArchiveDeal(ctx, ids.From[ids.DealKind](r.ID))
+	case datasource.EntityProject:
+		return p.store.RefuseArchiveProject(ctx, ids.From[ids.ProjectKind](r.ID))
+	default:
+		return &datasource.UnsupportedEntityError{Type: string(r.Type)}
+	}
+}
+
+// ArchiveAt is Archive carrying the version the caller's authority named. The
+// project half already took an If-Match and was handed nil because the seam's
+// verb had no field for one; it now gets the caller's.
+func (p *Provider) ArchiveAt(ctx context.Context, in datasource.ArchiveInput) (datasource.EntityRef, error) {
+	switch in.Ref.Type {
+	case datasource.EntityDeal:
+		v, err := p.store.ArchiveDeal(ctx, ids.From[ids.DealKind](in.Ref.ID), in.IfVersion)
 		return ref(datasource.EntityDeal, v.Id), err
 	case datasource.EntityProject:
-		// No If-Match on the seam's archive verb: the agent surface has no
-		// version to carry, so the archive runs unguarded exactly as the
-		// deal's does.
-		v, err := p.store.ArchiveProject(ctx, ids.From[ids.ProjectKind](r.ID), nil)
+		v, err := p.store.ArchiveProject(ctx, ids.From[ids.ProjectKind](in.Ref.ID), in.IfVersion)
 		return ref(datasource.EntityProject, v.Id), err
 	default:
-		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
+		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
 	}
 }
 

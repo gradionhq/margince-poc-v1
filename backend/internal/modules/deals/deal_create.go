@@ -211,11 +211,17 @@ func ensureBirthLinksVisible(ctx context.Context, tx pgx.Tx, in CreateDealInput)
 	if in.PartnerOrganizationID != nil {
 		links = append(links, recordLink{linkEntityOrganization, in.PartnerOrganizationID.UUID})
 	}
-	if in.ProjectID != nil {
-		links = append(links, recordLink{linkEntityProject, in.ProjectID.UUID})
-	}
 	for _, link := range links {
 		if err := auth.EnsureLinkTarget(ctx, tx, link.entity, link.id); err != nil {
+			return err
+		}
+	}
+	// The project pointer is held to a higher bar than the rest: winning this
+	// deal advances the project's phase without re-checking the caller's
+	// authority over it, so attaching is where that authority is proven.
+	// ensureProjectAttachable says the whole reasoning.
+	if in.ProjectID != nil {
+		if err := ensureProjectAttachable(ctx, tx, in.ProjectID.UUID); err != nil {
 			return err
 		}
 	}
@@ -254,6 +260,14 @@ func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInpu
 
 	if err := ensureBirthLinksVisible(ctx, tx, in); err != nil {
 		return crmcontracts.Deal{}, err
+	}
+	// Visible is not enough for the partner: it must actually BE one, or the
+	// deal reads as credited and can never earn anything (the accrual prices
+	// from the partner row's margin tier).
+	if in.PartnerOrganizationID != nil {
+		if err := s.installation.EnsurePartner(ctx, tx, *in.PartnerOrganizationID); err != nil {
+			return crmcontracts.Deal{}, err
+		}
 	}
 
 	id := ids.New[ids.DealKind]()

@@ -105,7 +105,7 @@ func parseAITaskFlags(args []string) (aiTaskFlags, error) {
 	fs.StringVar(&cfg.scenarioPath, "scenario", "", "scenario file in the corpus format, carrying both fixture and expectation")
 	fs.StringVar(&cfg.fixturePath, "fixture", "", "fixture JSON file; needs --site, and --expect for sites that validate one")
 	fs.StringVar(&cfg.expectPath, "expect", "", "expected-answer JSON file, the half --fixture does not carry")
-	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to ai-routing.yaml")
+	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "the model binding for THIS debug run, read straight from the file. This lane opens no database, so the installation's stored binding is not what it probes — pick exactly one of --ai-routing, --model, --ai-fake")
 	fs.StringVar(&cfg.modelSpec, "model", "", "direct model override, provider:model (e.g. anthropic:claude-sonnet-4-6)")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "offline fake model: drives the seam without spending anything")
 	fs.StringVar(&cfg.jsonPath, "json", "", "write the machine-readable probe result here ('-' = stdout)")

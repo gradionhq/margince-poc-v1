@@ -150,11 +150,16 @@ func querySchemaDocument(vocab Vocabulary) querySchemaDoc {
 				"what was not understood. Nothing is coerced, and no plan is narrowed to the part " +
 				"that was recognised.",
 		},
-		Unavailable: []querySchemaUnavailable{{
-			Op:      OpWithinRadius,
-			Answers: CodeDistanceRankingUnavailable,
-			Because: "records carry no normalized coordinates yet; ask for a city or region as an exact predicate instead.",
-		}},
+		// EMPTY, and that is the change. within_radius used to be declared
+		// permanently unavailable here because no record carried coordinates;
+		// companies do now, so the operator answers for them.
+		//
+		// It is still unavailable for a record type that is not SOMEWHERE — a
+		// person's address is where they live, which this product does not
+		// geocode — but that is a per-target fact rather than a property of the
+		// deployment, so it is answered per call rather than declared here. A
+		// caller asking anyway gets the same note, naming the predicate.
+		Unavailable: []querySchemaUnavailable{},
 	}
 	for _, target := range vocab.Targets {
 		doc.Targets = append(doc.Targets, querySchemaTargetOf(target))

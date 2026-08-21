@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import { meFixture } from "../app/mefixture";
 import { FxRatesCard, ModelCostsCard } from "./rates";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -78,7 +79,7 @@ function RateSheets() {
 }
 
 const meta: Meta<typeof RateSheets> = {
-  title: "Settings/Organization/Rates and model costs",
+  title: "Settings/Admin settings/Rates and model costs",
   component: RateSheets,
 };
 export default meta;
@@ -134,6 +135,78 @@ export const Empty: Story = {
       "GET /me": admin(),
       "GET /fx-rates": () => jsonResponse({ data: [] }),
       "GET /ai-model-rates": () => jsonResponse({ data: [] }),
+    });
+    return (
+      <StoryProviders>
+        <RateSheets />
+      </StoryProviders>
+    );
+  },
+};
+
+// A reader with the read grant and no write verb: the sheet, the row that names
+// it, and one caption saying why nothing here can be changed. The panel draws no
+// action band at all — a withheld write affordance inside a readable surface is
+// absent, not disabled, because the surface has already said what this is.
+export const ReadOnly: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": () =>
+        jsonResponse(
+          meFixture({ allow: { fx_rate: ["read"], ai_model_rate: ["read"] } }),
+        ),
+      "GET /fx-rates": () => jsonResponse(FX),
+      "GET /ai-model-rates": () => jsonResponse(MODELS),
+    });
+    return (
+      <StoryProviders>
+        <RateSheets />
+      </StoryProviders>
+    );
+  },
+};
+
+/** Open a dialog the way the reader does: the sheets hold the open state
+ *  themselves, so the frame has to press the verb in the action band. */
+function openDialog(name: string) {
+  return async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name }));
+  };
+}
+
+// Setting a currency rate: three boxes submitted together, so they live behind
+// the verb rather than on the card, and each one is a `Field` — the label above
+// its control, the id owned by the field, the save row right-aligned at the
+// bottom.
+export const SetRateDialog: Story = {
+  name: "Set rate dialog",
+  play: openDialog("Set rate"),
+  render: () => {
+    installFetchStub({
+      "GET /me": admin(),
+      "GET /fx-rates": () => jsonResponse(FX),
+      "GET /ai-model-rates": () => jsonResponse(MODELS),
+    });
+    return (
+      <StoryProviders>
+        <RateSheets />
+      </StoryProviders>
+    );
+  },
+};
+
+// The model price dialog, which asks the same question seven times over — the
+// case the shared `Field` spelling was worth having, and the tallest form either
+// sheet opens.
+export const ModelPriceDialog: Story = {
+  name: "Model price dialog",
+  play: openDialog("Add model rate"),
+  render: () => {
+    installFetchStub({
+      "GET /me": admin(),
+      "GET /fx-rates": () => jsonResponse(FX),
+      "GET /ai-model-rates": () => jsonResponse(MODELS),
     });
     return (
       <StoryProviders>

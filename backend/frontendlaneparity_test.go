@@ -5,6 +5,7 @@ package backendarch
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -168,9 +169,54 @@ type workflow struct {
 // ciGateTargets is every make target invoked by a job the required fan-in
 // depends on. Parsed as YAML rather than grepped, so a commented-out step or a
 // job outside the fan-in's `needs` cannot pass for coverage.
+// gateWorkflowDeclaring finds the merge-gate workflow that declares `job`.
+//
+// The fan-in used to live in ci.yml; it now lives in the frontend lane that
+// ci.yml calls. Searching the workflow directory for whichever file declares the
+// job means this gate follows the next move too, instead of failing with
+// "the lane's work moved out from behind the required check" when the work is
+// exactly where it should be — one file over.
+func gateWorkflowDeclaring(t *testing.T, job string) string {
+	t.Helper()
+	paths, err := filepath.Glob("../.github/workflows/*.yml")
+	if err != nil {
+		t.Fatalf("listing workflows: %v", err)
+	}
+	var found []string
+	for _, path := range paths {
+		body, err := os.ReadFile(path) // #nosec G304 -- a repo-relative path from the glob above
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		var parsed workflow
+		if err := yaml.Unmarshal(body, &parsed); err != nil {
+			// A workflow this gate cannot parse is not necessarily the one it
+			// wants; the assertion below fails if none of them is.
+			continue
+		}
+		// The fan-in is the job that DOES the asserting, so it has steps. The
+		// caller carries a job of the same name that only delegates (`uses:`),
+		// with no steps of its own — matching that one would walk the caller's
+		// `needs` (the classifier) instead of the lane's three legs.
+		declared, ok := parsed.Jobs[job]
+		if ok && len(declared.Needs) > 0 && len(declared.Steps) > 0 {
+			found = append(found, path)
+		}
+	}
+	switch len(found) {
+	case 1:
+		return found[0]
+	case 0:
+		t.Fatalf("no workflow under ../.github/workflows declares a %q job with needs — the required check was renamed or retired, so nothing here gates the lane", job)
+	default:
+		t.Fatalf("%d workflows declare a %q fan-in (%s) — two definitions of one required check drift, and this gate cannot tell which one runs", len(found), job, strings.Join(found, ", "))
+	}
+	return ""
+}
+
 func ciGateTargets(t *testing.T, path string) []string {
 	t.Helper()
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(path) // #nosec G304 -- a repo-relative workflow path
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
 	}
@@ -203,7 +249,7 @@ func TestEveryLocalFrontendGateLegRunsInCI(t *testing.T) {
 	if len(local) < 2 {
 		t.Fatalf("%q reaches no other target — the local gate lost its legs, or this gate stopped being able to see them", localGateRoot)
 	}
-	ciRoots := ciGateTargets(t, "../.github/workflows/ci.yml")
+	ciRoots := ciGateTargets(t, gateWorkflowDeclaring(t, requiredFanInJob))
 	inCI := reachable(targets, ciRoots...)
 
 	for leg := range local {

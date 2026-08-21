@@ -14,9 +14,11 @@ package integration
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -235,4 +237,152 @@ func TestAuditLogResolvesTheHumanBehindEveryRow(t *testing.T) {
 	if !sawUnresolvable {
 		t.Error("a human actor_id matching no app_user must resolve to no name, not be dropped")
 	}
+}
+
+// The audit image carries an activity's SUBJECT verbatim — LogActivity writes
+// {kind, subject}, and the update delta writes subject in full while reducing
+// body to presence. An activity's audience is a property of the row that a
+// human set, and it deliberately does not yield to row_scope=all, so
+// RequireAdmin on this endpoint is not an answer to it: without the audience
+// arm, the one reader the limit is chiefly about reads the withheld subject
+// straight out of the compliance trail.
+//
+// The row still comes back. A compliance trail with holes in it is its own
+// defect, so the actor, action, entity and timestamp are all answered and only
+// the IMAGE is withheld.
+func TestAuditLogWithholdsALimitedActivitysImageFromOutsideItsAudience(t *testing.T) {
+	e := Setup(t)
+	author := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLifecyclePerms)
+	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
+
+	subject := "Q3 renewal terms"
+	body := "confidential pricing"
+	logged, _, err := e.Activities.LogActivity(author, activities.LogActivityInput{
+		Kind: "email", Subject: &subject, Body: &body, Direction: strPtr("outbound"),
+		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: contact}},
+	})
+	if err != nil {
+		t.Fatalf("log: %v", err)
+	}
+	activityID := ids.UUID(logged.Id)
+
+	// Before the limit, the admin's compliance read carries the subject — which
+	// is correct, and is what makes the assertion after the limit about the
+	// AUDIENCE rather than about the image never being there.
+	if !auditImageMentions(t, e, "activity", activityID, subject) {
+		t.Fatal("the audit image does not carry the subject before the limit; " +
+			"the assertions below would pass whatever the audience arm did")
+	}
+
+	if _, err := e.Activities.SetAudience(author, ids.From[ids.ActivityKind](activityID),
+		activities.SetAudienceInput{Audience: "participants"}); err != nil {
+		t.Fatalf("author limiting: %v", err)
+	}
+
+	if auditImageMentions(t, e, "activity", activityID, subject) {
+		t.Error("the admin reads a limited activity's subject through GET /audit-log — " +
+			"the audience limit is exactly the disclosure this prevents")
+	}
+
+	// The row is withheld, not dropped, and everything the audience has no
+	// claim over still answers.
+	entries := auditEntriesFor(t, e, "activity", activityID)
+	if len(entries) == 0 {
+		t.Fatal("the limited activity's audit rows vanished from the trail; " +
+			"withholding the image must not put a hole in the ledger")
+	}
+	for _, entry := range entries {
+		if entry.Action == "" || entry.EntityType != "activity" || entry.OccurredAt.IsZero() {
+			t.Errorf("a withheld row lost its safe markers: %+v", entry)
+		}
+		if entry.ActorID == "" {
+			t.Errorf("a withheld row lost its actor, which the audience does not govern: %+v", entry)
+		}
+	}
+}
+
+// The mirror. An arm that withheld from EVERYONE would pass the test above
+// while destroying the compliance read, and nothing else here would notice.
+func TestAuditLogKeepsTheImageForAReaderInsideTheAudience(t *testing.T) {
+	e := Setup(t)
+	author := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLifecyclePerms)
+	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
+
+	subject := "Q3 renewal terms"
+	logged, _, err := e.Activities.LogActivity(author, activities.LogActivityInput{
+		Kind: "email", Subject: &subject, Direction: strPtr("outbound"),
+		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: contact}},
+	})
+	if err != nil {
+		t.Fatalf("log: %v", err)
+	}
+	activityID := ids.UUID(logged.Id)
+
+	// `selected`, naming the admin who then runs the compliance read: inside the
+	// audience, so the image is theirs to see.
+	if _, err := e.Activities.SetAudience(author, ids.From[ids.ActivityKind](activityID),
+		activities.SetAudienceInput{
+			Audience: "selected",
+			Members:  []activities.AudienceMember{{SubjectType: "user", SubjectID: e.AdminUser}},
+		}); err != nil {
+		t.Fatalf("author limiting to a selected audience: %v", err)
+	}
+
+	if !auditImageMentions(t, e, "activity", activityID, subject) {
+		t.Error("an admin NAMED in the audience cannot read the image — the arm " +
+			"withholds from readers the limit admits, which breaks the compliance read")
+	}
+}
+
+// A non-activity audit row has no audience to answer to and must be untouched
+// by the join. entity_id is a bare uuid across every entity type, so this is
+// what proves the entity_type test in the join is load-bearing rather than
+// decorative.
+func TestAuditLogLeavesANonActivityImageAlone(t *testing.T) {
+	e := Setup(t)
+	person := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
+
+	entries := auditEntriesFor(t, e, "person", person)
+	if len(entries) == 0 {
+		t.Fatal("seeding a person wrote no audit row; this test would assert nothing")
+	}
+	for _, entry := range entries {
+		if entry.EntityType != "person" {
+			continue
+		}
+		if len(entry.After) == 0 {
+			continue
+		}
+		if strings.Contains(string(entry.After), "content_state") {
+			t.Errorf("a person's audit image came back withheld: %s", entry.After)
+		}
+	}
+}
+
+// auditEntriesFor is the admin's compliance read narrowed to one record. The
+// caller names the entity type rather than the helper guessing it: guessing
+// makes the SUBJECT of the assertion depend on a database probe, so a seeding
+// change could silently move a test from the redacted path to the untouched one
+// and it would still pass.
+func auditEntriesFor(t *testing.T, e *Env, entityType string, entity ids.UUID) []privacy.AuditEntry {
+	t.Helper()
+	page, err := privacy.ListAuditLog(e.Admin(), e.DB(), privacy.AuditFilter{
+		EntityType: &entityType, EntityID: &entity,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditLog: %v", err)
+	}
+	return page.Entries
+}
+
+// auditImageMentions reports whether the admin's compliance read hands back the
+// given text in either record image.
+func auditImageMentions(t *testing.T, e *Env, entityType string, entity ids.UUID, text string) bool {
+	t.Helper()
+	for _, entry := range auditEntriesFor(t, e, entityType, entity) {
+		if strings.Contains(string(entry.Before), text) || strings.Contains(string(entry.After), text) {
+			return true
+		}
+	}
+	return false
 }

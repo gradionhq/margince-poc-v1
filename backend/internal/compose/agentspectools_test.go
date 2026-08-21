@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose/agentactivity"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // A catalog entry's allowlist is a list of NAMES, and a name is only as good as
@@ -173,4 +175,37 @@ func containsName(names []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// The wire declares an `awaiting_approval` state, the store puts it in the
+// running list, and agent_run's CHECK admits it — but no locale carries a word
+// for it, on the argument that the shipped catalog cannot stage a confirmation.
+// That argument is a property of the catalog, not of the reader, and the day an
+// entry gains a 🟡 tool the orb turns "working" with nothing said anywhere. So
+// the property is asserted rather than argued: every tool every spec names
+// resolves to the auto-execute tier.
+//
+// TierDynamic fails too, and deliberately: a resolver may only ever RAISE to
+// confirmation_required, so a dynamic tool is a tool that can suspend a run.
+func TestEveryScheduledAgentsToolsAreAutoExecute(t *testing.T) {
+	tiers := map[string]mcp.RiskTier{}
+	for _, spec := range NewRegistry(nil, SendPath{}).Specs() {
+		tiers[spec.Name] = spec.Tier
+	}
+	for _, spec := range runner.Catalog() {
+		for _, name := range spec.Tools {
+			tier, registered := tiers[name]
+			if !registered {
+				// Named-but-unregistered is TestEveryAgentSpecNamesRegisteredTools'
+				// finding; reporting it twice buries the tier failure.
+				continue
+			}
+			if tier != mcp.TierAutoExecute {
+				t.Errorf("agent %q may call %q, which is not auto-execute — the run can suspend on a "+
+					"staged approval and report state %q, which no locale has copy for. Either drop the "+
+					"tool from the entry, or ship the copy for that state in en/de/vi first",
+					spec.Name, name, agentactivity.StateAwaitingApproval)
+			}
+		}
+	}
 }

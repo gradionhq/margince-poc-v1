@@ -11,11 +11,12 @@ import {
   type CSSProperties,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { useT } from "../i18n";
-import { Checkbox } from "./atoms";
+import { Checkbox, useScrollRegion } from "./atoms";
 import {
   CountLine,
   type ListChip,
@@ -66,6 +67,13 @@ export type ListColumn<Row> = {
    * identity column has to stay: it is what makes a row recognisable.
    */
   fixed?: boolean;
+  /**
+   * This column holds the row's VERBS, not a value. It is then sized by the
+   * buttons in it rather than by a share of the table's width — a share the
+   * page happens to have room for is not a width two translated labels fit
+   * in, and a verb the reader can only half read is a verb they cannot use.
+   */
+  verbs?: boolean;
 };
 
 export type ListSelection<Row> = {
@@ -152,18 +160,47 @@ const MIN_COLUMN_WIDTH = 72;
  * known short string and never needs more, a name is the one column worth
  * reading in full, and everything else sits between them.
  *
- * The minimums are what the column stops shrinking at: below the sum of them
- * the table scrolls sideways rather than crushing every column at once.
+ * The minimums are what a column stops shrinking at: past them the table
+ * scrolls sideways rather than crushing the columns.
+ *
+ * The minimum binds PER COLUMN, not as a sum: a column whose share of the
+ * remaining width comes out under its own minimum takes the minimum, and the
+ * table grows past its box for it. Held as a sum, the narrow columns stayed
+ * narrow — an amount column on a 0.9 share was handed 87px against a 110px
+ * floor and cut its own header off, which is the whole defect this comment is
+ * standing in front of.
+ *
+ * A `share` of null means the column does not take part in that division at
+ * all: it takes its minimum, in pixels, and the shares divide what is left.
+ * A column of BUTTONS is the case — a verb's width is its translated label,
+ * which is not a fraction of anything the page decides.
  */
-const COLUMN_SIZES = {
+type ColumnSize = Readonly<{ share: number | null; min: number }>;
+
+const COLUMN_SIZES: Readonly<
+  Record<"identity" | "numeric" | "standard" | "verbs", ColumnSize>
+> = {
   identity: { share: 2.4, min: 200 },
   numeric: { share: 0.9, min: 110 },
   standard: { share: 1.3, min: 130 },
-} as const;
+  // Two labelled ghost buttons side by side, plus the cell's own padding, in
+  // the longest locale this tree ships: German turns "Edit product" into
+  // "Produkt bearbeiten". Sized for that rather than for English, because a
+  // width that fits one language and clips another is the same defect this
+  // floor exists to prevent — just harder to notice from here.
+  verbs: { share: null, min: 320 },
+};
 
-function sizeOf(column: { fixed?: boolean; numeric?: boolean }) {
+function sizeOf(column: {
+  fixed?: boolean;
+  numeric?: boolean;
+  verbs?: boolean;
+}): ColumnSize {
   if (column.fixed) {
     return COLUMN_SIZES.identity;
+  }
+  if (column.verbs) {
+    return COLUMN_SIZES.verbs;
   }
   return column.numeric ? COLUMN_SIZES.numeric : COLUMN_SIZES.standard;
 }
@@ -397,6 +434,44 @@ export function ListTable<Row>({
   // it. At rest there is nothing behind the edge, and a shadow over open space
   // reads as a seam in the table.
   const [shifted, setShifted] = useState(false);
+  // How much room the columns actually have, which only the browser knows: the
+  // same table is 654px wide in a settings column and 1342 on a list screen,
+  // and the widths below are pixels because a `<col>` cannot express a minimum
+  // any other way. Read before paint so the first frame is already right rather
+  // than every column starting at its minimum and jumping.
+  const [available, setAvailable] = useState(0);
+  // Re-read after every render, so a body that arrives late — this surface can
+  // render a board instead of its own table, and back again — is measured when
+  // it does rather than leaving every column pinned at its minimum. Setting the
+  // same width twice is a no-op, so this cannot loop.
+  useLayoutEffect(() => {
+    if (scroller.current) {
+      setAvailable(scroller.current.clientWidth);
+    }
+  });
+  // Re-attached when the scroller itself comes or goes, since an observer left
+  // holding a detached node stops following anything. The dep is a trigger
+  // rather than a value the effect reads — hence the suppression.
+  const drawsOwnTable = body === undefined || body === null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: trigger-only dep
+  useEffect(() => {
+    const scrolling = scroller.current;
+    // Measured once wherever the observer is unavailable (jsdom): the widths
+    // are right for the render that just happened, they simply stop following
+    // a resize.
+    if (!scrolling || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(() =>
+      setAvailable(scrolling.clientWidth),
+    );
+    observer.observe(scrolling);
+    return () => observer.disconnect();
+  }, [drawsOwnTable]);
+  // The body is where this surface hides columns, so it is the body that has to
+  // be reachable once it does. Named by the noun the count line already uses
+  // ("products", "deals") — the one word this component knows the list is OF.
+  const region = useScrollRegion(scroller, unit);
   useCloseOnOutsideClick(() => setColumnsOpen(false));
   // The column picker keeps its own open state rather than the surface's, so
   // it needs the same Escape path explicitly — a popover a keyboard cannot
@@ -412,38 +487,66 @@ export function ListTable<Row>({
   const pageRows = rows.slice(from, from + perPage);
 
   const shown = columns.filter((column) => !hidden.has(column.key));
-  // A column the reader has dragged keeps the width they gave it; the rest
-  // divide what is left by their shares, so hiding a column widens the others
-  // instead of leaving a gap where it was.
-  const shares = shown.reduce(
-    (total, column) => total + (widths[column.key] ? 0 : sizeOf(column).share),
-    0,
-  );
-  // What the dragged columns have already claimed. The shares divide what is
-  // left over, not the whole width: a percentage in a table resolves against
-  // the table itself, so shares that added up to the full width beside a
-  // column fixed in pixels would push the last column off the right edge.
-  const claimed = shown.reduce(
-    (total, column) => total + (widths[column.key] ?? 0),
-    0,
-  );
-  const widthOf = (column: ListColumn<Row>) => {
+  /** What a column takes in pixels outright, before any share is divided. */
+  const pinnedWidth = (column: ListColumn<Row>) => {
     const resized = widths[column.key];
     if (resized) {
-      return `${resized}px`;
+      return resized;
     }
-    if (shares <= 0) {
-      return undefined;
-    }
-    const portion = sizeOf(column).share / shares;
-    return `calc((100% - ${claimed}px) * ${portion})`;
+    const { share, min } = sizeOf(column);
+    return share === null ? min : undefined;
   };
-  // Below this the columns would be squeezed past reading, so the body scrolls
-  // sideways from here rather than shrinking any further.
-  const floor = shown.reduce(
-    (total, column) => total + (widths[column.key] ?? sizeOf(column).min),
+  // A column the reader has dragged keeps the width they gave it, and a column
+  // of verbs takes its own; the rest divide what is left by their shares, so
+  // hiding a column widens the others instead of leaving a gap where it was.
+  const shares = shown.reduce((total, column) => {
+    const { share } = sizeOf(column);
+    return (
+      total + (pinnedWidth(column) !== undefined || share === null ? 0 : share)
+    );
+  }, 0);
+  // What the pixel-sized columns have already claimed. The shares divide what
+  // is left over, not the whole width: a column fixed in pixels beside shares
+  // that added up to the whole width would push the last column off the edge.
+  const claimed = shown.reduce(
+    (total, column) => total + (pinnedWidth(column) ?? 0),
     0,
   );
+  /**
+   * Every column's width, in PIXELS, and never below the minimum it declares.
+   *
+   * Pixels rather than the percentages this once handed the colgroup, for two
+   * reasons that are really one: a `<col>` under `table-layout: fixed` honours
+   * a bare percentage and nothing else — neither `max(…)` nor a `calc()` mixing
+   * `%` with `px`, both of which Chrome discards and replaces with an equal
+   * split — so a minimum could not be expressed there, and neither could a
+   * share standing beside a column fixed in pixels. The first is why a settings
+   * table crushed its amount column to 87px and cut the header off; the second
+   * is why dragging one column collapsed every other to the same width.
+   *
+   * Below the sum of the minimums the row stops shrinking and `.lt-scroll`
+   * carries the rest, which is the whole point: a table that ran out of room
+   * scrolls, it does not quietly stop showing what is in it.
+   */
+  const spare = Math.max(0, available - claimed);
+  const widthPxOf = (column: ListColumn<Row>) => {
+    const pinned = pinnedWidth(column);
+    if (pinned !== undefined) {
+      return pinned;
+    }
+    const { share, min } = sizeOf(column);
+    // Not rounded: four columns each rounded up is a table one to four pixels
+    // wider than the box it sits in, which is a scrollbar over nothing and a
+    // tab stop into a region with nothing behind its edge. Fractional pixels
+    // sum to exactly what was divided.
+    return Math.max(min, (spare * (share ?? 0)) / shares);
+  };
+  const widthOf = (column: ListColumn<Row>) =>
+    shares <= 0 && pinnedWidth(column) === undefined
+      ? undefined
+      : `${widthPxOf(column)}px`;
+  // Where the row stops shrinking, and so where the body starts scrolling.
+  const floor = shown.reduce((total, column) => total + widthPxOf(column), 0);
   // What the columns are on screen right now, so a drag can hold the others
   // still at the width they already have. Reads the rendered header rather
   // than recomputing the shares, which is the only thing that knows what a
@@ -662,6 +765,7 @@ export function ListTable<Row>({
         <div
           className={`lt-scroll${shifted ? " shifted" : ""}`}
           ref={scroller}
+          {...region}
           onScroll={(event) => {
             const next = event.currentTarget.scrollLeft > 0;
             if (next !== shifted) {

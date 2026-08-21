@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Button, Field, TextInput } from "../design-system/atoms";
+import { useId, useState } from "react";
+import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
 import { usePasswordReveal } from "../design-system/passwordreveal";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import { isTooShort } from "./passwordrule";
@@ -20,21 +21,35 @@ import { isTooShort } from "./passwordrule";
 // The current password is what authorizes the change, not the session. So this
 // card asks for it, and the server verifies it: a session is what a stolen
 // laptop already has.
+//
+// Three fields committed together is the settings page's modal case, not its row
+// case: a row states one setting and its answer, and a credential rotation is a
+// short form with a precondition, a rule and a confirm. So the row says what the
+// setting IS and carries the verb, and the form is what the verb opens.
 
 type ChangeFields = { current: string; next: string; confirm: string };
 
 const EMPTY: ChangeFields = { current: "", next: "", confirm: "" };
 
-export function ChangePasswordCard({
+/**
+ * The password setting as one row: what it is, and the verb that changes it.
+ *
+ * Exported beside the card so the account page can place this among its other
+ * identity rows instead of giving a one-row card its own header band — the row
+ * is the unit, and which card holds it is the page's business.
+ */
+export function PasswordSettingRow({
   onChanged,
 }: Readonly<{
   // Called after a successful change. The settings page needs nothing — the
-  // sign-out below is the whole outcome there. The forced-change boundary uses
-  // it to re-probe, because the refusal that sent the user here is exactly what
-  // the change resolves.
+  // sign-out below is the whole outcome there. A caller that sent the reader
+  // here BECAUSE of a refused credential uses it to re-probe, since the change
+  // is what resolves the refusal.
   onChanged?: () => void;
 }> = {}) {
   const t = useT();
+  const titleId = useId();
+  const [open, setOpen] = useState(false);
   const [fields, setFields] = useState<ChangeFields>(EMPTY);
   const [done, setDone] = useState(false);
 
@@ -67,6 +82,10 @@ export function ChangePasswordCard({
     onSuccess: async () => {
       setFields(EMPTY);
       setDone(true);
+      // The dialog closes on success and the confirmation is left on the row
+      // behind it: a reader who has just been signed out everywhere needs the
+      // sentence, not the form they no longer have anything to type into.
+      setOpen(false);
       // The server revoked every credential for this account, this session
       // included, and cleared the cookie. Without dropping the cached identity
       // the app would keep rendering the signed-in shell against a session that
@@ -103,127 +122,175 @@ export function ChangePasswordCard({
     !tooShort &&
     fields.confirm === fields.next;
 
+  // Leaving the dialog discards what was typed, which is the honest outcome for
+  // a credential: nothing here is a draft worth restoring, and holding a typed
+  // password in state after the reader closed the form keeps it around for no
+  // one's benefit.
+  const close = () => {
+    setFields(EMPTY);
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <SettingRow
+        label={t("password.title")}
+        description={t("password.body")}
+        control={
+          <Button small variant="ghost" onClick={() => setOpen(true)}>
+            {t("password.open")}
+          </Button>
+        }
+      />
+      {/* The outcome lands on the ROW, under it, because by the time it is true
+          the dialog is gone. A Callout in its own tone, not a grey line: a
+          refused change and a successful one were the same colour once, one
+          element apart, and the only thing telling them apart was reading the
+          sentence. */}
+      {done && (
+        <Callout tone="success" live="status">
+          {t("password.done")}
+        </Callout>
+      )}
+      {open && (
+        <Modal open onClose={close} labelledBy={titleId}>
+          {/* A real form, so Enter submits it. Three password fields that could
+              only be committed by reaching for the button is not how anyone
+              types a credential, and the button carried no `type` at all —
+              Button defaults to `type="button"`, so even inside a form it would
+              not have. */}
+          <form
+            className="form-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (ready && !change.isPending) change.mutate(fields);
+            }}
+          >
+            <h2 className="t-h3 modal-title" id={titleId}>
+              {t("password.title")}
+            </h2>
+            {change.isError && (
+              <Callout tone="danger" live="alert">
+                {problemMessageOf(change.error, t, t("password.errorGeneric"))}
+              </Callout>
+            )}
+            {/* Every password field carries a reveal, this one included. A
+                mistyped CURRENT password is the cheapest of the three to
+                diagnose — the server refuses it in one round trip — but being
+                refused without being able to see what you typed is how a reader
+                concludes they have forgotten a password they know. */}
+            <Field
+              label={t("password.current")}
+              required
+              trailing={current.trailing}
+            >
+              {(control) => (
+                <TextInput
+                  {...control}
+                  type={current.type}
+                  name="current-password"
+                  autoComplete="current-password"
+                  value={fields.current}
+                  onChange={(event) => set("current")(event.target.value)}
+                />
+              )}
+            </Field>
+            {/* The new pair has the strongest claim on it: a mistyped current
+                password is refused, while a mistyped NEW one simply becomes the
+                password — with a twelve-character floor and a confirm field that
+                agreed with it. */}
+            <Field
+              label={t("password.next")}
+              required
+              error={tooShort ? t("password.tooShort") : undefined}
+              // The rule, until the rule is being broken — at which point the
+              // refusal restates it in the danger tone and a second grey copy of
+              // the same sentence underneath is noise.
+              hint={tooShort ? undefined : t("password.hint")}
+              trailing={next.trailing}
+            >
+              {(control) => (
+                <TextInput
+                  {...control}
+                  type={next.type}
+                  name="new-password"
+                  autoComplete="new-password"
+                  value={fields.next}
+                  onChange={(event) => set("next")(event.target.value)}
+                />
+              )}
+            </Field>
+            <Field
+              label={t("password.confirm")}
+              required
+              error={mismatch ? t("password.mismatch") : undefined}
+              trailing={confirm.trailing}
+            >
+              {(control) => (
+                <TextInput
+                  {...control}
+                  type={confirm.type}
+                  name="confirm-password"
+                  autoComplete="new-password"
+                  value={fields.confirm}
+                  onChange={(event) => set("confirm")(event.target.value)}
+                />
+              )}
+            </Field>
+            {/* Said before the button is pressed, not after: the change ends
+                every session including this one, so the next thing that happens
+                is a sign-in screen. A person who is not told that reads it as
+                being kicked out. */}
+            <p className="t-small">{t("password.signsYouOut")}</p>
+            <div className="form-actions">
+              <Button small variant="ghost" onClick={close}>
+                {t("password.cancel")}
+              </Button>
+              {/* Two facts, two props. `!ready` is a form that is not filled in
+                  yet and `change.isPending` is a write already on its way, and
+                  folding them into one `disabled` drew them the same: the reader
+                  could not tell "I still have to type something" from "it is
+                  going".
+
+                  The precondition stops applying once the write is out, and that
+                  guard is load bearing rather than tidy: these fields stay
+                  editable during the request, so clearing one mid-flight would
+                  otherwise flip `ready` false, hand the button `disabled` on top
+                  of `pending`, and — since refusal outranks busy — drop both the
+                  focus and the busy state in the middle of the change. */}
+              <Button
+                small
+                type="submit"
+                variant="primary"
+                disabled={!change.isPending && !ready}
+                pending={change.isPending}
+                busyLabel={t("password.changing")}
+              >
+                {t("password.submit")}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/**
+ * The same setting as a card of its own, for a page that has nothing else to
+ * put beside it.
+ */
+export function ChangePasswordCard({
+  onChanged,
+}: Readonly<{ onChanged?: () => void }> = {}) {
+  const t = useT();
   return (
     <Panel title={t("password.title")}>
-      {/* A real form, so Enter submits it. Three password fields that could only
-          be committed by reaching for the button is not how anyone types a
-          credential, and the button carried no `type` at all — Button defaults
-          to `type="button"`, so even inside a form it would not have. */}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (ready && !change.isPending) change.mutate(fields);
-        }}
-      >
-        <PanelBody className="form-stack">
-          <p className="t-small settings-panel-sub">{t("password.body")}</p>
-          {/* The outcome is a Callout in its own tone, not a grey line. Both
-              halves used to be `.t-small` — `--textMeta` — so a refused change
-              and a successful one were the same colour, one element apart, and
-              the only thing telling them apart was reading the sentence. */}
-          {done && (
-            <Callout tone="success" live="status">
-              {t("password.done")}
-            </Callout>
-          )}
-          {change.isError && (
-            <Callout tone="danger" live="alert">
-              {problemMessageOf(change.error, t, t("password.errorGeneric"))}
-            </Callout>
-          )}
-          {/* Every password field carries a reveal, this one included. A
-              mistyped CURRENT password is the cheapest of the three to
-              diagnose — the server refuses it in one round trip — but being
-              refused without being able to see what you typed is how a reader
-              concludes they have forgotten a password they know. */}
-          <Field
-            label={t("password.current")}
-            required
-            trailing={current.trailing}
-          >
-            {(control) => (
-              <TextInput
-                {...control}
-                type={current.type}
-                name="current-password"
-                autoComplete="current-password"
-                value={fields.current}
-                onChange={(event) => set("current")(event.target.value)}
-              />
-            )}
-          </Field>
-          {/* The new pair has the strongest claim on it: a mistyped current
-              password is refused, while a mistyped NEW one simply becomes the
-              password — with a twelve-character floor and a confirm field that
-              agreed with it. */}
-          <Field
-            label={t("password.next")}
-            required
-            error={tooShort ? t("password.tooShort") : undefined}
-            // The rule, until the rule is being broken — at which point the
-            // refusal restates it in the danger tone and a second grey copy of
-            // the same sentence underneath is noise.
-            hint={tooShort ? undefined : t("password.hint")}
-            trailing={next.trailing}
-          >
-            {(control) => (
-              <TextInput
-                {...control}
-                type={next.type}
-                name="new-password"
-                autoComplete="new-password"
-                value={fields.next}
-                onChange={(event) => set("next")(event.target.value)}
-              />
-            )}
-          </Field>
-          <Field
-            label={t("password.confirm")}
-            required
-            error={mismatch ? t("password.mismatch") : undefined}
-            trailing={confirm.trailing}
-          >
-            {(control) => (
-              <TextInput
-                {...control}
-                type={confirm.type}
-                name="confirm-password"
-                autoComplete="new-password"
-                value={fields.confirm}
-                onChange={(event) => set("confirm")(event.target.value)}
-              />
-            )}
-          </Field>
-          {/* Said before the button is pressed, not after: the change ends every
-              session including this one, so the next thing that happens is a
-              sign-in screen. A person who is not told that reads it as being
-              kicked out. */}
-          <p className="t-small">{t("password.signsYouOut")}</p>
-          <div className="form-actions">
-            {/* Two facts, two props. `!ready` is a form that is not filled in
-                yet and `change.isPending` is a write already on its way, and
-                folding them into one `disabled` drew them the same: the reader
-                could not tell "I still have to type something" from "it is
-                going".
-
-                The precondition stops applying once the write is out, and that
-                guard is load bearing rather than tidy: these fields stay
-                editable during the request, so clearing one mid-flight would
-                otherwise flip `ready` false, hand the button `disabled` on top
-                of `pending`, and — since refusal outranks busy — drop both the
-                focus and the busy state in the middle of the change. */}
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={!change.isPending && !ready}
-              pending={change.isPending}
-              busyLabel={t("password.changing")}
-            >
-              {t("password.submit")}
-            </Button>
-          </div>
-        </PanelBody>
-      </form>
+      <PanelBody>
+        <SettingList>
+          <PasswordSettingRow onChanged={onChanged} />
+        </SettingList>
+      </PanelBody>
     </Panel>
   );
 }

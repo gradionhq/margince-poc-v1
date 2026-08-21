@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserPlus } from "lucide-react";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -8,12 +8,16 @@ import {
   Button,
   Checkbox,
   EmptyState,
+  Field,
+  Modal,
+  OverflowMenu,
   TextInput,
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
 import { Select, type SelectOption } from "../design-system/select";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
@@ -71,7 +75,6 @@ function useMembers() {
 }
 
 export function UsersAdminCard() {
-  const t = useT();
   const me = useMe();
   const isAdmin = useHoldsAdminRole();
   const members = useMembers();
@@ -80,55 +83,37 @@ export function UsersAdminCard() {
   // email works, the invite mail carries the link and this action would only
   // ever 409 — so it is not rendered at all.
   const canIssueLink = me.data?.admin_password_link ?? false;
+  // ONE card, because there is one subject: the roster. Inviting is a verb ON
+  // that roster, not a second subject, and it used to be a card of its own
+  // whose title, whose only row's label and whose button all read "Invite a
+  // member" — the same three words, three times, above a list nine members
+  // long that a reader came here to read.
+  //
   // The ROSTER is not admin surface: `GET /users` answers 200 to any
   // authenticated principal, and "who is on my team and what may they do" is not
-  // an admin's private question. So every member gets the member list, and only
-  // the two things the server refuses them — inviting somebody, and changing a
-  // role or a status — are the admin's.
-  //
-  // Ordered roster-FIRST for everyone, admin included. The common reason to open
-  // this page is to look somebody up, and it used to open on an empty invite
-  // form: three blank fields ahead of the answer, for a task most visits are not
-  // about.
-  //
-  // Gating on the role probe itself is what keeps the invite form from flashing
-  // into view while /me is still in flight.
+  // an admin's private question. So every seat gets the member list, and the two
+  // things the server refuses them — inviting somebody, and changing a role or a
+  // status — are the admin's. `probeSettled` is what keeps the read-only line
+  // from flashing at an admin while /me is still in flight: a probe in flight is
+  // not a denial.
   return (
-    <div className="users-stack">
-      <MembersCard
-        members={members}
-        canIssueLink={canIssueLink}
-        canAdminister={isAdmin}
-      />
-      {isAdmin ? (
-        <InviteForm canIssueLink={canIssueLink} />
-      ) : (
-        <QueryGate query={me}>
-          {() => (
-            // Withheld, not absent: the page opens for every seat now, so an
-            // invite form that simply were not there would leave a reader to
-            // wonder whether this installation can add people at all.
-            <Panel title={t("users.inviteTitle")}>
-              <PanelBody>
-                <p className="t-caption">{t("users.inviteSub")}</p>
-                <EmptyState>
-                  <p className="t-small">{t("users.adminOnly")}</p>
-                </EmptyState>
-              </PanelBody>
-            </Panel>
-          )}
-        </QueryGate>
-      )}
-    </div>
+    <MembersCard
+      members={members}
+      probeSettled={me.isSuccess}
+      canIssueLink={canIssueLink}
+      canAdminister={isAdmin}
+    />
   );
 }
 
 function MembersCard({
   members,
+  probeSettled,
   canIssueLink,
   canAdminister,
 }: Readonly<{
   members: ReturnType<typeof useMembers>;
+  probeSettled: boolean;
   canIssueLink: boolean;
   canAdminister: boolean;
 }>) {
@@ -136,33 +121,41 @@ function MembersCard({
   const roster = members.data;
   return (
     <Panel
-      className="users-members"
       title={t("users.membersTitle")}
-      // The count states what the roster holds, deactivated members included —
-      // the read opts into them, and a roster of twelve with three switched off
-      // is not a roster of nine. Nothing to count is said by the empty state
-      // below instead, so a "0 members" badge never doubles it.
+      // What the roster holds, and the one verb that adds to it, on the title's
+      // own line — which is what this band is for. The count states the roster
+      // INCLUDING deactivated members: the read opts into them, and a roster of
+      // twelve with three switched off is not a roster of nine. Nothing to count
+      // is said by the empty state below instead, so a "0 members" badge never
+      // doubles it.
       titleAction={
-        roster && roster.length > 0 ? (
-          <Badge>
-            {t(
-              roster.length === 1
-                ? "users.memberCount.one"
-                : "users.memberCount.other",
-              { count: roster.length },
-            )}
-          </Badge>
-        ) : undefined
+        <>
+          {roster && roster.length > 0 && (
+            <Badge>
+              {t(
+                roster.length === 1
+                  ? "users.memberCount.one"
+                  : "users.memberCount.other",
+                { count: roster.length },
+              )}
+            </Badge>
+          )}
+          {canAdminister && <InviteAction canIssueLink={canIssueLink} />}
+        </>
       }
     >
-      <PanelBody className="users-intro">
-        <p className="t-caption">{t("users.membersSub")}</p>
-      </PanelBody>
-      {/* The rows run full-bleed against the panel's edges, so this body carries
-          no padding of its own and the sheet gives it back to everything the
-          gate can put here INSTEAD of rows — the skeletons, a failure, the
-          empty state — none of which should touch the panel's edge. */}
-      <PanelBody className="users-roster">
+      <PanelBody>
+        {/* The card's description, and — for a seat that may not administer it —
+            its read-only posture, in the one paragraph a reader starts on. The
+            posture is stated ONCE for the whole card rather than beside each of
+            the nine rows' worth of controls it refuses: withholding the page's
+            one explanation is the defect, withholding twelve controls
+            individually is noise (design-system/README.md §Absent, disabled, or
+            withheld). */}
+        <p className="settings-panel-sub">
+          {t("users.membersSub")}
+          {probeSettled && !canAdminister && ` ${t("users.adminOnly")}`}
+        </p>
         <QueryGate query={members}>
           {(list) =>
             list.length === 0 ? (
@@ -170,10 +163,12 @@ function MembersCard({
                 <p className="t-small">{t("users.empty")}</p>
               </EmptyState>
             ) : (
-              // A roster is a list, so it stays a <ul> of <li> rather than
-              // becoming PanelRow's <div>s — the rows take the panel row's look
-              // from this screen's sheet instead of losing their semantics to it.
-              <ul className="users-list">
+              // One SettingRow per member, so nine members read as nine lines
+              // rather than nine cards. Before this a row drew the name, then a
+              // full-width role Select on its own line, then two ghost buttons
+              // under that — 140px per member, and a roster of nine was a
+              // 1300px wall.
+              <SettingList>
                 {list.map((u) => (
                   <MemberRow
                     key={u.id}
@@ -182,7 +177,7 @@ function MembersCard({
                     canAdminister={canAdminister}
                   />
                 ))}
-              </ul>
+              </SettingList>
             )
           }
         </QueryGate>
@@ -191,9 +186,14 @@ function MembersCard({
   );
 }
 
-function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
+// Inviting somebody is four decisions committed together — an address, a name,
+// a role and the teams they land in — so the roster's header carries the verb
+// and the form lives in the dialog behind it.
+function InviteAction({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
   const t = useT();
   const qc = useQueryClient();
+  const formTitleId = useId();
+  const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("rep");
@@ -235,6 +235,10 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
       setRole("rep");
       setTeamIds([]);
       setError(null);
+      // The dialog closes on the write that landed, never before it: a refused
+      // invite has to leave the address and the name where the admin typed
+      // them.
+      setOpen(false);
       qc.invalidateQueries({ queryKey: ["users-admin"] });
       if (canIssueLink) {
         setInvited({ id: newUserId, name: invitedName });
@@ -248,14 +252,24 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
     email.trim().length > 0 && name.trim().length > 0 && !invite.isPending;
 
   return (
-    // The Panel is the surface and the <form> inside it is the form: a Panel is
-    // a <section>, so the element the browser associates the Enter key with has
-    // to be its own rather than the one carrying the heading.
-    <Panel title={t("users.inviteTitle")}>
-      <PanelBody>
-        <p className="t-caption">{t("users.inviteSub")}</p>
+    <>
+      {/* The ellipsis form, because it opens a dialog rather than inviting
+          anybody: the dialog's own submit reads "Invite", and two buttons with
+          one name are ambiguous for a reader and for `getByRole`. */}
+      <Button small onClick={() => setOpen(true)}>
+        {t("users.inviteOpen")}
+      </Button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        labelledBy={formTitleId}
+      >
+        {/* A real <form>, so Enter submits it — and the house dialog stack, so
+            the fields sit on the same rhythm as every other settings dialog.
+            The three inputs used to be a wrapping flex line of unlabelled
+            boxes, with the heading's interval set by an inline style. */}
         <form
-          className="users-invite"
+          className="form-stack"
           onSubmit={(e) => {
             e.preventDefault();
             if (canInvite) {
@@ -263,27 +277,43 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
             }
           }}
         >
-          <TextInput
-            aria-label={t("users.emailLabel")}
-            placeholder={t("users.emailPlaceholder")}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <TextInput
-            aria-label={t("users.nameLabel")}
-            placeholder={t("users.namePlaceholder")}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <Select
-            aria-label={t("users.roleLabel")}
-            value={role}
-            onChange={(value) => {
-              if (isOption(value, ROLES)) setRole(value);
-            }}
-            options={roleOptions(t)}
-          />
+          <h2 className="t-h3 modal-title" id={formTitleId}>
+            {t("users.inviteTitle")}
+          </h2>
+          <p className="t-small">{t("users.inviteSub")}</p>
+          <Field label={t("users.emailLabel")} required>
+            {(control) => (
+              <TextInput
+                {...control}
+                placeholder={t("users.emailPlaceholder")}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t("users.nameLabel")} required>
+            {(control) => (
+              <TextInput
+                {...control}
+                placeholder={t("users.namePlaceholder")}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t("users.roleLabel")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={role}
+                onChange={(value) => {
+                  if (isOption(value, ROLES)) setRole(value);
+                }}
+                options={roleOptions(t)}
+              />
+            )}
+          </Field>
           {/* The teams the member joins on arrival. A team-scoped role with
               no team edits only its own records, and the preview below says
               so before the invite goes out. */}
@@ -313,21 +343,26 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
             )}
           </fieldset>
           <AccessPreviewPanel role={role} teamIds={teamIds} />
-          <Button variant="primary" small type="submit" disabled={!canInvite}>
-            <UserPlus aria-hidden /> {t("users.invite")}
-          </Button>
+          {/* `.form-actions` rather than a bare button: `.form-stack` stretches
+              its children, and a submit that fills the dialog reads as a banner
+              rather than as the move the form is for. */}
+          <div className="form-actions">
+            <Button variant="primary" small type="submit" disabled={!canInvite}>
+              <UserPlus aria-hidden /> {t("users.invite")}
+            </Button>
+          </div>
           {/* A refused invite is the surface saying something is wrong, which
               is what Callout's `danger` tone is; a bare tinted paragraph with a
               role on it was the same claim, hand-drawn, and it took its
               emphasis from nothing at all. `alert` because the reader pressed
               the button and has to act on the answer. */}
           {error && (
-            <Callout tone="danger" live="alert" className="users-formerror">
+            <Callout tone="danger" live="alert">
               {error}
             </Callout>
           )}
         </form>
-      </PanelBody>
+      </Modal>
       {invited && (
         <PasswordLinkModal
           memberName={invited.name}
@@ -342,18 +377,17 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
           }}
         />
       )}
-    </Panel>
+    </>
   );
 }
 
-// The role cell: what a member's role reads as, and the control that changes it.
+// The role picker, held to the row language's measure so nine of them line up
+// at one x rather than each shrinking to its own answer's width.
 //
-// An agent seat has neither, and gets the reason in their place. Its authority
-// is the passport granting it intersected with the person that passport names,
-// so a role on its own row grants nothing — the server refuses to write one, and
-// a control here would promise otherwise. A line rather than a disabled select
-// or a gap: the absence is a rule about what the seat IS, not a permission this
-// admin happens to lack.
+// It draws only where a role is something this reader can CHANGE. The agent
+// seat has no role at all and a reader without the grant has a fact rather than
+// a control — both read as the row's `value`, decided by the caller, because a
+// picker the server would refuse promises something it cannot do.
 function RoleCell({
   member,
   pending,
@@ -366,13 +400,10 @@ function RoleCell({
   onPick: (role: Role) => void;
 }>) {
   const t = useT();
-  if (member.is_agent) {
-    return <span className="t-small">{t("users.agentSeatRole")}</span>;
-  }
-  // `roles` arrives only for an admin caller — which this card always is — and
-  // normally holds exactly one key. No key (an unassigned seat) and several keys
-  // both leave the select on its placeholder, because neither has one current
-  // role to show.
+  // `roles` arrives only for an admin caller — which this control always has —
+  // and normally holds exactly one key. No key (an unassigned seat) and several
+  // keys both leave the select on its placeholder, because neither has one
+  // current role to show.
   const heldRoles = member.roles ?? [];
   const currentRole =
     heldRoles.length === 1 && isOption(heldRoles[0], ROLES) ? heldRoles[0] : "";
@@ -387,7 +418,12 @@ function RoleCell({
     // The unset state is the select's PLACEHOLDER, not an option: picking it
     // back would set no role, so it belongs on the closed face and nowhere in
     // the list. It is only ever seen when there is no single role to show.
+    //
+    // Its own `aria-label` rather than the row's label through `control`'s ARIA:
+    // the row names the MEMBER, and a combobox announcing itself as "Ada
+    // Active" would leave a reader to guess what picking from it does.
     <Select
+      className="settingrow-measure"
       aria-label={t("users.setRoleFor", { name: member.display_name })}
       value={inFlight ?? currentRole}
       placeholder={placeholder}
@@ -399,6 +435,78 @@ function RoleCell({
       }}
       options={roleOptions(t)}
     />
+  );
+}
+
+// The role a row reports rather than offers: the agent seat's, whose authority
+// is the passport granting it intersected with the person that passport names,
+// and any member's for a reader who may not change one. `undefined` means the
+// row draws a picker instead.
+function roleAnswer(
+  member: User,
+  canAdminister: boolean,
+  t: ReturnType<typeof useT>,
+): string | undefined {
+  if (member.is_agent) {
+    return t("users.agentSeatRole");
+  }
+  if (canAdminister) {
+    return undefined;
+  }
+  const held = (member.roles ?? []).map(roleLabel(t)).join(", ");
+  // A seat holding no role has nothing to report, and an empty value would
+  // draw an empty span where the answer belongs.
+  return held === "" ? undefined : held;
+}
+
+// The verbs a member's row offers, behind the one control a row spends on them.
+//
+// Two of them, one a credential and one destructive, used to sit as ghost
+// buttons stacked under the row — which is the greater part of why a member cost
+// 140px. Neither is what a reader opens this roster for, and that is exactly
+// what an OverflowMenu is for. Nothing to offer draws nothing: a trigger over an
+// empty panel is a promise the row cannot keep.
+function MemberVerbs({
+  member,
+  pending,
+  canMintLink,
+  canDeactivate,
+  canReactivate,
+  onMintLink,
+  onDeactivate,
+  onReactivate,
+}: Readonly<{
+  member: User;
+  pending: boolean;
+  canMintLink: boolean;
+  canDeactivate: boolean;
+  canReactivate: boolean;
+  onMintLink: () => void;
+  onDeactivate: () => void;
+  onReactivate: () => void;
+}>) {
+  const t = useT();
+  if (!(canMintLink || canDeactivate || canReactivate)) {
+    return null;
+  }
+  return (
+    <OverflowMenu label={t("users.rowActions", { name: member.display_name })}>
+      {canMintLink && (
+        <Button small disabled={pending} onClick={onMintLink}>
+          {t("users.link.action")}
+        </Button>
+      )}
+      {canDeactivate && (
+        <Button small disabled={pending} onClick={onDeactivate}>
+          {t("users.deactivate")}
+        </Button>
+      )}
+      {canReactivate && (
+        <Button small disabled={pending} onClick={onReactivate}>
+          {t("users.reactivate")}
+        </Button>
+      )}
+    </OverflowMenu>
   );
 }
 
@@ -416,10 +524,10 @@ function MemberRow({
   const [error, setError] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
-  // Where the deactivate confirm hands focus back. The Deactivate button it was
+  // Where the deactivate confirm hands focus back. The Deactivate item it was
   // opened from is gone by then — Reactivate has taken its place — but the row
   // itself stays, because the roster is read with include_inactive.
-  const row = useRef<HTMLLIElement | null>(null);
+  const row = useRef<HTMLDivElement | null>(null);
   const passwordLink = usePasswordLink();
   const openLink = () => {
     setLinkOpen(true);
@@ -461,7 +569,7 @@ function MemberRow({
     },
     onSuccess: async () => {
       // The refreshed roster FIRST, then the dialog: closing it hands focus back
-      // to the row, and a row still showing "Active" beside a Deactivate button
+      // to the row, and a row still showing "Active" beside a Deactivate item
       // would announce the state this confirm just ended.
       await refresh();
       setConfirmOff(false);
@@ -485,72 +593,79 @@ function MemberRow({
   const pending =
     setRole.isPending || deactivate.isPending || reactivate.isPending;
 
+  // Only an ACTIVE member can redeem a link — redemption updates an active
+  // account and refuses otherwise — so offering one on a deactivated row would
+  // hand the admin a link that is dead on arrival. The agent seat is excluded
+  // for a different reason: it holds no password by construction, which is what
+  // makes it a thing that signs in nowhere, and the server refuses to mint it
+  // one.
+  const canMintLink =
+    canAdminister &&
+    canIssueLink &&
+    !member.is_agent &&
+    member.status === "active";
+  const canDeactivate = canAdminister && member.status === "active";
+  const canReactivate = canAdminister && member.status === "deactivated";
+
   return (
-    // tabIndex -1 makes the row reachable by focus() without putting a
-    // container into anybody's Tab order — see the deactivate confirm below,
-    // which is the only thing that focuses it.
-    <li className="users-row" ref={row} tabIndex={-1}>
-      <span className="users-who">
-        <b>{member.display_name}</b>
-        <span className="t-small">{member.email}</span>
-      </span>
-      <Badge tone={member.status === "active" ? "success" : "warn"}>
-        {t(`users.status.${member.status}`)}
-      </Badge>
-      {/* The workspace's agent identity sits in this roster because it OWNS
-          records — a client resolving an owner has to find it — so the row says
-          what it is rather than passing for a colleague. */}
-      {member.is_agent && <Badge tone="ai">{t("users.agentSeat")}</Badge>}
-      {/* A role is a FACT about a member to anybody who may not change it, so a
-          reader without the grant gets the role in words and not a picker that
-          could only be refused. The one control becomes the one badge. */}
-      {canAdminister ? (
-        <RoleCell
-          member={member}
-          pending={pending}
-          // While a change is in flight the cell shows the role being applied —
-          // and it stays in flight until the refreshed roster lands (see refresh),
-          // so the row never renders the replaced role. A FAILED change leaves it
-          // on the role still held, which is what keeps a retry live: re-picking
-          // the same target still fires onChange.
-          inFlight={setRole.isPending ? setRole.variables : undefined}
-          onPick={(role) => setRole.mutate(role)}
-        />
-      ) : (
-        <span className="t-small">
-          {(member.roles ?? []).map(roleLabel(t)).join(", ")}
-        </span>
-      )}
-      {/* Only an ACTIVE member can redeem a link — redemption updates an active
-          account and refuses otherwise — so offering one on a deactivated row
-          would hand the admin a link that is dead on arrival. The agent seat is
-          excluded for a different reason: it holds no password by construction,
-          which is what makes it a thing that signs in nowhere, and the server
-          refuses to mint it one. */}
-      {canAdminister &&
-        canIssueLink &&
-        !member.is_agent &&
-        member.status === "active" && (
-          <Button small disabled={pending} onClick={openLink}>
-            {t("users.link.action")}
-          </Button>
-        )}
-      {canAdminister && member.status === "active" && (
-        <Button small disabled={pending} onClick={() => setConfirmOff(true)}>
-          {t("users.deactivate")}
-        </Button>
-      )}
-      {canAdminister && member.status === "deactivated" && (
-        <Button small disabled={pending} onClick={() => reactivate.mutate()}>
-          {t("users.reactivate")}
-        </Button>
-      )}
-      {/* Same vocabulary as the invite form's refusal, one row down: a failed
-          role change or deactivation is the surface saying something is wrong,
-          and it takes the whole row rather than wedging itself between the
-          controls that caused it. */}
+    // The row's own wrapper, so a refusal reads UNDER the member it belongs to
+    // and inside their cell — the list's hairline still separates one member
+    // from the next. tabIndex -1 makes it reachable by focus() without putting
+    // a container into anybody's Tab order; the deactivate confirm below is the
+    // only thing that focuses it.
+    <div data-testid={`member-${member.id}`} ref={row} tabIndex={-1}>
+      <SettingRow
+        label={member.display_name}
+        description={member.email}
+        value={roleAnswer(member, canAdminister, t)}
+        // Status, then role, then the verbs — and that ORDER is what keeps nine
+        // role pickers at one x. The control column packs from the right, so an
+        // item's position is decided by the width of everything after it: with
+        // the badge last, "Deactivated" pushed that row's picker 34px left of
+        // the other eight. Only the menu trigger, which is one glyph wide on
+        // every row, sits after the picker now.
+        control={
+          <>
+            <Badge tone={member.status === "active" ? "success" : "warn"}>
+              {t(`users.status.${member.status}`)}
+            </Badge>
+            {/* The workspace's agent identity sits in this roster because it
+                OWNS records — a client resolving an owner has to find it — so
+                the row says what it is rather than passing for a colleague. */}
+            {member.is_agent && <Badge tone="ai">{t("users.agentSeat")}</Badge>}
+            {canAdminister && !member.is_agent && (
+              <RoleCell
+                member={member}
+                pending={pending}
+                // While a change is in flight the cell shows the role being
+                // applied — and it stays in flight until the refreshed roster
+                // lands (see refresh), so the row never renders the replaced
+                // role. A FAILED change leaves it on the role still held, which
+                // is what keeps a retry live: re-picking the same target still
+                // fires onChange.
+                inFlight={setRole.isPending ? setRole.variables : undefined}
+                onPick={(role) => setRole.mutate(role)}
+              />
+            )}
+            <MemberVerbs
+              member={member}
+              pending={pending}
+              canMintLink={canMintLink}
+              canDeactivate={canDeactivate}
+              canReactivate={canReactivate}
+              onMintLink={openLink}
+              onDeactivate={() => setConfirmOff(true)}
+              onReactivate={() => reactivate.mutate()}
+            />
+          </>
+        }
+      />
+      {/* Same vocabulary as the invite dialog's refusal: a failed role change or
+          deactivation is the surface saying something is wrong, and it takes
+          the row's full width rather than wedging itself between the controls
+          that caused it. */}
       {error && (
-        <Callout tone="danger" live="alert" className="users-formerror">
+        <Callout tone="danger" live="alert" className="users-member-error">
           {error}
         </Callout>
       )}
@@ -565,7 +680,7 @@ function MemberRow({
         onConfirm={() => deactivate.mutate()}
         // The member's own row, which reads back their name, address and the
         // status this confirm just changed — the outcome, at the place the
-        // operator was working. The button they pressed is not an option: a
+        // operator was working. The item they pressed is not an option: a
         // deactivated row offers Reactivate instead, so the opener is gone.
         returnFocusTo={() => row.current}
       >
@@ -595,6 +710,6 @@ function MemberRow({
           }}
         />
       )}
-    </li>
+    </div>
   );
 }

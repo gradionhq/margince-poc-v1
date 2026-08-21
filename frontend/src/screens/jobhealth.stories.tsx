@@ -78,13 +78,33 @@ const HEALTHY = {
 };
 
 const meta: Meta<typeof JobHealthCard> = {
-  title: "Settings/Organization/Maintenance/Job health",
+  title: "Settings/Admin settings/Maintenance/Job health",
   component: JobHealthCard,
 };
 export default meta;
 type Story = StoryObj<typeof JobHealthCard>;
 
+// The three readings as stacked rows: each one's naming sits above counts that
+// take the card's full width, because a list of counts IS the subject rather
+// than an answer that would fit beside its label. What to look at is the
+// hairline between the three — it has to separate the readings without reading
+// as a border around any one of them.
 export const Healthy: Story = { render: story(HEALTHY) };
+
+// Two of the three readings with nothing to report, which the stacked rows have
+// to say one at a time: no fleet dispatcher is registered and no failure was
+// recorded, while this organization's own queue is busy. The card's own idle
+// state does NOT apply here — something is queued — so the empty branches must
+// stand inside their rows, each naming what it found none of. What to check is
+// that an EmptyState given a row's full width still reads as a finding rather
+// than as a gap where a list failed to draw.
+export const ReadingsWithNothingToReport: Story = {
+  render: story({
+    ...HEALTHY,
+    kinds: [CLASSIFY],
+    recent_failures: [],
+  }),
+};
 
 export const DeadWork: Story = {
   render: story({
@@ -133,6 +153,11 @@ export const DeadWorkDark: Story = {
 // operator came for. What to check is that the pill row wraps inside the width it
 // has just been given, and that a kind and its counts still read as one row once
 // nothing but a small gap separates them from the next kind.
+//
+// Below 640px `SettingRow` gives up its two columns too (settingrow.css), so the
+// reading's naming and the list under it are already stacked — the thing to
+// watch is that the row's own naming does not start reading as one of the
+// FactList terms beneath it.
 //
 // Storybook applies the viewport from the MANAGER, by resizing the preview
 // iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at

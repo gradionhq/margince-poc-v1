@@ -197,6 +197,73 @@ func pinForWrite(ctx context.Context, callerPin *int64) (*int64, error) {
 	return nil, nil
 }
 
+// archiveAt performs one archive conditioned on the version the caller's
+// authority was granted against.
+//
+// The pin comes from pinForWrite, exactly as every other 🟡 write's does — the
+// released approval's version on an approved retry, the admitted read's on an
+// auto-executed call, and nothing at all on an ordinary one. Until the seam
+// grew a field to carry it, the archive was the one 🟡 write that took the pin
+// and dropped it: redemption verified the record was at version 4 and
+// committed, and the archive then ran in a LATER transaction with no version
+// clause, so a concurrent update in that window landed the archive on a
+// version nobody had approved.
+//
+// A provider that does not answer RecordArchiverV2 and a caller who HAS a pin
+// is the one case that refuses. Falling back to the unconditioned verb there
+// would spend the approval on precisely the write it was granted against
+// something else — quietly, and only on the installations whose adapter
+// happens not to answer the newer seam.
+func archiveAt(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) (datasource.EntityRef, error) {
+	pin, err := pinForWrite(ctx, nil)
+	if err != nil {
+		return datasource.EntityRef{}, err
+	}
+	archiver, ok := p.(datasource.RecordArchiverV2)
+	if !ok {
+		if pin != nil {
+			return datasource.EntityRef{}, fmt.Errorf(
+				"this workspace's system of record cannot archive a %s at a named version, so an archive "+
+					"approved against version %d cannot be carried out as approved: %w",
+				ref.Type, *pin, apperrors.ErrUnsupportedBySoR)
+		}
+		return p.Archive(ctx, ref)
+	}
+	return archiver.ArchiveAt(ctx, datasource.ArchiveInput{Ref: ref, IfVersion: pin})
+}
+
+// refuseArchiveHere asks the ROUTED executor to answer, before anything is
+// staged, every refusal the archive itself would answer with.
+//
+// It is the seam's half of GovernanceResolver.Guards' own promise — "refuses,
+// BEFORE anything is staged, what the executor would refuse afterwards" — and
+// that promise was kept for exactly two of the executor's refusals (unreadable,
+// held elsewhere) and broken for the rest. Every archive store also requires
+// WRITE authority over the row, which is a narrower question than reading it:
+// a rep who may read a colleague's record staged an archive, a human released
+// it, and the store refused the retry. The approval was spent either way.
+//
+// A provider that does not answer RecordArchiverV2 is refused HERE, and that is
+// the whole point rather than an inconvenience.
+//
+// archive_record is statically TierConfirmationRequired, so every archive
+// through this seam is staged and every redemption carries the released pin —
+// which archiveAt refuses such a provider for, because carrying it out
+// unpinned would be the approval granted against one version and spent on
+// another. Standing down here and refusing there would put that refusal AFTER
+// a human answered, on every archive, which is the exact defect this file
+// exists to remove. The staging is the place to say it.
+func refuseArchiveHere(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) error {
+	archiver, ok := p.(datasource.RecordArchiverV2)
+	if !ok {
+		return fmt.Errorf(
+			"this workspace's system of record cannot archive a %s at a named version, and an approved "+
+				"archive names one — so no approval of this could be carried out as approved: %w",
+			ref.Type, apperrors.ErrUnsupportedBySoR)
+	}
+	return archiver.RefuseArchive(ctx, ref)
+}
+
 // refuseStagingElsewhere refuses to stage a change whose target's authority
 // lives in another system of record.
 //

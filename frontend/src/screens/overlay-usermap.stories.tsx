@@ -11,9 +11,14 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // MirrorUserMapCard stories for the fe-uat render gate: one per visual state
 // the card can honestly reach — a clean mapped table, each unmapped reason's
 // chip and explanation, a manual override whose incumbent user has vanished, a
-// shared seat seen from the by-owner side, the truncated-directory warning
-// next to the picker, and the calm empty/native/unconfigured states. All off
-// the same wire shapes overlay-usermap.test.tsx exercises.
+// shared seat seen from the by-owner side, the owner picker and the two things
+// it can say instead of a list, and the calm empty/native/unconfigured states.
+// All off the same wire shapes overlay-usermap.test.tsx exercises.
+//
+// The card speaks the settings row language now: the grouping toggle is an
+// answer in the right column, the roster is the subject and takes the full
+// width below its naming, and choosing an owner happens in a dialog. Which
+// means three stories reach a portalled surface — see OwnerPicker's note.
 
 type Entry = components["schemas"]["OverlayUserMapEntry"];
 type Owner = components["schemas"]["OverlayOwner"];
@@ -177,7 +182,7 @@ function card(
 }
 
 const meta: Meta<typeof MirrorUserMapCard> = {
-  title: "Settings/Organization/Integrations/Mirror user map",
+  title: "Settings/Admin settings/Integrations/Mirror user map",
   component: MirrorUserMapCard,
 };
 export default meta;
@@ -206,15 +211,38 @@ export const SharedSeatByOwner: Story = {
   },
 };
 
-// The truncation warning lives next to the picker, so the story has to open
-// the picker for the gallery to show it.
+// The picker itself, which is a dialog now rather than a block inside the row.
+// This is the state the gallery could not previously show at all: the row states
+// the answer, and choosing a new one happens here.
+//
+// `screen` for everything inside it, never the canvas — Modal portals to
+// document.body, so a canvas-scoped query rejects, and a rejecting play() used
+// to report after the gate had already screenshotted and passed the story. The
+// UnmapSelfConfirm story below hit this first; the picker now shares it.
+export const OwnerPicker: Story = {
+  render: () => card(everyReason),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const mapButtons = await canvas.findAllByRole("button", { name: "Map…" });
+    await userEvent.click(mapButtons[0]);
+    const picker = await screen.findByRole("dialog");
+    await userEvent.type(
+      within(picker).getByLabelText(/Search HubSpot users/),
+      "ada",
+    );
+    await within(picker).findByRole("button", { name: /Ada Lovelace/ });
+  },
+};
+
+// The truncation warning lives with the picker, so the story has to open the
+// picker for the gallery to show it.
 export const TruncatedDirectory: Story = {
   render: () => card(everyReason, { truncated: true }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const mapButtons = await canvas.findAllByRole("button", { name: "Map…" });
     await userEvent.click(mapButtons[0]);
-    await canvas.findByText(/longer than this list/);
+    await screen.findByText(/longer than this list/);
   },
 };
 
@@ -224,7 +252,7 @@ export const DirectoryUnreadable: Story = {
     const canvas = within(canvasElement);
     const mapButtons = await canvas.findAllByRole("button", { name: "Map…" });
     await userEvent.click(mapButtons[0]);
-    await canvas.findByText(/could not be read/);
+    await screen.findByText(/could not be read/);
   },
 };
 
@@ -298,6 +326,16 @@ export const NonAdminSeat: Story = {
 export const EveryUnmappedReasonDark: Story = {
   globals: { theme: "dark" },
   render: () => card(everyReason),
+};
+
+// The picker in dark, because a dialog is the one surface whose ground is not
+// the page's: the modal fills itself, the card behind it dims, and the pair has
+// to stay separable. The candidate list is plain buttons on that fill, so what
+// to check is whether a hovered candidate still reads as pickable against it.
+export const OwnerPickerDark: Story = {
+  globals: { theme: "dark" },
+  render: () => card(everyReason),
+  play: OwnerPicker.play,
 };
 
 // The mapped table at 390px, which is the width this card's layout was rebuilt

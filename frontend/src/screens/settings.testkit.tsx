@@ -6,7 +6,7 @@ import type { RbacObject } from "../app/capability";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { SettingsRail } from "../app/shell";
 import { LocaleProvider } from "../i18n";
-import { SettingsScreen } from "./settings";
+import { SettingsScreen, settingsAddress } from "./settings";
 
 // The render helpers and grant fixtures every `settings*.test.tsx` suite needs,
 // in one place. Settings is ONE route carrying fourteen entries, so its coverage
@@ -57,9 +57,7 @@ export const render = (ui: ReactNode): SettingsRender => {
 // publishes (useSettingsSection). So a claim about which tabs a principal is
 // offered renders the real rail — the production wiring, not a copy of it — and
 // a claim about a tab's content renders the screen.
-const railFor = (tab?: string) => (
-  <SettingsRail route={{ screen: "settings", id: tab }} />
-);
+const railFor = (tab?: string) => <SettingsRail route={settingsAddress(tab)} />;
 
 export const renderNav = (tab?: string): SettingsRender => render(railFor(tab));
 
@@ -69,11 +67,11 @@ export const renderSettings = (tab?: string): SettingsRender =>
   render(
     <>
       {railFor(tab)}
-      <SettingsScreen tab={tab} />
+      <SettingsScreen route={settingsAddress(tab)} />
     </>,
   );
 
-// The Organization tab group is composed from its MEMBERS, and OPENING AN ENTRY
+// The Admin settings tab group is composed from its MEMBERS, and OPENING AN ENTRY
 // IS A READ: every predicate asks for a read grant on something the entry shows,
 // while the write affordances inside it gate themselves. So a fixture that wants
 // an entry in the nav has to name the READ, and one that also wants the authoring
@@ -82,7 +80,7 @@ export const renderSettings = (tab?: string): SettingsRender =>
 export const PIPELINE_ADMIN: GrantSpec = {
   pipeline: ["read", "create", "update"],
 };
-const ORG_ADMIN: GrantSpec = {
+const ADMIN_GRANTS: GrantSpec = {
   ...PIPELINE_ADMIN,
   custom_field: ["read", "create", "update"],
   // The consent registry's own gate (consent/store.go demands person:read), which
@@ -115,7 +113,7 @@ export function settingsBackend() {
     if (url.endsWith("/v1/me")) {
       const me = meFixture({
         roles: ["admin", "field_marketing"],
-        allow: ORG_ADMIN,
+        allow: ADMIN_GRANTS,
       });
       return jsonResponse({
         ...me,

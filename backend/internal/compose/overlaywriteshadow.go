@@ -190,13 +190,24 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		native()
 		return
 	}
+	// The caller's precondition travels with the write, exactly as it does on
+	// the native side. Reading the header and not forwarding it is the worse
+	// of the two answers available here: an overlay mirror carries no version
+	// column, so this installation cannot honour the condition — and a request
+	// that asks for one and is archived anyway has been told something false.
+	// Forwarding it lets the overlay provider refuse in its own words instead.
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
 	ref := datasource.EntityRef{Type: et, ID: ids.UUID(id)}
 	rec, err := s.sorDispatch.Read(r.Context(), ref)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	if _, err := s.sorDispatch.archiveInMode(r.Context(), bool(ov), ref); err != nil {
+	if _, err := s.sorDispatch.archiveInMode(r.Context(), bool(ov),
+		datasource.ArchiveInput{Ref: ref, IfVersion: ifVersion}); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
@@ -216,9 +227,9 @@ func (s Server) UpdatePerson(w http.ResponseWriter, r *http.Request, id crmcontr
 }
 
 // ArchivePerson shadows the person archive.
-func (s Server) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (s Server) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ArchivePersonParams) {
 	overlayArchive(s, w, r, datasource.EntityPerson, id,
-		func() { s.peopleHandlers.ArchivePerson(w, r, id) }, archiveWire[crmcontracts.Person]{
+		func() { s.peopleHandlers.ArchivePerson(w, r, id, params) }, archiveWire[crmcontracts.Person]{
 			assemble:     overlayWirePerson,
 			markArchived: func(p *crmcontracts.Person, at time.Time) { p.ArchivedAt = &at },
 		})
@@ -231,9 +242,9 @@ func (s Server) UpdateOrganization(w http.ResponseWriter, r *http.Request, id cr
 }
 
 // ArchiveOrganization shadows the organization archive.
-func (s Server) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (s Server) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ArchiveOrganizationParams) {
 	overlayArchive(s, w, r, datasource.EntityOrganization, id,
-		func() { s.peopleHandlers.ArchiveOrganization(w, r, id) }, archiveWire[crmcontracts.Organization]{
+		func() { s.peopleHandlers.ArchiveOrganization(w, r, id, params) }, archiveWire[crmcontracts.Organization]{
 			assemble:     overlayWireOrganization,
 			markArchived: func(o *crmcontracts.Organization, at time.Time) { o.ArchivedAt = &at },
 		})
@@ -246,9 +257,9 @@ func (s Server) UpdateDeal(w http.ResponseWriter, r *http.Request, id crmcontrac
 }
 
 // ArchiveDeal shadows the deal archive.
-func (s Server) ArchiveDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (s Server) ArchiveDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ArchiveDealParams) {
 	overlayArchive(s, w, r, datasource.EntityDeal, id,
-		func() { s.dealsHandlers.ArchiveDeal(w, r, id) }, archiveWire[crmcontracts.Deal]{
+		func() { s.dealsHandlers.ArchiveDeal(w, r, id, params) }, archiveWire[crmcontracts.Deal]{
 			assemble:     overlayWireDeal,
 			markArchived: func(d *crmcontracts.Deal, at time.Time) { d.ArchivedAt = &at },
 		})

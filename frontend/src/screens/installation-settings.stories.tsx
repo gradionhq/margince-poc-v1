@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import { InstallationSettingsCard } from "./installation-settings";
 import {
   installFetchStub,
@@ -9,6 +10,12 @@ import {
   meRoute,
   StoryProviders,
 } from "./story-utils";
+
+// Settings → Admin settings → General → Installation. Two surfaces in one card:
+// three ROWS that read what the installation is set to, and the one dialog that
+// edits all three together (the server takes one sparse PATCH, so there is one
+// save). The stories worth looking at are therefore split between the two —
+// what the rows say, and what the form under them looks like once it is open.
 
 const SETTINGS = {
   name: "Brandt Automotive GmbH",
@@ -34,49 +41,77 @@ function story(
   };
 }
 
+// Opens the dialog the way a reader does — from one row's own Edit verb, which
+// is also what puts focus on that row's field.
+async function openFrom(canvasElement: HTMLElement, fact: RegExp) {
+  const canvas = within(canvasElement);
+  await userEvent.click(await canvas.findByRole("button", { name: fact }));
+}
+
 const MANAGER = { installation_settings: ["read", "update"] } as const;
 const READER = { installation_settings: ["read"] } as const;
 
 const meta: Meta<typeof InstallationSettingsCard> = {
-  title: "Settings/Organization/General/Installation",
+  title: "Settings/Admin settings/General/Installation",
   component: InstallationSettingsCard,
 };
 export default meta;
 type Story = StoryObj<typeof InstallationSettingsCard>;
 
+// The card at rest: three answers in one column, each with the verb that
+// changes it. This is the reading the row language exists for — an operator
+// auditing the installation travels one column instead of parsing a form.
 export const Editable: Story = { render: story(SETTINGS, MANAGER) };
+
+// The form the rows lead to, opened from the name row, so focus is in the name
+// field. Three fields, one heading for the currency rule, one Save.
+export const ProfileDialog: Story = {
+  render: story(SETTINGS, MANAGER),
+  play: async ({ canvasElement }) => {
+    await openFrom(canvasElement, /edit organization name/i);
+  },
+};
 
 // The base currency stops being changeable the moment a deal freezes a rate
 // against it, which is a fact about the DATA rather than about the reader — so
-// it disables that one field and leaves the rest alone.
+// the currency row carries the server's own reason and the field inside the
+// dialog is the only inert one.
 export const BaseCurrencyLocked: Story = {
   render: story({ ...SETTINGS, base_currency_locked: true }, MANAGER),
 };
 
-// A permission, not a lock: every field goes inert together and the reason is
-// attached to each rather than floating under the card.
+// A permission, not a lock. Every Edit verb is refused together and the reason
+// is stated ONCE, with each refused button pointing at it — printing it beside
+// three buttons would say one fact three times.
 export const ReadOnly: Story = { render: story(SETTINGS, READER) };
 
-// The form in dark, and the locked fixture rather than the plain one because it
-// is the only story where a disabled field sits beside two live ones. That is the
-// pairing dark gets wrong: a disabled TextInput says so with a fill and an ink a
-// step off the enabled field's, and one step is exactly what a darker palette
-// compresses. Three more things are on trial with it — the Field labels, the
-// hints under them (which here carry a lock REASON, a sentence a reader has to be
-// able to read), and the primary Save in the panel head.
+// The locked dialog in dark, because that is the pairing dark gets wrong: a
+// disabled TextInput says so with a fill and an ink a step off the enabled
+// field's, and one step is exactly what a darker palette compresses. Three more
+// things are on trial with it — the Field labels, the hints under them (which
+// here carry a lock REASON, a sentence a reader has to be able to read), and the
+// primary Save in the dialog's action row.
 export const BaseCurrencyLockedDark: Story = {
   globals: { theme: "dark" },
   render: story({ ...SETTINGS, base_currency_locked: true }, MANAGER),
+  play: async ({ canvasElement }) => {
+    await openFrom(canvasElement, /edit base currency/i);
+  },
 };
 
-// The form at 390px. The fields are a one-column form-stack and stack at any
-// width, so what narrow actually tests here is the DISTANCE this card's own
-// source claims: the Save rides in the panel's action band "directly under the
-// last field it commits". Every field here carries a hint, and at 390px each hint
-// is three or four lines rather than one — so the interval between the last field
-// and the button that writes it roughly triples, and "directly under" becomes
-// "under a paragraph". Whether that still reads as one form with one commit is
-// the judgement this story exists to put in front of somebody.
+// The rows in dark. What is on trial is the hairline between them and the muted
+// value column against the card ground: both are color-mix()es that follow the
+// dark accent lift, and a value that goes as quiet as its own description stops
+// reading as the answer.
+export const EditableDark: Story = {
+  globals: { theme: "dark" },
+  render: story(SETTINGS, MANAGER),
+};
+
+// The card at 390px. The row gives up its two columns before it gives up the
+// reading, so label, description, value and verb stack — and what narrow tests
+// here is whether the VALUE still reads as this row's answer once it is no
+// longer aligned in a column of its own, with a three-line hint above it.
 //
 // Storybook applies the viewport from the MANAGER, by resizing the preview
 // iframe — so the fe-uat capture, which loads a bare iframe.html, renders this at

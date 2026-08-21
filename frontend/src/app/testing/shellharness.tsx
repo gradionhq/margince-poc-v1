@@ -88,7 +88,7 @@ export function fixtureSection(activeId?: string): NavSection {
         ],
       },
       {
-        headingKey: "settings.group.org",
+        headingKey: "settings.group.admin",
         items: [
           {
             // The child level is SYNTHETIC: no settings entry publishes children,

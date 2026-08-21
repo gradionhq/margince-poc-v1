@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   Checkbox,
+  DataTable,
   Field,
   OverflowMenu,
   Radio,
@@ -259,4 +260,54 @@ it("marks a required Field once for the eye and once for the control", () => {
   // no constraint validation for the attribute to drive.
   expect(control.getAttribute("aria-required")).toBe("true");
   expect(screen.getByText("*").getAttribute("aria-hidden")).toBe("true");
+});
+
+// A table that scrolls sideways holds columns a pointer can drag to and a
+// keyboard cannot reach at all, so the box takes a tab stop and a name — and
+// takes neither while it fits, because a tab stop in front of every table in
+// the product is a cost every keyboard reader pays for the few that overflow.
+// jsdom lays nothing out, so the two widths the decision reads are stubbed on
+// the prototype: that is the whole input to it.
+function stubBoxWidths(scrollWidth: number, clientWidth: number) {
+  for (const [property, value] of [
+    ["scrollWidth", scrollWidth],
+    ["clientWidth", clientWidth],
+  ] as const) {
+    vi.spyOn(HTMLDivElement.prototype, property, "get").mockReturnValue(value);
+  }
+}
+
+const PRODUCT_COLUMNS = [
+  { key: "name", header: "Name", render: (row: { name: string }) => row.name },
+];
+const PRODUCT_ROWS = [{ name: "Consulting Day" }];
+
+it("makes a table's scroll box reachable and named once it overflows", () => {
+  stubBoxWidths(930, 654);
+  render(
+    <DataTable
+      label="Products"
+      columns={PRODUCT_COLUMNS}
+      rows={PRODUCT_ROWS}
+      rowKey={(row) => row.name}
+    />,
+  );
+  const box = screen.getByRole("region", { name: "Products" });
+  expect(box.className).toContain("table-scroll");
+  expect(box.getAttribute("tabindex")).toBe("0");
+});
+
+it("leaves a table that fits its box out of the tab order", () => {
+  stubBoxWidths(654, 654);
+  const { container } = render(
+    <DataTable
+      label="Products"
+      columns={PRODUCT_COLUMNS}
+      rows={PRODUCT_ROWS}
+      rowKey={(row) => row.name}
+    />,
+  );
+  expect(screen.queryByRole("region")).toBeNull();
+  const box = container.querySelector(".table-scroll");
+  expect(box?.getAttribute("tabindex")).toBeNull();
 });

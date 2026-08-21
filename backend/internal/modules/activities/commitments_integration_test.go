@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -72,6 +73,13 @@ func setupPromises(t *testing.T) *promiseEnv {
 			t.Errorf("closing owner connection: %v", err)
 		}
 	})
+	// To head before anything else touches this database: testdb.Pool refuses
+	// until EnsureSchema has run, and EnsureSchema still REBUILDS whenever it
+	// cannot prove the database is a fresh lane clone — so a seed written
+	// before it would be dropped rather than reset.
+	if err := testdb.EnsureSchema(ctx, owner); err != nil {
+		t.Fatal(err)
+	}
 
 	e := &promiseEnv{owner: owner, ws: ids.NewV7(), rep: ids.NewV7(), other: ids.NewV7()}
 	if _, err := owner.Exec(ctx,
@@ -85,11 +93,15 @@ func setupPromises(t *testing.T) *promiseEnv {
 			t.Fatal(err)
 		}
 	}
-	pool, err := database.NewPool(ctx, appDSN)
+	pool, err := testdb.Pool(ctx, appDSN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(pool.Close)
+	// Registered where the pool is handed out, before the test adds any cleanup
+	// of its own, so it runs last and sees a package that has genuinely stopped.
+	// The pool outlives the test now, so a goroutine still holding a connection
+	// would go on writing into the database the NEXT test just reset.
+	t.Cleanup(func() { testdb.AssertPoolsQuiesced(t) })
 	e.pool = pool
 	return e
 }
@@ -201,27 +213,28 @@ func TestAPromiseNamesOnlyTheRecordsItsReaderMaySee(t *testing.T) {
 // otherwise the reply "here are its promises" is itself the disclosure.
 func TestNarrowingToAnUnreadableRecordAnswersNotFound(t *testing.T) {
 	e := setupPromises(t)
-	orgID, hiddenProjectID, taskID := ids.NewV7(), ids.NewV7(), ids.NewV7()
-	e.exec(t, `INSERT INTO organization (id, display_name, owner_id, source, captured_by)
-		VALUES ($1, 'Zeta GmbH', $2, 'seed', 'system')`, orgID, e.rep)
-	e.exec(t, `INSERT INTO project (id, name, organization_id, owner_id, source, captured_by)
-		VALUES ($1, $2, $3, $4, 'seed', 'system')`,
-		hiddenProjectID, hiddenProjectNam, orgID, e.other)
+	hiddenOrgID, taskID := ids.NewV7(), ids.NewV7()
+	// Another rep's unpromoted capture: capture privacy holds it to its own
+	// owner, and every other shareable record type is read by every seat
+	// (platform/auth tableclass.go), so this is the narrowing target a caller
+	// can genuinely not reach.
+	e.exec(t, `INSERT INTO organization (id, display_name, owner_id, visibility, source, captured_by)
+		VALUES ($1, 'Zeta GmbH', $2, 'owner', 'seed', 'system')`, hiddenOrgID, e.other)
 	// The task is assigned to the CALLER, so nothing about the task itself is
-	// what hides it — only the project the sweep is narrowed to.
+	// what hides it — only the company the sweep is narrowed to.
 	e.exec(t, `INSERT INTO activity (id, kind, subject, occurred_at, due_at, assignee_id, is_done, source, captured_by)
 		VALUES ($1, 'task', 'Ship the Zeta rollout', now(), now(), $2, false, 'seed', 'system')`,
 		taskID, e.rep)
-	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, project_id)
-		VALUES ($1, $2, 'project', $3)`, ids.NewV7(), taskID, hiddenProjectID)
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, organization_id)
+		VALUES ($1, $2, 'organization', $3)`, ids.NewV7(), taskID, hiddenOrgID)
 
-	projectType := "project"
+	orgType := "organization"
 	_, _, err := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).ListOpenTasks(e.as(), ListOpenTasksInput{
-		EntityType: &projectType, EntityID: &hiddenProjectID,
+		EntityType: &orgType, EntityID: &hiddenOrgID,
 	})
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("narrowing to a project owned by another rep → %v, want ErrNotFound — an "+
-			"answer of any kind tells the caller the project is there", err)
+		t.Fatalf("narrowing to another rep's unpromoted capture → %v, want ErrNotFound — an "+
+			"answer of any kind tells the caller the company is there", err)
 	}
 }
 

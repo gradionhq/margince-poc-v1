@@ -99,6 +99,12 @@ it("renders queued and lights up estimated cost only when present", async () => 
   ).toBeTruthy();
   expect(screen.getByText("Est. cost")).toBeTruthy();
   expect(screen.getAllByText(/€1\.23/).length).toBeGreaterThan(0);
+  // The caveat and the total are what the table says taken TOGETHER, so they
+  // stand in the row's naming as its description rather than under the table as
+  // a caption: a sentence in a control column reads as that control's answer.
+  const note = screen.getByText(/Costs are estimates/);
+  expect(note.closest(".settingrow-naming")).not.toBeNull();
+  expect(note.textContent).toContain("€1.23");
 });
 
 it("distinguishes an empty window and exposes a denied problem detail", async () => {
@@ -117,6 +123,40 @@ it("distinguishes an empty window and exposes a denied problem detail", async ()
   await waitFor(() =>
     expect(screen.getByText("automation-config grant required")).toBeTruthy(),
   );
+});
+
+it("names every row, and puts the per-day breakdown behind one disclosure", async () => {
+  mount({
+    budget,
+    days: [
+      {
+        date: "2026-07-20",
+        tasks: [
+          {
+            task: "enrich",
+            tier: "cheap_cloud",
+            calls: 2,
+            tokens_in: 100,
+            tokens_out: 20,
+          },
+        ],
+      },
+    ],
+  });
+  // The month is one decision, so the row names it once and each arrow keeps
+  // its own name: a glyph announces as nothing, and "‹" is not a direction.
+  expect(await screen.findByText("Month")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Previous month" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Next month" })).toBeTruthy();
+  expect(screen.getByText("Spend by task")).toBeTruthy();
+  // Diagnostic, so it is a section the reader opens — and a disclosure carries
+  // its own state, which is why there is no second "hide" label to keep in
+  // step with it.
+  const summary = screen.getByText("Show days");
+  const disclosure = summary.closest("details");
+  expect(disclosure).toBeTruthy();
+  expect(disclosure?.textContent).toContain("2026-07-20");
+  expect(screen.queryByText("Hide days")).toBeNull();
 });
 
 it("surfaces an unknown budget band", async () => {

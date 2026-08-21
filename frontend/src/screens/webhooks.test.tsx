@@ -703,6 +703,43 @@ describe("WebhooksCard — deliveries panel (Task 10)", () => {
     expect(screen.getByTestId("dead-letter-group")).toBeTruthy();
   });
 
+  // The log is a SIBLING row of the subscription now, not a child of it — it is
+  // the subject rather than an answer, so it takes the card's full width below.
+  // The toggle therefore points across a boundary, and `aria-controls` naming a
+  // region that is not there is the failure that move can produce: a screen
+  // reader is told the button opened something and finds nothing to go to.
+  it("points the toggle at the region the stacked row renders", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = backendForDeliveries({ hasMore: false });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<WebhooksCard />);
+
+    const toggle = await screen.findByTestId("view-deliveries");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(toggle);
+    await waitFor(() =>
+      expect(screen.getByText("offer.accepted")).toBeTruthy(),
+    );
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    const controls = toggle.getAttribute("aria-controls");
+    expect(controls).toBeTruthy();
+    const region = document.getElementById(String(controls));
+    // The named region exists AND is the one holding the log — not merely some
+    // element that happens to carry the id.
+    expect(region).toBeTruthy();
+    expect(
+      within(region as HTMLElement).getByText("offer.accepted"),
+    ).toBeTruthy();
+
+    // Closing takes the region away with it, so the button stops claiming to
+    // control something.
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.getElementById(String(controls))).toBeNull();
+  });
+
   it("shows LoadMoreButton honestly off the real has_more, and fetches a bigger page on click", async () => {
     const user = userEvent.setup();
     const { fetchMock, getDeliveryCalls } = backendForDeliveries({

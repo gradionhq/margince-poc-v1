@@ -444,6 +444,8 @@ export const vi = {
   "overlay.adminOnly": "Bạn không có quyền thay đổi kết nối HubSpot.",
   "overlay.region": "Khu vực",
   "overlay.regionEu1": "EU",
+  "overlay.connectionLabel": "Kết nối",
+  "overlay.notConnectedYet": "Chưa kết nối",
   "overlay.regionUs": "Hoa Kỳ",
   "overlay.token": "Token private app",
   "overlay.tokenHint":
@@ -513,6 +515,7 @@ export const vi = {
   "overlay.userMap.unmap": "Bỏ ánh xạ",
   "overlay.userMap.cancel": "Huỷ",
   "overlay.userMap.pickerLabel": "Tìm người dùng {principal}",
+  "overlay.userMap.pickTitle": "Ghép với người dùng {principal}",
   "overlay.userMap.truncated":
     "Danh bạ {principal} dài hơn danh sách này — người bạn không tìm thấy ở đây có thể nằm ngoài phần đã tải.",
   "overlay.userMap.directoryFailed":
@@ -782,6 +785,7 @@ export const vi = {
   "finance.col.invoice": "Hóa đơn",
   "finance.paidOn": "đã trả {when}",
   "finance.col.dates": "Phát hành → đến hạn",
+  "finance.recentInvoices": "Hóa đơn gần đây",
   "finance.paidDayLate": "Trả trễ 1 ngày",
   "finance.paidDaysLate": "Trả trễ {days} ngày",
   "finance.overdueDay": "quá hạn {days} ngày",
@@ -1064,18 +1068,20 @@ export const vi = {
   "linkedinImport.title": "Kết nối LinkedIn",
   "linkedinImport.sub":
     "Nhập bản xuất của chính bạn để biết đội của bạn đã quen những ai",
-  "linkedinImport.explainer":
-    "LinkedIn cho bạn tệp Connections.csv trong Settings → Data privacy → Get a copy of your data. Tải tệp đó lên đây sẽ cho thấy ai trong đội của bạn đã quen người nào ở một tài khoản. Các kết nối KHÔNG trở thành contact: chúng không bao giờ xuất hiện trong tìm kiếm, danh sách hay trang contact, và không ai viết thư hay gửi email cho họ được.",
   "linkedinImport.profileLabel": "URL hồ sơ LinkedIn của bạn",
   "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
   "linkedinImport.saveProfile": "Lưu hồ sơ",
+  "linkedinImport.editProfile": "Sửa",
+  "linkedinImport.editProfileTitle": "Trang LinkedIn của bạn",
+  "linkedinImport.profileNotSet": "Chưa ghi nhận",
   "linkedinImport.connectedNote":
     "Đã kết nối. Các kết nối nhập vào được quy về hồ sơ này, nhờ đó CRM nói được đồng nghiệp nào quen người đó, chứ không phải “công ty” quen.",
   "linkedinImport.notConnectedNote":
-    "Chưa kết nối. Thêm URL hồ sơ của bạn sẽ quy mọi kết nối bạn nhập vào về đúng tên bạn.",
+    "Ghi lại URL hồ sơ của bạn sẽ quy mọi kết nối bạn nhập vào về đúng tên bạn.",
   "linkedinImport.whichFile":
-    "Tệp bạn cần là Connections.csv — kho lưu trữ xuất ra còn cả chục tệp khác.",
+    "LinkedIn cho bạn tệp Connections.csv trong Settings → Data privacy → Get a copy of your data; kho lưu trữ còn cả chục tệp khác, và đây là tệp cần dùng. Những gì bạn tải lên không bao giờ trở thành contact: các kết nối nằm ngoài tìm kiếm, danh sách và trang contact, và không ai viết thư hay gửi email cho họ được.",
   "linkedinImport.choose": "Chọn tệp Connections.csv",
+  "linkedinImport.importLabel": "Tệp xuất danh bạ",
   "linkedinImport.noMatchesYet":
     "Chưa có kết quả khớp nào, điều này là bình thường với một tổ chức mới: các kết nối của bạn được đối chiếu với những contact mà CRM đã biết, và số đó tăng dần khi thư của bạn được đọc. Việc này chạy lại mỗi giờ, nên kết quả khớp sẽ xuất hiện khi CRM đầy dần lên.",
   "linkedinImport.working": "Đang đọc bản xuất của bạn…",
@@ -1091,6 +1097,7 @@ export const vi = {
     "Chưa ai trong số kết nối của bạn làm việc tại một tài khoản đã có trong hồ sơ.",
   "linkedinReach.allUnresolved":
     "Cả {unresolved} kết nối của bạn đều làm việc ở nơi chưa có trong hồ sơ tài khoản.",
+  "linkedinReach.accountsLabel": "Tài khoản bạn vươn tới",
   "linkedinReach.account": "Tài khoản",
   "linkedinReach.connections": "Bạn quen",
   "linkedinReach.onFile": "Đã là contact",
@@ -1270,6 +1277,10 @@ export const vi = {
   "leadSources.removeBody":
     '"{label}" không được khách hàng tiềm năng nào dùng và sẽ biến mất khỏi danh sách.',
   "leadSources.newLabel": "Nguồn mới",
+  "leadSources.labelField": "Nhãn",
+  "leadSources.addOpen": "Nguồn mới",
+  "leadSources.listLabel": "Các nguồn trong danh sách",
+  "leadSources.discovered": "Giá trị phát hiện được",
   "leadSources.newPlaceholder": "Hội chợ",
   "leadSources.add": "Thêm nguồn",
   "leadSources.discoveredSub":
@@ -1283,6 +1294,7 @@ export const vi = {
   "leadReasons.inUse":
     "{count} khách hàng tiềm năng mang lý do này — hãy tắt thay vì xóa.",
   "leadReasons.newLabel": "Lý do mới",
+  "leadReasons.listLabel": "Các lý do trong danh sách",
   "leadReasons.add": "Thêm lý do",
   "leadReasons.removeTitle": "Xóa lý do này?",
   "leadReasons.removeBody":
@@ -2179,8 +2191,7 @@ export const vi = {
     "Hãy tạo một passport trong Cài đặt rồi trỏ bất kỳ Agent hỗ trợ MCP nào vào tổ chức của bạn. Agent chỉ đọc được những gì bạn thấy được.",
   "ai.paletteHint": "Hỏi từ bất cứ đâu bằng",
 
-  "settings.identity": "Hồ sơ",
-  "settings.preferences": "Tùy chọn",
+  "settings.accountCard": "Tài khoản của bạn",
   "unsaved.title": "Bạn có thay đổi chưa lưu",
   "unsaved.body":
     "Rời trang này bây giờ sẽ bỏ những gì bạn đã nhập. Hãy quay lại để lưu trước.",
@@ -2194,8 +2205,10 @@ export const vi = {
   "settings.signatureHint":
     "Chỉ văn bản thuần. Để trống nghĩa là gửi không chữ ký. AI không bao giờ tự viết lời kết — chữ ký này mới là thứ được gửi đi.",
   "settings.signatureSaving": "Đang lưu…",
-  "settings.preferencesSub":
-    "Giao diện được trình duyệt này ghi nhớ. Ngôn ngữ chỉ giữ trong phiên làm việc.",
+  "settings.signatureEdit": "Sửa chữ ký…",
+  "settings.signatureNone": "Chưa đặt lời kết",
+  "settings.signatureCancel": "Hủy",
+  "settings.languageHelp": "Chỉ giữ trong phiên làm việc.",
   "role.admin": "Quản trị",
   "role.management": "Ban lãnh đạo",
   "role.manager": "Trưởng nhóm",
@@ -2206,7 +2219,7 @@ export const vi = {
   "rbac.masked": "Giá trị đã che",
   "settings.passports": "Passport cho Agent",
   "settings.passportsSub":
-    "Agent hành động với danh nghĩa của bạn, không bao giờ vượt quá bạn — mỗi lần gọi đều kiểm tra lại phân quyền của bạn",
+    "Agent hành động với danh nghĩa của bạn, không bao giờ vượt quá bạn: mỗi lần gọi đều kiểm tra lại phân quyền của bạn.",
   "passport.scope.read": "Đọc bản ghi",
   "passport.scope.draft": "Soạn nháp tin nhắn",
   "passport.scope.write": "Thay đổi bản ghi",
@@ -2221,11 +2234,38 @@ export const vi = {
   "settings.minting": "Đang tạo…",
   "settings.mintCancel": "Huỷ",
   "settings.mintDone": "Xong",
+  "settings.mintOpen": "Passport mới",
   "settings.passportScopes": "Tác nhân này được phép làm gì",
   "settings.passportScopesHint":
     "Chọn ít nhất một mục. Tác nhân không bao giờ được làm nhiều hơn bạn.",
   "settings.passportScopesRequired":
     "Hãy chọn ít nhất một việc tác nhân này được phép làm.",
+  // Tác nhân theo lịch đang làm gì cho người đọc này. "Tóm tắt buổi sáng" là
+  // đúng cách gọi ở trang chủ; một lượt chạy dừng giữa đường không bao giờ
+  // được nghe như đã hoàn tất.
+  "agent.activity.morningBrief.queued":
+    "Bản tóm tắt buổi sáng của bạn đã xếp hàng.",
+  "agent.activity.morningBrief.running":
+    "Tôi đang soạn bản tóm tắt buổi sáng cho bạn.",
+  "agent.activity.morningBrief.done":
+    "Bản tóm tắt buổi sáng của bạn đã sẵn sàng.",
+  "agent.activity.morningBrief.degraded":
+    "Tôi mới làm được một phần bản tóm tắt buổi sáng rồi dừng lại.",
+  "agent.activity.morningBrief.failed":
+    "Tôi không hoàn thành được bản tóm tắt buổi sáng của bạn.",
+  "agent.activity.riskSweep.queued": "Đợt kiểm tra rủi ro ban đêm đã xếp hàng.",
+  "agent.activity.riskSweep.running":
+    "Tôi đang kiểm tra rủi ro trong các deal của bạn.",
+  "agent.activity.riskSweep.done":
+    "Xong. Tôi đã kiểm tra rủi ro trong các deal của bạn qua đêm.",
+  "agent.activity.riskSweep.degraded":
+    "Tôi mới kiểm tra được một phần rủi ro rồi dừng lại.",
+  "agent.activity.riskSweep.failed":
+    "Tôi không hoàn thành được đợt kiểm tra rủi ro ban đêm.",
+  "agent.panel.runningNow": "Đang chạy",
+  "agent.panel.finishedToday": "Đã xong hôm nay",
+  "agent.panel.stoppedEarly": "Vì sao nó dừng",
+
   "agents.connected": "Agent đã kết nối",
   "agents.connectedSub":
     "Các client MCP giữ thông tin xác thực của riêng mình, sinh ra từ một passport bạn cho mượn",
@@ -2233,13 +2273,14 @@ export const vi = {
   "agents.connectedOn": "kết nối {date}",
   "agents.lentFrom": "cho mượn từ “{label}”",
   "agents.disconnect": "Ngắt kết nối",
+  "agents.disconnectOpen": "Ngắt kết nối…",
   "agents.disconnectNamed": "Ngắt kết nối {client}",
   "agents.disconnected": "đã ngắt kết nối",
   "agents.lapsed": "thông tin xác thực đã hết hạn",
   "agents.renewing": "đang gia hạn",
   "agents.renewsBy": "thông tin xác thực gia hạn trước {date}",
   "agents.expiredOn": "thông tin xác thực hết hạn {date}",
-  "agents.revokeGrant": "Kết thúc kết nối",
+  "agents.revokeGrantOpen": "Kết thúc kết nối…",
   "agents.revokeGrantNamed": "Kết thúc kết nối tới {client}",
   "agents.disconnectConfirm":
     "Việc này kết thúc toàn bộ kết nối, không chỉ một thông tin xác thực: Agent mất quyền truy cập ở lần gọi kế tiếp và không gia hạn được. Muốn kết nối lại thì phải cho mượn passport lần nữa.",
@@ -2275,6 +2316,8 @@ export const vi = {
   "import.title": "Nhập tệp",
   "import.sub":
     "Đưa tệp CSV khách hàng tiềm năng hoặc công ty vào hệ thống. Không có gì được ghi cho đến khi bạn đã đọc điều sẽ xảy ra.",
+  "import.startLabel": "Nhập tệp CSV",
+  "import.start": "Bắt đầu nhập",
   "import.objectLabel": "Các dòng là gì",
   "import.object.lead": "Khách hàng tiềm năng",
   "import.object.organization": "Công ty",
@@ -2336,6 +2379,8 @@ export const vi = {
   "settings.resetDataDesc":
     "Đưa bản cài đặt này về trạng thái khởi động lần đầu. Dữ liệu nghiệp vụ và cấu hình của tổ chức bị xoá sạch; tổ chức cùng người dùng của nó được giữ lại và vẫn đang đăng nhập.",
   "settings.resetDataButton": "Xoá sạch dữ liệu…",
+  "settings.resetDataLabel": "Xóa toàn bộ dữ liệu",
+  "settings.resetDataConfirmButton": "Xóa dữ liệu",
   "settings.resetDataConfirmTitle": "Xoá sạch toàn bộ dữ liệu?",
   "settings.resetDataConfirmBody":
     "Nhập tên tổ chức của bạn để xác nhận. Không thể hoàn tác.",
@@ -2404,6 +2449,7 @@ export const vi = {
     "Chỉ quản trị viên đọc được toàn bộ dấu vết. Nó ghi lại mọi người thực hiện và mọi bản ghi họ chạm tới, nên không mở rộng hơn.",
   "settings.auditFilters": "Bộ lọc",
   "settings.auditEntries": "Nhật ký kiểm toán",
+  "settings.auditTrailLabel": "Các hành động đã ghi",
   "settings.auditActor": "Tác nhân",
   "settings.auditEntity": "Loại thực thể",
   "settings.auditEntityId": "ID thực thể",
@@ -2420,6 +2466,7 @@ export const vi = {
   "privacy.purposesReadOnly":
     "Chế độ chỉ đọc — chỉ quản trị viên hoặc ops mới thêm được mục đích.",
   "privacy.addPurpose": "Thêm mục đích",
+  "privacy.purposesRegistry": "Mục đích đã đăng ký",
   "privacy.purposeKey": "Khoá",
   "privacy.purposeLabel": "Nhãn",
   "privacy.purposeDoi": "Cần xác nhận kép",
@@ -2444,6 +2491,7 @@ export const vi = {
   "privacy.fulfil": "Thực hiện",
   "privacy.reject": "Từ chối",
   "privacy.newRequest": "Yêu cầu mới",
+  "privacy.queue": "Yêu cầu",
   "privacy.kind": "Loại",
   "privacy.person": "Người",
   "privacy.subjectRef": "Tham chiếu chủ thể",
@@ -2468,6 +2516,7 @@ export const vi = {
     "Chỉ quản trị viên hoặc vận hành mới thấy bản ghi nào đang bị nghĩa vụ pháp lý giữ lại. Dùng cùng quyền với thang lưu giữ.",
   "restricted.empty":
     "Không có bản ghi nào bị giữ lại — mọi lần xóa cho đến nay đều được hoàn tất đầy đủ.",
+  "restricted.heldLabel": "Bản ghi đang bị giữ",
   "restricted.kind": "Bản ghi",
   "restricted.occurred": "Ngày",
   "restricted.deals": "Giao dịch",
@@ -2492,6 +2541,7 @@ export const vi = {
     "Giải phóng sẽ XÓA bản ghi. Nó không quay lại sử dụng: yêu cầu xóa mà nghĩa vụ này đã tạm hoãn vẫn còn hiệu lực, nên việc gỡ bỏ nghĩa vụ sẽ hoàn tất yêu cầu đó. Không thể hoàn tác.",
   "restricted.release.confirm": "Giải phóng và xóa",
   "restricted.pin.action": "Ghim một bản ghi",
+  "restricted.pin.submit": "Ghim",
   "restricted.pin.idHint":
     "Dành cho thư từ mà quy tắc tự động không nhận ra — thư nhà cung cấp và mua hàng thuộc diện lưu giữ theo §257 HGB nhưng không có deal nào trong sản phẩm này để gắn vào. Mã bản ghi nằm trong mục kiểm toán của nó.",
   "restricted.pin.idMalformed":
@@ -2572,7 +2622,7 @@ export const vi = {
   "stage.semOpen": "Đang mở",
   "stage.semWon": "Thắng",
   "stage.semLost": "Thua",
-  "stage.remove": "Gỡ bỏ",
+  "stage.remove": "Gỡ bỏ…",
   "stage.removeConfirm": "Gỡ giai đoạn",
   "stage.removeTitle": "Gỡ giai đoạn này?",
   "stage.removeBody":
@@ -2863,6 +2913,7 @@ export const vi = {
   "dedupe.confidence": "Độ tin cậy khi khớp:",
   "dedupe.field": "Trường",
   "dedupe.signal": "Tín hiệu",
+  "dedupe.evidenceTable": "Bằng chứng theo từng trường",
   "dedupe.signalAgree": "trùng khớp",
   "dedupe.signalCollide": "xung đột",
   "dedupe.signalOneSided": "chỉ một bên",
@@ -2926,6 +2977,8 @@ export const vi = {
   // surface the onboarding copy promises.
   // Các đơn vị bản cài đặt này ghép vào, đặt trên trang cài đặt vốn đã giữ đúng
   // loại thông tin đăng nhập mà đơn vị đó dùng để cấu hình.
+  "extUnits.open": "Mở",
+  "extUnits.openNamed": "Mở trang {name}",
   "extUnits.user.title": "Tài khoản khác của bạn",
   "extUnits.user.sub":
     "Những tài khoản bản cài đặt này có thể kết nối thay bạn. Mỗi tài khoản chỉ thuộc về bạn — không ai khác nhìn thấy, và ngắt kết nối chỉ ảnh hưởng tới bạn.",
@@ -3005,11 +3058,22 @@ export const vi = {
     "Bản triển khai này chưa hoàn tất được kết nối đó — API của nhà cung cấp chưa được bật cho bản này. Cần quản trị viên bật lên; nhật ký máy chủ nêu rõ API nào.",
   "connectors.dismissOutcome": "Bỏ qua",
 
-  // The always-present "Add a connection" affordance (Task 1): the empty
-  // state and the roster footer share the same not-yet-connected provider
-  // buttons, so the copy that names them lives once here.
+  // The "Add a connection" affordance (Task 1): one verb in the card's header
+  // opens a dialog listing the providers still addable, each with the sentence
+  // it needs.
   "connectors.addConnection": "Thêm một kết nối",
-  "connectors.googleSeparateNote": "Gmail và Google Calendar kết nối riêng.",
+  "connectors.addOpen": "Kết nối một tài khoản",
+  "connectors.connect": "Kết nối",
+  "connectors.connectProvider": "Kết nối {provider}",
+  "connectors.rosterLabel": "Hộp thư đang thu thập",
+  "connectors.addGmailBrings":
+    "Thư bạn gửi và nhận, từ Google — và là kết nối duy nhất mà Margince có thể gửi thư qua.",
+  "connectors.addGcalBrings":
+    "Google Calendar của bạn. Nó được kết nối riêng, không đi kèm Gmail.",
+  "connectors.addGraphBrings":
+    "Thư và lịch của một tài khoản công việc Microsoft, qua Graph API. Chỉ thu thập.",
+  "connectors.addImapBrings":
+    "Bất kỳ máy chủ thư nào khác, bằng mật khẩu ứng dụng. Chỉ thu thập.",
   "connectors.providerNotConfigured":
     "{provider} chưa được cấu hình trên bản triển khai này.",
 
@@ -3041,6 +3105,8 @@ export const vi = {
   "connectors.telegramNotConfigured":
     "Các kênh nhắn tin chưa được cấu hình trên bản triển khai này.",
   "connectors.telegramConnectCta": "Kết nối một bot Telegram",
+  "connectors.telegramRosterLabel": "Bot đang chuyển tin nhắn",
+  "connectors.telegramEmpty": "Chưa có bot nào được kết nối.",
   "connectors.telegramEditToken": "Thay token",
   "connectors.telegramDisconnectTitle": "Ngắt kết nối bot này?",
   "connectors.telegramDisconnectBody":
@@ -3060,12 +3126,15 @@ export const vi = {
   "consumerMail.title": "Tên miền thư cá nhân",
   "consumerMail.sub":
     "Thư từ một hộp thư cá nhân vẫn tạo ra người — chỉ là không bao giờ tạo ra công ty. Margince có sẵn danh sách các nhà cung cấp này; hãy thêm những gì còn thiếu, hoặc lấy lại một tên miền bị nhận nhầm.",
+  "consumerMail.addedTitle": "Đã thêm tại đây",
+  "consumerMail.addTitle": "Thêm một tên miền",
   "consumerMail.domainLabel": "Tên miền",
   "consumerMail.domainPlaceholder": "provider.example",
   "consumerMail.kindLabel": "Tên miền này là gì",
   "consumerMail.kind.extra": "Thư cá nhân — không bao giờ là công ty",
   "consumerMail.kind.never": "Một công ty thật — bỏ qua danh sách có sẵn",
   "consumerMail.add": "Thêm",
+  "consumerMail.addOpen": "Thêm tên miền",
   "consumerMail.remove": "Gỡ",
   "consumerMail.none":
     "Chưa thêm gì. Danh sách có sẵn quyết định mọi tên miền.",
@@ -3084,6 +3153,9 @@ export const vi = {
   "blockedDomains.title": "Tên miền bị từ chối",
   "blockedDomains.sub":
     "Những tên miền mà bản cài đặt này không cho thành công ty, và điều gì đã quyết định từng trường hợp — một phán định của mô hình, một quy tắc suy đoán, hay một con người. Cho một tên miền vào lại sẽ mở lại câu hỏi về công ty, chứ không chỉ xoá một dấu hiệu.",
+  "blockedDomains.listTitle": "Các quyết định đã lưu",
+  "blockedDomains.record": "Ghi một quyết định",
+  "blockedDomains.recordOpen": "Ghi một quyết định",
   "blockedDomains.domainLabel": "Tên miền",
   "blockedDomains.domainPlaceholder": "nhacungcap.example",
   "blockedDomains.admissionLabel": "Quyết định",
@@ -3780,6 +3852,8 @@ export const vi = {
   "password.signsYouOut":
     "Việc đổi mật khẩu sẽ đăng xuất bạn ở mọi nơi, kể cả ở đây. Hãy đăng nhập lại bằng mật khẩu mới.",
   "password.changing": "Đang đổi mật khẩu…",
+  "password.open": "Đổi mật khẩu…",
+  "password.cancel": "Hủy",
   "password.submit": "Đổi mật khẩu",
   "password.done": "Đã đổi mật khẩu. Hãy đăng nhập lại bằng mật khẩu mới.",
   "password.errorGeneric": "Không đổi được mật khẩu. Hãy thử lại.",
@@ -4023,17 +4097,18 @@ export const vi = {
   "cf.obj.organization": "Công ty",
   "cf.obj.person": "Contact",
   "cf.obj.lead": "Lead",
+  "cf.listLabel": "Các trường trên {object}",
   "cf.col.field": "Trường",
   "cf.col.type": "Loại",
   "cf.col.addedBy": "Người thêm",
   "cf.addedByYou": "Bạn",
   "cf.addedByAdmin": "Quản trị viên",
   "cf.empty.deal":
-    "Chưa có trường tuỳ chỉnh nào trên Deal. Hãy thêm một trường bên dưới nếu bạn theo dõi thứ mà bản gốc chưa có.",
+    "Chưa có trường tuỳ chỉnh nào trên Deal. Hãy thêm một trường nếu bạn theo dõi thứ mà bản gốc chưa có.",
   "cf.empty.organization":
-    "Chưa có trường tuỳ chỉnh nào trên Công ty. Hãy thêm một trường bên dưới nếu bạn theo dõi thứ mà bản gốc chưa có.",
+    "Chưa có trường tuỳ chỉnh nào trên Công ty. Hãy thêm một trường nếu bạn theo dõi thứ mà bản gốc chưa có.",
   "cf.empty.person":
-    "Chưa có trường tuỳ chỉnh nào trên Contact. Các trường lõi đã bao quát bản ghi contact; hãy thêm một trường bên dưới nếu bạn theo dõi thêm.",
+    "Chưa có trường tuỳ chỉnh nào trên Contact. Các trường lõi đã bao quát bản ghi contact; hãy thêm một trường nếu bạn theo dõi thêm.",
   "cf.empty.lead":
     "Chưa có trường tuỳ chỉnh nào trên Lead. Trường bạn thêm ở đây cũng xuất hiện khi một lead được chuyển thành contact.",
   "cf.type.text": "Văn bản",
@@ -4043,6 +4118,7 @@ export const vi = {
   "cf.type.picklist": "Danh sách chọn",
   "cf.type.boolean": "Có / Không",
   "cf.builder.addTo": "Thêm một trường vào {object}",
+  "cf.builder.open": "Thêm một trường",
   "cf.builder.noCode": "không cần viết mã",
   "cf.builder.intro":
     "Trường mới là một cột thật trên bảng sẵn có — lọc được, đưa vào báo cáo được, xuất ra được, và có trong API như mọi trường lõi. Đó không phải một đối tượng mới.",
@@ -4069,7 +4145,6 @@ export const vi = {
   "cf.refuse.route":
     "Hãy đưa việc đó qua con đường phát triển — kỹ sư của chính bạn, một đối tác triển khai, hoặc dịch vụ của Gradion.",
   "cf.confirm": "Xác nhận và thêm trường",
-  "cf.reset": "Đặt lại",
   "cf.writing": "đang ghi…",
   "cf.added":
     'Đã thêm trường "{label}" — dùng được ngay trên 360, bộ lọc, bản xuất và API',
@@ -4104,6 +4179,8 @@ export const vi = {
   "captureActivity.sub":
     "Điều gì đã xảy ra với tin nhắn của bạn trong 24 giờ qua.",
   "captureActivity.scope.label": "Hoạt động của ai",
+  "captureActivity.outcomes": "Kết quả",
+  "captureActivity.messages": "Tin nhắn",
   "captureActivity.scope.mine": "Của tôi",
   "captureActivity.scope.workspace": "Kênh dùng chung",
   "captureActivity.scopeNote":
@@ -4234,6 +4311,7 @@ export const vi = {
   "license.state.licensed": "Đã có giấy phép",
   "license.state.uncapped": "Đã có giấy phép, không giới hạn chỗ",
   "license.state.unlicensed": "Chưa cấu hình giấy phép",
+  "license.seats.title": "Số chỗ",
   "license.seats.used": "Chỗ đang dùng",
   "license.seats.granted": "Chỗ được cấp",
   "license.seats.uncapped": "Không giới hạn",
@@ -4257,7 +4335,7 @@ export const vi = {
   "license.counting":
     "Chỗ đầy đủ chưa bị vô hiệu hoá và chưa bị tạm ngưng, bao gồm cả agent. Chỗ chỉ đọc là không giới hạn và không bao giờ được tính. Thành viên mới được xét theo con số này.",
   "settings.group.you": "Cá nhân",
-  "settings.group.org": "Tổ chức",
+  "settings.group.admin": "Cài đặt quản trị",
   "settings.rates.fxTitle": "Tỷ giá",
   "settings.rates.fxIntro":
     "Tỷ giá quy đổi số tiền ngoại tệ về tiền tệ gốc của bạn. Tỷ giá mới có hiệu lực từ hôm nay trở đi; tỷ giá quá khứ không bao giờ bị sửa.",
@@ -4267,6 +4345,7 @@ export const vi = {
     "Chỉ quản trị viên hoặc ops mới thấy được chi phí từng mô hình. Đây là thông tin vận hành, nên không hiển thị rộng hơn.",
   "settings.rates.readOnly":
     "Chế độ chỉ đọc — bạn không có quyền thay đổi tỷ giá.",
+  "settings.rates.fxTableLabel": "Tỷ giá đang áp dụng",
   "settings.rates.fxAdd": "Đặt tỷ giá",
   "settings.rates.fxEmpty": "Chưa có tỷ giá nào.",
   "settings.rates.fxModalTitle": "Đặt một tỷ giá",
@@ -4274,6 +4353,7 @@ export const vi = {
   "settings.rates.modelTitle": "Chi phí mô hình AI",
   "settings.rates.modelIntro":
     "Giá theo từng mô hình, tính bằng USD cho mỗi 1M token, dùng để ước lượng chi tiêu AI. Chỉ để minh bạch — giá không bao giờ làm đổi cách định tuyến mô hình.",
+  "settings.rates.modelTableLabel": "Giá đang áp dụng",
   "settings.rates.modelAdd": "Thêm giá mô hình",
   "settings.rates.modelEmpty": "Chưa có giá mô hình nào.",
   "settings.rates.modelModalTitle": "Đặt giá một mô hình",
@@ -4314,6 +4394,7 @@ export const vi = {
     "Ghi chú về giọng văn bạn muốn — giữ nguyên đúng như bạn viết; mô hình không bao giờ ghi đè phần này.",
   "settings.voice.savePreferences": "Lưu tuỳ chọn",
   "settings.voice.corpusLabel": "Mẫu văn",
+  "settings.voice.corpusRowLabel": "Hiện có trong kho văn của bạn",
   "settings.voice.meter": "{count} trên {target} từ",
   "settings.voice.register.email": "email",
   "settings.voice.register.social": "mạng xã hội",
@@ -4365,6 +4446,8 @@ export const vi = {
   "voice.history.empty":
     "Chưa có phiên bản nào — hãy dựng giọng văn của bạn trước.",
   "voice.history.deltasLabel": "Những gì đã thay đổi",
+  "voice.history.deltasEmpty":
+    "Chưa có gì để so sánh \u2014 thay đổi sẽ xuất hiện từ bản dựng thứ hai.",
   "voice.history.deltaRow": "v{from} → v{to}",
   "voice.history.learning":
     "Học liên tục — bản nháp đã phục vụ: {drafted} · đã sửa trước khi gửi: {edited} · đã từ chối: {rejected}.",
@@ -4376,7 +4459,10 @@ export const vi = {
   "settings.voice.addPlaceholder":
     "Dán một email, bài đăng, hay bất cứ gì bạn đã viết…",
   "settings.voice.addSource": "Thêm mẫu văn",
+  "settings.voice.addSourceOpen": "Dán văn bản…",
+  "settings.voice.pasteCancel": "Huỷ",
   "settings.voice.addFirstLabel": "Mẫu văn đầu tiên của bạn",
+  "settings.voice.addFirstOpen": "Dán mẫu văn đầu tiên…",
   "settings.voice.addFirstCta": "Thêm và bắt đầu Voice DNA của tôi",
   "settings.voice.browseFiles": "Chọn tệp",
   "settings.voice.dropHint":
@@ -4405,6 +4491,7 @@ export const vi = {
   "settings.voice.refusalUnsupported":
     "{name} có định dạng mà kho văn bản không đọc được.",
   "settings.voice.buildsTitle": "Bản dựng",
+  "settings.voice.buildRowLabel": "Dựng từ mẫu văn của bạn",
   "settings.voice.building": "Đang dựng…",
   "settings.voice.rebuild": "Dựng lại Voice DNA",
   "settings.voice.buildNeedsWords":
@@ -4435,7 +4522,6 @@ export const vi = {
   "extAccess.brings.routes": "Tuyến đường dẫn",
   "extAccess.brings.jobs": "Tác vụ nền",
   "extAccess.brings.none": "Không có",
-  "extAccess.grants.heading": "Ai được dùng nó",
   "extAccess.noObjects":
     "Đơn vị này không đăng ký đối tượng phân quyền nào, nên không có gì để cấp.",
   "extAccess.roleColumn": "Vai trò",
@@ -4458,9 +4544,10 @@ export const vi = {
   "users.teamsTitle": "Nhóm",
   "users.teamsSub":
     "Ai được sửa bản ghi của ai: thành viên một nhóm sửa được bản ghi của mọi thành viên trong nhóm. Khách hàng, liên hệ, lead và deal thì ai cũng đọc được.",
-  "users.teamMembers": "{count} thành viên",
   "users.archiveTeam": "Lưu trữ nhóm {name}",
   "users.newTeamLabel": "Nhóm mới",
+  "users.newTeamOpen": "Nhóm mới",
+  "users.teamNameLabel": "Tên nhóm",
   "users.newTeamPlaceholder": "vd. DACH Sales",
   "users.createTeam": "Tạo nhóm",
   "users.access.title": "Thành viên này thấy gì",
@@ -4502,9 +4589,11 @@ export const vi = {
   "users.agentSeat": "Agent",
   "users.agentSeatRole": "Hành động theo passport, không theo vai trò",
   "users.roleLabel": "Vai trò cho thành viên mới",
+  "users.inviteOpen": "Mời thành viên",
   "users.invite": "Mời",
   "users.setRole": "Đặt vai trò…",
   "users.setRoleFor": "Đặt vai trò cho {name}",
+  "users.rowActions": "Hành động cho {name}",
   "users.rolesHeld": "Đang giữ {roles}. Chọn một vai trò sẽ thay thế tất cả",
   "users.deactivate": "Vô hiệu hoá",
   "users.reactivate": "Kích hoạt lại",
@@ -4535,7 +4624,6 @@ export const vi = {
     "Không kết nối được tới máy chủ. Hãy kiểm tra kết nối rồi thử lại.",
   "users.link.retry": "Thử lại",
   "users.link.done": "Xong",
-  "settings.companyKicker": "Tri thức công ty",
   "settings.companyReadOnly":
     "Chế độ chỉ đọc — sửa hồ sơ công ty cần quyền ghi trên tổ chức.",
   "settings.companyTitle": "Những gì Margince biết về công ty bạn",
@@ -4545,13 +4633,20 @@ export const vi = {
     "Chỉ tri thức đã xác nhận — văn bản website không bao giờ trở thành chỉ dẫn.",
   "settings.companyConfirmed": "nhận định đã xác nhận",
   "settings.companyWebsite": "Website công khai của công ty",
+  "settings.companyWebsiteHint":
+    "Website công khai mà mỗi lần đọc website đều bắt đầu từ đó.",
+  "settings.companySourceTitle": "Nơi chúng tôi đọc được",
+  "settings.companyRefreshRow": "Đọc lại website",
+  "settings.companyRefreshHint":
+    "Chúng tôi tải các trang công khai của bạn và đề xuất thay đổi. Không có gì vào hồ sơ trước khi bạn xem lại và áp dụng.",
+  "settings.companyEdit": "Sửa",
+  "settings.companyEditField": "Sửa {field}",
   "settings.companyWebsiteRequired":
     "Hãy thêm website công ty trước khi làm mới.",
   "settings.companyRefresh": "Làm mới từ website",
   "settings.companyEssentials": "Ba điều cốt lõi",
   "settings.companyPositioning": "Định vị, người mua và cách bán hàng",
   "settings.companyIdentity": "Danh tính và thông tin pháp lý",
-  "settings.companyViewSource": "Xem nguồn",
   "settings.companySave": "Lưu bối cảnh công ty",
   "settings.companySaved": "Đã lưu",
   "settings.companyRefreshUnreadable":
@@ -4624,6 +4719,8 @@ export const vi = {
     "Bề mặt có kiểm soát mà một passport gọi được — đúng danh sách mà một client MCP thấy.",
   "tools.egress": "có gọi ra ngoài",
   "tools.scopeAll": "Mọi passport",
+  "tools.inventory": "Tất cả {count} công cụ",
+  "tools.scopeLabel": "Giới hạn theo passport",
   "tools.scopedTo": "{label} gọi được",
   "tools.unreachable": "chưa được cấp phạm vi",
 
@@ -4646,8 +4743,9 @@ export const vi = {
   "aiusage.col.tokensOut": "Token ra",
   "aiusage.col.cost": "Chi phí ước tính",
   "aiusage.costNote": "Chi phí là ước tính theo mức giá đã cấu hình.",
+  "aiusage.monthLabel": "Tháng",
+  "aiusage.spendLabel": "Chi phí theo nhiệm vụ",
   "aiusage.days.show": "Hiện theo ngày",
-  "aiusage.days.hide": "Ẩn phần theo ngày",
   "aiusage.empty": "Không có lượt gọi AI nào trong khoảng này.",
   "aiusage.prevMonth": "Tháng trước",
   "aiusage.nextMonth": "Tháng sau",
@@ -4674,6 +4772,7 @@ export const vi = {
   "aicalls.badge.cacheHit": "trúng cache",
   "aicalls.badge.degraded": "giảm cấp",
   "aicalls.badge.retries": "thử lại ×{count}",
+  "aicalls.callsLabel": "Các lệnh gọi gần đây",
   "aicalls.filter.all": "Mọi tác vụ",
   "aicalls.loadMore": "Tải thêm",
   "aicalls.empty": "Chưa ghi nhận lượt gọi AI nào.",
@@ -4800,7 +4899,25 @@ export const vi = {
     "Đã khoá: đã có giao dịch được quy đổi theo đơn vị tiền tệ này, nên việc thay đổi sẽ làm sai lệch mọi số liệu tổng hợp dựa trên chúng.",
   "installationSettings.readOnly":
     "Chỉ quản trị viên hoặc ops mới có thể thay đổi các thiết lập này.",
+  "installationSettings.edit": "Sửa",
+  "installationSettings.editField": "Sửa {field}",
   "installationSettings.save": "Lưu",
+  "aiRouting.title": "Định tuyến mô hình",
+  "aiRouting.sub":
+    "Mô hình nào phục vụ từng bậc. Thay đổi có hiệu lực mà không cần khởi động lại; mọi tiến trình sẽ nhận trong vòng một phút.",
+  "aiRouting.unbound":
+    "Cài đặt này chưa ràng buộc mô hình nào nên các tính năng AI đang tắt. Bản triển khai khai báo ràng buộc đầu tiên tại seeds.ai_routing trong margince.yaml.",
+  "aiRouting.profile.label": "Vị trí",
+  "aiRouting.profile.help":
+    "Nơi chạy suy luận. Sovereign nghĩa là không có dữ liệu ra ngoài: chỉ mô hình trên máy chủ của bạn, bị từ chối khi lưu chứ không phải ở lần gọi đầu tiên.",
+  "aiRouting.profile.eu_hosted": "Đặt tại EU",
+  "aiRouting.profile.sovereign": "Sovereign (không ra ngoài)",
+  "aiRouting.profile.cloud_frontier": "Cloud frontier (đám mây cao cấp)",
+  "aiRouting.model.label": "Mô hình",
+  "aiRouting.save": "Lưu định tuyến",
+  "aiRouting.saving": "Đang lưu ràng buộc…",
+  "aiRouting.saved": "Đã lưu định tuyến. Mọi tiến trình đang phục vụ theo nó.",
+  "aiRouting.adminOnly": "Chỉ admin hoặc ops mới đổi được định tuyến mô hình.",
   "captureSettings.title": "Bổ sung thông tin",
   "captureSettings.sub":
     "Cách các công ty và contact đã thu thập được bổ sung thông tin sau khi tạo.",
@@ -4817,6 +4934,7 @@ export const vi = {
     "Địa chỉ và tên miền có tin nhắn không bao giờ vào CRM. Quy tắc của riêng bạn chỉ áp dụng cho hộp thư bạn đã kết nối; quy tắc của tổ chức áp dụng cho mọi người.",
   "captureExclusions.notRetroactive":
     "Có hiệu lực từ tin nhắn tiếp theo. Tin nhắn đã thu thập vẫn giữ nguyên.",
+  "captureExclusions.current": "Quy tắc đang áp dụng",
   "captureExclusions.empty": "Không có loại trừ.",
   "captureExclusions.scope.user": "Chỉ tôi",
   "captureExclusions.scope.workspace": "Toàn tổ chức",
@@ -4828,10 +4946,12 @@ export const vi = {
   "captureExclusions.placeholder.address": "ten@vidu.com",
   "captureExclusions.placeholder.domain": "vidu.com",
   "captureExclusions.add": "Loại trừ",
+  "captureExclusions.addOpen": "Loại trừ mới",
   "captureExclusions.remove": "Thu thập {value} trở lại",
   "ownDomains.title": "Tên miền email của công ty",
   "ownDomains.sub":
     "Những tên miền thuộc về công ty này. Khi đồng nghiệp viết thư cho nhau, thư đó không được lưu. Kể cả với bạn.",
+  "ownDomains.curatedTitle": "Quản lý tại đây",
   "ownDomains.irreversible":
     "Thêm một tên miền sẽ có hiệu lực từ thư kế tiếp. Nếu sau này xóa đi, việc thu thập sẽ tiếp tục từ thời điểm đó. Những thư đã bị bỏ qua trong thời gian tên miền còn được đăng ký thì không thể được gửi lại qua bất kỳ hộp thư nào nữa. Thư đã thu thập thì vẫn còn.",
   "ownDomains.fromCompany": "Từ hồ sơ công ty. Sửa tại đó:",
@@ -4841,6 +4961,7 @@ export const vi = {
   "ownDomains.confirmed": "đã xác nhận",
   "ownDomains.candidate": "thấy trên một hộp thư đã kết nối, chưa xác nhận",
   "ownDomains.add": "Thêm",
+  "ownDomains.addOpen": "Thêm tên miền",
   "ownDomains.addLabel": "Thêm tên miền của công ty",
   "ownDomains.placeholder": "vidu.com",
   "ownDomains.remove": "Xóa {domain}",
@@ -4881,6 +5002,7 @@ export const vi = {
   "webhooks.deliveries.show": "Xem lượt gửi",
   "webhooks.deliveries.hide": "Ẩn lượt gửi",
   "webhooks.deliveries.empty": "Chưa có lượt gửi nào.",
+  "webhooks.deliveries.title": "Các lần gửi",
   "webhooks.deliveries.deadLetterGroup": "Đã bỏ vào hàng lỗi ({count})",
   "webhooks.deliveries.allGroup": "Các lượt khác",
   "webhooks.deliveries.column.status": "Trạng thái",
@@ -4906,6 +5028,13 @@ export const vi = {
     "Trạng thái dựng lại chỉ mục của kho embedding — chỉ quản trị và vận hành, kể cả việc xem.",
   "embedreindex.withheld":
     "Chỉ quản trị viên hoặc ops mới thấy được chỉ mục tìm kiếm. Dựng lại nó tiêu tốn token của cả bản cài đặt, nên trạng thái của nó không được hiển thị rộng hơn.",
+  "embedreindex.statusLabel": "Trạng thái chỉ mục",
+  "embedreindex.reindexLabel": "Lập lại chỉ mục phần đã thay đổi",
+  "embedreindex.reindexHelp":
+    "Chỉ nhúng lại những bản ghi có nội dung đã thay đổi kể từ lần chạy trước.",
+  "embedreindex.rebuildLabel": "Xây dựng lại toàn bộ chỉ mục",
+  "embedreindex.rebuildHelp":
+    "Nhúng lại mọi bản ghi từ đầu. Dùng khi một lần chạy bị treo hoặc mô hình nhúng đã thay đổi.",
   "embedreindex.statusIdle": "Đã cập nhật",
   "embedreindex.statusNeeded": "Cần dựng lại chỉ mục",
   "embedreindex.statusReembedding": "Đang dựng lại chỉ mục…",
@@ -5353,7 +5482,6 @@ export const vi = {
   "provider.spend.heldHead": "Đang giữ",
   "provider.spend.runsHead": "Lượt tra cứu",
   "provider.spend.none": "Chưa mua gì cả.",
-  "provider.mode": "Khi nào làm giàu",
 
   // Phần trên trang cá nhân. Ba trạng thái "không có gì" là ba câu khác
   // nhau có chủ đích: chỉ một trong số đó là điều người đọc có thể xử lý.

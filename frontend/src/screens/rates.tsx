@@ -7,11 +7,13 @@ import {
   Button,
   DataTable,
   EmptyState,
+  Field,
   Modal,
   TextInput,
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { SettingList, SettingRow } from "../design-system/settingrow";
 import { useT } from "../i18n";
 import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./rates.css";
@@ -179,7 +181,7 @@ export function FxRatesCard() {
       }
     >
       <PanelBody className="form-stack">
-        <p className="t-small">{t("settings.rates.fxIntro")}</p>
+        <p className="settings-panel-sub">{t("settings.rates.fxIntro")}</p>
         {/* A sheet whose write affordances are all withheld says so ONCE, here,
             rather than annotating each absent control. The rule (design-system
             README): a permission-withheld SURFACE states it, while individual
@@ -195,39 +197,54 @@ export function FxRatesCard() {
         {!canManage && (
           <p className="t-caption">{t("settings.rates.readOnly")}</p>
         )}
-        <QueryGate query={query}>
-          {(rows) =>
-            rows.length === 0 ? (
-              <EmptyState>
-                <b>{t("settings.rates.fxEmpty")}</b>
-              </EmptyState>
-            ) : (
-              <DataTable<FxRate>
-                rows={rows}
-                rowKey={(row) => row.from_currency}
-                columns={[
-                  {
-                    key: "from",
-                    header: t("settings.rates.colFrom"),
-                    render: (row) => row.from_currency,
-                  },
-                  {
-                    key: "rate",
-                    header: t("settings.rates.colRate", {
-                      base: rows[0]?.to_currency ?? "",
-                    }),
-                    render: (row) => trimDecimal(row.rate),
-                  },
-                  {
-                    key: "effective",
-                    header: t("settings.rates.colEffective"),
-                    render: (row) => row.effective_date,
-                  },
-                ]}
-              />
-            )
-          }
-        </QueryGate>
+        <SettingList>
+          {/* The sheet IS this card's subject rather than an answer that fits
+              beside a label, so it takes the full width below the naming
+              (design-system README, SettingRow: what picks `stack` is
+              complexity, not size). The row names what a reader is looking at
+              — the rates currently in force — which the table's own column
+              headers do not say. */}
+          <SettingRow
+            label={t("settings.rates.fxTableLabel")}
+            layout="stack"
+            control={
+              <QueryGate query={query}>
+                {(rows) =>
+                  rows.length === 0 ? (
+                    <EmptyState>
+                      <b>{t("settings.rates.fxEmpty")}</b>
+                    </EmptyState>
+                  ) : (
+                    <DataTable<FxRate>
+                      label={t("settings.rates.fxTableLabel")}
+                      rows={rows}
+                      rowKey={(row) => row.from_currency}
+                      columns={[
+                        {
+                          key: "from",
+                          header: t("settings.rates.colFrom"),
+                          render: (row) => row.from_currency,
+                        },
+                        {
+                          key: "rate",
+                          header: t("settings.rates.colRate", {
+                            base: rows[0]?.to_currency ?? "",
+                          }),
+                          render: (row) => trimDecimal(row.rate),
+                        },
+                        {
+                          key: "effective",
+                          header: t("settings.rates.colEffective"),
+                          render: (row) => row.effective_date,
+                        },
+                      ]}
+                    />
+                  )
+                }
+              </QueryGate>
+            }
+          />
+        </SettingList>
         {open ? <FxRateModal onClose={() => setOpen(false)} /> : null}
       </PanelBody>
     </Panel>
@@ -267,73 +284,76 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
     <Modal open onClose={onClose} labelledBy={labelId}>
       {/* A dialog is portalled to the body, so it is its own region and its
           title starts the outline at level 2 — the spelling ConfirmModal uses
-          for every other dialog in the tree. --space-3 is the 12px that
-          spelling sets by hand. */}
-      <h2
-        id={labelId}
-        className="t-h2"
-        style={{ marginBottom: "var(--space-3)" }}
-      >
+          for every other dialog in the tree. `.modal-title` is the catalog's
+          own name for the interval under it. */}
+      <h2 id={labelId} className="t-h2 modal-title">
         {t("settings.rates.fxModalTitle")}
       </h2>
-      <label className="t-label" htmlFor={`${labelId}-from`}>
-        {t("settings.rates.colFrom")}
-      </label>
-      <TextInput
-        id={`${labelId}-from`}
-        value={from}
-        maxLength={3}
-        onChange={(e) => setFrom(e.target.value)}
-      />
-      <label className="t-label" htmlFor={`${labelId}-rate`}>
-        {t("settings.rates.rateToBase")}
-      </label>
-      <TextInput
-        id={`${labelId}-rate`}
-        value={rate}
-        inputMode="decimal"
-        placeholder="0.92"
-        onChange={(e) => setRate(e.target.value)}
-      />
-      <label className="t-label" htmlFor={`${labelId}-date`}>
-        {t("settings.rates.colEffective")}
-      </label>
-      <TextInput
-        id={`${labelId}-date`}
-        type="date"
-        min={today()}
-        value={effectiveDate}
-        onChange={(e) => setEffectiveDate(e.target.value)}
-      />
-      {/* The failure is a live region, not tinted text: a message that appears
-          after the reader has pressed Save is one they are not looking at. The
-          dialog stays open behind it, so the retry is the same button. */}
-      {error ? (
-        <Callout tone="danger" live="alert">
-          {error}
-        </Callout>
-      ) : null}
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          justifyContent: "flex-end",
-          marginTop: "var(--space-3)",
-        }}
-      >
-        <Button variant="ghost" onClick={onClose}>
-          {t("create.cancel")}
-        </Button>
-        <Button
-          variant="primary"
-          onClick={() => {
-            setError(null);
-            save.mutate();
-          }}
-          disabled={save.isPending || from.trim() === "" || rate.trim() === ""}
-        >
-          {t("settings.rates.setRate")}
-        </Button>
+      {/* `Field` owns each box's id and hands it to the input, so the label a
+          reader sees and the name the control announces are one string written
+          once. The stack owns the interval between them: a `.field` sets no
+          margin of its own, deliberately, and a dialog is not the place to
+          invent a second answer to that. */}
+      <div className="form-stack">
+        <Field label={t("settings.rates.colFrom")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={from}
+              maxLength={3}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("settings.rates.rateToBase")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={rate}
+              inputMode="decimal"
+              placeholder="0.92"
+              onChange={(e) => setRate(e.target.value)}
+            />
+          )}
+        </Field>
+        <Field label={t("settings.rates.colEffective")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="date"
+              min={today()}
+              value={effectiveDate}
+              onChange={(e) => setEffectiveDate(e.target.value)}
+            />
+          )}
+        </Field>
+        {/* The failure is a live region, not tinted text: a message that
+            appears after the reader has pressed Save is one they are not
+            looking at. The dialog stays open behind it, so the retry is the
+            same button. */}
+        {error ? (
+          <Callout tone="danger" live="alert">
+            {error}
+          </Callout>
+        ) : null}
+        <div className="form-actions">
+          <Button small variant="ghost" onClick={onClose}>
+            {t("create.cancel")}
+          </Button>
+          <Button
+            small
+            variant="primary"
+            onClick={() => {
+              setError(null);
+              save.mutate();
+            }}
+            disabled={
+              save.isPending || from.trim() === "" || rate.trim() === ""
+            }
+          >
+            {t("settings.rates.setRate")}
+          </Button>
+        </div>
       </div>
     </Modal>
   );
@@ -393,7 +413,7 @@ export function ModelCostsCard() {
       }
     >
       <PanelBody className="form-stack">
-        <p className="t-small">{t("settings.rates.modelIntro")}</p>
+        <p className="settings-panel-sub">{t("settings.rates.modelIntro")}</p>
         {/* A sheet whose write affordances are all withheld says so ONCE, here,
             rather than annotating each absent control. The rule (design-system
             README): a permission-withheld SURFACE states it, while individual
@@ -409,57 +429,68 @@ export function ModelCostsCard() {
         {!canManage && (
           <p className="t-caption">{t("settings.rates.readOnly")}</p>
         )}
-        <QueryGate query={query}>
-          {(rows) =>
-            rows.length === 0 ? (
-              <EmptyState>
-                <b>{t("settings.rates.modelEmpty")}</b>
-              </EmptyState>
-            ) : (
-              <DataTable<AiModelRate>
-                rows={rows}
-                rowKey={(row) => `${row.provider}/${row.model_id}`}
-                columns={[
-                  {
-                    key: "provider",
-                    header: t("settings.rates.colProvider"),
-                    render: (row) => row.provider,
-                  },
-                  {
-                    key: "model",
-                    header: t("settings.rates.colModel"),
-                    render: (row) => row.model_id,
-                  },
-                  {
-                    key: "in",
-                    header: t("settings.rates.colInput"),
-                    render: (row) => row.input_per_mtok,
-                  },
-                  {
-                    key: "out",
-                    header: t("settings.rates.colOutput"),
-                    render: (row) => row.output_per_mtok,
-                  },
-                  {
-                    key: "cr",
-                    header: t("settings.rates.colCacheRead"),
-                    render: (row) => row.cache_read_per_mtok,
-                  },
-                  {
-                    key: "cw",
-                    header: t("settings.rates.colCacheWrite"),
-                    render: (row) => row.cache_write_per_mtok,
-                  },
-                  {
-                    key: "effective",
-                    header: t("settings.rates.colEffective"),
-                    render: (row) => row.effective_date,
-                  },
-                ]}
-              />
-            )
-          }
-        </QueryGate>
+        <SettingList>
+          {/* Stacked for the reason spelled out on FxRatesCard: the price sheet
+              is the subject, and this row names which prices they are. */}
+          <SettingRow
+            label={t("settings.rates.modelTableLabel")}
+            layout="stack"
+            control={
+              <QueryGate query={query}>
+                {(rows) =>
+                  rows.length === 0 ? (
+                    <EmptyState>
+                      <b>{t("settings.rates.modelEmpty")}</b>
+                    </EmptyState>
+                  ) : (
+                    <DataTable<AiModelRate>
+                      label={t("settings.rates.modelTableLabel")}
+                      rows={rows}
+                      rowKey={(row) => `${row.provider}/${row.model_id}`}
+                      columns={[
+                        {
+                          key: "provider",
+                          header: t("settings.rates.colProvider"),
+                          render: (row) => row.provider,
+                        },
+                        {
+                          key: "model",
+                          header: t("settings.rates.colModel"),
+                          render: (row) => row.model_id,
+                        },
+                        {
+                          key: "in",
+                          header: t("settings.rates.colInput"),
+                          render: (row) => row.input_per_mtok,
+                        },
+                        {
+                          key: "out",
+                          header: t("settings.rates.colOutput"),
+                          render: (row) => row.output_per_mtok,
+                        },
+                        {
+                          key: "cr",
+                          header: t("settings.rates.colCacheRead"),
+                          render: (row) => row.cache_read_per_mtok,
+                        },
+                        {
+                          key: "cw",
+                          header: t("settings.rates.colCacheWrite"),
+                          render: (row) => row.cache_write_per_mtok,
+                        },
+                        {
+                          key: "effective",
+                          header: t("settings.rates.colEffective"),
+                          render: (row) => row.effective_date,
+                        },
+                      ]}
+                    />
+                  )
+                }
+              </QueryGate>
+            }
+          />
+        </SettingList>
         {open ? <ModelCostModal onClose={() => setOpen(false)} /> : null}
       </PanelBody>
     </Panel>
@@ -503,97 +534,93 @@ function ModelCostModal({ onClose }: Readonly<{ onClose: () => void }>) {
     onError: (err: Error) => setError(problemMessageOf(err, t)),
   });
 
+  // One box of this dialog. `Field` owns the id and hands it to the input, so
+  // what a call site passes is only what differs between the seven: the label,
+  // the value, where it goes, and whether it takes words or a number.
   const field = (
-    key: string,
     label: string,
     value: string,
     set: (v: string) => void,
-    placeholder = "",
+    opts: Readonly<{
+      inputMode?: "text" | "decimal";
+      placeholder?: string;
+    }> = {},
   ) => (
-    <>
-      <label className="t-label" htmlFor={`${labelId}-${key}`}>
-        {label}
-      </label>
-      <TextInput
-        id={`${labelId}-${key}`}
-        value={value}
-        inputMode={key === "provider" || key === "model" ? "text" : "decimal"}
-        placeholder={placeholder}
-        onChange={(e) => set(e.target.value)}
-      />
-    </>
+    <Field label={label}>
+      {(control) => (
+        <TextInput
+          {...control}
+          value={value}
+          inputMode={opts.inputMode ?? "decimal"}
+          placeholder={opts.placeholder ?? ""}
+          onChange={(e) => set(e.target.value)}
+        />
+      )}
+    </Field>
   );
 
   return (
     <Modal open onClose={onClose} labelledBy={labelId}>
-      <h2
-        id={labelId}
-        className="t-h2"
-        style={{ marginBottom: "var(--space-3)" }}
-      >
+      <h2 id={labelId} className="t-h2 modal-title">
         {t("settings.rates.modelModalTitle")}
       </h2>
-      {field(
-        "provider",
-        t("settings.rates.colProvider"),
-        provider,
-        setProvider,
-      )}
-      {field("model", t("settings.rates.colModel"), modelId, setModelId)}
-      {field("in", t("settings.rates.colInput"), input, setInput, "5.00")}
-      {field("out", t("settings.rates.colOutput"), output, setOutput, "25.00")}
-      {field("cr", t("settings.rates.colCacheRead"), cacheRead, setCacheRead)}
-      {field(
-        "cw",
-        t("settings.rates.colCacheWrite"),
-        cacheWrite,
-        setCacheWrite,
-      )}
-      <label className="t-label" htmlFor={`${labelId}-date`}>
-        {t("settings.rates.colEffective")}
-      </label>
-      <TextInput
-        id={`${labelId}-date`}
-        type="date"
-        min={today()}
-        value={effectiveDate}
-        onChange={(e) => setEffectiveDate(e.target.value)}
-      />
-      {/* The failure is a live region, not tinted text: a message that appears
-          after the reader has pressed Save is one they are not looking at. The
-          dialog stays open behind it, so the retry is the same button. */}
-      {error ? (
-        <Callout tone="danger" live="alert">
-          {error}
-        </Callout>
-      ) : null}
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          justifyContent: "flex-end",
-          marginTop: "var(--space-3)",
-        }}
-      >
-        <Button variant="ghost" onClick={onClose}>
-          {t("create.cancel")}
-        </Button>
-        <Button
-          variant="primary"
-          onClick={() => {
-            setError(null);
-            save.mutate();
-          }}
-          disabled={
-            save.isPending ||
-            provider.trim() === "" ||
-            modelId.trim() === "" ||
-            input.trim() === "" ||
-            output.trim() === ""
-          }
-        >
-          {t("settings.rates.setRate")}
-        </Button>
+      <div className="form-stack">
+        {field(t("settings.rates.colProvider"), provider, setProvider, {
+          inputMode: "text",
+        })}
+        {field(t("settings.rates.colModel"), modelId, setModelId, {
+          inputMode: "text",
+        })}
+        {field(t("settings.rates.colInput"), input, setInput, {
+          placeholder: "5.00",
+        })}
+        {field(t("settings.rates.colOutput"), output, setOutput, {
+          placeholder: "25.00",
+        })}
+        {field(t("settings.rates.colCacheRead"), cacheRead, setCacheRead)}
+        {field(t("settings.rates.colCacheWrite"), cacheWrite, setCacheWrite)}
+        <Field label={t("settings.rates.colEffective")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="date"
+              min={today()}
+              value={effectiveDate}
+              onChange={(e) => setEffectiveDate(e.target.value)}
+            />
+          )}
+        </Field>
+        {/* The failure is a live region, not tinted text: a message that
+            appears after the reader has pressed Save is one they are not
+            looking at. The dialog stays open behind it, so the retry is the
+            same button. */}
+        {error ? (
+          <Callout tone="danger" live="alert">
+            {error}
+          </Callout>
+        ) : null}
+        <div className="form-actions">
+          <Button small variant="ghost" onClick={onClose}>
+            {t("create.cancel")}
+          </Button>
+          <Button
+            small
+            variant="primary"
+            onClick={() => {
+              setError(null);
+              save.mutate();
+            }}
+            disabled={
+              save.isPending ||
+              provider.trim() === "" ||
+              modelId.trim() === "" ||
+              input.trim() === "" ||
+              output.trim() === ""
+            }
+          >
+            {t("settings.rates.setRate")}
+          </Button>
+        </div>
       </div>
     </Modal>
   );

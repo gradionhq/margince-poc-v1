@@ -12,6 +12,7 @@ package agents
 // gets the task, which word to tag with.
 
 import (
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -44,4 +45,39 @@ type TagAppliedResult struct {
 	TagID      ids.UUID `json:"tag_id"`
 	RecordType string   `json:"record_type"`
 	RecordID   ids.UUID `json:"record_id"`
+}
+
+// ImportRunResult is one migrate-in run: what it is importing, where it has
+// got to, and why it stopped if it did.
+//
+// `checkpoint` is here rather than hidden because a failed run is resumable
+// from it, and a caller told only "failed" would report a dead end where the
+// product has a resume.
+type ImportRunResult struct {
+	RunID      string `json:"run_id"`
+	Object     string `json:"object"`
+	State      string `json:"state"`
+	Checkpoint int    `json:"checkpoint"`
+	Error      string `json:"error,omitempty"`
+}
+
+// ImportPreviewResult is what a dry run produced, plus what it decided about
+// the file's columns.
+//
+// `unmapped` is the field a caller most needs and would least think to ask
+// for: a column nothing reads is dropped silently otherwise, and a mistyped
+// field name looks exactly like a clean import until somebody notices the data
+// is not there.
+type ImportPreviewResult struct {
+	Run      ImportRunResult   `json:"run"`
+	Mapping  map[string]string `json:"mapping"`
+	Columns  []string          `json:"columns"`
+	Unmapped []string          `json:"unmapped,omitempty"`
+}
+
+// ImportReportResult carries the run's own report unchanged — one shape before
+// and after the commit, so a person comparing what will happen with what did
+// compares like with like.
+type ImportReportResult struct {
+	Report crmcontracts.ImportRunReport `json:"report"`
 }

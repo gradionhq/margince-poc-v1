@@ -15,14 +15,15 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import { OwnDomainsCard } from "./own-domains";
 
 // Settings → Capture: the domains this installation treats as its own. Two
-// lists with two different owners share the screen — the company profile claims
-// the first and this surface cannot touch them, the second is curated here — so
-// each states its own heading and only the curated one carries controls. A
-// remove button beside a domain nobody can remove here is the defect this
-// separation exists to prevent.
+// lists with two different owners share ONE card — the company profile claims
+// the first and this surface cannot touch them, the second is managed here — so
+// each is its own named row and only the managed one carries verbs. A remove
+// button beside a domain nobody can remove here is the defect that separation
+// exists to prevent.
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -85,15 +86,10 @@ function render(node: ReactNode) {
   );
 }
 
-// The card a testid sits in, read through the DOM rather than by index: an
-// assertion that counts sections passes for the wrong reason the moment a card
-// is reordered.
-async function cardOf(testId: string): Promise<HTMLElement> {
-  const card = (await screen.findByTestId(testId)).closest("section");
-  if (!card) {
-    throw new Error(`${testId} is not inside a card`);
-  }
-  return card;
+// One settings row, by the id it names itself with: an assertion that counted
+// rows would pass for the wrong reason the moment a row is reordered.
+function rowOf(testId: string): Promise<HTMLElement> {
+  return screen.findByTestId(testId);
 }
 
 afterEach(() => {
@@ -102,7 +98,7 @@ afterEach(() => {
 });
 
 describe("OwnDomainsCard", () => {
-  it("puts the company-claimed domains and the curated ones in separate cards", async () => {
+  it("keeps the company-claimed domains and the managed ones in separate rows", async () => {
     const { fetchMock } = backendFor(CAPTURE_EDITOR, {
       anchors: ["brandt-automotive.de"],
       domains: [{ domain: "brandt.de", source: "admin", verified: true }],
@@ -111,59 +107,70 @@ describe("OwnDomainsCard", () => {
 
     render(<OwnDomainsCard />);
 
-    const company = await cardOf("own-domains-from-company");
-    expect(
-      within(company).getByRole("heading", { name: /company domains/i }),
-    ).toBeTruthy();
+    const company = await rowOf("own-domains-company-row");
+    expect(within(company).getByText(/company domains/i)).toBeTruthy();
     expect(within(company).getByText("brandt-automotive.de")).toBeTruthy();
-    // Read-only means read-only: nothing in this card offers to change a list
+    // Read-only means read-only: nothing in this row offers to change a list
     // the company profile owns.
     expect(within(company).queryByRole("button")).toBeNull();
     expect(within(company).queryByRole("textbox")).toBeNull();
 
-    const curated = await cardOf("own-domains-list");
+    const managed = await rowOf("own-domains-curated-row");
+    expect(within(managed).getByText(/managed here/i)).toBeTruthy();
+    // The note about what registering a domain does travels with the row that
+    // offers the acts it describes.
     expect(
-      within(curated).getByRole("heading", { name: /own email domains/i }),
-    ).toBeTruthy();
-    // The note about what registering a domain does travels with the acts it
-    // describes, which only this card offers.
-    expect(
-      within(curated).getByText(/takes effect from the next message/i),
+      within(managed).getByText(/takes effect from the next message/i),
     ).toBeTruthy();
     expect(
-      within(curated).getByRole("button", { name: /remove brandt\.de/i }),
+      within(managed).getByRole("button", { name: /remove brandt\.de/i }),
     ).toBeTruthy();
-    expect(within(curated).getByLabelText(/add an own domain/i)).toBeTruthy();
+    // The add form is behind ONE verb, in the card's header rather than in a
+    // row that repeats its own label — and the field is not on the card until
+    // the verb is pressed, so every row stays an answer.
+    expect(
+      screen.getByRole("button", { name: en["ownDomains.addOpen"] }),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText(/add an own domain/i)).toBeNull();
   });
 
-  it("shows no company card when the company profile claims no domain", async () => {
+  it("shows no company row when the company profile claims no domain", async () => {
     const { fetchMock } = backendFor(CAPTURE_EDITOR);
     vi.stubGlobal("fetch", fetchMock);
 
     render(<OwnDomainsCard />);
 
-    // The empty curated list still states itself; a card whose whole content
-    // would be an empty read-only list says nothing worth a heading.
+    // The empty managed list still states itself; a row whose whole content
+    // would be an empty read-only list says nothing worth naming.
     expect(await screen.findByTestId("own-domains-empty")).toBeTruthy();
-    expect(
-      screen.queryByRole("heading", { name: /company domains/i }),
-    ).toBeNull();
+    expect(screen.queryByTestId("own-domains-company-row")).toBeNull();
   });
 
-  it("adds a domain through the curated card's form", async () => {
+  it("adds a domain through the dialog the add verb opens", async () => {
+    const user = userEvent.setup();
     const { fetchMock, post } = backendFor(CAPTURE_EDITOR);
     vi.stubGlobal("fetch", fetchMock);
 
     render(<OwnDomainsCard />);
 
-    const field = await screen.findByLabelText(/add an own domain/i);
-    await userEvent.type(field, "brandt.de");
-    await userEvent.click(screen.getByRole("button", { name: /^add$/i }));
+    await screen.findByTestId("own-domains-empty");
+    await user.click(
+      screen.getByRole("button", { name: en["ownDomains.addOpen"] }),
+    );
+    const dialog = screen.getByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText(/add an own domain/i),
+      "brandt.de",
+    );
+    await user.click(within(dialog).getByRole("button", { name: /^add$/i }));
 
     await waitFor(() => expect(post()).toEqual({ domain: "brandt.de" }));
+    // The dialog is the form; a write that landed leaves nothing to submit
+    // again, and the card behind it is what reports the new list.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("disables the controls for a role that cannot change the list", async () => {
+  it("refuses both verbs for a role that cannot change the list, and says why once", async () => {
     const { fetchMock } = backendFor(
       {},
       { domains: [{ domain: "brandt.de", source: "admin", verified: true }] },
@@ -172,15 +179,18 @@ describe("OwnDomainsCard", () => {
 
     render(<OwnDomainsCard />);
 
-    // Disabled, not hidden: a rep who cannot find a thread should be able to
+    // Refused, not hidden: a rep who cannot find a thread should be able to
     // see which domains explain that.
-    const field = await screen.findByLabelText(/add an own domain/i);
-    expect(field.hasAttribute("disabled")).toBe(true);
-    expect(
-      screen
-        .getByRole("button", { name: /remove brandt\.de/i })
-        .hasAttribute("disabled"),
-    ).toBe(true);
-    expect(screen.getByText(/only an admin or ops/i)).toBeTruthy();
+    const remove = await screen.findByRole("button", {
+      name: /remove brandt\.de/i,
+    });
+    const add = screen.getByRole("button", { name: en["ownDomains.addOpen"] });
+    expect(remove.hasAttribute("disabled")).toBe(true);
+    expect(add.hasAttribute("disabled")).toBe(true);
+    // One sentence, and both refused verbs point at it — a reason a screen
+    // reader only reaches by wandering into the paragraph is no reason at all.
+    const denial = screen.getByText(/only an admin or ops/i);
+    expect(remove.getAttribute("aria-describedby")).toBe(denial.id);
+    expect(add.getAttribute("aria-describedby")).toBe(denial.id);
   });
 });

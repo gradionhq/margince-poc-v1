@@ -336,7 +336,7 @@ func gateCallCharges(t *testing.T, sourceSemantic, token string, redeemErr error
 
 	staging := &countingRedeemer{pin: 12, pinned: true, err: redeemErr}
 	recorder := httptest.NewRecorder()
-	gate := agentGate(reg, staging, stages, records, nil, auth.NewGate(fullSeat{}))
+	gate := agentGate(reg, staging, stages, records, nil, nil, auth.NewGate(fullSeat{}))
 	gate(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(recorder, r)

@@ -31,7 +31,7 @@ func (stubs) LogActivity(w nethttp.ResponseWriter, r *nethttp.Request, params cr
 	httperr.NotImplemented(w, r, "LogActivity")
 }
 
-func (stubs) ArchiveActivity(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) ArchiveActivity(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveActivityParams) {
 	httperr.NotImplemented(w, r, "ArchiveActivity")
 }
 
@@ -539,7 +539,7 @@ func (stubs) CreateDeal(w nethttp.ResponseWriter, r *nethttp.Request, params crm
 	httperr.NotImplemented(w, r, "CreateDeal")
 }
 
-func (stubs) ArchiveDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) ArchiveDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveDealParams) {
 	httperr.NotImplemented(w, r, "ArchiveDeal")
 }
 
@@ -791,6 +791,10 @@ func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
 }
 
+func (stubs) GetMyAgentActivity(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetMyAgentActivity")
+}
+
 func (stubs) GetMyEmailSignature(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetMyEmailSignature")
 }
@@ -911,7 +915,7 @@ func (stubs) CreateOrganization(w nethttp.ResponseWriter, r *nethttp.Request, pa
 	httperr.NotImplemented(w, r, "CreateOrganization")
 }
 
-func (stubs) ArchiveOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) ArchiveOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveOrganizationParams) {
 	httperr.NotImplemented(w, r, "ArchiveOrganization")
 }
 
@@ -1127,7 +1131,7 @@ func (stubs) CreatePerson(w nethttp.ResponseWriter, r *nethttp.Request, params c
 	httperr.NotImplemented(w, r, "CreatePerson")
 }
 
-func (stubs) ArchivePerson(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) ArchivePerson(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchivePersonParams) {
 	httperr.NotImplemented(w, r, "ArchivePerson")
 }
 
@@ -1387,7 +1391,7 @@ func (stubs) CreateRelationship(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "CreateRelationship")
 }
 
-func (stubs) ArchiveRelationship(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) ArchiveRelationship(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveRelationshipParams) {
 	httperr.NotImplemented(w, r, "ArchiveRelationship")
 }
 

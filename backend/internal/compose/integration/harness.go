@@ -39,6 +39,13 @@ type Env struct {
 	Rep1, Rep2, Rep3 ids.UUID
 	// AdminUser is the seat Admin() binds: a real app_user, because a manual
 	// create stamps the caller as owner and the owner column is a foreign key.
+	//
+	// It is also the seat in NO TEAM: the membership seeding below covers Rep1,
+	// Rep2 and Rep3 and deliberately not this one, which is what lets a suite own
+	// a record by a real-but-teamless seat. Putting it in a team breaks
+	// TestARecordWhoseOwnerIsInNoTeamIsCoveredByNoTeam, which asserts the gap
+	// rather than assuming it — so the failure names this decision instead of
+	// reading as a filter bug.
 	AdminUser    ids.UUID
 	Team1, Team2 ids.UUID
 }
@@ -212,101 +219,6 @@ func (e *Env) AgentCtxWithPassport(passportID ids.UUID) context.Context {
 		Type: principal.PrincipalAgent, ID: "agent:test", SeatType: principal.SeatFull,
 		PassportID: passportID,
 	})
-}
-
-// The id wideners assert a harness-seeded untyped id as the entity a people-store
-// call targets — the suites' spelling of the contracts-edge ids.From widening. The
-// harness keeps its fixture ids untyped so every module's suite can share them,
-// and each suite widens at the call it makes.
-//
-// Only PersonIDOf is exported, because integration/channels widens person ids from
-// outside this package. The other three have no caller beyond it, and a suite
-// package that later needs one exports it then.
-
-// PersonIDOf widens a harness fixture id to a person id.
-func PersonIDOf(u ids.UUID) ids.PersonID { return ids.From[ids.PersonKind](u) }
-
-// orgIDOf widens a harness fixture id to an organization id.
-func orgIDOf(u ids.UUID) ids.OrganizationID { return ids.From[ids.OrganizationKind](u) }
-
-// leadIDOf widens a harness fixture id to a lead id.
-func leadIDOf(u ids.UUID) ids.LeadID       { return ids.From[ids.LeadKind](u) }
-func projectIDOf(u ids.UUID) ids.ProjectID { return ids.From[ids.ProjectKind](u) }
-
-// userIDPtr types an optional harness user id (Env keeps its fixture ids
-// untyped so every module's suite can use them) for people's typed inputs.
-func userIDPtr(owner *ids.UUID) *ids.UserID {
-	if owner == nil {
-		return nil
-	}
-	id := ids.From[ids.UserKind](*owner)
-	return &id
-}
-
-// SeedPerson creates a person owned by the given user (nil = ownerless),
-// acting as admin.
-func (e *Env) SeedPerson(t *testing.T, name string, owner *ids.UUID) ids.UUID {
-	t.Helper()
-	p, err := e.People.CreatePerson(e.Admin(), people.CreatePersonInput{FullName: name, OwnerID: userIDPtr(owner), Source: "manual"})
-	if err != nil {
-		t.Fatalf("seeding %s: %v", name, err)
-	}
-	return ids.UUID(p.Id)
-}
-
-// SeedOrg creates an organization owned by the given user, acting as admin.
-func (e *Env) SeedOrg(t *testing.T, name string, owner *ids.UUID) ids.UUID {
-	t.Helper()
-	org, err := e.People.CreateOrganization(e.Admin(), people.CreateOrganizationInput{
-		DisplayName: name, OwnerID: userIDPtr(owner),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ids.UUID(org.Id)
-}
-
-// SeedOrgAs creates an ownerless organization in a SECOND workspace, under
-// that workspace's own context — unlike SeedOrg, which always writes the
-// harness's primary workspace as e.Admin().
-//
-// It names the workspace as well as the ctx because the row lands wherever the
-// STORE is bound: the harness's own store would stamp the second tenant's ids
-// into the first tenant's transaction, which RLS refuses.
-func (e *Env) SeedOrgAs(ctx context.Context, t *testing.T, ws ids.UUID, name string) ids.UUID {
-	t.Helper()
-	org, err := e.PeopleFor(ws).CreateOrganization(ctx, people.CreateOrganizationInput{DisplayName: name})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ids.UUID(org.Id)
-}
-
-// SeedDeal creates a deal owned by the given user, acting as admin.
-func (e *Env) SeedDeal(t *testing.T, name string, pipeline ids.PipelineID, stage ids.StageID, owner *ids.UUID) ids.UUID {
-	t.Helper()
-	d, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
-		Name: name, PipelineID: pipeline, StageID: stage, OwnerID: userIDPtr(owner),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return ids.UUID(d.Id)
-}
-
-// MakeCapturePrivate turns a seeded person or organization into a
-// capture-private row — `visibility='owner'`, owned by the given user — the
-// state a connector leaves an unpromoted contact in. Person, organization,
-// lead and deal are otherwise readable by every seat of the workspace, so
-// this is the ONE way a test still has to put an identity row out of a
-// caller's read scope; a test about row scope on a commercial table seeds a
-// project instead.
-func (e *Env) MakeCapturePrivate(t *testing.T, table string, id, owner ids.UUID) {
-	t.Helper()
-	if table != "person" && table != "organization" {
-		t.Fatalf("MakeCapturePrivate: %s carries no visibility column", table)
-	}
-	e.WsExec(t, `UPDATE `+table+` SET visibility = 'owner', owner_id = $2 WHERE id = $1`, id, owner)
 }
 
 // WsExec runs one setup statement in a workspace-bound transaction (RLS is

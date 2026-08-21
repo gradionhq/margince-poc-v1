@@ -75,10 +75,36 @@ describe("panel.css keeps the row's hover on the interactive variant", () => {
     const bare = /(?:^|\n)\.panel-row\s*\{([^}]*)\}/.exec(panelCss());
     expect(bare).not.toBeNull();
     const body = bare?.[1] ?? "";
-    expect(body).toMatch(/border-top:\s*1px solid var\(--borderSubtle\)/);
     expect(body).not.toMatch(/background/);
     // A transition on a row with no state to move between is the leftover of
     // the hover it used to carry.
     expect(body).not.toMatch(/transition/);
+
+    // The hairline is drawn as an inset pseudo-element rather than a border,
+    // because a border cannot stop at the card's padding — every rule BETWEEN
+    // two pieces of a card's content does, and only the header's and footer's
+    // run edge to edge. Asserted on the rule that draws it, so an inset that
+    // gets dropped back onto the row's own border still fails here.
+    const line = /(?:^|\n)\.panel-row::before\s*\{([^}]*)\}/.exec(panelCss());
+    expect(line).not.toBeNull();
+    const drawn = line?.[1] ?? "";
+    expect(drawn).toMatch(/background:\s*var\(--borderSubtle\)/);
+    expect(drawn).toMatch(/height:\s*1px/);
+    expect(drawn).toMatch(/inset:\s*0 var\(--space-5\) auto/);
+  });
+
+  // The card's own chrome keeps its full-width border: the header and the footer
+  // divide the card FROM its content, and every card in the product draws that
+  // band the same way. Held here because the inset sweep above went through them
+  // once, and a page of cards whose headers stop short of the edge reads as a
+  // different card from every other surface.
+  it("rules the header and the footer edge to edge", () => {
+    const css = panelCss();
+    const head = /(?:^|\n)\.panel-head\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(head).toMatch(/border-bottom:\s*1px solid var\(--borderSubtle\)/);
+    const foot = /(?:^|\n)\.panel-foot\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(foot).toMatch(/border-top:\s*1px solid var\(--borderSubtle\)/);
+    expect(css).not.toMatch(/\.panel-head::after/);
+    expect(css).not.toMatch(/\.panel-foot::before/);
   });
 });

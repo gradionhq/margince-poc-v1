@@ -126,6 +126,43 @@ type queryFixture struct {
 	project            ids.UUID
 }
 
+// seedLocatedCompany inserts a company that has already been geocoded: an
+// address, a point, and the 'ok' status that says the two match.
+//
+// The status is written explicitly rather than left to the worker, because
+// this lane has no geocoder and never will — what is under test is whether the
+// QUERY reads the columns correctly, not whether Nominatim answers.
+func (q *queryEnv) seedLocatedCompany(t *testing.T, name string, lat, lon float64) ids.UUID {
+	t.Helper()
+	return q.SeedID(t, `INSERT INTO organization
+		(id, owner_id, display_name, address_line1, address_city,
+		 geocode_lat, geocode_lon, geocode_status, geocode_provider, geocode_input_hash,
+		 source, captured_by)
+		VALUES ($1, $2, $3, 'Teststrasse 1', 'Teststadt', $4, $5, 'ok', 'test', 'seeded', 'manual', 'human:x')`,
+		q.Rep1, name, lat, lon)
+}
+
+// seedUnlocatedCompany inserts a company with an address and NO coordinates —
+// the state every company is in before the worker has run. It must be absent
+// from a radius answer rather than placed at the origin.
+func (q *queryEnv) seedUnlocatedCompany(t *testing.T, name string) ids.UUID {
+	t.Helper()
+	return q.SeedID(t, `INSERT INTO organization
+		(id, owner_id, display_name, address_line1, address_city, source, captured_by)
+		VALUES ($1, $2, $3, 'Unbekannt 1', 'Teststadt', 'manual', 'human:x')`, q.Rep1, name)
+}
+
+// moveCompany changes a company's address the way any writer does, and lets
+// the SCHEMA do the invalidating — no test-only status update, because what is
+// under test is that the trigger fires for an ordinary write.
+func (q *queryEnv) moveCompany(t *testing.T, org ids.UUID, line1 string) {
+	t.Helper()
+	if _, err := q.Owner.Exec(context.Background(),
+		`UPDATE organization SET address_line1 = $2 WHERE id = $1`, org, line1); err != nil {
+		t.Fatalf("moving the company: %v", err)
+	}
+}
+
 func (q *queryEnv) seedFixture(t *testing.T) queryFixture {
 	t.Helper()
 	pipeline := q.SeedID(t, `INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, 'Sales', true, 0)`)
@@ -187,39 +224,45 @@ func TestQueryPlanAnswersExactPredicatesCompletely(t *testing.T) {
 // subset of the admin's, and nothing in the rep's answer — not the rows, not
 // the count, not the coverage verdict — is computed over a row they cannot see.
 //
-// The target is `project`, the record type that still carries the own/team/all
-// row scope: a deal is readable by every seat holding the deal grant, so two
-// principals asking about deals would get the same answer by design.
+// The target is `organization`, the record type that still narrows a reader:
+// every shareable record type is read by every seat holding the object grant
+// (platform/auth tableclass.go), so capture privacy is the one narrowing left
+// and two principals asking about anything else get the same answer by design.
 func TestQueryPlanAnswersTwoPrincipalsFromOneCorpusWithoutLeaking(t *testing.T) {
 	q := setupQuery(t)
-	f := q.seedFixture(t)
-	rep3Project := q.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
-		VALUES ($1, $2, 'Rollout', $3, 'manual', 'human:x')`, q.Rep3, f.rep3Org)
-	// An ownerless project is workspace-shared and visible at every tier — the
-	// control that keeps "the rep sees fewer rows" from being read as "the rep
-	// sees only their own".
-	sharedProject := q.SeedID(t, `INSERT INTO project (id, name, organization_id, source, captured_by)
-		VALUES ($1, 'Rollout', $2, 'manual', 'human:x')`, f.rep1Org)
-	const plan = `{"version": "v1", "target": "project",
-		"where": [{"field": "name", "op": "eq", "value": "Rollout"}]}`
+	// Rep1's unpromoted capture: theirs alone until a human promotes it, and
+	// capture privacy does not yield to row_scope=all — so the two principals
+	// compared here are the capture's OWNER and a colleague, not an admin and
+	// a rep.
+	rep1Capture := q.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, visibility, source, captured_by)
+		VALUES ($1, $2, 'Rollout', 'owner', 'manual', 'human:x')`, q.Rep1)
+	// An ownerless workspace-visible company is visible at every tier — the
+	// control that keeps "the colleague sees fewer rows" from being read as
+	// "the colleague sees nothing".
+	sharedOrg := q.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Rollout', 'manual', 'human:x')`)
+	rep3Org := q.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)
+		VALUES ($1, $2, 'Rollout', 'manual', 'human:x')`, q.Rep3)
+	const plan = `{"version": "v1", "target": "organization",
+		"where": [{"field": "display_name", "op": "eq", "value": "Rollout"}]}`
 
-	admin := idSet(q.run(q.admin(), t, plan))
-	rep := idSet(q.run(q.teamRep(q.Rep1, q.Team1), t, plan))
+	owner := idSet(q.run(q.teamRep(q.Rep1, q.Team1), t, plan))
+	colleague := idSet(q.run(q.teamRep(q.Rep3, q.Team2), t, plan))
 
-	if len(admin) != 3 {
-		t.Fatalf("the admin sees %d of 3 projects", len(admin))
+	if len(owner) != 3 {
+		t.Fatalf("the capture's owner sees %d of 3 companies — the corpus is not what the "+
+			"narrowed arm is measured against", len(owner))
 	}
-	// Their own, plus the ownerless workspace-shared row — and not the other
-	// team's.
-	if !rep[f.project] || !rep[sharedProject] {
-		t.Fatalf("the rep cannot see their own rows: %v", rep)
+	// A workspace-visible company is read by every seat, whoever owns it.
+	if !colleague[sharedOrg] || !colleague[rep3Org] {
+		t.Fatalf("the colleague cannot see the rows they are entitled to: %v", colleague)
 	}
-	if rep[rep3Project] {
-		t.Fatal("the rep sees another team's project")
+	if colleague[rep1Capture] {
+		t.Fatal("the colleague sees another rep's unpromoted capture")
 	}
-	for id := range rep {
-		if !admin[id] {
-			t.Fatalf("the rep sees a row the unbounded reader does not: %s", id)
+	for id := range colleague {
+		if !owner[id] {
+			t.Fatalf("the colleague sees a row the wider reader does not: %s", id)
 		}
 	}
 }
@@ -343,14 +386,19 @@ func TestQueryPlanAnAnswerThatFitsIsNotReportedAsTruncated(t *testing.T) {
 	}
 }
 
-// SEARCH-AC-17 against real data: the predicate validates, the answer is the
-// note, and no row count is disclosed for a question this deployment cannot
-// answer.
+// SEARCH-AC-17 against real data: a question this deployment cannot answer
+// returns its note and NO row count, so nothing leaks the size of an answer
+// the caller cannot have.
+//
+// A PERSON, because that is what is genuinely unanswerable now: a person has an
+// address, so the field and the operator both exist, but this product does not
+// geocode where people live and there is nothing to measure from. A company's
+// radius runs — see the test below.
 func TestQueryPlanAnUnanswerablePredicateReturnsItsNoteNotRows(t *testing.T) {
 	q := setupQuery(t)
 	q.seedFixture(t)
 	result := q.run(q.admin(), t, `{
-		"version": "v1", "target": "organization",
+		"version": "v1", "target": "person",
 		"where": [{"field": "address", "op": "within_radius",
 		           "value": {"center": "Stuttgart", "radius_km": 50}}]}`)
 	if len(result.Rows) != 0 {
@@ -359,6 +407,103 @@ func TestQueryPlanAnUnanswerablePredicateReturnsItsNoteNotRows(t *testing.T) {
 	if !hasNote(result, search.CodeDistanceRankingUnavailable) {
 		t.Fatalf("notes are %v", result.Notes)
 	}
+}
+
+// The whole point, against Postgres: a radius on a company returns the ones
+// inside it, NEAREST FIRST, each saying how far.
+//
+// This is the test that proves the SQL rather than the Go. The haversine, the
+// bounding box, the geocode_status filter and the distance projection are all
+// strings until a database evaluates them.
+func TestQueryPlanARadiusAnswersNearestFirstWithDistances(t *testing.T) {
+	q := setupQuery(t)
+	q.seedFixture(t)
+
+	// Three companies at known distances from Stuttgart (48.7758, 9.1829), and
+	// one far outside the radius. Distances are roughly 0km, 12km, 27km and
+	// 190km (Munich), so a 50km radius admits exactly three.
+	near := q.seedLocatedCompany(t, "Radius Zentrum GmbH", 48.7758, 9.1829)
+	mid := q.seedLocatedCompany(t, "Radius Mitte AG", 48.8800, 9.1829)
+	far := q.seedLocatedCompany(t, "Radius Rand KG", 49.0200, 9.1829)
+	q.seedLocatedCompany(t, "Radius Muenchen GmbH", 48.1351, 11.5820)
+	// A company with an address and no coordinates: it must be absent rather
+	// than placed at the origin.
+	q.seedUnlocatedCompany(t, "Radius Ungeocodiert GmbH")
+
+	result := q.run(q.admin(), t, `{
+		"version": "v1", "target": "organization",
+		"where": [{"field": "address", "op": "within_radius",
+		           "value": {"lat": 48.7758, "lon": 9.1829, "radius_km": 50}}],
+		"limit": 20}`)
+
+	if hasNote(result, search.CodeDistanceRankingUnavailable) {
+		t.Fatalf("a company radius still reports itself unavailable: %v", result.Notes)
+	}
+	got := make([]ids.UUID, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		got = append(got, row.ID)
+	}
+	if len(got) != 3 {
+		t.Fatalf("the radius returned %d companies, want the 3 inside it: %v", len(got), got)
+	}
+	if got[0] != near || got[1] != mid || got[2] != far {
+		t.Errorf("rows came back in the order %v; want nearest first (%v, %v, %v)", got, near, mid, far)
+	}
+	for i, row := range result.Rows {
+		if row.DistanceKM == nil {
+			t.Fatalf("row %d carries no distance, so the answer cannot say how far", i)
+		}
+		if *row.DistanceKM > 50 {
+			t.Errorf("row %d is %vkm away, outside the 50km asked for", i, *row.DistanceKM)
+		}
+		if i > 0 && *result.Rows[i-1].DistanceKM > *row.DistanceKM {
+			t.Errorf("row %d (%vkm) sorts after row %d (%vkm)",
+				i-1, *result.Rows[i-1].DistanceKM, i, *row.DistanceKM)
+		}
+	}
+}
+
+// A company whose address MOVED drops out of the answer rather than appearing
+// at its old coordinates.
+//
+// This is the staleness design proving itself end to end. The trigger marks the
+// row stale when the address changes; the radius reads geocode_status and takes
+// only 'ok'. Without either half, this company would answer from where it used
+// to be — and the answer would look exactly like a correct one.
+func TestQueryPlanACompanyThatMovedIsNotAnsweredFromItsOldAddress(t *testing.T) {
+	q := setupQuery(t)
+	q.seedFixture(t)
+	moved := q.seedLocatedCompany(t, "Radius Umgezogen GmbH", 48.7758, 9.1829)
+
+	before := q.run(q.admin(), t, `{
+		"version": "v1", "target": "organization",
+		"where": [{"field": "address", "op": "within_radius",
+		           "value": {"lat": 48.7758, "lon": 9.1829, "radius_km": 10}}],
+		"limit": 20}`)
+	if !containsID(before.Rows, moved) {
+		t.Fatal("the company was not in the answer before it moved, so this test proves nothing")
+	}
+
+	q.moveCompany(t, moved, "Neue Strasse 1")
+
+	after := q.run(q.admin(), t, `{
+		"version": "v1", "target": "organization",
+		"where": [{"field": "address", "op": "within_radius",
+		           "value": {"lat": 48.7758, "lon": 9.1829, "radius_km": 10}}],
+		"limit": 20}`)
+	if containsID(after.Rows, moved) {
+		t.Error("a company that changed its address still answers from its OLD coordinates — " +
+			"either the staleness trigger did not fire or the radius is not reading geocode_status")
+	}
+}
+
+func containsID(rows []search.QueryRow, want ids.UUID) bool {
+	for _, row := range rows {
+		if row.ID == want {
+			return true
+		}
+	}
+	return false
 }
 
 // A similarity clause with no embedding lane bound ranks lexically. The

@@ -10,7 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { SettingsScreen } from "./settings";
+import { SettingsScreen, settingsAddress } from "./settings";
 
 // Minting a passport, in its own file rather than as more of `settings.test.tsx`
 // — that one is already well past the 1000-line ceiling the frontend guide sets,
@@ -47,7 +47,7 @@ const render = (tab: string) => {
   return rtlRender(
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">
-        <SettingsScreen tab={tab} />
+        <SettingsScreen route={settingsAddress(tab)} />
       </LocaleProvider>
     </QueryClientProvider>,
   );
@@ -114,11 +114,15 @@ function mintBackend(
 
 // One instance per test, never per interaction: a second instance silently
 // forgets which keys and buttons the first left held.
+//
+// The CARD's verb — in its header band, beside the title, since minting is what
+// the card is for rather than one of the credentials it lists — takes the
+// ellipsis form ("Mint…") while the drawer's submit keeps the plain one ("Mint
+// passport"), so the two are never one name for two acts. That is what lets
+// every assertion below name the button it means.
 async function openDrawer(user: ReturnType<typeof userEvent.setup>) {
   render("agents");
-  await user.click(
-    await screen.findByRole("button", { name: "Mint passport" }),
-  );
+  await user.click(await screen.findByRole("button", { name: "New passport" }));
   return screen.findByRole("dialog");
 }
 
@@ -231,12 +235,16 @@ describe("PassportCard — minting", () => {
     rtlRender(
       <QueryClientProvider client={client}>
         <LocaleProvider initial="en">
-          <SettingsScreen tab="agents" />
+          <SettingsScreen route={settingsAddress("agents")} />
         </LocaleProvider>
       </QueryClientProvider>,
     );
+    // The ROW's verb opens the drawer; the drawer's submit is the plain label
+    // clicked further down. This case renders its own client rather than going
+    // through `openDrawer`, because it reads the cache the mint is supposed to
+    // drop.
     await user.click(
-      await screen.findByRole("button", { name: "Mint passport" }),
+      await screen.findByRole("button", { name: "New passport" }),
     );
     const dialog = await screen.findByRole("dialog");
 
@@ -301,9 +309,9 @@ describe("PassportCard — minting", () => {
     await within(dialog).findByText("mgp_live_0f3a91c4");
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
 
-    await screen.findByRole("button", { name: "Mint passport" });
+    await screen.findByRole("button", { name: "New passport" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Mint passport" }));
+    await user.click(screen.getByRole("button", { name: "New passport" }));
     const reopened = await screen.findByRole("dialog");
     expect(reopened).toBeTruthy();
     expect(within(reopened).queryByText("mgp_live_0f3a91c4")).toBeNull();

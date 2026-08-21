@@ -106,8 +106,12 @@ func (h Handlers) UpdatePerson(w http.ResponseWriter, r *http.Request, id crmcon
 
 // ArchivePerson: DELETE = archive, returning the archived entity (200,
 // architecture/11 §8 — never a bare 204 for domain rows).
-func (h Handlers) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	person, err := h.store.ArchivePerson(r.Context(), pathID[ids.PersonKind](id))
+func (h Handlers) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ArchivePersonParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	person, err := h.store.ArchivePerson(r.Context(), pathID[ids.PersonKind](id), ifVersion)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

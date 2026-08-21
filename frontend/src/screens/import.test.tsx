@@ -135,8 +135,17 @@ function stubRoutes(overrides: Record<string, () => Response> = {}) {
   return sent;
 }
 
+// The card itself is one row carrying the verb; every step of the flow lives in
+// the dialog that verb opens. Nothing is on screen until /me has answered
+// whether this seat may import at all, so the verb is waited for rather than
+// looked up.
+async function openWizard() {
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Start an import" }),
+  );
+}
+
 async function upload(file = new File(["Email\na@x.test\n"], "estate.csv")) {
-  // The card draws nothing until /me has answered whether this seat may import.
   const input = await screen.findByLabelText("The CSV to import");
   await userEvent.upload(input, file);
 }
@@ -156,6 +165,7 @@ describe("the import card", () => {
     stubRoutes();
     render(<ImportCard />);
 
+    await openWizard();
     await upload();
 
     // The fill rate is what separates a column worth mapping from one that is
@@ -170,6 +180,7 @@ describe("the import card", () => {
   it("sends only the columns with a destination, and reports what it will do", async () => {
     const sent = stubRoutes();
     render(<ImportCard />);
+    await openWizard();
     await upload();
     await screen.findByRole("row", { name: /Notes/ });
 
@@ -214,6 +225,7 @@ describe("the import card", () => {
   it("writes nothing until the human presses the second button", async () => {
     const sent = stubRoutes();
     render(<ImportCard />);
+    await openWizard();
     await upload();
     await screen.findByRole("row", { name: /Notes/ });
     await userEvent.click(
@@ -243,6 +255,7 @@ describe("the import card", () => {
         }),
     });
     render(<ImportCard />);
+    await openWizard();
     await upload();
     await screen.findByRole("row", { name: /Notes/ });
     await userEvent.click(
@@ -267,6 +280,7 @@ describe("the import card", () => {
         }),
     });
     render(<ImportCard />);
+    await openWizard();
     await upload();
 
     expect(
@@ -301,6 +315,7 @@ describe("the import card", () => {
         jsonResponse({ ...run, status: "failed", checkpoint: 2 }),
     });
     render(<ImportCard />);
+    await openWizard();
     await upload();
     await screen.findByRole("row", { name: /Notes/ });
     await userEvent.click(
@@ -322,6 +337,7 @@ describe("the import card", () => {
   it("drops a column the human clears, and keeps the ones they kept", async () => {
     const sent = stubRoutes();
     render(<ImportCard />);
+    await openWizard();
     await upload();
     await screen.findByRole("row", { name: /Notes/ });
 
@@ -362,6 +378,7 @@ describe("the import card", () => {
         }),
     });
     render(<ImportCard />);
+    await openWizard();
     await upload();
 
     expect(
@@ -390,6 +407,7 @@ describe("the import card", () => {
       },
     });
     render(<ImportCard />);
+    await openWizard();
     await upload();
     await screen.findByRole("row", { name: /Notes/ });
     await userEvent.click(
@@ -420,6 +438,7 @@ describe("the import card", () => {
     });
     render(<ImportCard />);
 
+    await openWizard();
     await upload(new File([""], "empty.csv"));
 
     expect(
@@ -490,6 +509,7 @@ describe("the import card", () => {
           }),
       });
       render(<ImportCard />);
+      await openWizard();
       await upload();
       await screen.findByRole("row", { name: /Notes/ });
       await userEvent.click(
@@ -536,6 +556,7 @@ describe("the import card", () => {
           }),
       });
       render(<ImportCard />);
+      await openWizard();
       await upload();
       await screen.findByRole("row", { name: /Notes/ });
       await userEvent.click(
@@ -565,6 +586,7 @@ describe("the import card", () => {
           jsonResponse({ ...dryRun, status: "undoing" }),
       });
       render(<ImportCard />);
+      await openWizard();
       await upload();
       await screen.findByRole("row", { name: /Notes/ });
       await userEvent.click(
@@ -611,6 +633,7 @@ describe("the import card", () => {
           }),
       });
       render(<ImportCard />);
+      await openWizard();
       await upload();
       await screen.findByRole("row", { name: /Notes/ });
       await userEvent.click(
@@ -653,6 +676,22 @@ describe("the import card", () => {
       };
     }
 
+    // A run stopped part-way, as the two endpoints answer for it after a
+    // remount: the state with the most left to lose, because the estate is
+    // half-written until somebody resumes it.
+    function interruptedRunRoutes() {
+      return {
+        "GET /imports/019ff-run/report": () =>
+          jsonResponse({
+            ...dryRun,
+            status: "failed",
+            disposition: { created: 2, updated: 0, unchanged: 0, skipped: 1 },
+          }),
+        "GET /imports/019ff-run": () =>
+          jsonResponse({ ...run, status: "failed", checkpoint: 2 }),
+      };
+    }
+
     it("is read back on mount, with the undo it still carries", async () => {
       localStorage.setItem(REMEMBERED_RUN_KEY, run.id);
       const sent = stubRoutes(completedRunRoutes());
@@ -672,9 +711,58 @@ describe("the import card", () => {
       expect(screen.getByText(/Picked up from earlier/)).toBeInTheDocument();
     });
 
+    // Behind a verb, a recovered run is only as visible as the reader's guess
+    // that there is something to press. An operator who does not know their
+    // last import stopped half-way cannot finish it, so the wizard puts the run
+    // in front of them without being asked.
+    it("puts a run it picked up on screen without anyone pressing anything", async () => {
+      localStorage.setItem(REMEMBERED_RUN_KEY, run.id);
+      stubRoutes(interruptedRunRoutes());
+      render(<ImportCard />);
+
+      const dialog = await screen.findByRole("dialog");
+      expect(
+        within(dialog).getByText(/stopped after 2 rows/),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByRole("button", { name: "Resume the import" }),
+      ).toBeInTheDocument();
+    });
+
+    // Opening itself is a one-off, not a posture: a reader who has read the run
+    // and put it down is not handed it again on the next render.
+    it("stays closed once the reader has dismissed the run it opened for", async () => {
+      localStorage.setItem(REMEMBERED_RUN_KEY, run.id);
+      stubRoutes(interruptedRunRoutes());
+      render(<ImportCard />);
+      const dialog = await screen.findByRole("dialog");
+
+      await userEvent.click(
+        within(dialog).getByRole("button", { name: "Close" }),
+      );
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(
+        screen.getByRole("button", { name: "Start an import" }),
+      ).toBeInTheDocument();
+    });
+
+    // Nothing to pick up is not something to interrupt the reader with: the
+    // settings page stays a settings page until they ask for the wizard.
+    it("does not open itself when there is no run to pick up", async () => {
+      stubRoutes();
+      render(<ImportCard />);
+
+      expect(
+        await screen.findByRole("button", { name: "Start an import" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
     it("is remembered as the commit lands, not only while the card is mounted", async () => {
       stubRoutes();
       render(<ImportCard />);
+      await openWizard();
       await upload();
       await screen.findByRole("row", { name: /Notes/ });
       await userEvent.click(
@@ -704,8 +792,11 @@ describe("the import card", () => {
       await waitFor(() =>
         expect(localStorage.getItem(REMEMBERED_RUN_KEY)).toBeNull(),
       );
-      // A reversed run has nothing left to offer, and putting it back would sit
-      // a spent affordance in front of the reader.
+      // A reversed run has nothing left to offer, so the wizard never opened
+      // itself for it — and opening it by hand finds the first step rather than
+      // a spent affordance.
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await openWizard();
       expect(screen.queryByText("What this import did")).toBeNull();
       expect(
         screen.getByRole("button", { name: "Choose a file" }),
@@ -729,6 +820,8 @@ describe("the import card", () => {
       await waitFor(() =>
         expect(localStorage.getItem(REMEMBERED_RUN_KEY)).toBeNull(),
       );
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await openWizard();
       expect(screen.queryByText("What this import did")).toBeNull();
       expect(
         screen.getByRole("button", { name: "Choose a file" }),
@@ -756,6 +849,10 @@ describe("the import card", () => {
         ),
       );
       expect(localStorage.getItem(REMEMBERED_RUN_KEY)).toBe(run.id);
+      // No run was recovered, so nothing opened itself and there is no outcome
+      // to read — the reference is kept for the next visit, not rendered as one.
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await openWizard();
       expect(screen.queryByText("What this import did")).toBeNull();
     });
   });

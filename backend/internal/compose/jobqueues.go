@@ -30,6 +30,13 @@ func jobQueues() map[string]river.QueueConfig {
 		// nobody is waiting on: sharing would let a fanned-out capture run put
 		// an interactive reading behind it.
 		transcriptReadQueue: {MaxWorkers: transcriptReadMaxWorkers},
+		// ONE worker, and it is the usage policy rather than a performance
+		// choice. Nominatim holds a client that runs on a schedule to four
+		// requests a minute, single-threaded, against one service — so a second
+		// worker would be a second requester however carefully each paced
+		// itself. The pacer enforces the interval; this bound enforces the
+		// single thread. Neither alone is enough.
+		geocodeQueue: {MaxWorkers: geocodeMaxWorkers},
 		// Overlay reconcile is SERIAL by design. overlaybudget.ConsumeSearch
 		// counts but does not pace, and its keys are per workspace, so it
 		// cannot bound a provider-level burst: a concurrent fan-out could

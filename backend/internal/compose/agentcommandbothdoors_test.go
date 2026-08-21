@@ -42,6 +42,7 @@ import (
 
 	chi "github.com/go-chi/chi/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
@@ -159,6 +160,18 @@ func enrichDoors(path string, depth agents.EnrichDepth) bothDoorsFixture {
 // refuse an unknown key before staging anything, so a typo here would be
 // answered as a refusal on both doors and the comparison would hold vacuously.
 var bothDoorsFixtures = map[string]bothDoorsFixture{
+	// Both doors commit ONE run, named by id. The tool takes run_id where the
+	// route takes it in the path, and both must resolve to the same command —
+	// otherwise an approval staged by one could be redeemed against the other.
+	"approveImportRun": {
+		rest: func(primary, _ ids.UUID) (*http.Request, []byte) {
+			return doorRequest(http.MethodPost, "/v1/imports/"+primary.String()+"/approve", primary, "")
+		},
+		args: func(primary, _ ids.UUID) string {
+			return `{"run_id":"` + primary.String() + `"}`
+		},
+	},
+
 	"archivePerson":       archiveDoors("people", "person"),
 	"archiveOrganization": archiveDoors("organizations", "organization"),
 	"archiveDeal":         archiveDoors("deals", "deal"),
@@ -440,7 +453,33 @@ func bothDoorsRegistry(staging agents.Approvals) *agents.Registry {
 	agents.RegisterEnrichTool(reg, channelAnchor{}, nil)
 	agents.RegisterLifecycleTools(reg, channelAnchor{}, nil, nil, nil)
 	agents.RegisterCommsTools(reg, bothDoorsComms{}, channelAnchor{})
+	agents.RegisterImportTools(reg, bothDoorsImports{})
 	return reg
+}
+
+// bothDoorsImports answers a run in the one state a commit accepts, so the
+// tool door reaches staging rather than stopping at the state refusal — the
+// refusal has its own gate (TestNoConfirmFirstOperationStagesACallItsExecutorWouldRefuse).
+type bothDoorsImports struct{}
+
+func (bothDoorsImports) ProfileSource(context.Context, string, string) (crmcontracts.ImportSourceProfile, error) {
+	return crmcontracts.ImportSourceProfile{}, nil
+}
+
+func (bothDoorsImports) StageRun(context.Context, crmcontracts.CreateImportRunRequest) (crmcontracts.ImportRun, error) {
+	return crmcontracts.ImportRun{Status: "awaiting_approval"}, nil
+}
+
+func (bothDoorsImports) ReadRun(context.Context, ids.UUID) (crmcontracts.ImportRun, error) {
+	return crmcontracts.ImportRun{Status: "awaiting_approval"}, nil
+}
+
+func (bothDoorsImports) ReadReport(context.Context, ids.UUID) (crmcontracts.ImportRunReport, error) {
+	return crmcontracts.ImportRunReport{}, nil
+}
+
+func (bothDoorsImports) Commit(context.Context, ids.UUID) (crmcontracts.ImportRun, error) {
+	return crmcontracts.ImportRun{Status: "running"}, nil
 }
 
 // channelAnchor is seamRecord's answer plus the one field a channel reply's
@@ -598,7 +637,7 @@ func compareDoors(t *testing.T, op, tool string, fixture bothDoorsFixture) {
 
 	req, body := fixture.rest(primary, secondary)
 	call, err := restCommands[op](pol,
-		restCommandDeps{records: channelAnchor{}, channels: channelKinds{}}, req, body)
+		restCommandDeps{records: channelAnchor{}, channels: channelKinds{}, imports: bothDoorsImports{}}, req, body)
 	if err != nil {
 		t.Fatalf("the REST door refused the request its own route declares: %v", err)
 	}

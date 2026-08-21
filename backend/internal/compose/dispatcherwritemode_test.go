@@ -130,7 +130,7 @@ func TestOverlayWriteShadowResolvesTheModeOnce(t *testing.T) {
 	if _, err := d.updateInMode(ctx, ov, datasource.UpdateInput{Ref: ref}); err == nil {
 		t.Error("updateInMode: want the overlay provider's own error, got nil")
 	}
-	if _, err := d.archiveInMode(ctx, ov, ref); err == nil {
+	if _, err := d.archiveInMode(ctx, ov, datasource.ArchiveInput{Ref: ref}); err == nil {
 		t.Error("archiveInMode: want the overlay provider's own error, got nil")
 	}
 

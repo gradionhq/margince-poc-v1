@@ -88,6 +88,10 @@ function SourcedDeals({
   return (
     <div data-testid="partner-deals">
       <DataTable
+        // The scroller a wide table needs is a named region, so it reuses the
+        // heading already above it rather than inventing a second name for the
+        // same thing.
+        label={t("partnerDeals.panelTitle")}
         rows={deals}
         rowKey={(deal) => deal.id}
         columns={[

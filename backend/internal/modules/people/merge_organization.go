@@ -353,21 +353,24 @@ func relinkOrgEdges(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.Organ
 // naming a project is a read of it, so the refusal lists only the ones this
 // caller may already see and counts the rest.
 func refuseWhenBothCarryProjects(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.OrganizationID) error {
+	// Naming a project is a read of it, and the merge entry point checks only
+	// organization.update — nothing on this path has asked for project.read.
+	// Row scope no longer narrows a project (no own/team arm in platform/auth
+	// tableclass.go, and migration 1787320003 narrowed project.visibility to
+	// 'workspace'), but the OBJECT grant is a separate gate and a seat can
+	// hold organization.update with no sight of a project at all. So the
+	// naming asks for the grant it actually needs, and a caller without it is
+	// still refused the merge — on counts, which say the work exists without
+	// saying whose it is or what it is called.
+	mayName := auth.Require(ctx, "project", principal.ActionRead) == nil
+
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	sourcePos, targetPos := arg(sourceID), arg(targetID)
-	scope, err := auth.ScopeClauseFor(ctx, projectObjectName, "", arg)
-	if err != nil {
-		return err
-	}
-	visible := "true"
-	if scope != "" {
-		visible = scope
-	}
 	rows, err := tx.Query(ctx, storekit.SQLf(`
-		SELECT organization_id, name, (%s) AS visible FROM project
+		SELECT organization_id, name FROM project
 		WHERE organization_id IN ($%d, $%d) AND archived_at IS NULL
-		ORDER BY organization_id, name`, visible, sourcePos, targetPos), args...)
+		ORDER BY organization_id, name`, sourcePos, targetPos), args...)
 	if err != nil {
 		return fmt.Errorf("read projects on both merge endpoints: %w", err)
 	}
@@ -377,8 +380,7 @@ func refuseWhenBothCarryProjects(ctx context.Context, tx pgx.Tx, sourceID, targe
 	for rows.Next() {
 		var org ids.UUID
 		var name string
-		var canSee bool
-		if err := rows.Scan(&org, &name, &canSee); err != nil {
+		if err := rows.Scan(&org, &name); err != nil {
 			return err
 		}
 		side, names := &refusal.TargetCount, &refusal.Target
@@ -386,7 +388,7 @@ func refuseWhenBothCarryProjects(ctx context.Context, tx pgx.Tx, sourceID, targe
 			side, names = &refusal.SourceCount, &refusal.Source
 		}
 		*side++
-		if canSee {
+		if mayName {
 			*names = append(*names, name)
 		}
 	}

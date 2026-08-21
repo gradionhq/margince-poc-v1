@@ -360,6 +360,54 @@ func (e ActivityAudience) Valid() bool {
 	}
 }
 
+// Defines values for ActivityItemKind.
+const (
+	ActivityItemKindMorningBrief         ActivityItemKind = "morning_brief"
+	ActivityItemKindOvernightAtRiskSweep ActivityItemKind = "overnight_at_risk_sweep"
+)
+
+// Valid indicates whether the value is a known member of the ActivityItemKind enum.
+func (e ActivityItemKind) Valid() bool {
+	switch e {
+	case ActivityItemKindMorningBrief:
+		return true
+	case ActivityItemKindOvernightAtRiskSweep:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ActivityItemState.
+const (
+	ActivityItemStateAwaitingApproval ActivityItemState = "awaiting_approval"
+	ActivityItemStateDegraded         ActivityItemState = "degraded"
+	ActivityItemStateDone             ActivityItemState = "done"
+	ActivityItemStateFailed           ActivityItemState = "failed"
+	ActivityItemStateQueued           ActivityItemState = "queued"
+	ActivityItemStateRunning          ActivityItemState = "running"
+)
+
+// Valid indicates whether the value is a known member of the ActivityItemState enum.
+func (e ActivityItemState) Valid() bool {
+	switch e {
+	case ActivityItemStateAwaitingApproval:
+		return true
+	case ActivityItemStateDegraded:
+		return true
+	case ActivityItemStateDone:
+		return true
+	case ActivityItemStateFailed:
+		return true
+	case ActivityItemStateQueued:
+		return true
+	case ActivityItemStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ActivityLinkEntityType.
 const (
 	ActivityLinkEntityTypeDeal         ActivityLinkEntityType = "deal"
@@ -11520,6 +11568,42 @@ type ActivityMeetingStatus string
 // ActivityAudience Who may read an activity's content — see Activity.audience.
 type ActivityAudience string
 
+// ActivityItem defines model for ActivityItem.
+type ActivityItem struct {
+	// DegradeReason One of the runner's own closed reasons for stopping early, shown in the panel detail and
+	// never interpolated into a reader-facing line. It is NEVER a model provider's or a parser's
+	// own message: those carry vendor text and can echo credential material, and this field
+	// reaches an ordinary rep. The underlying cause goes to the operator log instead.
+	DegradeReason *string            `json:"degrade_reason,omitempty"`
+	FinishedAt    *time.Time         `json:"finished_at,omitempty"`
+	Id            openapi_types.UUID `json:"id"`
+
+	// Kind The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
+	Kind ActivityItemKind `json:"kind"`
+
+	// StartedAt When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.
+	StartedAt time.Time `json:"started_at"`
+
+	// State `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
+	// state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
+	// exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
+	// auto-execute only) and is declared for the states the runner itself can reach.
+	State ActivityItemState `json:"state"`
+
+	// Summary The run's own final summary when it produced one. OPTIONAL — the runner never validates
+	// that `final` carries it. Model-authored, so it is truncated to `maxLength` on the way out.
+	Summary *string `json:"summary,omitempty"`
+}
+
+// ActivityItemKind The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
+type ActivityItemKind string
+
+// ActivityItemState `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
+// state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
+// exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
+// auto-execute only) and is declared for the states the runner itself can reach.
+type ActivityItemState string
+
 // ActivityLink defines model for ActivityLink.
 type ActivityLink struct {
 	ActivityId *openapi_types.UUID    `json:"activity_id,omitempty"`
@@ -11612,6 +11696,18 @@ type AdvanceProjectPhaseRequest struct {
 
 // AdvanceProjectPhaseRequestToPhase defines model for AdvanceProjectPhaseRequest.ToPhase.
 type AdvanceProjectPhaseRequestToPhase string
+
+// AgentActivity defines model for AgentActivity.
+type AgentActivity struct {
+	// AsOf When the server read this.
+	AsOf time.Time `json:"as_of"`
+
+	// Recent Runs that FINISHED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-finished first, at most 10.
+	Recent []ActivityItem `json:"recent"`
+
+	// Running Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read.
+	Running []ActivityItem `json:"running"`
+}
 
 // AgentTool defines model for AgentTool.
 type AgentTool struct {
@@ -12297,13 +12393,35 @@ type AuditLogEntry struct {
 	// a machine, and their human authority is `on_behalf_of_name`. Null
 	// when no user row resolves — a deactivated or deleted member still has
 	// audit rows, and an honest identifier is better than an invented name.
-	ActorName *string                 `json:"actor_name,omitempty"`
-	ActorType AuditLogEntryActorType  `json:"actor_type"`
-	After     *map[string]interface{} `json:"after,omitempty"`
+	ActorName *string                `json:"actor_name,omitempty"`
+	ActorType AuditLogEntryActorType `json:"actor_type"`
+
+	// After The record image after the change, redacted on the same terms as `before`.
+	After *map[string]interface{} `json:"after,omitempty"`
 
 	// AuthorizationRule Which RBAC/scope rule allowed it.
-	AuthorizationRule *string                 `json:"authorization_rule,omitempty"`
-	Before            *map[string]interface{} `json:"before,omitempty"`
+	AuthorizationRule *string `json:"authorization_rule,omitempty"`
+
+	// Before The record image before the change. For an `activity` row this read
+	// REDACTS content the caller's audience does not admit. What survives
+	// is what the activity READ surface answers on a withheld row — the
+	// record's markers (`kind`, `direction`, `occurred_at`,
+	// `source_system`) and the record of the mutation itself (`audience`,
+	// `member_count`, a relink's `entity_type`/`entity_id`/`replaced`, a
+	// merge's `merged_into_id`, and a task's `due_at`, `remind_at`,
+	// `assignee_id`, `is_done`). `body` survives only as the presence flag
+	// its writer records, never as text. What does not survive is content:
+	// `subject`, body text, and the provider message id. Every
+	// non-surviving key is REMOVED ENTIRELY, not emptied or renamed, and
+	// `content_state: withheld` is added to say something was removed.
+	// So a change that touched only withheld content answers as
+	// `{"content_state": "withheld"}` alone: a client cannot infer which
+	// field moved, and must not present the absence as "nothing changed".
+	// An image needing no redaction is answered unchanged and carries no
+	// such key. The row itself is always present — actor, action, entity
+	// and timestamp are never withheld — because a compliance trail with
+	// holes in it is its own defect.
+	Before *map[string]interface{} `json:"before,omitempty"`
 
 	// EntityId Every audit_log row names the record it mutated (NOT NULL since 0075).
 	EntityId   openapi_types.UUID `json:"entity_id"`
@@ -14136,7 +14254,7 @@ type CreateDealRequest struct {
 	// PartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
 	PartnerAttribution *CreateDealRequestPartnerAttribution `json:"partner_attribution,omitempty"`
 
-	// PartnerOrgId The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.
+	// PartnerOrgId The partner this deal is attributed to at birth. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it.
 	PartnerOrgId *openapi_types.UUID `json:"partner_org_id,omitempty"`
 	PipelineId   openapi_types.UUID  `json:"pipeline_id"`
 
@@ -14678,7 +14796,7 @@ type Deal struct {
 	// PartnerAttribution What the partner named by `partner_org_id` did: `sourced` (brought the deal) or `influenced` (helped one we had). Travels with the partner — naming a partner defaults it to `sourced`. Commission accrues on `sourced` only.
 	PartnerAttribution *DealPartnerAttribution `json:"partner_attribution,omitempty"`
 
-	// PartnerOrgId Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.
+	// PartnerOrgId Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a live `partner` row — naming one that does not is refused 422 (`not_a_partner`), because commission prices from the margin tier on that row, and an attribution without one could never earn anything. Null when the caller may not read that organization, in which case `masked_fields` names it.
 	PartnerOrgId *openapi_types.UUID `json:"partner_org_id,omitempty"`
 
 	// PipelineId Native mode: always a non-null pipeline FK. Overlay mode: NULL — an overlay-mirror deal has no native Margince pipeline row; the incumbent's own pipeline id rides `raw` and the code-declared stage→semantic mapping drives tier resolution (overlay-augmentation OVA-MAP-6). A zero/placeholder UUID here is forbidden (dangling FK).
@@ -19434,10 +19552,13 @@ type Project struct {
 
 	// LastActivityAt Maintained from the timeline on link write; a read accelerator, never a second truth — a rebuild must reproduce it exactly.
 	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
-	Name           string     `json:"name"`
 
-	// OrganizationId The anchor company — required and singular. A company has many projects; a project has one company.
-	OrganizationId openapi_types.UUID  `json:"organization_id"`
+	// MaskedFields The fields of THIS row the caller may not read (a field mask). A named field is null because it is withheld, not because it is empty; absent or empty means nothing is withheld.
+	MaskedFields *[]string `json:"masked_fields,omitempty"`
+	Name         string    `json:"name"`
+
+	// OrganizationId The anchor company — singular, and always set on the row. A company has many projects; a project has one company. Null on the wire when the caller may not read that company, in which case `masked_fields` names it: a project is readable across the workspace while the company it hangs off can still be an unpromoted capture.
+	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
 	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// Phase Read-only here — transitions go through advanceProjectPhase so the history row and project.phase_changed are written from one transaction.
@@ -21275,12 +21396,14 @@ type UpdateDealRequest struct {
 	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// PartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
-	PartnerAttribution   *UpdateDealRequestPartnerAttribution `json:"partner_attribution,omitempty"`
-	PartnerOrgId         *openapi_types.UUID                  `json:"partner_org_id,omitempty"`
-	ProjectId            *openapi_types.UUID                  `json:"project_id,omitempty"`
-	Status               *UpdateDealRequestStatus             `json:"status,omitempty"`
-	WaitUntil            *openapi_types.Date                  `json:"wait_until,omitempty"`
-	AdditionalProperties map[string]interface{}               `json:"-"`
+	PartnerAttribution *UpdateDealRequestPartnerAttribution `json:"partner_attribution,omitempty"`
+
+	// PartnerOrgId The partner who brought this deal. The org must have a live `partner` row (else 422 `not_a_partner`), and the caller must be able to read it. Null clears the attribution.
+	PartnerOrgId         *openapi_types.UUID      `json:"partner_org_id,omitempty"`
+	ProjectId            *openapi_types.UUID      `json:"project_id,omitempty"`
+	Status               *UpdateDealRequestStatus `json:"status,omitempty"`
+	WaitUntil            *openapi_types.Date      `json:"wait_until,omitempty"`
+	AdditionalProperties map[string]interface{}   `json:"-"`
 }
 
 // UpdateDealRequestForecastCategory defines model for UpdateDealRequest.ForecastCategory.
@@ -22169,6 +22292,16 @@ type LogActivityParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ArchiveActivityParams defines parameters for ArchiveActivity.
+type ArchiveActivityParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // UpdateActivityParams defines parameters for UpdateActivity.
 type UpdateActivityParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
@@ -23053,6 +23186,16 @@ type CreateDealParams struct {
 	// than half-honouring it, so read this contract, not the client, to know which calls are safe
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ArchiveDealParams defines parameters for ArchiveDeal.
+type ArchiveDealParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // UpdateDealParams defines parameters for UpdateDeal.
@@ -23965,6 +24108,16 @@ type CreateOrganizationParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ArchiveOrganizationParams defines parameters for ArchiveOrganization.
+type ArchiveOrganizationParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
 // UpdateOrganizationParams defines parameters for UpdateOrganization.
 type UpdateOrganizationParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
@@ -24451,6 +24604,16 @@ type CreatePersonParams struct {
 	// than half-honouring it, so read this contract, not the client, to know which calls are safe
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ArchivePersonParams defines parameters for ArchivePerson.
+type ArchivePersonParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // UpdatePersonParams defines parameters for UpdatePerson.
@@ -25150,6 +25313,16 @@ type ListRelationshipsParams struct {
 
 // ListRelationshipsParamsKind defines parameters for ListRelationships.
 type ListRelationshipsParamsKind string
+
+// ArchiveRelationshipParams defines parameters for ArchiveRelationship.
+type ArchiveRelationshipParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
 
 // UpdateRelationshipParams defines parameters for UpdateRelationship.
 type UpdateRelationshipParams struct {
@@ -30697,6 +30870,14 @@ func (a *Project) UnmarshalJSON(b []byte) error {
 		delete(object, "last_activity_at")
 	}
 
+	if raw, found := object["masked_fields"]; found {
+		err = json.Unmarshal(raw, &a.MaskedFields)
+		if err != nil {
+			return fmt.Errorf("error reading 'masked_fields': %w", err)
+		}
+		delete(object, "masked_fields")
+	}
+
 	if raw, found := object["name"]; found {
 		err = json.Unmarshal(raw, &a.Name)
 		if err != nil {
@@ -30853,14 +31034,23 @@ func (a Project) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.MaskedFields != nil {
+		object["masked_fields"], err = json.Marshal(a.MaskedFields)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'masked_fields': %w", err)
+		}
+	}
+
 	object["name"], err = json.Marshal(a.Name)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'name': %w", err)
 	}
 
-	object["organization_id"], err = json.Marshal(a.OrganizationId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'organization_id': %w", err)
+	if a.OrganizationId != nil {
+		object["organization_id"], err = json.Marshal(a.OrganizationId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'organization_id': %w", err)
+		}
 	}
 
 	if a.OwnerId != nil {
@@ -32443,7 +32633,7 @@ type ServerInterface interface {
 	LogActivity(w http.ResponseWriter, r *http.Request, params LogActivityParams)
 	// Archive (soft-delete) an activity.
 	// (DELETE /activities/{id})
-	ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id)
+	ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id, params ArchiveActivityParams)
 	// Get an activity by id (includes its links and raw capture payload).
 	// (GET /activities/{id})
 	GetActivity(w http.ResponseWriter, r *http.Request, id Id)
@@ -32824,7 +33014,7 @@ type ServerInterface interface {
 	CreateDeal(w http.ResponseWriter, r *http.Request, params CreateDealParams)
 	// Archive (soft-delete) a deal.
 	// (DELETE /deals/{id})
-	ArchiveDeal(w http.ResponseWriter, r *http.Request, id Id)
+	ArchiveDeal(w http.ResponseWriter, r *http.Request, id Id, params ArchiveDealParams)
 	// Get a deal by id (the 360 record).
 	// (GET /deals/{id})
 	GetDeal(w http.ResponseWriter, r *http.Request, id Id)
@@ -33011,6 +33201,9 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// What the agent is doing for THIS person, right now and lately.
+	// (GET /me/agent-activity)
+	GetMyAgentActivity(w http.ResponseWriter, r *http.Request)
 	// The sign-off appended to mail you send.
 	// (GET /me/email-signature)
 	GetMyEmailSignature(w http.ResponseWriter, r *http.Request)
@@ -33103,7 +33296,7 @@ type ServerInterface interface {
 	CreateOrganization(w http.ResponseWriter, r *http.Request, params CreateOrganizationParams)
 	// Archive (soft-delete) an organization.
 	// (DELETE /organizations/{id})
-	ArchiveOrganization(w http.ResponseWriter, r *http.Request, id Id)
+	ArchiveOrganization(w http.ResponseWriter, r *http.Request, id Id, params ArchiveOrganizationParams)
 	// Get an organization by id (the 360 record).
 	// (GET /organizations/{id})
 	GetOrganization(w http.ResponseWriter, r *http.Request, id Id)
@@ -33265,7 +33458,7 @@ type ServerInterface interface {
 	CreatePerson(w http.ResponseWriter, r *http.Request, params CreatePersonParams)
 	// Archive (soft-delete) a person.
 	// (DELETE /people/{id})
-	ArchivePerson(w http.ResponseWriter, r *http.Request, id Id)
+	ArchivePerson(w http.ResponseWriter, r *http.Request, id Id, params ArchivePersonParams)
 	// Get a person by id (the 360 record).
 	// (GET /people/{id})
 	GetPerson(w http.ResponseWriter, r *http.Request, id Id)
@@ -33460,7 +33653,7 @@ type ServerInterface interface {
 	CreateRelationship(w http.ResponseWriter, r *http.Request)
 	// Archive (soft-delete) a relationship.
 	// (DELETE /relationships/{id})
-	ArchiveRelationship(w http.ResponseWriter, r *http.Request, id Id)
+	ArchiveRelationship(w http.ResponseWriter, r *http.Request, id Id, params ArchiveRelationshipParams)
 	// Update a relationship (role, primary flag, dates).
 	// (PATCH /relationships/{id})
 	UpdateRelationship(w http.ResponseWriter, r *http.Request, id Id, params UpdateRelationshipParams)
@@ -33730,7 +33923,7 @@ func (_ Unimplemented) LogActivity(w http.ResponseWriter, r *http.Request, param
 
 // Archive (soft-delete) an activity.
 // (DELETE /activities/{id})
-func (_ Unimplemented) ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id, params ArchiveActivityParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -34492,7 +34685,7 @@ func (_ Unimplemented) CreateDeal(w http.ResponseWriter, r *http.Request, params
 
 // Archive (soft-delete) a deal.
 // (DELETE /deals/{id})
-func (_ Unimplemented) ArchiveDeal(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchiveDeal(w http.ResponseWriter, r *http.Request, id Id, params ArchiveDealParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -34868,6 +35061,12 @@ func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// What the agent is doing for THIS person, right now and lately.
+// (GET /me/agent-activity)
+func (_ Unimplemented) GetMyAgentActivity(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The sign-off appended to mail you send.
 // (GET /me/email-signature)
 func (_ Unimplemented) GetMyEmailSignature(w http.ResponseWriter, r *http.Request) {
@@ -35050,7 +35249,7 @@ func (_ Unimplemented) CreateOrganization(w http.ResponseWriter, r *http.Request
 
 // Archive (soft-delete) an organization.
 // (DELETE /organizations/{id})
-func (_ Unimplemented) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id Id, params ArchiveOrganizationParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35374,7 +35573,7 @@ func (_ Unimplemented) CreatePerson(w http.ResponseWriter, r *http.Request, para
 
 // Archive (soft-delete) a person.
 // (DELETE /people/{id})
-func (_ Unimplemented) ArchivePerson(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchivePerson(w http.ResponseWriter, r *http.Request, id Id, params ArchivePersonParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35764,7 +35963,7 @@ func (_ Unimplemented) CreateRelationship(w http.ResponseWriter, r *http.Request
 
 // Archive (soft-delete) a relationship.
 // (DELETE /relationships/{id})
-func (_ Unimplemented) ArchiveRelationship(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) ArchiveRelationship(w http.ResponseWriter, r *http.Request, id Id, params ArchiveRelationshipParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -36518,8 +36717,32 @@ func (siw *ServerInterfaceWrapper) ArchiveActivity(w http.ResponseWriter, r *htt
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveActivityParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveActivity(w, r, id)
+		siw.Handler.ArchiveActivity(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -41612,8 +41835,32 @@ func (siw *ServerInterfaceWrapper) ArchiveDeal(w http.ResponseWriter, r *http.Re
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveDealParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveDeal(w, r, id)
+		siw.Handler.ArchiveDeal(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -42664,6 +42911,8 @@ func (siw *ServerInterfaceWrapper) CreateImportRun(w http.ResponseWriter, r *htt
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42716,6 +42965,8 @@ func (siw *ServerInterfaceWrapper) GetImportRun(w http.ResponseWriter, r *http.R
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42748,6 +42999,8 @@ func (siw *ServerInterfaceWrapper) ApproveImportRun(w http.ResponseWriter, r *ht
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42779,6 +43032,8 @@ func (siw *ServerInterfaceWrapper) GetImportRunReport(w http.ResponseWriter, r *
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
@@ -44257,6 +44512,26 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentPrincipal(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyAgentActivity operation middleware
+func (siw *ServerInterfaceWrapper) GetMyAgentActivity(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyAgentActivity(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -45761,8 +46036,32 @@ func (siw *ServerInterfaceWrapper) ArchiveOrganization(w http.ResponseWriter, r 
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveOrganizationParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveOrganization(w, r, id)
+		siw.Handler.ArchiveOrganization(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -48243,8 +48542,32 @@ func (siw *ServerInterfaceWrapper) ArchivePerson(w http.ResponseWriter, r *http.
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchivePersonParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchivePerson(w, r, id)
+		siw.Handler.ArchivePerson(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -51573,8 +51896,32 @@ func (siw *ServerInterfaceWrapper) ArchiveRelationship(w http.ResponseWriter, r 
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveRelationshipParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveRelationship(w, r, id)
+		siw.Handler.ArchiveRelationship(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -56066,6 +56413,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/agent-activity", wrapper.GetMyAgentActivity)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me/email-signature", wrapper.GetMyEmailSignature)
