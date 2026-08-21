@@ -54,7 +54,7 @@ func generateGroup(root string, g group) error {
 	if err != nil {
 		return fmt.Errorf("reading source: %w", err)
 	}
-	out, err := generateSource(src, g.Package)
+	out, err := generateSource(src, g.Package, g.VersionsVar)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,13 @@ func generateGroup(root string, g group) error {
 // directly by the unit test: normalize the 3.1 source into codegen's 3.0
 // subset, emit models with oapi-codegen, then append the event/entity-type
 // methods and re-stamp our own banner.
-func generateSource(specYAML []byte, pkg string) (string, error) {
+//
+// versionsVar names the generated event-type→version map, or is empty for a
+// family that owes none. It is a parameter rather than a constant because
+// every family compiles into ONE Go package: a second file declaring the same
+// map name would not compile, and a map nothing reads is a name to collide on
+// for nothing.
+func generateSource(specYAML []byte, pkg, versionsVar string) (string, error) {
 	normalized, err := oas30.Bytes(specYAML)
 	if err != nil {
 		return "", err
@@ -99,7 +105,7 @@ func generateSource(specYAML []byte, pkg string) (string, error) {
 		return "", err
 	}
 
-	methods, versions, err := eventMethodsAndVersions(spec)
+	methods, versions, err := eventMethodsAndVersions(spec, versionsVar)
 	if err != nil {
 		return "", err
 	}
@@ -196,7 +202,7 @@ func structifyEmptyEventPayloads(body string, spec *openapi3.T) (string, error) 
 // VersionOf must agree with the value) read — see
 // backend/internal/modules/webhooks/payload_coverage_test.go and
 // payload_version_test.go.
-func eventMethodsAndVersions(spec *openapi3.T) (methods, versions string, err error) {
+func eventMethodsAndVersions(spec *openapi3.T, versionsVar string) (methods, versions string, err error) {
 	if spec.Components == nil {
 		return "", "", nil
 	}
@@ -244,13 +250,17 @@ func eventMethodsAndVersions(spec *openapi3.T) (methods, versions string, err er
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].eventType < entries[j].eventType })
 
+	if versionsVar == "" {
+		return methodsB.String(), "", nil
+	}
+
 	var versionsB strings.Builder
-	versionsB.WriteString("// PublicEventVersions maps every subscribable event type carrying a\n")
+	versionsB.WriteString("// " + versionsVar + " maps every subscribable event type carrying a\n")
 	versionsB.WriteString("// PublicEvent<Event> schema to that schema's x-version extension\n")
 	versionsB.WriteString("// (default 1 when absent). It is the single generated source of truth for\n")
 	versionsB.WriteString("// both the coverage gate (every subscribable event type must be a key here)\n")
 	versionsB.WriteString("// and the version gate (VersionOf(type) must equal this map's value).\n")
-	versionsB.WriteString("var PublicEventVersions = map[string]int{\n")
+	versionsB.WriteString("var " + versionsVar + " = map[string]int{\n")
 	for _, e := range entries {
 		fmt.Fprintf(&versionsB, "\t%q: %d,\n", e.eventType, e.version)
 	}

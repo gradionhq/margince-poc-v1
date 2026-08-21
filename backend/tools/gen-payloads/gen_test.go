@@ -59,7 +59,7 @@ components:
 `
 
 func TestGenerateSourceEmitsTypesAndEventMethods(t *testing.T) {
-	src, err := generateSource([]byte(fixtureSpec), "testpkg")
+	src, err := generateSource([]byte(fixtureSpec), "testpkg", "PublicEventVersions")
 	if err != nil {
 		t.Fatalf("generateSource: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestGenerateSourceEmitsTypesAndEventMethods(t *testing.T) {
 // A schema without the event extensions gets no methods appended — only the
 // struct. Guards against blanket method emission.
 func TestGenerateSourceOmitsMethodsForPlainSchema(t *testing.T) {
-	src, err := generateSource([]byte(fixtureSpec), "testpkg")
+	src, err := generateSource([]byte(fixtureSpec), "testpkg", "PublicEventVersions")
 	if err != nil {
 		t.Fatalf("generateSource: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestGenerateSourceOmitsMethodsForPlainSchema(t *testing.T) {
 // PublicEventY (which declares no x-version at all) — the single
 // generated source of truth the coverage and version gates read.
 func TestGenerateSourceEmitsPublicEventVersions(t *testing.T) {
-	src, err := generateSource([]byte(fixtureSpec), "testpkg")
+	src, err := generateSource([]byte(fixtureSpec), "testpkg", "PublicEventVersions")
 	if err != nil {
 		t.Fatalf("generateSource: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestGenerateSourceEmitsPublicEventVersions(t *testing.T) {
 // EntityType() methods this generator projects below it, so the map shape
 // would fail to compile the moment those methods were appended.
 func TestGenerateSourceStructifiesEmptyEventPayload(t *testing.T) {
-	src, err := generateSource([]byte(nilPayloadFixtureSpec), "testpkg")
+	src, err := generateSource([]byte(nilPayloadFixtureSpec), "testpkg", "PublicEventVersions")
 	if err != nil {
 		t.Fatalf("generateSource: %v", err)
 	}
@@ -158,7 +158,24 @@ components:
       properties:
         name: { type: string }
 `
-	if _, err := generateSource([]byte(spec), "testpkg"); err == nil {
+	if _, err := generateSource([]byte(spec), "testpkg", "PublicEventVersions"); err == nil {
 		t.Fatal("a fractional x-version (1.5) must be rejected, not truncated to 1")
+	}
+}
+
+// A second family compiles into the SAME Go package, so the versions map's
+// name cannot be a constant: two files declaring PublicEventVersions would not
+// compile. A family that no gate reads a version map for names none, and then
+// none is emitted — the methods it does need are still there.
+func TestAFamilyThatNamesNoVersionsMapEmitsNone(t *testing.T) {
+	src, err := generateSource([]byte(fixtureSpec), "testpkg", "")
+	if err != nil {
+		t.Fatalf("generateSource: %v", err)
+	}
+	if strings.Contains(src, "map[string]int{") {
+		t.Errorf("no versions map may be emitted when a family names none\n---\n%s", src)
+	}
+	if !strings.Contains(src, `func (PublicEventX) EventType() string { return "x.happened" }`) {
+		t.Errorf("the event methods are still owed\n---\n%s", src)
 	}
 }

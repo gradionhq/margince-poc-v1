@@ -13,9 +13,11 @@ package crmcontracts
 //go:generate go run github.com/gradionhq/margince/backend/tools/contract-overlay -in ../../api/crm.yaml -out .build/openapi30.yaml
 //go:generate go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.7.1 --config oapi.yaml .build/openapi30.yaml
 
-// The public event/webhook payloads are a SEPARATE, isolated contract
-// (api/public-events.yaml) compiled by the generic gen-payloads generator into
-// publicevents_gen.go in this same package. Kept out of crm.yaml because
-// crm.yaml's webhooks: block is pruned by kin-openapi and global skip-prune
-// there trips a pre-existing ApprovalToken name collision (B-E10.14).
+// The event payloads are SEPARATE, isolated contracts compiled by the generic
+// gen-payloads generator into this same package: api/public-events.yaml into
+// publicevents_gen.go, and api/internal-events.yaml — the payloads that ride
+// the bus without being subscribable — into internalevents_gen.go. Kept out of
+// crm.yaml because crm.yaml's webhooks: block is pruned by kin-openapi and
+// global skip-prune there trips a pre-existing ApprovalToken name collision
+// (B-E10.14).
 //go:generate go run github.com/gradionhq/margince/backend/tools/gen-payloads

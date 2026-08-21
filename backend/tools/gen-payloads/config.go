@@ -16,14 +16,29 @@ type group struct {
 	Out string
 	// Package is the package clause the generated file carries.
 	Package string
+	// VersionsVar names the generated event-type→version map, or is empty
+	// for a family that owes none. Every family compiles into ONE package, so
+	// two families naming the same map would not compile — and only the
+	// public contract has gates that read one.
+	VersionsVar string
 }
 
-// groups is the config-driven list of payload families. Today: the public
-// webhook/event payload contract compiled from api/public-events.yaml.
+// groups is the config-driven list of payload families: the public
+// webhook/event payload contract, and the internal payloads that ride the same
+// bus without being subscribable.
 var groups = []group{
 	{
-		Source:  "api/public-events.yaml",
-		Out:     "internal/contracts/publicevents_gen.go",
+		Source:      "api/public-events.yaml",
+		Out:         "internal/contracts/publicevents_gen.go",
+		Package:     "crmcontracts",
+		VersionsVar: "PublicEventVersions",
+	},
+	{
+		// Internal payloads: on the bus, deliberately not in the public
+		// webhook contract, so no version map — the coverage and version gates
+		// that read one are gates on what a subscription may name.
+		Source:  "api/internal-events.yaml",
+		Out:     "internal/contracts/internalevents_gen.go",
 		Package: "crmcontracts",
 	},
 }
