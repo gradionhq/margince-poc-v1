@@ -5,6 +5,11 @@ partners live in the app, how to make a company a partner, what every field on t
 and how to work the pipeline afterwards. The one thing you *cannot* do from the UI — changing
 the value lists themselves — is covered at the end.
 
+New to this? Start with
+[tutorials/run-a-partner-program.md](../tutorials/run-a-partner-program.md), which walks one
+deal from an introduction through to the commission it earns. This guide is the reference you
+come back to for what a particular field means.
+
 ## What a partner is in Margince
 
 A partner is not a separate record you create next to a company. It is an **extra layer on a
@@ -96,6 +101,14 @@ partners so filtering stays useful.
 - **The company page stays the home** — activities, people, and deals with a partner live on
   the company page like for any other company. The Partner tab is one more tab there, not a
   separate world.
+- **Two lists, two questions.** A company's **Deals** tab shows deals where it is the
+  *customer*. Its **Partner** tab shows **Deals they brought** — deals belonging to *other*
+  companies that came through this partner. A partner-sourced deal appears only in the second,
+  because the deal belongs to the customer.
+- **Commission** sits under that, one row per entry, naming the deal it was earned on. Entries
+  appear on their own when a partner-sourced deal is won; nobody creates them by hand. The
+  statuses (accrued → approved → paid, or reversed) are shown but **cannot yet be changed from
+  the app** — deciding a commission exists in the API only.
 - **A simple weekly loop:** filter the list for **Applied** and push certifications forward;
   scan for partners whose stage is behind reality and correct it; make sure every in-flight
   partner has a next step with a due date.
@@ -105,7 +118,8 @@ generic record tools, so an agent can find it, read it and see that it carries t
 relationship type — but `partner` is not yet one of the record types those tools accept, so the
 partner extension's own fields (tier, certification, relationship stage) are not readable or
 writable that way. A deal's partner and what that partner did for it ARE agent-visible, through
-the deal's own `partner_org_id` and `partner_attribution` fields.
+the deal's own `partner_org_id` and `partner_attribution` fields — readable, and settable both
+when an agent creates a deal and when it updates one.
 
 ## Changing the value lists themselves
 
