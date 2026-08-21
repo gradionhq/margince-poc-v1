@@ -46,6 +46,12 @@ type restCommandDeps struct {
 	// there; this door holds the question alone, because a REST send_message
 	// needs to refuse a non-channel anchor without being able to send anything.
 	channels agents.ChannelKinds
+	// imports reads a staged import run's report, which is what a commit's
+	// summary is written from. Same reason `stages` is here: the sentence a
+	// human decides on cannot be written from the request alone, and a summary
+	// that cannot say what the import does asks somebody to approve a bulk
+	// write to their estate sight unseen.
+	imports agents.Imports
 }
 
 // restCommands maps a crm.yaml operationId to the decoder that turns an HTTP
@@ -234,12 +240,12 @@ const (
 //
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair the table above is typed by
 //nolint:ireturn // same as every other decoder here — GovernedCall is the table's value type.
-func previewImportCommand(_ agentPolicy, _ restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
+func previewImportCommand(_ agentPolicy, deps restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
 	cmd, err := agents.DecodeImportPreview(body)
 	if err != nil {
 		return nil, err
 	}
-	return agents.NewImportCall(cmd), nil
+	return agents.NewImportCall(deps.imports, cmd), nil
 }
 
 // commitImportCommand decodes POST /v1/imports/{id}/approve. The run id IS the
@@ -247,12 +253,12 @@ func previewImportCommand(_ agentPolicy, _ restCommandDeps, _ *http.Request, bod
 // read belongs to that id.
 //
 //nolint:ireturn // every decoder in restCommands returns GovernedCall — that IS the table's value type, and a concrete return would not satisfy it.
-func commitImportCommand(_ agentPolicy, _ restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
+func commitImportCommand(_ agentPolicy, deps restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
 	id, err := routedID(r)
 	if err != nil {
 		return nil, err
 	}
-	return agents.NewImportCall(agents.ImportCommand{
+	return agents.NewImportCall(deps.imports, agents.ImportCommand{
 		Verb:  agents.ImportVerbCommit,
 		RunID: id,
 	}), nil

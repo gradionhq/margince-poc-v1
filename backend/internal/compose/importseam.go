@@ -34,9 +34,12 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/migration"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // importSeam adapts the import handlers to the agents module's Imports port.
@@ -83,6 +86,16 @@ func importsOverDB(db *database.DB) agents.Imports {
 func (i importSeam) ProfileSource(
 	ctx context.Context, object, csv string,
 ) (crmcontracts.ImportSourceProfile, error) {
+	// THE GRANT IS TAKEN BEFORE THE FILE IS STORED. profileAndStore parses the
+	// CSV and puts it in the object store, and the first authorization check on
+	// the REST path is the one CreateImportRun makes before calling it. The
+	// tool path had no equivalent, so a caller with write scope and no
+	// import_run grant could call preview_import repeatedly, leaving an orphan
+	// blob each time before the refusal arrived — storage a stranger can spend,
+	// and a probe of whether their CSV parses.
+	if err := auth.Require(ctx, migration.ImportRunObject, principal.ActionCreate); err != nil {
+		return crmcontracts.ImportSourceProfile{}, err
+	}
 	if err := i.ready(); err != nil {
 		return crmcontracts.ImportSourceProfile{}, err
 	}

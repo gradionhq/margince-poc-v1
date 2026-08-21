@@ -23,7 +23,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -48,12 +50,17 @@ const (
 
 // NewImportCall binds one import command to the resolver that speaks it.
 //
+// The seam is REQUIRED for a commit, because the summary a person decides on
+// is written from the run's report — see Subject. Both doors pass the same one,
+// so a commit staged over REST and one staged over MCP describe the import
+// identically. A preview needs no seam and may pass nil.
+//
 //nolint:ireturn // the call is the product, same as every other family here
-func NewImportCall(cmd ImportCommand) GovernedCall {
-	return bind[ImportCommand](importResolver{}, cmd)
+func NewImportCall(imports Imports, cmd ImportCommand) GovernedCall {
+	return bind[ImportCommand](importResolver{imports: imports}, cmd)
 }
 
-type importResolver struct{}
+type importResolver struct{ imports Imports }
 
 // Subject names what the approval binds to.
 //
@@ -64,19 +71,83 @@ type importResolver struct{}
 // A preview binds to nothing, because there is nothing yet: the run it will
 // create does not exist when the call is staged. That is honest rather than a
 // gap, and it is safe because a preview writes no domain rows.
-func (importResolver) Subject(_ context.Context, cmd ImportCommand) (StageInfo, error) {
+// THE SUMMARY CARRIES THE REPORT'S COUNTS for a commit, and that is the whole
+// reason this resolver holds a seam. The approval row a person sees in the
+// inbox IS its summary — nothing renders the report beside it — so a summary
+// saying only "import run <uuid>" asks somebody to authorise a bulk write to
+// their estate without telling them what it does. They would be clicking yes
+// on a number they never saw.
+func (r importResolver) Subject(ctx context.Context, cmd ImportCommand) (StageInfo, error) {
 	if cmd.Verb == ImportVerbCommit {
+		object, report, err := r.reportFor(ctx, cmd)
+		if err != nil {
+			return StageInfo{}, err
+		}
 		return StageInfo{
 			TargetType: importRunRecordType,
 			TargetID:   cmd.RunID,
-			Summary: fmt.Sprintf("Import %s records from the file staged as run %s",
-				cmd.Object, cmd.RunID),
+			Summary:    describeImport(object, report),
 		}, nil
 	}
 	return StageInfo{
 		TargetType: importRunRecordType,
 		Summary:    fmt.Sprintf("Check a file of %s records against this workspace, writing nothing", cmd.Object),
 	}, nil
+}
+
+// reportFor reads what the run will do, and what its rows are.
+//
+// A run awaiting approval HAS a report — reaching that state is what produces
+// one. Failing to read it means something is wrong with the run, and staging an
+// approval whose summary cannot say what the import does is worse than
+// refusing: it is the exact blind yes this method exists to prevent.
+func (r importResolver) reportFor(
+	ctx context.Context, cmd ImportCommand,
+) (string, crmcontracts.ImportRunReport, error) {
+	if r.imports == nil {
+		return "", crmcontracts.ImportRunReport{}, fmt.Errorf(
+			"no import seam is wired, so the approval for run %s could not say what it would do", cmd.RunID)
+	}
+	run, err := r.imports.ReadRun(ctx, cmd.RunID)
+	if err != nil {
+		return "", crmcontracts.ImportRunReport{}, err
+	}
+	if err := refuseUncommittableRun(run); err != nil {
+		return "", crmcontracts.ImportRunReport{}, err
+	}
+	report, err := r.imports.ReadReport(ctx, cmd.RunID)
+	if err != nil {
+		return "", crmcontracts.ImportRunReport{}, fmt.Errorf(
+			"reading the report of import run %s before asking for approval: %w", cmd.RunID, err)
+	}
+	return string(run.Object), report, nil
+}
+
+// describeImport writes the sentence a person decides on.
+//
+// Plain counts, in the order that matters to somebody protecting their data:
+// what is new, what changes under them, what is left alone, and what could not
+// be used. The unusable count is never omitted when it is non-zero, even
+// though it is the least flattering number — a summary that quietly drops it
+// reads as a clean import.
+func describeImport(object string, report crmcontracts.ImportRunReport) string {
+	d := report.Disposition
+	parts := []string{fmt.Sprintf("create %d", d.Created)}
+	if d.Updated > 0 {
+		parts = append(parts, fmt.Sprintf("update %d", d.Updated))
+	}
+	if d.Unchanged > 0 {
+		parts = append(parts, fmt.Sprintf("leave %d unchanged", d.Unchanged))
+	}
+	if d.Skipped > 0 {
+		parts = append(parts, fmt.Sprintf("skip %d", d.Skipped))
+	}
+	summary := fmt.Sprintf("Import %d rows as %s records: %s",
+		report.RowsRead, object, strings.Join(parts, ", "))
+	if len(report.Issues) > 0 {
+		summary += fmt.Sprintf(". %d row(s) could not be used", len(report.Issues))
+	}
+	return summary
 }
 
 // Guards is where a family refuses a call no approval could carry out. There

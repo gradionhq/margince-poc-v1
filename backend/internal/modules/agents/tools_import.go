@@ -88,15 +88,19 @@ const (
 	importObjectLead         = "lead"
 )
 
-// maxImportCSVChars caps the pasted file.
+// maxImportCSVBytes caps the pasted file.
 //
-// It is a character count rather than a byte count because that is what the
-// caller can measure before sending. The bound is well under the REST upload
-// limit (uploads.csv_import_mb, 10 MB by default): text travelling inside a
-// JSON tool argument rides the same request as the rest of the conversation,
-// and a file large enough to matter belongs on the upload door with a person
-// at it.
-const maxImportCSVChars = 1_000_000
+// BYTES, not characters — len() on a Go string counts bytes, and calling this
+// a character count would be a lie that matters: a UTF-8 file of German or
+// Vietnamese company names is refused sooner than the number suggests. The
+// refusal says bytes.
+//
+// The bound is well under the REST upload limit (uploads.csv_import_mb, 10 MB
+// by default) and under the MCP transport's own 8 MiB body: text travelling
+// inside a JSON tool argument rides the same request as the rest of the
+// conversation, and a file large enough to matter belongs on the upload door
+// with a person at it.
+const maxImportCSVBytes = 1_000_000
 
 type previewImport struct{ imports Imports }
 
@@ -132,11 +136,11 @@ func (t previewImport) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		return nil, &BadArgsError{Cause: errors.New(
 			"`csv` is empty; send the file's contents with its header row first")}
 	}
-	if len(args.CSV) > maxImportCSVChars {
+	if len(args.CSV) > maxImportCSVBytes {
 		return nil, &BadArgsError{Cause: fmt.Errorf(
-			"this file is %d characters and one pasted import takes at most %d; "+
+			"this file is %d bytes and one pasted import takes at most %d; "+
 				"upload it in the web app instead, or split it",
-			len(args.CSV), maxImportCSVChars)}
+			len(args.CSV), maxImportCSVBytes)}
 	}
 
 	profile, err := t.imports.ProfileSource(ctx, args.Object, args.CSV)
@@ -281,32 +285,17 @@ func (t commitImport) Spec() mcp.ToolSpec {
 	}
 }
 
-// StageInfo describes the approval a commit asks for.
-//
-// The run id is the whole target, deliberately: what a person approves is one
-// validated run, and the report they read belongs to that id. An approval that
-// named only "an import" could be redeemed against a different run.
+// StageInfo describes the approval a commit asks for, through the SAME
+// command the REST door builds — so the sentence a person decides on is
+// identical whichever door staged it.
 func (t commitImport) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	id, err := importRunArg(in)
 	if err != nil {
 		return StageInfo{}, err
 	}
-	// Read it BEFORE staging: a run that does not exist, or that is not
-	// awaiting approval, must refuse now rather than spend a person's approval
-	// on a call that dies when they grant it.
-	run, err := t.imports.ReadRun(ctx, id)
-	if err != nil {
-		return StageInfo{}, err
-	}
-	if err := refuseUncommittableRun(run); err != nil {
-		return StageInfo{}, err
-	}
-	return StageInfo{
-		Summary: fmt.Sprintf("Import %s records from the file staged as run %s",
-			string(run.Object), id),
-		TargetType: importRunRecordType,
-		TargetID:   id,
-	}, nil
+	return StageSubject(ctx, NewImportCall(t.imports, ImportCommand{
+		Verb: ImportVerbCommit, RunID: id,
+	}))
 }
 
 func (t commitImport) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {

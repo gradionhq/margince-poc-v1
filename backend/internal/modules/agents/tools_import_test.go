@@ -6,6 +6,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -137,4 +138,57 @@ func (r recordingImports) ProfileSource(
 		Object:           crmcontracts.ImportObject(object),
 		SuggestedMapping: r.suggested,
 	}, nil
+}
+
+// The approval a person sees says what the import will DO.
+//
+// The inbox row is its summary — nothing renders the report beside it — so a
+// summary naming only the run id asks somebody to authorise a bulk write to
+// their estate without telling them what it does. They would be clicking yes
+// on a number they never saw.
+func TestTheApprovalSaysWhatTheImportWillDo(t *testing.T) {
+	got := describeImport("organization", crmcontracts.ImportRunReport{
+		RowsRead: 453,
+		Disposition: crmcontracts.ImportRunDisposition{
+			Created: 412, Updated: 38, Unchanged: 3,
+		},
+		Issues: []crmcontracts.ImportRowIssue{{}, {}},
+	})
+	for _, want := range []string{"453", "412", "38", "organization", "2 row(s) could not be used"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the summary %q does not carry %q", got, want)
+		}
+	}
+}
+
+// The unusable count is never quietly dropped: it is the least flattering
+// number in the report and the one a person most needs before saying yes.
+func TestACleanImportSaysNothingAboutUnusableRows(t *testing.T) {
+	got := describeImport("lead", crmcontracts.ImportRunReport{
+		RowsRead:    12,
+		Disposition: crmcontracts.ImportRunDisposition{Created: 12},
+	})
+	if strings.Contains(got, "could not be used") {
+		t.Errorf("a clean import reported unusable rows: %q", got)
+	}
+	if !strings.Contains(got, "create 12") {
+		t.Errorf("the summary %q does not say what it creates", got)
+	}
+}
+
+// A run whose report cannot be read stages NO approval. Refusing is better
+// than staging one whose summary cannot say what the import does — that is the
+// blind yes this whole path exists to prevent.
+func TestARunWhoseReportCannotBeReadStagesNoApproval(t *testing.T) {
+	_, err := importResolver{imports: reportlessImports{}}.Subject(
+		context.Background(), ImportCommand{Verb: ImportVerbCommit, RunID: ids.NewV7()})
+	if err == nil {
+		t.Fatal("an approval was staged for a run whose report could not be read")
+	}
+}
+
+type reportlessImports struct{ stubImports }
+
+func (reportlessImports) ReadReport(context.Context, ids.UUID) (crmcontracts.ImportRunReport, error) {
+	return crmcontracts.ImportRunReport{}, errors.New("the report is gone")
 }
