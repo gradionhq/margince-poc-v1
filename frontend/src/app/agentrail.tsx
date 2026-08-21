@@ -543,7 +543,7 @@ function RunSection({
       <h4>{t(heading)}</h4>
       <ul className="arruns">
         {said.map(({ item, line }) => (
-          <li className="arrun" key={item.id}>
+          <li className="arbox arrun" key={item.id}>
             <span className="arrunline">{line}</span>
             {item.degrade_reason ? (
               <span className="arrundetail">
@@ -656,7 +656,7 @@ function AgentPanel({
                 alone is not a sentence about anything. */}
             {signals.waiting !== undefined && (
               <a
-                className="artile"
+                className="arbox artile"
                 href="#/inbox"
                 aria-label={`${LABELS.approvals} ${signals.waiting}`}
               >
@@ -666,7 +666,7 @@ function AgentPanel({
             )}
             {signals.duplicates !== undefined && (
               <a
-                className="artile"
+                className="arbox artile"
                 href="#/dedupe"
                 aria-label={`${LABELS.duplicatesRow} ${signals.duplicates}`}
               >

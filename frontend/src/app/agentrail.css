@@ -624,16 +624,23 @@
   display: flex;
   gap: var(--space-2);
 }
+/* The panel's box, spelled ONCE. A count tile and a run row are different
+   things — one is a link with a figure in it, the other a stack of sentences —
+   but they are the same object on the page, and a second byte-identical copy of
+   these four declarations is how a surface ends up with two spellings of one
+   card that drift apart on the next tone change. */
+.arbox {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgHover);
+}
 .artile {
   display: flex;
   flex: 1 1 0;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  background: var(--bgHover);
   color: var(--textMeta);
   font-size: 12px;
   line-height: 1.15;
@@ -873,10 +880,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  background: var(--bgHover);
 }
 .arrunline {
   color: var(--textPrimary);

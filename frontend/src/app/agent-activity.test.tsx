@@ -228,4 +228,25 @@ describe("a read that has not answered", () => {
     expect(result.current.running).toEqual([]);
     expect(result.current.recent).toEqual([]);
   });
+
+  // The SAME off-contract body, read a second time — by the cadence callback,
+  // which is the other place this hook reaches into the cached body. It runs
+  // inside react-query's own timer rather than inside render, so a throw there
+  // does not surface as a failed render: it silently ends the polling, and a
+  // rail that has stopped asking is indistinguishable from an agent at rest.
+  // Hence the assertion is that the read KEEPS HAPPENING, on the idle cadence.
+  it("keeps asking on the idle cadence when the body carries no lists", async () => {
+    const { reads } = mount(() => jsonResponse({}));
+
+    await advance(0);
+    expect(reads).toHaveLength(1);
+
+    // The live cadence has passed nine times over and asked nothing, because an
+    // absent list is not a live run.
+    await advance(29_000);
+    expect(reads).toHaveLength(1);
+
+    await advance(1_000);
+    expect(reads).toHaveLength(2);
+  });
 });
