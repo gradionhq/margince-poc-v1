@@ -359,7 +359,11 @@ func (p *Provider) ArchivableTypes(ctx context.Context) ([]datasource.EntityType
 		out = append(out, types...)
 	}
 	slices.Sort(out)
-	return out, nil
+	// Compacted because this list is rendered to a model in a refusal
+	// ("it archives person, organization, deal, …"), and the modules below
+	// are disjoint today by construction rather than by anything that
+	// checks. A type two of them both claimed would read as said twice.
+	return slices.Compact(out), nil
 }
 
 // RefuseArchive is datasource.RecordArchiverV2's stage-time half, routed to the

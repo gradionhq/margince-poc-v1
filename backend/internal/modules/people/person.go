@@ -385,11 +385,16 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID, ifVersion *i
 // shape for it — the archive audit row and person.archived. It is the one
 // spelling of "archive a person" inside a transaction, shared by the archive
 // verb and by a lead demotion that unwinds the person a promotion created.
+//
 // ifVersion pins the PERSON row where the caller's authority named a version;
 // the satellites below take no pin because they are a cascade off that row
 // rather than second decisions — the guard on the person is what serializes
-// all of them. A caller with nothing to pin (the lead demotion) passes nil and
-// gets the row lock, which is what the bare statement used to do.
+// all of them.
+//
+// A caller with nothing to pin passes nil and takes the row lock instead,
+// which costs the lead demotion nothing: it already holds FOR UPDATE on this
+// person (demote.go), and LockRow re-takes an owned lock idempotently rather
+// than queueing behind itself.
 func archivePersonRows(ctx context.Context, tx pgx.Tx, id ids.PersonID, now time.Time, ifVersion *int64) error {
 	p := storekit.NewPatch()
 	p.Set("archived_at", nil, now)

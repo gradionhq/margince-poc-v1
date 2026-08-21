@@ -54,18 +54,20 @@ func (d *Dispatcher) ArchivableTypes(ctx context.Context) ([]datasource.EntityTy
 	return d.archiverInMode(ov).ArchivableTypes(ctx)
 }
 
-// RefuseArchive is datasource.RecordArchiverV2's stage-time half. The egress
-// backstop runs here too: an agent staging a write into someone else's system
-// of record must be refused BEFORE a human is asked, not after they answer.
+// RefuseArchive is datasource.RecordArchiverV2's stage-time half: the routed
+// executor's own authority refusals, and nothing else.
+//
+// The egress backstop is deliberately NOT repeated here. It guards the WRITE,
+// and its own doc places it on updateInMode/archiveInMode precisely so the one
+// path that dispatches directly cannot slip underneath it; a third call site
+// would be a third thing to keep in step. Nor is one needed: a staging against
+// an overlay-served record is already refused earlier, by
+// refuseStagingElsewhere — a mirror read is Authoritative:false
+// (overlay/provider.go), and both answer the same unsupported-by-SoR sentinel.
 func (d *Dispatcher) RefuseArchive(ctx context.Context, ref datasource.EntityRef) error {
 	ov, err := d.isOverlayUncached(ctx)
 	if err != nil {
 		return err
-	}
-	if ov {
-		if err := refuseUngovernedAgentEgress(ctx, overlay.WriteArchive, ref.Type); err != nil {
-			return err
-		}
 	}
 	return d.archiverInMode(ov).RefuseArchive(ctx, ref)
 }
