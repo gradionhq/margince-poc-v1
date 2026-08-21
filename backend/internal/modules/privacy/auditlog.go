@@ -118,20 +118,50 @@ const auditActivityJoin = `
 // nothing a reader outside the audience is not entitled to, and is precisely
 // what a compliance reader is looking for.
 //
-// The list is an ALLOWLIST and the redaction is fail-closed: a key that is not
+// The map is an ALLOWLIST and the redaction is fail-closed: a key that is not
 // here is dropped, so a new writer that starts recording content into an audit
-// image cannot leak it by default. TestRedactionKeepsGovernanceAndDropsContent
-// pins both directions.
-var auditImageGovernanceKeys = map[string]bool{
-	"audience": true, "member_count": true,
-	"entity_type": true, "entity_id": true, "replaced": true,
-	"merged_into_id": true,
-	"category":       true, "amount_minor": true, "currency": true, "rate_bps": true,
-	"occurred_at": true, "due_at": true, "remind_at": true,
-	"assignee_id": true, "is_done": true,
-	// body is written as a presence flag, never as text — the writer reduces it
-	// deliberately and says so — so it survives redaction as the boolean it is.
-	"body": true,
+// image cannot leak it by default.
+//
+// Each entry carries a predicate on the VALUE, not just the key, because a key
+// alone is not a safety property. `body` is the case that forces it: the writer
+// reduces it to a presence flag and says so in a comment, but nothing bound the
+// reader to that — one plausible edit turning `delta["body"] = true` into the
+// body itself would have handed an out-of-audience admin the confidential text
+// of a limited conversation through this endpoint, passing every gate. The
+// predicate makes the guard independent of the writer, which is what the
+// rulebook means by restructuring a gap away rather than rationalising it in a
+// comment.
+//
+// TestRedactionKeepsGovernanceAndDropsContent pins both directions, including
+// a `body` carrying something other than a boolean.
+var auditImageGovernanceKeys = map[string]func(json.RawMessage) bool{
+	"audience": anyValue, "member_count": anyValue,
+	"entity_type": anyValue, "entity_id": anyValue, "replaced": anyValue,
+	"merged_into_id": anyValue,
+	// Mirrors what the activity READ surface keeps on a withheld row
+	// (activityread.go): kind, direction, occurred_at and source_system are
+	// markers it answers; subject, body and SOURCE_ID are what it nils. source_id
+	// is deliberately absent here for that reason — it identifies the message at
+	// the provider, the capture sink writes it onto the audit image, and admitting
+	// it would have this endpoint answer what the record's own read refuses.
+	"kind": anyValue, "direction": anyValue, "source_system": anyValue,
+	"occurred_at": anyValue, "due_at": anyValue, "remind_at": anyValue,
+	"assignee_id": anyValue, "is_done": anyValue,
+	// Presence only, and enforced HERE rather than trusted from the writer.
+	"body": isJSONBool,
+}
+
+// anyValue admits a key whose every possible value is metadata about the
+// mutation. Named rather than written as an inline closure so the exceptions —
+// today just `body` — stand out at a glance in the map above.
+func anyValue(json.RawMessage) bool { return true }
+
+// isJSONBool admits only a literal JSON boolean. Anything else — a string, an
+// object, a number — means the writer stopped recording presence and started
+// recording content, and the value is dropped rather than published.
+func isJSONBool(raw json.RawMessage) bool {
+	var flag bool
+	return json.Unmarshal(raw, &flag) == nil
 }
 
 // withholdAuditImage redacts the record images on one entry, keeping the row and
@@ -156,9 +186,14 @@ func withholdAuditImage(e *AuditEntry) {
 }
 
 // redactAuditImage keeps the governance keys of one image and marks the rest
-// withheld. A nil or unreadable image is returned unchanged: there is nothing to
-// redact, and inventing a marker for a row that carried no image would answer a
-// question the ledger never asked.
+// withheld.
+//
+// An ABSENT image is returned unchanged: there is nothing to redact, and
+// inventing a marker for a row that carried no image would answer a question the
+// ledger never asked. An UNREADABLE one is a different case and is withheld
+// whole — it cannot be redacted key by key, and passing it through would be the
+// disclosure. Saying "unchanged" of both, as this comment once did, invites
+// exactly the simplification that opens the hole.
 func redactAuditImage(raw []byte) []byte {
 	if len(raw) == 0 {
 		return raw
@@ -172,7 +207,7 @@ func redactAuditImage(raw []byte) []byte {
 	kept := make(map[string]json.RawMessage, len(fields))
 	withheld := false
 	for key, value := range fields {
-		if auditImageGovernanceKeys[key] {
+		if admits, ok := auditImageGovernanceKeys[key]; ok && admits(value) {
 			kept[key] = value
 			continue
 		}

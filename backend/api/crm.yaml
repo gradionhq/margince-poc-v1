@@ -22066,14 +22066,18 @@ components:
           additionalProperties: true
           description: |
             The record image before the change. For an `activity` row this read
-            REDACTS content the caller's audience does not admit: keys naming
-            the mutation (audience, member_count, relink target, changed field
-            names) are answered as stored, anything else is dropped, and
-            `content_state: withheld` is added to say so. An image that needed
-            no redaction is answered unchanged and carries no such key. The row
-            itself is always present — actor, action, entity and timestamp are
-            never withheld — because a compliance trail with holes in it is its
-            own defect.
+            REDACTS content the caller's audience does not admit. Keys naming
+            the mutation itself — the audience and its member count, a relink's
+            target, a task's due date or assignee — are answered as stored;
+            every other key is REMOVED ENTIRELY, not emptied or renamed, and
+            `content_state: withheld` is added to say something was removed.
+            So a change that touched only withheld content answers as
+            `{"content_state": "withheld"}` alone: a client cannot infer which
+            field moved, and must not present the absence as "nothing changed".
+            An image needing no redaction is answered unchanged and carries no
+            such key. The row itself is always present — actor, action, entity
+            and timestamp are never withheld — because a compliance trail with
+            holes in it is its own defect.
         after:
           type: [object, 'null']
           additionalProperties: true

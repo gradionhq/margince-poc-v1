@@ -35,10 +35,22 @@ func TestRedactionKeepsGovernanceAndDropsContent(t *testing.T) {
 		wantKeys: []string{"entity_type", "entity_id", "replaced"},
 	}, {
 		// LogActivity's image. `subject` is the free text the audience governs.
-		name:     "a subject is dropped and the drop is announced",
+		// `kind` SURVIVES, and that is not a concession: the activity read
+		// surface answers kind on a withheld row and nils only subject, body and
+		// source_id (activityread.go). The audit image follows the record's own
+		// rule rather than inventing a stricter one.
+		name:     "a subject is dropped while the kind marker survives",
 		image:    `{"kind":"email","subject":"Q3 renewal terms"}`,
-		wantKeys: []string{"content_state"},
-		gone:     []string{"subject", "kind"},
+		wantKeys: []string{"kind", "content_state"},
+		gone:     []string{"subject"},
+	}, {
+		// source_id is the other half of that rule: the read surface nils it
+		// because it identifies the message at the provider, so this endpoint
+		// must not answer it either.
+		name:     "a provider message id is dropped like the read surface drops it",
+		image:    `{"kind":"email","source_system":"gmail","source_id":"CADnq=abc@mail.gmail.com"}`,
+		wantKeys: []string{"kind", "source_system", "content_state"},
+		gone:     []string{"source_id"},
 	}, {
 		// updateDelta reduces body to a presence flag and says so, so the flag
 		// itself discloses nothing and survives — while subject, which it does
@@ -47,6 +59,19 @@ func TestRedactionKeepsGovernanceAndDropsContent(t *testing.T) {
 		image:    `{"subject":"Q3 renewal terms","body":true,"is_done":false,"occurred_at":"2026-01-01T00:00:00Z"}`,
 		wantKeys: []string{"body", "is_done", "occurred_at", "content_state"},
 		gone:     []string{"subject"},
+	}, {
+		// The guard that does NOT depend on the writer. updateDelta reduces body
+		// to a presence flag today and says so in a comment; a one-line edit
+		// making it the body itself would, without this, hand an out-of-audience
+		// admin the confidential text of a limited conversation.
+		name:     "a body carrying text rather than presence is dropped",
+		image:    `{"body":"the confidential text itself","is_done":true}`,
+		wantKeys: []string{"is_done", "content_state"},
+		gone:     []string{"body"},
+	}, {
+		name:     "a body that is still a presence flag survives",
+		image:    `{"body":false,"is_done":true}`,
+		wantKeys: []string{"body", "is_done"},
 	}, {
 		// Fail closed: a key nobody classified is content until proven otherwise.
 		name:     "an unrecognised key is dropped rather than trusted",
