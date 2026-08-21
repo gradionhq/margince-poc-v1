@@ -74,6 +74,7 @@ var auditOnlyWrites = gatekit.Waive(map[string]string{
 	"internal/modules/collections:CreateTag":                "tags are ratified audit-only in V1 — events.md \u00a75.3c defines no tag.* types and none is added",
 	"internal/modules/collections:ArchiveTag":               "tags are ratified audit-only in V1 — events.md \u00a75.3c defines no tag.* types and none is added",
 	"internal/modules/collections:ApplyTag":                 "tags are ratified audit-only in V1 — events.md \u00a75.3c defines no tag.* types and none is added",
+	"internal/modules/collections:RemoveTag":                "the same ratification as ApplyTag beside it: tags are audit-only in V1, events.md \u00a75.3c defines no tag.* types, and taking a tag off does not become an event because putting one on is not",
 	"internal/modules/consent:CreateDSR":                    "the closed catalog (events.md \u00a75) defines no dsr.* type; the closed-verb law forbids inventing one build-side",
 	"internal/modules/consent:UpdateDSR":                    "the closed catalog (events.md \u00a75) defines no dsr.* type; the closed-verb law forbids inventing one build-side",
 	"internal/modules/consent:finalizeErasureFulfil":        "the audit-only finalize step of FulfilErasure: the closed catalog (events.md \u00a75) defines no dsr.* type; the closed-verb law forbids inventing one build-side (the erase side effect emits its own person.* event inside privacy.ErasePerson)",

@@ -6119,7 +6119,13 @@ paths:
     post:
       tags: [Tags]
       operationId: createTag
-      x-mcp-tool: { verb: create_record, record_type: tag, tier: auto_execute, scope: write }
+      # No tool verb of its own. apply_tag takes a tag_name and creates the word
+      # when the workspace has none — "add tag: K5 Conference 2026" is one act
+      # to the person asking, and a create verb whose only caller is the next
+      # line of the same flow is a second call that exists for the surface's
+      # convenience rather than theirs. The tool surface still creates tags;
+      # it just does not have a verb that ONLY creates one.
+      x-agent-access: human-only
       summary: Create a tag.
       requestBody:
         required: true
@@ -6157,7 +6163,7 @@ paths:
     post:
       tags: [Tags]
       operationId: applyTag
-      x-mcp-tool: { verb: update_record, record_type: tag, tier: auto_execute, scope: write }
+      x-mcp-tool: { verb: apply_tag, record_type: tag, tier: auto_execute, scope: write }
       summary: Apply a tag to an entity (person/org/deal/lead).
       requestBody:
         required: true
@@ -6170,6 +6176,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Taggable' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Tags]
+      operationId: removeTag
+      x-mcp-tool: { verb: remove_tag, record_type: tag, tier: auto_execute, scope: write }
+      summary: Take one tag off one entity, leaving the tag itself in place.
+      description: |
+        Undo for applyTag. archiveTag retires a tag from the whole workspace, which is not the
+        same act and not a way back from a mistaken tagging. Idempotent: removing a tagging that
+        is not there succeeds, because the caller asked for a state that is already true.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApplyTagRequest' }
+      responses:
+        '204': { description: Removed (or was not applied). }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 

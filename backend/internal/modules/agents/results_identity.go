@@ -35,3 +35,13 @@ type ListColleaguesResult struct {
 	// colleague does not work here.
 	Truncated bool `json:"truncated,omitempty"`
 }
+
+// TagAppliedResult reports one tagging. `applied` is false for a removal,
+// which is the same shape rather than a second one: a caller that acted on a
+// record wants the record back either way.
+type TagAppliedResult struct {
+	Applied    bool     `json:"applied"`
+	TagID      ids.UUID `json:"tag_id"`
+	RecordType string   `json:"record_type"`
+	RecordID   ids.UUID `json:"record_id"`
+}

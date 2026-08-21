@@ -3921,7 +3921,13 @@ export interface paths {
         put?: never;
         /** Apply a tag to an entity (person/org/deal/lead). */
         post: operations["applyTag"];
-        delete?: never;
+        /**
+         * Take one tag off one entity, leaving the tag itself in place.
+         * @description Undo for applyTag. archiveTag retires a tag from the whole workspace, which is not the
+         *     same act and not a way back from a mistaken tagging. Idempotent: removing a tagging that
+         *     is not there succeeds, because the caller asked for a state that is already true.
+         */
+        delete: operations["removeTag"];
         options?: never;
         head?: never;
         patch?: never;
@@ -26385,6 +26391,32 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Taggable"];
                 };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    removeTag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyTagRequest"];
+            };
+        };
+        responses: {
+            /** @description Removed (or was not applied). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];

@@ -26184,6 +26184,9 @@ type UpdateStageJSONRequestBody = UpdateStageRequest
 // CreateTagJSONRequestBody defines body for CreateTag for application/json ContentType.
 type CreateTagJSONRequestBody = CreateTagRequest
 
+// RemoveTagJSONRequestBody defines body for RemoveTag for application/json ContentType.
+type RemoveTagJSONRequestBody = ApplyTagRequest
+
 // ApplyTagJSONRequestBody defines body for ApplyTag for application/json ContentType.
 type ApplyTagJSONRequestBody = ApplyTagRequest
 
@@ -33466,6 +33469,9 @@ type ServerInterface interface {
 	// Archive a tag.
 	// (DELETE /tags/{id})
 	ArchiveTag(w http.ResponseWriter, r *http.Request, id Id)
+	// Take one tag off one entity, leaving the tag itself in place.
+	// (DELETE /tags/{id}/apply)
+	RemoveTag(w http.ResponseWriter, r *http.Request, id Id)
 	// Apply a tag to an entity (person/org/deal/lead).
 	// (POST /tags/{id}/apply)
 	ApplyTag(w http.ResponseWriter, r *http.Request, id Id)
@@ -35872,6 +35878,12 @@ func (_ Unimplemented) CreateTag(w http.ResponseWriter, r *http.Request) {
 // Archive a tag.
 // (DELETE /tags/{id})
 func (_ Unimplemented) ArchiveTag(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Take one tag off one entity, leaving the tag itself in place.
+// (DELETE /tags/{id}/apply)
+func (_ Unimplemented) RemoveTag(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -53053,6 +53065,40 @@ func (siw *ServerInterfaceWrapper) ArchiveTag(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// RemoveTag operation middleware
+func (siw *ServerInterfaceWrapper) RemoveTag(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveTag(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ApplyTag operation middleware
 func (siw *ServerInterfaceWrapper) ApplyTag(w http.ResponseWriter, r *http.Request) {
 
@@ -56478,6 +56524,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/tags/{id}", wrapper.ArchiveTag)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/tags/{id}/apply", wrapper.RemoveTag)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/tags/{id}/apply", wrapper.ApplyTag)
