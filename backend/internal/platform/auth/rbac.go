@@ -94,12 +94,18 @@ func UpsertAction(replacing bool) principal.Action {
 // human-only GET (an admin-only sheet) must reject an agent principal here,
 // or an admin-minted read-scoped passport would satisfy the object grant and
 // see it. The connector and system principals are not agents and pass.
+//
+// A BUYER is refused for a different reason, and the check names it rather
+// than leaning on the agent clause: an external Deal Room participant is not
+// the human this function means. Written as "refuse agents" alone, every
+// human-only sheet in the product would have admitted a buyer the moment the
+// kind existed, because a buyer is not an agent either.
 func RequireHuman(ctx context.Context) error {
 	p, err := rbacActor(ctx)
 	if err != nil {
 		return err
 	}
-	if p.Type == principal.PrincipalAgent {
+	if p.Type == principal.PrincipalAgent || p.Type == principal.PrincipalBuyer {
 		return fmt.Errorf("human-only operation: %w", apperrors.ErrPermissionDenied)
 	}
 	return nil

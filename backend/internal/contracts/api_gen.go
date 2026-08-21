@@ -1164,6 +1164,7 @@ func (e AttachmentReadStartedStatus) Valid() bool {
 // Defines values for AuditHistoryEntryActorType.
 const (
 	AuditHistoryEntryActorTypeAgent     AuditHistoryEntryActorType = "agent"
+	AuditHistoryEntryActorTypeBuyer     AuditHistoryEntryActorType = "buyer"
 	AuditHistoryEntryActorTypeConnector AuditHistoryEntryActorType = "connector"
 	AuditHistoryEntryActorTypeHuman     AuditHistoryEntryActorType = "human"
 	AuditHistoryEntryActorTypeSystem    AuditHistoryEntryActorType = "system"
@@ -1173,6 +1174,8 @@ const (
 func (e AuditHistoryEntryActorType) Valid() bool {
 	switch e {
 	case AuditHistoryEntryActorTypeAgent:
+		return true
+	case AuditHistoryEntryActorTypeBuyer:
 		return true
 	case AuditHistoryEntryActorTypeConnector:
 		return true
@@ -1317,6 +1320,7 @@ func (e AuditLogEntryAction) Valid() bool {
 // Defines values for AuditLogEntryActorType.
 const (
 	AuditLogEntryActorTypeAgent     AuditLogEntryActorType = "agent"
+	AuditLogEntryActorTypeBuyer     AuditLogEntryActorType = "buyer"
 	AuditLogEntryActorTypeConnector AuditLogEntryActorType = "connector"
 	AuditLogEntryActorTypeHuman     AuditLogEntryActorType = "human"
 	AuditLogEntryActorTypeSystem    AuditLogEntryActorType = "system"
@@ -1326,6 +1330,8 @@ const (
 func (e AuditLogEntryActorType) Valid() bool {
 	switch e {
 	case AuditLogEntryActorTypeAgent:
+		return true
+	case AuditLogEntryActorTypeBuyer:
 		return true
 	case AuditLogEntryActorTypeConnector:
 		return true
@@ -2781,6 +2787,7 @@ func (e ConnectConnectorRequestReturnTo) Valid() bool {
 // Defines values for ConsentEventActorType.
 const (
 	ConsentEventActorTypeAgent     ConsentEventActorType = "agent"
+	ConsentEventActorTypeBuyer     ConsentEventActorType = "buyer"
 	ConsentEventActorTypeConnector ConsentEventActorType = "connector"
 	ConsentEventActorTypeHuman     ConsentEventActorType = "human"
 	ConsentEventActorTypeSystem    ConsentEventActorType = "system"
@@ -2790,6 +2797,8 @@ const (
 func (e ConsentEventActorType) Valid() bool {
 	switch e {
 	case ConsentEventActorTypeAgent:
+		return true
+	case ConsentEventActorTypeBuyer:
 		return true
 	case ConsentEventActorTypeConnector:
 		return true
@@ -4203,6 +4212,7 @@ func (e ExtractedFieldConfidence) Valid() bool {
 // Defines values for FieldHistoryEntryActorType.
 const (
 	FieldHistoryEntryActorTypeAgent     FieldHistoryEntryActorType = "agent"
+	FieldHistoryEntryActorTypeBuyer     FieldHistoryEntryActorType = "buyer"
 	FieldHistoryEntryActorTypeConnector FieldHistoryEntryActorType = "connector"
 	FieldHistoryEntryActorTypeHuman     FieldHistoryEntryActorType = "human"
 	FieldHistoryEntryActorTypeSystem    FieldHistoryEntryActorType = "system"
@@ -4212,6 +4222,8 @@ const (
 func (e FieldHistoryEntryActorType) Valid() bool {
 	switch e {
 	case FieldHistoryEntryActorTypeAgent:
+		return true
+	case FieldHistoryEntryActorTypeBuyer:
 		return true
 	case FieldHistoryEntryActorTypeConnector:
 		return true
@@ -10566,6 +10578,7 @@ func (e GetFieldHistoryParamsEntityType) Valid() bool {
 // Defines values for GetFieldHistoryParamsActorType.
 const (
 	GetFieldHistoryParamsActorTypeAgent     GetFieldHistoryParamsActorType = "agent"
+	GetFieldHistoryParamsActorTypeBuyer     GetFieldHistoryParamsActorType = "buyer"
 	GetFieldHistoryParamsActorTypeConnector GetFieldHistoryParamsActorType = "connector"
 	GetFieldHistoryParamsActorTypeHuman     GetFieldHistoryParamsActorType = "human"
 	GetFieldHistoryParamsActorTypeSystem    GetFieldHistoryParamsActorType = "system"
@@ -10575,6 +10588,8 @@ const (
 func (e GetFieldHistoryParamsActorType) Valid() bool {
 	switch e {
 	case GetFieldHistoryParamsActorTypeAgent:
+		return true
+	case GetFieldHistoryParamsActorTypeBuyer:
 		return true
 	case GetFieldHistoryParamsActorTypeConnector:
 		return true
@@ -12403,7 +12418,7 @@ type AuditHistoryListResponse struct {
 type AuditLogEntry struct {
 	Action AuditLogEntryAction `json:"action"`
 
-	// ActorId User uuid, agent id, connector name (e.g. connector:gmail), or 'system'.
+	// ActorId User uuid, agent id, connector name (e.g. connector:gmail), 'system', or a Deal Room participant (buyer:<participant uuid>) — an external person with no seat, who appears in no member directory.
 	ActorId string `json:"actor_id"`
 
 	// ActorName The actor's display name, resolved from `app_user` on the read path.

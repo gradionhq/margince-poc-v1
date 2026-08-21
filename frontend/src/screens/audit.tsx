@@ -1,4 +1,11 @@
-import { Bot, CircleUser, Cog, type LucideIcon, Plug } from "lucide-react";
+import {
+  Bot,
+  CircleUser,
+  Cog,
+  type LucideIcon,
+  Plug,
+  UserRoundCheck,
+} from "lucide-react";
 import type { components } from "../api/schema";
 import { Badge } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
@@ -42,6 +49,10 @@ const ACTOR_ICON: Record<AuditLogEntry["actor_type"], LucideIcon> = {
   agent: Bot,
   system: Cog,
   connector: Plug,
+  // A person, not a machine: a buyer decided this. The icon differs from a
+  // member's so a reader can tell at a glance that the actor sits outside the
+  // organization and will not be found in the member directory.
+  buyer: UserRoundCheck,
 };
 
 // The phrase that says a machine did the typing, qualifying the person who
@@ -93,6 +104,15 @@ function actorAttribution(
   }
   if (entry.actor_type === "system") {
     return { labelKey: "audit.system" };
+  }
+  // A Deal Room participant. Their name is carried on the row because no
+  // directory lookup can resolve them — they hold no seat and never will — so
+  // an absent name is the honest end of the line rather than a reason to print
+  // the raw participant id at a reader.
+  if (entry.actor_type === "buyer") {
+    return entry.actor_name
+      ? { name: entry.actor_name, qualifierKey: "audit.viaDealRoom" }
+      : { labelKey: "audit.unknownBuyer", qualifierKey: "audit.viaDealRoom" };
   }
 
   const qualifierKey = MACHINE_QUALIFIER[entry.actor_type];

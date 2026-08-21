@@ -16055,8 +16055,8 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            actor_type: "human" | "agent" | "system" | "connector";
-            /** @description User uuid, agent id, connector name (e.g. connector:gmail), or 'system'. */
+            actor_type: "human" | "agent" | "system" | "connector" | "buyer";
+            /** @description User uuid, agent id, connector name (e.g. connector:gmail), 'system', or a Deal Room participant (buyer:<participant uuid>) — an external person with no seat, who appears in no member directory. */
             actor_id: string;
             /**
              * Format: uuid
@@ -16142,7 +16142,7 @@ export interface components {
             /** Format: date-time */
             changed_at: string;
             /** @enum {string} */
-            actor_type: "human" | "agent" | "system" | "connector";
+            actor_type: "human" | "agent" | "system" | "connector" | "buyer";
             actor_id: string;
             /**
              * Format: uuid
@@ -16249,7 +16249,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            actor_type: "human" | "agent" | "system" | "connector";
+            actor_type: "human" | "agent" | "system" | "connector" | "buyer";
             actor_id: string;
             /** @description Resolved display name for a human actor_id; null for machine actors and for a member whose user row no longer resolves. */
             actor_name?: string | null;
@@ -17703,7 +17703,7 @@ export interface components {
             /** @description How consent was captured (e.g. webform, import, double_opt_in). */
             source?: string | null;
             /** @enum {string} */
-            actor_type?: "human" | "agent" | "system" | "connector";
+            actor_type?: "human" | "agent" | "system" | "connector" | "buyer";
             actor_id?: string | null;
             /** Format: date-time */
             occurred_at: string;
@@ -28901,7 +28901,7 @@ export interface operations {
                 /** @description Narrow to one field name. */
                 field?: string;
                 /** @description Narrow to one actor category. */
-                actor_type?: "human" | "agent" | "system" | "connector";
+                actor_type?: "human" | "agent" | "system" | "connector" | "buyer";
             };
             header?: never;
             path?: never;

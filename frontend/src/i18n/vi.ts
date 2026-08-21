@@ -605,6 +605,7 @@ export const vi = {
   "consent.actorAgent": "Agent",
   "consent.actorSystem": "Hệ thống",
   "consent.actorConnector": "Connector",
+  "consent.actorBuyer": "Người tham gia Deal Room",
   "consent.actorUnknown": "không ghi nhận tác nhân",
   "consent.purposesUnavailable":
     "Không tải được danh mục mục đích chấp thuận, nên hiện chưa thể cho biết mục đích nào cần xác nhận kép.",
@@ -2462,9 +2463,11 @@ export const vi = {
 
   "audit.you": "Bạn",
   "audit.system": "Hệ thống",
+  "audit.unknownBuyer": "Người tham gia Deal Room",
   "audit.unknownMember": "Thành viên không xác định",
   "audit.viaAgent": "qua một agent",
   "audit.viaConnector": "qua một connector",
+  "audit.viaDealRoom": "trong Deal Room",
   "audit.viaNamed": "qua {client}",
   "audit.noHumanAuthority": "Không ghi nhận người uỷ quyền",
   "settings.auditSub":

@@ -616,6 +616,7 @@ export const de = {
   "consent.actorAgent": "Agent",
   "consent.actorSystem": "System",
   "consent.actorConnector": "Connector",
+  "consent.actorBuyer": "Teilnehmer im Deal Room",
   "consent.actorUnknown": "Akteur nicht erfasst",
   "consent.purposesUnavailable":
     "Der Einwilligungszweck-Katalog konnte nicht geladen werden — welche Zwecke ein Double-Opt-in brauchen, lässt sich gerade nicht anzeigen.",
@@ -2487,9 +2488,11 @@ export const de = {
 
   "audit.you": "Du",
   "audit.system": "System",
+  "audit.unknownBuyer": "Teilnehmer im Deal Room",
   "audit.unknownMember": "Unbekanntes Mitglied",
   "audit.viaAgent": "über einen Agenten",
   "audit.viaConnector": "über einen Connector",
+  "audit.viaDealRoom": "im Deal Room",
   "audit.viaNamed": "über {client}",
   "audit.noHumanAuthority": "Keine menschliche Autorisierung erfasst",
   "settings.auditSub": "jede Aktion, zugeordnet — Mensch, Agent oder Connector",

@@ -654,6 +654,7 @@ export const en = {
   "consent.actorAgent": "Agent",
   "consent.actorSystem": "System",
   "consent.actorConnector": "Connector",
+  "consent.actorBuyer": "Deal Room participant",
   "consent.actorUnknown": "actor not recorded",
   "consent.purposesUnavailable":
     "Couldn't load the consent purpose catalogue, so which purposes need a double opt-in can't be shown right now.",
@@ -2516,9 +2517,11 @@ export const en = {
 
   "audit.you": "You",
   "audit.system": "System",
+  "audit.unknownBuyer": "Deal Room participant",
   "audit.unknownMember": "Unknown member",
   "audit.viaAgent": "via an agent",
   "audit.viaConnector": "via a connector",
+  "audit.viaDealRoom": "in the Deal Room",
   "audit.viaNamed": "via {client}",
   "audit.noHumanAuthority": "No human authority recorded",
   "settings.auditSub": "every action, attributed — human, agent, or connector",

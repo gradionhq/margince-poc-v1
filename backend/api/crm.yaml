@@ -8468,7 +8468,7 @@ paths:
           description: Narrow to one field name.
         - name: actor_type
           in: query
-          schema: { type: string, enum: [human, agent, system, connector] }
+          schema: { type: string, enum: [human, agent, system, connector, buyer] }
           description: Narrow to one actor category.
       responses:
         '200':
@@ -22088,8 +22088,8 @@ components:
       required: [id, actor_type, actor_id, action, entity_type, entity_id, occurred_at]
       properties:
         id: { type: string, format: uuid }
-        actor_type: { type: string, enum: [human, agent, system, connector] }
-        actor_id: { type: string, description: "User uuid, agent id, connector name (e.g. connector:gmail), or 'system'." }
+        actor_type: { type: string, enum: [human, agent, system, connector, buyer] }
+        actor_id: { type: string, description: "User uuid, agent id, connector name (e.g. connector:gmail), 'system', or a Deal Room participant (buyer:<participant uuid>) — an external person with no seat, who appears in no member directory." }
         passport_id: { type: [string, 'null'], format: uuid, description: Agent Seat Passport that authorized an agent action. }
         on_behalf_of: { type: [string, 'null'], format: uuid, description: The human authority for an agent action. }
         actor_name:
@@ -22162,7 +22162,7 @@ components:
         old_value: { type: [string, 'null'] }
         new_value: { type: [string, 'null'] }
         changed_at: { type: string, format: date-time }
-        actor_type: { type: string, enum: [human, agent, system, connector] }
+        actor_type: { type: string, enum: [human, agent, system, connector, buyer] }
         actor_id: { type: string }
         passport_id: { type: [string, 'null'], format: uuid, description: Agent Seat Passport that authorized the change; present for agent actors only. }
         evidence: { type: [object, 'null'], additionalProperties: true, description: Grounding evidence for an agent-authored change; present for agent actors only. }
@@ -22292,7 +22292,7 @@ components:
       required: [id, actor_type, actor_id, action, occurred_at, summary]
       properties:
         id: { type: string, format: uuid }
-        actor_type: { type: string, enum: [human, agent, system, connector] }
+        actor_type: { type: string, enum: [human, agent, system, connector, buyer] }
         actor_id: { type: string }
         actor_name: { type: [string, 'null'], description: "Resolved display name for a human actor_id; null for machine actors and for a member whose user row no longer resolves." }
         on_behalf_of: { type: [string, 'null'], format: uuid, description: Granting human's user id for agent actions. }
@@ -23925,7 +23925,7 @@ components:
         new_state: { type: string, enum: [granted, withdrawn], description: Proof rows record only transitions to granted/withdrawn (never to unknown). }
         lawful_basis: { type: [string, 'null'] }
         source: { type: [string, 'null'], description: 'How consent was captured (e.g. webform, import, double_opt_in).' }
-        actor_type: { type: string, enum: [human, agent, system, connector] }
+        actor_type: { type: string, enum: [human, agent, system, connector, buyer] }
         actor_id: { type: [string, 'null'] }
         occurred_at: { type: string, format: date-time }
 
