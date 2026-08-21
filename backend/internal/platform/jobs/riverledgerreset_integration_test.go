@@ -72,7 +72,14 @@ func TestResetPreservesRiversMigrationLedger(t *testing.T) {
 
 	before := riverLedgerRows(ctx, t, owner)
 	if before == 0 {
-		t.Fatal("river_migration is empty right after the migrator ran — there is nothing here to preserve, and every assertion below would hold for the wrong reason")
+		// NOT "the migrator ran and wrote nothing" — EnsureRiverSchema no-ops on
+		// an existing river_migration whatever it holds, so in the one reachable
+		// state that lands here the migrator did not run at all: a template whose
+		// ledger was emptied while its tables stood. A pre-fix
+		// `make test-integration-serial` leaves exactly that, since it resets
+		// against margince_test itself and ensure_template migrates rather than
+		// rebuilds.
+		t.Fatal("river_migration exists but is empty, so there is nothing here to preserve and every assertion below would hold for the wrong reason. The template's ledger was emptied while its tables stood; `make test-db-up` rebuilds it")
 	}
 	if err := testdb.Reset(ctx, owner); err != nil {
 		t.Fatalf("Reset: %v", err)

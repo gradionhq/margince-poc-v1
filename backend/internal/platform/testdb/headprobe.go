@@ -149,8 +149,20 @@ func reusableClone(ctx context.Context, owner *pgx.Conn) (bool, string, error) {
 	if reason, err := ledgerAtHead(ctx, owner); err != nil || reason != "" {
 		return false, reason, err
 	}
-	if reason, err := schemaEmpty(ctx, owner); err != nil || reason != "" {
-		return false, reason, err
+	// A failed emptiness probe REFUSES rather than propagating, because this
+	// function's contract is that everything it can establish about the schema
+	// resolves to reuse-or-rebuild — rebuilding is always correct, and an error
+	// here would instead abort every package in the process. The reachable cause
+	// is the RLS refusal above: an owner without BYPASSRLS (which is what
+	// scripts/deploy/db-bootstrap.sql creates outside the compose stack) cannot
+	// read an ext_ table with row_security off. "Cannot prove empty" and "is not
+	// empty" owe the caller the same answer.
+	reason, err := schemaEmpty(ctx, owner)
+	if err != nil {
+		return false, fmt.Sprintf("the clone could not be proved empty, so it is rebuilt rather than trusted: %v", err), nil
+	}
+	if reason != "" {
+		return false, reason, nil
 	}
 	return true, "", nil
 }
@@ -282,15 +294,21 @@ func schemaEmpty(ctx context.Context, owner *pgx.Conn) (string, error) {
 	for i, table := range tables {
 		branches = append(branches, `SELECT `+strconv.Itoa(i)+` WHERE EXISTS (SELECT 1 FROM `+table+`)`)
 	}
-	// In a transaction with row_security off, for the reason resetWithin sets it:
-	// an ext_ table carries FORCE ROW LEVEL SECURITY with a deny-on-unset policy,
-	// and this connection sets no app.workspace_id GUC. A role without BYPASSRLS
-	// would then be shown zero rows in every one of them and this probe would
-	// answer "empty" over a populated schema — the one wrong answer it must never
-	// give, since EnsureSchema baselines table sizes on the strength of it.
-	// resetWithin fails LOUDLY in that situation (set_config is SUSET); a probe
-	// that merely reads would not, so it has to ask with the same visibility
-	// rather than trust that the two agree.
+	// In a transaction with row_security off, and the guard is NOT the set_config
+	// — that call always succeeds, because row_security is a USERSET GUC. (The
+	// SUSET one is session_replication_role, which is why resetWithin's first
+	// statement fails loudly for a role that cannot set it. Do not carry that
+	// reasoning across; these are different GUCs with different contexts.)
+	//
+	// What the setting buys is the ERROR. An ext_ table carries FORCE ROW LEVEL
+	// SECURITY with a deny-on-unset policy and this connection sets no
+	// app.workspace_id, so a role without BYPASSRLS reading it normally is shown
+	// zero rows — and this probe would answer "empty" over a populated schema,
+	// the one wrong answer it must never give, since EnsureSchema baselines every
+	// table size on the strength of it. With row_security off that same role gets
+	// SQLSTATE 42501 instead of a filtered result, which schemaEmpty turns into a
+	// refusal below. Silence becomes a refusal; the transaction is what makes
+	// that swap, so do not remove it as redundant.
 	tx, err := owner.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("probing the clone for rows: %w", err)
