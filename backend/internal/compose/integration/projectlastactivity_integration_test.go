@@ -110,6 +110,19 @@ func TestProjectLastActivity_MovesOnEveryWriteThatChangesTheTimeline(t *testing.
 		t.Fatalf("the losing project's last_activity_at = %v, want %v — the link moved away", got, older)
 	}
 
+	// Re-dating an activity moves the clock of the project it is filed against.
+	// occurred_at and archived_at are the two columns the activity trigger
+	// watches, and re-dating is the one of the pair that leaves the row live —
+	// a clock that only tracked archiving would still pass every check below.
+	redated := newest.Add(48 * time.Hour)
+	if _, err := e.Activities.UpdateActivity(e.Admin(), ids.From[ids.ActivityKind](newestNote),
+		activities.UpdateActivityInput{OccurredAt: &redated}); err != nil {
+		t.Fatalf("re-dating the newest note: %v", err)
+	}
+	if got := projectClock(e.Admin(), t, e, crm.ID); got == nil || !got.Equal(redated) {
+		t.Fatalf("the receiving project's last_activity_at after re-dating = %v, want %v", got, redated)
+	}
+
 	// Archiving the newest activity moves the clock back to the next-newest:
 	// the column is a recompute from the live timeline, never a high-water mark.
 	if _, err := e.Activities.ArchiveActivity(e.Admin(), ids.From[ids.ActivityKind](newestNote)); err != nil {
@@ -202,13 +215,13 @@ func TestProjectLastActivity_BackfillReachesRowsWrittenBeforeTheTrigger(t *testi
 	org := e.SeedOrg(t, "Backfilled Client", nil)
 	project := seedProject(e.Admin(), t, e, "Legacy programme", strPtr("LEG-1"), org, nil)
 
-	if _, err := owner.Exec(ctx, `ALTER TABLE activity_link DISABLE TRIGGER activity_link_last_activity`); err != nil {
+	if _, err := owner.Exec(ctx, `ALTER TABLE activity_link DISABLE TRIGGER activity_link_project_last_activity`); err != nil {
 		t.Fatalf("disabling the maintenance trigger: %v", err)
 	}
 	when := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
 	logProjectNote(e.Admin(), t, e, when,
 		activities.ActivityLinkInput{EntityType: "project", EntityID: project.ID.UUID})
-	if _, err := owner.Exec(ctx, `ALTER TABLE activity_link ENABLE TRIGGER activity_link_last_activity`); err != nil {
+	if _, err := owner.Exec(ctx, `ALTER TABLE activity_link ENABLE TRIGGER activity_link_project_last_activity`); err != nil {
 		t.Fatalf("re-enabling the maintenance trigger: %v", err)
 	}
 	if got := projectClock(e.Admin(), t, e, project.ID); got != nil {
