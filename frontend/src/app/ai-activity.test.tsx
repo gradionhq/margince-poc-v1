@@ -249,4 +249,17 @@ describe("a read that has not answered", () => {
     await advance(1_000);
     expect(reads).toHaveLength(2);
   });
+  // A stalled occurrence is still IN the running list — the reader has to see
+  // it, and it has not settled — but it must not drive the chrome that says the
+  // AI is busy. The two would otherwise contradict each other on one screen: a
+  // line reading "it may have stopped" under an orb pulsing "still going".
+  it("does not count a stalled occurrence as working", async () => {
+    const { result, unmount } = mount(() =>
+      Response.json(activity([{ ...A_RUN, state: "stalled" }])),
+    );
+    await advance(0);
+    expect(result.current.running).toHaveLength(1);
+    expect(result.current.working).toBe(false);
+    unmount();
+  });
 });

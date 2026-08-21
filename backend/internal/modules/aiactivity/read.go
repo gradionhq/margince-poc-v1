@@ -25,6 +25,15 @@ import (
 // this is a requirement rather than a page size.
 const recentBound = 10
 
+// liveBound caps what is reported as in flight.
+//
+// The live set is not bounded by anything a person controls: one rep can press
+// "read this document" on twenty attachments, and every live row ships to every
+// open tab on every poll. Higher than recentBound because a live occurrence is
+// the thing the reader is actually waiting on, and cutting one is worse than
+// cutting a finished one.
+const liveBound = 25
+
 // The two free-text columns this read forwards are capped on the way to the
 // wire. Neither is server-authored prose of bounded length: summary can be a
 // model's whole output, and an occurrence a prompt injection reached can
@@ -32,8 +41,11 @@ const recentBound = 10
 // every poll. A reader needs the first paragraph, not the transcript, so the
 // wire gets a bounded string and the row keeps everything.
 const (
-	summaryBound       = 2000
-	degradeReasonBound = 500
+	// Exported so a root-package fitness test can hold them to the maxLength the
+	// contract publishes — the read and the contract are two statements of one
+	// cap, and only the root can see both.
+	SummaryBound       = 2000
+	DegradeReasonBound = 500
 )
 
 // Item is one occurrence, as facts. The reader's locale decides the words, so
@@ -73,7 +85,8 @@ const liveSQL = `
     FROM ai_task_run
    WHERE actor_user_id = $1
      AND state IN ('queued','running')
-   ORDER BY queued_at DESC, id DESC`
+   ORDER BY queued_at DESC, id DESC
+   LIMIT $4`
 
 // settledSQL reads what finished for this person today, newest first.
 //
@@ -95,31 +108,58 @@ const settledSQL = `
 // Mine is what the AI is doing for this person now, and what it finished for
 // them today.
 //
-// The two reads share one transaction, and the LIVE one runs first. That order
-// closes the mirror of the double-report problem: the transaction is READ
-// COMMITTED, so each statement takes its own snapshot, and an occurrence that
-// settles between them is caught by the later read rather than falling through
-// the gap. It cannot be reported twice either — the states the two predicates
-// select are disjoint, and one occurrence is one row.
+// ONE OCCURRENCE, ONE LINE, and an occurrence that settles mid-read is reported
+// as settled. The two statements share a transaction, but that transaction is
+// READ COMMITTED — platform/database opens it with a bare pool.Begin and nothing
+// sets an isolation level — so each takes its OWN snapshot. Running the LIVE
+// read first means an occurrence that settles between them is caught by the
+// later one and cannot fall through the gap; it also means that same occurrence
+// is in BOTH results, which would render the rail saying "reading your document"
+// and "I've read your document" about one reading at once. So the overlap is
+// removed here rather than assumed away — disjoint predicates are not disjoint
+// snapshots.
 func (s *Store) Mine(ctx context.Context, userID ids.UUID, startOfToday time.Time) (live, settled []Item, err error) {
 	if userID.IsZero() {
 		return nil, nil, fmt.Errorf("aiactivity: a personal read needs a person")
 	}
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var txErr error
-		if live, txErr = collect(ctx, tx, liveSQL, userID, degradeReasonBound, summaryBound); txErr != nil {
+		if live, txErr = collect(ctx, tx, liveSQL, userID, DegradeReasonBound, SummaryBound, liveBound); txErr != nil {
 			return fmt.Errorf("read what is live: %w", txErr)
 		}
 		if settled, txErr = collect(ctx, tx, settledSQL,
-			userID, startOfToday, recentBound, degradeReasonBound, summaryBound); txErr != nil {
+			userID, startOfToday, recentBound, DegradeReasonBound, SummaryBound); txErr != nil {
 			return fmt.Errorf("read what settled today: %w", txErr)
 		}
+		live = withoutSettled(live, settled)
 		return nil
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("aiactivity: %w", err)
 	}
 	return live, settled, nil
+}
+
+// withoutSettled drops from the live list anything the settled read also
+// returned — one occurrence that moved between the two snapshots.
+//
+// The settled row is the one kept: it is the later of the two readings, and a
+// finished occurrence reported as still running is the more misleading half.
+func withoutSettled(live, settled []Item) []Item {
+	if len(live) == 0 || len(settled) == 0 {
+		return live
+	}
+	done := make(map[ids.UUID]struct{}, len(settled))
+	for _, item := range settled {
+		done[item.ID] = struct{}{}
+	}
+	out := make([]Item, 0, len(live))
+	for _, item := range live {
+		if _, moved := done[item.ID]; !moved {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // collect runs one of the two statements and scans its rows.

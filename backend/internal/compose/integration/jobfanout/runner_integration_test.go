@@ -506,3 +506,56 @@ func TestTheSweepMayNotArchiveEvenWithAModelThatTriesTo(t *testing.T) {
 		t.Fatalf("the sweep archived a record it may not archive: GET → %d archived_at=%v", got, after.ArchivedAt)
 	}
 }
+
+// A parked run whose authority dies before the decision arrives is CLOSED, not
+// left parked forever.
+//
+// The revoked-passport branch is the only terminal write on this path that runs
+// under the SUBSCRIBER's own context rather than the resumed run's, so it is the
+// one that breaks if that context carries no actor: announcing the occurrence
+// to the AI-activity projection is part of the same transaction, and a rollback
+// there undoes MarkFailed while the claim stays taken — a redelivery then finds
+// nothing to resume and the run is stuck in a state nothing can close.
+func TestASuspendedRunWhoseAuthorityDiesIsClosedRatherThanParkedForever(t *testing.T) {
+	re := setupRunner(t)
+	var person struct {
+		ID string `json:"id"`
+	}
+	if status := re.Call(t, "POST", "/v1/people", apptest.AnyMap{
+		"full_name": "Authority Dies Parked",
+	}, nil, &person); status != http.StatusCreated {
+		t.Fatalf("create person → %d", status)
+	}
+
+	trigger := "overnight_at_risk_sweep:e2e-authority-died"
+	re.brain.Script(
+		fmt.Sprintf(`{"tool":"archive_record","args":{"record_type":"person","id":"%s"}}`, person.ID),
+		`{"final":{"summary":"never reached"}}`,
+	)
+	re.enqueue(t, stagingSpecName, trigger, &re.passportID)
+	re.tick(t)
+
+	status, _, approvalID := re.runRow(t, trigger)
+	if status != "awaiting_approval" || approvalID == nil {
+		t.Fatalf("run = %s approval=%v, want a parked run", status, approvalID)
+	}
+	if got := re.Call(t, "POST", "/v1/approvals/"+*approvalID+"/approve", apptest.AnyMap{}, nil, nil); got != http.StatusOK {
+		t.Fatalf("approve → %d", got)
+	}
+
+	// The authority dies while the run is parked — the case the branch exists
+	// for. Revoking through the surface a human uses, not by editing the row.
+	if got := re.Call(t, "DELETE", "/v1/passports/"+re.passportID.String(), nil, nil, nil); got != http.StatusNoContent {
+		t.Fatalf("revoke passport → %d", got)
+	}
+
+	// The bare context is the point: this is exactly what the subscriber hands
+	// the handler in production.
+	if err := re.svc.HandleEvent(context.Background(), decidedEnvelope(re.wsID, *approvalID, "approved")); err != nil {
+		t.Fatalf("the decision could not be handled: %v", err)
+	}
+
+	if status, _, _ = re.runRow(t, trigger); status != "failed" {
+		t.Fatalf("run status = %s, want failed — a run whose authority died must be closed, not left parked", status)
+	}
+}

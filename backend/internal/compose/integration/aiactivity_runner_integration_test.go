@@ -179,3 +179,78 @@ func TestAFinishedRunSettlesInTheFeed(t *testing.T) {
 		t.Fatalf("state = %s, want done", settled[0].State)
 	}
 }
+
+// A finished run carries its own prose to the rail.
+//
+// The read this replaced pulled `summary` out of agent_run.result and showed it
+// under a settled run; an announcement that dropped it would be a silent
+// user-visible regression, invisible to every test that only checks state.
+func TestAFinishedRunCarriesItsSummaryToTheFeed(t *testing.T) {
+	f := newRunnerFixture(t)
+	ctx := f.env.AgentCtxWithPassport(f.passport.UUID)
+
+	runID, created, err := f.runs.StartRun(ctx, f.spec, f.trigger, f.passport)
+	if err != nil || !created {
+		t.Fatalf("StartRun: created=%t err=%v", created, err)
+	}
+	if err := f.runs.SaveOutcome(ctx, runID, runner.Result{
+		Outcome: runner.OutcomeCompleted,
+		Final:   json.RawMessage(`{"summary":"one at-risk deal flagged"}`),
+	}); err != nil {
+		t.Fatalf("SaveOutcome: %v", err)
+	}
+	f.drain(t)
+
+	_, settled := f.feed(t)
+	if len(settled) != 1 {
+		t.Fatalf("settled = %d, want 1", len(settled))
+	}
+	if settled[0].Summary == nil || *settled[0].Summary != "one at-risk deal flagged" {
+		t.Fatalf("summary = %v, want the run's own prose — the rail showed this before the read moved", settled[0].Summary)
+	}
+}
+
+// The sweep gives up on a run, and the slow worker then finishes it anyway.
+//
+// SaveOutcome guards on id rather than on status precisely so a slow-but-alive
+// run has the last word, and the feed has to follow the source rather than
+// contradict it: both writes are terminal for one occurrence, so without a
+// number that rises with the correction the projection keeps whichever landed
+// first and the rail reports failed for a run that completed.
+func TestALateFinishCorrectsARunTheSweepHadGivenUpOn(t *testing.T) {
+	f := newRunnerFixture(t)
+	ctx := f.env.AgentCtxWithPassport(f.passport.UUID)
+
+	runID, created, err := f.runs.StartRun(ctx, f.spec, f.trigger, f.passport)
+	if err != nil || !created {
+		t.Fatalf("StartRun: created=%t err=%v", created, err)
+	}
+	// Age the row past any grace, which no writer can do: updated_at is stamped
+	// inside each write's own transaction.
+	if _, err := f.env.Pool.Exec(context.Background(),
+		`UPDATE agent_run SET updated_at = now() - interval '2 hours' WHERE id = $1`, runID); err != nil {
+		t.Fatalf("ageing the run: %v", err)
+	}
+	if _, err := f.runs.FailStuckRuns(ctx, time.Minute, runner.FailureReason("abandoned")); err != nil {
+		t.Fatalf("FailStuckRuns: %v", err)
+	}
+	f.drain(t)
+	if _, settled := f.feed(t); len(settled) != 1 || settled[0].State != "failed" {
+		t.Fatalf("after the sweep, settled = %v, want one failed occurrence", settled)
+	}
+
+	if err := f.runs.SaveOutcome(ctx, runID, runner.Result{
+		Outcome: runner.OutcomeCompleted, Final: json.RawMessage(`{"summary":"late but done"}`),
+	}); err != nil {
+		t.Fatalf("SaveOutcome: %v", err)
+	}
+	f.drain(t)
+
+	_, settled := f.feed(t)
+	if len(settled) != 1 {
+		t.Fatalf("settled = %d occurrences, want 1 — one occurrence is one line however many writers touched it", len(settled))
+	}
+	if settled[0].State != "done" {
+		t.Fatalf("state = %s, want done — the source says completed, so the rail must not keep saying failed", settled[0].State)
+	}
+}

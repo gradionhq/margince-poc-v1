@@ -99,6 +99,11 @@ export function useAiActivity(): AiActivity {
   return {
     running,
     recent: answered?.recent ?? NOTHING,
-    working: running.length > 0,
+    // STALLED is not working. The server derives that state for an occurrence
+    // whose own source says it should have finished by now, and the chrome that
+    // reads `working` pulses to say the AI is busy — so counting a stalled item
+    // here would animate "still going" over a line that reads "it may have
+    // stopped", softening the one verdict this state exists to deliver.
+    working: running.some((item) => item.state !== "stalled"),
   };
 }

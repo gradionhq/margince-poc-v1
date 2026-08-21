@@ -113,6 +113,7 @@ func TestEveryClosedReasonSaysWhatStoppedTheRun(t *testing.T) {
 		invalidOutputReason(consecutiveInvalidLimit),
 		string(FailureEditedApprovalCarriedNoChange), string(FailurePassportNoLongerValid),
 		string(FailureSpecLeftTheCatalog), string(FailureRunFaulted),
+		string(FailureCouldNotStart),
 	} {
 		if strings.TrimSpace(reason) == "" {
 			t.Error("a degrade with no reason tells the reader only that something went wrong")
@@ -177,6 +178,7 @@ func TestNoFailureReasonIsDeclaredWithoutBeingCovered(t *testing.T) {
 		"FailurePassportNoLongerValid":         true,
 		"FailureSpecLeftTheCatalog":            true,
 		"FailureRunFaulted":                    true,
+		"FailureCouldNotStart":                 true,
 	}
 	declared := 0
 	for _, decl := range parsed.Decls {

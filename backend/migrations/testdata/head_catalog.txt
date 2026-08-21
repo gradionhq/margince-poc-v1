@@ -257,6 +257,7 @@ public.activity_retention_evidence_pkey CREATE UNIQUE INDEX activity_retention_e
 public.activity_ts_config(lang text) secdef=false cfg=- acl=- 
 public.agent_run acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
 public.agent_run.agent_run_approval_fkey FOREIGN KEY (approval_id) REFERENCES approval(id) ON DELETE SET NULL (approval_id)
+public.agent_run.agent_run_attempt_check CHECK ((attempt >= 1))
 public.agent_run.agent_run_awaiting_shape CHECK (((status <> 'awaiting_approval'::text) OR ((approval_id IS NOT NULL) AND (pending IS NOT NULL))))
 public.agent_run.agent_run_passport_fkey FOREIGN KEY (passport_id) REFERENCES passport(id) ON DELETE SET NULL (passport_id)
 public.agent_run.agent_run_pkey PRIMARY KEY (id)
@@ -264,6 +265,7 @@ public.agent_run.agent_run_status_check CHECK ((status = ANY (ARRAY['running'::t
 public.agent_run.agent_run_trigger_unique UNIQUE (trigger_ref)
 public.agent_run.agent_spec text NOT NULL gen=- def=-
 public.agent_run.approval_id uuid gen=- def=-
+public.agent_run.attempt integer NOT NULL gen=- def=1
 public.agent_run.created_at timestamp with time zone NOT NULL gen=- def=now()
 public.agent_run.degrade_reason text gen=- def=-
 public.agent_run.finished_at timestamp with time zone gen=- def=-

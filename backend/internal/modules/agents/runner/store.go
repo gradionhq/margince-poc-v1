@@ -50,11 +50,12 @@ func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string,
 			INSERT INTO agent_run (agent_spec, goal, trigger_ref, passport_id)
 			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (trigger_ref) DO NOTHING
-			RETURNING id, created_at`,
+			RETURNING id, created_at, attempt`,
 			spec.Name, spec.Goal, triggerRef, passportID)
 		var raw string
 		var startedAt time.Time
-		scanErr := row.Scan(&raw, &startedAt)
+		var attempt int
+		scanErr := row.Scan(&raw, &startedAt, &attempt)
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			return nil // lost the idempotency race or already ran
 		}
@@ -67,7 +68,7 @@ func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string,
 		}
 		return announceActivity(ctx, tx, occurrence{
 			spec: spec.Name, triggerRef: triggerRef, state: stateRunning,
-			passportID: &passportID, startedAt: &startedAt,
+			passportID: &passportID, startedAt: &startedAt, attempt: attempt,
 		})
 	})
 	if err != nil {
@@ -102,8 +103,15 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 	}
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var o occurrence
+		var result []byte
 		err := tx.QueryRow(ctx, `
 			UPDATE agent_run SET
+			  -- A correction of an already-SETTLED run is a new attempt: the
+			  -- sweep and this write are two terminal states for one occurrence,
+			  -- and the projection orders them on the attempt. The CASE reads
+			  -- the row's OLD status, so an ordinary finish stays attempt 1.
+			  attempt = attempt + CASE
+			    WHEN status IN ('completed','degraded','failed') THEN 1 ELSE 0 END,
 			  status = $2,
 			  result = $3,
 			  trace = trace || $4::jsonb,
@@ -118,10 +126,10 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 			  updated_at = now(),
 			  finished_at = CASE WHEN $2 IN ('completed','degraded','failed') THEN now() ELSE NULL END
 			WHERE id = $1
-			RETURNING agent_spec, trigger_ref, passport_id, created_at, finished_at, degrade_reason`,
+			RETURNING agent_spec, trigger_ref, passport_id, created_at, finished_at, degrade_reason, result, attempt`,
 			runID, status, res.Final, traceJSON, pendingJSON, approvalID,
 			res.DegradeReason, res.StepsUsed, res.OutputTokens).
-			Scan(&o.spec, &o.triggerRef, &o.passportID, &o.startedAt, &o.finishedAt, &o.degradeReason)
+			Scan(&o.spec, &o.triggerRef, &o.passportID, &o.startedAt, &o.finishedAt, &o.degradeReason, &result, &o.attempt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("runner: run %s not visible in this workspace", runID)
 		}
@@ -129,6 +137,8 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 			return fmt.Errorf("runner: save outcome: %w", err)
 		}
 		o.state = runProjectionState[status]
+		o.waitingOnAHuman = status == statusAwaitingApproval
+		o.summary = summaryOf(result)
 		return announceActivity(ctx, tx, o)
 	})
 }
@@ -143,9 +153,9 @@ func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason FailureRe
 		err := tx.QueryRow(ctx, `
 			UPDATE agent_run SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
 			WHERE id = $1
-			RETURNING agent_spec, trigger_ref, passport_id, created_at, finished_at, degrade_reason`,
+			RETURNING agent_spec, trigger_ref, passport_id, created_at, finished_at, degrade_reason, attempt`,
 			runID, string(reason)).
-			Scan(&o.spec, &o.triggerRef, &o.passportID, &o.startedAt, &o.finishedAt, &o.degradeReason)
+			Scan(&o.spec, &o.triggerRef, &o.passportID, &o.startedAt, &o.finishedAt, &o.degradeReason, &o.attempt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			// The run is gone or not this workspace's. Unchanged behaviour: the
 			// caller's own error path already covers a run it cannot close.
@@ -193,7 +203,7 @@ func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason F
 			   SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
 			 WHERE status = 'running'
 			   AND updated_at < now() - ($1 * interval '1 microsecond')
-			RETURNING id, agent_spec, trigger_ref, passport_id, created_at, finished_at, degrade_reason`,
+			RETURNING id, agent_spec, trigger_ref, passport_id, created_at, finished_at, degrade_reason, attempt`,
 			graceMicros, string(reason))
 		if err != nil {
 			return err
@@ -205,7 +215,7 @@ func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason F
 			var id ids.UUID
 			var o occurrence
 			if err := rows.Scan(&id, &o.spec, &o.triggerRef, &o.passportID,
-				&o.startedAt, &o.finishedAt, &o.degradeReason); err != nil {
+				&o.startedAt, &o.finishedAt, &o.degradeReason, &o.attempt); err != nil {
 				rows.Close()
 				return err
 			}

@@ -13,6 +13,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -47,6 +48,12 @@ const (
 // it. They are deliberately NOT the runner's column values — runner_job says
 // "done" where agent_run says "completed" — and a reader needs one word for one
 // idea.
+// statusAwaitingApproval is agent_run's own column value for a run parked on a
+// human decision. Named here because two rules read it — the state mapping and
+// the lease — and a literal in either is one typo from a run that either cannot
+// be announced or is leased when it must not be.
+const statusAwaitingApproval = "awaiting_approval"
+
 const (
 	stateQueued   = "queued"
 	stateRunning  = "running"
@@ -76,11 +83,11 @@ func ProjectionStateFor(status string) (string, bool) {
 // surface that answers that. Neither v1 spec can stage a confirmation, so the
 // distinction has no producer today either.
 var runProjectionState = map[string]string{
-	"running":           stateRunning,
-	"awaiting_approval": stateRunning,
-	"completed":         stateDone,
-	"degraded":          stateDegraded,
-	"failed":            stateFailed,
+	"running":              stateRunning,
+	statusAwaitingApproval: stateRunning,
+	"completed":            stateDone,
+	"degraded":             stateDegraded,
+	"failed":               stateFailed,
 }
 
 // occurrence is one trigger occurrence, as the projection needs to hear about
@@ -90,6 +97,17 @@ type occurrence struct {
 	spec       string
 	triggerRef string
 	state      string
+	// waitingOnAHuman suppresses the lease. A suspended run reports as running —
+	// the agent is still working on the reader's behalf — but it is waiting on a
+	// PERSON, and the abandoned-run sweep deliberately never touches it ("may
+	// wait indefinitely"). Leasing it would have the rail call it stalled half
+	// an hour into a perfectly healthy wait, which is a verdict the server never
+	// reaches and cannot act on.
+	waitingOnAHuman bool
+	// attempt is the row's own, and it rises only where a run legitimately gets
+	// a SECOND terminal state — the abandoned-run sweep failing it, then the
+	// slow worker correcting it. A queued job carries none and reports 1.
+	attempt    int
 	passportID *ids.PassportID
 	startedAt  *time.Time
 	finishedAt *time.Time
@@ -97,7 +115,30 @@ type occurrence struct {
 	// provider's or a parser's message: those carry vendor text and can echo
 	// credential material, and this column reaches an ordinary rep.
 	degradeReason *string
-	summary       *string
+	// summary is the run's OWN prose, pulled out of the result the model wrote.
+	// It is what the rail shows under a finished run, and it is optional by
+	// construction: nothing requires a finishing run to write one.
+	summary *string
+}
+
+// summaryOf pulls the run's prose out of the result column. SaveOutcome stores
+// the model's `final` object verbatim, so the summary sits at its top level.
+//
+// Any shape this does not recognise yields no summary rather than an error: a
+// finishing run is never required to write one, and a degrade writes a partial-
+// state object that has none at all. A malformed result is a run that produced
+// no summary, not a broken announcement of everything else about it.
+func summaryOf(result []byte) *string {
+	if len(result) == 0 {
+		return nil
+	}
+	var final struct {
+		Summary *string `json:"summary"`
+	}
+	if err := json.Unmarshal(result, &final); err != nil {
+		return nil
+	}
+	return final.Summary
 }
 
 // key is the occurrence identity the projection dedupes on.
@@ -112,6 +153,17 @@ type occurrence struct {
 // fact; here the table's own UNIQUE (source, occurrence_key) does it, and there
 // is no window in which both can be returned.
 func (o occurrence) key() string { return o.spec + ":" + o.triggerRef }
+
+// attemptOrFirst is the row's attempt, defaulting to the first.
+//
+// A queued job has no run row to carry one, and it is always the occurrence's
+// beginning, so 1 is the truth rather than a fallback.
+func (o occurrence) attemptOrFirst() int {
+	if o.attempt < 1 {
+		return 1
+	}
+	return o.attempt
+}
 
 // announceActivity publishes one occurrence's current state, inside the
 // transaction that produced it.
@@ -130,26 +182,25 @@ func announceActivity(ctx context.Context, tx pgx.Tx, o occurrence) error {
 	if err != nil {
 		return fmt.Errorf("runner: log activity state change: %w", err)
 	}
+	queued, err := queuedAt(ctx, tx, o)
+	if err != nil {
+		return err
+	}
 	task := ActivityAITask
-	lease := int(RunStaleAfter.Seconds())
 	payload := crmcontracts.InternalEventAiTaskStateChanged{
 		Source:        ActivitySource,
 		OccurrenceKey: o.key(),
 		// The spec's catalog name is the display kind: the rail's copy is keyed
 		// on the same string the operator reads in the catalog, so a spec with
 		// no copy renders no line rather than a wrong one.
-		Kind:   o.spec,
-		AiTask: &task,
-		// Always 1. The attempt column orders sources whose lifecycle goes
-		// BACKWARDS; this one's does not — a trigger occurrence goes queued to
-		// running to settled and a duplicate trigger is absorbed by
-		// idempotency, never reopened.
-		Attempt:       1,
+		Kind:          o.spec,
+		AiTask:        &task,
+		Attempt:       o.attemptOrFirst(),
 		State:         o.state,
-		QueuedAt:      queuedAt(o),
+		QueuedAt:      queued,
 		StartedAt:     o.startedAt,
 		FinishedAt:    o.finishedAt,
-		LeaseSeconds:  &lease,
+		LeaseSeconds:  o.lease(),
 		DegradeReason: o.degradeReason,
 		Summary:       o.summary,
 	}
@@ -159,14 +210,35 @@ func announceActivity(ctx context.Context, tx pgx.Tx, o occurrence) error {
 	return nil
 }
 
+// lease is how long this occurrence stays believable while live, or none.
+//
+// None for a settled occurrence — it is not claiming to work — and none for one
+// waiting on a human, because nothing will ever time that out.
+func (o occurrence) lease() *int {
+	if o.waitingOnAHuman || o.state != stateQueued && o.state != stateRunning {
+		return nil
+	}
+	seconds := int(RunStaleAfter.Seconds())
+	return &seconds
+}
+
 // queuedAt is when this occurrence became current, which the projection ages a
 // live row from. A claimed occurrence dates from its claim; a queued one has
-// only now, because nothing has happened to it yet.
-func queuedAt(o occurrence) time.Time {
+// only the instant it was seeded.
+//
+// Both come from the DATABASE, and that is the point rather than tidiness:
+// stale_after is derived from this and compared against the database's now() at
+// read time, so a value stamped on a worker host whose clock had drifted would
+// decide when an occurrence reads stalled by the size of the drift.
+func queuedAt(ctx context.Context, tx pgx.Tx, o occurrence) (time.Time, error) {
 	if o.startedAt != nil {
-		return *o.startedAt
+		return *o.startedAt, nil
 	}
-	return time.Now().UTC()
+	var now time.Time
+	if err := tx.QueryRow(ctx, `SELECT now()`).Scan(&now); err != nil {
+		return time.Time{}, fmt.Errorf("runner: reading the database clock: %w", err)
+	}
+	return now, nil
 }
 
 // attributedTo puts the human the occurrence belongs to behind the emitting
