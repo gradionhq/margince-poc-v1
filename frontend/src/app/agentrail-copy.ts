@@ -116,10 +116,12 @@ export const LABELS = {
  * The states no read can reach on this surface, and the sentence each carries.
  *
  * The section reaches `ingest`, `working` and `error` on its own, but about the
- * TOOL: a read in flight, a write in flight, a source it cannot get to. What it
- * cannot report is the same words about the AGENT, because the overnight run
- * happens in the worker and the contract has no run-progress read and no stream.
- * The `agent_run` and `runner_job` tables exist; nothing serves their phase.
+ * TOOL: a read in flight, a write in flight, a source it cannot get to. `working`
+ * about the AGENT is real too now — `useAgentActivity` reads the run row and
+ * `RunSection` (`agentrail.tsx`) names it in the reader's own words. What stays
+ * unreachable is narrower: there is no per-step progress stream (a run is
+ * `queued`, `running` or settled, never "40% through"), and `ingest` here is
+ * about the CAPTURE pipeline reading mail, which still has no read of its own.
  *
  * They are here so the vocabulary can be reviewed whole, reachable only from the
  * switcher in the panel under its own review-only heading. Nothing derives them.

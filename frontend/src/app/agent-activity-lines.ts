@@ -55,10 +55,21 @@ export const ACTIVITY_LINE: Readonly<
  * a settled run in `recent` and never in `running`.
  */
 export const PANEL_HEADING: Readonly<
-  Record<"running" | "settled" | "stopped", MessageKey>
+  Record<"running" | "settled", MessageKey>
 > = {
   running: "agent.panel.runningNow",
   settled: "agent.panel.finishedToday",
+};
+
+/**
+ * A label drawn on ONE run's own detail line, not a section heading.
+ *
+ * Kept out of `PANEL_HEADING`: that map's contract is a heading that names no
+ * single run, and `stopped` sits inline next to one run's `degrade_reason` in
+ * `RunSection` — it is closer kin to `ACTIVITY_LINE` than to a section title,
+ * so it gets its own export rather than stretching the heading map's meaning.
+ */
+export const RUN_DETAIL_LABEL: Readonly<Record<"stopped", MessageKey>> = {
   stopped: "agent.panel.stoppedEarly",
 };
 

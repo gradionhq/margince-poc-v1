@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { en, type MessageKey } from "../i18n/en";
+import { de } from "../i18n/de";
+import { en } from "../i18n/en";
+import { vi } from "../i18n/vi";
 import { ACTIVITY_LINE, lineFor } from "./agent-activity-lines";
 
 // A key the map names must exist in the catalog, and a translated
@@ -32,13 +34,27 @@ describe("the activity copy set", () => {
     }
   });
 
-  it("never says done about a run that stopped early", () => {
-    for (const byState of Object.values(ACTIVITY_LINE)) {
-      const degraded = copy(byState.degraded).toLowerCase();
-      expect(degraded).not.toContain("done");
-      expect(degraded).not.toContain("ready");
-    }
-  });
+  // The feature's most dangerous failure mode is telling someone a run
+  // finished when it only got partway, so this is pinned in every locale it
+  // ships in rather than English alone: a translator adding "fertig" to a
+  // German degraded line would pass an English-only version of this test.
+  it.each([
+    { locale: "en", catalog: en, done: ["done"], ready: ["ready"] },
+    { locale: "de", catalog: de, done: ["fertig"], ready: ["bereit"] },
+    { locale: "vi", catalog: vi, done: ["xong"], ready: ["sẵn sàng"] },
+  ])(
+    "never says done or ready about a run that stopped early ($locale)",
+    ({ catalog, done, ready }) => {
+      for (const byState of Object.values(ACTIVITY_LINE)) {
+        const key = byState.degraded;
+        if (key === undefined) continue;
+        const degraded = catalog[key].toLowerCase();
+        for (const word of [...done, ...ready]) {
+          expect(degraded).not.toContain(word);
+        }
+      }
+    },
+  );
 
   it("has a line for every state the runner can reach, and none for approval", () => {
     for (const byState of Object.values(ACTIVITY_LINE)) {
@@ -68,11 +84,3 @@ describe("lineFor", () => {
     ).toBeNull();
   });
 });
-
-/** The catalog value behind a key the map is expected to carry. */
-function copy(key: MessageKey | undefined): string {
-  if (key === undefined) {
-    throw new Error("the map names no key where one was expected");
-  }
-  return en[key];
-}

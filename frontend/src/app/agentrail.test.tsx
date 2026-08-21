@@ -787,11 +787,10 @@ describe("AgentRail", () => {
   });
 
   // Work THIS TAB DID NOT START. Everything above moves the Core because a
-  // query in this browser fetched; the overnight runner reports through
-  // /me/agent-activity, and until now the rail could watch it run and say
-  // "Idle". These cases are that gap closed, plus the two invariants closing it
-  // must not break: operator vocabulary stays out of the reader's line, and the
-  // surface never invents a sentence for a kind it has no copy for.
+  // query in this browser fetched; these cases cover the overnight runner,
+  // reported through /me/agent-activity, plus the two invariants that must
+  // hold alongside it: operator vocabulary stays out of the reader's line, and
+  // the surface never invents a sentence for a kind it has no copy for.
 
   /** One run as the WIRE spells it — a JSON body, not a typed literal, because
    *  a kind that is off the contract is exactly what one of these cases sends. */
@@ -917,10 +916,10 @@ describe("AgentRail", () => {
     expect(runDetails()).toEqual(["Three deals need a nudge."]);
   });
 
-  // The regression this section exists for: `done`, `degraded` and `failed` only
-  // ever arrive in `recent`, so a panel that drew `running` alone could never
-  // show any of them, and six of the ten written lines were unreachable. The
-  // bar keeps its live-run rule — a settled run joins the RESTING ROTATION,
+  // The terminal states — `done`, `degraded` and `failed` — and with them
+  // `degrade_reason` and `summary`, arrive only in `recent`, never in
+  // `running`, so the panel must read both lists to show any of them. The bar
+  // keeps its live-run rule — a settled run joins the RESTING ROTATION,
   // because `recent` is bounded to today and a pinned "ready" would still be
   // announcing this morning at six in the evening.
   it("reads a run that finished today, in the panel and in the resting line", async () => {

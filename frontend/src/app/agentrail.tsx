@@ -28,7 +28,11 @@ import { usePendingApprovals } from "../screens/inbox.queries";
 import { useLicenseEntitlement } from "../screens/license";
 import { type AppActivity, useAppActivity } from "./activity";
 import { type AgentActivity, useAgentActivity } from "./agent-activity";
-import { lineFor, PANEL_HEADING } from "./agent-activity-lines";
+import {
+  lineFor,
+  PANEL_HEADING,
+  RUN_DETAIL_LABEL,
+} from "./agent-activity-lines";
 import {
   IDLE_ORDER,
   type IdleKind,
@@ -547,7 +551,7 @@ function RunSection({
             <span className="arrunline">{line}</span>
             {item.degrade_reason ? (
               <span className="arrundetail">
-                <i>{t(PANEL_HEADING.stopped)}</i>
+                <i>{t(RUN_DETAIL_LABEL.stopped)}</i>
                 {item.degrade_reason}
               </span>
             ) : null}
