@@ -12143,6 +12143,35 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /me/agent-activity:
+    get:
+      tags: [AI]
+      operationId: getMyAgentActivity
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: What the agent is doing for THIS person, right now and lately.
+      description: |
+        The scheduled agent runs this account authorized, as facts rather than sentences:
+        the kind, the state, and when. The client renders the sentence in the reader's own
+        locale, so this never returns prose.
+
+        Personal by construction: a run is this caller's when the passport it executes under
+        is bound to them (`passport.on_behalf_of`). A run whose passport was deleted is
+        nobody's and is absent — never attributed to whoever asks. No RBAC object gates it,
+        because there is no wider set to withhold.
+
+        `recent` is BOUNDED (since local midnight, at most 10). An unbounded per-person run
+        history is a per-person activity ledger, which this installation does not keep.
+
+        Read-only; no audit or event row (EVT-NOEVT-3).
+      responses:
+        '200':
+          description: The caller's own agent activity.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentActivity' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /organizations/{id}/contracts:
     get:
       tags: [Contracts]
@@ -22401,6 +22430,43 @@ components:
         sections: { type: array, items: { $ref: '#/components/schemas/ContextSection' } }
 
     # ---- Agents: governed tool surface ----
+    AgentActivity:
+      type: object
+      additionalProperties: false
+      required: [as_of, running, recent]
+      properties:
+        as_of: { type: string, format: date-time, description: 'When the server read this.' }
+        running:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityItem' }
+          description: 'Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read.'
+        recent:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/ActivityItem' }
+          description: 'Settled runs since local midnight, newest first, at most 10.'
+    ActivityItem:
+      type: object
+      additionalProperties: false
+      required: [id, kind, state, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [morning_brief, overnight_at_risk_sweep]
+          description: 'The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.'
+        state:
+          type: string
+          enum: [queued, running, awaiting_approval, done, degraded, failed]
+          description: |
+            `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
+            state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
+            exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
+            auto-execute only) and is declared for the states the runner itself can reach.
+        started_at: { type: string, format: date-time, description: 'agent_run.created_at, or runner_job.due_at while queued.' }
+        finished_at: { type: [string, 'null'], format: date-time }
+        degrade_reason: { type: [string, 'null'], description: 'Operator vocabulary; shown in the panel detail, never interpolated into a reader-facing line.' }
+        summary: { type: [string, 'null'], description: 'The run own final summary when it produced one. OPTIONAL — the runner never validates that `final` carries it.' }
     AgentTool:
       type: object
       # title and description are required because registration guarantees
