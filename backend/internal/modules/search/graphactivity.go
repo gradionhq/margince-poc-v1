@@ -153,7 +153,7 @@ func participantRoleOrder(alias string) string {
 const linkOnlyRole = -1
 
 // assembleActivityWithin builds the context for an activity anchor.
-func (s *Store) assembleActivityWithin(ctx context.Context, tx pgx.Tx, activityID ids.UUID, maxItems int) ([]graphSection, error) {
+func (s *Store) assembleActivityWithin(ctx context.Context, tx pgx.Tx, activityID ids.UUID, maxItems int, within projectScope) ([]graphSection, error) {
 	profile, err := activityProfile(ctx, tx, activityID)
 	if err != nil {
 		return nil, err
@@ -192,7 +192,7 @@ func (s *Store) assembleActivityWithin(ctx context.Context, tx pgx.Tx, activityI
 		return sections, nil
 	}
 
-	walk, err := s.assembleRecordWithin(ctx, tx, subjects[0].entityType, subjects[0].id, maxItems)
+	walk, err := s.assembleRecordWithin(ctx, tx, subjects[0].entityType, subjects[0].id, maxItems, within)
 	if err != nil {
 		return nil, err
 	}

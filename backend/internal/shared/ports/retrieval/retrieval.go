@@ -69,6 +69,19 @@ type AssembleOptions struct {
 	// MaxItems bounds the assembled context per section (recent touches,
 	// open questions, related people).
 	MaxItems int
+	// ProjectID narrows the picture to ONE body of work, when the caller knows
+	// which. Empty is the ordinary case and filters nothing.
+	//
+	// The rule it applies is exclusion, not selection: material filed under a
+	// DIFFERENT project drops out, while material filed under no project at
+	// all stays. Attribution is optional in this product, so most
+	// correspondence on an account carries no project — a strict "this project
+	// only" read would drop the general relationship history and describe an
+	// account as though it had no past.
+	//
+	// An account running two engagements is where this earns its place: a
+	// brief that blends them is fluent, confident and about the wrong work.
+	ProjectID string
 }
 
 // Context is the assembled, provenance-stamped picture for one anchor.
