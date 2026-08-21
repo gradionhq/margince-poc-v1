@@ -117,6 +117,9 @@ func bindsAWorkspace(spec jobs.Spec) bool {
 // grows — the table is the fixture, not the reasoning.
 func workspaceRefusalDrivers() map[string]func(context.Context) error {
 	return map[string]func(context.Context) error{
+		GeocodeOrganizationArgs{}.Kind(): func(ctx context.Context) error {
+			return (&geocodeWorker{}).Work(ctx, &river.Job[GeocodeOrganizationArgs]{})
+		},
 		CloseDateWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&closeDateWorkspaceWorker{}).Work(ctx, &river.Job[CloseDateWorkspaceArgs]{})
 		},

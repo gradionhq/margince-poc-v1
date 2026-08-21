@@ -57,6 +57,7 @@ type workerConfig struct {
 	sendRateWindow       time.Duration
 	sendMaxAge           time.Duration
 	webhookKey           string
+	geocodeBaseURL       string
 	webhookRetryInterval time.Duration
 	deepReadMaxPages     int
 	deepReadMaxBytes     int
@@ -130,6 +131,11 @@ func workerFlagSet() (*flag.FlagSet, *cliflags.Env, *workerConfig, error) {
 	// and no tenant data — but it is unauthenticated and discloses dependency
 	// health and process capacity, so whether to expose it, and on which
 	// interface, is the operator's decision.
+	env.String(fs, &cfg.geocodeBaseURL, "geocode-base-url", "MARGINCE_GEOCODE_BASE_URL", "",
+		"Nominatim base URL; enables geocoding company addresses to coordinates, which is what "+
+			"within_radius answers from. Empty leaves it off and every radius query unavailable. "+
+			"Use 'public' for OpenStreetMap's own service — POC only: its terms hold a recurring "+
+			"client to 4 requests a minute, so any real volume wants a self-hosted instance.")
 	env.String(fs, &cfg.observeAddr, "observe-addr", "MARGINCE_OBSERVE_ADDR", "",
 		"address to serve this worker's /healthz, /readyz and /metrics on (e.g. 127.0.0.1:9101). Empty serves nothing. Process-local metrics only — the job-table and outbox gauges stay a single fleet-wide reading on the api.")
 	env.String(fs, &cfg.logLevel, "log-level", "MARGINCE_LOG_LEVEL", "info", "log level: debug|info|warn|error")

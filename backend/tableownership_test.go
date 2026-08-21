@@ -115,6 +115,8 @@ var tableOwners = map[string]string{
 	// every night.
 	"person_signature_enrich_state": "internal/modules/people",
 	"organization_fact":             "internal/modules/people",
+	"organization_geocode_state":    "internal/modules/people",
+	"geocode_cache":                 "internal/modules/people",
 	// What a mail domain is allowed to create. It governs ORGANIZATION
 	// creation, which people owns, so the verdict lives with the records it
 	// authorizes rather than with the capture path that asks the question.
