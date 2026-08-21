@@ -102,7 +102,7 @@ func TestAReadShareCanBePassedOnButNotWidened(t *testing.T) {
 	e := SetupSearch(t)
 	// Owned by rep3 in team2, so rep1 in team1 has no path to it but a share.
 	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by) VALUES ($1, 'Out Of Scope', $2, 'manual', 'human:x')`, e.Rep3)
-	colleague := e.Seed(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'colleague@search.test', 'Colleague')`)
+	colleague := e.SeedID(t, `INSERT INTO app_user (id, email, display_name) VALUES ($1, 'colleague@search.test', 'Colleague')`)
 	svc := identity.NewService(e.Pool)
 
 	// Every grant below goes through the real writer, including the ones that

@@ -82,8 +82,7 @@ func testWorkspaceCtx(t *testing.T, grants map[string]principal.ObjectGrant) (co
 	}
 	user := ids.New[ids.UserKind]()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Migration Test User')`,
-		user, ws, "migration-user-"+user.String()+"@migration.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Migration Test User')`, user, "migration-user-"+user.String()+"@migration.test"); err != nil {
 		t.Fatalf("seeding app_user: %v", err)
 	}
 

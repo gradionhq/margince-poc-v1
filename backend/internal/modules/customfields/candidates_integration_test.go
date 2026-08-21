@@ -84,8 +84,7 @@ func setupCandidates(t *testing.T) *candidatesFixture {
 	// autofixture_integration_test.go.
 	userID := ids.NewV7()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Candidates Test')`,
-		userID, ws, "candidates-test-"+userID.String()+"@example.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Candidates Test')`, userID, "candidates-test-"+userID.String()+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
 

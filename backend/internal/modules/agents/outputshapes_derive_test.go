@@ -153,7 +153,11 @@ func TestEveryResultTypeSatisfiesTheSchemaDerivedFromIt(t *testing.T) {
 		"WhoKnowsAnswer":       WhoKnowsAnswer{PersonID: id, Colleagues: []KnownColleague{{UserID: id, DisplayName: "Ada", StrengthBucket: "warm"}}},
 		"IntroPathAnswer":      IntroPathAnswer{OrganizationID: id, Routes: []IntroRoute{}},
 		"AtRiskReport":         AtRiskReport{Deals: []AtRiskDeal{}, DealsScanned: 4},
-		"DealCoverageAnswer":   DealCoverageAnswer{DealID: id, Stakeholders: []CoverageSeat{}, OurSide: []KnownColleague{}, Risks: []CoverageRisk{}},
+		"DealCoverageAnswer":   DealCoverageAnswer{DealID: id, Stakeholders: []CoverageSeat{}, OurSide: []KnownColleague{}, Risks: []CoverageRisk{}, SectionsOmitted: []string{}},
+		// The withheld shape as its own case. It is the answer whose three
+		// empty arrays argue hardest for the wrong conclusion, so it is the one
+		// whose encoding a client must be able to rely on.
+		"DealCoverageWithheld": DealCoverageAnswer{DealID: id, Stakeholders: []CoverageSeat{}, OurSide: []KnownColleague{}, Risks: []CoverageRisk{}, SectionsOmitted: []string{"stakeholders", "our_side", "risks"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			encoded, err := json.Marshal(value)

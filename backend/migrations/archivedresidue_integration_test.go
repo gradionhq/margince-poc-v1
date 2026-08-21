@@ -56,10 +56,29 @@ const archivedRowsSeeded = 2
 
 // seedArchivedTenantHolding plants an archived workspace and the rows it owns in
 // a table that still carries the tenant column, and returns the table's name.
-// app_user is the subject because it is the last table anything would drop and
-// so keeps this suite honest for the whole of phase D.
+//
+// The subject is a FIXTURE table, and that is the point rather than a shortcut.
+// The gate derives its subjects from the catalog — every table that still has
+// workspace_id, minus the two append-only ledgers it excludes by name. ADR-0091
+// §8 phase D has now taken the column off every other table, so the gate has no
+// REAL subject left: pointed at anything the schema actually contains it can
+// only pass, which is indistinguishable from a gate that no longer works.
+//
+// What still has to hold is the mechanism — that a table carrying the column
+// and holding an archived tenant's rows is FOUND and NAMED. A table created
+// here is the only way left to state that, and it is also the case the gate
+// exists for: the next table added with a workspace_id is exactly what it must
+// catch.
 func seedArchivedTenantHolding(ctx context.Context, t *testing.T, conn *pgx.Conn) string {
 	t.Helper()
+	if _, err := conn.Exec(ctx, `
+		CREATE TABLE archived_residue_fixture (
+			id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+			workspace_id uuid NOT NULL REFERENCES workspace(id) ON DELETE RESTRICT,
+			note         text NOT NULL
+		)`); err != nil {
+		t.Fatalf("creating the fixture table the gate must find: %v", err)
+	}
 	var ws string
 	if err := conn.QueryRow(ctx, `
 		INSERT INTO workspace (slug, archived_at) VALUES ('gone-tenant', now()) RETURNING id`).Scan(&ws); err != nil {
@@ -67,12 +86,12 @@ func seedArchivedTenantHolding(ctx context.Context, t *testing.T, conn *pgx.Conn
 	}
 	for i := range archivedRowsSeeded {
 		if _, err := conn.Exec(ctx, `
-			INSERT INTO app_user (workspace_id, email, display_name)
-			VALUES ($1, $2, 'Ghost')`, ws, fmt.Sprintf("ghost-%d@gone.test", i)); err != nil {
+			INSERT INTO archived_residue_fixture (workspace_id, note)
+			VALUES ($1, $2)`, ws, fmt.Sprintf("ghost-%d", i)); err != nil {
 			t.Fatalf("seeding the archived tenant's row %d: %v", i, err)
 		}
 	}
-	return "app_user"
+	return "archived_residue_fixture"
 }
 
 func TestTheArchivedResidueGateRefusesAndNamesWhatItFound(t *testing.T) {
@@ -113,7 +132,7 @@ func TestTheArchivedResidueGateAdmitsOnceTheResidueIsCleared(t *testing.T) {
 	}
 
 	if _, err := conn.Exec(ctx, `
-		DELETE FROM app_user WHERE workspace_id IN (SELECT id FROM workspace WHERE archived_at IS NOT NULL)`); err != nil {
+		DELETE FROM archived_residue_fixture WHERE workspace_id IN (SELECT id FROM workspace WHERE archived_at IS NOT NULL)`); err != nil {
 		t.Fatalf("clearing the archived tenant's rows: %v", err)
 	}
 	if _, err := conn.Exec(ctx, gateSQL(t)); err != nil {

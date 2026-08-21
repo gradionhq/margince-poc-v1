@@ -76,7 +76,7 @@ func readAgentSeats(t *testing.T, owner *pgx.Conn, wsID ids.WorkspaceID) []agent
 	rows, err := owner.Query(context.Background(),
 		`SELECT id, email, display_name, status, seat_type,
 		        password_hash IS NOT NULL, archived_at IS NOT NULL
-		   FROM app_user WHERE workspace_id = $1 AND is_agent`, wsID)
+		   FROM app_user WHERE is_agent`)
 	if err != nil {
 		t.Fatalf("reading the agent seats: %v", err)
 	}

@@ -162,7 +162,11 @@ func (s *Service) rotateRefreshTokenTx(
 		}
 		return IssuedPassport{}, "", false, err
 	}
-	locked, err := lockPresentedRefreshToken(ctx, tx, tokenHash)
+	wsID, err := s.InstallationWorkspace(ctx)
+	if err != nil {
+		return IssuedPassport{}, "", false, err
+	}
+	locked, err := lockPresentedRefreshToken(ctx, tx, tokenHash, wsID)
 	if err != nil {
 		return IssuedPassport{}, "", false, err
 	}
@@ -228,10 +232,13 @@ func grantOfPresentedToken(ctx context.Context, tx pgx.Tx, tokenHash string) (id
 // two paths against each other. An MVCC read is enough, because a deactivation
 // that commits after this snapshot queues on the grant lock and then cascades
 // over whatever this rotation just minted.
-func lockPresentedRefreshToken(ctx context.Context, tx pgx.Tx, tokenHash string) (lockedGrant, error) {
-	var l lockedGrant
+func lockPresentedRefreshToken(ctx context.Context, tx pgx.Tx, tokenHash string, wsID ids.WorkspaceID) (lockedGrant, error) {
+	// The workspace is the installation's, passed in rather than read off the
+	// human's row: ADR-0091 §8 phase D took the tenant column off app_user, and
+	// a renewal must mint the same workspace a session and a passport do.
+	l := lockedGrant{workspaceID: wsID}
 	err := tx.QueryRow(ctx, `
-		SELECT r.id, r.consumed_at, r.expires_at, r.replaced_by, u.workspace_id,
+		SELECT r.id, r.consumed_at, r.expires_at, r.replaced_by,
 		       g.id, g.user_id, g.client_id, g.scopes, g.resource, g.revoked_at, g.refresh_allowed,
 		       c.disabled_at, c.deleted_at, u.status, u.archived_at
 		  FROM oauth_refresh_token r
@@ -240,7 +247,7 @@ func lockPresentedRefreshToken(ctx context.Context, tx pgx.Tx, tokenHash string)
 		  JOIN app_user     u ON u.id        = g.user_id
 		 WHERE r.token_hash = $1
 		   FOR UPDATE OF r, g`,
-		tokenHash).Scan(&l.tokenID, &l.consumedAt, &l.expiresAt, &l.replacedBy, &l.workspaceID,
+		tokenHash).Scan(&l.tokenID, &l.consumedAt, &l.expiresAt, &l.replacedBy,
 		&l.grantID, &l.userID, &l.clientID, &l.scopes, &l.resource, &l.grantRevokedAt, &l.refreshAllowed,
 		&l.clientDisabledAt, &l.clientDeletedAt, &l.userStatus, &l.userArchivedAt)
 	if errors.Is(err, pgx.ErrNoRows) {

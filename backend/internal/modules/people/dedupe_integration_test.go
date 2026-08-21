@@ -66,8 +66,7 @@ func setupDedupe(t *testing.T) *dedupeEnv {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
-		e.rep, e.ws, "rep-"+e.rep.String()+"@dd.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rep')`, e.rep, "rep-"+e.rep.String()+"@dd.test"); err != nil {
 		t.Fatal(err)
 	}
 	// A second human in the same workspace. Seeded here rather than on demand:
@@ -75,8 +74,7 @@ func setupDedupe(t *testing.T) *dedupeEnv {
 	// already running, and answer "conn busy".
 	e.otherRep = ids.NewV7()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Colleague')`,
-		e.otherRep, e.ws, "other-"+e.otherRep.String()+"@dd.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Colleague')`, e.otherRep, "other-"+e.otherRep.String()+"@dd.test"); err != nil {
 		t.Fatal(err)
 	}
 

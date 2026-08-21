@@ -343,10 +343,31 @@ func healthExpectedPace(ctx context.Context, tx pgx.Tx, pipelineID ids.PipelineI
 // freshest activity (recency), the two-way-engaged stakeholders, and
 // the open overdue tasks (commitments).
 func healthActivityEvidence(ctx context.Context, tx pgx.Tx, now time.Time, in *dealHealthInputs) error {
+	// Engagement: the ONE definition, through the function that owns it, so the
+	// composite's engagement factor and the coverage view's engaged seats
+	// cannot disagree about the same deal.
+	//
+	// It carries the edge gate, and a caller refused it gets no score rather
+	// than a lower one. That is the whole reason the gate belongs here: the
+	// factor is a count of edges divided by a norm, so an edge the caller may
+	// not read would silently subtract from the health of a deal that is
+	// perfectly healthy — a WRONG number where the refusal is a missing one.
+	//
+	// It runs FIRST for that reason and no other. Order is free inside one
+	// transaction — every fact here is read at the same instant either way —
+	// so putting the gated read at the front costs nothing and buys the
+	// property worth having: the refusal resolves before the composite issues
+	// any statement at all, which is a claim a test can make with no database.
+	engaged, err := EngagedStakeholders(ctx, tx, in.dealID, now)
+	if err != nil {
+		return err
+	}
+	in.engagedStakeholderIDs = engaged
+
 	// Recency evidence: the freshest live activity on the deal — the
 	// record behind deal.last_activity_at.
 	var recent ids.UUID
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT a.id FROM activity a
 		JOIN activity_link l ON l.activity_id = a.id AND l.deal_id = $1
 		WHERE a.archived_at IS NULL
@@ -360,30 +381,6 @@ func healthActivityEvidence(ctx context.Context, tx pgx.Tx, now time.Time, in *d
 	default:
 		in.mostRecentActivityID = &recent
 	}
-
-	// Engagement: live deal_stakeholder persons with BOTH an inbound and
-	// an outbound qualifying interaction inside the window — the §4
-	// "reciprocity > 0" two-way reading; a one-way broadcast target is
-	// not engaged.
-	windowStart := now.AddDate(0, 0, -healthEngagementWindowDays)
-	engaged, err := collectIDs(tx.Query(ctx, `
-		SELECT DISTINCT r.person_id FROM relationship r
-		WHERE r.kind = 'deal_stakeholder' AND r.deal_id = $1 AND r.archived_at IS NULL
-		  AND EXISTS (
-			SELECT 1 FROM activity a
-			JOIN activity_link l ON l.activity_id = a.id AND l.person_id = r.person_id
-			WHERE a.kind IN `+healthActivityKinds+` AND a.archived_at IS NULL
-			  AND a.occurred_at >= $2 AND a.direction = 'inbound')
-		  AND EXISTS (
-			SELECT 1 FROM activity a
-			JOIN activity_link l ON l.activity_id = a.id AND l.person_id = r.person_id
-			WHERE a.kind IN `+healthActivityKinds+` AND a.archived_at IS NULL
-			  AND a.occurred_at >= $2 AND a.direction = 'outbound')
-		ORDER BY r.person_id`, in.dealID, windowStart))
-	if err != nil {
-		return err
-	}
-	in.engagedStakeholderIDs = engaged
 
 	// Commitments evidence: the open overdue tasks on the deal.
 	overdue, err := collectIDs(tx.Query(ctx, `

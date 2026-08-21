@@ -40,8 +40,8 @@ func setupRouting(t *testing.T) *routingEnv {
 	e := SetupSearch(t)
 	rep2 := ids.NewV7()
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'rep2@search.test', 'Rep Two')`,
-		rep2, e.WS); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, 'rep2@search.test', 'Rep Two')`,
+		rep2); err != nil {
 		t.Fatal(err)
 	}
 	return &routingEnv{SearchEnv: e, Rep2: rep2, engine: compose.NewWorkflowEngine(e.DB())}

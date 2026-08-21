@@ -114,7 +114,7 @@ func auditUserMapChange(ctx context.Context, tx pgx.Tx, appUser ids.UserID, prio
 	return nil
 }
 
-// UserMapEntry is one row of the admin mapping table: a workspace user, the
+// UserMapEntry is one row of the admin mapping table: an installation user, the
 // incumbent user they currently map to (empty when unmapped), how that
 // mapping was established, and whether an admin has blocked automatic
 // mapping for them.
@@ -127,7 +127,7 @@ type UserMapEntry struct {
 	Blocked         bool
 }
 
-// listUserMapSQL pages the workspace's users with their mapping state.
+// listUserMapSQL pages the installation's users with their mapping state.
 // LEFT JOINs, not inner ones: an UNMAPPED user is the whole point of the
 // surface — they are the ones an admin has to act on — so they must appear
 // with an empty owner rather than be filtered out. Keyset-ordered by id so
@@ -145,22 +145,16 @@ LEFT JOIN mirror_user_map m
        ON m.app_user_id = u.id AND m.incumbent = $1
 LEFT JOIN mirror_user_automap_block b
        ON b.app_user_id = u.id AND b.incumbent = $1
--- Scoped like the target resolver beside it: this list is what an admin
--- picks a mapping FROM, so an unscoped page discloses another workspace's
--- colleagues by email and display name.
-WHERE u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-  AND u.id > $2
+WHERE u.id > $2
   AND NOT u.is_agent
   AND u.archived_at IS NULL
 ORDER BY u.id
 LIMIT $3`
 
-// ListUserMap pages this workspace's users with their current mapping state,
+// ListUserMap pages the installation's users with their current mapping state,
 // in app_user id order — the same opaque keyset cursor scheme MirrorStore.List
-// uses, carrying a user id instead of an external id. It is a plain
-// workspace-scoped read, confined by its own workspace predicate; the
-// admin-only gate lives at the service entry point, with every other
-// user-map operation.
+// uses, carrying a user id instead of an external id. The admin-only gate lives
+// at the service entry point, with every other user-map operation.
 func (s *MirrorStore) ListUserMap(ctx context.Context, incumbent, cursor string, limit int) ([]UserMapEntry, string, error) {
 	after, err := decodeMirrorCursor(cursor)
 	if err != nil {
@@ -214,29 +208,25 @@ func (s *MirrorStore) ListUserMap(ctx context.Context, incumbent, cursor string,
 // (usermapseed.go — what the automated sweep will seed). All three exclude an
 // agent seat and an archived seat; a change here belongs in all three.
 //
-// The workspace predicate is the query's own, not the database's. Tenant
-// isolation used to supply it — another workspace's seat was simply invisible,
-// so an id from one answered no rows and became ErrNotFound. With RLS retired
-// (ADR-0091 §8 phase A) an unscoped read resolves that seat happily and the
-// write behind it fails on the composite foreign key instead: a 500 carrying a
-// constraint name where a 404 belongs. The predicate reads the TRANSACTION's
-// binding, the same source the ledger writes take their tenant from.
+// It resolves by id alone. A workspace predicate stood here until ADR-0091 §8
+// phase D took the tenant column off app_user; what it bought — turning an id
+// this installation does not have into no rows, and so into ErrNotFound — the
+// id itself now buys, because an installation serves one organization
+// (ADR-0061) and an unknown id matches nothing.
 const selectUserMapTargetSQL = `
 SELECT NOT u.is_agent AND u.archived_at IS NULL
 FROM app_user u
-WHERE u.id = $1
-  AND u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+WHERE u.id = $1`
 
 // resolveUserMapTarget resolves appUser inside tx, reporting whether the seat
 // is grantable — a live human. An agent seat is a passport identity with no
 // incumbent counterpart, and an archived seat no longer logs in.
 //
-// A user this workspace does not have (including another tenant's, which RLS
-// makes indistinguishable from a nonexistent one) answers
-// apperrors.ErrNotFound: a row-scope miss is existence-hiding, never a 403 and
-// never the raw foreign-key violation the write would otherwise raise — that
-// reaches the client as an opaque 500, indistinguishable from an outage. The
-// composite FK stays underneath as the database-level backstop.
+// An id naming no user — a stale one in an admin's open tab is the routine
+// case — answers apperrors.ErrNotFound: a row-scope miss is existence-hiding,
+// never a 403 and never the raw foreign-key violation the write would otherwise
+// raise, which reaches the client as an opaque 500 indistinguishable from an
+// outage. The foreign key stays underneath as the database-level backstop.
 func resolveUserMapTarget(ctx context.Context, tx pgx.Tx, appUser ids.UserID) (grantable bool, err error) {
 	err = tx.QueryRow(ctx, selectUserMapTargetSQL, appUser).Scan(&grantable)
 	switch {
@@ -250,7 +240,7 @@ func resolveUserMapTarget(ctx context.Context, tx pgx.Tx, appUser ids.UserID) (g
 
 // automapTargetIsGrantable is resolveUserMapTarget for the AUTOMATIC
 // (email-sourced) write, where an ineligible target is a row to skip rather
-// than a fault to report. A seat the workspace no longer has folds into the
+// than a fault to report. A seat the installation no longer has folds into the
 // same answer: the sweep read its candidates in an earlier transaction, so the
 // row can be gone by the time the write runs, and "this one cannot be mapped"
 // is the truthful outcome either way. Every OTHER resolution failure still
@@ -327,7 +317,7 @@ func (s *MirrorStore) BlockAutoMap(ctx context.Context, appUser ids.UserID, incu
 		// unmap an agent or archived seat is the fail-open direction: a user
 		// archived while mapped is precisely who an admin still has to be able
 		// to unmap. Resolved before the lock so a request naming a user this
-		// workspace does not have never holds the workspace-wide lock.
+		// installation does not have never holds the workspace-wide lock.
 		if _, err := resolveUserMapTarget(ctx, tx, appUser); err != nil {
 			return err
 		}

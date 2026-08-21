@@ -31,8 +31,8 @@ import (
 // to — the display name on the app_user row with that address, or "" when the
 // address is nobody the installation knows.
 //
-// Scoped to the CURRENT workspace and to an ACTIVE seat. Row-level security is
-// retired, so the workspace predicate is the query's own job now; and a
+// Scoped to an ACTIVE seat, which is the whole scope there is since ADR-0091 §8
+// phase D took the tenant column off app_user. Status matters on its own: a
 // deactivated member keeps their row, so archived_at alone would still hand out
 // the name of somebody the installation has stopped trusting.
 //
@@ -51,7 +51,6 @@ func KnownHumanName(ctx context.Context, tx pgx.Tx, email string) (string, error
 	err := tx.QueryRow(ctx, `
 		SELECT display_name FROM app_user
 		 WHERE lower(email) = $1
-		   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		   AND archived_at IS NULL
 		   AND status = 'active'`, normalized).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {

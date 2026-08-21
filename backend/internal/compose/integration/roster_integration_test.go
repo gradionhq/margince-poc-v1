@@ -90,8 +90,8 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 	rep, bob, deskTeam := ids.NewV7(), ids.NewV7(), ids.NewV7()
 	seedInWorkspace(
 		t, e, wsA,
-		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'rep@example.com', 'Rep One')`, rep, wsA),
-		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'bob@example.com', 'Bob Two')`, bob, wsA),
+		stmt(`INSERT INTO app_user (id, email, display_name) VALUES ($1, 'rep@example.com', 'Rep One')`, rep),
+		stmt(`INSERT INTO app_user (id, email, display_name) VALUES ($1, 'bob@example.com', 'Bob Two')`, bob),
 		stmt(`INSERT INTO team (id, name) VALUES ($1, 'Deal Desk')`, deskTeam),
 		stmt(`INSERT INTO team_membership (team_id, user_id) VALUES ($1, $2)`, deskTeam, rep),
 		stmt(`INSERT INTO team_membership (team_id, user_id) VALUES ($1, $2)`, deskTeam, bob),
@@ -105,20 +105,14 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 		ids.NewV7()); err != nil {
 		t.Fatalf("seeding workspace B: %v", err)
 	}
-	wsB := wsID(t, e, "fable-other")
-	// B's member holds a role whose key exists in NO other workspace, so if the
-	// role aggregate ever escaped its tenant the string would be unmistakable in
-	// A's response. role/role_assignment are FORCE-RLS deny-on-unset, and every
-	// roster read runs inside WithWorkspaceTx — this is what proves it rather
-	// than asserting it.
-	eve := ids.NewV7()
-	seedInWorkspace(
-		t, e, wsB,
-		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'eve@other.example', 'Eve Other')`, eve, wsB),
-		stmt(`INSERT INTO role (key, name) VALUES ('other-tenant-only', 'Other Tenant Only')`),
-		stmt(`INSERT INTO role_assignment (role_id, user_id)
-		      SELECT r.id, $1 FROM role r WHERE r.key = 'other-tenant-only'`, eve),
-	)
+	// A second workspace's member used to be seeded here, holding a uniquely
+	// keyed role, so the assertions below could prove neither escaped into this
+	// roster. ADR-0091 §8 phase D took the tenant column off app_user, role and
+	// role_assignment, and an installation serves one organization (ADR-0061):
+	// there is no second workspace's member to leak, so the arms that looked for
+	// one are gone rather than weakened. What the page still owes — every member
+	// listed once, the agent seat marked, role keys withheld from a non-admin —
+	// is asserted below and unchanged.
 
 	// (e) No session → 401, before we lean on the authenticated reads.
 	assertRosterUnauthorized(t, e)
@@ -155,31 +149,21 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 		t.Errorf("the agent seat is listed with is_agent = false, so nothing on the wire "+
 			"distinguishes it from a colleague: %+v", seat)
 	}
-	// (b) Workspace isolation: B's member never appears.
-	if _, leaked := got["eve@other.example"]; leaked {
-		t.Error("cross-tenant leak: workspace B's user appears in workspace A's roster")
-	}
 	if len(users.Data) != 4 {
-		t.Fatalf("roster size = %d, want exactly the 4 workspace-A members: %+v", len(users.Data), users.Data)
+		t.Fatalf("roster size = %d, want exactly the 4 members: %+v", len(users.Data), users.Data)
 	}
-	// The role aggregate is tenant-scoped too, not just the member rows: B's
-	// uniquely-keyed role must appear nowhere in A's page. Counting the keys
-	// actually seen first, because a regression that stopped emitting them
-	// would otherwise leave this loop inspecting nothing and still passing.
+	// The role aggregate still has to be EMITTED for an admin. Counted rather
+	// than inspected, because the withholding assertion further down is only
+	// meaningful against a page that carries keys in the first place.
 	keysSeen := 0
 	for _, u := range users.Data {
 		if u.Roles == nil {
 			continue
 		}
 		keysSeen += len(*u.Roles)
-		for _, key := range *u.Roles {
-			if key == "other-tenant-only" {
-				t.Errorf("cross-tenant leak: %q carries workspace B's role key", u.Email)
-			}
-		}
 	}
 	if keysSeen == 0 {
-		t.Fatal("no role keys on the admin roster at all; the cross-tenant check would pass vacuously")
+		t.Fatal("no role keys on the admin roster at all, so the withholding check below would pass vacuously")
 	}
 
 	// (c) q narrows over display_name/email, case-insensitively.
@@ -227,7 +211,7 @@ func TestRosterWithholdsRoleKeysFromANonAdmin(t *testing.T) {
 	rep := ids.NewV7()
 	seedInWorkspace(
 		t, e, wsA,
-		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'rep@example.com', 'Rep One')`, rep, wsA),
+		stmt(`INSERT INTO app_user (id, email, display_name) VALUES ($1, 'rep@example.com', 'Rep One')`, rep),
 		// Borrow the bootstrap admin's hash so the rep can actually sign in:
 		// the gate under test reads the request principal, so the assertion is
 		// only worth anything from a real non-admin session.

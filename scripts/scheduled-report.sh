@@ -145,6 +145,28 @@ bisecting is the honest first move rather than assuming the newest commit."\
     || unreported=1
 fi
 
+if [ "${CLOCK_RESULT:-}" = "failure" ]; then
+  report "the frontend suite's verdict depends on the calendar" bug \
+"\`make fe-clock-drift\` failed on the scheduled run of \`main\`: $RUN_URL
+
+The suite passes today and fails 200 days from now, which means at least one test
+asserts against a fixture date the component compares to \`now\`. It will start
+failing on its own, on a commit that touches nothing near it — that is #1977, and
+it hid on \`main\` for a month, because the change classifier skips the frontend
+jobs for a commit touching no frontend path and a skipped required check is the
+same colour as a passing one.
+
+Fix it at the fixture, not at the clock. Pin the clock for the file
+(\`vi.setSystemTime\` in \`beforeEach\`, as \`connected-agents.test.tsx\` does) so the
+test asserts the state its fixture describes — or move the fixture date far enough
+out that it says \"effectively never\" and means it. A per-case stub is the third
+copy of a guard the file wants once.
+
+Reproduce locally with \`make fe-clock-drift\`, and read the failures as claims
+about the fixtures rather than about the components."\
+    || unreported=1
+fi
+
 if [ "${CACHE_RESULT:-}" = "failure" ]; then
   report "the Actions build-cache reaper is failing" bug \
 "\`scripts/reap-build-caches.sh\` failed on the scheduled run: $RUN_URL

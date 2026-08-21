@@ -39,13 +39,15 @@ import (
 )
 
 var (
-	// ErrUserOutsideWorkspace refuses a user-scoped operation naming somebody
-	// who is not a member of the calling workspace. The composite FK on
-	// extension_secret used to refuse such a row too — as a constraint violation
-	// nobody could read — and since ADR-0091 §8 phase D took the tenant column
-	// off that table, this check is the ONLY thing refusing it. It was always
-	// the one that answered by name; it is now also the one that answers.
-	ErrUserOutsideWorkspace = errors.New("extsecrets: that user is not a member of this workspace")
+	// ErrUnknownUser refuses a user-scoped operation naming somebody who does
+	// not exist. It read "not a member of this workspace" until ADR-0091 §8
+	// phase D took the tenant column off app_user; there is one set of users
+	// now (ADR-0061), so membership and existence are the same question and the
+	// old wording claimed a check nothing performs. The composite FK on
+	// extension_secret used to refuse such a row too — as a constraint
+	// violation nobody could read — so this remains the only refusal that
+	// answers by name.
+	ErrUnknownUser = errors.New("extsecrets: no such user")
 
 	// ErrInvalidUserID refuses a UserID that is not a canonical UUID. The
 	// published type is a string (the surface is stdlib-only), so this is
@@ -167,7 +169,7 @@ func (s *store) read(ctx context.Context, user *ids.UserID, key string) ([]byte,
 		outcome string
 	)
 	if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := requireMember(ctx, tx, user); err != nil {
+		if err := requireUser(ctx, tx, user); err != nil {
 			return err
 		}
 		found, err := s.refFor(ctx, tx, user, key, forShare)
@@ -248,7 +250,7 @@ func (s *store) write(ctx context.Context, user *ids.UserID, key string, secret 
 	var oldRef keyvault.Ref
 	committing := false
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := requireMember(ctx, tx, user); err != nil {
+		if err := requireUser(ctx, tx, user); err != nil {
 			return err
 		}
 		if err := s.lockKey(ctx, tx, user, key); err != nil {
@@ -304,7 +306,7 @@ func (s *store) remove(ctx context.Context, user *ids.UserID, key string) error 
 	scope := s.scopeOf(user, key)
 	var ref keyvault.Ref
 	if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := requireMember(ctx, tx, user); err != nil {
+		if err := requireUser(ctx, tx, user); err != nil {
 			return err
 		}
 		var stored string
@@ -343,13 +345,15 @@ func (s *store) prepare(ctx context.Context, key string) (ids.WorkspaceID, error
 	return ids.From[ids.WorkspaceKind](ws), nil
 }
 
-// requireMember asks whether the named user belongs to the calling workspace;
-// a nil user is the workspace scope and has nobody to check.
+// requireUser asks whether the named user exists at all; a nil user is the
+// workspace scope and has nobody to check.
 //
-// The workspace predicate is explicit rather than left to app_user's RLS:
-// this is the check that stops a cross-tenant attachment, and it should not
-// be readable as correct only by knowing another table's policy.
-func requireMember(ctx context.Context, tx pgx.Tx, user *ids.UserID) error {
+// It asked whether the user belonged to the CALLING workspace until ADR-0091
+// §8 phase D took the tenant column off app_user. What it refuses now is a
+// user id naming no row — a stale id from an admin's open tab, which is the
+// case this was always reached by — and that refusal is still the only thing
+// standing between such an id and a secret attached to nobody.
+func requireUser(ctx context.Context, tx pgx.Tx, user *ids.UserID) error {
 	if user == nil {
 		return nil
 	}
@@ -358,12 +362,11 @@ func requireMember(ctx context.Context, tx pgx.Tx, user *ids.UserID) error {
 		SELECT EXISTS (
 			SELECT 1 FROM app_user
 			 WHERE id = $1
-			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		)`, *user).Scan(&member); err != nil {
 		return err
 	}
 	if !member {
-		return fmt.Errorf("extsecrets: user %s: %w", user, ErrUserOutsideWorkspace)
+		return fmt.Errorf("extsecrets: user %s: %w", user, ErrUnknownUser)
 	}
 	return nil
 }

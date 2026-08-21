@@ -69,8 +69,7 @@ func TestTheDispatcherResolvesTheSeatBootstrapMinted(t *testing.T) {
 	var isAgent bool
 	var displayName string
 	if err := integration.OwnerConn(t).QueryRow(ctx,
-		`SELECT is_agent, display_name FROM app_user WHERE workspace_id = $1 AND id = $2`,
-		wsID, actor).Scan(&isAgent, &displayName); err != nil {
+		`SELECT is_agent, display_name FROM app_user WHERE id = $1`, actor).Scan(&isAgent, &displayName); err != nil {
 		t.Fatalf("reading the resolved actor: %v", err)
 	}
 	if !isAgent {

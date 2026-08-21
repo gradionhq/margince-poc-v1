@@ -87,8 +87,7 @@ func setup(t *testing.T) *env {
 			t.Fatal(err)
 		}
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Member')`,
-			user, ws, slug+"@extsecrets.test"); err != nil {
+			`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Member')`, user, slug+"@extsecrets.test"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -228,25 +227,27 @@ func TestSecretsRotationDestroysThePreviousMaterial(t *testing.T) {
 	}
 }
 
-// TestSecretsUserScopeRefusesAForeignMember: the workspace FK and the user
-// FK are one COMPOSITE constraint precisely so a cross-tenant attachment is
-// impossible in the schema, but the store checks membership itself so the
-// refusal reaches the caller as a named error rather than as a constraint
-// violation nobody can branch on.
-func TestSecretsUserScopeRefusesAForeignMember(t *testing.T) {
+// TestSecretsUserScopeRefusesAnUnknownUser is what survived the tenant column.
+// It asserted a member of ANOTHER workspace was refused until ADR-0091 §8 phase
+// D took the column off app_user; an installation has one set of users
+// (ADR-0061), so the reachable case is the one the docstring always named — a
+// stale id from an admin's open tab, naming no row at all. Without this the
+// refusal path has no test, and the failure mode it prevents is a raw foreign
+// key violation reaching a client as a constraint name.
+func TestSecretsUserScopeRefusesAnUnknownUser(t *testing.T) {
 	e := setup(t)
 	ctx := e.ctxFor(e.ws)
 	s := extsecrets.For("notes", e.pool, e.vault)
 
-	foreign := extension.UserID(e.otherUser.String())
-	if err := s.PutUser(ctx, foreign, "token", []byte("nope")); !errors.Is(err, extsecrets.ErrUserOutsideWorkspace) {
-		t.Fatalf("PutUser accepted a member of another workspace: err=%v", err)
+	unknown := extension.UserID(ids.NewV7().String())
+	if err := s.PutUser(ctx, unknown, "token", []byte("nope")); !errors.Is(err, extsecrets.ErrUnknownUser) {
+		t.Fatalf("PutUser accepted a user id naming no row: err=%v", err)
 	}
-	if _, err := s.GetUser(ctx, foreign, "token"); !errors.Is(err, extsecrets.ErrUserOutsideWorkspace) {
-		t.Fatalf("GetUser accepted a member of another workspace: err=%v", err)
+	if _, err := s.GetUser(ctx, unknown, "token"); !errors.Is(err, extsecrets.ErrUnknownUser) {
+		t.Fatalf("GetUser accepted a user id naming no row: err=%v", err)
 	}
-	if err := s.DeleteUser(ctx, foreign, "token"); !errors.Is(err, extsecrets.ErrUserOutsideWorkspace) {
-		t.Fatalf("DeleteUser accepted a member of another workspace: err=%v", err)
+	if err := s.DeleteUser(ctx, unknown, "token"); !errors.Is(err, extsecrets.ErrUnknownUser) {
+		t.Fatalf("DeleteUser accepted a user id naming no row: err=%v", err)
 	}
 }
 

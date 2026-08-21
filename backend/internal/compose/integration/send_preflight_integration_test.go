@@ -145,7 +145,7 @@ func setupPreflightIn(t *testing.T, extra ...compose.Option) *preflightEnv {
 	var ws, user string
 	if err := apptest.InWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT workspace_id, id FROM app_user WHERE email = $1`, "sender@fable.test").Scan(&ws, &user)
+			`SELECT (SELECT id FROM workspace ORDER BY created_at LIMIT 1), id FROM app_user WHERE email = $1`, "sender@fable.test").Scan(&ws, &user)
 	}); err != nil {
 		t.Fatalf("resolving the acting human: %v", err)
 	}

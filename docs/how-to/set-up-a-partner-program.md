@@ -5,6 +5,11 @@ partners live in the app, how to make a company a partner, what every field on t
 and how to work the pipeline afterwards. The one thing you *cannot* do from the UI — changing
 the value lists themselves — is covered at the end.
 
+New to this? Start with
+[tutorials/run-a-partner-program.md](../tutorials/run-a-partner-program.md) — what partner
+programs are, what you can do with them, and one deal followed from the introduction to the
+money it earns. This guide is the reference you come back to for what a particular field means.
+
 ## What a partner is in Margince
 
 A partner is not a separate record you create next to a company. It is an **extra layer on a
@@ -46,10 +51,23 @@ as **Applied**; move them to **Certified** once they pass, and to **Suspended** 
 certification is revoked. This is a statement about certification only — suspending a partner
 does not archive the company or stop anything else.
 
-**Margin tier** — the commercial tier that sets their margin: **Tier 1 (15%)**,
-**Tier 2 (20%)**, or **Tier 3 (25%)**. Leave it **Not set** until a tier has actually been
-agreed; the field is deliberately optional so the record never claims a deal term that doesn't
-exist yet.
+**Margin tier** — how deeply this partner is involved in selling, and the share of a deal's
+value they earn on the ones they source. It is a standing property of the *partner*, not of a
+deal: every deal they bring earns at their current tier.
+
+| Tier | You are here when… |
+|---|---|
+| **Intro (15%)** | they make introductions and hand the opportunity over. |
+| **Active Collab (20%)** | they work the opportunity alongside you. |
+| **Partner closed (25%)** | they run the sale and close it themselves. |
+
+Leave it **Not set** until a tier has actually been agreed; the field is deliberately optional
+so the record never claims a deal term that doesn't exist yet. A partner with no tier accrues
+no commission — a won deal attributed to them records a skip rather than a zero-value entry,
+so the gap is visible instead of looking like a settled nothing.
+
+The tier is **frozen onto each commission entry at the moment it accrues**, so re-tiering a
+partner changes what their future deals earn and never rewrites what a past one already did.
 
 **Relationship stage** — where the *relationship* is, independent of certification. The stages
 read as a funnel:
@@ -83,6 +101,14 @@ partners so filtering stays useful.
 - **The company page stays the home** — activities, people, and deals with a partner live on
   the company page like for any other company. The Partner tab is one more tab there, not a
   separate world.
+- **Two lists, two questions.** A company's **Deals** tab shows deals where it is the
+  *customer*. Its **Partner** tab shows **Deals they brought** — deals belonging to *other*
+  companies that came through this partner. A partner-sourced deal appears only in the second,
+  because the deal belongs to the customer.
+- **Commission** sits under that, one row per entry, naming the deal it was earned on. Entries
+  appear on their own when a partner-sourced deal is won; nobody creates them by hand. The
+  statuses (accrued → approved → paid, or reversed) are shown but **cannot yet be changed from
+  the app** — deciding a commission exists in the API only.
 - **A simple weekly loop:** filter the list for **Applied** and push certifications forward;
   scan for partners whose stage is behind reality and correct it; make sure every in-flight
   partner has a next step with a due date.
@@ -92,7 +118,8 @@ generic record tools, so an agent can find it, read it and see that it carries t
 relationship type — but `partner` is not yet one of the record types those tools accept, so the
 partner extension's own fields (tier, certification, relationship stage) are not readable or
 writable that way. A deal's partner and what that partner did for it ARE agent-visible, through
-the deal's own `partner_org_id` and `partner_attribution` fields.
+the deal's own `partner_org_id` and `partner_attribution` fields — readable, and settable both
+when an agent creates a deal and when it updates one.
 
 ## Changing the value lists themselves
 

@@ -115,8 +115,7 @@ func testWorkspaceCtx(t *testing.T) (context.Context, *pgxpool.Pool, ids.UUID) {
 
 	user := ids.New[ids.UserKind]()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Overlay Test User')`,
-		user, ws, "overlay-user-"+user.String()+"@overlay.test"); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Overlay Test User')`, user, "overlay-user-"+user.String()+"@overlay.test"); err != nil {
 		t.Fatalf("seeding app_user: %v", err)
 	}
 
@@ -197,8 +196,7 @@ func testWorkspaceCtxAsUser(t *testing.T, ws ids.UUID, email string) (context.Co
 
 	user := ids.New[ids.UserKind]()
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Overlay Test User')`,
-		user, ws, email); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Overlay Test User')`, user, email); err != nil {
 		t.Fatalf("seeding app_user: %v", err)
 	}
 
@@ -268,9 +266,7 @@ func seedAgentUser(t *testing.T, ws ids.UUID, email string) ids.UserID {
 	t.Helper()
 	user := ids.New[ids.UserKind]()
 	if _, err := testOwnerConn(t).Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name, is_agent)
-		 VALUES ($1, $2, $3, 'Overlay Agent User', true)`,
-		user, ws, email); err != nil {
+		`INSERT INTO app_user (id, email, display_name, is_agent) VALUES ($1, $2, 'Overlay Agent User', true)`, user, email); err != nil {
 		t.Fatalf("seeding an agent app_user: %v", err)
 	}
 	return user
@@ -282,9 +278,7 @@ func seedArchivedUser(t *testing.T, ws ids.UUID, email string) ids.UserID {
 	t.Helper()
 	user := ids.New[ids.UserKind]()
 	if _, err := testOwnerConn(t).Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name, archived_at)
-		 VALUES ($1, $2, $3, 'Overlay Archived User', now())`,
-		user, ws, email); err != nil {
+		`INSERT INTO app_user (id, email, display_name, archived_at) VALUES ($1, $2, 'Overlay Archived User', now())`, user, email); err != nil {
 		t.Fatalf("seeding an archived app_user: %v", err)
 	}
 	return user
@@ -299,30 +293,6 @@ func archiveUser(t *testing.T, user ids.UserID) {
 		`UPDATE app_user SET archived_at = now() WHERE id = $1`, user); err != nil {
 		t.Fatalf("archiving app_user %s: %v", user, err)
 	}
-}
-
-// seedUserInOtherWorkspace seeds a whole SECOND workspace holding one user —
-// the cross-tenant target the composite-FK test aims at. It has to be a user
-// that genuinely exists somewhere else: a merely invented uuid would be
-// rejected by any FK at all, proving nothing about the tenant-local
-// app_user_id being the thing that rejects it.
-func seedUserInOtherWorkspace(t *testing.T, email string) ids.UserID {
-	t.Helper()
-	conn := testOwnerConn(t)
-	other := ids.NewV7()
-	if _, err := conn.Exec(context.Background(),
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		other, "overlay-other-"+other.String()); err != nil {
-		t.Fatalf("seeding the other workspace: %v", err)
-	}
-	user := ids.New[ids.UserKind]()
-	if _, err := conn.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name)
-		 VALUES ($1, $2, $3, 'Overlay Other-Workspace User')`,
-		user, other, email); err != nil {
-		t.Fatalf("seeding an app_user in the other workspace: %v", err)
-	}
-	return user
 }
 
 // seedAutoMapBlock writes the mirror_user_automap_block row an admin's

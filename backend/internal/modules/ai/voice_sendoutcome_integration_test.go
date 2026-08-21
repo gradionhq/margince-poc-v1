@@ -114,10 +114,10 @@ func (e *sendOutcomeEnv) seedDraft(t *testing.T, opts draftOptions) draftFixture
 		t.Fatal(err)
 	}
 
-	sender := e.seedUser(t, workspace, "sender")
+	sender := e.seedUser(t, "sender")
 	profileOwner := sender
 	if opts.foreignOwner {
-		profileOwner = e.seedUser(t, workspace, "colleague")
+		profileOwner = e.seedUser(t, "colleague")
 	}
 
 	var profile ids.UUID
@@ -190,13 +190,13 @@ const seededDraftBody = "Thanks for the call today — I will send the pricing o
 // a rep who reworded before hitting send.
 const editedSendBody = "Thanks for the chat today — I will send the numbers over tomorrow."
 
-func (e *sendOutcomeEnv) seedUser(t *testing.T, workspace ids.UUID, label string) ids.UUID {
+func (e *sendOutcomeEnv) seedUser(t *testing.T, label string) ids.UUID {
 	t.Helper()
 	var id ids.UUID
 	if err := e.owner.QueryRow(context.Background(), `
-		INSERT INTO app_user (workspace_id, email, display_name)
-		VALUES ($1, $2, $3) RETURNING id`,
-		workspace, label+"-"+ids.NewV7().String()+"@example.test", label).Scan(&id); err != nil {
+		INSERT INTO app_user (email, display_name)
+		VALUES ($1, $2) RETURNING id`,
+		label+"-"+ids.NewV7().String()+"@example.test", label).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	return id

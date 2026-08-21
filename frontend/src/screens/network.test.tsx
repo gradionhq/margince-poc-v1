@@ -183,6 +183,30 @@ describe("DealCoverageCard", () => {
     ).toBeInTheDocument();
   });
 
+  it("says the coverage was withheld rather than that the deal is clean", async () => {
+    // The payload a caller without the relationship grant receives: three
+    // empty arrays and the reason. Rendering the empty risk list would tell a
+    // manager the deal passes every check when no check ran — the wrong
+    // verdict this channel exists to prevent, and the one a blank or clean
+    // card cannot be distinguished from.
+    stubRoutes({
+      "/deals/d-1/coverage": {
+        deal_id: "d-1",
+        stakeholders: [],
+        our_side: [],
+        risks: [],
+        sections_omitted: ["stakeholders", "our_side", "risks"],
+      },
+    });
+    render(<DealCoverageCard id="d-1" />);
+    expect(
+      await screen.findByText(/coverage was withheld/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/passes every coverage check/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("surfaces a refused read as an error, never as a clean deal", async () => {
     // A 403 rendered as "nothing flagged" would tell a manager their deal is
     // healthy when the server declined to say anything at all.

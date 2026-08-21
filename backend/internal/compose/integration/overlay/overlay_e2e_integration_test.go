@@ -117,8 +117,7 @@ func seedSecondAppUser(t *testing.T, e *apptest.AppEnv, wsID ids.UUID, email str
 	t.Helper()
 	userID := ids.NewV7()
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Unmapped User')`,
-		userID, wsID, email); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Unmapped User')`, userID, email); err != nil {
 		t.Fatalf("seeding the unmapped app_user: %v", err)
 	}
 	return userID

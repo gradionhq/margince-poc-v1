@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -30,6 +31,11 @@ const DealStatusOpen = "open"
 // rules below read at their own level rather than reaching for the exported
 // name they define.
 const dealStatusOpen = DealStatusOpen
+
+// scopeAll is the clause an UNBOUNDED caller gets. auth answers "" for a caller
+// bounded by nothing, and an empty string interpolated into a WHERE reads as a
+// syntax error rather than as "no restriction".
+const scopeAll = "true"
 
 // dealFacts is the deal's own row, as the risk rules need it.
 type dealFacts struct {
@@ -86,30 +92,49 @@ func readDealFacts(ctx context.Context, tx pgx.Tx, dealID ids.DealID) (dealFacts
 // employment — a person leaving next month is at their desk today — and the
 // two questions must not disagree about the same row.
 //
-// No visibility probe: the caller passes the stakeholder ids it already read
-// under its own person row scope, so a seat this caller cannot see never
+// No person visibility probe: the caller passes the stakeholder ids it already
+// read under its own person row scope, so a seat this caller cannot see never
 // reaches here. Re-probing would be a second enforcement of the same rule with
 // its own way of being wrong.
+//
+// The EDGE gate is a different rule and is taken here. A departure IS an
+// employment edge — "this person no longer works at Acme" is a fact about the
+// pair — and CoverageFor only reaches this after the seat read passed the same
+// gate, so in practice it admits. It is taken anyway because nothing structural
+// stops a future caller arriving another way, and a read whose safety rests on
+// the order its package happens to call things in is one refactor from
+// disclosing.
 func readDeparted(ctx context.Context, tx pgx.Tx, orgID ids.UUID, people []ids.UUID, now time.Time) ([]ids.UUID, error) {
 	if orgID == ids.Nil || len(people) == 0 {
 		return nil, nil
 	}
-	rows, err := tx.Query(ctx, `
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	orgPos, peoplePos, nowPos := arg(orgID), arg(people), arg(now)
+	edgeBound, err := auth.EdgeReadScope(ctx, "r", arg)
+	if err != nil {
+		return nil, err
+	}
+	if edgeBound == "" {
+		edgeBound = scopeAll
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT DISTINCT r.person_id
 		  FROM relationship r
 		 WHERE r.kind = 'employment'
-		   AND r.organization_id = $1
-		   AND r.person_id = ANY($2)
+		   AND r.organization_id = $%[1]d
+		   AND r.person_id = ANY($%[2]d)
 		   AND r.archived_at IS NULL
-		   AND r.ended_at IS NOT NULL AND r.ended_at <= $3::date
+		   AND r.ended_at IS NOT NULL AND r.ended_at <= $%[3]d::date
+		   AND (%[4]s)
 		   AND NOT EXISTS (
 		       SELECT 1 FROM relationship live
 		        WHERE live.kind = 'employment'
 		          AND live.organization_id = r.organization_id
 		          AND live.person_id = r.person_id
 		          AND live.archived_at IS NULL
-		          AND (live.ended_at IS NULL OR live.ended_at > $3::date))
-		 ORDER BY r.person_id`, orgID, people, now)
+		          AND (live.ended_at IS NULL OR live.ended_at > $%[3]d::date))
+		 ORDER BY r.person_id`, orgPos, peoplePos, nowPos, edgeBound), args...)
 	if err != nil {
 		return nil, fmt.Errorf("network: reading which stakeholders have left the account: %w", err)
 	}

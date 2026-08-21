@@ -151,7 +151,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	// --- reconstruction (OVA-AC-6 d): the pre-flip export rebuilds a
 	// CLEAN native instance — a fresh workspace — through the same
 	// engine, with zero incumbent calls (this path holds no adapter).
-	cleanCtx := seedCleanWorkspace(t, f)
+	cleanCtx := seedCleanInstance(t, f)
 	rep, err := compose.ReconstructForTest(cleanCtx, f.pool, bundle.Bytes())
 	if err != nil {
 		t.Fatalf("reconstruction: %v", err)
@@ -216,23 +216,23 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	}
 }
 
-// seedCleanWorkspace mints a second, empty workspace (its own tenant,
-// zero records) with a seeded default pipeline — the clean instance the
-// reconstruction lands in.
-func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
+// seedCleanInstance empties the installation and seeds it a fresh admin and
+// default pipeline — the clean instance the reconstruction lands in.
+//
+// It minted a SECOND workspace to be that instance until ADR-0091 §8 phase D
+// took the tenant column off app_user. It did not need to even then: the estate
+// deletion below is what makes the counts mean the rebuild, and it was always
+// installation-wide. One workspace, emptied, is the same clean instance and is
+// also what a real reconstruction restores into.
+func seedCleanInstance(t *testing.T, f flipEstate) context.Context {
 	t.Helper()
 	ctx := context.Background()
-	ws := ids.NewV7()
-	if _, err := f.e.Owner.Exec(ctx,
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`,
-		ws, "clean-rebuild-"+ws.String()); err != nil {
-		t.Fatalf("seeding the clean workspace: %v", err)
-	}
+	ws := f.wsID
 	user := ids.New[ids.UserKind]()
 	if _, err := f.e.Owner.Exec(ctx,
-		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rebuild Admin')`,
-		user, ws, "rebuild-"+user.String()+"@clean.test"); err != nil {
-		t.Fatalf("seeding the clean workspace admin: %v", err)
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, $2, 'Rebuild Admin')`,
+		user, "rebuild-"+user.String()+"@clean.test"); err != nil {
+		t.Fatalf("seeding the clean instance's admin: %v", err)
 	}
 	// The source estate goes first, and that is the point rather than a
 	// workaround. Pipeline names, the default pipeline and the anchor
@@ -242,9 +242,6 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 	// installation from its export, after the estate it came from is gone.
 	// The bundle is already in memory, so deleting the source loses nothing
 	// this test still needs.
-	// Named tables rather than the workspace row: app_user and the rest do not
-	// cascade from it, and this fixture only has to clear what now collides
-	// installation-wide.
 	// The order is the foreign keys' — a deal points at its stage, its pipeline
 	// and its organization. No workspace predicate on any of them: ADR-0091 §8
 	// phase D has now taken the column off all seven, so the estate IS every
@@ -256,6 +253,18 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 			t.Fatalf("retiring the source estate's %s rows before the rebuild: %v", table, err)
 		}
 	}
+	// The estate's SEATS go too, all but the rebuild admin. presentOwners
+	// filters an export's owner ids to the ones that exist HERE, and it used to
+	// be the tenant column that made the exporting installation's owners not
+	// exist. With one set of users (ADR-0091 §8 phase D) they would all still
+	// resolve, and the unmapped-owner fallback this test is about would never
+	// fire — a fixture that quietly stopped exercising its own subject.
+	// Retiring them is also what actually happens: the seats belonged to the
+	// estate that is gone.
+	if _, err := f.e.Owner.Exec(ctx, `DELETE FROM app_user WHERE id <> $1`, user); err != nil {
+		t.Fatalf("retiring the source estate's seats before the rebuild: %v", err)
+	}
+
 	// The identity ledger goes with the estate, for the same reason and by the
 	// same rule: since ADR-0091 §8 phase D it is keyed on the INCUMBENT's
 	// identity — (source_system, object, external_id) — so a mapping the

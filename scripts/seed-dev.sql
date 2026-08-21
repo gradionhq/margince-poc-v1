@@ -90,7 +90,7 @@ BEGIN
   -- demo password, without re-implementing Argon2id hashing in SQL.
   SELECT id, password_hash INTO admin_id, admin_hash
     FROM app_user
-    WHERE workspace_id = ws AND lower(email) = lower('admin@demo.test');
+    WHERE lower(email) = lower('admin@demo.test');
   IF admin_id IS NULL THEN
     RAISE NOTICE 'seed-dev.sql: no admin@demo.test user — run make seed-dev first';
     RETURN;
@@ -119,13 +119,13 @@ BEGIN
 
   -- 2nd full-seat user so the Share picker / "who has access" have a real
   -- subject beyond the lone admin.
-  INSERT INTO app_user (workspace_id, email, password_hash, display_name, seat_type, status)
-  VALUES (ws, 'rep@demo.test', admin_hash, 'Rep One', 'full', 'active')
+  INSERT INTO app_user (email, password_hash, display_name, seat_type, status)
+  VALUES ('rep@demo.test', admin_hash, 'Rep One', 'full', 'active')
   ON CONFLICT (lower(email)) DO NOTHING;
 
   SELECT id INTO rep_id
     FROM app_user
-    WHERE workspace_id = ws AND lower(email) = lower('rep@demo.test');
+    WHERE lower(email) = lower('rep@demo.test');
 
   -- A team with admin + Rep One as members, so the roster picker and the
   -- "who has access" list have a demonstrable, non-trivial membership.
@@ -174,13 +174,13 @@ BEGIN
   -- Rep Two: an individual contributor — own-scoped, in NO team. Contrast with
   -- Rep One (team-scoped, in DACH Sales): Rep One sees the team's records by
   -- scope, Rep Two sees nothing until a record is explicitly shared with them.
-  INSERT INTO app_user (workspace_id, email, password_hash, display_name, seat_type, status)
-  VALUES (ws, 'rep2@demo.test', admin_hash, 'Rep Two', 'full', 'active')
+  INSERT INTO app_user (email, password_hash, display_name, seat_type, status)
+  VALUES ('rep2@demo.test', admin_hash, 'Rep Two', 'full', 'active')
   ON CONFLICT (lower(email)) DO NOTHING;
 
   SELECT id INTO rep2_id
     FROM app_user
-    WHERE workspace_id = ws AND lower(email) = lower('rep2@demo.test');
+    WHERE lower(email) = lower('rep2@demo.test');
 
   INSERT INTO role_assignment (role_id, user_id)
   SELECT r.id, rep2_id

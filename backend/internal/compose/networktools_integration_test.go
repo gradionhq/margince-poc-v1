@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
@@ -197,4 +198,96 @@ func seedOpenDeal(t *testing.T, e *integration.Env) ids.UUID {
 			RETURNING id`, stageID, pipelineID, e.Rep1).Scan(&dealID)
 	}, "seeding the deal")
 	return dealID
+}
+
+// coverageDeniedPerms is a caller with everything the sweep and the retriever
+// ask for EXCEPT the edge grant. Row scope is unbounded so nothing else can
+// account for what comes back: the only thing missing is permission to read
+// which people sit on a deal.
+func coverageDeniedPerms() principal.Permissions {
+	return principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"deal":         {Read: true},
+			"person":       {Read: true},
+			"organization": {Read: true},
+			"activity":     {Read: true},
+		},
+		RowScope: principal.RowScopeAll,
+	}
+}
+
+// The sweep must report the deal as UNASSESSED, not omit it into a clean
+// pipeline. A withheld coverage view carries no findings, so the deal is absent
+// from the list either way — and an absence in this report is otherwise read as
+// a deal with nothing wrong.
+//
+// This is the ordering the producer has to get right: the withheld test has to
+// precede the empty-risks test, or every unassessable deal is classified as
+// healthy. Testing it through the real lister rather than a stub is the point —
+// a handed-in flag proves the warning, never that anything sets it.
+func TestTheAtRiskSweepSaysADealCouldNotBeAssessedRatherThanCallingItClean(t *testing.T) {
+	e := integration.Setup(t)
+	seedOpenDeal(t, e)
+
+	granted, err := atRiskLister(e.Pool)(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms))
+	if err != nil {
+		t.Fatalf("the granted sweep: %v", err)
+	}
+	if len(granted.Deals) == 0 || granted.CoverageWithheld {
+		t.Fatalf("the granted caller sees %d findings and withheld=%v — the fixture then proves "+
+			"nothing about the denied caller", len(granted.Deals), granted.CoverageWithheld)
+	}
+
+	denied, err := atRiskLister(e.Pool)(e.As(e.Rep1, []ids.UUID{e.Team1}, coverageDeniedPerms()))
+	if err != nil {
+		t.Fatalf("the denied sweep failed instead of reporting what it could not assess: %v", err)
+	}
+	if !denied.CoverageWithheld {
+		t.Error("the denied sweep reports coverage_withheld=false, so its empty findings list " +
+			"reads as a clean pipeline over a deal nothing was checked on")
+	}
+	if len(denied.Deals) != 0 {
+		t.Errorf("the denied sweep reported %d findings, and no rule could have run", len(denied.Deals))
+	}
+	if denied.DealsScanned == 0 {
+		t.Error("the denied sweep reports scanning no deals, which hides that anything was skipped")
+	}
+}
+
+// And the retriever puts the withholding in the context as an ITEM. The section
+// is what the assistant leads with — "the champion has left" — so a section that
+// silently comes back empty produces a summary that reads as reassurance.
+func TestTheRiskRetrieverCarriesTheWithholdingRatherThanAnEmptySection(t *testing.T) {
+	e := integration.Setup(t)
+	deal := seedOpenDeal(t, e)
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, coverageDeniedPerms())
+
+	anchor := datasource.EntityRef{Type: datasource.EntityDeal, ID: deal}
+	inner := stubContext{out: retrieval.Context{
+		Anchor:   anchor,
+		Sections: []retrieval.Section{{Name: "recent_touches", Items: []retrieval.Item{{Summary: "a call"}}}},
+	}}
+	got, err := riskAwareRetriever{pool: e.Pool, inner: inner}.
+		AssembleContext(ctx, anchor, retrieval.AssembleOptions{})
+	if err != nil {
+		t.Fatalf("assembling with a withheld coverage read: %v", err)
+	}
+	risks := sectionNamed(got, "network_risks")
+	if risks == nil {
+		t.Fatal("the withheld coverage read dropped the risk section silently — the assistant is " +
+			"then told nothing, which it reports as nothing being wrong")
+	}
+	if len(risks.Items) != 1 || risks.Items[0].Summary != coverageWithheldSummary {
+		t.Errorf("the risk section holds %+v, want the withheld item", risks.Items)
+	}
+}
+
+func sectionNamed(ctx retrieval.Context, name string) *retrieval.Section {
+	for i := range ctx.Sections {
+		if ctx.Sections[i].Name == name {
+			return &ctx.Sections[i]
+		}
+	}
+	return nil
 }

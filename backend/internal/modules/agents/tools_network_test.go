@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -248,5 +249,74 @@ func TestCoverageForwardsTheFindingsWithTheirEvidence(t *testing.T) {
 	}
 	if len(got.Risks[0].PersonIDs) != 1 || got.Risks[0].PersonIDs[0] != person {
 		t.Errorf("the finding lost the record behind it: %+v", got.Risks[0])
+	}
+}
+
+// A withheld coverage answer says so IN WORDS, not only in a field.
+//
+// The structured half of this answer — no seats, nobody on our side, no
+// findings — is the same shape a genuinely uncovered deal produces, and it is
+// the shape a model most readily reports as good news. The warning is what
+// stops "I could not check" being rendered as "nothing is wrong".
+func TestAWithheldCoverageAnswerWarnsRatherThanReadingAsClean(t *testing.T) {
+	tool := accountCoverageTool{read: func(context.Context, ids.UUID) (DealCoverageAnswer, error) {
+		return DealCoverageAnswer{
+			SectionsOmitted: []string{"stakeholders", "our_side", "risks"},
+		}, nil
+	}}
+	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+	r.Register(tool)
+
+	out, err := r.Invoke(scopedAgentCtx(principal.ScopeRead), "account_coverage",
+		json.RawMessage(`{"deal_id":"`+ids.NewV7().String()+`"}`))
+	if err != nil {
+		t.Fatalf("account_coverage: %v", err)
+	}
+	warning, warned := warningNamed(sealedEnvelope(t, out), warningSectionWithheld)
+	if !warned {
+		t.Fatalf("a withheld coverage answer carries no section_withheld warning")
+	}
+	if !strings.Contains(warning.Message, "WITHHELD") {
+		t.Errorf("the warning reads %q, and a model needs the word for what happened", warning.Message)
+	}
+}
+
+// And an ordinary answer raises nothing, or the warning stops meaning anything.
+func TestAnOrdinaryCoverageAnswerClaimsNothingWasWithheld(t *testing.T) {
+	tool := accountCoverageTool{read: func(context.Context, ids.UUID) (DealCoverageAnswer, error) {
+		return DealCoverageAnswer{Risks: []CoverageRisk{{Kind: "going_cold", Summary: "quiet"}}}, nil
+	}}
+	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+	r.Register(tool)
+
+	out, err := r.Invoke(scopedAgentCtx(principal.ScopeRead), "account_coverage",
+		json.RawMessage(`{"deal_id":"`+ids.NewV7().String()+`"}`))
+	if err != nil {
+		t.Fatalf("account_coverage: %v", err)
+	}
+	if _, warned := warningNamed(sealedEnvelope(t, out), warningSectionWithheld); warned {
+		t.Error("a complete coverage answer claims a section was withheld")
+	}
+}
+
+// A sweep that could not assess a deal says so. The deal is ABSENT from the
+// findings list either way, and an absence in this report otherwise reads as a
+// deal with nothing wrong — the one reading a partly blind sweep must not
+// support.
+func TestASweepThatCouldNotAssessADealSaysSo(t *testing.T) {
+	tool := atRiskTool{list: func(context.Context) (AtRiskReport, error) {
+		return AtRiskReport{Deals: []AtRiskDeal{}, DealsScanned: 3, CoverageWithheld: true}, nil
+	}}
+	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+	r.Register(tool)
+
+	out, err := r.Invoke(scopedAgentCtx(principal.ScopeRead), "at_risk_relationships",
+		json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("at_risk_relationships: %v", err)
+	}
+	if _, warned := warningNamed(sealedEnvelope(t, out), warningSectionWithheld); !warned {
+		t.Error("a sweep with an unassessable deal reports no withheld warning, so its empty " +
+			"findings list reads as a clean pipeline")
 	}
 }

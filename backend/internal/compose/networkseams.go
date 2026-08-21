@@ -146,6 +146,11 @@ func toAgentCoverage(c network.DealCoverage, names map[ids.UUID]string) agents.D
 		DealID:       c.DealID,
 		Stakeholders: make([]agents.CoverageSeat, 0, len(c.Stakeholders)),
 		OurSide:      make([]agents.KnownColleague, 0, len(c.OurSide)),
+		// Carried through rather than recomputed: the builder that knows the
+		// sections were withheld is the only one that can say so, and a tool
+		// re-deriving it from three empty arrays would call an uncovered deal
+		// a withheld one.
+		SectionsOmitted: c.SectionsOmitted,
 	}
 	for _, s := range c.Stakeholders {
 		out.Stakeholders = append(out.Stakeholders, agents.CoverageSeat{

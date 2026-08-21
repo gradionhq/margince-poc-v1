@@ -250,8 +250,7 @@ func giveTheCachedRowToAnotherReader(t *testing.T, e *apptest.AppEnv, orgID stri
 	}
 	other := ids.NewV7()
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name)
-		 VALUES ($1, $2, 'grace@example.com', 'Grace')`, other, workspaceID); err != nil {
+		`INSERT INTO app_user (id, email, display_name) VALUES ($1, 'grace@example.com', 'Grace')`, other); err != nil {
 		t.Fatalf("create the other reader: %v", err)
 	}
 	tag, err := e.Owner.Exec(context.Background(),
