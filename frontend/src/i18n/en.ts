@@ -2255,6 +2255,27 @@ export const en = {
     "Pick at least one. An agent can never do more than you can.",
   "settings.passportScopesRequired":
     "Pick at least one thing this agent may do.",
+  // What the scheduled agent is doing for this reader, one line per (kind,
+  // state). First person for what Margince did, result first, and never a word
+  // that reads as finished on a run that stopped part-way.
+  "agent.activity.morningBrief.queued": "Your morning brief is queued.",
+  "agent.activity.morningBrief.running":
+    "I'm putting your morning brief together.",
+  "agent.activity.morningBrief.done": "Your morning brief is ready.",
+  "agent.activity.morningBrief.degraded":
+    "I got partway through your morning brief and stopped.",
+  "agent.activity.morningBrief.failed": "I couldn't finish your morning brief.",
+  "agent.activity.riskSweep.queued": "The overnight risk sweep is queued.",
+  "agent.activity.riskSweep.running": "I'm checking your deals for risk.",
+  "agent.activity.riskSweep.done":
+    "Done. I checked your deals for risk overnight.",
+  "agent.activity.riskSweep.degraded":
+    "I got partway through the risk sweep and stopped.",
+  "agent.activity.riskSweep.failed":
+    "I couldn't finish the overnight risk sweep.",
+  "agent.panel.runningNow": "Running now",
+  "agent.panel.stoppedEarly": "Why it stopped",
+
   "agents.connected": "Connected agents",
   "agents.connectedSub":
     "MCP clients holding their own credential, derived from a passport you lent",
