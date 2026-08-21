@@ -19,6 +19,7 @@ package collections
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -137,6 +138,10 @@ func TestTheFilterVocabularyOverHTTPOffersWhatADynamicListAccepts(t *testing.T) 
 			// string. A plain string would decode both as "" and the
 			// omitted-for-a-non-id-field guarantee would be unassertable.
 			References *string `json:"references,omitempty"`
+			// A pointer for the same reason: an absent key and an empty array are
+			// different answers, and only one of them is right for a field with no
+			// closed set.
+			Options *[]string `json:"options,omitempty"`
 		} `json:"fields"`
 	}
 	status := e.Call(t, "GET", "/v1/filters/vocabulary?resource=person", nil, nil, &vocab)
@@ -161,6 +166,17 @@ func TestTheFilterVocabularyOverHTTPOffersWhatADynamicListAccepts(t *testing.T) 
 			if f.Type != "picklist" {
 				t.Errorf("%s type = %q, want the picklist the admin created", column, f.Type)
 			}
+			// The values the admin authored, over the wire and through the real
+			// catalogue write — the one path that proves the jsonb column, the
+			// decode and the response mapping agree. A picklist that arrived
+			// without them is the whole defect: the builder falls back to a free
+			// text box over a closed set.
+			switch {
+			case f.Options == nil:
+				t.Errorf("%s is a picklist and the response carries no options key, so a builder can only ask a reader to type a value", column)
+			case !slices.Equal(*f.Options, []string{"gold", "silver"}):
+				t.Errorf("%s offers %v, want the two values the admin created", column, *f.Options)
+			}
 		case "owner_id":
 			if f.Custom {
 				t.Error("owner_id is a core field and is reported custom")
@@ -180,6 +196,12 @@ func TestTheFilterVocabularyOverHTTPOffersWhatADynamicListAccepts(t *testing.T) 
 		if f.Type != "id" && f.References != nil {
 			t.Errorf("%s is typed %s and the response carries references=%q; the key belongs only to an id field",
 				f.Name, f.Type, *f.References)
+		}
+		// Same shape for the closed set: only a picklist has one, so any other
+		// type carrying an options key promises a picker for a free-text column.
+		if f.Type != "picklist" && f.Options != nil {
+			t.Errorf("%s is typed %s and the response carries options=%v; only a picklist has a closed set",
+				f.Name, f.Type, *f.Options)
 		}
 		if len(f.Operators) == 0 {
 			t.Errorf("%s reports no operators, so a builder could offer no clause on it", f.Name)

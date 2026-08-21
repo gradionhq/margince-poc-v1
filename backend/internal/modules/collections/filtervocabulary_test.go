@@ -40,15 +40,26 @@ import (
 // grantCtx binds a human actor holding exactly one object grant, so a test
 // cannot pass on a permission the operation does not require.
 func grantCtx(object string, grant principal.ObjectGrant) context.Context {
+	return readGrantsCtx(map[string]principal.ObjectGrant{object: grant})
+}
+
+func readGrantsCtx(objects map[string]principal.ObjectGrant) context.Context {
 	return principal.WithActor(context.Background(), principal.Principal{
 		Type:        principal.PrincipalHuman,
-		Permissions: principal.Permissions{Objects: map[string]principal.ObjectGrant{object: grant}},
+		Permissions: principal.Permissions{Objects: objects},
 	})
 }
 
-// readerCtx holds `list:read` — the gate FilterVocabulary applies.
+// readerCtx holds BOTH grants FilterVocabulary applies: `list:read` for the
+// operation and `custom_field:read` for its custom half. A seeded role holds
+// both, so this is the ordinary caller — the one-grant cases are their own tests
+// below, and using a one-grant context here would quietly test the withheld
+// answer everywhere.
 func readerCtx() context.Context {
-	return grantCtx("list", principal.ObjectGrant{Read: true})
+	return readGrantsCtx(map[string]principal.ObjectGrant{
+		"list":         {Read: true},
+		"custom_field": {Read: true},
+	})
 }
 
 // everyTypeCatalog seeds one custom column per filterable custom-field type, so
@@ -188,6 +199,52 @@ func TestTheVocabularyTellsACallerWhatAnIDFieldReferences(t *testing.T) {
 	// neighbour's target — the failure a shared local in the mapping would cause.
 	if got := byName["status"].References; got != "" {
 		t.Errorf("status is a picklist and references %q, want none", got)
+	}
+}
+
+// The values have to reach the CALLER. Declaring them and reporting them are
+// different things: a mapping that dropped the field would keep every
+// declaration-side gate green, because the declarations stay internally
+// consistent when nothing reads the answer.
+func TestTheVocabularyTellsACallerAPicklistsValues(t *testing.T) {
+	fields, ok, err := (&Store{}).FilterVocabulary(readerCtx(), "deal")
+	if err != nil || !ok {
+		t.Fatalf("filterVocabulary: ok=%v err=%v", ok, err)
+	}
+	byName := map[string]VocabularyField{}
+	for _, f := range fields {
+		byName[f.Name] = f
+	}
+	if got := byName["status"].Options; len(got) != 3 || got[0] != "open" {
+		t.Errorf("status offers %v, want the contract's own three", got)
+	}
+	// A field with no closed set says so by carrying none.
+	//
+	// What each set CONTAINS is swept in TestEveryCorePicklistOffersItsValues,
+	// which reaches all seven; this asserts only that the set travels.
+	if got := byName["owner_id"].Options; len(got) != 0 {
+		t.Errorf("owner_id is an id field and offers values %v", got)
+	}
+}
+
+// The wire shape: values are a present key for a picklist and an ABSENT one
+// otherwise. An empty array would say "this picklist admits nothing".
+func TestTheWireOmitsTheOptionsKeyForAFieldWithNoClosedSet(t *testing.T) {
+	withOptions := wireVocabularyField(VocabularyField{
+		Name: "status", Type: string(storekit.FieldPicklist),
+		Options: []string{"open", "won"},
+	})
+	if withOptions.Options == nil {
+		t.Fatal("a picklist carried no options to the wire")
+	}
+	if got := *withOptions.Options; len(got) != 2 || got[0] != "open" {
+		t.Errorf("wire options = %v, want the two given", got)
+	}
+	none := wireVocabularyField(VocabularyField{
+		Name: "full_name", Type: string(storekit.FieldText),
+	})
+	if none.Options != nil {
+		t.Errorf("a text field carried options %v to the wire", *none.Options)
 	}
 }
 
@@ -380,6 +437,79 @@ func TestReadingTheVocabularyNeedsTheListReadGrant(t *testing.T) {
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("err = %v, want permission denied", err)
 	}
+}
+
+// A custom picklist's VALUES need the catalogue's grant; the field itself does
+// not. That line is where schema stops and content starts: a cf_* column's name
+// and type are already ambient to anyone who may read a record carrying it, and
+// withholding the field would make this operation offer less than the engine
+// accepts — the divergence the whole seam exists to prevent. The values are what
+// an admin authored, and are the same content `GET /custom-fields` refuses.
+//
+// So the degradation is deliberate and it is the OLD behaviour: a reader without
+// the grant types the value, exactly as everyone did before options travelled.
+func TestACustomPicklistsValuesNeedTheCatalogueGrant(t *testing.T) {
+	store := (&Store{}).WithFieldCatalog(stubFilterable{cols: map[string][]fieldcatalog.Column{
+		"person": {{Name: "cf_tier", Type: fieldcatalog.TypePicklist, Options: []string{"gold", "silver"}}},
+	}})
+
+	blind := grantCtx("list", principal.ObjectGrant{Read: true})
+	withheld, ok, err := store.FilterVocabulary(blind, "person")
+	if err != nil || !ok {
+		t.Fatalf("filterVocabulary without custom_field:read: ok=%v err=%v — a missing grant narrows the answer, it does not refuse", ok, err)
+	}
+	tier, present := fieldNamed(withheld, "cf_tier")
+	if !present {
+		t.Fatal("cf_tier was dropped entirely: the field is schema and the engine still accepts a clause naming it, so omitting it makes this operation advertise less than the engine takes")
+	}
+	if len(tier.Options) != 0 {
+		t.Errorf("a principal without custom_field:read was told cf_tier's values %v", tier.Options)
+	}
+	// Still filterable, which is the point of withholding the values rather than
+	// the field: the operators are what let a builder compose the clause at all.
+	if len(tier.Operators) == 0 {
+		t.Error("cf_tier carries no operators, so withholding its values cost the clause instead of the copy")
+	}
+
+	// The same store, one grant richer. Without this the assertion above would
+	// also pass against a stub whose options never arrived.
+	granted, _, err := store.FilterVocabulary(readerCtx(), "person")
+	if err != nil {
+		t.Fatalf("filterVocabulary with both grants: %v", err)
+	}
+	told, _ := fieldNamed(granted, "cf_tier")
+	if len(told.Options) != 2 {
+		t.Errorf("cf_tier offers %v to a principal holding custom_field:read, want both authored values", told.Options)
+	}
+}
+
+// A CORE picklist's values are the contract's own enum, published in
+// api/crm.yaml, so no grant is what protects them — and gating them would hide
+// from a reader something they can read in the specification.
+func TestACorePicklistsValuesNeedNoCatalogueGrant(t *testing.T) {
+	blind := grantCtx("list", principal.ObjectGrant{Read: true})
+	fields, ok, err := (&Store{}).FilterVocabulary(blind, "deal")
+	if err != nil || !ok {
+		t.Fatalf("filterVocabulary: ok=%v err=%v", ok, err)
+	}
+	status, present := fieldNamed(fields, "status")
+	if !present {
+		t.Fatal("deal.status is missing from the vocabulary")
+	}
+	if len(status.Options) == 0 {
+		t.Error("deal.status offers no values to a principal without custom_field:read; a contract enum is not the catalogue's content")
+	}
+}
+
+// fieldNamed reads one field out of a vocabulary answer, since the order is by
+// name and a caller looking for one field should not depend on where it lands.
+func fieldNamed(fields []VocabularyField, name string) (VocabularyField, bool) {
+	for _, f := range fields {
+		if f.Name == name {
+			return f, true
+		}
+	}
+	return VocabularyField{}, false
 }
 
 // A resource with no engine is distinguishable from one whose vocabulary is

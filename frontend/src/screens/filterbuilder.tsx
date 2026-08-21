@@ -352,6 +352,7 @@ function ClauseRow({
       <ValueControl
         type={chosen?.type ?? "text"}
         references={chosen?.references}
+        options={chosen?.options}
         op={op}
         value={value}
         onChange={(nextValue) =>
@@ -390,6 +391,7 @@ function ClauseRow({
 function ValueControl({
   type,
   references,
+  options,
   op,
   value,
   onChange,
@@ -397,6 +399,8 @@ function ValueControl({
   type: VocabularyField["type"];
   /** What an id field's values point at, when the vocabulary named one. */
   references: Reference | undefined;
+  /** A picklist's allowed values, when the vocabulary carried them. */
+  options: readonly string[] | undefined;
   op: FilterOp;
   value: LeafValue;
   onChange: (next: LeafValue) => void;
@@ -431,6 +435,24 @@ function ValueControl({
         type={type}
         value={value}
         onChange={onChange}
+      />
+    );
+  }
+  if (options !== undefined && options.length > 0) {
+    // A closed set is picked, not typed. Typing it invites the failure this whole
+    // surface exists to prevent: a value outside the set compiles, matches
+    // nothing, and reads as a settled answer rather than as a mistake.
+    //
+    // The label IS the value. These are the wire words a workspace admin chose,
+    // or a contract enum; inventing display copy here would be a second
+    // vocabulary for a reader to reconcile against what the record page shows.
+    return (
+      <Select
+        options={options.map((option) => ({ value: option, label: option }))}
+        value={typeof value === "string" ? value : ""}
+        onChange={onChange}
+        placeholder={t("filters.pickValue")}
+        aria-label={t("filters.value")}
       />
     );
   }

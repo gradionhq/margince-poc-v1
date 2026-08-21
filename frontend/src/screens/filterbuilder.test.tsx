@@ -61,6 +61,9 @@ const VOCAB: VocabularyField[] = [
     type: "picklist",
     operators: ["eq", "neq", "in", "exists"],
     custom: true,
+    // The vocabulary carries a picklist's allowed values, so the fixture does —
+    // a stub without them would exercise a response the server cannot send.
+    options: ["gold", "silver", "bronze"],
   },
   {
     name: "cf_deal_score",
@@ -251,6 +254,64 @@ describe("when a roster cannot be read", () => {
     // would leave the reader unable to write the clause at all.
     expect(await screen.findByRole("textbox", { name: "Value" })).toBeTruthy();
     expect(screen.queryByRole("combobox", { name: "Value" })).toBeNull();
+  });
+});
+
+describe("a closed set is picked, not typed", () => {
+  it("offers the values the vocabulary carries", async () => {
+    resetIDsForTest();
+    const user = userEvent.setup();
+    render(
+      <Harness
+        start={newGroup("and", [newLeaf("cf_loyalty_tier", "eq", "")])}
+      />,
+    );
+
+    await pickOption(
+      user,
+      await screen.findByRole("combobox", { name: "Value" }),
+      "silver",
+    );
+
+    expect(wire()).toEqual({
+      and: [{ field: "cf_loyalty_tier", op: "eq", value: "silver" }],
+    });
+  });
+
+  it("gives a reader no way to compose a value the set does not hold", async () => {
+    resetIDsForTest();
+    render(
+      <Harness
+        start={newGroup("and", [newLeaf("cf_loyalty_tier", "eq", "")])}
+      />,
+    );
+
+    // No text box at all for a closed set. That is the whole fix: a free box
+    // over these values let `Gold` through, which compiled, matched nothing, and
+    // reported "0 match" as a settled answer.
+    expect(screen.queryByRole("textbox", { name: "Value" })).toBeNull();
+    const listed = (await screen.findByRole("combobox", { name: "Value" }))
+      .textContent;
+    expect(listed).not.toContain("Gold");
+  });
+
+  it("still types a free-text field", async () => {
+    resetIDsForTest();
+    const user = userEvent.setup();
+    render(
+      <Harness start={newGroup("and", [newLeaf("full_name", "eq", "")])} />,
+    );
+
+    // The other half of the rule: `text` has no closed set, so a box is right
+    // there and turning every field into a dropdown would be the opposite error.
+    await user.type(
+      await screen.findByRole("textbox", { name: "Value" }),
+      "ann",
+    );
+
+    expect(wire()).toEqual({
+      and: [{ field: "full_name", op: "eq", value: "ann" }],
+    });
   });
 });
 

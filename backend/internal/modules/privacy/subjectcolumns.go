@@ -36,7 +36,22 @@ func subjectCustomColumns(ctx context.Context, tx pgx.Tx, object string) ([]fiel
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[fieldcatalog.Column])
+	defer rows.Close()
+	// Scanned into NAMED fields rather than by position. fieldcatalog.Column
+	// belongs to the port, not to this module, so a positional mapping bound this
+	// two-column SELECT to a struct shape privacy has no say over: the day the
+	// port gained a third field for somebody else's read, this query started
+	// failing on a mismatch it never mentioned. Only the columns erasure and the
+	// Art. 15 export actually use are read.
+	var cols []fieldcatalog.Column
+	for rows.Next() {
+		var c fieldcatalog.Column
+		if err := rows.Scan(&c.Name, &c.Type); err != nil {
+			return nil, err
+		}
+		cols = append(cols, c)
+	}
+	return cols, rows.Err()
 }
 
 // nullColumnAssignments renders the `, "cf_x" = NULL, …` fragment an

@@ -57,9 +57,35 @@ func Types() []string {
 // of the Type* constants above). Whether a given Column is active,
 // retired, or both is a question of which method returned it — Reader
 // and FilterableReader below — not of the type itself.
+//
+// The fields carry DIFFERENT disclosure rules, and this is the one place that
+// says so, because three surfaces read them and each was choosing for itself:
+//
+//   - Name and Type are SCHEMA. Ambient to any caller who may read records of
+//     that object, because a consumer that had to hide them would describe a
+//     narrower product than the engine implements — a field nothing may name is
+//     a field a filter cannot use. Note what this does NOT rest on: a record
+//     payload omits a NULL, so a column with no value on any record is not
+//     already visible there. Ambient is a decision, not an observation.
+//   - Options is catalogue CONTENT, authored by an admin. A consumer passing it
+//     to a caller needs `custom_field:read`, the grant that governs the
+//     catalogue surface these values otherwise come from.
+//
+// Neither of those is a Column's own business to enforce — it holds no context —
+// so the obligation lands on the consumer, which is why it is written where every
+// consumer reads rather than in each of them.
 type Column struct {
 	Name string
 	Type string
+	// Options is a picklist column's allowed values, and is empty for every
+	// other type. It travels with the column because a consumer that has to
+	// OFFER the field needs them — a builder without them can only ask a reader
+	// to type a value from a closed set, which is how a mistyped one becomes a
+	// filter that silently matches nothing.
+	//
+	// The catalogue owns them, as it owns labels: they are per-workspace admin
+	// state, not something the engine or a consumer may derive.
+	Options []string
 }
 
 // Reader answers the active custom-field columns for one core object,

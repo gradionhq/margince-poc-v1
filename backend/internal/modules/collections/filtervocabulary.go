@@ -38,12 +38,15 @@ package collections
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -61,6 +64,9 @@ type VocabularyField struct {
 	// reader to paste a uuid. The engine declares it beside the field; nothing
 	// here derives it from the name.
 	References storekit.Reference
+	// Options is a picklist's allowed values, so a builder offers them instead of
+	// asking a reader to type one. Empty for every other type.
+	Options []string
 }
 
 // FilterVocabulary answers every field a NEW filter clause may name for this
@@ -72,11 +78,38 @@ type VocabularyField struct {
 //
 // Gated as a read of `list`, the object whose filters this vocabulary describes,
 // with no row-scope clause because it returns no record and no record's contents.
-// The workspace-private part of the answer is which cf_* columns exist, and that
-// is already ambient to every principal reachable here: every seeded role holding
-// `list:read` also holds `custom_field:read` (core migrations 0064, 0183, 0268),
-// and the catalogue read that grant governs returns strictly more — labels,
-// slugs, status, and the retired rows this operation omits.
+//
+// One thing here is NOT ambient, and the line runs between schema and content.
+//
+// A cf_* column's NAME and TYPE are schema, and the reason they are ambient is
+// the EQUIVALENCE this seam exists for, not a claim about other surfaces: a
+// builder composes from what this operation lists, so a field withheld here is
+// one the engine accepts and no human can name. That makes the vocabulary wrong
+// about the product rather than merely quiet.
+//
+// It is worth being exact about what that buys, because the looser argument is
+// tempting and false. Record payloads do NOT already reveal every one of these
+// names — ExtractValues omits a NULL, so a custom column with no value on any
+// record is invisible there and visible here. The equivalence is paid for with
+// that much disclosure, deliberately: the alternative is a builder that cannot
+// filter on a column until somebody happens to fill it in.
+//
+// A custom picklist's VALUES are the other side of the line — an admin authored
+// them, they are the same content `GET /custom-fields` refuses, and they only
+// began travelling here when the vocabulary started carrying options at all.
+//
+// So the field is listed either way and its values need `custom_field:read`
+// (customPicklistValuesAreReadable). A reader without that grant keeps every
+// field they could filter on and falls back to typing the value, which is the
+// behaviour that stood before options travelled — never a lost capability.
+//
+// CORE options are unaffected: those are the contract's own enums, published in
+// api/crm.yaml, so no grant can be what protects them.
+//
+// The gate is asked rather than inferred from the seed. Every seeded role that
+// holds `list:read` also holds `custom_field:read`, but role grants are edited
+// one object at a time (setRoleObjectGrant), so seed pairing is a fact about a
+// fresh install and not an invariant this operation may lean on.
 func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]VocabularyField, bool, error) {
 	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
 		return nil, false, err
@@ -89,6 +122,10 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 		return nil, false, nil
 	}
 	offerable, err := s.offerableCustomColumns(ctx, resource)
+	if err != nil {
+		return nil, false, err
+	}
+	valuesReadable, err := customPicklistValuesAreReadable(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -107,18 +144,44 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 		if !isCore && !offerable[name] {
 			continue
 		}
+		options := field.Options
+		if !isCore && !valuesReadable {
+			options = nil
+		}
 		fields = append(fields, VocabularyField{
 			Name:       name,
 			Type:       string(field.Type),
 			Operators:  storekit.OperatorsFor(field),
 			Custom:     !isCore,
 			References: field.References,
+			Options:    options,
 		})
 	}
 	// By name, because a map answers a different order every call and a picker
 	// whose fields reshuffle between two identical requests reads as broken.
 	sort.Slice(fields, func(i, j int) bool { return fields[i].Name < fields[j].Name })
 	return fields, true, nil
+}
+
+// customPicklistValuesAreReadable answers whether this caller may be told the
+// values an admin authored for a custom picklist — the catalogue's own content,
+// governed by the catalogue's own grant, exactly as `GET /custom-fields` governs
+// it.
+//
+// A refusal is an ANSWER here, not a failure: the field is still listed and the
+// builder still composes clauses on it, so a missing grant narrows what the
+// response says rather than whether it succeeds. Any other error is the caller's
+// to see, which is why only the denial is folded into false.
+func customPicklistValuesAreReadable(ctx context.Context) (bool, error) {
+	err := auth.Require(ctx, "custom_field", principal.ActionRead)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, apperrors.ErrPermissionDenied):
+		return false, nil
+	default:
+		return false, err
+	}
 }
 
 // offerableCustomColumns answers which cf_* columns a new clause may name — the
@@ -165,6 +228,7 @@ func wireVocabularyField(f VocabularyField) crmcontracts.FilterVocabularyField {
 		Name:      f.Name,
 		Type:      crmcontracts.FilterVocabularyFieldType(f.Type),
 		Operators: operators,
+		Options:   optionsOrNil(f.Options),
 		Custom:    f.Custom,
 	}
 	// Omitted rather than sent empty for a field that references nothing, because
@@ -176,4 +240,21 @@ func wireVocabularyField(f VocabularyField) crmcontracts.FilterVocabularyField {
 		wire.References = &ref
 	}
 	return wire
+}
+
+// optionsOrNil answers nil for a field with no closed set, so the key is absent
+// rather than an empty array. An empty array would say "this picklist admits
+// nothing", which is a different and false statement.
+//
+// A COPY, because a core field's set is a package-level var shared by every
+// request: handing out a pointer into it lets one consumer that sorts or rewrites
+// the slice change what every later caller is told. Its neighbour in this literal
+// already builds a fresh slice per call for the same reason, and being the one
+// member that does not would be the inconsistency somebody eventually trips on.
+func optionsOrNil(options []string) *[]string {
+	if len(options) == 0 {
+		return nil
+	}
+	own := slices.Clone(options)
+	return &own
 }

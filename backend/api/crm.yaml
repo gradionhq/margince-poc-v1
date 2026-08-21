@@ -21271,6 +21271,19 @@ components:
             may set. A retired one is absent here and still accepted by the
             engine, so no `status` lookup is needed to know whether to offer a
             field: if this operation listed it, it is offerable.
+        options:
+          type: array
+          items: { type: string }
+          description: |
+            A picklist field's allowed values, present (non-empty) when
+            `type=picklist` and absent otherwise. Offer these rather than a text
+            box: a value outside the set compiles and matches nothing, so a typo
+            reads as a settled answer instead of a mistake.
+
+            For a workspace-defined field these are the catalog's own `options`
+            for the same column. For a core field they are the values the
+            contract enumerates, minus null — a null in one of those enums is the
+            column's nullability, and `exists` is how a filter asks about that.
         references:
           type: string
           enum: [tag, app_user, team, organization, pipeline, stage, project]

@@ -245,8 +245,15 @@ deps:
     # generated routing schema, because "what the editor accepts" and "what
     # boots" is one claim and only the root package may hold both halves —
     # the ai module itself must not gain a JSON Schema dependency for it.
+    # corepicklistcontract_test.go asks collections' SegmentEngine what
+    # values each core picklist offers and holds them to the enums in
+    # api/crm.yaml — the same "only root may hold both halves" shape, and
+    # for the same reason: collections must not gain a YAML dependency to
+    # check a document it does not own. It reads the engine through
+    # storekit's own Field type rather than restating "picklist" as a bare
+    # string, which is the platform edge below.
     # Root carries test files only, so this grants no production edge.
-    mayDependOn: [contracts, compose, ai]
+    mayDependOn: [contracts, compose, ai, collections, platform]
     canUse: [yaml, jsonschema]
   cmd:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, platform, migrations]

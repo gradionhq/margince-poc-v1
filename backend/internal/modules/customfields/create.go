@@ -294,3 +294,22 @@ func marshalOptions(options []string) ([]byte, error) {
 	}
 	return raw, nil
 }
+
+// unmarshalOptions is the one spelling of the decoding, and it exists as a pair
+// with marshalOptions because both catalog reads want the same answer to the same
+// two questions: what a malformed column says to the caller, and what an absent
+// option set decodes to. A second decode written at its own call site answered
+// them differently once already.
+//
+// Empty raw is an empty set, not an error: a non-picklist field stores SQL NULL
+// (optionsJSON), which is the normal shape for most rows rather than a fault.
+func unmarshalOptions(raw []byte) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var options []string
+	if err := json.Unmarshal(raw, &options); err != nil {
+		return nil, fmt.Errorf("customfields: catalog options column is not a JSON string array: %w", err)
+	}
+	return options, nil
+}

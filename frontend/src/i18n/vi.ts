@@ -5590,6 +5590,7 @@ export const vi = {
   "filters.loadView": "T\u1ea3i b\u1ed9 l\u1ecdc \u0111\u00e3 l\u01b0u",
   "filters.pickRecord": "Ch\u1ecdn m\u1ed9t",
   "filters.loadingRecords": "\u0110ang t\u1ea3i l\u1ef1a ch\u1ecdn\u2026",
+  "filters.pickValue": "Ch\u1ecdn gi\u00e1 tr\u1ecb",
   "filters.saveList": "L\u01b0u th\u00e0nh danh s\u00e1ch",
   "filters.saveListTitle":
     "L\u01b0u b\u1ed9 l\u1ecdc n\u00e0y th\u00e0nh danh s\u00e1ch \u0111\u1ed9ng",
