@@ -19,6 +19,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -92,6 +93,45 @@ type AuditPage struct {
 // the whole governance trail to two roles the matrix denies — the compliance
 // read is oversight OF ops' machine-origin actions and cannot sit with the
 // role it oversees.
+// auditActivityAlias names the activity an audit row is ABOUT, joined so the
+// audience the row's author set can be asked about it. It is deliberately not
+// `a` or one of the app_user aliases already in the statement.
+const auditActivityAlias = "aud_activity"
+
+// auditActivityJoin reaches the activity an audit row describes, and only for
+// rows that describe one. entity_id is a bare uuid across every entity type, so
+// the entity_type test is what stops a person's id colliding with an activity's
+// and withholding an image that has no audience to answer to.
+const auditActivityJoin = `
+		LEFT JOIN activity ` + auditActivityAlias + `
+		  ON a.entity_type = 'activity' AND ` + auditActivityAlias + `.id = a.entity_id`
+
+// withholdAuditImage blanks the record images on one entry, keeping the row.
+//
+// The images are REPLACED rather than nulled. A nil image is what a row that
+// never carried one looks like, so nulling would give a reader two readings of
+// one value — "nothing was recorded" and "you may not see what was recorded" —
+// and the compliance question those readers ask is exactly which of the two it
+// is. The marker uses the same word the activity read surface already answers
+// with, so present-but-withheld has one spelling across the product.
+//
+// Only before/after are touched. Evidence is context ABOUT the mutation — which
+// retention policy fired, which rule admitted it (storekit.go) — not the record
+// content the audience governs, and withholding it would blank the governance
+// trail the audience limit has no claim over.
+func withholdAuditImage(e *AuditEntry) {
+	if e.Before != nil {
+		e.Before = auditWithheldImage
+	}
+	if e.After != nil {
+		e.After = auditWithheldImage
+	}
+}
+
+// auditWithheldImage is the stand-in an out-of-audience reader gets. Built once
+// from the contract's own enum so a rename of the wire spelling reaches here.
+var auditWithheldImage = []byte(`{"content_state":"` + string(crmcontracts.ActivityContentStateWithheld) + `"}`)
+
 func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPage, error) {
 	// Human is spelled out rather than delegated to auth.RequireHuman, which
 	// only turns agents away: nothing internal reads this trail, so connector
@@ -110,9 +150,36 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 	if err != nil {
 		return AuditPage{}, err
 	}
-	arg := func(v any) string {
+	// argN is the platform/auth spelling — a clause helper registers a value and
+	// gets its ORDINAL back — and arg is the local "$N" spelling this statement
+	// already interpolates. One list, two renderings, so a value registered by
+	// the audience arm and one registered here cannot land at different offsets.
+	argN := func(v any) int {
 		args = append(args, v)
-		return "$" + strconv.Itoa(len(args))
+		return len(args)
+	}
+	arg := func(v any) string {
+		return "$" + strconv.Itoa(argN(v))
+	}
+
+	// The audience an activity's author set is a property of the ROW, and it
+	// does NOT yield to row_scope=all — that is the whole point of the limit,
+	// and RequireAdmin above is therefore not an answer to it. The audit image
+	// carries the subject verbatim (activities.LogActivity writes
+	// {kind, subject}; the update delta writes subject in full while body is
+	// reduced to presence), so an admin outside the audience reads through this
+	// endpoint exactly what the limit exists to withhold.
+	//
+	// Projected per row rather than filtered, because a compliance trail with
+	// holes in it is its own defect: the row, its actor, its action and its
+	// timestamp are all still answered, and only the IMAGE is withheld.
+	//
+	// The arm is rendered against the joined activity, so a non-activity row —
+	// and an activity row whose record is gone — has nothing to withhold and
+	// reads as before.
+	audience, err := auth.ActivityAudienceArm(ctx, auditActivityAlias, argN)
+	if err != nil {
+		return AuditPage{}, err
 	}
 
 	var page AuditPage
@@ -121,8 +188,9 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 			`SELECT a.id, a.workspace_id, a.actor_type, a.actor_id, a.passport_id, a.on_behalf_of,
 			        a.action, a.entity_type, a.entity_id, a.before, a.after, a.authorization_rule,
 			        a.evidence, a.occurred_at,
-			        actor_user.display_name, obo.display_name
-			 FROM audit_log a`+auditActorNameJoins+`
+			        actor_user.display_name, obo.display_name,
+			        (`+auditActivityAlias+`.id IS NULL OR (`+audience+`)) AS content_readable
+			 FROM audit_log a`+auditActorNameJoins+auditActivityJoin+`
 			 WHERE `+where+`
 			 ORDER BY a.occurred_at DESC, a.id DESC
 			 LIMIT `+arg(limit+1), args...)
@@ -135,11 +203,15 @@ func ListAuditLog(ctx context.Context, db *database.DB, f AuditFilter) (AuditPag
 			// The nullable envelope ids scan through untyped locals, then
 			// widen to their kind — a NULL column stays a nil typed pointer.
 			var passportID, onBehalfOf *ids.UUID
+			var contentReadable bool
 			if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.ActorType, &e.ActorID,
 				&passportID, &onBehalfOf, &e.Action, &e.EntityType, &e.EntityID,
 				&e.Before, &e.After, &e.AuthorizationRule, &e.Evidence, &e.OccurredAt,
-				&e.ActorName, &e.OnBehalfOfName); err != nil {
+				&e.ActorName, &e.OnBehalfOfName, &contentReadable); err != nil {
 				return err
+			}
+			if !contentReadable {
+				withholdAuditImage(&e)
 			}
 			if passportID != nil {
 				v := ids.From[ids.PassportKind](*passportID)
