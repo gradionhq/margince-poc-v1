@@ -243,12 +243,23 @@ func archiveAt(ctx context.Context, p datasource.SystemOfRecordProvider, ref dat
 // a rep who may read a colleague's record staged an archive, a human released
 // it, and the store refused the retry. The approval was spent either way.
 //
-// A provider that does not answer RecordArchiverV2 keeps the old two refusals
-// and no more, which is the pre-existing behaviour rather than a new gap.
+// A provider that does not answer RecordArchiverV2 is refused HERE, and that is
+// the whole point rather than an inconvenience.
+//
+// archive_record is statically TierConfirmationRequired, so every archive
+// through this seam is staged and every redemption carries the released pin —
+// which archiveAt refuses such a provider for, because carrying it out
+// unpinned would be the approval granted against one version and spent on
+// another. Standing down here and refusing there would put that refusal AFTER
+// a human answered, on every archive, which is the exact defect this file
+// exists to remove. The staging is the place to say it.
 func refuseArchiveHere(ctx context.Context, p datasource.SystemOfRecordProvider, ref datasource.EntityRef) error {
 	archiver, ok := p.(datasource.RecordArchiverV2)
 	if !ok {
-		return nil
+		return fmt.Errorf(
+			"this workspace's system of record cannot archive a %s at a named version, and an approved "+
+				"archive names one — so no approval of this could be carried out as approved: %w",
+			ref.Type, apperrors.ErrUnsupportedBySoR)
 	}
 	return archiver.RefuseArchive(ctx, ref)
 }

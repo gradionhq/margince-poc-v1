@@ -25,25 +25,32 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// ArchiveOrganization retires the account and its cascade in ONE transaction,
-// then answers the archived record.
-// RefuseArchiveOrganization answers every authority refusal
-// ArchiveOrganization would answer with, and writes nothing. Its sibling on
-// person says why.
+// RefuseArchiveOrganization answers every refusal ArchiveOrganization would
+// answer with, and writes nothing. Its sibling on person says why.
 //
-// The anchor refusal is deliberately NOT run here: refuseIfAnchor is a
-// domain-state answer ("this company anchors another"), and a state that can
-// change while a human decides is not one a staging may pre-empt — the archive
-// itself still refuses it.
+// The anchor refusal runs here TOO, and it is not an authority question. It
+// belongs because it can never come out the other way while a human decides:
+// `is_anchor` is stamped at bootstrap (migration 0083), no verb moves it, and
+// 0193 adds a CHECK that keeps an anchor from being archived or merged at all.
+// So an archive staged against the installation's own company is refused by
+// the store every single time — leaving it out would spend a human's approval
+// on the one target that can never succeed.
 func (s *Store) RefuseArchiveOrganization(ctx context.Context, id ids.OrganizationID) error {
 	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		return auth.EnsureWritable(ctx, tx, "organization", id.UUID)
+		if err := auth.EnsureWritable(ctx, tx, "organization", id.UUID); err != nil {
+			return err
+		}
+		return refuseIfAnchor(ctx, tx, id, "id",
+			"it cannot be archived. Archive a different company, or edit this one on the company page")
 	})
 }
 
+// ArchiveOrganization retires the account and its cascade in ONE transaction,
+// then answers the archived record.
+//
 // ArchiveOrganization retires one company and everything that answers a list on
 // its behalf, conditioned on ifVersion wherever the caller's authority named a
 // version.

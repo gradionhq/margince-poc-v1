@@ -23,11 +23,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -209,4 +215,72 @@ func archivedAt(t *testing.T, e *integration.Env, table string, id ids.UUID) boo
 			`SELECT archived_at::text FROM `+table+` WHERE id = $1`, id).Scan(&stamped)
 	}, "reading the row's archived_at")
 	return stamped != nil
+}
+
+// The REST door honours the pin too, and that is the half #2015 nearly shipped
+// closed on one door only.
+//
+// The agent gate forwards a released approval's version as the request's own
+// If-Match (compose/agentgatestaging.go), so an archive route that does not
+// DECLARE the parameter never parses it: the generated wrapper drops the
+// header, the handler passes nil, and the released archive runs unconditioned
+// exactly as before. Declaring it is what makes the forward mean something,
+// and only a request through the real handler proves the chain.
+func TestTheRESTArchiveHonoursAStaleIfMatch(t *testing.T) {
+	e := integration.Setup(t)
+	native := NewProvider(e.Pool)
+	admin := e.Admin()
+
+	person := seedForArchivePin(admin, t, native, datasource.EntityPerson,
+		`{"full_name":"If-Match Probe","owner_id":"`+e.AdminUser.String()+`"}`)
+	stale := versionOf(t, e, "person", person.ID)
+	bumpVersion(admin, t, e, native, "person", person)
+
+	rec := archiveOverREST(admin, t, e, person.ID, stale)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("DELETE /v1/people/{id} with a stale If-Match answered %d, want 409 — an archive "+
+			"released against a version the record has left must not land", rec.Code)
+	}
+	if archivedAt(t, e, "person", person.ID) {
+		t.Error("the person was archived anyway: the 409 is a message, not a guard")
+	}
+}
+
+// And the current version still archives, so the route refuses skew rather
+// than refusing every If-Match it is handed.
+func TestTheRESTArchiveAcceptsACurrentIfMatch(t *testing.T) {
+	e := integration.Setup(t)
+	native := NewProvider(e.Pool)
+	admin := e.Admin()
+
+	person := seedForArchivePin(admin, t, native, datasource.EntityPerson,
+		`{"full_name":"If-Match Probe","owner_id":"`+e.AdminUser.String()+`"}`)
+
+	rec := archiveOverREST(admin, t, e, person.ID, versionOf(t, e, "person", person.ID))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE /v1/people/{id} with the current If-Match answered %d, want 200", rec.Code)
+	}
+	if !archivedAt(t, e, "person", person.ID) {
+		t.Error("the person reports no archived_at after an accepted archive")
+	}
+}
+
+// archiveOverREST drives the real people handler the router binds, carrying
+// If-Match as the agent gate would.
+func archiveOverREST(as context.Context, t *testing.T, e *integration.Env,
+	person ids.UUID, ifVersion int64,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, "/v1/people/"+person.String(), nil)
+	req.Header.Set("If-Match", strconv.FormatInt(ifVersion, 10))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", person.String())
+	req = req.WithContext(context.WithValue(as, chi.RouteCtxKey, rctx))
+
+	rec := httptest.NewRecorder()
+	people.NewHandlers(e.DB()).ArchivePerson(rec, req, crmcontracts.Id(person),
+		crmcontracts.ArchivePersonParams{})
+	return rec
 }

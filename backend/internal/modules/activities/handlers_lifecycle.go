@@ -29,8 +29,12 @@ func (h Handlers) UpdateActivity(w http.ResponseWriter, r *http.Request, id crmc
 	httperr.WriteJSON(w, http.StatusOK, activity)
 }
 
-func (h Handlers) ArchiveActivity(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	activity, err := h.store.ArchiveActivity(r.Context(), pathID[ids.ActivityKind](id), nil)
+func (h Handlers) ArchiveActivity(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ArchiveActivityParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	activity, err := h.store.ArchiveActivity(r.Context(), pathID[ids.ActivityKind](id), ifVersion)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

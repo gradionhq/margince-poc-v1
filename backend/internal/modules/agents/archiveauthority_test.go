@@ -109,7 +109,11 @@ func TestStagingRefusesATypeTheRoutedExecutorDoesNotArchive(t *testing.T) {
 		t.Fatalf("staging a project against an executor that archives %v answered %v, want the "+
 			"bad-arguments refusal — an approval for it could never be carried out", threeTypes(), err)
 	}
-	if strings.Contains(err.Error(), "project") && !strings.Contains(err.Error(), "person") {
+	// One conjunct, not two. Guarding this on the message ALSO naming
+	// "project" makes it vacuous in the direction it exists for: a refusal
+	// that stopped naming both would fail the first half and pass the test
+	// having asserted nothing.
+	if !strings.Contains(err.Error(), "person") {
 		t.Errorf("the refusal %q must name what this executor DOES archive: a model told only that its "+
 			"call was wrong retries the same call", err)
 	}
@@ -126,13 +130,47 @@ func TestStagingAdmitsATypeTheRoutedExecutorArchives(t *testing.T) {
 	}
 }
 
-// A provider that cannot answer what it archives falls back to the native set,
-// so a fork's own adapter is no worse off than before this seam existed.
-func TestStagingFallsBackToTheNativeSetForAV1Provider(t *testing.T) {
+// A provider that cannot carry an approved version is refused at STAGING, not
+// after a human has answered.
+//
+// This is a deliberate behaviour choice for a fork whose adapter implements
+// only the frozen v1 seam, and the alternative is worth naming: staging could
+// admit and the write could run unpinned, which is what happened before this
+// seam existed. It would also mean a human approving "archive this record at
+// version 4" and the write landing on whatever the record became. Since
+// archive_record is statically TierConfirmationRequired, every such archive
+// carries a released pin — so admitting here would refuse EVERY archive on
+// such an installation after the human answered, which is the defect this
+// whole change is about, one layer along.
+func TestStagingRefusesAProviderThatCannotCarryAnApprovedVersion(t *testing.T) {
+	provider := &v1Archiver{}
+	tool := archiveRecord{p: provider}
+
+	_, err := tool.StageInfo(context.Background(), archiveArgsJSON(t, "person", ids.NewV7()))
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("staging a person against a v1-only provider answered %v, want the unsupported-by-SoR "+
+			"refusal — the refusal must arrive before a human is asked, not after", err)
+	}
+	if provider.archived != nil {
+		t.Error("the staging path performed the archive")
+	}
+}
+
+// The type check still runs for a v1 provider, and still answers about the
+// TYPE rather than about the seam version.
+//
+// Both refusals are BadArgs-vs-sentinel distinct, and a caller acts on them
+// differently: one is a call to reword, the other an installation that cannot
+// serve this verb at all.
+func TestAV1ProviderStillRefusesAnUnarchivableTypeByName(t *testing.T) {
 	tool := archiveRecord{p: &v1Archiver{}}
 
-	if _, err := tool.StageInfo(context.Background(), archiveArgsJSON(t, "project", ids.NewV7())); err != nil {
-		t.Fatalf("staging a project against a v1 provider answered %v, want the native set to admit it", err)
+	_, err := tool.StageInfo(context.Background(), archiveArgsJSON(t, "tag", ids.NewV7()))
+
+	var bad *BadArgsError
+	if !errors.As(err, &bad) {
+		t.Fatalf("staging a tag answered %v, want the bad-arguments refusal naming the archivable set", err)
 	}
 }
 

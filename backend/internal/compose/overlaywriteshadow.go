@@ -216,9 +216,9 @@ func (s Server) UpdatePerson(w http.ResponseWriter, r *http.Request, id crmcontr
 }
 
 // ArchivePerson shadows the person archive.
-func (s Server) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (s Server) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ArchivePersonParams) {
 	overlayArchive(s, w, r, datasource.EntityPerson, id,
-		func() { s.peopleHandlers.ArchivePerson(w, r, id) }, archiveWire[crmcontracts.Person]{
+		func() { s.peopleHandlers.ArchivePerson(w, r, id, params) }, archiveWire[crmcontracts.Person]{
 			assemble:     overlayWirePerson,
 			markArchived: func(p *crmcontracts.Person, at time.Time) { p.ArchivedAt = &at },
 		})
@@ -231,9 +231,9 @@ func (s Server) UpdateOrganization(w http.ResponseWriter, r *http.Request, id cr
 }
 
 // ArchiveOrganization shadows the organization archive.
-func (s Server) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (s Server) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ArchiveOrganizationParams) {
 	overlayArchive(s, w, r, datasource.EntityOrganization, id,
-		func() { s.peopleHandlers.ArchiveOrganization(w, r, id) }, archiveWire[crmcontracts.Organization]{
+		func() { s.peopleHandlers.ArchiveOrganization(w, r, id, params) }, archiveWire[crmcontracts.Organization]{
 			assemble:     overlayWireOrganization,
 			markArchived: func(o *crmcontracts.Organization, at time.Time) { o.ArchivedAt = &at },
 		})
@@ -246,9 +246,9 @@ func (s Server) UpdateDeal(w http.ResponseWriter, r *http.Request, id crmcontrac
 }
 
 // ArchiveDeal shadows the deal archive.
-func (s Server) ArchiveDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (s Server) ArchiveDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ArchiveDealParams) {
 	overlayArchive(s, w, r, datasource.EntityDeal, id,
-		func() { s.dealsHandlers.ArchiveDeal(w, r, id) }, archiveWire[crmcontracts.Deal]{
+		func() { s.dealsHandlers.ArchiveDeal(w, r, id, params) }, archiveWire[crmcontracts.Deal]{
 			assemble:     overlayWireDeal,
 			markArchived: func(d *crmcontracts.Deal, at time.Time) { d.ArchivedAt = &at },
 		})

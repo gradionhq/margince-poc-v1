@@ -336,8 +336,6 @@ func buildPersonPatch(current crmcontracts.Person, in UpdatePersonInput) *storek
 	return p
 }
 
-// ArchivePerson soft-deletes the person and cascades to its owned child
-// rows and referencing edges in the same transaction (data-model §1.10).
 // RefuseArchivePerson answers every authority refusal ArchivePerson would
 // answer with, and writes nothing — the stage-time half of the archive, so a
 // staged approval is never spent on a call the store was always going to
@@ -352,6 +350,9 @@ func (s *Store) RefuseArchivePerson(ctx context.Context, id ids.PersonID) error 
 	})
 }
 
+// ArchivePerson soft-deletes the person and cascades to its owned child
+// rows and referencing edges in the same transaction (data-model §1.10).
+//
 // ArchivePerson retires one person and their satellites, conditioned on
 // ifVersion wherever the caller's authority named a version.
 func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID, ifVersion *int64) (crmcontracts.Person, error) {
