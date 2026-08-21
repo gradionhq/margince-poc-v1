@@ -142,6 +142,31 @@ type archiveWire[Res any] struct {
 	markArchived func(*Res, time.Time)
 }
 
+// archivePrecondition answers which If-Match this request carries, and it is a
+// named function rather than three lines inline because the QUESTION is what
+// was got wrong twice: a caller's header and a released approval's pin arrive
+// identically and are not the same claim.
+//
+// Only the redeemed case yields a version. The unredeemed one answers nil even
+// when the caller sent a header — this shadow's documented answer to a
+// precondition a mirror row cannot evaluate.
+//
+// COVERAGE, stated because it is uneven and the uncovered arm is the important
+// one: the FALSE arm is gated by TestOverlayArchiveIgnoresACallersIfMatch. The
+// TRUE arm is not, and cannot be from outside package agents — the redeemed
+// marker is set only by RedeemAndMark and has no exported setter, which is the
+// right design (a test-only way to forge "a human approved this" is a worse
+// thing to own than an untested branch). Reaching it honestly needs a
+// staged-then-redeemed archive that routes overlay, and overlay staging is
+// refused by refuseStagingElsewhere except inside the mode-cache window
+// dispatcherarchive.go describes — which is the path this arm exists for.
+func archivePrecondition(w http.ResponseWriter, r *http.Request) (*int64, bool) {
+	if !agents.ApprovalRedeemed(r.Context()) {
+		return nil, true
+	}
+	return httperr.IfMatchVersion(w, r)
+}
+
 // overlayArchive serves one archive shadow: the native module handler off
 // overlay mode, otherwise a dispatched seam Archive answered with the
 // archived row's last-known state — the contract's own archive response
@@ -213,12 +238,9 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 	// The gap the caller's header leaves — an overlay client has no optimistic
 	// concurrency and no signal saying so — is one question about both verbs,
 	// and closing it needs a version the caller can pin.
-	var pin *int64
-	if agents.ApprovalRedeemed(r.Context()) {
-		var ok bool
-		if pin, ok = httperr.IfMatchVersion(w, r); !ok {
-			return
-		}
+	pin, ok := archivePrecondition(w, r)
+	if !ok {
+		return
 	}
 	ref := datasource.EntityRef{Type: et, ID: ids.UUID(id)}
 	rec, err := s.sorDispatch.Read(r.Context(), ref)
