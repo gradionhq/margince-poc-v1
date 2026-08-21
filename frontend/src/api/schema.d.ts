@@ -16378,7 +16378,7 @@ export interface components {
             as_of: string;
             /** @description Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read. */
             running: components["schemas"]["ActivityItem"][];
-            /** @description Settled runs since local midnight, newest first, at most 10. */
+            /** @description Runs that FINISHED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-finished first, at most 10. */
             recent: components["schemas"]["ActivityItem"][];
         };
         ActivityItem: {
@@ -16399,7 +16399,7 @@ export interface components {
             state: "queued" | "running" | "awaiting_approval" | "done" | "degraded" | "failed";
             /**
              * Format: date-time
-             * @description agent_run.created_at, or runner_job.due_at while queued.
+             * @description When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.
              */
             started_at: string;
             /** Format: date-time */

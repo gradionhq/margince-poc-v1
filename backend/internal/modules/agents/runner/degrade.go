@@ -63,13 +63,36 @@ func (r Result) DegradeDetail() string {
 func (r *Runner) degrade(acc Result, reason string) Result {
 	acc.Outcome = OutcomeDegraded
 	acc.DegradeReason = reason
-	partial, _ := json.Marshal(map[string]any{
-		"partial":         true,
-		"reason":          reason,
-		"steps_completed": len(acc.Steps),
-	})
-	acc.Final = partial
+	acc.Final = partialResult{
+		Partial:        true,
+		Reason:         reason,
+		StepsCompleted: len(acc.Steps),
+	}.render()
 	return acc
+}
+
+// partialResult is what a degraded run leaves in agent_run.result: the shape a
+// reader of that column parses, named so it is one declared thing rather than a
+// map assembled at the call site.
+type partialResult struct {
+	Partial        bool   `json:"partial"`
+	Reason         string `json:"reason"`
+	StepsCompleted int    `json:"steps_completed"`
+}
+
+// render is the JSON the run stores. A degrade cannot fail — it IS the failure
+// path, and returning an error here would turn a graceful degrade into a crash —
+// so an unmarshalable payload falls back to the one field that carries the
+// outcome, and the reason it could not be rendered goes to the operator log
+// rather than being dropped on the floor.
+func (p partialResult) render() json.RawMessage {
+	rendered, err := json.Marshal(p)
+	if err != nil {
+		slog.Error("agent run: a degraded run's partial result could not be rendered",
+			"reason", p.Reason, "cause", err)
+		return json.RawMessage(`{"partial":true}`)
+	}
+	return rendered
 }
 
 // FailureReason closes a run from OUTSIDE the loop — a resume whose authority

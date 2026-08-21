@@ -40,6 +40,11 @@ type Item struct {
 	State      State
 	StartedAt  time.Time
 	FinishedAt *time.Time
+	// occurrence is agent_run.trigger_ref / runner_job.trigger_ref — the identity
+	// of one TRIGGER OCCURRENCE, which is what this feed reports one line about.
+	// It is deliberately unexported: it is not in the contract, and the row ids
+	// are not interchangeable with it (see inFlightFeed).
+	occurrence string
 	// DegradeReason is one of the runner's own closed reasons — never a
 	// provider's or a parser's message, because those carry vendor text and can
 	// echo credential material, and this read hands the column to an ordinary
@@ -84,7 +89,7 @@ func NewStore(db *database.DB, now func() time.Time) *Store {
 // there is no tenant predicate to bind here.
 const runningSQL = `
   SELECT r.id, r.agent_spec, r.status, r.created_at, r.finished_at,
-         r.degrade_reason, r.result
+         r.degrade_reason, r.result, r.trigger_ref
     FROM agent_run r
     JOIN passport p ON p.id = r.passport_id
    WHERE p.on_behalf_of = $1
@@ -101,23 +106,34 @@ const runningSQL = `
 // authority — reporting both would show one trigger occurrence twice.
 const queuedSQL = `
   SELECT j.id, j.agent_spec, j.status, j.due_at, NULL::timestamptz,
-         NULL::text, NULL::jsonb
+         NULL::text, NULL::jsonb, j.trigger_ref
     FROM runner_job j
     JOIN passport p ON p.id = j.passport_id
    WHERE p.on_behalf_of = $1
      AND j.status = 'queued'
    ORDER BY j.due_at DESC`
 
-// recentSQL reads what settled since local midnight, newest first.
+// recentSQL reads what SETTLED since midnight, newest-settled first.
+//
+// The bound is finished_at, not created_at, because "what the agent finished for
+// me today" is a question about when it finished. A run that started at 23:50 and
+// finished at 00:10 belongs in today's feed; keyed on created_at it fell out of
+// recent AND had already left running, so the occurrence vanished from the rail
+// entirely. started_at on the wire stays created_at — that is genuinely when the
+// run began, and it is a different question from which day it settled on.
+//
+// Every writer of a terminal status stamps finished_at in the same statement
+// (runner.Store's SaveOutcome/MarkFailed/FailStuckRuns, and privacy's withdrawal
+// sweep), so the predicate cannot silently drop a settled run.
 const recentSQL = `
   SELECT r.id, r.agent_spec, r.status, r.created_at, r.finished_at,
-         r.degrade_reason, r.result
+         r.degrade_reason, r.result, r.trigger_ref
     FROM agent_run r
     JOIN passport p ON p.id = r.passport_id
    WHERE p.on_behalf_of = $1
      AND r.status IN ('completed', 'degraded', 'failed')
-     AND r.created_at >= $2
-   ORDER BY r.created_at DESC
+     AND r.finished_at >= $2
+   ORDER BY r.finished_at DESC
    LIMIT $3`
 
 // Mine is what the scheduled agent is doing for this person now, and what it
@@ -142,13 +158,13 @@ func (s *Store) Mine(ctx context.Context, userID ids.UUID) (running, recent []It
 	var inFlight, queued []Item
 	if err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var txErr error
-		if inFlight, txErr = read(ctx, tx, runningSQL, RunState, userID); txErr != nil {
+		if inFlight, txErr = readOwned(ctx, tx, runningSQL, RunState, userID); txErr != nil {
 			return fmt.Errorf("read runs in flight: %w", txErr)
 		}
-		if queued, txErr = read(ctx, tx, queuedSQL, JobState, userID); txErr != nil {
+		if queued, txErr = readOwned(ctx, tx, queuedSQL, JobState, userID); txErr != nil {
 			return fmt.Errorf("read queued jobs: %w", txErr)
 		}
-		if recent, txErr = read(ctx, tx, recentSQL, RunState, userID, s.startOfToday(), recentBound); txErr != nil {
+		if recent, txErr = readSettled(ctx, tx, userID, s.startOfToday(), recentBound); txErr != nil {
 			return fmt.Errorf("read what settled today: %w", txErr)
 		}
 		return nil
@@ -165,18 +181,30 @@ func (s *Store) startOfToday() time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 }
 
-// read runs one of the three statements on the caller's open transaction and
-// maps its rows through the state vocabulary that statement's table speaks. A
-// row whose status the mapper does not know is DROPPED: this surface has no word
-// for it, and inventing one is how a "Done" that never happened reaches a
-// screen.
-func read(ctx context.Context, tx pgx.Tx, query string, mapState func(string) (State, bool), args ...any) ([]Item, error) {
-	rows, err := tx.Query(ctx, query, args...)
+// readOwned runs one of the two statements that take only the reader's own id,
+// mapping its rows through the state vocabulary that statement's table speaks.
+//
+// The argument list is FIXED rather than variadic-any: a `...any` here is an
+// untyped hole at the one boundary where a wrong argument becomes a wrong
+// predicate, and the compiler is the cheapest place to catch that.
+func readOwned(ctx context.Context, tx pgx.Tx, query string, mapState func(string) (State, bool), userID ids.UUID) ([]Item, error) {
+	rows, err := tx.Query(ctx, query, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return collect(rows, mapState)
+}
+
+// readSettled is the one statement with a window and a cap, so it binds
+// recentSQL itself rather than taking a query it could be handed the wrong one of.
+func readSettled(ctx context.Context, tx pgx.Tx, userID ids.UUID, since time.Time, limit int) ([]Item, error) {
+	rows, err := tx.Query(ctx, recentSQL, userID, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return collect(rows, RunState)
 }
 
 func collect(rows pgx.Rows, mapState func(string) (State, bool)) ([]Item, error) {
@@ -188,7 +216,7 @@ func collect(rows pgx.Rows, mapState func(string) (State, bool)) ([]Item, error)
 			result []byte
 		)
 		if err := rows.Scan(&item.ID, &item.Kind, &status, &item.StartedAt,
-			&item.FinishedAt, &item.DegradeReason, &result); err != nil {
+			&item.FinishedAt, &item.DegradeReason, &result, &item.occurrence); err != nil {
 			return nil, err
 		}
 		state, known := mapState(status)
@@ -228,20 +256,28 @@ func summaryOf(result []byte) *string {
 // going, the jobs still waiting, in one order, minus anything the settled feed
 // already reports.
 //
+// THE KEY IS THE TRIGGER OCCURRENCE, NOT THE ROW ID. A job and the run it starts
+// are two rows with two ids for one occurrence — executeJob starts the run
+// independently and only links the job to it afterwards — so a job read as queued
+// and then claimed, run and settled before the last statement executes survives a
+// row-id set as two items. trigger_ref is the occurrence identity this system
+// already relies on: it is what StartRun's ON CONFLICT keys on to make a retried
+// trigger resume instead of duplicating.
+//
 // Merging and deduplicating are ONE step on purpose. Done separately they can be
 // applied separately, and a merge without the dedupe is the double report this
 // feed exists not to make.
 func inFlightFeed(inFlight, queued, recent []Item) []Item {
-	settled := make(map[ids.UUID]struct{}, len(recent))
+	settled := make(map[string]struct{}, len(recent))
 	for _, item := range recent {
-		settled[item.ID] = struct{}{}
+		settled[item.occurrence] = struct{}{}
 	}
 	feed := make([]Item, 0, len(inFlight)+len(queued))
 	for _, group := range [][]Item{inFlight, queued} {
 		for _, item := range group {
-			// The settled row is the newer truth: a run that finished while the
-			// read was in progress has finished.
-			if _, done := settled[item.ID]; done {
+			// The settled row is the newer truth: an occurrence that finished
+			// while the read was in progress has finished.
+			if _, done := settled[item.occurrence]; done {
 				continue
 			}
 			feed = append(feed, item)

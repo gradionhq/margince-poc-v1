@@ -125,10 +125,10 @@ func TestCappedLeavesAnAbsentColumnAbsent(t *testing.T) {
 func TestAnOccurrenceThatSettlesMidReadIsReportedOnceAsSettled(t *testing.T) {
 	raced, stillRunning := ids.NewV7(), ids.NewV7()
 	inFlight := []Item{
-		{ID: raced, State: StateRunning, Kind: "morning_brief"},
-		{ID: stillRunning, State: StateRunning, Kind: "overnight_at_risk_sweep"},
+		{ID: raced, occurrence: "morning_brief:2026-08-21", State: StateRunning, Kind: "morning_brief"},
+		{ID: stillRunning, occurrence: "overnight_at_risk_sweep:2026-08-21", State: StateRunning, Kind: "overnight_at_risk_sweep"},
 	}
-	recent := []Item{{ID: raced, State: StateDone, Kind: "morning_brief"}}
+	recent := []Item{{ID: raced, occurrence: "morning_brief:2026-08-21", State: StateDone, Kind: "morning_brief"}}
 
 	feed := inFlightFeed(inFlight, nil, recent)
 	if len(feed) != 1 {
@@ -145,19 +145,18 @@ func TestAnOccurrenceThatSettlesMidReadIsReportedOnceAsSettled(t *testing.T) {
 }
 
 func TestTheInFlightFeedKeepsEveryOccurrenceWhenNothingSettled(t *testing.T) {
-	runs := []Item{{ID: ids.NewV7(), State: StateRunning}}
-	jobs := []Item{{ID: ids.NewV7(), State: StateQueued}}
+	runs := []Item{{ID: ids.NewV7(), occurrence: "morning_brief:2026-08-21", State: StateRunning}}
+	jobs := []Item{{ID: ids.NewV7(), occurrence: "overnight_at_risk_sweep:2026-08-21", State: StateQueued}}
 	if feed := inFlightFeed(runs, jobs, nil); len(feed) != 2 {
 		t.Errorf("nothing settled, so nothing may be dropped: got %d of 2", len(feed))
 	}
 }
 
-// A queued job and a run are rows in different tables, so a matching id is the
-// SAME agent_run seen twice and never a collision. The dedupe must not touch a
-// queued item merely because some other run settled.
+// A different occurrence settling must not take a queued job with it.
 func TestTheInFlightFeedDoesNotConfuseAQueuedJobWithASettledRun(t *testing.T) {
-	queued := Item{ID: ids.NewV7(), State: StateQueued}
-	feed := inFlightFeed(nil, []Item{queued}, []Item{{ID: ids.NewV7(), State: StateDone}})
+	queued := Item{ID: ids.NewV7(), occurrence: "morning_brief:2026-08-21", State: StateQueued}
+	settled := Item{ID: ids.NewV7(), occurrence: "overnight_at_risk_sweep:2026-08-21", State: StateDone}
+	feed := inFlightFeed(nil, []Item{queued}, []Item{settled})
 	if len(feed) != 1 || feed[0].ID != queued.ID {
 		t.Errorf("a queued job was dropped for an unrelated settled run: %v", feed)
 	}
@@ -167,10 +166,45 @@ func TestTheInFlightFeedDoesNotConfuseAQueuedJobWithASettledRun(t *testing.T) {
 // that renders it top-down shows the newest occurrence first whichever list it
 // came from.
 func TestTheInFlightFeedOrdersRunsAndJobsTogether(t *testing.T) {
-	newest := Item{ID: ids.NewV7(), StartedAt: time.Date(2026, 8, 21, 6, 0, 0, 0, time.UTC), State: StateQueued}
-	oldest := Item{ID: ids.NewV7(), StartedAt: time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC), State: StateRunning}
+	newest := Item{ID: ids.NewV7(), occurrence: "a:1", StartedAt: time.Date(2026, 8, 21, 6, 0, 0, 0, time.UTC), State: StateQueued}
+	oldest := Item{ID: ids.NewV7(), occurrence: "b:1", StartedAt: time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC), State: StateRunning}
 	feed := inFlightFeed([]Item{oldest}, []Item{newest}, nil)
 	if len(feed) != 2 || feed[0].ID != newest.ID {
 		t.Errorf("the merged feed is not newest-first: %v", feed)
+	}
+}
+
+// THE ROW IDS ARE NOT THE OCCURRENCE. runner_job and agent_run are two tables
+// with two id spaces, and executeJob starts the run independently before linking
+// the job to it — so a job read as queued, then claimed and settled before the
+// last statement runs, comes back as a job row AND a run row that share nothing
+// but their trigger_ref. Keyed on the row id the panel reports one 06:00 brief
+// twice, once as waiting and once as ready.
+func TestOneTriggerOccurrenceIsOneLineEvenAcrossTheTwoTables(t *testing.T) {
+	const occurrence = "morning_brief:2026-08-21"
+	jobRow := Item{ID: ids.NewV7(), occurrence: occurrence, State: StateQueued, Kind: "morning_brief"}
+	runRow := Item{ID: ids.NewV7(), occurrence: occurrence, State: StateDone, Kind: "morning_brief"}
+	if jobRow.ID == runRow.ID {
+		t.Fatal("the fixture must model two DIFFERENT row ids, or it proves nothing")
+	}
+
+	feed := inFlightFeed(nil, []Item{jobRow}, []Item{runRow})
+	if len(feed) != 0 {
+		t.Fatalf("the settled run already reports this occurrence; the queued row must go, got %v", feed)
+	}
+}
+
+// The same trigger occurrence read as an in-flight RUN and as a settled run is
+// the plain case, and it must behave identically: one line, the settled one.
+func TestTheSameRunReadTwiceKeepsOnlyTheSettledReading(t *testing.T) {
+	const occurrence = "overnight_at_risk_sweep:2026-08-21"
+	id := ids.NewV7()
+	feed := inFlightFeed(
+		[]Item{{ID: id, occurrence: occurrence, State: StateRunning}},
+		nil,
+		[]Item{{ID: id, occurrence: occurrence, State: StateDegraded}},
+	)
+	if len(feed) != 0 {
+		t.Fatalf("want the settled reading only, got %v", feed)
 	}
 }

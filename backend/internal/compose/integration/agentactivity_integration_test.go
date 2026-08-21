@@ -175,15 +175,20 @@ func (f *activityFixture) finish(t *testing.T, runID ids.UUID, final string) {
 	}
 }
 
-// seedFinishedRun starts a run, closes it, and then moves created_at to the
-// instant this test means. There is no writer that takes a start time — the
-// column defaults to the database's now() — so the row is born real and then
-// aged.
-func (f *activityFixture) seedFinishedRun(t *testing.T, specName string, passport ids.PassportID, startedAt time.Time) {
+// seedFinishedRun starts a run, closes it, and then moves both of its instants to
+// the ones this test means. There is no writer that takes either — created_at
+// defaults to the database's now() and finished_at is stamped by the outcome
+// writer — so the row is born real and then aged.
+//
+// The two are separate parameters because they are separate facts: `recent` is
+// bounded by when a run SETTLED, and a run that began before midnight and
+// finished after it is exactly the case that distinguishes the two.
+func (f *activityFixture) seedFinishedRun(t *testing.T, specName string, passport ids.PassportID, startedAt, finishedAt time.Time) {
 	t.Helper()
 	runID := f.seedRun(t, specName, passport)
 	f.finish(t, runID, `{"summary":"seeded"}`)
-	f.env.WsExec(t, `UPDATE agent_run SET created_at = $2 WHERE id = $1`, runID, startedAt)
+	f.env.WsExec(t, `UPDATE agent_run SET created_at = $2, finished_at = $3 WHERE id = $1`,
+		runID, startedAt, finishedAt)
 }
 
 func (f *activityFixture) deleteEveryPassport(t *testing.T) {
@@ -256,21 +261,48 @@ func TestRecentIsBoundedToTodayAndTen(t *testing.T) {
 	// size.
 	f := setupAgentActivity(t)
 	for i := range 14 {
-		f.seedFinishedRun(t, "morning_brief", f.alicePassport, f.now.Add(-time.Duration(i)*time.Minute))
+		settled := f.now.Add(-time.Duration(i) * time.Minute)
+		f.seedFinishedRun(t, "morning_brief", f.alicePassport, settled, settled)
 	}
-	f.seedFinishedRun(t, "morning_brief", f.alicePassport, f.now.Add(-30*time.Hour)) // yesterday
+	// Settled yesterday, so out of scope whichever instant is read.
+	yesterday := f.now.Add(-30 * time.Hour)
+	f.seedFinishedRun(t, "morning_brief", f.alicePassport, yesterday, yesterday)
 
 	_, recent := f.mine(t, f.alice)
 	if len(recent) != 10 {
 		t.Fatalf("recent returned %d items, want the 10 cap", len(recent))
 	}
 	for _, item := range recent {
-		if item.StartedAt.Before(f.midnight) {
-			t.Fatalf("a run from before today reached recent: %v", item)
+		if item.FinishedAt == nil {
+			t.Fatalf("a settled run must carry the instant it finished: %v", item)
+		}
+		if item.FinishedAt.Before(f.midnight) {
+			t.Fatalf("a run that settled before today reached recent: %v", item)
 		}
 	}
-	if !recent[0].StartedAt.After(recent[1].StartedAt) {
-		t.Fatal("recent must be newest first")
+	if !recent[0].FinishedAt.After(*recent[1].FinishedAt) {
+		t.Fatal("recent must be newest-settled first")
+	}
+}
+
+// The overnight sweep is due at 02:00 and the brief at 06:00, so a run that
+// crosses midnight is the ordinary case rather than the edge one. Bounded on
+// created_at it fell out of `recent` while already having left `running`, and the
+// occurrence disappeared from the rail with nothing reporting it at all.
+func TestARunThatStartedYesterdayAndFinishedTodayIsWhatSettledToday(t *testing.T) {
+	f := setupAgentActivity(t)
+	f.seedFinishedRun(t, "overnight_at_risk_sweep", f.alicePassport,
+		f.midnight.Add(-10*time.Minute), f.midnight.Add(10*time.Minute))
+
+	running, recent := f.mine(t, f.alice)
+	if len(recent) != 1 {
+		t.Fatalf("a run that finished after midnight settled TODAY; got %v", recent)
+	}
+	if !recent[0].StartedAt.Before(f.midnight) {
+		t.Fatalf("started_at must still be when the run began, got %v", recent[0].StartedAt)
+	}
+	if len(running) != 0 {
+		t.Fatalf("a settled run is not in flight: %v", running)
 	}
 }
 

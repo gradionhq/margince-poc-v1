@@ -11581,7 +11581,7 @@ type ActivityItem struct {
 	// Kind The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
 	Kind ActivityItemKind `json:"kind"`
 
-	// StartedAt agent_run.created_at, or runner_job.due_at while queued.
+	// StartedAt When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.
 	StartedAt time.Time `json:"started_at"`
 
 	// State `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
@@ -11702,7 +11702,7 @@ type AgentActivity struct {
 	// AsOf When the server read this.
 	AsOf time.Time `json:"as_of"`
 
-	// Recent Settled runs since local midnight, newest first, at most 10.
+	// Recent Runs that FINISHED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-finished first, at most 10.
 	Recent []ActivityItem `json:"recent"`
 
 	// Running Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read.

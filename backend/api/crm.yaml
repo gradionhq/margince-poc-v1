@@ -22444,7 +22444,7 @@ components:
           type: array
           maxItems: 10
           items: { $ref: '#/components/schemas/ActivityItem' }
-          description: 'Settled runs since local midnight, newest first, at most 10.'
+          description: 'Runs that FINISHED since midnight in the server''s own timezone (not the reader''s, and not UTC unless the server runs on it), newest-finished first, at most 10.'
     ActivityItem:
       type: object
       additionalProperties: false
@@ -22463,7 +22463,7 @@ components:
             state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
             exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
             auto-execute only) and is declared for the states the runner itself can reach.
-        started_at: { type: string, format: date-time, description: 'agent_run.created_at, or runner_job.due_at while queued.' }
+        started_at: { type: string, format: date-time, description: 'When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.' }
         finished_at: { type: [string, 'null'], format: date-time }
         degrade_reason:
           type: [string, 'null']
