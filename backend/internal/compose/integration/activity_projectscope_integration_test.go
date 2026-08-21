@@ -5,120 +5,175 @@
 
 package integration
 
-// Narrowing a timeline read to ONE body of work.
+// Narrowing a read to ONE body of work, on both surfaces that carry it: the
+// timeline list, and the context walk every assembled picture is built from.
 //
-// The rule is exclusion rather than selection, and the negative half is the
-// one worth testing: a scope that only proved the wanted rows appear would
-// pass against a filter that does nothing at all. So every case here asserts
-// what is ABSENT as well as what is present.
+// The rule is "filed under this project, or filed under none". The NEGATIVE
+// half is what these prove — a test asserting only that the wanted rows appear
+// would pass against a filter that does nothing at all, which is the failure
+// mode a predicate like this actually has.
 
 import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
-// projectScopeFixture is one account running two engagements plus ordinary
-// correspondence that belongs to neither — the shape the exclusion exists for.
-type projectScopeFixture struct {
-	org     ids.UUID
+// scopeFixture is one account running two engagements, plus ordinary
+// correspondence belonging to neither — the shape the rule exists for.
+type scopeFixture struct {
 	person  ids.UUID
 	erp     ids.ProjectID
-	migrate ids.ProjectID
-	onERP   ids.UUID
-	onOther ids.UUID
-	unfiled ids.UUID
+	onERP   string
+	onOther string
+	unfiled string
 }
 
-func seedTwoProjectAccount(t *testing.T, e *Env) projectScopeFixture {
+// Everything here is written by the REAL writers — CreateProject, LogActivity
+// and RelinkActivity — each through its own authority check and the audit +
+// outbox write shape. Hand-inserted rows would let the filter pass over a row
+// shape production never produces.
+func seedTwoEngagementAccount(t *testing.T, e *Env) scopeFixture {
 	t.Helper()
-	owner := OwnerConn(t)
+	admin := e.Admin()
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	person := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 
-	newProject := func(name string) ids.UUID {
-		return SeedIDRow(t, owner, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
-			VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, e.Rep1, name, org)
+	newProject := func(name, key string) ids.ProjectID {
+		p, err := e.Deals.CreateProject(admin, deals.CreateProjectInput{
+			Name: name, Key: &key, OrganizationID: orgIDOf(org), Source: "manual",
+		})
+		if err != nil {
+			t.Fatalf("create project %q: %v", name, err)
+		}
+		return projectIDOf(ids.UUID(p.Id))
 	}
-	erp := newProject("ERP rollout")
-	migrate := newProject("Datacentre migration")
+	erp := newProject("ERP rollout", "ERP-27")
+	migration := newProject("Datacentre migration", "DC-4")
 
-	// Three messages with the same counterpart: one about each engagement, and
-	// one ordinary exchange nobody filed. All three are linked to the person,
-	// which is what a person-anchored read walks.
-	mail := func(subject string) ids.UUID {
-		id := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
-			VALUES ($1, 'email', $2, now(), 'manual', 'human:x')`, subject)
-		LinkActivity(t, owner, id, "person", person)
-		return id
+	// Three exchanges with the same contact: one per engagement, and one
+	// ordinary message nobody filed.
+	mail := func(subject string, within *ids.ProjectID) string {
+		logged, _, err := e.Activities.LogActivity(admin, activities.LogActivityInput{
+			Kind: "email", Subject: &subject, Direction: strPtr("inbound"),
+			Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: person}},
+		})
+		if err != nil {
+			t.Fatalf("log %q: %v", subject, err)
+		}
+		if within != nil {
+			id := ids.From[ids.ActivityKind](ids.UUID(logged.Id))
+			if _, err := e.Activities.RelinkActivity(admin, id, activities.RelinkActivityInput{
+				EntityType: "project", EntityID: within.UUID,
+			}); err != nil {
+				t.Fatalf("file %q under its project: %v", subject, err)
+			}
+		}
+		return ids.UUID(logged.Id).String()
 	}
-	onERP := mail("ERP cutover plan")
-	onOther := mail("Rack decommissioning")
-	unfiled := mail("Invoice question")
 
-	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id)
-		VALUES ($1, 'project', $2)`, onERP, erp)
-	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id)
-		VALUES ($1, 'project', $2)`, onOther, migrate)
-
-	return projectScopeFixture{
-		org: org, person: person,
-		erp: projectIDOf(erp), migrate: projectIDOf(migrate),
-		onERP: onERP, onOther: onOther, unfiled: unfiled,
+	return scopeFixture{
+		person: person, erp: erp,
+		onERP:   mail("ERP cutover plan", &erp),
+		onOther: mail("Rack decommissioning", &migration),
+		unfiled: mail("Invoice question", nil),
 	}
 }
 
 func TestTimelineScopedToOneProjectDropsTheOtherEngagement(t *testing.T) {
 	e := Setup(t)
-	f := seedTwoProjectAccount(t, e)
-	admin := e.Admin()
+	f := seedTwoEngagementAccount(t, e)
 
 	person := string(datasource.RecordPerson)
-	got, _, err := e.Activities.ListActivities(admin, activities.ListActivitiesInput{
-		EntityType:      &person,
-		EntityID:        &f.person,
-		WithinProjectID: &f.erp,
+	got, _, err := e.Activities.ListActivities(e.Admin(), activities.ListActivitiesInput{
+		EntityType: &person, EntityID: &f.person, WithinProjectID: &f.erp,
 	})
 	if err != nil {
 		t.Fatalf("list within project: %v", err)
 	}
-
 	seen := map[string]bool{}
 	for _, a := range got {
 		seen[a.Id.String()] = true
 	}
-	// The negative assertion is the one that fails when the predicate does
-	// nothing, which is the failure mode a scope has.
-	if seen[f.onOther.String()] {
+
+	if seen[f.onOther] {
 		t.Error("the other engagement's mail survived a scoped read — the scope filtered nothing")
 	}
-	if !seen[f.onERP.String()] {
+	if !seen[f.onERP] {
 		t.Error("the scoped project's own mail is missing")
 	}
-	// Attribution is optional, so unfiled correspondence is the account's
-	// general history and must survive. Dropping it would leave a brief
-	// reading as though the relationship had no past.
-	if !seen[f.unfiled.String()] {
-		t.Error("correspondence filed under NO project was dropped; the scope excludes other projects, not everything unattributed")
+	// Attribution is optional, so unfiled mail is the account's general
+	// history. Dropping it would leave a brief reading as though the
+	// relationship had no past.
+	if !seen[f.unfiled] {
+		t.Error("mail filed under NO project was dropped; the rule keeps it")
 	}
 }
 
 func TestTimelineWithoutAScopeStillSeesEveryEngagement(t *testing.T) {
 	e := Setup(t)
-	f := seedTwoProjectAccount(t, e)
-	admin := e.Admin()
+	f := seedTwoEngagementAccount(t, e)
 
 	person := string(datasource.RecordPerson)
-	got, _, err := e.Activities.ListActivities(admin, activities.ListActivitiesInput{
-		EntityType: &person,
-		EntityID:   &f.person,
+	got, _, err := e.Activities.ListActivities(e.Admin(), activities.ListActivitiesInput{
+		EntityType: &person, EntityID: &f.person,
 	})
 	if err != nil {
 		t.Fatalf("list unscoped: %v", err)
 	}
 	if len(got) != 3 {
-		t.Fatalf("unscoped timeline = %d rows, want all 3 — an absent scope must narrow nothing", len(got))
+		t.Fatalf("unscoped timeline = %d rows, want 3 — an absent scope narrows nothing", len(got))
+	}
+}
+
+// The context walk carries its OWN copy of the predicate, in another module a
+// module may not import (ADR-0054). A test of the timeline list alone would
+// pass with this half absent — and this is the half every assembled picture
+// reads, so catch_me_up_on and prep_for_meeting hang off it.
+func TestAssembledContextScopedToOneProjectDropsTheOtherEngagement(t *testing.T) {
+	e := Setup(t)
+	f := seedTwoEngagementAccount(t, e)
+	// AssembleContext embeds nothing — only Search does — so the walk needs no
+	// embedder to answer.
+	retriever := search.NewRetriever(search.NewStore(harnessDB(e.Pool, e.WS)), nil)
+	anchor := datasource.EntityRef{Type: datasource.EntityPerson, ID: f.person}
+
+	idsIn := func(opts retrieval.AssembleOptions) map[string]bool {
+		t.Helper()
+		got, err := retriever.AssembleContext(e.Admin(), anchor, opts)
+		if err != nil {
+			t.Fatalf("assemble: %v", err)
+		}
+		out := map[string]bool{}
+		for _, section := range got.Sections {
+			for _, item := range section.Items {
+				out[item.Ref.ID.String()] = true
+			}
+		}
+		return out
+	}
+
+	scoped := idsIn(retrieval.AssembleOptions{MaxItems: 25, ProjectID: f.erp.String()})
+	if scoped[f.onOther] {
+		t.Error("the context walk carried the other engagement into a scoped picture")
+	}
+	if !scoped[f.onERP] {
+		t.Error("the scoped project's own mail is missing from the walk")
+	}
+	if !scoped[f.unfiled] {
+		t.Error("the walk dropped mail filed under no project; the rule keeps it")
+	}
+
+	// The same anchor unscoped still sees everything, so the narrowing above is
+	// the scope's doing rather than something else in the walk quietly losing a
+	// row — which would make the assertions pass for the wrong reason.
+	wide := idsIn(retrieval.AssembleOptions{MaxItems: 25})
+	if !wide[f.onOther] {
+		t.Error("an unscoped walk lost the other engagement, so the scoped one proves nothing")
 	}
 }

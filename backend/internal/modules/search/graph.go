@@ -74,43 +74,6 @@ var anchorLinkColumn = map[string]string{
 	string(datasource.EntityProject):      "project_id",
 }
 
-// projectScope narrows a walk to one body of work. The zero value scopes
-// nothing, which is the ordinary read.
-//
-// It is a CO-FILTER on an anchor that stays a person, a company or a deal —
-// not an anchor of its own. "Catch me up on Acme" and "catch me up on Acme,
-// but only the ERP rollout" walk the same neighborhood; the second one just
-// refuses to be told about the other engagement.
-type projectScope struct {
-	projectID string
-}
-
-// clause renders the exclusion the scope stands for, or "" when there is no
-// scope. `activityAlias` is the ACTIVITY alias it applies to.
-//
-// It has to be a subquery over the activity's other links, not a test on the
-// link row already joined: `activity_link_shape` admits exactly ONE target per
-// row, so a person-link row carries `project_id IS NULL` by construction. A
-// predicate on that row would be true for every row it saw and would filter
-// nothing at all — a scope that silently does nothing, which reads in a brief
-// exactly like a scope that works.
-//
-// KEEPING THE UNATTRIBUTED ROWS IS THE POINT. Attribution is optional here, so
-// most correspondence on an account carries no project at all: `NOT EXISTS a
-// link to another project` keeps those, and removes only what is filed under a
-// different body of work.
-func (s projectScope) clause(activityAlias string, arg func(any) int) string {
-	if s.projectID == "" {
-		return ""
-	}
-	return fmt.Sprintf(`NOT EXISTS (
-			SELECT 1 FROM activity_link scoped
-			WHERE scoped.activity_id = %s.id
-			  AND scoped.project_id IS NOT NULL
-			  AND scoped.project_id <> $%d)`,
-		activityAlias, arg(s.projectID))
-}
-
 // assembleGraph is the fixed-depth context walk (B-EP05.20a): anchor →
 // linked activities (hop 1) → those activities' other link targets
 // (hop 2). Depth is fixed by construction — two joins, not a traversal
