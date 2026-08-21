@@ -725,9 +725,13 @@ test.describe("B-EP09.23: overlay mode", () => {
     await expect(name).toHaveValue("Fleet retrofit");
     await name.fill("Fleet retrofit — expanded scope");
     await page.getByRole("button", { name: "Speichern" }).click();
-    await expect(
-      page.getByText("Fleet retrofit — expanded scope"),
-    ).toBeVisible();
+    // The record's own heading, not any text on the page carrying the name: the
+    // agent line in the rail names what it is reading, so a bare text match
+    // finds the saved name twice and cannot say which one is the 360 rendering
+    // the write.
+    await expect(page.locator(".record-head h1")).toHaveText(
+      "Fleet retrofit — expanded scope",
+    );
   });
 
   test("AC-overlay-4: an unsupported verb explains itself rather than failing", async ({

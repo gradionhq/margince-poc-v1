@@ -351,7 +351,7 @@ void main(){
   /* Tight and quiet: this is the light the ball throws, and a wide bloom on a
      surface that packs the Core next to other things is a smudge on them rather
      than an atmosphere around it. */
-  float glowA = (exp(-outer * 34.0) * 0.16 + exp(-outer * 9.0) * 0.03)
+  float glowA = (exp(-outer * 44.0) * 0.10 + exp(-outer * 14.0) * 0.018)
               * (0.60 + 0.40 * uLevel);
   float lit = 1.0 - uPaper;
   col   = mix(col, mix(glowTint, vec3(0.02, 0.06, 0.05), uPaper), (1.0 - alpha) * glowA);

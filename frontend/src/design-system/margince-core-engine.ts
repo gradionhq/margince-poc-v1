@@ -9,6 +9,7 @@ import {
   type CoreBehaviour,
   EASE,
   FEED_INGEST,
+  FRAME_MS,
   MAX_STEP,
   PHASE_SEED,
   rowFor,
@@ -126,6 +127,7 @@ function runCoreLoop(
   let paper = wanted.current.paper;
   let handle = 0;
   let last = 0;
+  let drawnAt = 0;
   let stopped = false;
 
   const measure = () => {
@@ -164,11 +166,26 @@ function runCoreLoop(
   });
 
   const tick = (now: number) => {
+    // The Core never truly rests: its quietest state still drifts, so this loop
+    // runs for as long as the app is open, on every screen. At the display's own
+    // rate that is a fragment-heavy shader redrawn sixty times a second forever,
+    // which costs a laptop real battery and costs a software renderer (CI, a
+    // machine with no GPU) enough to slow the page around it. The motion here is
+    // a slow drift, and a slow drift does not need every frame: the loop keeps
+    // asking the browser for one, and DRAWS on the ones far enough apart.
+    handle = requestAnimationFrame(tick);
+    if (now - drawnAt < FRAME_MS) {
+      return;
+    }
+    drawnAt = now;
     const drifting = advance(now);
     renderer.draw(shown());
-    // Scheduled AFTER the frame that decides it, so a park is a park: the next
-    // callback is never already in flight when the loop stops wanting one.
-    handle = drifting && !stopped ? requestAnimationFrame(tick) : 0;
+    // Parked only after the frame that decides it, so a park is a park: the
+    // next callback is never already in flight when the loop stops wanting one.
+    if (!drifting || stopped) {
+      cancelAnimationFrame(handle);
+      handle = 0;
+    }
   };
 
   const wake = () => {
@@ -177,6 +194,7 @@ function runCoreLoop(
     }
     measure();
     last = 0;
+    drawnAt = 0;
     handle = requestAnimationFrame(tick);
   };
 
