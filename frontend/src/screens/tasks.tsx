@@ -278,6 +278,9 @@ export function TasksScreen() {
   // shared CreateAction choreography (which navigates) does not fit; the
   // modal + refreshed list is the whole story.
   const create = useMutation({
+    // No single record: a task here is created loose, on the standalone
+    // tasks screen rather than off a 360.
+    mutationKey: ["task-new"],
     mutationFn: async (values: Record<string, string>) => {
       const { error } = await api.POST("/activities", {
         body: {

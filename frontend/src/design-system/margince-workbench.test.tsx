@@ -39,7 +39,7 @@ afterEach(cleanup);
 function renderWorkbench() {
   return render(
     <MarginceWorkbench
-      state="reasoning"
+      state="working"
       eyebrow="Margince"
       title="Your company research AI"
       status="Reading"
@@ -196,7 +196,7 @@ describe("the rail's person row", () => {
   ) {
     return render(
       <MarginceWorkbench
-        state="reasoning"
+        state="working"
         eyebrow="Margince"
         title="Your company research AI"
         status="Reading"

@@ -160,6 +160,10 @@ export function LogActivityForm({
   const [fileError, setFileError] = useState<string | null>(null);
 
   const log = useMutation({
+    // Keyed on entityId, the record this form is open on, not the created
+    // activity's own id: the reader wants the name of what the activity is
+    // ABOUT, and the record on screen is always already named in the cache.
+    mutationKey: ["activity-log", entityId],
     mutationFn: async (input: ActivityDraft) => {
       const { data, error } = await api.POST("/activities", {
         body: activityRequestBody(input, entityType, entityId),

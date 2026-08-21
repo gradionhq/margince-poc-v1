@@ -8,7 +8,14 @@
 // Usage: node frontend/scripts/fe-uat.mjs [--allow-missing]
 //   --allow-missing  do not fail when a changed component has no story yet
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -77,7 +84,10 @@ const IMPORT_PATTERNS = [
   // `import … from "s"` / `export … from "s"`. The clause between the keyword
   // and `from` carries neither a quote nor a `;`, which is what stops a match
   // from spanning two statements while still crossing a multi-line clause.
-  new RegExp(`${STATEMENT_START}(?:import|export)\\b[^;'"]*?\\bfrom\\s*["']([^"']+)["']`, "gm"),
+  new RegExp(
+    `${STATEMENT_START}(?:import|export)\\b[^;'"]*?\\bfrom\\s*["']([^"']+)["']`,
+    "gm",
+  ),
   // Side-effect `import "s"`.
   new RegExp(`${STATEMENT_START}import\\s+["']([^"']+)["']`, "gm"),
   // Dynamic `import("s")`, which is an expression and has no statement start.
@@ -122,7 +132,8 @@ function resolveSpecifier(fromFile, specifier) {
     ...sourceExtensions.map((ext) => join(target, `index${ext}`)),
   ];
   for (const candidate of candidates) {
-    if (existsSync(candidate) && statSync(candidate).isFile()) return relative(repoRoot, candidate);
+    if (existsSync(candidate) && statSync(candidate).isFile())
+      return relative(repoRoot, candidate);
   }
   return null;
 }
@@ -134,7 +145,8 @@ for (const abs of sourceFilesUnder(srcRoot)) {
   for (const specifier of importSpecifiers(readFileSync(abs, "utf8"))) {
     const imported = resolveSpecifier(story, specifier);
     if (!imported) continue;
-    if (!coveringStories.has(imported)) coveringStories.set(imported, new Set());
+    if (!coveringStories.has(imported))
+      coveringStories.set(imported, new Set());
     coveringStories.get(imported).add(story);
   }
 }
@@ -184,7 +196,9 @@ const PHONE_TAG = "uat-phone";
 const DESKTOP = { width: 1024, height: 720 };
 const PHONE = { width: 390, height: 844 };
 
-const wantImportPaths = new Set([...storyFiles].map((p) => `./${p.replace(/^frontend\//, "")}`));
+const wantImportPaths = new Set(
+  [...storyFiles].map((p) => `./${p.replace(/^frontend\//, "")}`),
+);
 
 function writeManifest(fields) {
   mkdirSync(outDir, { recursive: true });
@@ -203,7 +217,7 @@ if (storyFiles.size === 0 && missing.length === 0) {
 
 // Render only when there are stories to capture. If the diff is purely a
 // component with no story (missing), skip straight to the verdict below.
-let results = [];
+const results = [];
 let unresolved = [];
 if (storyFiles.size > 0) {
   // Force a FRESH build so we render the current diff — a cached build would
@@ -248,9 +262,12 @@ if (storyFiles.size > 0) {
       if (m.type() === "error" && !expectsConsoleError) errors.push(m.text());
     });
 
-    await page.goto(`http://localhost:${port}/iframe.html?id=${story.id}&viewMode=story`, {
-      waitUntil: "networkidle",
-    });
+    await page.goto(
+      `http://localhost:${port}/iframe.html?id=${story.id}&viewMode=story`,
+      {
+        waitUntil: "networkidle",
+      },
+    );
     let rendered = true;
     try {
       await page.waitForSelector("#storybook-root > *", { timeout: 10_000 });
@@ -273,7 +290,9 @@ if (storyFiles.size > 0) {
     await page.screenshot({ path: png });
     const pass = rendered && errors.length === 0;
     results.push({ id: story.id, pass, png: relative(repoRoot, png), errors });
-    console.log(pass ? `✓ ${story.id}` : `✗ ${story.id} — ${errors.join("; ")}`);
+    console.log(
+      pass ? `✓ ${story.id}` : `✗ ${story.id} — ${errors.join("; ")}`,
+    );
   }
 
   await browser.close();
@@ -288,12 +307,19 @@ writeManifest({ stories: results, missing, unresolved, pass });
 
 if (!pass) {
   const failed = results.filter((r) => !r.pass).map((r) => r.id);
-  if (failed.length) console.error(`fe-uat FAIL — stories did not render clean: [${failed.join(", ")}]`);
+  if (failed.length)
+    console.error(
+      `fe-uat FAIL — stories did not render clean: [${failed.join(", ")}]`,
+    );
   if (unresolved.length)
-    console.error(`fe-uat FAIL — changed story files the build did not register: [${unresolved.join(", ")}]`);
+    console.error(
+      `fe-uat FAIL — changed story files the build did not register: [${unresolved.join(", ")}]`,
+    );
   if (!allowMissing && missing.length) {
     const comps = missing.map((m) => m.component).join(", ");
-    console.error(`fe-uat FAIL — changed components no story renders: [${comps}]`);
+    console.error(
+      `fe-uat FAIL — changed components no story renders: [${comps}]`,
+    );
     console.error(
       "  (author a story that imports it — co-located <component>.stories.tsx is the default — then re-run)",
     );
@@ -301,4 +327,6 @@ if (!pass) {
   process.exit(1);
 }
 const note = missing.length ? ` (allow-missing: ${missing.length})` : "";
-console.log(`fe-uat OK — ${results.length} story(ies) captured → ${relative(repoRoot, outDir)}/${note}`);
+console.log(
+  `fe-uat OK — ${results.length} story(ies) captured → ${relative(repoRoot, outDir)}/${note}`,
+);

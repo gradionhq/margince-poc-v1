@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MarginceCoreState } from "./margince-core";
+import { type CoreFrame, createCoreRenderer } from "./margince-core-gl";
 import {
-  BEHAVIOUR,
-  BLOBS,
-  breath,
-  CLOCK_SEED,
-  type CoreMotion,
-  current,
-  DOTS,
-  dotTarget,
-  liquidBlob,
+  asHero,
+  type CoreBehaviour,
+  EASE,
+  FEED_INGEST,
+  MAX_STEP,
+  PHASE_SEED,
+  rowFor,
+  still,
 } from "./margince-core-motion";
 import { usePrefersReducedMotion } from "./motion";
 import {
@@ -22,538 +22,305 @@ import {
 } from "./window-focus";
 
 /**
- * The Core's engine: it moves four dots and the shell they sit in, and nothing
- * else.
+ * The Core's engine: it decides WHEN the sphere moves and how it gets from one
+ * state to the next. What it looks like is the shader's business
+ * (`margince-core-shader.ts`), and the numbers each state is made of are the
+ * table's (`margince-core-motion.ts`).
  *
- * Internal to `MarginceCoreScene` — the placements come from
- * `margince-core-motion.ts` (pure), the material comes from the stylesheet, and
- * what lives here is the part that has to be correct rather than pretty: WHEN a
- * frame happens, and what it is allowed to touch.
+ * Three rules hold this file together.
  *
- * Transform and opacity only, no layout reads inside the loop, and every
- * measurement (the orb's box, its centre, the dot size) taken from an event that
- * can change it — a resize, a scroll — never from the frame.
+ * **Nothing snaps.** Every dial eases toward the current state's target, so a
+ * state change reads as the material changing rather than a switch being thrown.
+ * The phase is INTEGRATED rather than derived from elapsed time, which is what
+ * lets `speed` change without the motion teleporting.
  *
- * It STOPS, rather than throttling, whenever nothing would change: a hidden tab,
- * a window without focus, an orb scrolled off screen, and reduced motion, where
- * one composed frame IS the whole animation. Each of those ends with an event, so
- * the loop is woken by that event rather than by asking every frame. The
- * prototype this is ported from ran one rAF per orb at module scope forever and
- * kept requesting frames in a hidden tab; on a page that shows the Core in
- * permanent chrome, that is a timer nobody can switch off.
+ * **The loop parks whenever nobody is watching, and only ever resumes on an
+ * EVENT.** A window without focus, a state that has finished easing and is not
+ * advancing, a document hidden behind another tab: in each case the frames are
+ * work with nothing to show for it. The condition a loop parks on must have an
+ * announced end, or the sphere freezes for good.
+ *
+ * **It survives the machine.** No WebGL2, a refused compile, a context lost to
+ * a GPU reset: the hook reports that it is not live and the component wears its
+ * static dress instead.
  */
 
-/** The size every constant in the motion table was tuned at. */
-const REFERENCE_PX = 300;
-/** The dot diameter at that size, which the line mode measures against. */
-const REFERENCE_DOT_PX = 38;
-
-type Dot = {
-  readonly el: HTMLElement;
-  x: number;
-  y: number;
-  sx: number;
-  sy: number;
-  rotation: number;
+/** The eased state of the object, as opposed to where it is heading. */
+type Dials = {
+  level: number;
+  speed: number;
+  pulse: number;
+  ingest: number;
+  tint: number;
+  tintCol: [number, number, number];
 };
 
-/** What the loop needs from the DOM, re-read only when an event says it changed. */
-type Box = {
-  /** Size relative to REFERENCE_PX, so one motion table drives every size. */
-  scale: number;
-  /** The measured width, which the fusion blur is derived from. */
-  width: number;
-  dotPx: number;
-  /** Widest excursion still inside the shell, given optically enlarged dots. */
-  spread: number;
-  centreX: number;
-  centreY: number;
-  radius: number;
-};
+/** Close enough that another frame would not change a pixel. */
+const SETTLED = 1e-4;
 
-/**
- * The fusion blur for an orb this wide, in the filter's own user units.
- *
- * One formula rather than a filter per breakpoint. The relationship is not
- * linear: the prototype hand-tuned 6 at 300px, 2.4 at 64 and 1.1 at 34, which is
- * a blur that grows as a SHARE of the orb as the orb shrinks — small orbs carry
- * proportionally larger dots, so they need proportionally more blur to fuse at
- * all. This reproduces those three within a tenth and, unlike them, answers for
- * the sizes in between.
- */
-function fusionBlur(width: number): number {
-  const share = 0.02 * (1 + 0.9 * Math.max(0, 1 - width / REFERENCE_PX));
-  return Math.max(0.9, width * share);
-}
-
-function measure(shell: HTMLElement, dot: HTMLElement | undefined): Box {
-  const rect = shell.getBoundingClientRect();
-  const scale = rect.width / REFERENCE_PX;
-  const dotPx = dot?.offsetWidth || REFERENCE_DOT_PX * scale;
-  // Small orbs carry proportionally LARGER dots (a dot that is right at 300px is
-  // a hairline at 34px), so the formation has to tighten or the excursions push
-  // the dots through the glass. The square root is the compromise that keeps the
-  // gaps reading as gaps.
-  const enlarged = dotPx / (REFERENCE_DOT_PX * scale || 1);
+function dialsFrom(behaviour: CoreBehaviour): Dials {
   return {
-    scale,
-    width: rect.width,
-    dotPx,
-    spread: Math.min(1.22, Math.sqrt(enlarged)),
-    centreX: rect.left + rect.width / 2,
-    centreY: rect.top + rect.height / 2,
-    radius: rect.width / 2,
+    level: behaviour.level,
+    speed: behaviour.speed,
+    pulse: behaviour.pulse,
+    ingest: behaviour.ingest,
+    tint: behaviour.tint,
+    tintCol: [...behaviour.tintCol],
   };
 }
 
-/**
- * Whether the orb is on screen, reported as it changes.
- *
- * A missing or throwing IntersectionObserver must leave the engine RUNNING:
- * failing the other way freezes the dots wherever they stood, which is
- * indistinguishable from a broken Core.
- */
-function observeOnScreen(
-  shell: HTMLElement,
-  onChange: (onScreen: boolean) => void,
-): IntersectionObserver | null {
-  if (typeof IntersectionObserver === "undefined") {
-    return null;
-  }
-  try {
-    const observer = new IntersectionObserver((entries) => {
-      const latest = entries[entries.length - 1];
-      if (latest) {
-        onChange(latest.isIntersecting);
-      }
-    });
-    observer.observe(shell);
-    return observer;
-  } catch {
-    return null;
-  }
+/** Moves one dial a fraction of the way to its target, and says if it moved. */
+function ease(from: number, to: number, rate: number): number {
+  return from + (to - from) * rate;
 }
 
-/** Re-measure on resize, where the host has an observer for it. */
-function observeSize(
-  shell: HTMLElement,
-  onResize: () => void,
-): ResizeObserver | null {
-  if (typeof ResizeObserver === "undefined") {
-    return null;
+function step(dials: Dials, target: CoreBehaviour): boolean {
+  dials.level = ease(dials.level, target.level, EASE.level);
+  dials.speed = ease(dials.speed, target.speed, EASE.speed);
+  dials.pulse = ease(dials.pulse, target.pulse, EASE.pulse);
+  dials.ingest = ease(dials.ingest, target.ingest, EASE.ingest);
+  dials.tint = ease(dials.tint, target.tint, EASE.tint);
+  for (let i = 0; i < 3; i++) {
+    dials.tintCol[i] = ease(dials.tintCol[i], target.tintCol[i], EASE.tintCol);
   }
-  try {
-    const observer = new ResizeObserver(onResize);
-    observer.observe(shell);
-    return observer;
-  } catch {
-    return null;
-  }
-}
-
-const lerp = (from: number, to: number, k: number) => from + (to - from) * k;
-
-/**
- * The check mark draws real strokes, so the goo filter comes off and the dots
- * become bars. Switched on a state change only, never per frame — swapping a
- * filter is a repaint of the whole subtree.
- */
-function setLineMode(shell: HTMLElement, dots: readonly Dot[], on: boolean) {
-  shell.classList.toggle("core-strokes", on);
-  if (on) {
-    return;
-  }
-  for (const dot of dots) {
-    dot.el.style.width = "";
-    dot.el.style.height = "";
-    dot.el.style.margin = "";
-  }
-}
-
-function writeDot(dot: Dot, box: Box, lineMode: boolean) {
-  if (!lineMode) {
-    dot.el.style.transform = `translate3d(${dot.x.toFixed(2)}px,${dot.y.toFixed(2)}px,0) scale(${dot.sx.toFixed(3)},${dot.sy.toFixed(3)})`;
-    return;
-  }
-  // A stroke is a bar whose LENGTH is the eased scale, so the same four elements
-  // draw the check mark without the engine owning a second set of nodes.
-  const width = Math.max(0, dot.sx * box.dotPx);
-  const height = (18 / REFERENCE_DOT_PX) * box.dotPx * dot.sy;
-  dot.el.style.width = `${width.toFixed(1)}px`;
-  dot.el.style.height = `${height.toFixed(1)}px`;
-  dot.el.style.margin = `${(-height / 2).toFixed(1)}px 0 0 ${(-width / 2).toFixed(1)}px`;
-  dot.el.style.transform = `translate3d(${dot.x.toFixed(2)}px,${dot.y.toFixed(2)}px,0) rotate(${dot.rotation.toFixed(2)}deg)`;
-}
-
-/** The cursor's pull on the dots, as a fraction and a direction. */
-type Lean = { strength: number; x: number; y: number };
-
-function easeDots(
-  dots: readonly Dot[],
-  motion: CoreMotion,
-  amp: number,
-  time: number,
-  box: Box,
-  lean: Lean,
-  dt: number,
-) {
-  const rhythm = breath(time);
-  const settle = dt * (motion === "alert" ? 9 : 5);
-  const flow = current(time);
-  for (let index = 0; index < dots.length; index += 1) {
-    const dot = dots[index];
-    const target = dotTarget(motion, index, time, rhythm);
-    // Carried by the fluid: the current the liquid layer is drawn at, added to
-    // every placement. `alert` and `fail` take a third of it — a state that is
-    // deliberately going nowhere must not be seen to drift, but a mass in liquid
-    // that is perfectly still reads as a mass in glue.
-    const carried = motion === "alert" || motion === "fail" ? 0.34 : 1;
-    let x = target.x + flow.x * 16 * carried;
-    let y = target.y + flow.y * 16 * carried;
-    if (lean.strength > 0.01) {
-      // The nearest dots reach toward the cursor and the goo stretches between
-      // them, which is the whole of the interaction: the Core notices, it does
-      // not respond. It is aria-hidden and carries no click.
-      const towardX = lean.x * 120 - x;
-      const towardY = lean.y * 120 - y;
-      const pull =
-        lean.strength *
-        0.4 *
-        Math.max(0, 1 - Math.hypot(towardX, towardY) / 260);
-      x += towardX * pull;
-      y += towardY * pull;
-    }
-    dot.x = lerp(dot.x, x * box.scale * box.spread, settle);
-    dot.y = lerp(dot.y, y * box.scale * box.spread, settle);
-    // The dots breathe with the ball, on the same rhythm rather than a rhythm of
-    // their own: two close periods beat against each other, and what a reader
-    // sees then is the ball and its contents disagreeing about when to swell. The
-    // depth follows the state's own `amp`, so `dormant` is a slow settle and
-    // `drafting` visibly pumps.
-    const swell = 1 + (rhythm - 0.5) * 0.16 * (0.5 + amp * 0.7);
-    dot.sx = lerp(dot.sx, target.sx * swell, dt * 6);
-    dot.sy = lerp(dot.sy, target.sy * swell, dt * 6);
-    // Rotation must not ease the long way round when a target flips sign.
-    dot.rotation =
-      Math.abs(target.rotation - dot.rotation) > 90
-        ? target.rotation
-        : lerp(dot.rotation, target.rotation, dt * 7);
-  }
-}
-
-/**
- * The liquid filling the ball: a few large masses on their own slow paths,
- * stretched along the way they travel and fused where they overlap.
- *
- * Written the same way the dots are — transform only, one composited layer each —
- * and carried by the same current, so the fluid and the things suspended in it
- * can never disagree about which way the ball is moving.
- */
-function writeLiquid(blobs: readonly HTMLElement[], time: number, box: Box) {
-  const flow = current(time);
-  const carry = box.width * 0.05;
-  for (let index = 0; index < blobs.length; index += 1) {
-    const mass = liquidBlob(index, time);
-    const x = mass.x * box.scale + flow.x * carry;
-    const y = mass.y * box.scale + flow.y * carry;
-    blobs[index].style.transform =
-      `translate3d(${x.toFixed(2)}px,${y.toFixed(2)}px,0) rotate(${mass.rotation.toFixed(2)}deg) scale(${mass.sx.toFixed(3)},${mass.sy.toFixed(3)})`;
-  }
-}
-
-function writeShell(
-  shell: HTMLElement,
-  time: number,
-  amp: number,
-  lean: Lean,
-  tilt: { x: number; y: number },
-) {
-  const rhythm = breath(time);
-  const size =
-    1 + lean.strength * 0.05 + (rhythm - 0.5) * 0.05 * (0.7 + amp * 0.5);
-  shell.style.transform = `perspective(900px) rotateY(${(tilt.x * 10).toFixed(2)}deg) rotateX(${(-tilt.y * 10).toFixed(2)}deg) scale(${size.toFixed(4)})`;
-  shell.style.opacity = (
-    0.93 +
-    lean.strength * 0.07 +
-    (rhythm - 0.5) * 0.06
-  ).toFixed(3);
-}
-
-/**
- * Drives one orb until it is torn down.
- *
- * Returns the handle the effect owns: `stop` releases every listener and pending
- * frame, `wake` asks for one if the loop is parked and something can see it.
- */
-function runOrbLoop(
-  shell: HTMLElement,
-  dots: readonly Dot[],
-  state: MarginceCoreState,
-  reduced: boolean,
-): Readonly<{
-  stop: () => void;
-  wake: () => void;
-  lean: Lean;
-  box: () => Box;
-}> {
-  const behaviour = BEHAVIOUR[state];
-  // A non-zero seed: at t=0 every formation is at its own origin, where several
-  // of them have all four dots stacked, and the first frame would be one blob.
-  // The motion table owns the value, because a one-shot measures its own age
-  // against it (CLOCK_SEED).
-  let time = CLOCK_SEED;
-  let last = performance.now();
-  let frame = 0;
-  let stopped = false;
-  let drawnOnce = false;
-  let onScreen = true;
-  let windowFocused = isWindowFocused();
-  let box = measure(shell, dots[0]?.el);
-  // The masses the markup actually carries. Sliced to what the motion module
-  // knows how to place: a fourth blob in the DOM would otherwise sit unmoved in
-  // the middle of the ball, which is the one thing in a liquid that cannot happen.
-  const blobs = [...shell.querySelectorAll<HTMLElement>(".core-blob")].slice(
-    0,
-    BLOBS,
+  return (
+    Math.abs(dials.level - target.level) > SETTLED ||
+    Math.abs(dials.speed - target.speed) > SETTLED ||
+    Math.abs(dials.pulse - target.pulse) > SETTLED ||
+    Math.abs(dials.ingest - target.ingest) > SETTLED ||
+    Math.abs(dials.tint - target.tint) > SETTLED ||
+    dials.tintCol.some(
+      (channel, i) => Math.abs(channel - target.tintCol[i]) > SETTLED,
+    )
   );
-  // The filter lives in the component's own subtree, so it is found rather than
-  // passed: the engine drives the DOM the component rendered, and threading an
-  // element reference through for one attribute would be a second contract
-  // between them for no gain.
-  const blur =
-    shell.parentElement?.querySelector<SVGFEGaussianBlurElement>(
-      ".core-goo-blur",
-    );
-  const applyBlur = () =>
-    blur?.setAttribute("stdDeviation", fusionBlur(box.width).toFixed(2));
-  applyBlur();
-  const lean: Lean = { strength: 0, x: 0, y: 0 };
-  const tilt = { x: 0, y: 0 };
-  const lineMode = behaviour.motion === "resolve";
-  setLineMode(shell, dots, lineMode);
+}
 
-  const seen = () => onScreen && !document.hidden && windowFocused;
+/** What the hook's callers can change under a running loop. */
+type Wanted = {
+  behaviour: CoreBehaviour;
+  paper: number;
+};
 
-  const draw = (now: number) => {
-    // Floored at zero: a timestamp that goes backwards — a stubbed clock, a
-    // suspended tab, a frame delivered out of order — would otherwise ease every
-    // dot the wrong way down the curve.
-    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
-    last = now;
-    // Reduced motion holds the clock still, so the composed frame is the state's
-    // own rest position rather than a blank orb.
-    if (!reduced) {
-      time += dt * (0.5 + behaviour.speed * 0.7);
-    }
-    tilt.x = lerp(tilt.x, lean.x * lean.strength, dt * 7);
-    tilt.y = lerp(tilt.y, lean.y * lean.strength, dt * 7);
-    // Under reduced motion the easing is instant: a settle animation IS motion,
-    // however small, so the one frame drawn has to be the settled one.
-    easeDots(
-      dots,
-      behaviour.motion,
-      behaviour.amp,
-      time,
-      box,
-      lean,
-      reduced ? 1 : dt,
-    );
-    writeLiquid(blobs, time, box);
-    for (const dot of dots) {
-      writeDot(dot, box, lineMode);
-    }
-    writeShell(shell, time, behaviour.amp, lean, tilt);
-    drawnOnce = true;
+type Loop = Readonly<{
+  wake: () => void;
+  /** Re-sizes the drawing buffer and draws once, whether parked or not. */
+  remeasure: () => void;
+  stop: () => void;
+}>;
+
+function runCoreLoop(
+  canvas: HTMLCanvasElement,
+  wanted: { current: Wanted },
+): Loop | null {
+  const renderer = createCoreRenderer(canvas);
+  if (!renderer) {
+    return null;
+  }
+  const dials = dialsFrom(wanted.current.behaviour);
+  /* The light in the shader comes from a fixed direction. It used to follow the
+     cursor, and what that produced was an object that reacted to a pointer
+     crossing the page on its way somewhere else, which reads as twitchy rather
+     than alive: the orb has its own motion and does not need a second source. */
+  const mouse: readonly [number, number] = [0, 0];
+  let phase = PHASE_SEED;
+  let paper = wanted.current.paper;
+  let handle = 0;
+  let last = 0;
+  let stopped = false;
+
+  const measure = () => {
+    // The Core is a ball, so one side serves: whichever the box gives, the
+    // square drawing buffer is sized from it.
+    const box = canvas.getBoundingClientRect();
+    renderer.resize(Math.max(box.width, box.height), devicePixelRatio || 1);
   };
 
-  const pump = (now: number) => {
-    frame = 0;
-    // The FIRST frame is owed even to an orb nobody is looking at: an unpainted
-    // dot sits at the element's origin, so parking before one frame leaves four
-    // dots stacked in the middle of the glass.
-    if (drawnOnce && (!seen() || reduced)) {
-      return;
-    }
-    draw(now);
-    frame = requestAnimationFrame(pump);
+  /** Advances every dial one frame and reports whether anything is still
+   *  changing. False is the signal to park: the object has arrived and is not
+   *  advancing under its own speed. */
+  const advance = (now: number): boolean => {
+    const target = wanted.current.behaviour;
+    const moving = step(dials, target);
+    paper = ease(paper, wanted.current.paper, EASE.tint);
+    const dt = last === 0 ? 0 : Math.min((now - last) / 1000, MAX_STEP);
+    last = now;
+    phase += dt * dials.speed;
+    return (
+      moving ||
+      dials.speed > SETTLED ||
+      Math.abs(paper - wanted.current.paper) > SETTLED
+    );
+  };
+
+  const shown = (): CoreFrame => ({
+    level: dials.level,
+    phase,
+    pulse: dials.pulse,
+    ingest: dials.ingest,
+    tint: dials.tint,
+    tintCol: dials.tintCol,
+    mouse,
+    paper,
+  });
+
+  const tick = (now: number) => {
+    const drifting = advance(now);
+    renderer.draw(shown());
+    // Scheduled AFTER the frame that decides it, so a park is a park: the next
+    // callback is never already in flight when the loop stops wanting one.
+    handle = drifting && !stopped ? requestAnimationFrame(tick) : 0;
   };
 
   const wake = () => {
-    // A stopped loop stays stopped. Teardown order is `stop()` then the pointer
-    // release, so a frame the pointer queued before unmount still runs after it
-    // — and without this it would restart a loop that writes to elements React
-    // has already detached.
-    if (stopped || frame || !seen()) {
+    if (stopped || handle !== 0 || !isWindowFocused()) {
       return;
     }
-    // The clock restarts on resume, so an orb parked for ten minutes continues
-    // from where it stopped instead of jumping by the length of the pause.
-    last = performance.now();
-    frame = requestAnimationFrame(pump);
+    measure();
+    last = 0;
+    handle = requestAnimationFrame(tick);
   };
 
+  /**
+   * A size change has to land whether the loop is running or not.
+   *
+   * `wake` cannot carry this: it returns early when a frame is already
+   * scheduled, which is exactly the case while the orb is animating, so a
+   * running Core would keep the buffer it was born with and the browser would
+   * scale it up. That is not a subtle artefact, it is a visibly soft ball.
+   */
   const remeasure = () => {
-    box = measure(shell, dots[0]?.el);
-    applyBlur();
-    wake();
-  };
-
-  document.addEventListener("visibilitychange", wake);
-  addEventListener("scroll", remeasure, { passive: true });
-  const releaseFocus = subscribeToWindowFocus((focused) => {
-    if (focused === windowFocused) {
+    if (stopped) {
       return;
     }
-    windowFocused = focused;
-    wake();
-  });
-  const onScreenObserver = observeOnScreen(shell, (visible) => {
-    onScreen = visible;
-    wake();
-  });
-  const sizeObserver = observeSize(shell, remeasure);
-  frame = requestAnimationFrame(pump);
-
-  return {
-    wake,
-    lean,
-    box: () => box,
-    stop: () => {
-      stopped = true;
-      cancelAnimationFrame(frame);
-      frame = 0;
-      document.removeEventListener("visibilitychange", wake);
-      removeEventListener("scroll", remeasure);
-      releaseFocus();
-      onScreenObserver?.disconnect();
-      sizeObserver?.disconnect();
-    },
+    measure();
+    renderer.draw(shown());
   };
-}
 
-/** Whether this host has a cursor that can hover at all. */
-function hasFinePointer(): boolean {
-  return globalThis.matchMedia?.("(pointer: fine)").matches === true;
+  const stop = () => {
+    stopped = true;
+    if (handle !== 0) {
+      cancelAnimationFrame(handle);
+      handle = 0;
+    }
+    renderer.dispose();
+  };
+
+  measure();
+  // One frame straight away, so a Core that mounts parked (an unfocused window,
+  // reduced motion) is drawn rather than showing an empty canvas.
+  renderer.draw(shown());
+  wake();
+  return { wake, remeasure, stop };
 }
 
 /**
- * Proximity, not hover: the orb notices the cursor before it arrives, leans
- * toward it and brightens.
+ * The target row for a Core, given everything outside the state table that has
+ * a say in it.
  *
- * Read from a pointer listener that is throttled to one frame and attached only
- * where a cursor exists — on a touch host there is no proximity to sense, and a
- * pointermove listener there is a cost with nothing to show for it.
+ * `feed` is the caller telling us context is ARRIVING, which is a fact about the
+ * surface rather than about the agent's state: a dock that is being fed while
+ * the agent rests is a real combination. It raises the intake floor and leaves
+ * everything else the state's own.
  */
-function trackPointer(
-  loop: Readonly<{ wake: () => void; lean: Lean; box: () => Box }>,
-): () => void {
-  let queued = false;
-  // Held so teardown can cancel it: an applied frame calls back into the loop,
-  // and one queued a moment before unmount runs a moment after it.
-  let pending = 0;
-  let latest: { x: number; y: number } | null = null;
-
-  const apply = () => {
-    queued = false;
-    const point = latest;
-    const box = loop.box();
-    if (!point) {
-      return;
-    }
-    const reach = Math.max(90, box.radius * 2);
-    const dx = point.x - box.centreX;
-    const dy = point.y - box.centreY;
-    const distance = Math.hypot(dx, dy);
-    if (distance > box.radius + reach) {
-      loop.lean.strength = 0;
-      loop.lean.x = 0;
-      loop.lean.y = 0;
-      return;
-    }
-    loop.lean.strength = Math.max(
-      0,
-      1 - Math.max(0, distance - box.radius) / reach,
-    );
-    loop.lean.x = dx / box.radius;
-    loop.lean.y = dy / box.radius;
-    loop.wake();
-  };
-
-  const onMove = (event: PointerEvent) => {
-    latest = { x: event.clientX, y: event.clientY };
-    if (queued) {
-      return;
-    }
-    queued = true;
-    pending = requestAnimationFrame(apply);
-  };
-  const onLeave = () => {
-    loop.lean.strength = 0;
-    loop.lean.x = 0;
-    loop.lean.y = 0;
-    loop.wake();
-  };
-
-  addEventListener("pointermove", onMove, { passive: true });
-  addEventListener("pointerleave", onLeave);
-  return () => {
-    cancelAnimationFrame(pending);
-    removeEventListener("pointermove", onMove);
-    removeEventListener("pointerleave", onLeave);
-  };
+function wants(
+  state: MarginceCoreState,
+  reduced: boolean,
+  feed: boolean,
+  hero: boolean,
+): CoreBehaviour {
+  const row = reduced ? still(state) : rowFor(state);
+  const base = hero && !reduced ? asHero(row) : row;
+  if (!feed || reduced) {
+    return base;
+  }
+  return { ...base, ingest: Math.max(base.ingest, FEED_INGEST) };
 }
 
 /**
- * Mounts the engine on a shell element and its four dots.
+ * Mounts the engine on a canvas and reports whether it is live.
  *
- * The window-focus signal is held for the orb's whole life rather than inside the
- * loop, because the stylesheet's half of the same stillness (the sheen, the
- * caustic, the feed) is driven by the `data-window-blurred` attribute that signal
- * maintains — and that half runs even where this loop is parked.
+ * False means the host cannot run it, and the component owes the reader its
+ * static dress. It is false on the first render by definition: a context cannot
+ * be made before the canvas is in the document.
+ *
+ * The window-focus signal is held for the orb's whole life rather than inside
+ * the loop, because the stylesheet's half of the same stillness is driven by the
+ * `data-window-blurred` attribute that signal maintains, and that half runs even
+ * where this loop is parked.
  */
 export function useCoreEngine(
-  shellRef: React.RefObject<HTMLElement | null>,
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
   state: MarginceCoreState,
-) {
+  options: Readonly<{ paper: boolean; feed: boolean; hero: boolean }>,
+): boolean {
   const reduced = usePrefersReducedMotion();
-  const dotsRef = useRef<Dot[]>([]);
+  const [live, setLive] = useState(false);
+  const { paper, feed, hero } = options;
+  const wanted = useRef<Wanted>({
+    behaviour: wants(state, reduced, feed, hero),
+    paper: paper ? 1 : 0,
+  });
 
   useEffect(retainWindowFocusSignal, []);
 
+  // Targets are written through a ref, so a state change bends a running loop
+  // instead of tearing the GL context down and building another one. The
+  // dependencies are the primitives the target is DERIVED from, not the derived
+  // object: a fresh table row every render would rerun this every render.
+  const loopRef = useRef<Loop | null>(null);
   useEffect(() => {
-    const shell = shellRef.current;
-    if (!shell) {
+    wanted.current.behaviour = wants(state, reduced, feed, hero);
+    wanted.current.paper = paper ? 1 : 0;
+    loopRef.current?.wake();
+  }, [state, reduced, feed, paper, hero]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
       return;
     }
-    const elements = [...shell.querySelectorAll<HTMLElement>(".core-dot")];
-    if (elements.length !== DOTS) {
-      return;
+    const loop = runCoreLoop(canvas, wanted);
+    loopRef.current = loop;
+    setLive(loop !== null);
+    if (!loop) {
+      return () => {
+        loopRef.current = null;
+      };
     }
-    // Kept, not rebuilt, while the same four elements are mounted. A state
-    // change only changes where the dots are GOING; rebuilding them puts all
-    // four back at the centre of the glass and eases them out again, so every
-    // ordinary transition — a page load starting, a save finishing — collapses
-    // the formation into a single blob on its way to the next one.
-    const kept = dotsRef.current;
-    const sameElements =
-      kept.length === elements.length &&
-      kept.every((dot, index) => dot.el === elements[index]);
-    if (!sameElements) {
-      dotsRef.current = elements.map((el) => ({
-        el,
-        x: 0,
-        y: 0,
-        sx: 1,
-        sy: 1,
-        rotation: 0,
-      }));
-    }
-    const loop = runOrbLoop(shell, dotsRef.current, state, reduced);
-    const releasePointer =
-      reduced || !hasFinePointer() ? null : trackPointer(loop);
-    return () => {
+    const observer = new ResizeObserver(() => {
+      loop.remeasure();
+      loop.wake();
+    });
+    observer.observe(canvas);
+    const releaseFocus = subscribeToWindowFocus((focused) => {
+      if (focused) {
+        loop.wake();
+      }
+    });
+    // A context lost to a GPU reset is not recoverable in place: the program and
+    // the buffers are gone with it. Reporting it not-live puts the static dress
+    // back, which is the honest picture of what the machine can draw.
+    const onLost = (event: Event) => {
+      event.preventDefault();
+      // Stop as well as report. Reporting alone leaves `tick` re-arming itself
+      // for every state whose eased speed is still above rest, drawing each
+      // frame into a context that no longer exists; and nothing unmounts the
+      // canvas on a loss, so only unmount would ever have ended it.
       loop.stop();
-      releasePointer?.();
+      setLive(false);
     };
-  }, [shellRef, state, reduced]);
+    canvas.addEventListener("webglcontextlost", onLost);
+    return () => {
+      canvas.removeEventListener("webglcontextlost", onLost);
+      releaseFocus();
+      observer.disconnect();
+      loop.stop();
+      loopRef.current = null;
+    };
+    // Only the canvas: the loop reads everything else through the ref above, so
+    // a state change bends the running loop instead of rebuilding the GL context
+    // under it.
+  }, [canvasRef]);
+
+  return live;
 }

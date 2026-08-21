@@ -69,6 +69,9 @@ export function DedupeScreen() {
   const queue = useDedupeQueue();
 
   const dispose = useMutation({
+    // No single record: this one mutation serves the whole open queue, and
+    // which pair is being decided is known only at mutate() time, not here.
+    mutationKey: ["dedupe"],
     mutationFn: async (input: {
       id: string;
       disposition: "merge" | "not_a_duplicate";

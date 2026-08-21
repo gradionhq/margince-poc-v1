@@ -1,0 +1,854 @@
+/* ===== The agent section, at the foot of the workspace rail =====
+ *
+ * It stands where the rail's other reading stands: under the destinations, in
+ * the chrome rather than in the content column. The destinations above it are
+ * places to go; this is a report, and the panel it opens is the detail of that
+ * report.
+ *
+ * Its geometry is the rail's own, to the pixel, because a block in a sidebar
+ * that stands on a second grid reads as something bolted on. What makes it a
+ * different KIND of row is its ink and its ring, not its alignment.
+ *
+ * The panel is taken out of the flow, sideways: a 252px column cannot carry five
+ * sections, and a panel that pushed the rail wider would move every destination
+ * above it.
+ */
+.arblock {
+  position: relative;
+  flex: none;
+  margin-top: var(--space-2);
+}
+
+/* The state's leading colour, declared on the block so the row AND the panel
+ * beside it inherit one tone.
+ *
+ * It cannot read the Core's own: `--coreC1` is declared on the `.core` element,
+ * so it resolves inside the orb and nowhere else. The pip, the ring and the
+ * panel's finding marks all need the same tone, so the state maps to one token
+ * HERE, and `agentrail.test.tsx` asserts every state the Core knows has a rule
+ * in this file, so a ninth state cannot be added and silently draw green.
+ */
+.arblock {
+  --arTone: var(--accent);
+  /* How loudly the ring is allowed to speak. At rest it is a tinted hairline:
+     the section is on every screen, all day, and a lit edge that never goes
+     quiet is an alarm nobody can switch off. The states that want a person, and
+     the ones with work in flight, take the full ring. */
+  --arRing: 22%;
+}
+/* The ring speaks up for the three states that are not the resting one. */
+.arblock[data-core-state="warning"],
+.arblock[data-core-state="error"],
+.arblock[data-core-state="ingest"],
+.arblock[data-core-state="working"] {
+  --arRing: 100%;
+}
+.arblock[data-core-state="ingest"] {
+  --arTone: var(--orbJade);
+}
+.arblock[data-core-state="working"] {
+  --arTone: var(--orbLime);
+}
+/* Amber is the fault that can wait, red is not connected. Nothing else takes a
+   colour, and a passing failed request takes none at all: a corner that flashes
+   red and green is a corner nobody reads. */
+.arblock[data-core-state="warning"] {
+  --arTone: var(--orbAmber);
+}
+.arblock[data-core-state="error"] {
+  --arTone: var(--orbRed);
+}
+
+/* ===== The row =====
+ *
+ * One button carries the whole block: the click, the accessible name, the
+ * expanded state. A div with a click handler is a target no keyboard can reach,
+ * and a chevron that were its own control would be a second thing claiming one
+ * job.
+ *
+ * The orb LEADS, at a size no destination row could carry. It is the only object
+ * in the chrome that is alive, and at nav-row scale it read as one more glyph in
+ * a list of glyphs: the reader has to be able to tell what the agent is doing
+ * from across the desk, without reading the line under it.
+ */
+.arhit {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-1) 0 var(--space-2);
+  border: 0;
+  border-radius: var(--r-md);
+  /* A pale wash rather than a flat fill: the orb is a lit body, and a light body
+     on a dead-flat panel reads as a sticker. The wash is the light it spills onto
+     the card, brightest under it and gone by the edges. */
+  background:
+    radial-gradient(
+      120% 85% at 50% 26%,
+      color-mix(in srgb, var(--arTone) 9%, transparent),
+      transparent 68%
+    ),
+    var(--bgHover);
+  color: var(--textPrimary);
+  text-align: center;
+  cursor: pointer;
+  overflow: hidden;
+}
+.arhit:hover {
+  background:
+    radial-gradient(
+      120% 85% at 50% 26%,
+      color-mix(in srgb, var(--arTone) 14%, transparent),
+      transparent 68%
+    ),
+    var(--accentLight);
+}
+.arhit:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+
+/* The ring, in the state's own tone: the same colour the orb inside it is
+ * running, so the block reads as one lit thing rather than a box with a
+ * coloured ball in it.
+ *
+ * Built as a masked fill in the border box, which is the only way to stroke a
+ * rounded box from a pseudo-element without tracking the radius by hand. At rest
+ * it is EVEN: a gradient ring lights one side and reads as a highlight somebody
+ * forgot to finish.
+ */
+.arhit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px; /* ds:ignore the ring's own thickness, a stroke weight and not spacing */
+  /* Keyword, not a token: a mask's colour is a stencil rather than a colour of
+     the design system, and the purity gate is right to refuse a literal here. */
+  mask:
+    linear-gradient(black 0 0) content-box exclude,
+    linear-gradient(black 0 0);
+  pointer-events: none;
+}
+.arhit::before {
+  background: color-mix(
+    in srgb,
+    var(--arTone) var(--arRing),
+    var(--borderStrong)
+  );
+}
+/* The travel: one bright pass sweeping the frame while work is in flight. The
+ * state's own tone BRIGHTENED rather than mixed toward white, because one colour
+ * per state is the rule the Core keeps and a white pass over the red of `error`
+ * would put a colour in the ring that no state owns. */
+.arblock::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+  padding: 1.5px; /* ds:ignore the ring's own thickness, a stroke weight and not spacing */
+  mask:
+    linear-gradient(black 0 0) content-box exclude,
+    linear-gradient(black 0 0);
+  background:
+    linear-gradient(100deg, transparent 30%, var(--arTone) 50%, transparent 70%)
+    0 0 / 260% 100% no-repeat;
+  filter: brightness(1.55) saturate(1.3);
+  opacity: 0;
+  pointer-events: none;
+}
+.arblock.working::after {
+  opacity: 1;
+  animation: artravel 2.4s linear infinite;
+}
+@keyframes artravel {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -140% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .arblock.working::after {
+    animation: none;
+    /* Work in flight still reads, without the motion: the ring brightens and
+       stays. A reduced-motion reader loses the sweep, not the signal. */
+    background-position: 50% 0;
+    opacity: 0.5;
+  }
+}
+
+/* The Core primitive at the size it deserves (WDS-CORE-1): sizing through its
+   own custom properties is the one thing a caller may do to it. The glass is
+   most of the box, because the halo outside it is the part a reader sees from
+   the corner of an eye. */
+.arorb {
+  /* The ball is as big as the rail can afford, and no bigger. Its width is the
+     card's; its height is a share of the VIEWPORT, because the destinations above
+     it have a fixed cost and whatever is left over is what the orb may take. On a
+     laptop the width wins and it fills the card; on a short window the height
+     wins and it shrinks rather than pushing the rail into a scroll.
+     A rail that scrolls hides the agent, which is the one thing in the chrome
+     that has to be visible without being looked for. */
+  /* One length, and never a percentage: a size that resolves against the card's
+     width in one axis and the viewport in the other would give the ball two
+     different diameters. 232px is the width the card can give it, and 24vh is
+     what a short window can, whichever is smaller. */
+  --coreSize: min(232px, 24vh);
+  --coreGlass: calc(var(--coreSize) - 6px);
+  /* The viewport cap is for a hero standing in a content column; the rail's own
+     width and height are the only caps this one needs. */
+  --coreCap: 100%;
+  --coreHalo: 0.4;
+  flex: none;
+}
+
+.arwords {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px; /* ds:ignore two lines of one reading, not spaced content */
+  width: 100%;
+  min-width: 0;
+  /* The card gave up its own side padding to the ball; the words take theirs
+     back, or a long line runs into the edge of the rail. */
+  padding: 0 var(--space-2);
+}
+.arline {
+  max-width: 100%;
+  font-size: var(--fs-body);
+  line-height: 1.3;
+  color: var(--textPrimary);
+  /* Two lines, always. Not "up to two": the line changes several times a second
+     while the agent works, and a box that is one line tall for "Idle" and two for
+     "Ingesting KoreaPartner Co., Ltd." moves the card, the badge and the figure
+     under it every time a name is long. So the room for the second line is held
+     open whether or not it is used, and the text is centred in it. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  min-height: 2.6em;
+  overflow: hidden;
+  align-content: center;
+}
+/* A named event arriving. It fades up rather than cutting, because the line
+   changes several times a second while a page settles and a hard cut at that
+   rate reads as a flicker. */
+.arsaid {
+  animation: arsaid 0.22s ease-out;
+}
+@keyframes arsaid {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .arsaid {
+    animation: none;
+  }
+}
+
+/* The money, and the scope it was spent in, on one line: the figure leads
+   because it is the thing being watched. */
+.arspend {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  color: var(--textMeta);
+  white-space: nowrap;
+}
+/* The figure is never the thing that gets shortened: the scope beside it is. */
+.arspend > .arscope {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+/* What the report is ABOUT, and it is a label rather than a thing to read on its
+   own: no chip border here, because a bordered chip inside a bordered block in a
+   column this narrow is three frames deep. */
+.arscope {
+  max-width: 100%;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--textMeta);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.archev {
+  position: absolute;
+  z-index: 1;
+  bottom: var(--space-2);
+  right: var(--space-2);
+  color: var(--textMeta);
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.archev.open {
+  transform: rotate(180deg);
+}
+
+/* The one thing you can do about it, where there is one. Its own row under the
+   report rather than a control inside it: the row is already a button, and a
+   link inside a button is a control inside a control. */
+.argo {
+  display: block;
+  margin-top: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--textOnAccentControl);
+  font-size: 11.5px;
+  font-weight: var(--fw-medium);
+  text-align: center;
+  text-decoration: none;
+}
+.argo:hover {
+  filter: brightness(1.05);
+}
+
+/* ===== A short window =====
+ *
+ * The destinations have a fixed cost (about 530px of rows and headings on a full
+ * workspace), so on a short window the agent card is what has to give, and it
+ * gives in stages rather than by scrolling. A rail that scrolls hides the agent,
+ * which is the one thing in the chrome that has to be found without looking.
+ *
+ * First the air goes. Then the card turns on its side: the ball beside its line
+ * instead of over it, which is worth roughly a hundred pixels and still reads as
+ * the same object. Last the words go and the orb reports alone, exactly as it
+ * does on the collapsed rail.
+ */
+@media (max-height: 860px) {
+  .arblock {
+    margin-top: var(--space-1);
+  }
+  .arhit {
+    gap: 2px; /* ds:ignore the last of the air between the ball and its line */
+    padding: 0 0 var(--space-1);
+  }
+}
+@media (max-height: 780px) {
+  .arhit {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    text-align: left;
+  }
+  .arorb {
+    --coreSize: 56px;
+    --coreGlass: 50px;
+  }
+  .arwords {
+    align-items: flex-start;
+    padding: 0;
+  }
+  .arspend {
+    justify-content: flex-start;
+  }
+  /* The corner belongs to a card that is a column. On a row the chevron sits in
+     the flow, or it lands on top of the words. */
+  .archev {
+    position: static;
+    margin-left: auto;
+  }
+}
+@media (max-height: 620px) {
+  .arwords {
+    display: none;
+  }
+  .arhit {
+    justify-content: center;
+  }
+}
+
+/* ===== The collapsed rail =====
+ *
+ * At 64px the orb IS the report, and it keeps as much of that width as the rail
+ * will give it. The words, the chevron and the CTA go; the count stays, because a
+ * number waiting for a person is the one thing that still has to get through at
+ * this width. The button keeps its accessible name, so nothing is lost to a
+ * screen reader. */
+.rail.collapsed .arwords,
+.rail.collapsed .archev,
+.rail.collapsed .argo {
+  display: none;
+}
+.rail.collapsed .arhit {
+  padding: var(--space-2) 0;
+}
+.rail.collapsed .arorb {
+  --coreSize: 56px;
+  --coreGlass: 48px;
+  --coreHalo: 0.5;
+}
+
+/* ===== The panel =====
+ *
+ * Beside the rail, and OUT of it: the rail scrolls its destinations and so
+ * carries `overflow-x: hidden`, which clips anything positioned beside it. The
+ * panel is portalled to the body and placed in viewport coordinates by
+ * `usePanelFrame`, which is why the position values here are inline rather than
+ * in this file.
+ *
+ * `.arloose` is the portalled wrapper, and it exists to carry the state tone: an
+ * element moved to the body inherits nothing from the block it belongs to, so
+ * without it every finding mark in the panel would draw the resting green.
+ */
+.arloose {
+  --arTone: var(--accent);
+}
+.arloose[data-core-state="ingest"] {
+  --arTone: var(--orbJade);
+}
+.arloose[data-core-state="working"] {
+  --arTone: var(--orbLime);
+}
+.arloose[data-core-state="warning"] {
+  --arTone: var(--orbAmber);
+}
+.arloose[data-core-state="error"] {
+  --arTone: var(--orbRed);
+}
+
+.arpanel {
+  position: fixed;
+  overflow-y: auto;
+  /* No padding of its own: the head is a full-bleed band, and a panel that
+     insets it would put a white margin around the one part of this surface that
+     is meant to look like glass. */
+  border: 1px solid var(--borderSubtle);
+  border-radius: 20px; /* ds:ignore the flyout's own corner, softer than a card's so the glass reads as one piece */
+  background: var(--bgElevated);
+  backdrop-filter: blur(30px) saturate(180%);
+  /* Three shadows: the hairline that seats it, the near shade it sits in, and
+     the far one that lifts it off the page. */
+  box-shadow:
+    inset 0 1px 0 var(--bgCard),
+    0 2px 8px -4px var(--overlayScrim),
+    var(--shadow-pop);
+  /* Over the page, under the phone sheet and its scrim (29/30, shell.css): a
+     panel that stayed lit over a dimmed page would read as the one thing still
+     live while the sheet was open. */
+  z-index: 28;
+  animation: arpanelin 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* It arrives FROM the card, which is to its left: a panel that faded in place
+   has no relationship to the thing that opened it. */
+@keyframes arpanelin {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .arpanel {
+    animation: none;
+  }
+}
+
+/* ===== The head =====
+ *
+ * Frosted, and the one place on this surface with a wash of colour in it: the
+ * state's own tone bleeding out of the orb across the band, so the panel is
+ * visibly the same object as the ball that opened it. */
+.arphead {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px var(--space-3); /* ds:ignore two lines of one heading, not spaced content */
+  padding: var(--space-3);
+  overflow: hidden;
+  border-radius: 19px 19px 0 0; /* ds:ignore sits inside the panel's own 20px corner */
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--arTone) 7%, var(--bgElevated)),
+    var(--bgElevated) 70%
+  );
+  border-bottom: 1px solid var(--borderSubtle);
+}
+/* The light in the band, and it MOVES: a slow blurred drift, one long cycle, so
+   the panel is quietly alive while it is open without ever being something a
+   reader has to look away from. This is the one ornamental thing on the surface
+   and it is here because this is the agent's own panel. */
+.arphead::before {
+  content: "";
+  position: absolute;
+  inset: -50% -25% auto -25%;
+  height: 260px;
+  background:
+    radial-gradient(
+      55% 55% at 28% 22%,
+      color-mix(in srgb, var(--arTone) 30%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      45% 45% at 82% 45%,
+      color-mix(in srgb, var(--orbAmber) 18%, transparent),
+      transparent 70%
+    );
+  filter: blur(14px);
+  animation: ardriftwash 16s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes ardriftwash {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-8px, 5px, 0) scale(1.07);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .arphead::before {
+    animation: none;
+  }
+}
+.arphead > * {
+  position: relative;
+}
+
+/* The state, in its own word. It is the only place the vocabulary is written
+   out, and it is written out because the line beside it says what is happening
+   and not what the agent IS. */
+.arpstate {
+  display: flex;
+  align-items: center;
+  gap: 5px; /* ds:ignore pip-to-word optics inside one label */
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
+.arpstate i {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--arTone);
+  box-shadow: 0 0 6px -1px var(--arTone);
+}
+.arptitle {
+  grid-column: 1;
+  font-size: 15.5px;
+  font-weight: var(--fw-semibold);
+  line-height: 1.25;
+  color: var(--textPrimary);
+}
+/* The money, right-aligned against the title and spanning both its rows: the
+   figure is the second thing read on this panel and the first thing quoted off
+   it. */
+.arpmoney {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.arpmoney b {
+  font-weight: var(--fw-medium);
+  color: var(--textPrimary);
+}
+.arpmoney i {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--textMeta);
+}
+
+/* ===== The body ===== */
+.arsect {
+  padding: 0 var(--space-3);
+}
+.arsect:first-of-type {
+  padding-top: var(--space-3);
+}
+.arsect + .arsect {
+  margin-top: var(--space-3);
+}
+.arsect h4 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: 9.5px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
+/* The link a heading can carry, pushed to the far end of it. */
+.arplain {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
+  text-decoration: none;
+}
+.arplain:hover {
+  text-decoration: underline;
+}
+
+/* The counts, as tiles. They flex from none to both: a read that has not
+   answered contributes no tile rather than a zero, so the strip is only ever as
+   wide as the facts are. */
+.artiles {
+  display: flex;
+  gap: var(--space-2);
+}
+.artile {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgHover);
+  color: var(--textMeta);
+  font-size: 12px;
+  line-height: 1.15;
+  text-decoration: none;
+  transition:
+    background 0.16s ease-out,
+    border-color 0.16s ease-out;
+}
+.artile:hover {
+  border-color: color-mix(in srgb, var(--arTone) 45%, var(--borderSubtle));
+  background: var(--accentLight);
+}
+.artile b {
+  flex: none;
+  font-size: 26px;
+  font-weight: var(--fw-medium);
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--accent);
+}
+
+/* No counts at all, which is a report and not an absence. Dashed, because a
+   solid box would read as a tile whose number failed to load. */
+.arnone {
+  padding: var(--space-3);
+  border: 1px dashed var(--borderSubtle);
+  border-radius: var(--r-md);
+  font-size: 13px;
+  color: var(--textMeta);
+}
+
+/* ===== The small print =====
+ *
+ * One strip rather than a section: what the agent is standing on is the footnote
+ * of this panel, and a footnote with a heading and four rows reads as more
+ * important than the counts above it. */
+.arstrip {
+  margin: var(--space-3) var(--space-3) 0;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.aritem {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  border-top: 1px solid var(--borderSubtle);
+  /* The inset is inside the row rather than around it, so a hovered row has
+     somewhere to put its own ground. */
+  padding: var(--space-1) var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--textPrimary);
+  transition: background 0.16s ease-out;
+}
+.aritem:first-of-type {
+  border-top: 0;
+}
+/* Only the rows that GO somewhere light up. A hover state on a row that does
+   nothing is a promise the row cannot keep. */
+.arlink:hover {
+  background: var(--bgHover);
+}
+.armark {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-top: 5px; /* ds:ignore drops the 5px mark onto the first line's baseline */
+  border-radius: var(--r-full);
+  background: var(--arTone);
+  /* The mark is a light rather than a dot: the same tone the orb is running,
+     with its own small halo, so the panel and the ball are visibly one
+     object. */
+  box-shadow: 0 0 6px -1px var(--arTone);
+}
+
+/* The recap reads as a sequence, so it gets the line that says so: a thread
+   running behind the marks, fading out at the bottom where the list ends. */
+.arsect:has(.armore) {
+  position: relative;
+}
+.arsect:has(.armore)::before {
+  content: "";
+  position: absolute;
+  top: 2.1rem;
+  bottom: 1.6rem;
+  left: 2px;
+  width: 1px;
+  background: linear-gradient(to bottom, var(--borderSubtle), transparent);
+}
+.arlink {
+  color: inherit;
+  text-decoration: none;
+}
+.arlink:hover .armuted {
+  color: var(--textPrimary);
+}
+.armore {
+  display: inline-block;
+  margin-top: var(--space-1);
+  color: var(--accent);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+.armore:hover {
+  text-decoration: underline;
+}
+.arempty {
+  color: var(--textMeta);
+  font-style: italic;
+}
+.armeta i:not([class]) {
+  font-style: italic;
+}
+
+.armuted {
+  margin-left: auto;
+  padding-left: var(--space-2);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--textMeta);
+  white-space: nowrap;
+}
+
+.armeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--textMeta);
+}
+/* The licence, and any other standing fault, as a pill in the strip: it is the
+   one thing here somebody has to do something about. */
+.arwarn {
+  padding: 2px 7px; /* ds:ignore pill optics on a 10px label */
+  border-radius: var(--r-sm);
+  background: var(--warnBg);
+}
+.armeta b {
+  color: var(--textPrimary);
+  font-weight: var(--fw-medium);
+}
+.arwarn {
+  color: var(--warn);
+  font-weight: var(--fw-medium);
+}
+.arconn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.arconn i {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--success);
+}
+/* A source it cannot reach is `error`, so the dot beside it is the error tone.
+   Amber here would be the panel disagreeing with the orb above it about how bad
+   the same fact is. */
+.arconn.down i {
+  background: var(--orbRed);
+}
+
+/* The state switcher: review scaffolding, and dressed as scaffolding. It sits
+   last, under its own rule, so nobody mistakes it for something the product
+   offers. */
+/* The run control. Dressed as the scaffolding it is: it sits with the chips,
+   under the review-only heading, and it does not borrow the accent a real action
+   would wear. */
+.arplay {
+  padding: 7px 13px; /* ds:ignore the chips' own pill optics, so the row is one scale */
+  border: 1px solid var(--arTone);
+  border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--arTone) 10%, transparent);
+  color: var(--accent);
+  font-family: var(--f-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.arplay:hover {
+  background: color-mix(in srgb, var(--arTone) 18%, transparent);
+}
+.arplay[aria-pressed="true"] {
+  background: var(--arTone);
+  color: var(--textOnAccentControl);
+}
+.arplay:focus-visible {
+  outline: var(--focus-ring-forced);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+.archips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.archip {
+  padding: 7px 13px; /* ds:ignore pill optics on a 12px mono label */
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.archip[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--textOnAccentControl);
+}
+.archip:focus-visible {
+  outline: var(--focus-ring-forced);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}

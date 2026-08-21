@@ -137,6 +137,17 @@ function rowsRequirementMet(field: CreateField, rows: FormRow[]): boolean {
   );
 }
 
+// The agent rail's WROTE head for a create landing on this screen (agentrail-
+// copy.ts). Only the three record kinds a salesperson creates by hand carry
+// one; every other screen this hook also serves (products, offer templates,
+// pipeline stages, webhooks...) gets none, which is what leaves the ticker
+// silent for those.
+const CREATE_MUTATION_HEAD: Readonly<Partial<Record<Screen, string>>> = {
+  contacts: "contact-new",
+  companies: "company-new",
+  deals: "deal-new",
+};
+
 // The shared post-create choreography: refresh the list, close the modal,
 // open the fresh record's 360. Screens supply only their transport.
 export function useCreateRecord<Created extends { id: string }>({
@@ -145,6 +156,7 @@ export function useCreateRecord<Created extends { id: string }>({
   screen,
   onDone,
   stay = false,
+  aboutId,
 }: Readonly<{
   create: (values: Record<string, string>, rows?: FormRows) => Promise<Created>;
   invalidate: string;
@@ -156,9 +168,18 @@ export function useCreateRecord<Created extends { id: string }>({
   // rather than a record worth visiting. Without it those creates route to
   // `screen` with the new row's id, which is not an id that screen can load.
   stay?: boolean;
+  // The record this create is ABOUT, when it differs from the record being
+  // created: a deal opened from a company page is about that company, and
+  // the deal has no id yet to name it by. Absent means the created record
+  // has no name to offer either (a fresh contact/company/deal has none
+  // until the server answers), so the ticker falls back to its plain phrase.
+  aboutId?: string;
 }>) {
   const queryClient = useQueryClient();
+  const head = stay ? undefined : CREATE_MUTATION_HEAD[screen];
   return useMutation({
+    mutationKey:
+      head === undefined ? undefined : aboutId ? [head, aboutId] : [head],
     mutationFn: ({
       values,
       rows,
@@ -188,6 +209,7 @@ export function CreateAction<Created extends { id: string }>({
   startOpen = false,
   resolveExisting,
   stay = false,
+  aboutId,
 }: Readonly<{
   label: string;
   fields: CreateField[];
@@ -198,6 +220,9 @@ export function CreateAction<Created extends { id: string }>({
   // See useCreateRecord: keep the reader on this record when what was created
   // belongs TO it rather than being somewhere to go.
   stay?: boolean;
+  // See useCreateRecord: the record this create is about, when it is not the
+  // record being created.
+  aboutId?: string;
   // Duplicate (409) dedupe: given the problem's code + collided record id,
   // builds the route to that record. Absent screens simply never show the
   // "view existing" link.
@@ -210,6 +235,7 @@ export function CreateAction<Created extends { id: string }>({
     invalidate,
     screen,
     stay,
+    aboutId,
     onDone: () => setCreating(false),
   });
   const existing =
