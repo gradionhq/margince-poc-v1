@@ -74,6 +74,11 @@ type ExtractionRead struct {
 	StartedAt   *time.Time
 	FinishedAt  *time.Time
 	CreatedAt   time.Time
+	// Attempt is which claim of this reading is current. It rises on every
+	// return to the queue — a release or a re-arm — because each of those makes
+	// the next claim a NEW attempt at the same reading, and the AI-activity
+	// projection cannot order two events for one reading on status alone.
+	Attempt int
 }
 
 // Live reports whether the reading is still expected to move on its own — the
@@ -83,13 +88,13 @@ func (r ExtractionRead) Live() bool {
 }
 
 const extractionReadColumns = `id, attachment_id, status, status_detail, fields,
-	requested_by, started_at, finished_at, created_at`
+	requested_by, started_at, finished_at, created_at, attempt`
 
 func scanExtractionRead(r pgx.Row) (ExtractionRead, error) {
 	var read ExtractionRead
 	var raw []byte
 	err := r.Scan(&read.ID, &read.AttachmentID, &read.Status, &read.StatusDetail, &raw,
-		&read.RequestedBy, &read.StartedAt, &read.FinishedAt, &read.CreatedAt)
+		&read.RequestedBy, &read.StartedAt, &read.FinishedAt, &read.CreatedAt, &read.Attempt)
 	if err != nil {
 		return read, err
 	}
@@ -150,12 +155,13 @@ func (s *Store) StartExtractionReadQueued(
 			// Audit-only: the closed catalog (events.md §5) defines no
 			// attachment_extraction.* type. What a reading produces reaches a
 			// record only through the accept, which emits the deal's own event.
-			if _, err := storekit.Audit(ctx, tx, "create", "attachment_extraction", readID, nil, map[string]any{
+			auditID, err := storekit.Audit(ctx, tx, "create", "attachment_extraction", readID, nil, map[string]any{
 				"attachment_id": attachmentID.String(), "requested_by": requestedBy,
-			}); err != nil {
+			})
+			if err != nil {
 				return fmt.Errorf("audit extraction reading start: %w", err)
 			}
-			return nil
+			return emitExtractionActivity(ctx, tx, auditID, out)
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("start extraction reading: %w", err)
@@ -201,7 +207,8 @@ func (s *Store) rearmIfAbandonedExtraction(
 	// document while `rearm` is the only thing that could clear it.
 	rearmed, err := scanExtractionRead(tx.QueryRow(ctx, `
 		UPDATE attachment_extraction
-		   SET status = 'queued', started_at = NULL, status_detail = NULL
+		   SET status = 'queued', started_at = NULL, status_detail = NULL,
+		       attempt = attempt + 1
 		 WHERE id = $1
 		   AND status IN ('queued','running')
 		   AND COALESCE(started_at, created_at) < now() - ($2 * interval '1 microsecond')
@@ -214,6 +221,9 @@ func (s *Store) rearmIfAbandonedExtraction(
 		return fmt.Errorf("re-arm abandoned extraction reading: %w", err)
 	}
 	*read = rearmed
+	if err := logExtractionActivity(ctx, tx, rearmed); err != nil {
+		return err
+	}
 	if enqueue == nil {
 		return nil
 	}
@@ -259,7 +269,7 @@ func (s *Store) BeginExtractionRead(ctx context.Context, readID ids.UUID, reclai
 		if err != nil {
 			return fmt.Errorf("claim extraction reading: %w", err)
 		}
-		return nil
+		return logExtractionActivity(ctx, tx, out)
 	})
 	return out, err
 }
@@ -307,23 +317,29 @@ func (s *Store) FinishExtractionRead(ctx context.Context, readID ids.UUID, outco
 		if outcome.Detail != "" {
 			detail = &outcome.Detail
 		}
-		tag, err := tx.Exec(ctx, `
+		// RETURNING rather than a row count: the same statement has to answer
+		// both "did this claim still own the reading" and "what does the closed
+		// row now say", and a second SELECT for the latter could read a row a
+		// rival transaction had already moved on.
+		closed, err := scanExtractionRead(tx.QueryRow(ctx, `
 			UPDATE attachment_extraction
 			   SET status = $2, status_detail = $3, fields = $4, finished_at = now()
-			 WHERE id = $1 AND status = 'running' AND started_at = $5`,
-			readID, outcome.Status, detail, encoded, outcome.ClaimedAt)
+			 WHERE id = $1 AND status = 'running' AND started_at = $5
+			RETURNING `+extractionReadColumns,
+			readID, outcome.Status, detail, encoded, outcome.ClaimedAt))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: extraction reading %s is not running under this claim", apperrors.ErrConflict, readID)
+		}
 		if err != nil {
 			return fmt.Errorf("finish extraction reading: %w", err)
 		}
-		if tag.RowsAffected() != 1 {
-			return fmt.Errorf("%w: extraction reading %s is not running under this claim", apperrors.ErrConflict, readID)
-		}
-		if _, err := storekit.Audit(ctx, tx, "update", "attachment_extraction", readID, nil, map[string]any{
+		auditID, err := storekit.Audit(ctx, tx, "update", "attachment_extraction", readID, nil, map[string]any{
 			"status": outcome.Status, "grounded": groundedCount(outcome.Fields),
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("audit extraction reading finish: %w", err)
 		}
-		return nil
+		return emitExtractionActivity(ctx, tx, auditID, closed)
 	})
 }
 
@@ -430,13 +446,23 @@ func (s *Store) ReleaseExtractionRead(ctx context.Context, readID ids.UUID, clai
 		}
 		// Scoped to this claim, like the finish: a worker whose lease already
 		// expired must not re-queue the reading somebody else is now working.
-		if _, err := tx.Exec(ctx, `
+		released, err := scanExtractionRead(tx.QueryRow(ctx, `
 			UPDATE attachment_extraction
-			   SET status = 'queued', started_at = NULL, status_detail = NULL
-			 WHERE id = $1 AND status = 'running' AND started_at = $2`, readID, claimedAt); err != nil {
+			   SET status = 'queued', started_at = NULL, status_detail = NULL,
+			       attempt = attempt + 1
+			 WHERE id = $1 AND status = 'running' AND started_at = $2
+			RETURNING `+extractionReadColumns, readID, claimedAt))
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The claim is no longer this worker's — somebody else holds the
+			// reading, or it is already closed. Nothing was released, so nothing
+			// is announced. Not an error, exactly as before: a worker returning a
+			// reading it has already lost has done everything it could.
+			return nil
+		}
+		if err != nil {
 			return fmt.Errorf("release extraction reading: %w", err)
 		}
-		return nil
+		return logExtractionActivity(ctx, tx, released)
 	})
 }
 

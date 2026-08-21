@@ -47,14 +47,33 @@ import (
 // PublicEventActivityChangedFields among them — and a name-prefix census counts
 // one of those as an extra shared type emitted by two modules, a duplicate that
 // does not exist.
+//
+// BOTH generated families are walked. The public one is the webhook contract;
+// the internal one carries the payloads that ride the bus without being
+// subscribable, and one module owns an event type whether or not an outside
+// consumer may name it. Walking the public file alone was right when it was the
+// only family and became a hole the moment a second one existed.
 func payloadEventTypes(t *testing.T) map[string]string {
 	t.Helper()
-	const generated = "internal/contracts/publicevents_gen.go"
-	file, err := parser.ParseFile(token.NewFileSet(), generated, nil, 0)
-	if err != nil {
-		t.Fatalf("reading the generated payloads to derive their event types: %v", err)
+	generated := []string{
+		"internal/contracts/publicevents_gen.go",
+		"internal/contracts/internalevents_gen.go",
 	}
 	out := map[string]string{}
+	for _, path := range generated {
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatalf("reading the generated payloads to derive their event types: %v", err)
+		}
+		collectEventTypeMethods(file, out)
+	}
+	assertEveryPublicTypeWasDerived(t, out, generated)
+	return out
+}
+
+// collectEventTypeMethods reads one generated file's EventType() methods into
+// the shared census.
+func collectEventTypeMethods(file *ast.File, out map[string]string) {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Name.Name != "EventType" || fn.Recv == nil || len(fn.Recv.List) != 1 {
@@ -76,16 +95,21 @@ func payloadEventTypes(t *testing.T) map[string]string {
 			out[ident.Name] = literal
 		}
 	}
-	// The floor, and it has to be a SET comparison rather than a count.
-	//
-	// A bare len(out) == 0 catches only a derivation that collapses completely.
-	// One that quietly loses a few — a pointer receiver, a two-statement body, a
-	// return of a named constant instead of a literal, all of which are generator
-	// shape changes this gate is meant to survive — drops those payloads out of
-	// BOTH gates: they vanish from the emit census and from the orphan sweep at
-	// the same time, so nothing is left to notice. PublicEventVersions is
-	// generated from the same contract and keyed on the event type, so a
-	// disagreement between the two is exactly the collapse.
+}
+
+// assertEveryPublicTypeWasDerived is the floor, and it has to be a SET
+// comparison rather than a count.
+//
+// A bare len(out) == 0 catches only a derivation that collapses completely.
+// One that quietly loses a few — a pointer receiver, a two-statement body, a
+// return of a named constant instead of a literal, all of which are generator
+// shape changes this gate is meant to survive — drops those payloads out of
+// BOTH gates: they vanish from the emit census and from the orphan sweep at
+// the same time, so nothing is left to notice. PublicEventVersions is
+// generated from the same contract and keyed on the event type, so a
+// disagreement between the two is exactly the collapse.
+func assertEveryPublicTypeWasDerived(t *testing.T, out map[string]string, generated []string) {
+	t.Helper()
 	missing := make([]string, 0)
 	for eventType := range crmcontracts.PublicEventVersions {
 		if !slices.Contains(slices.Collect(maps.Values(out)), eventType) {
@@ -93,12 +117,11 @@ func payloadEventTypes(t *testing.T) map[string]string {
 		}
 	}
 	if len(missing) > 0 {
-		t.Fatalf("derived %d event types from %s but PublicEventVersions carries %d; %v have a "+
+		t.Fatalf("derived %d event types from %v but PublicEventVersions carries %d; %v have a "+
 			"contract entry and no EventType() this walk could read. The walk has stopped seeing "+
 			"payloads, so both gates would pass over every type it lost",
 			len(out), generated, len(crmcontracts.PublicEventVersions), slices.Sorted(slices.Values(missing)))
 	}
-	return out
 }
 
 // emitSite is one place a module builds an event payload.
