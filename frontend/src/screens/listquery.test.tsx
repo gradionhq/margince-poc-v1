@@ -9,7 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ListChip, ListView } from "../design-system/listsurface";
 import { pickOption } from "../design-system/select-testing";
@@ -657,5 +657,59 @@ describe("two chips on one list", () => {
       ),
     );
     expect(fetchPage.mock.calls.at(-1)?.[0].filters.unassigned).toBe("true");
+  });
+});
+
+describe("a chip whose options arrive late", () => {
+  it("does not throw the reader back to page 1", async () => {
+    const user = userEvent.setup();
+    const page = (from: number) => ({
+      data: Array.from({ length: 25 }, (_, i) => ({
+        id: `r-${from + i}`,
+        name: `Row ${from + i}`,
+      })),
+      page: { next_cursor: `c-${from + 25}`, has_more: true },
+    });
+    let served = 0;
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      page(25 * served++),
+    );
+    const option = (value: string, label: string) => ({ value, label });
+    // The owner dial names the viewer's teams, which arrive on their OWN query.
+    // This stands in for that: the roster answers after the list has rendered,
+    // and the chip gains an option without the reader touching anything.
+    function LateChips() {
+      const [teamKnown, setTeamKnown] = useState(false);
+      const chip = {
+        key: "owner",
+        label: "Owner",
+        allLabel: "Any owner",
+        options: [
+          option("owner_id:u-1", "My records"),
+          ...(teamKnown ? [option("owner_team_id:t-9", "Team Neukunden")] : []),
+          option("unassigned:true", "Unassigned"),
+        ],
+      };
+      return (
+        <>
+          <button type="button" onClick={() => setTeamKnown(true)}>
+            roster answers
+          </button>
+          <ListTableHarness fetchPage={fetchPage} dataChips={[chip]} />
+        </>
+      );
+    }
+    render(<LateChips />);
+    await waitFor(() => expect(screen.getByText("Row 0")).toBeTruthy());
+
+    await user.click(screen.getByRole("button", { name: /Next/ }));
+    await waitFor(() => expect(screen.getByText("Row 25")).toBeTruthy());
+
+    // The reader did not touch a filter, so the page they are on must survive.
+    // A list that jumps back to the top because a picker finished loading loses
+    // the reader's place for a reason they cannot see.
+    await user.click(screen.getByRole("button", { name: "roster answers" }));
+    await waitFor(() => expect(screen.getByText("Row 25")).toBeTruthy());
+    expect(screen.queryByText("Row 0")).toBeNull();
   });
 });

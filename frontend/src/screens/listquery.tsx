@@ -304,20 +304,19 @@ export function ListTable<Row>({
     ...chips.map((chip) => translateChip(chip, t)),
     ...dataChips,
   ];
-  // Carries the chip KEYS and the grouping, not just a flat list of values:
-  // chosenFor reads both, so two different chip sets that happen to share the
-  // same values must not produce the same key. JSON, rather than a join on a
-  // separator — any separator can appear inside a value, and then ["a","b"]
-  // and ["a<sep>b"] are indistinguishable.
-  const chipOptionKey = JSON.stringify(
-    allChips.map((chip) => [chip.key, chip.options.map((o) => o.value)]),
-  );
-  const filterKey = JSON.stringify(query.filters);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the values the arrays carry, which is what makes the identity stable
-  const chosen = useMemo(
-    () => chosenFor(allChips, query.filters),
-    [chipOptionKey, filterKey],
-  );
+  // Keyed on the RESULT, not on the chips that produced it. The table treats a
+  // new `chosen` identity as the reader narrowing the list and resets to page
+  // 1, so this identity must change only when what is chosen changes.
+  //
+  // Keying on the chip options instead made the roster do it: the owner dial
+  // names the viewer's teams, which arrive on their own query, so a chip gained
+  // an option seconds after the list rendered and threw the reader from page 2
+  // back to page 1 — for a reason they could not see, having touched nothing.
+  // A late option changes what the dial OFFERS, never what is currently chosen.
+  const nextChosen = chosenFor(allChips, query.filters);
+  const chosenKey = JSON.stringify(nextChosen);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the serialized result, which is what makes the identity stable
+  const chosen = useMemo(() => nextChosen, [chosenKey]);
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived change
