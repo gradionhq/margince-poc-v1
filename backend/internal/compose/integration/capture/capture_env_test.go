@@ -16,6 +16,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	capturemod "github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -43,10 +44,19 @@ type mailBatchConnector struct {
 	raws [][]byte
 	sent map[string]bool // Message-IDs the provider filed as the owner's own sent mail
 	// deals are the deal ids a connector files a message under, by Message-ID.
+	// A LIST because activity_link admits several deal links on one activity,
+	// and the ladder has a rule for that case that a single-deal fixture could
+	// never reach.
 	// Real connectors do this — the offline-demo mail generator carries a deal
 	// ref on the records it produces — and it is the only way an activity holds
 	// a deal link at the moment its post-commit steps run.
-	deals map[string]ids.UUID
+	deals map[string][]ids.UUID
+	// kinds overrides the activity kind a record lands as, by Message-ID. A
+	// connector really does choose this — the calendar connector emits
+	// 'meeting' where the mail one emits 'email' — and thread_key is one flat
+	// namespace across all of them, so a suite proving that a rule matches
+	// within ONE medium needs two media sharing a key.
+	kinds map[string]string
 }
 
 func (m *mailBatchConnector) Descriptor() connector.Descriptor {
@@ -77,8 +87,16 @@ func (m *mailBatchConnector) Sync(ctx context.Context, _ connector.Auth, _ conne
 		// is precisely what the attestation must not be derivable from.
 		msg = msg.AttestSentByOwner(m.sent[msg.ID()])
 		rec := msg.ToRecord("gmail", raw)
-		if dealID, filed := m.deals[msg.ID()]; filed {
+		for _, dealID := range m.deals[msg.ID()] {
 			rec.Links = append(rec.Links, datasource.EntityRef{Type: datasource.EntityDeal, ID: dealID})
+		}
+		if kind, overridden := m.kinds[msg.ID()]; overridden {
+			fields, ok := rec.Fields.(capturemod.ActivityFields)
+			if !ok {
+				return nil, fmt.Errorf("kind override on a %T record, which carries no kind", rec.Fields)
+			}
+			fields.Kind = kind
+			rec.Fields = fields
 		}
 		if _, err := sink.Upsert(ctx, rec); err != nil {
 			// A skip is an outcome, not a fault: the writer decided this
@@ -191,6 +209,10 @@ func countRows(t *testing.T, e *integration.SearchEnv, query string) int {
 // resolves the granting human's LIVE role, so without it the ensure path is
 // denied and every counterparty assertion reads as a resolver bug — and without
 // the project/deal READ grants the attribution ladder is denied the same way.
+//
+// activity UPDATE is there because filing a message under a project bumps the
+// activity's version and changes who it reaches, so the ladder requires that
+// grant rather than riding the create the capture already made.
 func seedCaptureRole(t *testing.T, e *integration.SearchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -198,7 +220,7 @@ func seedCaptureRole(t *testing.T, e *integration.SearchEnv) {
 		if err := tx.QueryRow(context.Background(), `
 			INSERT INTO role (key, name, permissions)
 			VALUES ('capture_rep', 'Capture Rep',
-			        '{"objects":{"activity":{"create":true,"read":true},"person":{"create":true,"read":true},"organization":{"create":true,"read":true},"project":{"read":true},"deal":{"read":true}},"row_scope":"all"}'::jsonb)
+			        '{"objects":{"activity":{"create":true,"read":true,"update":true},"person":{"create":true,"read":true},"organization":{"create":true,"read":true},"project":{"read":true},"deal":{"read":true}},"row_scope":"all"}'::jsonb)
 			RETURNING id`).Scan(&roleID); err != nil {
 			return err
 		}
@@ -222,7 +244,10 @@ type captureEnv struct {
 	syncSent func(t *testing.T, sent map[string]bool, raws ...[]byte)
 	// syncFiledUnderDeal is the same pull with the connector filing the listed
 	// Message-IDs under a deal, as the offline-demo mail generator does.
-	syncFiledUnderDeal func(t *testing.T, deals map[string]ids.UUID, raws ...[]byte)
+	syncFiledUnderDeal func(t *testing.T, deals map[string][]ids.UUID, raws ...[]byte)
+	// syncAsKind is the same pull with the listed Message-IDs landing as another
+	// activity kind, the way a non-mail connector's records do.
+	syncAsKind func(t *testing.T, kinds map[string]string, raws ...[]byte)
 }
 
 func newCaptureEnv(t *testing.T) captureEnv {
@@ -243,26 +268,30 @@ func newCaptureEnv(t *testing.T) captureEnv {
 	// pull drives one sync with the connector configured exactly as this call
 	// says — every field set, so a batch never inherits the previous one's
 	// attestations or deal filings.
-	pull := func(t *testing.T, sent map[string]bool, filed map[string]ids.UUID, raws ...[]byte) {
+	pull := func(t *testing.T, sent map[string]bool, filed map[string][]ids.UUID, kinds map[string]string, raws ...[]byte) {
 		t.Helper()
-		conn.raws, conn.sent, conn.deals = raws, sent, filed
+		conn.raws, conn.sent, conn.deals, conn.kinds = raws, sent, filed, kinds
 		if err := registry.SyncOnce(wsCtx, connID); err != nil {
 			t.Fatalf("SyncOnce: %v", err)
 		}
 	}
 	sync := func(t *testing.T, raws ...[]byte) {
 		t.Helper()
-		pull(t, nil, nil, raws...)
+		pull(t, nil, nil, nil, raws...)
 	}
 	// syncSent is the same pull with the provider attesting the listed
 	// Message-IDs as mail the mailbox owner sent.
 	syncSent := func(t *testing.T, sent map[string]bool, raws ...[]byte) {
 		t.Helper()
-		pull(t, sent, nil, raws...)
+		pull(t, sent, nil, nil, raws...)
 	}
-	syncFiledUnderDeal := func(t *testing.T, filed map[string]ids.UUID, raws ...[]byte) {
+	syncFiledUnderDeal := func(t *testing.T, filed map[string][]ids.UUID, raws ...[]byte) {
 		t.Helper()
-		pull(t, nil, filed, raws...)
+		pull(t, nil, filed, nil, raws...)
+	}
+	syncAsKind := func(t *testing.T, kinds map[string]string, raws ...[]byte) {
+		t.Helper()
+		pull(t, nil, nil, kinds, raws...)
 	}
 
 	// The installation's own company, as cold start leaves it: a human confirmed
@@ -303,7 +332,7 @@ func newCaptureEnv(t *testing.T) captureEnv {
 	if verified {
 		t.Fatal("a mailbox must not verify its own domain — the company's claim does that")
 	}
-	return captureEnv{e: e, sync: sync, syncSent: syncSent, syncFiledUnderDeal: syncFiledUnderDeal}
+	return captureEnv{e: e, sync: sync, syncSent: syncSent, syncFiledUnderDeal: syncFiledUnderDeal, syncAsKind: syncAsKind}
 }
 
 // emailCC builds a message that copies a third party — the introduction shape:

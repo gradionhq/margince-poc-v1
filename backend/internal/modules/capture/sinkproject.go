@@ -29,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -112,6 +113,12 @@ func (s *Sink) logProjectAttributionFault(ctx context.Context, rec connector.Nor
 // activity is filed under, then the subject's tokens. Zero means no rung
 // matched, which is the ordinary answer for most mail.
 //
+// A rung that finds a project the caller cannot use — archived, or outside
+// their object grant and row scope — counts as NO MATCH and the ladder carries
+// on to the next rung. Stopping there instead would let an unusable T0 answer
+// silently suppress a perfectly good T1 subject key, and the member would see
+// a message filed under nothing with no way to tell why.
+//
 // Nothing here checks for an existing project link, and nothing needs to. This
 // runs only for an activity the capture transaction just INSERTED, so there is
 // no earlier link to find, and the link it writes is the only one there will
@@ -119,10 +126,21 @@ func (s *Sink) logProjectAttributionFault(ctx context.Context, rec connector.Nor
 // linkActivityToProject writes ON CONFLICT DO NOTHING. Replacing a filing is a
 // human's relink alone.
 func (s *Sink) decideProject(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, activityID ids.ActivityID) (ids.UUID, error) {
+	fields, isActivity := rec.Fields.(ActivityFields)
+	if !isActivity {
+		return ids.Nil, nil
+	}
+	grant, err := readableProjectScope(ctx)
+	if err != nil || grant.deniedOutright {
+		// No project grant at all: this principal may not learn a project id,
+		// let alone have one copied onto their timeline. Not a fault — a role
+		// that never sees projects is a legitimate role.
+		return ids.Nil, err
+	}
 	for _, rung := range []func() (ids.UUID, error){
-		func() (ids.UUID, error) { return threadProject(ctx, tx, rec.ThreadKey, activityID) },
+		func() (ids.UUID, error) { return threadProject(ctx, tx, rec, fields, activityID) },
 		func() (ids.UUID, error) { return dealProject(ctx, tx, activityID) },
-		func() (ids.UUID, error) { return s.subjectProject(ctx, rec) },
+		func() (ids.UUID, error) { return s.subjectProject(ctx, fields) },
 	} {
 		projectID, err := rung()
 		if err != nil || !projectID.IsZero() {
@@ -132,15 +150,11 @@ func (s *Sink) decideProject(ctx context.Context, tx pgx.Tx, rec connector.Norma
 	return ids.Nil, nil
 }
 
-// subjectProject asks the key matcher about the subject's tokens. A subject
-// with no token that could BE a key never reaches the seam: the shape rules out
-// most words, and asking anyway would be one query per captured message to
-// learn what the tokenizer already knows.
-func (s *Sink) subjectProject(ctx context.Context, rec connector.NormalizedRecord) (ids.UUID, error) {
-	fields, ok := rec.Fields.(ActivityFields)
-	if !ok {
-		return ids.Nil, nil
-	}
+// subjectProject asks the key matcher about the subject's bracketed keys. A
+// subject carrying none never reaches the seam: the bracket rule rules out
+// almost every message, and asking anyway would be one query per captured
+// message to learn what the tokenizer already knows.
+func (s *Sink) subjectProject(ctx context.Context, fields ActivityFields) (ids.UUID, error) {
 	tokens := projectKeyCandidates(fields.Subject)
 	if len(tokens) == 0 {
 		return ids.Nil, nil
@@ -152,26 +166,52 @@ func (s *Sink) subjectProject(ctx context.Context, rec connector.NormalizedRecor
 // work, so a sibling message already filed under a project settles where this
 // one belongs.
 //
+// Matched within ONE medium, and that is a security control rather than a
+// convenience — the same one sinkreply.go's reply detection applies, for the
+// same reason and with the same predicate. thread_key is a single flat
+// namespace holding both a mail thread root and a channel's
+// `<provider>:<bot>:<chat>` key, and the mail half is attacker-supplied: it is
+// the message's own References root, chosen verbatim by the sender. Without the
+// medium match, a forged References header naming a Telegram conversation — a
+// bot id being public and a private chat's id being the user's own — files the
+// forger's mail onto the project of a conversation they were never in.
+//
+// kind alone stopped discriminating at ADR-0107/A158, when every channel row
+// took kind='message' whatever carried it, so the match is on the PAIR:
+// IS NOT DISTINCT FROM lets one statement serve both, mail comparing NULL to
+// NULL and a channel comparing provider to provider.
+//
 // Siblings CAN disagree, because a human may relink any one of them, so the
 // most recent one wins: the latest filing is the freshest statement about where
-// the conversation stands.
-func threadProject(ctx context.Context, tx pgx.Tx, threadKey string, activityID ids.ActivityID) (ids.UUID, error) {
-	if threadKey == "" {
+// the conversation stands. id breaks a timestamp tie so two siblings stamped
+// the same second cannot return either project run to run.
+func threadProject(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields, activityID ids.ActivityID) (ids.UUID, error) {
+	if rec.ThreadKey == "" {
 		return ids.Nil, nil
+	}
+	args := []any{rec.ThreadKey, activityID, fields.Kind, fields.ChannelProvider}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	scoped, err := projectScopeClause(ctx, "p", arg)
+	if err != nil {
+		return ids.Nil, err
 	}
 	var projectID ids.UUID
 	// A held or archived sibling settles nothing. A legal hold takes a message
 	// out of every read that answers a question about the business, and this is
 	// one of them: letting a restricted message decide where later mail is
 	// filed would put its content back into circulation by proxy.
-	err := tx.QueryRow(ctx, `
-		SELECT al.project_id
+	err = tx.QueryRow(ctx, `
+		SELECT p.id
 		  FROM activity a
 		  JOIN activity_link al ON al.activity_id = a.id AND al.entity_type = 'project'
+		  JOIN project p ON p.id = al.project_id
 		 WHERE a.thread_key = $1 AND a.id <> $2
+		   AND a.kind = $3
+		   AND a.channel_provider IS NOT DISTINCT FROM NULLIF($4, '')
 		   AND a.restricted_at IS NULL AND a.archived_at IS NULL
-		 ORDER BY a.occurred_at DESC
-		 LIMIT 1`, threadKey, activityID).Scan(&projectID)
+		   AND p.archived_at IS NULL`+scoped+`
+		 ORDER BY a.occurred_at DESC, a.id DESC
+		 LIMIT 1`, args...).Scan(&projectID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ids.Nil, nil
 	}
@@ -184,40 +224,74 @@ func threadProject(ctx context.Context, tx pgx.Tx, threadKey string, activityID 
 // dealProject is the inheritance rung: a message filed under a deal that
 // belongs to a project belongs to that project too. The deal's own rollup is
 // the claim; this rung only follows it.
+//
+// An activity can carry several deal links, so this reads the DISTINCT projects
+// they roll up to rather than picking one: two deals naming two different
+// projects is ambiguity, and the ladder answers ambiguity the same way here as
+// it does for a subject naming two keys — with no project at all. LIMIT 2 is
+// what makes that a bounded question; the ORDER BY makes the one-match case
+// reproducible rather than dependent on scan order.
 func dealProject(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID) (ids.UUID, error) {
-	var projectID ids.UUID
-	err := tx.QueryRow(ctx, `
-		SELECT d.project_id
+	args := []any{activityID}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	scoped, err := projectScopeClause(ctx, "p", arg)
+	if err != nil {
+		return ids.Nil, err
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT DISTINCT p.id
 		  FROM activity_link al
 		  JOIN deal d ON d.id = al.deal_id
+		  JOIN project p ON p.id = d.project_id
 		 WHERE al.activity_id = $1 AND al.entity_type = 'deal'
-		   AND d.project_id IS NOT NULL AND d.archived_at IS NULL
-		 LIMIT 1`, activityID).Scan(&projectID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ids.Nil, nil
-	}
+		   AND d.archived_at IS NULL
+		   AND p.archived_at IS NULL`+scoped+`
+		 ORDER BY p.id
+		 LIMIT 2`, args...)
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: reading the deal's project: %w", err)
 	}
-	return projectID, nil
+	matched, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	if err != nil {
+		return ids.Nil, fmt.Errorf("capture: reading the deal's project: %w", err)
+	}
+	if len(matched) != 1 {
+		return ids.Nil, nil
+	}
+	return matched[0], nil
 }
 
-// linkActivityToProject writes the one link the ladder concluded, with its own
-// audit row: this write commits in its own transaction, so it cannot ride the
-// capture's. Why no outbox row rides with it is auditProjectAttribution's own
-// comment.
+// linkActivityToProject writes the one link the ladder concluded.
 //
-// The row-scope check first, exactly as every other link writer does: a
-// connector must not plant a link to a row its granting human could not see. A
-// project outside that scope is not an error here — the message stands, filed
-// under nothing — because refusing it would turn one member's narrower scope
-// into a capture fault the operator has to read.
+// It REQUIRES activity.update, and that is not belt-and-braces over the
+// activity.create the capture already checked. Filing an activity under a
+// project changes who can reach it and bumps activity.version, which is the pin
+// a staged approval re-checks before it redeems — so this is an update of the
+// activity by every test that matters, and the audit row says so
+// (auditProjectAttribution). A principal that may create captured mail but not
+// change it attributes nothing, which is the honest outcome rather than a
+// silent widening of what create means.
+//
+// Denial is not a fault: a connector role without activity.update is an
+// ordinary configuration, so its mail lands filed under nothing.
+//
+// Then the row-scope check on the target, exactly as every other link writer
+// does: a connector must not plant a link to a row its granting human could not
+// see. That check is narrower than the ladder's own, which already refused an
+// unreadable project — it stays because this function is the write, and a write
+// re-checks its own target rather than trusting the caller to have done it.
 //
 // ON CONFLICT DO NOTHING because uq_activity_link_project admits exactly one
 // project link per activity: a concurrent pass that got there first is the
-// system working, not a collision to report. Nothing is audited when nothing
-// landed — a no-op writes no audit noise.
+// system working, not a collision to report. Nothing is audited or bumped when
+// nothing landed — a no-op writes no audit noise and moves no version.
 func linkActivityToProject(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, projectID ids.UUID) error {
+	if err := auth.Require(ctx, "activity", principal.ActionUpdate); err != nil {
+		if errors.Is(err, apperrors.ErrPermissionDenied) {
+			return nil
+		}
+		return err
+	}
 	if err := auth.EnsureLinkTarget(ctx, tx, string(datasource.EntityProject), projectID); err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil
@@ -234,6 +308,17 @@ func linkActivityToProject(ctx context.Context, tx pgx.Tx, activityID ids.Activi
 	if tag.RowsAffected() == 0 {
 		return nil
 	}
+	// Touch the activity ROW, not just its link table, for the reason the
+	// human relink path does it (activities/lifecycle.go): a staged approval
+	// pins activity.version, and that pin is what stands between an approved
+	// "send this on this conversation" and the conversation being repointed
+	// before the approval redeems. Filing changes who the activity reaches, so
+	// it must move the version the pin re-checks. The trigger
+	// (set_updated_at_bump_version) does the bump; this only has to be a
+	// genuine UPDATE of the row.
+	if _, err := tx.Exec(ctx, `UPDATE activity SET updated_at = now() WHERE id = $1`, activityID); err != nil {
+		return fmt.Errorf("capture: bumping the filed activity's version: %w", err)
+	}
 	return auditProjectAttribution(ctx, tx, activityID, projectID)
 }
 
@@ -241,6 +326,13 @@ func linkActivityToProject(ctx context.Context, tx pgx.Tx, activityID ids.Activi
 // same action the human-driven relink uses: a reader asking "how did this
 // message end up on this project?" must find one answer whether a person or the
 // ladder filed it, and the audit row's principal already says which.
+//
+// activity_relink maps to activity.update in auditActionGrant, and the caller
+// really does require that grant (linkActivityToProject) — so the
+// authorization_rule this row renders names the rule that actually admitted the
+// write. audit_log is append-only, so a verb whose write path never checked the
+// grant it claims would be an uncorrectable lie about who was allowed to do
+// what.
 //
 // No public event rides with it, and that is deliberate rather than an
 // omission. This link is part of landing ONE captured message, which

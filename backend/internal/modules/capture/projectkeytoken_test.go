@@ -5,82 +5,109 @@ package capture
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
 // The subject tokenizer is the whole safety of the ladder's third rung: it runs
 // with no human in the loop, so what it refuses to offer the matcher matters as
 // much as what it does.
-func TestProjectKeyCandidatesReadsWholeTokensOnly(t *testing.T) {
+func TestProjectKeyCandidatesRequiresABracketedKey(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		subject string
 		want    []string
 	}{
 		{
-			name:    "a bracketed key is one token, lowercased",
+			name:    "a bracketed key is the one candidate, lowercased",
 			subject: "[ERP-27] weekly status",
-			want:    []string{"erp-27", "weekly", "status"},
+			want:    []string{"erp-27"},
 		},
 		{
-			name: "a key is never a substring of a longer word",
-			// ERPNEXT must not offer "erp": a project keyed ERP is not what
-			// this subject is about, and nothing downstream would catch it.
-			subject: "ERPNEXT rollout",
-			want:    []string{"erpnext", "rollout"},
+			name: "a bare word is never a key",
+			// The bug this rule exists to stop: without the bracket
+			// requirement a project keyed ERP takes this message, and one
+			// keyed STATUS or WEEKLY takes it too.
+			subject: "ERP weekly status",
+			want:    nil,
 		},
 		{
-			name:    "underscores and hyphens stay inside a token",
-			subject: "re: alpha_two and beta-three",
-			want:    []string{"re", "alpha_two", "and", "beta-three"},
+			name: "a bare Re: never matches",
+			// A project keyed RE would otherwise swallow every reply in the
+			// installation — silently, in bulk, onto records that later get
+			// stamped for years of retention.
+			subject: "Re: anything at all",
+			want:    nil,
 		},
 		{
-			name: "a bare number is not a candidate",
-			// The letter-led rule exists for exactly this: a subject line is
-			// full of dates, amounts and order numbers.
-			subject: "invoice 2026 for 4711 EUR",
-			want:    []string{"invoice", "for", "eur"},
+			name:    "a bracketed key is not a substring of a longer word",
+			subject: "[ERPNEXT] rollout",
+			want:    []string{"erpnext"},
 		},
 		{
-			name:    "a one-character word is below the key floor",
-			subject: "a b re: ok",
-			want:    []string{"re", "ok"},
+			name: "bracketed prose with a space is not a key",
+			// project_key_shape admits no space, so a bracket group holding
+			// one was never a key reference.
+			subject: "[ERP 27] status",
+			want:    nil,
 		},
 		{
-			name: "a word longer than the key ceiling is not a candidate",
-			// 25 characters, one past what project_key_shape admits.
-			subject: "abcdefghijklmnopqrstuvwxy done",
-			want:    []string{"done"},
+			name:    "a bracketed key surrounded by whitespace is trimmed",
+			subject: "[ ERP-27 ] status",
+			want:    []string{"erp-27"},
+		},
+		{
+			name:    "underscores and hyphens are legal inside a key",
+			subject: "[alpha_two] and [beta-three]",
+			want:    []string{"alpha_two", "beta-three"},
+		},
+		{
+			name: "a bracketed bare number is not a candidate",
+			// The letter-led rule: a subject line is full of dates, amounts
+			// and order numbers.
+			subject: "[2026] invoice [4711]",
+			want:    nil,
+		},
+		{
+			name:    "an empty bracket offers nothing",
+			subject: "[] and [x]",
+			want:    nil,
+		},
+		{
+			name:    "a word longer than the key ceiling is not a candidate",
+			subject: "[abcdefghijklmnopqrstuvwxy] done",
+			want:    nil,
 		},
 		{
 			name:    "a repeated key is offered once",
-			subject: "ERP-27: about ERP-27",
-			want:    []string{"erp-27", "about"},
+			subject: "[ERP-27] about [ERP-27]",
+			want:    []string{"erp-27"},
 		},
 		{
-			name:    "a subject with nothing key-shaped offers nothing",
-			subject: "4711 -- 2026/06/04 (!)",
+			name: "an unclosed bracket names no key",
+			// Otherwise a stray '[' would turn the rest of the line into a
+			// candidate.
+			subject: "[ERP-27 status never closed",
 			want:    nil,
+		},
+		{
+			name: "parentheses and braces are not markers",
+			// Admitting them would reopen the bare-word problem under
+			// different punctuation: "(re)" is prose.
+			subject: "(ERP) {ERP} status",
+			want:    nil,
+		},
+		{
+			name: "a bracketed non-ASCII word is rejected whole",
+			// The key column admits ASCII only, and the word must not
+			// degrade into a fragment that names a different project.
+			subject: "[grüße] and [ERP]",
+			want:    []string{"erp"},
 		},
 		{
 			name:    "an empty subject offers nothing",
 			subject: "",
 			want:    nil,
-		},
-		{
-			name: "a non-ASCII word is rejected whole, not cut into fragments",
-			// The key column admits ASCII only, so "grüße" can be no key — and
-			// it must not degrade into "gr", which would be evidence for a
-			// project keyed GR that the subject never mentioned.
-			subject: "grüße ERP",
-			want:    []string{"erp"},
-		},
-		{
-			name: "punctuation around a word is trimmed, inside it is not",
-			// The trim is what lets a key survive the shapes a subject wraps it
-			// in; a key-legal hyphen inside the word must not be touched.
-			subject: `("ERP-27"), please`,
-			want:    []string{"erp-27", "please"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -89,5 +116,20 @@ func TestProjectKeyCandidatesReadsWholeTokensOnly(t *testing.T) {
 				t.Fatalf("projectKeyCandidates(%q) = %q, want %q", tc.subject, got, tc.want)
 			}
 		})
+	}
+}
+
+// A subject is attacker-supplied text, and every candidate becomes a bind in
+// the matcher's query. The cap is what stops one message turning the rung into
+// an unbounded query.
+func TestProjectKeyCandidatesAreBounded(t *testing.T) {
+	var subject strings.Builder
+	for i := range maxProjectKeyCandidates * 3 {
+		subject.WriteString("[key")
+		subject.WriteByte(byte('a' + i%26))
+		subject.WriteString(string(rune('a'+i/26)) + "] ")
+	}
+	if got := projectKeyCandidates(subject.String()); len(got) > maxProjectKeyCandidates {
+		t.Fatalf("a subject offered %d candidates, want at most %d", len(got), maxProjectKeyCandidates)
 	}
 }
