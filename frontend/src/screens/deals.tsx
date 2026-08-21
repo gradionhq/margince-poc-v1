@@ -439,17 +439,29 @@ function forecastCategory(v: string): UpdateDealRequest["forecast_category"] {
   }
 }
 
-// A blank scalar clears the field on the wire (explicit null); a set value
-// trims through. `amount` arrives in major units from the form, the wire is
-// minor units (deal creation applies the same conversion above).
+/**
+ * The edit form's values as a deal patch.
+ *
+ * A blank scalar clears the field on the wire (explicit null); a set value
+ * trims through. `amount` arrives in major units from the form, the wire is
+ * minor units (deal creation applies the same conversion above).
+ *
+ * `masked` names the fields THIS reader was not shown. A withheld reference
+ * arrives as null with `masked_fields` naming it — deliberately, so a reader
+ * can tell "you may not see this" from "there is nothing here" — but the form
+ * has only the null, and sending it back would ask the server to clear a
+ * partner the reader never saw and never touched. So a masked field is left
+ * out of the patch entirely: omitted means unchanged.
+ */
 export function mapDealUpdate(
   values: Record<string, unknown>,
+  masked: readonly string[] = [],
 ): UpdateDealRequest {
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const amount = str(values.amount);
   const owner = str(values.owner_id);
   const forecast = str(values.forecast_category);
-  return {
+  const patch: UpdateDealRequest = {
     name: str(values.name) || undefined,
     amount_minor: amount ? Math.round(Number(amount) * 100) : null,
     currency: str(values.currency) || undefined,
@@ -461,6 +473,34 @@ export function mapDealUpdate(
     expected_close_date: str(values.expected_close_date) || null,
     wait_until: str(values.wait_until) || null,
   };
+  return withoutMasked(patch, masked);
+}
+
+/**
+ * The patch minus every field the reader was not shown.
+ *
+ * `partner_org_id` carries its attribution: the server withholds the pair
+ * together, so returning one half of it would decide what a partner nobody
+ * could see is owed.
+ */
+function withoutMasked(
+  patch: UpdateDealRequest,
+  masked: readonly string[],
+): UpdateDealRequest {
+  if (masked.length === 0) {
+    return patch;
+  }
+  const out: Record<string, unknown> = { ...patch };
+  for (const field of masked) {
+    delete out[field];
+    if (field === "partner_org_id") {
+      delete out.partner_attribution;
+    }
+    if (field === "amount_minor") {
+      delete out.currency;
+    }
+  }
+  return out as UpdateDealRequest;
 }
 
 /**
@@ -2268,7 +2308,10 @@ function DealBadges({
               path: { id: deal.id },
               ...ifMatch(requireVersion(deal.version)),
             },
-            body: { ...mapDealUpdate(values), ...cf.toBody(values) },
+            body: {
+              ...mapDealUpdate(values, deal.masked_fields ?? []),
+              ...cf.toBody(values),
+            },
           });
           if (error) {
             throwProblem(error);

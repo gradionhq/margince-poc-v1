@@ -450,6 +450,27 @@ describe("a field that depends on another", () => {
     const sent = submittedValues(fields, { name: "x", cf_region: "APAC" });
     expect(sent.cf_region).toBe("APAC");
   });
+
+  // Withdrawing the question a value answered must not leave the answer
+  // waiting to be re-shown under a different one: naming partner A, saying
+  // what A did, clearing A and naming B would otherwise carry A's claim onto
+  // B — and "influenced" silently earns B nothing where the default pays.
+  it("does not carry an answer over to a different partner", () => {
+    // The state the form holds the moment A is cleared.
+    const cleared = submittedValues(fields, {
+      name: "x",
+      partner_org_id: "",
+      partner_attribution: "influenced",
+    });
+    expect(cleared.partner_attribution).toBe("");
+
+    // Naming B from that state starts the claim over rather than inheriting.
+    const withB = submittedValues(fields, {
+      ...cleared,
+      partner_org_id: "p-b",
+    });
+    expect(withB.partner_attribution).toBe("");
+  });
 });
 
 // The partner fields answer to whether this installation runs a partner

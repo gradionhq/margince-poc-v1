@@ -559,6 +559,13 @@ export function RecordFormBody({
   // A field hidden by its own showWhen is absent from the form in every sense:
   // it neither renders nor holds Save hostage to a value nobody was asked for.
   const shown = visibleFields(fields, values);
+  // Writing a value must not resurrect an answer to a question that was
+  // withdrawn in between. Naming a partner, saying what they did, clearing the
+  // partner and naming a DIFFERENT one would otherwise carry the first
+  // partner's claim onto the second — and "influenced" silently earns them
+  // nothing where the default would have paid.
+  const setVisibleValues = (next: Record<string, string>) =>
+    setValues(submittedValues(fields, next));
   const requiredMissing = shown.some((field) => {
     if (field.type === "repeatable") {
       return !rowsRequirementMet(field, rows[field.key] ?? []);
@@ -600,7 +607,9 @@ export function RecordFormBody({
               field={field}
               formId={formId}
               value={values[field.key] ?? ""}
-              setValue={(next) => setValues({ ...values, [field.key]: next })}
+              setValue={(next) =>
+                setVisibleValues({ ...values, [field.key]: next })
+              }
             />
           );
         }
@@ -615,7 +624,7 @@ export function RecordFormBody({
                 field,
                 control,
                 values[field.key] ?? "",
-                (next) => setValues({ ...values, [field.key]: next }),
+                (next) => setVisibleValues({ ...values, [field.key]: next }),
                 t,
               )
             }
