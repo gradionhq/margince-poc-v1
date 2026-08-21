@@ -165,6 +165,12 @@ var (
 			// the harness admin fixture can exercise the rate editors.
 			"fx_rate":       {Create: true, Read: true, Update: true, Delete: true},
 			"ai_model_rate": {Create: true, Read: true, Update: true, Delete: true},
+			// ai_routing mirrors the real seed: read + update for admin/ops and
+			// nothing for anyone else, and NO create or delete — a setting is
+			// read and updated, and an absent row is its registered default
+			// rather than a missing record. It gates which vendor the
+			// installation's text is sent to.
+			"ai_routing": {Read: true, Update: true},
 			// capture_settings mirrors the real admin seed: create + read +
 			// update (0210 added create — any seat may contribute a consumer
 			// domain, and the admin fixture must hold what the seed holds or

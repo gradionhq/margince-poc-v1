@@ -75,11 +75,19 @@ func requireSovereignEndpoint(label, provider, baseURL string) error {
 func hostOf(baseURL string) (string, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
-		return "", fmt.Errorf("base_url %q cannot be parsed as a url: %w", baseURL, err)
+		// The value is NOT echoed. A base_url may carry userinfo
+		// (http://user:token@host), and this error reaches a boot log — for a
+		// binding declared in margince.yaml, from the file whose whole promise
+		// is that it carries no credential. url.Parse's own message names the
+		// syntax fault without the string.
+		return "", fmt.Errorf("base_url cannot be parsed as a url: %w", err)
 	}
 	host := parsed.Hostname()
 	if host == "" {
-		return "", fmt.Errorf("base_url %q names no host; write the whole url, e.g. http://127.0.0.1:11434", baseURL)
+		// Redacted for the same reason: Redacted() replaces any password with
+		// xxxxx, and a value with no host is exactly the malformed shape most
+		// likely to have been pasted with a credential still in it.
+		return "", fmt.Errorf("base_url %q names no host; write the whole url, e.g. http://127.0.0.1:11434", parsed.Redacted())
 	}
 	// The scheme is checked HERE rather than left to the first call: a scheme
 	// this adapter cannot dial makes the endpoint unreachable, and an endpoint

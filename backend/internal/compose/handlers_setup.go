@@ -108,6 +108,9 @@ func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Se
 			return
 		}
 
+		// The seed's own discards, merged below. ClaimInstallation ASSIGNS the
+		// identity ones, so a shared slice would lose these.
+		var seedDiscards []string
 		wsID, discarded, err := svc.ClaimInstallation(r.Context(), in.SetupToken, identity.InstallationBootstrap{
 			OrganizationName: in.OrganizationName,
 			BaseCurrency:     in.BaseCurrency,
@@ -115,7 +118,7 @@ func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Se
 			AdminEmail:       in.AdminEmail,
 			AdminName:        in.AdminName,
 			AdminPassword:    in.AdminPassword,
-		}, configuredSeed(seeds, deals.NewHandlers(InstallationDB(pool), DealsInstallation())))
+		}, configuredSeed(seeds, deals.NewHandlers(InstallationDB(pool), DealsInstallation()), &seedDiscards))
 		switch {
 		case errors.Is(err, identity.ErrAlreadyProvisioned):
 			// The true reason, not a token failure: a caller holding a valid
@@ -138,8 +141,9 @@ func setupClaim(svc *identity.Service, pool *pgxpool.Pool, seeds deployconfig.Se
 		// archived creates a new one beside settings rows that survived, and the
 		// identity the human just typed into the claim form is discarded. They
 		// see the old name in the UI and have no way to tell why (#863).
+		discarded = append(discarded, seedDiscards...)
 		if len(discarded) > 0 {
-			log.Warn("the claim kept the identity already stored and discarded what was submitted; a previous installation's settings survived because they are not scoped to a workspace",
+			log.Warn("the claim kept the values already stored and discarded what was submitted; a previous installation's settings survived because they are not scoped to a workspace",
 				"discarded_keys", strings.Join(discarded, ", "), "workspace_id", wsID.String())
 		}
 		httperr.WriteJSON(w, http.StatusCreated, setupClaimResponse{WorkspaceID: wsID.String()})

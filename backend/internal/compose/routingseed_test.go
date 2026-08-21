@@ -12,16 +12,34 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 )
 
-func declaredNode(t *testing.T, doc string) *yaml.Node {
+// declaredSeed builds the fixture the way PRODUCTION does: a margince.yaml
+// document decoded through deployconfig, not a node assembled by hand.
+//
+// The distinction is the whole reason this helper exists. A hand-built node
+// routes around the one thing that can fail — whether a `seeds.ai_routing`
+// mapping survives being decoded out of a deployconfig.Seeds field at all — and
+// a fixture shaped that way was green while the field's type made the feature
+// impossible to use.
+func declaredSeed(t *testing.T, routing string) yaml.Node {
 	t.Helper()
-	var node yaml.Node
-	if err := yaml.Unmarshal([]byte(doc), &node); err != nil {
-		t.Fatalf("building the fixture: %v", err)
+	doc := "version: 1\nseeds:\n  ai_routing:\n" + indent(routing, "    ")
+	cfg, err := deployconfig.Parse([]byte(doc))
+	if err != nil {
+		t.Fatalf("deployconfig.Parse refused the declared binding: %v", err)
 	}
-	// Unmarshal wraps a document; the seed carries the mapping under the key.
-	return node.Content[0]
+	return cfg.Seeds.AIRouting
+}
+
+func indent(body, pad string) string {
+	var out strings.Builder
+	for line := range strings.SplitSeq(strings.TrimRight(body, "\n"), "\n") {
+		out.WriteString(pad + line + "\n")
+	}
+	return out.String()
 }
 
 const declaredRouting = `profile: eu_hosted
@@ -34,7 +52,7 @@ embeddings: {provider: fake, model: embed, dimensions: 8}
 `
 
 func TestADeclaredBindingIsDecodedAndFinalized(t *testing.T) {
-	cfg, declared, err := routingSeedFrom(declaredNode(t, declaredRouting))
+	cfg, declared, err := routingSeedFrom(declaredSeed(t, declaredRouting))
 	if err != nil {
 		t.Fatalf("routingSeedFrom: %v", err)
 	}
@@ -54,9 +72,9 @@ func TestADeclaredBindingIsDecodedAndFinalized(t *testing.T) {
 // Most deployments declare no binding, and bootstrap must not treat that as a
 // fault. Nothing declared is not an error and not a binding.
 func TestNoDeclaredBindingIsNotAnError(t *testing.T) {
-	cfg, declared, err := routingSeedFrom(nil)
+	cfg, declared, err := routingSeedFrom(yaml.Node{})
 	if err != nil {
-		t.Fatalf("routingSeedFrom(nil): %v", err)
+		t.Fatalf("routingSeedFrom(yaml.Node{}): %v", err)
 	}
 	if declared {
 		t.Error("nothing was declared, but the seed reported one")
@@ -100,7 +118,7 @@ embeddings: {provider: ollama, model: embed, dimensions: 8}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := routingSeedFrom(declaredNode(t, tc.doc))
+			_, _, err := routingSeedFrom(declaredSeed(t, tc.doc))
 			if err == nil {
 				t.Fatal("the bootstrap accepted a binding the file loader would refuse")
 			}
@@ -108,5 +126,46 @@ embeddings: {provider: ollama, model: embed, dimensions: 8}
 				t.Errorf("error = %q, want it to name %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// A binding may reference an anchor defined elsewhere in margince.yaml. That is
+// ordinary YAML and must not fail the boot.
+//
+// Marshalling the subtree alone emits the alias with no anchor in scope, so the
+// re-parse died with "unknown anchor 'v' referenced" — an internal parser
+// detail handed to an operator whose file is valid.
+//
+// Only the scalar case is exercised, and not for want of trying: a MERGE key
+// needs a mapping anchor, and strict decoding leaves one nowhere legal to live
+// outside `ai_routing` — every section of this schema is a closed set of keys.
+// resolveAliases handles both idioms; this is the half the schema can express.
+func TestABindingThatReferencesAnAnchorElsewhereInTheFileStillSeeds(t *testing.T) {
+	const doc = `version: 1
+organization:
+  name: &v fake
+seeds:
+  ai_routing:
+    profile: eu_hosted
+    tiers:
+      local_small: {provider: *v, model: m}
+      cheap_cloud: {provider: *v, model: m}
+      premium: {provider: *v, model: m}
+      frontier: {provider: *v, model: m}
+    embeddings: {provider: *v, model: e, dimensions: 8}
+`
+	cfg, err := deployconfig.Parse([]byte(doc))
+	if err != nil {
+		t.Fatalf("deployconfig.Parse: %v", err)
+	}
+	bound, declared, err := routingSeedFrom(cfg.Seeds.AIRouting)
+	if err != nil {
+		t.Fatalf("routingSeedFrom: %v", err)
+	}
+	if !declared {
+		t.Fatal("the binding read as undeclared")
+	}
+	if m, ok := bound.Tiers["premium"]; !ok || m.Provider != "fake" {
+		t.Errorf("premium = %+v ok=%v; the alias did not resolve to what it points at", m, ok)
 	}
 }

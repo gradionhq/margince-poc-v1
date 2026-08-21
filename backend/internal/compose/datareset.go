@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -303,8 +304,19 @@ func (h dataResetHandlers) sweepAndReseed(ctx context.Context, wsID ids.UUID, co
 			Type: principal.PrincipalSystem, ID: "system",
 		})
 		seedCtx = principal.WithCorrelationID(seedCtx, ids.NewV7())
-		if err := configuredSeed(h.seeds, deals.NewHandlers(InstallationDB(h.pool), DealsInstallation()))(seedCtx, tx); err != nil {
+		// The reset's own discard list, reported here rather than dropped. It
+		// is not empty on this path: ai.Routing is installation identity, so
+		// ResetConfig spares its row and a re-seed of the declared binding is
+		// refused by ON CONFLICT — correct, because the stored binding is the
+		// one an admin may have changed since bootstrap, and a reset must not
+		// quietly re-point which vendor sees the installation's text.
+		var discarded []string
+		if err := configuredSeed(h.seeds, deals.NewHandlers(InstallationDB(h.pool), DealsInstallation()), &discarded)(seedCtx, tx); err != nil {
 			return err
+		}
+		if len(discarded) > 0 {
+			resetLog(h).WarnContext(ctx, "the reset kept settings already stored rather than re-seeding them from margince.yaml; they survive a reset by design",
+				"kept_keys", strings.Join(discarded, ", "))
 		}
 
 		// Record the reset under the invoking admin principal.
@@ -453,4 +465,14 @@ func (h dataResetHandlers) ResetData(w http.ResponseWriter, r *http.Request) {
 		ObjectsDeleted: counts.ObjectsDeleted,
 		DrainTimedOut:  counts.DrainTimedOut,
 	})
+}
+
+// resetLog is this handler's logger, defaulting the same way the reset's own
+// entry point does — a nil logger is the wired-but-unconfigured case, not a
+// reason to drop a warning about a binding that was not re-seeded.
+func resetLog(h dataResetHandlers) *slog.Logger {
+	if h.log == nil {
+		return slog.Default()
+	}
+	return h.log
 }

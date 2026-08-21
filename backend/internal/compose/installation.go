@@ -73,7 +73,12 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 	}
 
 	svc := identity.NewService(pool)
-	wsID, created, discarded, err := svc.BootstrapInstallation(ctx, create, configuredSeed(cfg.Seeds, deals.NewHandlers(InstallationDB(pool), DealsInstallation())))
+	// Its own slice rather than identity's: createInstallation ASSIGNS the
+	// identity discards, so anything appended to that one from inside the seed
+	// callback is overwritten. Merged below.
+	var seedDiscards []string
+	wsID, created, discarded, err := svc.BootstrapInstallation(ctx, create,
+		configuredSeed(cfg.Seeds, deals.NewHandlers(InstallationDB(pool), DealsInstallation()), &seedDiscards))
 	if errors.Is(err, identity.ErrNotBootstrapped) {
 		// An empty database and no configured bootstrap_admin is not an error:
 		// it is the claim path (ADR-0105). Boot mints the token the first human
@@ -95,8 +100,9 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 	// validated, and dropped. This is the whole of #863 that needs no product
 	// ruling: what should happen instead is undecided, but the operator should
 	// not have to infer from the UI that their file was ignored.
+	discarded = append(discarded, seedDiscards...)
 	if len(discarded) > 0 {
-		log.Warn("this installation kept the identity already stored and discarded the values margince.yaml supplied; a previous installation's settings survived because they are not scoped to a workspace",
+		log.Warn("this installation kept the values already stored and discarded the ones margince.yaml supplied; a previous installation's settings survived because they are not scoped to a workspace",
 			"discarded_keys", strings.Join(discarded, ", "), "workspace_id", wsID.String())
 	}
 	return nil
@@ -245,7 +251,7 @@ func ownTokenDirectory(dir string) error {
 // file's optional `seeds` section — an omitted key seeds the built-in
 // default, so a minimal configuration behaves exactly like the
 // historical bootstrap.
-func configuredSeed(seeds deployconfig.Seeds, dealsH dealsHandlers) func(context.Context, pgx.Tx) error {
+func configuredSeed(seeds deployconfig.Seeds, dealsH dealsHandlers, discarded *[]string) func(context.Context, pgx.Tx) error {
 	return func(ctx context.Context, tx pgx.Tx) error {
 		if err := seedPipeline(ctx, tx, seeds.Pipeline, dealsH); err != nil {
 			return err
@@ -256,7 +262,7 @@ func configuredSeed(seeds deployconfig.Seeds, dealsH dealsHandlers) func(context
 		if err := seedRetentionPosture(ctx, tx, seeds); err != nil {
 			return err
 		}
-		if err := seedRoutingBinding(ctx, tx, seeds.AIRouting); err != nil {
+		if err := seedRoutingBinding(ctx, tx, seeds.AIRouting, discarded); err != nil {
 			return err
 		}
 		if err := ai.SeedWorkspaceDefaultsTx(ctx, tx, time.Now().UTC()); err != nil {
@@ -333,21 +339,39 @@ func seedRetentionPosture(ctx context.Context, tx pgx.Tx, seeds deployconfig.See
 // the organization exists and the binding does not, even briefly, or the first
 // request through an AI surface answers as unconfigured.
 //
+// "Bootstrap" is not the only caller — the data reset runs the same seeds over
+// an installation that already exists. There the stored binding always wins, by
+// design: it is the one an admin may have changed through the API since
+// bootstrap, and a reset must not quietly re-point which vendor sees the
+// installation's text. That is why the refusal is REPORTED rather than assumed
+// impossible.
+//
 // The document is decoded through the ai module's own parser rather than a
 // mirror of it here, so a seed is refused for exactly the reasons a stored
 // binding would be — an unknown tier, a cloud provider under the sovereign
 // profile, an embeddings width out of range. A bad seed fails the BOOTSTRAP,
 // which is the only moment anybody is watching.
-func seedRoutingBinding(ctx context.Context, tx pgx.Tx, declared *yaml.Node) error {
+func seedRoutingBinding(ctx context.Context, tx pgx.Tx, declared yaml.Node, discarded *[]string) error {
 	cfg, declaredAny, err := routingSeedFrom(declared)
 	if err != nil || !declaredAny {
 		return err
 	}
-	// Whether it stored is discarded deliberately: inside the bootstrap
-	// transaction there is no row to conflict with, because an installation
-	// being created cannot already hold a binding.
-	_, err = settings.SeedValue(ctx, tx, ai.Routing, cfg)
-	return err
+	stored, err := settings.SeedValue(ctx, tx, ai.Routing, cfg)
+	if err != nil {
+		return err
+	}
+	// A declaration that did not store is REPORTED, and this is the one seed
+	// where silence would be dangerous. `setting` is not workspace-scoped, so a
+	// bootstrap over a database still holding a previous installation's rows
+	// keeps the old binding — and ai.Routing is installation identity, so a
+	// data reset spares it too. The operator's file can say `sovereign`, meaning
+	// zero egress, while the installation serves a cloud vendor the previous
+	// one chose. That is text leaving for somewhere nobody chose, and nothing
+	// else in the boot would mention it.
+	if !stored {
+		*discarded = append(*discarded, ai.RoutingKey)
+	}
+	return nil
 }
 
 // routingSeedFrom decodes and validates a declared binding, split from the
@@ -358,11 +382,20 @@ func seedRoutingBinding(ctx context.Context, tx pgx.Tx, declared *yaml.Node) err
 // Reports whether anything was declared at all, which is not the same as an
 // error: most deployments declare no binding and bootstrap must not treat that
 // as a fault.
-func routingSeedFrom(declared *yaml.Node) (ai.RoutingConfig, bool, error) {
-	if declared == nil {
+func routingSeedFrom(declared yaml.Node) (ai.RoutingConfig, bool, error) {
+	// An omitted key and a written-but-empty `ai_routing:` both arrive zero,
+	// and both mean the same thing: this deployment declared no binding.
+	if declared.IsZero() {
 		return ai.RoutingConfig{}, false, nil
 	}
-	raw, err := yaml.Marshal(declared)
+	// Aliases are resolved before re-encoding. A deployment may define
+	// `&defaults` elsewhere in margince.yaml and reference it here, which is
+	// ordinary YAML — but marshalling the subtree alone emits the alias with no
+	// anchor in scope, and the re-parse dies with "unknown anchor 'd'
+	// referenced": an internal parser detail handed to an operator whose file
+	// is valid. Resolving covers both idioms, a plain `*ref` and a `<<:` merge.
+	resolveAliases(&declared)
+	raw, err := yaml.Marshal(&declared)
 	if err != nil {
 		return ai.RoutingConfig{}, false, fmt.Errorf("compose: re-encoding seeds.ai_routing: %w", err)
 	}
@@ -391,4 +424,28 @@ func seedBookingPage(ctx context.Context, tx pgx.Tx) error {
 	}
 	_, err := activities.SeedBookingPageTx(ctx, tx, adminID)
 	return err
+}
+
+// resolveAliases replaces every alias in a node tree with a copy of what it
+// points at, so a subtree can be re-encoded on its own.
+//
+// Anchors are cleared as it goes: an anchor left on a node the subtree no
+// longer shares would be re-emitted as a definition nothing references, which
+// is noise in an error message and a diff.
+func resolveAliases(n *yaml.Node) {
+	if n == nil {
+		return
+	}
+	if n.Kind == yaml.AliasNode && n.Alias != nil {
+		// A copy, because the target may be shared with the rest of the
+		// document and resolving in place would rewrite what the other
+		// references see.
+		target := *n.Alias
+		resolveAliases(&target)
+		*n = target
+	}
+	n.Anchor = ""
+	for _, child := range n.Content {
+		resolveAliases(child)
+	}
 }
