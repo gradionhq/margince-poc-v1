@@ -74,6 +74,18 @@ var modulesThatWriteNoHistory = gatekit.Waive(map[string]string{
 	// Extension-tier secrets, audited into the OTHER ledger on purpose.
 	"internal/platform/extsecrets": "extension_secret is written with storekit.LogSystem rather than storekit.Audit, and the package says why in-source: a secret changing hands moves no domain row, so there is no audit_log entry to attach it to. It belongs in system_log, the non-entity operational ledger, which is the same posture the boot's extension inventory takes. This gate deliberately does not count LogSystem, so the module appears here — it is recorded, in the ledger that fits it",
 
+	// SCHEMA ONLY, AND TEMPORARY. dealrooms owns six tables and has no store
+	// yet: this slice lands the migration, the charter and the RBAC object so
+	// the next one can write against a settled shape. There is no writer to
+	// audit, which is why the gate sees nothing — not a claim that Deal Room
+	// history lives elsewhere. It does not: publishing a release, inviting a
+	// buyer and revoking access are exactly the mutations that must carry an
+	// audit row, and the store lands with storekit.Audit wired from its first
+	// entry point. This entry comes OUT in that slice rather than growing a
+	// rationale, and a reader who finds it still here beside a written store
+	// has found a real gap.
+	"internal/modules/dealrooms": "schema-only slice: six tables, no store yet, so there is no write to audit. The writers land with storekit.Audit from the first entry point and this entry is removed then — it is not a claim that the history lives somewhere else",
+
 	// NOT a waiver of the obligation — a different defect, filed.
 	"internal/modules/approvals": "TRUE OF ONE OF ITS TWO TABLES, and the entry says so rather than rounding up. `approval` has history: approvals writes audit_log by HAND at service.go:218, bypassing storekit.Audit, so this gate cannot see it — filed as #1946 with what that writer omits. `signing_key` has NONE: the INSERT at token_jws.go:172 mints an Ed25519 private key with no audit row, no hand-rolled row and no system_log row, and the hand-rolled writer could not describe it anyway because it hardcodes entity_type to the literal 'approval'. That is a real gap this waiver does not excuse; it is recorded here so the next reader finds it instead of trusting the module-granular verdict. Which brings out this gate's own limit: it is module-granular, so `owns five tables, audits one` passes it, and approvals is the live instance",
 })
