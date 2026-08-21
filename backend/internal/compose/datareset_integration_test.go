@@ -675,3 +675,65 @@ func TestResetKeepsTheDeploymentCredentialsSealedBeforeIt(t *testing.T) {
 		t.Errorf("the sealed license did not survive the reset (Get returned %v) — the ref survived but points at nothing", err)
 	}
 }
+
+// TestSweepClearsADealRoomsFrozenReleases is the behavioural half of
+// deal_room_release's preserve entry: preserved means "not a target", and a
+// preserved table that nothing else clears would leave a buyer's frozen
+// snapshot standing behind a reset that reported success.
+//
+// The offer is not decoration. Its ON DELETE RESTRICT on the deal defers `deal`
+// past the first pass, so the room is reached as a sweep target in its own
+// right rather than being carried off by its deal's cascade — the room's own
+// cascade is then what has to take the releases, which is the claim the
+// preserve entry makes.
+func TestSweepClearsADealRoomsFrozenReleases(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+	pipeline, open, _ := integration.DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Voltaq renewal", pipeline, open, &e.Rep1)
+
+	// The offer's ON DELETE RESTRICT defers `deal` past the first pass; without
+	// it the deal's cascade would clear the room and prove nothing about the
+	// room's own.
+	e.WsExec(t, `INSERT INTO offer (deal_id, offer_number, currency, source, captured_by)
+		VALUES ($1, 'OF-1', 'EUR', 'manual', 'human:test')`, dealID)
+
+	roomID, participantID := ids.NewV7(), ids.NewV7()
+	e.WsExec(t, `INSERT INTO deal_room (id, deal_id, title, state, source, captured_by)
+		VALUES ($1, $2, 'Voltaq room', 'live', 'manual', 'human:test')`, roomID, dealID)
+	e.WsExec(t, `INSERT INTO deal_room_participant (id, room_id, full_name, email, source, captured_by)
+		VALUES ($1, $2, 'Bea Buyer', 'bea@voltaq.example', 'manual', 'human:test')`, participantID, roomID)
+	e.WsExec(t, `INSERT INTO deal_room_release (room_id, release_no, snapshot, source, captured_by)
+		VALUES ($1, 1, '{"status": "shown in August"}'::jsonb, 'manual', 'human:test')`, roomID)
+	e.WsExec(t, `INSERT INTO deal_room_task (room_id, side, title, done_at, done_by_participant_id, source, captured_by)
+		VALUES ($1, 'buyer', 'Sign the order form', now(), $2, 'manual', 'human:test')`, roomID, participantID)
+
+	// The premise the preserve entry rests on, asserted rather than assumed: a
+	// release can never be a legitimate sweep target, because the guard refuses
+	// a direct delete for as long as the room stands and the FK forbids a
+	// release whose room does not. If this ever stops raising, the entry is
+	// over-preserving and belongs back among the targets.
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM deal_room_release WHERE room_id = $1`, roomID)
+		return err
+	}); err == nil {
+		t.Fatal("a direct DELETE on deal_room_release succeeded while its room still exists — the frozen release is editable after all")
+	}
+
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		tables, err := resetTargetTables(ctx, tx)
+		if err != nil {
+			return err
+		}
+		return sweepWorkspaceData(ctx, tx, tables)
+	}); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+
+	if got := e.WsCount(t, "SELECT count(*) FROM deal_room"); got != 0 {
+		t.Errorf("deal_room count after sweep = %d, want 0", got)
+	}
+	if got := e.WsCount(t, "SELECT count(*) FROM deal_room_release"); got != 0 {
+		t.Errorf("deal_room_release count after sweep = %d, want 0 — preserved from the sweep's own DELETE, but the room's cascade still has to take it", got)
+	}
+}
