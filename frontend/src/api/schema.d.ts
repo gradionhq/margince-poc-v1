@@ -7823,7 +7823,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/me/agent-activity": {
+    "/me/ai-activity": {
         parameters: {
             query?: never;
             header?: never;
@@ -7831,22 +7831,29 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the agent is doing for THIS person, right now and lately.
-         * @description The scheduled agent runs this account authorized, as facts rather than sentences:
-         *     the kind, the state, and when. The client renders the sentence in the reader's own
-         *     locale, so this never returns prose.
+         * What the AI is doing for THIS person, right now and lately.
+         * @description Every AI-backed occurrence attributable to this account, as facts rather than
+         *     sentences: the kind, the state, and when. The client renders the sentence in the
+         *     reader's own locale, so this never returns prose.
          *
-         *     Personal by construction: a run is this caller's when the passport it executes under
-         *     is bound to them (`passport.on_behalf_of`). A run whose passport was deleted is
-         *     nobody's and is absent — never attributed to whoever asks. No RBAC object gates it,
-         *     because there is no wider set to withhold.
+         *     ONE PROJECTION, not a union of sources. A scheduled agent run, a document reading,
+         *     and (later) a capture sweep all reach this feed the same way — their writer
+         *     publishes a state change, one consumer projects it into `ai_task_run`, and this
+         *     reads that table. A new kind of AI work therefore adds an emitter, never an arm to
+         *     this read.
          *
-         *     `recent` is BOUNDED (since local midnight, at most 10). An unbounded per-person run
+         *     Personal by construction: an occurrence is this caller's when the actor its
+         *     originating event carried resolves to them. Work that belongs to nobody by nature
+         *     (a system sweep) is never attributed to whoever asks, and an occurrence whose
+         *     person has been deleted stays as history and is shown to no one. No RBAC object
+         *     gates it, because there is no wider set to withhold.
+         *
+         *     `recent` is BOUNDED (since local midnight, at most 10). An unbounded per-person
          *     history is a per-person activity ledger, which this installation does not keep.
          *
          *     Read-only; no audit or event row (EVT-NOEVT-3).
          */
-        get: operations["getMyAgentActivity"];
+        get: operations["getMyAiActivity"];
         put?: never;
         post?: never;
         delete?: never;
@@ -16409,50 +16416,59 @@ export interface components {
             anchor: components["schemas"]["ContextEntityRef"];
             sections: components["schemas"]["ContextSection"][];
         };
-        AgentActivity: {
+        AiActivity: {
             /**
              * Format: date-time
              * @description When the server read this.
              */
             as_of: string;
-            /** @description Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read. */
-            running: components["schemas"]["ActivityItem"][];
-            /** @description Runs that FINISHED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-finished first, at most 10. */
-            recent: components["schemas"]["ActivityItem"][];
+            /** @description Occurrences that are queued, running, or live past their lease. Empty means the AI is at rest — not that nothing was read. */
+            running: components["schemas"]["AiActivityItem"][];
+            /** @description Occurrences that SETTLED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-settled first, at most 10. */
+            recent: components["schemas"]["AiActivityItem"][];
         };
-        ActivityItem: {
+        AiActivityItem: {
             /** Format: uuid */
             id: string;
             /**
-             * @description The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
+             * @description What kind of AI work this occurrence is. A kind absent here renders no line, which
+             *     is a better answer than a server that silently omits work the AI really did.
+             *
+             *     The scheduled kinds match a name in runner.Catalog(); `document_extract` is a
+             *     reading of an attached document, requested by a human from the record it hangs on.
              * @enum {string}
              */
-            kind: "morning_brief" | "overnight_at_risk_sweep";
+            kind: "morning_brief" | "overnight_at_risk_sweep" | "document_extract";
             /**
-             * @description `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
-             *     state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
-             *     exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
-             *     auto-execute only) and is declared for the states the runner itself can reach.
+             * @description `done` is a clean finish; `degraded` kept partial state and MUST NOT read as done.
+             *
+             *     `stalled` is DERIVED at read time and never stored: the occurrence's own source
+             *     declared how long a live attempt stays believable, and this one is past it. It is
+             *     what stops a worker that died without saying so from being displayed as working —
+             *     a row cannot be left stalled by a writer that forgot, because no writer writes it.
              * @enum {string}
              */
-            state: "queued" | "running" | "awaiting_approval" | "done" | "degraded" | "failed";
+            state: "queued" | "running" | "stalled" | "done" | "degraded" | "failed";
             /**
              * Format: date-time
-             * @description When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.
+             * @description When the current attempt became current — its claim, or its enqueue while queued.
+             *     An occurrence can start on one day and settle on the next, so this is NOT what
+             *     `recent` is bounded by.
              */
             started_at: string;
             /** Format: date-time */
             finished_at?: string | null;
             /**
-             * @description One of the runner's own closed reasons for stopping early, shown in the panel detail and
-             *     never interpolated into a reader-facing line. It is NEVER a model provider's or a parser's
-             *     own message: those carry vendor text and can echo credential material, and this field
-             *     reaches an ordinary rep. The underlying cause goes to the operator log instead.
+             * @description Why it stopped early, in the SOURCE's own words. Server-authored prose, never a
+             *     model provider's or a parser's own message: those carry vendor text and can echo
+             *     credential material, and this field reaches an ordinary rep. The underlying cause
+             *     goes to the operator log instead.
              */
             degrade_reason?: string | null;
             /**
-             * @description The run's own final summary when it produced one. OPTIONAL — the runner never validates
-             *     that `final` carries it. Model-authored, so it is truncated to `maxLength` on the way out.
+             * @description The occurrence's own prose when it wrote any, capped on the way to the wire. It is
+             *     optional by construction: nothing validates that a finishing occurrence produced one,
+             *     and it is never the status line — the reader's locale decides those words.
              */
             summary?: string | null;
         };
@@ -33284,7 +33300,7 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
-    getMyAgentActivity: {
+    getMyAiActivity: {
         parameters: {
             query?: never;
             header?: never;
@@ -33293,13 +33309,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The caller's own agent activity. */
+            /** @description The caller's own AI activity. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AgentActivity"];
+                    "application/json": components["schemas"]["AiActivity"];
                 };
             };
             401: components["responses"]["Unauthorized"];

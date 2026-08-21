@@ -277,6 +277,25 @@ func modulesEmitting(sites []emitSite) []string {
 // module announces a fact that IS the first module's fact. None is a second
 // meaning for one name, which is what the rule protects.
 var sharedEventTypes = gatekit.Waive(map[string]string{
+	// Structure 0 — ai_task.state_changed is SHARED BY DESIGN, and it is the one
+	// type in this set where sharing is the feature rather than a tolerated
+	// exception.
+	//
+	// The projection behind the AI-activity rail exists precisely so that "what
+	// is the AI doing for me" is answered by ONE table with one shape, instead
+	// of by a read that unions every source's own tables and grows an arm per
+	// source. That design only works if every AI-backed writer announces in the
+	// same words: a per-module type would put the vocabulary back in the reader,
+	// which is the thing it replaced.
+	//
+	// What keeps it honest is that the type carries no entity ref and no shared
+	// MEANING to disagree about — it says "this occurrence of mine is now in
+	// this state", and `source` namespaces whose occurrence it is, so two
+	// emitters can never collide on one row. A third emitter is expected
+	// (capture sweeps); it belongs here, with its own line.
+	"ai_task.state_changed <- internal/modules/activities": "a document reading announces its own six transitions; source=attachment_extraction keys its occurrences",
+	"ai_task.state_changed <- internal/modules/agents":     "a scheduled run announces the same way; source=agent_runner keys its occurrences, and one trigger occurrence is one row because the key carries the spec and the trigger ref",
+
 	// Structure 1 — the overlay write-back announces the NATIVE module's event.
 	// overlay/writeaudit.go switches on datasource.EntityRef and emits the
 	// system-of-record type for the entity it just wrote. That is the point: a

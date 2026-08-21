@@ -45,6 +45,13 @@ func (w testWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// testLogger sends a consumer's log lines into the running test, so a
+// deterministic refusal — which the consumer acks away by design — shows up as
+// a line rather than as a row that never appeared.
+func testLogger(t *testing.T) *slog.Logger {
+	return slog.New(slog.NewTextHandler(testWriter{t}, nil))
+}
+
 // readingFixture is one real attachment on one real deal, plus the store that
 // moves its reading and the consumer that projects what the moves announce.
 type readingFixture struct {
@@ -87,9 +94,8 @@ func newReadingFixture(t *testing.T) *readingFixture {
 		// refusal is acked away by design, so a test whose logger swallows it
 		// sees only a row that never appeared — which is a failure two steps
 		// away from its cause.
-		consumer: aiactivity.NewConsumer(aiactivity.NewStore(e.DB()),
-			slog.New(slog.NewTextHandler(testWriter{t}, nil))),
-		readID: read.ID,
+		consumer: aiactivity.NewConsumer(aiactivity.NewStore(e.DB()), testLogger(t)),
+		readID:   read.ID,
 	}
 }
 

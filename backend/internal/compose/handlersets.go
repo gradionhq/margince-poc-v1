@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/accountdraft"
-	"github.com/gradionhq/margince/backend/internal/compose/agentactivity"
 	"github.com/gradionhq/margince/backend/internal/compose/meetingbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
@@ -21,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/pipelinetrace"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -76,7 +76,7 @@ type (
 	accountDraftHandlers   = accountdraft.Handlers
 	personDraftHandlers    = persondraft.Handlers
 	financeHandlers        = finance.Handlers
-	agentActivityHandlers  = agentactivity.Handlers
+	aiActivityHandlers     = aiactivity.Handlers
 )
 
 // wirePerson360 binds the person record page — the organization page's

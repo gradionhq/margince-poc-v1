@@ -25,7 +25,62 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 )
+
+// The wire's state vocabulary is the projection's PLUS one value nothing
+// stores.
+//
+// `stalled` is derived at read time from a stored lease, so it can never appear
+// in the column — and the reason it must appear on the contract anyway is the
+// whole no-stale-state requirement: a live occurrence past its lease is
+// reported stalled, and a client whose enum does not carry the word renders
+// nothing for the case the feature exists to show.
+//
+// Held in BOTH directions on purpose. A value added to the CHECK and not to the
+// contract is a state the server can emit and the client cannot name; one added
+// to the contract and not to the CHECK is a promise no writer can keep.
+func TestTheWireStateEnumIsTheProjectionsPlusTheDerivedOne(t *testing.T) {
+	stored := aiTaskRunCheckValues(t, "state")
+	wire := crmYAMLEnum(t, "AiActivityItem", "state")
+
+	want := append(slices.Clone(stored), aiactivity.StateStalled)
+	slices.Sort(want)
+	if !slices.Equal(wire, want) {
+		t.Errorf("the contract's state enum is %v but ai_task_run admits %v plus the derived %q; "+
+			"a value on one side only is either a state the client cannot name or a promise no writer can keep",
+			wire, stored, aiactivity.StateStalled)
+	}
+}
+
+// crmYAMLEnum reads one property's enum out of the authoritative contract.
+func crmYAMLEnum(t *testing.T, schema, property string) []string {
+	t.Helper()
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]struct {
+					Enum []string `yaml:"enum"`
+				} `yaml:"properties"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	raw, err := os.ReadFile("api/crm.yaml")
+	if err != nil {
+		t.Fatalf("reading the contract: %v", err)
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parsing the contract: %v", err)
+	}
+	prop, ok := doc.Components.Schemas[schema].Properties[property]
+	if !ok || len(prop.Enum) == 0 {
+		t.Fatalf("%s.%s declares no enum in api/crm.yaml", schema, property)
+	}
+	out := slices.Clone(prop.Enum)
+	slices.Sort(out)
+	return out
+}
 
 func TestTheAiTaskPayloadEnumsMatchTheProjectionsChecks(t *testing.T) {
 	for _, b := range []struct{ property, column string }{

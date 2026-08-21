@@ -4,8 +4,8 @@
 import type { components } from "../api/schema";
 import type { MessageKey } from "../i18n/en";
 
-type ActivityKind = components["schemas"]["ActivityItem"]["kind"];
-type ActivityState = components["schemas"]["ActivityItem"]["state"];
+type ActivityKind = components["schemas"]["AiActivityItem"]["kind"];
+type ActivityState = components["schemas"]["AiActivityItem"]["state"];
 
 /**
  * The line for one (kind, state), by literal key.
@@ -16,18 +16,25 @@ type ActivityState = components["schemas"]["ActivityItem"]["state"];
  * for the whole `agent.activity.` namespace forever, and a retired kind's copy
  * would sit in three catalogs with nothing to flag it.
  *
- * Total over kind, partial over state, and both halves earn their keep: a third
- * kind on the contract fails the build until somebody writes its copy, while
- * `awaiting_approval` stays keyless because neither v1 spec can stage a
- * confirmation (both are auto-execute). Writing that key would mean translating
- * a sentence nothing can produce.
+ * TOTAL over both axes, and the compiler is what holds it there: a new kind or
+ * a new state on the contract fails the build until somebody writes the copy,
+ * in every locale. That is the point of typing it `Record` rather than
+ * `Partial<Record>` — a runtime test can only check the states somebody
+ * remembered to list, and the list is the thing that goes stale.
+ *
+ * It became total when `awaiting_approval` left the contract. Every state the
+ * feed can now report is reachable by every kind: `stalled` in particular is
+ * DERIVED by the server from a lease the occurrence's own source declared, so
+ * it can arrive for anything, and a keyless entry would render nothing for
+ * exactly the case the projection exists to show.
  */
 export const ACTIVITY_LINE: Readonly<
-  Record<ActivityKind, Readonly<Partial<Record<ActivityState, MessageKey>>>>
+  Record<ActivityKind, Readonly<Record<ActivityState, MessageKey>>>
 > = {
   morning_brief: {
     queued: "agent.activity.morningBrief.queued",
     running: "agent.activity.morningBrief.running",
+    stalled: "agent.activity.morningBrief.stalled",
     done: "agent.activity.morningBrief.done",
     degraded: "agent.activity.morningBrief.degraded",
     failed: "agent.activity.morningBrief.failed",
@@ -35,9 +42,18 @@ export const ACTIVITY_LINE: Readonly<
   overnight_at_risk_sweep: {
     queued: "agent.activity.riskSweep.queued",
     running: "agent.activity.riskSweep.running",
+    stalled: "agent.activity.riskSweep.stalled",
     done: "agent.activity.riskSweep.done",
     degraded: "agent.activity.riskSweep.degraded",
     failed: "agent.activity.riskSweep.failed",
+  },
+  document_extract: {
+    queued: "agent.activity.documentExtract.queued",
+    running: "agent.activity.documentExtract.running",
+    stalled: "agent.activity.documentExtract.stalled",
+    done: "agent.activity.documentExtract.done",
+    degraded: "agent.activity.documentExtract.degraded",
+    failed: "agent.activity.documentExtract.failed",
   },
 };
 

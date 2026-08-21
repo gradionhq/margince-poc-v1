@@ -2275,6 +2275,8 @@ export const de = {
     "Ich bin bei deinem Morgenbriefing nur zum Teil gekommen und habe gestoppt.",
   "agent.activity.morningBrief.failed":
     "Ich konnte dein Morgenbriefing nicht abschließen.",
+  "agent.activity.morningBrief.stalled":
+    "Dein Morgenbriefing läuft ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
   "agent.activity.riskSweep.queued":
     "Die nächtliche Risikoprüfung ist eingereiht.",
   "agent.activity.riskSweep.running": "Ich prüfe deine Deals auf Risiken.",
@@ -2284,6 +2286,18 @@ export const de = {
     "Ich bin bei der Risikoprüfung nur zum Teil gekommen und habe gestoppt.",
   "agent.activity.riskSweep.failed":
     "Ich konnte die nächtliche Risikoprüfung nicht abschließen.",
+  "agent.activity.riskSweep.stalled":
+    "Die Risikoprüfung läuft ungewöhnlich lange. Möglicherweise wurde sie abgebrochen.",
+  "agent.activity.documentExtract.queued":
+    "Dein Dokument steht zum Lesen in der Warteschlange.",
+  "agent.activity.documentExtract.running": "Ich lese dein Dokument.",
+  "agent.activity.documentExtract.stalled":
+    "Das Lesen deines Dokuments dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
+  "agent.activity.documentExtract.done": "Ich habe dein Dokument gelesen.",
+  "agent.activity.documentExtract.degraded":
+    "Ich bin bei deinem Dokument nur teilweise durchgekommen und habe gestoppt.",
+  "agent.activity.documentExtract.failed":
+    "Ich konnte dein Dokument nicht lesen.",
   "agent.panel.runningNow": "Läuft jetzt",
   "agent.panel.finishedToday": "Heute abgeschlossen",
   "agent.panel.stoppedEarly": "Warum es gestoppt hat",

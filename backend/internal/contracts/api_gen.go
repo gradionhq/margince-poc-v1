@@ -360,54 +360,6 @@ func (e ActivityAudience) Valid() bool {
 	}
 }
 
-// Defines values for ActivityItemKind.
-const (
-	ActivityItemKindMorningBrief         ActivityItemKind = "morning_brief"
-	ActivityItemKindOvernightAtRiskSweep ActivityItemKind = "overnight_at_risk_sweep"
-)
-
-// Valid indicates whether the value is a known member of the ActivityItemKind enum.
-func (e ActivityItemKind) Valid() bool {
-	switch e {
-	case ActivityItemKindMorningBrief:
-		return true
-	case ActivityItemKindOvernightAtRiskSweep:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ActivityItemState.
-const (
-	ActivityItemStateAwaitingApproval ActivityItemState = "awaiting_approval"
-	ActivityItemStateDegraded         ActivityItemState = "degraded"
-	ActivityItemStateDone             ActivityItemState = "done"
-	ActivityItemStateFailed           ActivityItemState = "failed"
-	ActivityItemStateQueued           ActivityItemState = "queued"
-	ActivityItemStateRunning          ActivityItemState = "running"
-)
-
-// Valid indicates whether the value is a known member of the ActivityItemState enum.
-func (e ActivityItemState) Valid() bool {
-	switch e {
-	case ActivityItemStateAwaitingApproval:
-		return true
-	case ActivityItemStateDegraded:
-		return true
-	case ActivityItemStateDone:
-		return true
-	case ActivityItemStateFailed:
-		return true
-	case ActivityItemStateQueued:
-		return true
-	case ActivityItemStateRunning:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ActivityLinkEntityType.
 const (
 	ActivityLinkEntityTypeDeal         ActivityLinkEntityType = "deal"
@@ -594,6 +546,57 @@ func (e AgentToolTier) Valid() bool {
 	case AgentToolTierConfirmationRequired:
 		return true
 	case AgentToolTierDynamic:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiActivityItemKind.
+const (
+	AiActivityItemKindDocumentExtract      AiActivityItemKind = "document_extract"
+	AiActivityItemKindMorningBrief         AiActivityItemKind = "morning_brief"
+	AiActivityItemKindOvernightAtRiskSweep AiActivityItemKind = "overnight_at_risk_sweep"
+)
+
+// Valid indicates whether the value is a known member of the AiActivityItemKind enum.
+func (e AiActivityItemKind) Valid() bool {
+	switch e {
+	case AiActivityItemKindDocumentExtract:
+		return true
+	case AiActivityItemKindMorningBrief:
+		return true
+	case AiActivityItemKindOvernightAtRiskSweep:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiActivityItemState.
+const (
+	AiActivityItemStateDegraded AiActivityItemState = "degraded"
+	AiActivityItemStateDone     AiActivityItemState = "done"
+	AiActivityItemStateFailed   AiActivityItemState = "failed"
+	AiActivityItemStateQueued   AiActivityItemState = "queued"
+	AiActivityItemStateRunning  AiActivityItemState = "running"
+	AiActivityItemStateStalled  AiActivityItemState = "stalled"
+)
+
+// Valid indicates whether the value is a known member of the AiActivityItemState enum.
+func (e AiActivityItemState) Valid() bool {
+	switch e {
+	case AiActivityItemStateDegraded:
+		return true
+	case AiActivityItemStateDone:
+		return true
+	case AiActivityItemStateFailed:
+		return true
+	case AiActivityItemStateQueued:
+		return true
+	case AiActivityItemStateRunning:
+		return true
+	case AiActivityItemStateStalled:
 		return true
 	default:
 		return false
@@ -11568,42 +11571,6 @@ type ActivityMeetingStatus string
 // ActivityAudience Who may read an activity's content — see Activity.audience.
 type ActivityAudience string
 
-// ActivityItem defines model for ActivityItem.
-type ActivityItem struct {
-	// DegradeReason One of the runner's own closed reasons for stopping early, shown in the panel detail and
-	// never interpolated into a reader-facing line. It is NEVER a model provider's or a parser's
-	// own message: those carry vendor text and can echo credential material, and this field
-	// reaches an ordinary rep. The underlying cause goes to the operator log instead.
-	DegradeReason *string            `json:"degrade_reason,omitempty"`
-	FinishedAt    *time.Time         `json:"finished_at,omitempty"`
-	Id            openapi_types.UUID `json:"id"`
-
-	// Kind The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
-	Kind ActivityItemKind `json:"kind"`
-
-	// StartedAt When the run began — agent_run.created_at, or runner_job.due_at while queued. A run can start on one day and finish on the next, so this is NOT what `recent` is bounded by.
-	StartedAt time.Time `json:"started_at"`
-
-	// State `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
-	// state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
-	// exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
-	// auto-execute only) and is declared for the states the runner itself can reach.
-	State ActivityItemState `json:"state"`
-
-	// Summary The run's own final summary when it produced one. OPTIONAL — the runner never validates
-	// that `final` carries it. Model-authored, so it is truncated to `maxLength` on the way out.
-	Summary *string `json:"summary,omitempty"`
-}
-
-// ActivityItemKind The scheduled agent. Matches a name in runner.Catalog(); a name absent here renders no line.
-type ActivityItemKind string
-
-// ActivityItemState `done` is `agent_run.status = completed`; `degraded` is a run that kept partial
-// state and MUST NOT read as done. `queued` comes from `runner_job`, before a run row
-// exists. `awaiting_approval` is unreachable for the v1 catalog (both specs are
-// auto-execute only) and is declared for the states the runner itself can reach.
-type ActivityItemState string
-
 // ActivityLink defines model for ActivityLink.
 type ActivityLink struct {
 	ActivityId *openapi_types.UUID    `json:"activity_id,omitempty"`
@@ -11697,18 +11664,6 @@ type AdvanceProjectPhaseRequest struct {
 // AdvanceProjectPhaseRequestToPhase defines model for AdvanceProjectPhaseRequest.ToPhase.
 type AdvanceProjectPhaseRequestToPhase string
 
-// AgentActivity defines model for AgentActivity.
-type AgentActivity struct {
-	// AsOf When the server read this.
-	AsOf time.Time `json:"as_of"`
-
-	// Recent Runs that FINISHED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-finished first, at most 10.
-	Recent []ActivityItem `json:"recent"`
-
-	// Running Queued, running or awaiting-approval runs. Empty means the agent is at rest — not that nothing was read.
-	Running []ActivityItem `json:"running"`
-}
-
 // AgentTool defines model for AgentTool.
 type AgentTool struct {
 	// Description What the tool is for, as an MCP client is told it: the outcome it produces, its limits, when a neighbouring tool is the better call, and what to keep from its result — followed by this server's own governance clause.
@@ -11735,6 +11690,69 @@ type AgentToolTier string
 type AgentToolListResponse struct {
 	Data []AgentTool `json:"data"`
 }
+
+// AiActivity defines model for AiActivity.
+type AiActivity struct {
+	// AsOf When the server read this.
+	AsOf time.Time `json:"as_of"`
+
+	// Recent Occurrences that SETTLED since midnight in the server's own timezone (not the reader's, and not UTC unless the server runs on it), newest-settled first, at most 10.
+	Recent []AiActivityItem `json:"recent"`
+
+	// Running Occurrences that are queued, running, or live past their lease. Empty means the AI is at rest — not that nothing was read.
+	Running []AiActivityItem `json:"running"`
+}
+
+// AiActivityItem defines model for AiActivityItem.
+type AiActivityItem struct {
+	// DegradeReason Why it stopped early, in the SOURCE's own words. Server-authored prose, never a
+	// model provider's or a parser's own message: those carry vendor text and can echo
+	// credential material, and this field reaches an ordinary rep. The underlying cause
+	// goes to the operator log instead.
+	DegradeReason *string            `json:"degrade_reason,omitempty"`
+	FinishedAt    *time.Time         `json:"finished_at,omitempty"`
+	Id            openapi_types.UUID `json:"id"`
+
+	// Kind What kind of AI work this occurrence is. A kind absent here renders no line, which
+	// is a better answer than a server that silently omits work the AI really did.
+	//
+	// The scheduled kinds match a name in runner.Catalog(); `document_extract` is a
+	// reading of an attached document, requested by a human from the record it hangs on.
+	Kind AiActivityItemKind `json:"kind"`
+
+	// StartedAt When the current attempt became current — its claim, or its enqueue while queued.
+	// An occurrence can start on one day and settle on the next, so this is NOT what
+	// `recent` is bounded by.
+	StartedAt time.Time `json:"started_at"`
+
+	// State `done` is a clean finish; `degraded` kept partial state and MUST NOT read as done.
+	//
+	// `stalled` is DERIVED at read time and never stored: the occurrence's own source
+	// declared how long a live attempt stays believable, and this one is past it. It is
+	// what stops a worker that died without saying so from being displayed as working —
+	// a row cannot be left stalled by a writer that forgot, because no writer writes it.
+	State AiActivityItemState `json:"state"`
+
+	// Summary The occurrence's own prose when it wrote any, capped on the way to the wire. It is
+	// optional by construction: nothing validates that a finishing occurrence produced one,
+	// and it is never the status line — the reader's locale decides those words.
+	Summary *string `json:"summary,omitempty"`
+}
+
+// AiActivityItemKind What kind of AI work this occurrence is. A kind absent here renders no line, which
+// is a better answer than a server that silently omits work the AI really did.
+//
+// The scheduled kinds match a name in runner.Catalog(); `document_extract` is a
+// reading of an attached document, requested by a human from the record it hangs on.
+type AiActivityItemKind string
+
+// AiActivityItemState `done` is a clean finish; `degraded` kept partial state and MUST NOT read as done.
+//
+// `stalled` is DERIVED at read time and never stored: the occurrence's own source
+// declared how long a live attempt stays believable, and this one is past it. It is
+// what stops a worker that died without saying so from being displayed as working —
+// a row cannot be left stalled by a writer that forgot, because no writer writes it.
+type AiActivityItemState string
 
 // AiCall defines model for AiCall.
 type AiCall struct {
@@ -33212,9 +33230,9 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
-	// What the agent is doing for THIS person, right now and lately.
-	// (GET /me/agent-activity)
-	GetMyAgentActivity(w http.ResponseWriter, r *http.Request)
+	// What the AI is doing for THIS person, right now and lately.
+	// (GET /me/ai-activity)
+	GetMyAiActivity(w http.ResponseWriter, r *http.Request)
 	// The sign-off appended to mail you send.
 	// (GET /me/email-signature)
 	GetMyEmailSignature(w http.ResponseWriter, r *http.Request)
@@ -35072,9 +35090,9 @@ func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// What the agent is doing for THIS person, right now and lately.
-// (GET /me/agent-activity)
-func (_ Unimplemented) GetMyAgentActivity(w http.ResponseWriter, r *http.Request) {
+// What the AI is doing for THIS person, right now and lately.
+// (GET /me/ai-activity)
+func (_ Unimplemented) GetMyAiActivity(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -44532,8 +44550,8 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
-// GetMyAgentActivity operation middleware
-func (siw *ServerInterfaceWrapper) GetMyAgentActivity(w http.ResponseWriter, r *http.Request) {
+// GetMyAiActivity operation middleware
+func (siw *ServerInterfaceWrapper) GetMyAiActivity(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
@@ -44542,7 +44560,7 @@ func (siw *ServerInterfaceWrapper) GetMyAgentActivity(w http.ResponseWriter, r *
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetMyAgentActivity(w, r)
+		siw.Handler.GetMyAiActivity(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -56426,7 +56444,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/me/agent-activity", wrapper.GetMyAgentActivity)
+		r.Get(options.BaseURL+"/me/ai-activity", wrapper.GetMyAiActivity)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me/email-signature", wrapper.GetMyEmailSignature)

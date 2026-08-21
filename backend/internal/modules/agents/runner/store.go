@@ -50,10 +50,11 @@ func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string,
 			INSERT INTO agent_run (agent_spec, goal, trigger_ref, passport_id)
 			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (trigger_ref) DO NOTHING
-			RETURNING id`,
+			RETURNING id, created_at`,
 			spec.Name, spec.Goal, triggerRef, passportID)
 		var raw string
-		scanErr := row.Scan(&raw)
+		var startedAt time.Time
+		scanErr := row.Scan(&raw, &startedAt)
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			return nil // lost the idempotency race or already ran
 		}
@@ -61,8 +62,13 @@ func (s *Store) StartRun(ctx context.Context, spec AgentSpec, triggerRef string,
 			return scanErr
 		}
 		created = true
-		runID, scanErr = ids.Parse(raw)
-		return scanErr
+		if runID, scanErr = ids.Parse(raw); scanErr != nil {
+			return scanErr
+		}
+		return announceActivity(ctx, tx, occurrence{
+			spec: spec.Name, triggerRef: triggerRef, state: "running",
+			passportID: &passportID, startedAt: &startedAt,
+		})
 	})
 	if err != nil {
 		return ids.Nil, false, fmt.Errorf("runner: start run: %w", err)
@@ -95,7 +101,8 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 		return fmt.Errorf("runner: unknown outcome %q", res.Outcome)
 	}
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
+		var o occurrence
+		err := tx.QueryRow(ctx, `
 			UPDATE agent_run SET
 			  status = $2,
 			  result = $3,
@@ -110,16 +117,19 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 			  output_tokens = $9,
 			  updated_at = now(),
 			  finished_at = CASE WHEN $2 IN ('completed','degraded','failed') THEN now() ELSE NULL END
-			WHERE id = $1`,
+			WHERE id = $1
+			RETURNING agent_spec, trigger_ref, passport_id, created_at, finished_at, degrade_reason`,
 			runID, status, res.Final, traceJSON, pendingJSON, approvalID,
-			res.DegradeReason, res.StepsUsed, res.OutputTokens)
+			res.DegradeReason, res.StepsUsed, res.OutputTokens).
+			Scan(&o.spec, &o.triggerRef, &o.passportID, &o.startedAt, &o.finishedAt, &o.degradeReason)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("runner: run %s not visible in this workspace", runID)
+		}
 		if err != nil {
 			return fmt.Errorf("runner: save outcome: %w", err)
 		}
-		if tag.RowsAffected() == 0 {
-			return fmt.Errorf("runner: run %s not visible in this workspace", runID)
-		}
-		return nil
+		o.state = runProjectionState[status]
+		return announceActivity(ctx, tx, o)
 	})
 }
 
@@ -129,10 +139,23 @@ func (s *Store) SaveOutcome(ctx context.Context, runID ids.UUID, res Result) err
 // for, and the cause belongs in the operator log.
 func (s *Store) MarkFailed(ctx context.Context, runID ids.UUID, reason FailureReason) error {
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+		var o occurrence
+		err := tx.QueryRow(ctx, `
 			UPDATE agent_run SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
-			WHERE id = $1`, runID, string(reason))
-		return err
+			WHERE id = $1
+			RETURNING agent_spec, trigger_ref, passport_id, created_at, finished_at, degrade_reason`,
+			runID, string(reason)).
+			Scan(&o.spec, &o.triggerRef, &o.passportID, &o.startedAt, &o.finishedAt, &o.degradeReason)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The run is gone or not this workspace's. Unchanged behaviour: the
+			// caller's own error path already covers a run it cannot close.
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		o.state = "failed"
+		return announceActivity(ctx, tx, o)
 	})
 }
 
@@ -170,13 +193,36 @@ func (s *Store) FailStuckRuns(ctx context.Context, grace time.Duration, reason F
 			   SET status = 'failed', degrade_reason = $2, updated_at = now(), finished_at = now()
 			 WHERE status = 'running'
 			   AND updated_at < now() - ($1 * interval '1 microsecond')
-			RETURNING id`, graceMicros, string(reason))
+			RETURNING id, agent_spec, trigger_ref, passport_id, created_at, finished_at, degrade_reason`,
+			graceMicros, string(reason))
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		swept, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-		return err
+		// Materialized before anything is announced: the announce writes on the
+		// same connection, and a partly-consumed pgx.Rows cannot share it.
+		var sweptOccurrences []occurrence
+		for rows.Next() {
+			var id ids.UUID
+			var o occurrence
+			if err := rows.Scan(&id, &o.spec, &o.triggerRef, &o.passportID,
+				&o.startedAt, &o.finishedAt, &o.degradeReason); err != nil {
+				rows.Close()
+				return err
+			}
+			o.state = "failed"
+			swept = append(swept, id)
+			sweptOccurrences = append(sweptOccurrences, o)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, o := range sweptOccurrences {
+			if err := announceActivity(ctx, tx, o); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runner: fail stuck runs: %w", err)
@@ -251,15 +297,24 @@ type QueuedJob struct {
 // EnqueueJob seeds one trigger occurrence; re-seeding is a no-op.
 func (s *Store) EnqueueJob(ctx context.Context, specName, triggerRef string, passportID *ids.PassportID, dueAt time.Time) error {
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+		// DO NOTHING means this occurrence is already seeded, and re-announcing
+		// it would tell the projection about a queue entry that did not change.
+		var seeded bool
+		err := tx.QueryRow(ctx, `
 			INSERT INTO runner_job (agent_spec, trigger_ref, passport_id, due_at)
 			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (agent_spec, trigger_ref) DO NOTHING`,
-			specName, triggerRef, passportID, dueAt)
+			ON CONFLICT (agent_spec, trigger_ref) DO NOTHING
+			RETURNING true`,
+			specName, triggerRef, passportID, dueAt).Scan(&seeded)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		if err != nil {
 			return fmt.Errorf("runner: enqueue job: %w", err)
 		}
-		return nil
+		return announceActivity(ctx, tx, occurrence{
+			spec: specName, triggerRef: triggerRef, state: "queued", passportID: passportID,
+		})
 	})
 }
 
@@ -305,12 +360,33 @@ func (s *Store) FinishJob(ctx context.Context, jobID ids.UUID, runID *ids.UUID, 
 		status = "failed"
 	}
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+		var o occurrence
+		var settledAt time.Time
+		err := tx.QueryRow(ctx, `
 			UPDATE runner_job SET status = $2, last_error = NULLIF($3, ''), agent_run_id = $4
-			WHERE id = $1`, jobID, status, failReason, runID)
+			WHERE id = $1
+			RETURNING agent_spec, trigger_ref, passport_id, now()`,
+			jobID, status, failReason, runID).
+			Scan(&o.spec, &o.triggerRef, &o.passportID, &settledAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		if err != nil {
 			return fmt.Errorf("runner: finish job: %w", err)
 		}
-		return nil
+		// A job that ends WITH a run announces nothing: the run row is the
+		// occurrence's authority from the moment it exists, and it has already
+		// reported its own outcome. A job that ends WITHOUT one — no passport
+		// bound, an unknown spec, a failed claim — is the only account of that
+		// occurrence there will ever be, and saying nothing leaves the rail
+		// showing it queued forever.
+		if runID != nil || failReason == "" {
+			return nil
+		}
+		o.state = "failed"
+		o.startedAt = &settledAt
+		o.finishedAt = &settledAt
+		o.degradeReason = &failReason
+		return announceActivity(ctx, tx, o)
 	})
 }

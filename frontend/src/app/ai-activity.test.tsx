@@ -4,7 +4,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
-import { useAgentActivity } from "./agent-activity";
+import { useAiActivity } from "./ai-activity";
 
 // What the rail asks the runner, and how often. Three things here can only be
 // wrong invisibly, which is why each has its own case: a poll left running for
@@ -12,22 +12,22 @@ import { useAgentActivity } from "./agent-activity";
 // on after the run has finished, and an unanswered read reported as "at rest"
 // rather than as absent.
 
-type ActivityItem = components["schemas"]["ActivityItem"];
-type AgentActivity = components["schemas"]["AgentActivity"];
+type AiActivityItem = components["schemas"]["AiActivityItem"];
+type AiActivity = components["schemas"]["AiActivity"];
 
 // FE-PARAM-1's window, mirrored here on purpose: the app's client serves a
 // cached body for this long, so a mount-time refetch alone cannot explain a
 // read that lands the moment the tab returns.
 const STALE_TIME_MS = 30_000;
 
-const A_RUN: ActivityItem = {
+const A_RUN: AiActivityItem = {
   id: "3f1c0a2e-0000-4000-8000-000000000001",
   kind: "morning_brief",
   state: "running",
   started_at: "2026-08-21T05:00:00Z",
 };
 
-function activity(running: readonly ActivityItem[]): AgentActivity {
+function activity(running: readonly AiActivityItem[]): AiActivity {
   return { as_of: "2026-08-21T05:00:01Z", running: [...running], recent: [] };
 }
 
@@ -63,7 +63,7 @@ function mount(answer: () => Response | Promise<Response>) {
       return answer();
     }),
   );
-  const { result, unmount } = renderHook(() => useAgentActivity(), { wrapper });
+  const { result, unmount } = renderHook(() => useAiActivity(), { wrapper });
   return { result, unmount, reads };
 }
 
@@ -106,7 +106,7 @@ describe("the cadence", () => {
     const { result, reads } = mount(() => jsonResponse(activity([A_RUN])));
 
     await advance(0);
-    expect(reads).toEqual(["/v1/me/agent-activity"]);
+    expect(reads).toEqual(["/v1/me/ai-activity"]);
     expect(result.current.working).toBe(true);
 
     await advance(3_000);
@@ -142,7 +142,7 @@ describe("the visibility pause", () => {
   });
 
   it("refetches the moment the tab comes back, without waiting for the interval", async () => {
-    let running: readonly ActivityItem[] = [A_RUN];
+    let running: readonly AiActivityItem[] = [A_RUN];
     const { result, reads } = mount(() => jsonResponse(activity(running)));
     await advance(0);
     expect(result.current.working).toBe(true);

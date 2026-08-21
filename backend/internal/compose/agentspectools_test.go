@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/internal/compose/agentactivity"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
@@ -202,9 +201,12 @@ func TestEveryScheduledAgentsToolsAreAutoExecute(t *testing.T) {
 			}
 			if tier != mcp.TierAutoExecute {
 				t.Errorf("agent %q may call %q, which is not auto-execute — the run can suspend on a "+
-					"staged approval and report state %q, which no locale has copy for. Either drop the "+
-					"tool from the entry, or ship the copy for that state in en/de/vi first",
-					spec.Name, name, agentactivity.StateAwaitingApproval)
+					"staged approval, and the AI-activity projection reports a suspended run as "+
+					"`running`. The rail would then tell the reader the AI is working while it is "+
+					"waiting for THEM, and the approvals inbox is the only surface that says otherwise. "+
+					"Either drop the tool from the entry, or give a suspended run its own state on the "+
+					"projection and ship the copy in en/de/vi first",
+					spec.Name, name)
 			}
 		}
 	}
