@@ -13218,6 +13218,16 @@ export interface components {
             organization_id?: string | null;
             /**
              * Format: uuid
+             * @description The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.
+             */
+            partner_org_id?: string | null;
+            /**
+             * @description `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+             * @enum {string|null}
+             */
+            partner_attribution?: "sourced" | "influenced" | null;
+            /**
+             * Format: uuid
              * @description The body of work this deal belongs to; must name the same company as the deal.
              */
             project_id?: string | null;

@@ -18923,6 +18923,13 @@ components:
         pipeline_id: { type: string, format: uuid }
         stage_id: { type: string, format: uuid }
         organization_id: { type: [string, 'null'], format: uuid }
+        partner_org_id: { type: [string, 'null'], format: uuid, description: 'The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.' }
+        partner_attribution:
+          type: [string, 'null']
+          enum: [sourced, influenced, null]
+          description: >-
+            `sourced` or `influenced`. Naming a partner without this field attributes the
+            deal `sourced`; an attribution for a deal naming no partner is refused 422.
         project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this deal belongs to; must name the same company as the deal.' }
         owner_id: { type: [string, 'null'], format: uuid }
         expected_close_date: { type: [string, 'null'], format: date, description: 'Deals are born open, so a date before today is rejected 422 (INV-CLOSE-PAST, formulas §11).' }

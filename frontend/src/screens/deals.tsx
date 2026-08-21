@@ -374,6 +374,7 @@ function toBoardDeal(deal: Deal, orgs?: OrgMarks): BoardDeal {
 }
 
 type UpdateDealRequest = components["schemas"]["UpdateDealRequest"];
+type CreateDealRequest = components["schemas"]["CreateDealRequest"];
 
 // One deal as the edit form's initial values. Extracted from the badge row
 // that renders the form: mapping a record onto form fields is its own job, and
@@ -459,6 +460,41 @@ export function mapDealUpdate(
     forecast_category: forecastCategory(forecast),
     expected_close_date: str(values.expected_close_date) || null,
     wait_until: str(values.wait_until) || null,
+  };
+}
+
+/**
+ * The create form's values as the deal-birth body.
+ *
+ * A deal names its partner at birth rather than only through a later edit: the
+ * win that pays the partner can land before anybody revisits the record, and
+ * commission accrues on a `sourced` attribution alone. Both partner fields
+ * travel here for the same reason the update body carries them — a create that
+ * quietly dropped them told the caller its write had succeeded while the
+ * partner was gone.
+ */
+export function mapDealCreate(
+  values: Record<string, unknown>,
+  pipelineId: string,
+): CreateDealRequest {
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const amount = str(values.amount);
+  return {
+    name: str(values.name),
+    pipeline_id: pipelineId,
+    stage_id: str(values.stage_id),
+    // The UI takes major units; the wire is minor units.
+    amount_minor: amount ? Math.round(Number(amount) * 100) : null,
+    currency: str(values.currency) || "EUR",
+    organization_id: str(values.organization_id) || null,
+    partner_org_id: str(values.partner_org_id) || null,
+    // The empty option means the caller made no claim, and null is how that
+    // travels: the server then reads a named partner as `sourced`, which is
+    // what the option says it does. An attribution naming no partner is
+    // refused 422 rather than defaulted — there would be nobody to credit.
+    partner_attribution: partnerAttribution(str(values.partner_attribution)),
+    expected_close_date: str(values.expected_close_date) || null,
+    source: "manual",
   };
 }
 
@@ -1181,20 +1217,8 @@ export function DealsScreen({
     if (!pipeline) {
       throwProblem(null);
     }
-    const amount = values.amount?.trim();
     const { data, error } = await api.POST("/deals", {
-      body: {
-        name: values.name.trim(),
-        pipeline_id: pipeline.id,
-        stage_id: values.stage_id,
-        // The UI takes major units; the wire is minor units.
-        amount_minor: amount ? Math.round(Number(amount) * 100) : null,
-        currency: values.currency || "EUR",
-        organization_id: values.organization_id || null,
-        expected_close_date: values.expected_close_date || null,
-        source: "manual",
-        ...cf.toBody(values),
-      },
+      body: { ...mapDealCreate(values, pipeline.id), ...cf.toBody(values) },
     });
     if (error) {
       throwProblem(error, t);
@@ -1302,6 +1326,27 @@ export function DealsScreen({
           options: (orgsQuery.data?.data ?? []).map((org) => ({
             value: org.id,
             label: org.display_name,
+          })),
+        },
+        // A deal brought by a partner is attributed at birth, not by editing
+        // it afterwards: the win that pays them can come before anybody thinks
+        // to revisit the record, and commission accrues on "sourced" only.
+        {
+          key: "partner_org_id",
+          label: "deal.partnerOrg",
+          type: "select",
+          options: (orgsQuery.data?.data ?? []).map((org) => ({
+            value: org.id,
+            label: org.display_name,
+          })),
+        },
+        {
+          key: "partner_attribution",
+          label: "deal.partnerAttribution",
+          type: "select",
+          options: ATTRIBUTION_OPTIONS.map((o) => ({
+            value: o.value,
+            label: t(o.label),
           })),
         },
         {

@@ -129,16 +129,21 @@ func dealCreateInput(req crmcontracts.CreateDealRequest) (CreateDealInput, error
 		return CreateDealInput{}, err
 	}
 	in := CreateDealInput{
-		Name:           req.Name,
-		AmountMinor:    req.AmountMinor,
-		Currency:       req.Currency,
-		PipelineID:     pathID[ids.PipelineKind](req.PipelineId),
-		StageID:        pathID[ids.StageKind](req.StageId),
-		Source:         req.Source,
-		OrganizationID: idArg[ids.OrganizationKind](req.OrganizationId),
-		ProjectID:      idArg[ids.ProjectKind](req.ProjectId),
-		OwnerID:        idArg[ids.UserKind](req.OwnerId),
-		CustomFields:   req.AdditionalProperties,
+		Name:                  req.Name,
+		AmountMinor:           req.AmountMinor,
+		Currency:              req.Currency,
+		PipelineID:            pathID[ids.PipelineKind](req.PipelineId),
+		StageID:               pathID[ids.StageKind](req.StageId),
+		Source:                req.Source,
+		OrganizationID:        idArg[ids.OrganizationKind](req.OrganizationId),
+		PartnerOrganizationID: idArg[ids.OrganizationKind](req.PartnerOrgId),
+		ProjectID:             idArg[ids.ProjectKind](req.ProjectId),
+		OwnerID:               idArg[ids.UserKind](req.OwnerId),
+		CustomFields:          req.AdditionalProperties,
+	}
+	if req.PartnerAttribution != nil {
+		attribution := string(*req.PartnerAttribution)
+		in.PartnerAttribution = &attribution
 	}
 	if req.ExpectedCloseDate != nil {
 		in.ExpectedClose = &req.ExpectedCloseDate.Time

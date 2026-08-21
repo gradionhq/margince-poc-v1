@@ -19,6 +19,7 @@ import {
   buildStageTotals,
   DealScreen,
   DealsScreen,
+  mapDealCreate,
   mapDealUpdate,
 } from "./deals";
 
@@ -532,6 +533,49 @@ describe("mapDealUpdate", () => {
     expect(body.forecast_category).toBe("commit");
     expect(body.expected_close_date).toBe("2026-09-01");
     expect(body.wait_until).toBeNull();
+  });
+});
+
+describe("mapDealCreate", () => {
+  // A deal names its partner at birth. The create body once carried neither
+  // partner field, and the API accepted the request and stored neither, so the
+  // caller was told a write had succeeded with the partner gone.
+  it("carries the partner and what they did into the birth body", () => {
+    const body = mapDealCreate(
+      {
+        name: "Northgate rollout",
+        stage_id: "s-1",
+        amount: "480",
+        currency: "EUR",
+        organization_id: "cust-1",
+        partner_org_id: "partner-1",
+        partner_attribution: "influenced",
+      },
+      "p-1",
+    );
+    expect(body.partner_org_id).toBe("partner-1");
+    expect(body.partner_attribution).toBe("influenced");
+    expect(body.organization_id).toBe("cust-1");
+    expect(body.pipeline_id).toBe("p-1");
+    expect(body.amount_minor).toBe(48_000);
+  });
+
+  // Leaving the attribution on its empty option is the caller making no claim.
+  // The server reads a named partner as "sourced", which is what that option
+  // says it does — the form must not invent a different claim here.
+  it("sends no attribution when the caller made no claim", () => {
+    const body = mapDealCreate(
+      { name: "x", stage_id: "s-1", partner_org_id: "partner-1" },
+      "p-1",
+    );
+    expect(body.partner_org_id).toBe("partner-1");
+    expect(body.partner_attribution).toBeNull();
+  });
+
+  it("names no partner when none was picked", () => {
+    const body = mapDealCreate({ name: "x", stage_id: "s-1" }, "p-1");
+    expect(body.partner_org_id).toBeNull();
+    expect(body.partner_attribution).toBeNull();
   });
 });
 

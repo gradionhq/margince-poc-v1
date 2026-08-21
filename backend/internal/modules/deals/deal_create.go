@@ -37,8 +37,14 @@ type CreateDealInput struct {
 	PipelineID     ids.PipelineID
 	StageID        ids.StageID
 	OrganizationID *ids.OrganizationID
-	ProjectID      *ids.ProjectID
-	OwnerID        *ids.UserID
+	// PartnerOrganizationID and PartnerAttribution are the one fact the
+	// schema stores as one: the deal_partner_attribution_pairing CHECK
+	// rejects either half alone, so birthAttribution below settles them
+	// together rather than letting a half-filled pair reach the insert.
+	PartnerOrganizationID *ids.OrganizationID
+	PartnerAttribution    *string
+	ProjectID             *ids.ProjectID
+	OwnerID               *ids.UserID
 	// OwnerExact states that OwnerID — nil included — IS the decided owner,
 	// so the actor fallback below must not run. The lead-qualify seam sets
 	// it: the deal inherits the LEAD's owner, and an unassigned lead
@@ -128,7 +134,50 @@ func (s *Store) readyDealCreate(ctx context.Context, in CreateDealInput) (string
 			return "", err
 		}
 	}
+	if err := checkBirthAttribution(in); err != nil {
+		return "", err
+	}
 	return by, nil
+}
+
+// checkBirthAttribution refuses an attribution a newborn deal may not carry,
+// under the same rules the update path holds: the vocabulary is closed, and an
+// attribution naming no partner is refused rather than defaulted, because there
+// is no partner to attribute it to.
+//
+// Separate from birthAttribution below so the refusal happens BEFORE any
+// transaction opens — a caller deserves "you left out the partner" rather than
+// a constraint violation from the pairing CHECK.
+func checkBirthAttribution(in CreateDealInput) error {
+	if in.PartnerAttribution == nil {
+		return nil
+	}
+	if err := validPartnerAttribution(*in.PartnerAttribution); err != nil {
+		return err
+	}
+	if in.PartnerOrganizationID == nil {
+		return &PartnerAttributionUnpairedError{}
+	}
+	return nil
+}
+
+// birthAttribution answers what a newborn deal claims about the partner it
+// names: an explicit claim wins, and naming a partner without one means
+// "sourced" — the same default the update path applies, and what the link meant
+// for every row written before the column existed.
+//
+// A deal naming no partner carries no attribution, which is what the pairing
+// CHECK requires: the columns are populated together or not at all. Call
+// checkBirthAttribution first; this answers only for input already found valid.
+func birthAttribution(in CreateDealInput) *string {
+	if in.PartnerOrganizationID == nil {
+		return nil
+	}
+	if in.PartnerAttribution != nil {
+		return in.PartnerAttribution
+	}
+	sourced := attributionSourced
+	return &sourced
 }
 
 // createDealInTx guards the birth invariants (open stage, future close,
@@ -159,21 +208,36 @@ func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInpu
 			return crmcontracts.Deal{}, err
 		}
 	}
+	if in.PartnerOrganizationID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.PartnerOrganizationID.UUID); err != nil {
+			return crmcontracts.Deal{}, err
+		}
+	}
 	if in.ProjectID != nil {
 		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
 			return crmcontracts.Deal{}, err
 		}
 	}
 
+	// Both entry points settle this before opening a transaction; re-checked
+	// here so the insert can never reach the pairing CHECK with a half-filled
+	// pair regardless of which one called.
+	if err := checkBirthAttribution(in); err != nil {
+		return crmcontracts.Deal{}, err
+	}
+	attribution := birthAttribution(in)
+
 	id := ids.New[ids.DealKind]()
 	cfCols, cfHolders, args := storekit.InsertFragments(active, in.CustomFields, []any{
 		id, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
-		in.OrganizationID, in.ProjectID, in.OwnerID, in.ExpectedClose, in.Source, by,
+		in.OrganizationID, in.PartnerOrganizationID, attribution,
+		in.ProjectID, in.OwnerID, in.ExpectedClose, in.Source, by,
 	})
 	_, err := tx.Exec(ctx,
 		`INSERT INTO deal (id, name, amount_minor, currency, pipeline_id, stage_id,
-		                   organization_id, project_id, owner_id, expected_close_date, source, captured_by`+cfCols+`)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12`+cfHolders+`)`,
+		                   organization_id, partner_org_id, partner_attribution,
+		                   project_id, owner_id, expected_close_date, source, captured_by`+cfCols+`)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14`+cfHolders+`)`,
 		args...)
 	if err != nil {
 		// Covers the remaining FKs (pipeline, owner); the stage/pipeline

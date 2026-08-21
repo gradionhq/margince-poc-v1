@@ -3255,6 +3255,24 @@ func (e CreateDataSubjectRequestKind) Valid() bool {
 	}
 }
 
+// Defines values for CreateDealRequestPartnerAttribution.
+const (
+	CreateDealRequestPartnerAttributionInfluenced CreateDealRequestPartnerAttribution = "influenced"
+	CreateDealRequestPartnerAttributionSourced    CreateDealRequestPartnerAttribution = "sourced"
+)
+
+// Valid indicates whether the value is a known member of the CreateDealRequestPartnerAttribution enum.
+func (e CreateDealRequestPartnerAttribution) Valid() bool {
+	switch e {
+	case CreateDealRequestPartnerAttributionInfluenced:
+		return true
+	case CreateDealRequestPartnerAttributionSourced:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateImportRunRequestConnector.
 const (
 	CreateImportRunRequestConnectorCsv CreateImportRunRequestConnector = "csv"
@@ -10358,16 +10376,16 @@ func (e ListDealsParamsStatus) Valid() bool {
 
 // Defines values for ListDealsParamsPartnerAttribution.
 const (
-	ListDealsParamsPartnerAttributionInfluenced ListDealsParamsPartnerAttribution = "influenced"
-	ListDealsParamsPartnerAttributionSourced    ListDealsParamsPartnerAttribution = "sourced"
+	Influenced ListDealsParamsPartnerAttribution = "influenced"
+	Sourced    ListDealsParamsPartnerAttribution = "sourced"
 )
 
 // Valid indicates whether the value is a known member of the ListDealsParamsPartnerAttribution enum.
 func (e ListDealsParamsPartnerAttribution) Valid() bool {
 	switch e {
-	case ListDealsParamsPartnerAttributionInfluenced:
+	case Influenced:
 		return true
-	case ListDealsParamsPartnerAttributionSourced:
+	case Sourced:
 		return true
 	default:
 		return false
@@ -14093,7 +14111,13 @@ type CreateDealRequest struct {
 	Name              string              `json:"name"`
 	OrganizationId    *openapi_types.UUID `json:"organization_id,omitempty"`
 	OwnerId           *openapi_types.UUID `json:"owner_id,omitempty"`
-	PipelineId        openapi_types.UUID  `json:"pipeline_id"`
+
+	// PartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+	PartnerAttribution *CreateDealRequestPartnerAttribution `json:"partner_attribution,omitempty"`
+
+	// PartnerOrgId The partner this deal is attributed to at birth. The org must have a `partner` row, and the caller must be able to read it.
+	PartnerOrgId *openapi_types.UUID `json:"partner_org_id,omitempty"`
+	PipelineId   openapi_types.UUID  `json:"pipeline_id"`
 
 	// ProjectId The body of work this deal belongs to; must name the same company as the deal.
 	ProjectId            *openapi_types.UUID    `json:"project_id,omitempty"`
@@ -14101,6 +14125,9 @@ type CreateDealRequest struct {
 	StageId              openapi_types.UUID     `json:"stage_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
+
+// CreateDealRequestPartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
+type CreateDealRequestPartnerAttribution string
 
 // CreateImportRunRequest defines model for CreateImportRunRequest.
 type CreateImportRunRequest struct {
@@ -26457,6 +26484,22 @@ func (a *CreateDealRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "owner_id")
 	}
 
+	if raw, found := object["partner_attribution"]; found {
+		err = json.Unmarshal(raw, &a.PartnerAttribution)
+		if err != nil {
+			return fmt.Errorf("error reading 'partner_attribution': %w", err)
+		}
+		delete(object, "partner_attribution")
+	}
+
+	if raw, found := object["partner_org_id"]; found {
+		err = json.Unmarshal(raw, &a.PartnerOrgId)
+		if err != nil {
+			return fmt.Errorf("error reading 'partner_org_id': %w", err)
+		}
+		delete(object, "partner_org_id")
+	}
+
 	if raw, found := object["pipeline_id"]; found {
 		err = json.Unmarshal(raw, &a.PipelineId)
 		if err != nil {
@@ -26545,6 +26588,20 @@ func (a CreateDealRequest) MarshalJSON() ([]byte, error) {
 		object["owner_id"], err = json.Marshal(a.OwnerId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	if a.PartnerAttribution != nil {
+		object["partner_attribution"], err = json.Marshal(a.PartnerAttribution)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'partner_attribution': %w", err)
+		}
+	}
+
+	if a.PartnerOrgId != nil {
+		object["partner_org_id"], err = json.Marshal(a.PartnerOrgId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'partner_org_id': %w", err)
 		}
 	}
 
