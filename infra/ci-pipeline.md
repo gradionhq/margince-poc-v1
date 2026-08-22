@@ -527,9 +527,10 @@ beside the gate, deliberately outside it:
   [The shared Go build cache](#the-shared-go-build-cache) for why it is scheduled
   rather than per-push.
 
-- **`main-health.yml`** — every two hours on `main`: the backend gate plus the
-  real-Postgres lane (called, not copied — it `uses:` `_lane-integration.yml`),
-  and `main`'s SonarCloud analysis published from the coverage that lane produces.
+- **`main-health.yml`** — every two hours on `main`: the backend gate, the
+  real-Postgres lane and the SPA lane (the last two called, not copied — it
+  `uses:` `_lane-integration.yml` and `_lane-frontend.yml`), and `main`'s
+  SonarCloud analysis published from the three coverage reports they produce.
   **It is not a gate and never will be**: it reports on a tree that has already
   landed.
 
@@ -550,7 +551,22 @@ beside the gate, deliberately outside it:
   does not vanish when it stops being refreshed, it FREEZES, while the nightly
   quality-gate job goes on reporting that frozen verdict as current.
 
-  The cadence is the knob: two hours costs ~11 jobs a run and narrows the suspect
+  Being the only publisher is what makes the scan job's inputs load-bearing, and
+  they were wrong. It downloaded `backend/coverage.out` alone while
+  `sonar-project.properties` names three reports, so the scanner's Zero Coverage
+  Sensor published `frontend/src` at 0.0% over 17,781 lines to cover and
+  `extensions/` at 0.0% over 708, while the vitest suite and the extension units
+  were both reporting real coverage on every run that measured them. That was
+  the whole of `main`'s `new_coverage` gate failure (72.1 against a threshold of
+  80; the `ci.yml` scan that downloaded all three read 84.0). The job now `needs` every
+  producer and requires each to have SUCCEEDED: a red lane freezes the analysis
+  for two hours, which the report job files an issue about, while a scan missing
+  a report replaces it with a number describing a tree that does not exist. The
+  report job now watches the scan itself for the same reason — a failed publish
+  leaves the previous analysis answering, which reads identically to a current
+  one, so it was the one failure here nobody was told about.
+
+  The cadence is the knob: two hours costs ~15 jobs a run and narrows the suspect
   range to roughly a dozen commits at eight merges an hour.
 
 - **`scheduled.yml`** — daily on `main`, the checks whose answer changes when

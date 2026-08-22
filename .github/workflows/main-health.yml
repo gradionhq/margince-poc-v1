@@ -16,7 +16,7 @@
 # check is `ci` on the pull request, and this workflow reports on a tree that has
 # already landed.
 #
-# The cadence is the one knob. Every two hours costs ~11 jobs a run against a
+# The cadence is the one knob. Every two hours costs ~15 jobs a run against a
 # 20-concurrent org ceiling that the pull-request lanes also queue in, and narrows
 # the suspect range to roughly a dozen commits. Tighten the cron if a dozen is too
 # many to bisect; it is one line.
@@ -91,7 +91,31 @@ jobs:
         env:
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
           MIGRATION_VERSIONS_REQUIRE_BASE: "1"
+          # The extension units' merged coverage profile, written by the
+          # `test-extensions` leg this gate already runs — instrumenting the run
+          # that decides the verdict rather than repeating it, the same trade
+          # _lane-frontend.yml makes with FE_COVERAGE=1 on its one vitest run.
+          # The sonar job below consumes it: every unit is its own module and so
+          # is unreachable by the integration lane's profile, and a file the
+          # scanner cannot load is not an absent measurement to it — it is a
+          # measurement of zero.
+          EXT_COVER_OUT: ${{ github.workspace }}/backend/coverage-extensions.out
         run: make check-backend
+      # `error`, not ci.yml's `ignore`. There the artifact is optional because a
+      # frontend-only pull request legitimately never runs this job; here the
+      # gate above is unconditional, so no file means `test-extensions` produced
+      # none — and it does exactly that, silently and with exit 0, when
+      # extensions/ holds no Go unit. Tolerating that would leave the gate green,
+      # fail the sonar download two jobs later, and skip the report job (which
+      # reads lane results, all of them successful) — main's analysis frozen with
+      # nobody told, which is the failure this whole change is about.
+      - name: Upload extension coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-coverage-extensions
+          path: backend/coverage-extensions.out
+          if-no-files-found: error
+          retention-days: 1
 
   # The real-Postgres lane, called rather than copied. Every schema fitness gate
   # that has broken main recently lives here and nowhere else — an unratified
@@ -99,6 +123,21 @@ jobs:
   # without a database would have missed every one of them.
   integration:
     uses: ./.github/workflows/_lane-integration.yml
+
+  # The SPA lane, called rather than copied, for two reasons that arrived
+  # together.
+  #
+  # It closes a hole in what this workflow claims. "Is main red RIGHT NOW" was
+  # answered for the backend and the database and never for the frontend, so a
+  # broken SPA on the tip stayed invisible here until somebody's unrelated pull
+  # request went red for it — which is precisely the delay this workflow exists
+  # to remove, left in place for a third of the product.
+  #
+  # And it is the only producer of the lcov the sonar job needs. Without it that
+  # job scans a tree in which every TypeScript line is uncovered, which is not
+  # what the frontend suite measures.
+  frontend:
+    uses: ./.github/workflows/_lane-frontend.yml
 
   # main's SonarCloud analysis, published from here.
   #
@@ -112,12 +151,33 @@ jobs:
   sonar:
     name: sonarcloud (main)
     timeout-minutes: 30
-    needs: [integration]
-    # Only on a green lane, and only with the coverage in hand. The scanner's Zero
-    # Coverage Sensor scores every executable line it holds no report for as
-    # UNCOVERED, so a scan without the Go profile publishes the tree at 0% rather
-    # than declining to answer — and measuring nothing is not a measurement of zero.
-    if: needs.integration.result == 'success'
+    needs: [gates, integration, frontend]
+    # Only on a green lane, and only with EVERY coverage report in hand. The
+    # scanner's Zero Coverage Sensor scores every executable line it holds no
+    # report for as UNCOVERED, so a scan missing a producer publishes that code
+    # at 0% rather than declining to answer — and measuring nothing is not a
+    # measurement of zero.
+    #
+    # This job did exactly that for as long as it has existed, because it named
+    # one producer and sonar-project.properties names three. Its scan log said
+    # so plainly and nothing read it: "No LCOV files were found using
+    # frontend/coverage/lcov.info" and "report file not found, ignoring this
+    # file backend/coverage-extensions.out". main's published analysis therefore
+    # read frontend/src at 0.0% over 17,781 lines to cover and extensions at
+    # 0.0% over 708 — against a vitest suite that reports real coverage on every
+    # frontend pull request and extension units that measure 86-100% — which is
+    # the whole of the quality gate's new_coverage miss on main (72.1 against a
+    # threshold of 80, while the ci.yml scan that did download all three read
+    # 84.0). Issue #1629.
+    #
+    # So each producer must have SUCCEEDED, not merely not-failed: a red lane
+    # here freezes main's stored analysis for two hours, which is recoverable and
+    # loudly reported below, while a scan published without a report replaces it
+    # with a number describing a tree that does not exist.
+    if: >-
+      needs.gates.result == 'success'
+      && needs.integration.result == 'success'
+      && needs.frontend.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -133,12 +193,32 @@ jobs:
           persist-credentials: false
           # Full history so the scanner can attribute blame and compute new code.
           fetch-depth: 0
+      # All three reports sonar-project.properties names, and the paths are its
+      # paths: backend/coverage.out, backend/coverage-extensions.out,
+      # frontend/coverage/lcov.info. None is guarded on its producer, unlike
+      # ci.yml's — there the gates are area-scoped and a skipped area is a real
+      # outcome, whereas here every producer is a `needs` that had to succeed for
+      # this job to run at all. So a missing artifact is not a shape to tolerate:
+      # it means a green producer published nothing, and failing the download
+      # freezes main's analysis rather than replacing it with a partial one.
       - name: Download Go coverage
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: go-coverage
           path: backend
+      - name: Download extension coverage
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: go-coverage-extensions
+          path: backend
+      - name: Download FE coverage
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fe-coverage
+          path: frontend/coverage
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
@@ -153,10 +233,20 @@ jobs:
   report:
     name: report
     timeout-minutes: 10
-    needs: [gates, integration]
+    # `sonar` is here for a reason the three lanes are not. A lane going red is
+    # visible from a dozen other places; the SCAN failing is visible from none —
+    # main's stored analysis does not go missing when a publish fails, it keeps
+    # answering with the last one, so a broken publisher looks exactly like a
+    # working one on every dashboard. Left out of this list, the job that exists
+    # to publish main's verdict was the one job whose failure nobody was told
+    # about.
+    needs: [gates, integration, frontend, sonar]
     if: >-
       !cancelled()
-      && (needs.gates.result == 'failure' || needs.integration.result == 'failure')
+      && (needs.gates.result == 'failure'
+      || needs.integration.result == 'failure'
+      || needs.frontend.result == 'failure'
+      || needs.sonar.result == 'failure')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -190,5 +280,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           MAIN_GATES_RESULT: ${{ needs.gates.result }}
           MAIN_INTEGRATION_RESULT: ${{ needs.integration.result }}
+          MAIN_FRONTEND_RESULT: ${{ needs.frontend.result }}
+          MAIN_SONAR_RESULT: ${{ needs.sonar.result }}
           MAIN_SUSPECTS: ${{ steps.range.outputs.suspects }}
         run: ./scripts/scheduled-report.sh
