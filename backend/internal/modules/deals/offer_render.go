@@ -44,14 +44,23 @@ type RenderIngredients struct {
 }
 
 // PrepareRender resolves the render inputs for one offer: the caller must
-// hold offer read and be able to see the offer's deal (visibleOffer's
-// usual row-scope gate; a miss on either answers 404, existence-hiding).
+// hold offer read and the offer's deal must be theirs to CHANGE
+// (writableOffer's row gate — invisible answers 404, existence-hiding;
+// visible-but-not-theirs answers 403).
 // It ALSO requires offer-update up front, even though this call itself
 // only reads: RenderOffer's overall operation ends in a write
-// (SetPdfAssetRef persists pdf_asset_ref), so requiring both gates here —
-// before the transaction even opens — means a caller who lacks the update
-// grant never reaches the render or the blob store at all; PrepareRender
-// is the sole admission gate for the whole render operation.
+// (SetPdfAssetRef persists pdf_asset_ref, and the handler deletes the PDF
+// that ref replaces), so requiring every gate that write answers to here —
+// before the transaction even opens — means a caller who would be refused
+// at the end never reaches the render or the blob store at all. This is
+// where the render operation is admitted, and it is deliberately NOT the
+// only place its authority is decided: SetPdfAssetRef is a separate store
+// entry point, reachable without ever calling this one, and it re-takes
+// both the object grant and the row gate itself before it persists.
+// The row gate is the write-level one for the same reason the update grant
+// is taken: a render is an edit of the offer, so read-level sight of the
+// deal is not enough to start one, exactly as it is not enough to send or
+// archive the offer.
 // It runs a single read-only transaction and never opens the blob store —
 // the caller (the render handler) writes the PDF bytes afterward and
 // commits the resulting ref through the separate SetPdfAssetRef call.
@@ -64,7 +73,7 @@ func (s *Store) PrepareRender(ctx context.Context, id ids.OfferID) (RenderIngred
 	}
 	var out RenderIngredients
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		offer, err := visibleOffer(ctx, tx, id, storekit.LiveOnly)
+		offer, err := writableOffer(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -188,6 +197,14 @@ func resolveRenderTemplate(ctx context.Context, tx pgx.Tx, templateID *openapi_t
 // The caller (the render handler) reclaims the blob it already wrote when
 // this happens — this store stays blob-free, so it cannot do that itself.
 //
+// It resolves the row the way every other offer write does — through
+// visibleOfferLocked, so the caller's authority over the anchoring deal is
+// write-level and the row is held for the rest of the transaction. The lock
+// is what makes the previous ref reported below the one THIS update
+// supersedes: without it a concurrent render could commit between the read
+// and the patch, and the ref handed back for reclamation would name a blob
+// that render had just committed.
+//
 // It also returns the offer's PREVIOUS pdf_asset_ref (nil if it had none, or
 // if it is unchanged from ref): the render handler's key is per-attempt-
 // unique, so a successful re-render leaves its old blob orphaned unless the
@@ -199,7 +216,7 @@ func (s *Store) SetPdfAssetRef(ctx context.Context, id ids.OfferID, ref string, 
 		return crmcontracts.Offer{}, nil, err
 	}
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		existing, err := visibleOffer(ctx, tx, id, storekit.LiveOnly)
+		existing, _, err := visibleOfferLocked(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}

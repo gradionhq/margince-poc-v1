@@ -255,6 +255,32 @@ func visibleOffer(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived store
 	return offer, nil
 }
 
+// writableOffer is visibleOffer for a path that CHANGES the offer: an offer
+// inherits its deal's row scope in both directions, so seeing the deal is what
+// a read needs and write-level authority over it is what a write needs — a
+// colleague handed a `read` share of the deal cannot rewrite its offer.
+//
+// The visibility probe comes first and keeps its 404, so a caller who cannot
+// see the offer at all still cannot learn it exists by trying to change it;
+// only a caller already shown the row is answered ErrPermissionDenied.
+//
+// This is the authority half on its own, for the one write whose admission
+// gate runs in a transaction that COMMITS before the write does — the render,
+// which builds the PDF and stores the bytes between the two. Every other write
+// to an EXISTING offer takes it through visibleOfferLocked, which adds the row
+// lock. A create is the one write with no offer row to resolve: it gates on the
+// deal it is being hung off, through auth.EnsureLinkTarget in createOfferTx.
+func writableOffer(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, error) {
+	offer, err := visibleOffer(ctx, tx, id, archived)
+	if err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	if err := auth.EnsureWritable(ctx, tx, "deal", ids.UUID(offer.DealId)); err != nil {
+		return crmcontracts.Offer{}, err
+	}
+	return offer, nil
+}
+
 // visibleOfferLocked is the MUTATION spelling of visibleOffer: it takes
 // the offer's row lock before the status/visibility reads, so two
 // concurrent editors — or an edit racing a send — linearize and the
@@ -262,20 +288,15 @@ func visibleOffer(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived store
 // lets the caller patch under the held lock (storekit.ApplyLocked).
 //
 // It also asks the harder authority question, and that is what makes it the
-// mutation spelling rather than merely the locked one. An offer inherits its
-// deal's row scope in both directions: visibleOffer proves the caller may READ
-// that deal, and an edit needs write-level authority over it — so a colleague
-// handed a `read` share of the deal cannot rewrite its offer.
+// mutation spelling rather than merely the locked one — writableOffer above
+// is where that question is spelled.
 func visibleOfferLocked(ctx context.Context, tx pgx.Tx, id ids.OfferID, archived storekit.ArchivedFilter) (crmcontracts.Offer, storekit.RowLock, error) {
 	lock, err := storekit.LockRow(ctx, tx, "offer", id.UUID, storekit.LiveOnly)
 	if err != nil {
 		return crmcontracts.Offer{}, storekit.RowLock{}, err
 	}
-	offer, err := visibleOffer(ctx, tx, id, archived)
+	offer, err := writableOffer(ctx, tx, id, archived)
 	if err != nil {
-		return crmcontracts.Offer{}, storekit.RowLock{}, err
-	}
-	if err := auth.EnsureWritable(ctx, tx, "deal", ids.UUID(offer.DealId)); err != nil {
 		return crmcontracts.Offer{}, storekit.RowLock{}, err
 	}
 	return offer, lock, nil
