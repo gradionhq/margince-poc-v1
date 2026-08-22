@@ -12,6 +12,7 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryStates, throwProblem } from "./common";
 import { DOCUMENT_GROUPS } from "./dealroomdocuments";
+import { ThreadPanel } from "./dealroomthreads";
 import "./buyerroom.css";
 
 // The Deal Room as its BUYER sees it — the one screen an outside person ever
@@ -79,6 +80,29 @@ function bearer(token: string): { headers: { Authorization: string } } {
 
 // The session stopped answering — revoked, lapsed, or signed out elsewhere.
 class SessionRefusedError extends Error {}
+
+// refuseOrThrow turns a failed public call into the right error: a 401 is the
+// session ending (the caller retires it), anything else is the server's own
+// explanation. Every buyer write goes through it so none can keep a dead token.
+function refuseOrThrow(
+  error: unknown,
+  response: Response,
+  t: ReturnType<typeof useT>,
+): never {
+  if (response.status === 401) {
+    throw new SessionRefusedError();
+  }
+  throwProblem(error, t);
+  throw new Error("unreachable");
+}
+
+function retireOnRefusal(onSessionLost: () => void) {
+  return (error: unknown) => {
+    if (error instanceof SessionRefusedError) {
+      onSessionLost();
+    }
+  };
+}
 
 export function BuyerRoomScreen() {
   // Read once, at mount. The credential is gone from the address bar after
@@ -341,7 +365,14 @@ type BuyerRoomDocument = components["schemas"]["BuyerRoomDocument"];
 function BuyerDocuments({
   token,
   onSessionLost,
-}: Readonly<{ token: string; onSessionLost: () => void }>) {
+  reviewer,
+  live,
+}: Readonly<{
+  token: string;
+  onSessionLost: () => void;
+  reviewer: boolean;
+  live: boolean;
+}>) {
   const t = useT();
   const docs = useQuery({
     queryKey: ["buyer-room-documents", token],
@@ -388,7 +419,13 @@ function BuyerDocuments({
                 <PanelBody key={group.key}>
                   <Eyebrow as="h3">{t(group.labelKey)}</Eyebrow>
                   {inGroup.map((doc) => (
-                    <BuyerDocumentRow key={doc.id} token={token} doc={doc} />
+                    <BuyerDocumentRow
+                      key={doc.id}
+                      token={token}
+                      doc={doc}
+                      mayDecide={reviewer && live}
+                      onSessionLost={onSessionLost}
+                    />
                   ))}
                 </PanelBody>
               );
@@ -406,8 +443,39 @@ function BuyerDocuments({
 function BuyerDocumentRow({
   token,
   doc,
-}: Readonly<{ token: string; doc: BuyerRoomDocument }>) {
+  mayDecide,
+  onSessionLost,
+}: Readonly<{
+  token: string;
+  doc: BuyerRoomDocument;
+  mayDecide: boolean;
+  onSessionLost: () => void;
+}>) {
   const t = useT();
+  const queryClient = useQueryClient();
+  const decide = useMutation({
+    mutationKey: ["buyer-room-document-decide"],
+    mutationFn: async (input: { documentId: string; kind: string }) => {
+      const { data, error, response } = await api.POST(
+        "/public/rooms/documents/{documentId}/decision",
+        {
+          params: { path: { documentId: input.documentId } },
+          body: { kind: input.kind },
+          ...bearer(token),
+        },
+      );
+      if (error) {
+        refuseOrThrow(error, response, t);
+      }
+      return data;
+    },
+    onError: retireOnRefusal(onSessionLost),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["buyer-room-threads", token],
+      });
+    },
+  });
   const download = useMutation({
     mutationKey: ["buyer-room-document-download"],
     mutationFn: async (input: { documentId: string; filename: string }) => {
@@ -451,7 +519,197 @@ function BuyerDocumentRow({
       {download.isError ? (
         <p className="t-small t-danger">{download.error.message}</p>
       ) : null}
+      {mayDecide ? (
+        <div className="buyer-decide">
+          {decide.isSuccess ? (
+            <p className="t-small">
+              {t(
+                decide.data?.kind === "confirm_version"
+                  ? "buyer.decide.confirmed"
+                  : "buyer.decide.requested",
+              )}
+            </p>
+          ) : (
+            <>
+              <Button
+                small
+                variant="ghost"
+                pending={decide.isPending}
+                onClick={() =>
+                  decide.mutate({ documentId: doc.id, kind: "request_changes" })
+                }
+              >
+                {t("buyer.decide.requestChanges")}
+              </Button>
+              <Button
+                small
+                variant="primary"
+                pending={decide.isPending}
+                onClick={() =>
+                  decide.mutate({ documentId: doc.id, kind: "confirm_version" })
+                }
+              >
+                {t("buyer.decide.confirm")}
+              </Button>
+            </>
+          )}
+          {decide.isError ? (
+            <p className="t-small t-danger">
+              {problemMessageOf(decide.error, t)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function BuyerConversation({
+  token,
+  onSessionLost,
+  mayWrite,
+  documents,
+  refusal,
+}: Readonly<{
+  token: string;
+  onSessionLost: () => void;
+  mayWrite: boolean;
+  documents: readonly { id: string; title: string }[];
+  refusal: string | undefined;
+}>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const threads = useQuery({
+    queryKey: ["buyer-room-threads", token],
+    retry: false,
+    queryFn: async () => {
+      const { data, error, response } = await api.GET("/public/rooms/threads", {
+        ...bearer(token),
+      });
+      if (error) {
+        if (response.status === 401) {
+          throw new SessionRefusedError();
+        }
+        throwProblem(error, t);
+      }
+      return data;
+    },
+  });
+  const lost = threads.error instanceof SessionRefusedError;
+  useEffect(() => {
+    if (lost) {
+      onSessionLost();
+    }
+  }, [lost, onSessionLost]);
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: ["buyer-room-threads", token] });
+  const open = useMutation({
+    mutationKey: ["buyer-room-thread-open"],
+    mutationFn: async (input: {
+      documentId: string | null;
+      body: string;
+      requiredChange: boolean;
+    }) => {
+      const { data, error, response } = await api.POST(
+        "/public/rooms/threads",
+        {
+          body: {
+            document_id: input.documentId,
+            body: input.body,
+            required_change: input.requiredChange,
+          },
+          ...bearer(token),
+        },
+      );
+      if (error) {
+        refuseOrThrow(error, response, t);
+      }
+      return data;
+    },
+    onError: retireOnRefusal(onSessionLost),
+    onSuccess: refresh,
+  });
+  const reply = useMutation({
+    mutationKey: ["buyer-room-thread-reply"],
+    mutationFn: async (input: { threadId: string; body: string }) => {
+      const { data, error, response } = await api.POST(
+        "/public/rooms/threads/{threadId}/comments",
+        {
+          params: { path: { threadId: input.threadId } },
+          body: { body: input.body },
+          ...bearer(token),
+        },
+      );
+      if (error) {
+        refuseOrThrow(error, response, t);
+      }
+      return data;
+    },
+    onError: retireOnRefusal(onSessionLost),
+    onSuccess: refresh,
+  });
+  const titles = Object.fromEntries(documents.map((d) => [d.id, d.title]));
+  return (
+    <QueryStates query={threads} pendingLines={3}>
+      {threads.data ? (
+        <ThreadPanel
+          threads={threads.data.data}
+          documentTitles={titles}
+          verbs={{
+            documents,
+            mayRequireChange: true,
+            refusal,
+            open: mayWrite ? (input) => open.mutateAsync(input) : undefined,
+            reply: mayWrite
+              ? (threadId, body) => reply.mutateAsync({ threadId, body })
+              : undefined,
+          }}
+        />
+      ) : null}
+    </QueryStates>
+  );
+}
+
+// The conversation needs the published document titles to label a thread;
+// they come from the same query the documents panel runs, so React Query
+// serves both from one request.
+function BuyerConversationWithDocuments({
+  token,
+  onSessionLost,
+  mayWrite,
+  refusal,
+}: Readonly<{
+  token: string;
+  onSessionLost: () => void;
+  mayWrite: boolean;
+  refusal: string | undefined;
+}>) {
+  const t = useT();
+  const docs = useQuery({
+    queryKey: ["buyer-room-documents", token],
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/public/rooms/documents", {
+        ...bearer(token),
+      });
+      if (error) {
+        throwProblem(error, t);
+      }
+      return data;
+    },
+  });
+  const documents = (docs.data?.data ?? []).map((d) => ({
+    id: d.id,
+    title: d.title,
+  }));
+  return (
+    <BuyerConversation
+      token={token}
+      onSessionLost={onSessionLost}
+      mayWrite={mayWrite}
+      documents={documents}
+      refusal={refusal}
+    />
   );
 }
 
@@ -512,7 +770,26 @@ function RoomView({
           {view.access === "closed" ? ` ${t("buyer.closedNote")}` : ""}
         </p>
       </header>
-      <BuyerDocuments token={token} onSessionLost={onSessionLost} />
+      <BuyerDocuments
+        token={token}
+        onSessionLost={onSessionLost}
+        reviewer={view.participant.capability === "reviewer"}
+        live={view.access === "live"}
+      />
+      <BuyerConversationWithDocuments
+        token={token}
+        onSessionLost={onSessionLost}
+        mayWrite={
+          view.access === "live" && view.participant.capability !== "view"
+        }
+        refusal={
+          view.access === "closed"
+            ? t("buyer.tasks.closed")
+            : view.participant.capability === "view"
+              ? t("threads.readOnly")
+              : undefined
+        }
+      />
       <BuyerTasks
         token={token}
         readOnly={
