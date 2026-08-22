@@ -111,11 +111,13 @@ func publishableDocumentRows(ctx context.Context, tx pgx.Tx, roomID ids.DealRoom
 func documentRowsWhere(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, also string) ([]crmcontracts.DealRoomDocument, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
+	// `also` is a %s operand, never part of the format: the membership rule
+	// carries a LIKE 'image/%' that a format string would read as a verb.
 	rows, err := tx.Query(ctx, storekit.SQLf(
 		`SELECT %s FROM %s
-		  WHERE d.room_id = $%d AND d.archived_at IS NULL`+also+`
+		  WHERE d.room_id = $%d AND d.archived_at IS NULL%s
 		  ORDER BY d.group_key, d.position, d.created_at, d.id`,
-		documentColumns, documentFrom, arg(roomID)), args...)
+		documentColumns, documentFrom, arg(roomID), also), args...)
 	if err != nil {
 		return nil, fmt.Errorf("list deal room documents: %w", err)
 	}
