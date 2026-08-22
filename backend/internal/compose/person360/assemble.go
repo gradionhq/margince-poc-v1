@@ -135,6 +135,14 @@ func (s *Service) AssembleScoped(ctx context.Context, personID ids.PersonID, opt
 			if err := activities.RequireProjectScope(ctx, tx, *opts.ProjectID); err != nil {
 				return err
 			}
+			scope, err := activities.ReadProjectScope(ctx, tx, *opts.ProjectID, func(arg func(any) int) string {
+				return fmt.Sprintf(personLinkedActivity, arg(personID))
+			})
+			if err != nil {
+				return err
+			}
+			wired := scope.Wire()
+			out.Scope = &wired
 		}
 
 		for _, section := range s.sections(personID, now, opts) {

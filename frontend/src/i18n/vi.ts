@@ -2073,7 +2073,7 @@ export const vi = {
   "today.source.nextSteps": "công việc đang mở",
   "today.source.nextMeeting": "lịch",
   "today.source.deals": "deal",
-  "today.meeting.prepare": "Viết cho người tham dự",
+  "today.meeting.prepare": "Chuẩn bị cuộc họp",
   "today.source.people": "các liên hệ",
   "today.source.standing": "phía nào cần hành động và các tín hiệu",
   "today.source.activities": "những gì đã trao đổi",
@@ -2284,6 +2284,8 @@ export const vi = {
   "compose.relatedToNone": "Toàn bộ tài khoản",
   "compose.project": "Dự án",
   "compose.projectNone": "Không có dự án",
+  "compose.scopedToCounted":
+    "Giới hạn trong {key} · {inScope} trên {total} hoạt động",
   "compose.scopedTo": "Giới hạn trong {key}",
   "compose.basedOn": "Dựa trên: {inputs}",
   "compose.whyThisDraft": "Vì sao có bản nháp này?",

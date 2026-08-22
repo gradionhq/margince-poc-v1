@@ -21,6 +21,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
@@ -580,7 +581,7 @@ func TestQuotedCompanyLinesKeepTheAuthorsOwnTerminator(t *testing.T) {
 
 type fixedAssembler struct{ view crmcontracts.Organization360 }
 
-func (f fixedAssembler) Assemble(context.Context, ids.OrganizationID) (crmcontracts.Organization360, error) {
+func (f fixedAssembler) AssembleScoped(context.Context, ids.OrganizationID, org360.AssembleOptions) (crmcontracts.Organization360, error) {
 	return f.view, nil
 }
 
@@ -600,12 +601,12 @@ func TestAssembleFailsRatherThanCachingABriefThatLostItsCompanyHalf(t *testing.T
 		view:    fixedAssembler{view: crmcontracts.Organization360{}},
 		profile: failingProfile{err: boom},
 	}
-	if _, err := s.assemble(context.Background(), ids.OrganizationID{}, true); !errors.Is(err, boom) {
+	if _, _, err := s.assemble(context.Background(), ids.OrganizationID{}, true, nil); !errors.Is(err, boom) {
 		t.Fatalf("assemble err = %v, want the profile read's own failure", err)
 	}
 	// A prepared question never reads it, so a broken profile store must not
 	// take the three answers down with the brief.
-	if _, err := s.assemble(context.Background(), ids.OrganizationID{}, false); err != nil {
+	if _, _, err := s.assemble(context.Background(), ids.OrganizationID{}, false, nil); err != nil {
 		t.Fatalf("assemble without the profile = %v, want it not to read the store at all", err)
 	}
 }

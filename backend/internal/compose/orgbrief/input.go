@@ -68,6 +68,21 @@ type Input struct {
 	// with us. Curated statements a site read produced and a human accepted,
 	// so the brief can describe the company without inventing a word about it.
 	Profile []ProfileIn `json:"profile,omitempty"`
+
+	// Project is the body of work the reading was narrowed to, when the
+	// reader asked for one. It rides the fingerprint, so a scoped brief and
+	// an unscoped one never serve each other from the cache, and it tells the
+	// writer which engagement the words are about.
+	Project *ProjectIn `json:"project,omitempty"`
+}
+
+// ProjectIn names the scoping project to the writer. No counts: how much the
+// scope dropped is a fact for the reader's scope line, not a fact the prose
+// should reason from.
+type ProjectIn struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Key  string `json:"key,omitempty"`
 }
 
 // NamedIn is a record the brief may write about and must be able to cite:
@@ -234,6 +249,12 @@ func FromView(view crmcontracts.Organization360) Input {
 	foldDeals(view, &in)
 	foldTasks(view, &in)
 	foldRecent(view, &in)
+	if view.Scope != nil {
+		in.Project = &ProjectIn{ID: view.Scope.ProjectId.String(), Name: view.Scope.Name}
+		if view.Scope.Key != nil {
+			in.Project.Key = *view.Scope.Key
+		}
+	}
 	return in
 }
 

@@ -11,6 +11,8 @@ import (
 	"context"
 	"net/http"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -40,14 +42,24 @@ func NewHandlers(svc *Service, overlay OverlayMode) Handlers {
 }
 
 // GetOrganizationBrief implements GET /organizations/{id}/brief.
-func (h Handlers) GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	h.serve(w, r, id, false)
+func (h Handlers) GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.GetOrganizationBriefParams) {
+	h.serve(w, r, id, false, projectScope(params.ProjectId))
 }
 
 // RegenerateOrganizationBrief implements POST /organizations/{id}/brief —
 // the explicit refresh behind "outdated — refresh".
-func (h Handlers) RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	h.serve(w, r, id, true)
+func (h Handlers) RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.RegenerateOrganizationBriefParams) {
+	h.serve(w, r, id, true, projectScope(params.ProjectId))
+}
+
+// projectScope binds the optional query narrowing. The generated parameter
+// type is the bare uuid alias, so the kind is put back here.
+func projectScope(raw *openapi_types.UUID) *ids.ProjectID {
+	if raw == nil {
+		return nil
+	}
+	id := ids.From[ids.ProjectKind](ids.UUID(*raw))
+	return &id
 }
 
 // AskAboutOrganization implements POST /organizations/{id}/ask.
@@ -59,7 +71,7 @@ func (h Handlers) AskAboutOrganization(w http.ResponseWriter, r *http.Request, i
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	answer, err := h.svc.Ask(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)), req.Question)
+	answer, err := h.svc.AskScoped(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)), req.Question, projectScope(req.ProjectId))
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -91,11 +103,11 @@ func (h Handlers) native(w http.ResponseWriter, r *http.Request, subject string)
 	return true
 }
 
-func (h Handlers) serve(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, force bool) {
+func (h Handlers) serve(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, force bool, projectID *ids.ProjectID) {
 	if !h.native(w, r, "the account brief") {
 		return
 	}
-	brief, err := h.svc.Get(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)), force)
+	brief, err := h.svc.GetScoped(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)), force, projectID)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

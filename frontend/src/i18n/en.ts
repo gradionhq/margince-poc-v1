@@ -2117,7 +2117,7 @@ export const en = {
   "today.source.nextSteps": "open tasks",
   "today.source.nextMeeting": "the calendar",
   "today.source.deals": "deals",
-  "today.meeting.prepare": "Write to the room",
+  "today.meeting.prepare": "Prepare meeting",
   "today.source.people": "the contacts",
   "today.source.standing": "whose move it is and the signals",
   "today.source.activities": "what was said",
@@ -2326,6 +2326,8 @@ export const en = {
   "compose.relatedToNone": "The account in general",
   "compose.project": "Project",
   "compose.projectNone": "No project",
+  "compose.scopedToCounted":
+    "Scoped to {key} · {inScope} of {total} activities",
   "compose.scopedTo": "Scoped to {key}",
   "compose.basedOn": "Based on: {inputs}",
   "compose.whyThisDraft": "Why this draft?",

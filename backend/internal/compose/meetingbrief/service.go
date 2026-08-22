@@ -19,8 +19,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/claims"
 	"github.com/gradionhq/margince/backend/internal/compose/person360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -78,11 +80,29 @@ func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.Me
 	return brief, err
 }
 
+// GetScoped is Get with the project the caller wants to prepare for.
+//
+// The meeting's own filing wins. A meeting filed under a project is about
+// that project, and the brief scopes itself by it with or without a request;
+// asking for the same project is agreement, asking for a different one is a
+// brief this meeting cannot honestly be, and it answers not-found — the same
+// existence-hiding answer the tool surface gives a scope naming a project
+// the caller may not see. Only a meeting filed under NO project takes the
+// requested scope as its own.
+func (s *Service) GetScoped(ctx context.Context, activityID ids.UUID, requested *ids.ProjectID) (crmcontracts.MeetingBrief, error) {
+	brief, _, err := s.assembleFiled(ctx, activityID, requested)
+	return brief, err
+}
+
 // GetFiled is Get plus the project the meeting is filed under, nil when it
 // is filed under none. The brief scopes itself by that project without
 // saying so on the wire; a surface that lets a caller ask for a project
 // needs it to tell an agreeing request from a disagreeing one.
 func (s *Service) GetFiled(ctx context.Context, activityID ids.UUID) (crmcontracts.MeetingBrief, *ids.UUID, error) {
+	return s.assembleFiled(ctx, activityID, nil)
+}
+
+func (s *Service) assembleFiled(ctx context.Context, activityID ids.UUID, requested *ids.ProjectID) (crmcontracts.MeetingBrief, *ids.UUID, error) {
 	// NO human gate. It used to read "an agent reading records through a
 	// passport has the records themselves", and that argument is what produced
 	// two answers to one question: agents could not reach this, so a second
@@ -107,7 +127,7 @@ func (s *Service) GetFiled(ctx context.Context, activityID ids.UUID) (crmcontrac
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return crmcontracts.MeetingBrief{}, nil, err
 	}
-	in, err := s.assembleInput(ctx, activityID)
+	in, scope, err := s.assembleInput(ctx, activityID, requested)
 	if err != nil {
 		return crmcontracts.MeetingBrief{}, nil, err
 	}
@@ -129,6 +149,7 @@ func (s *Service) GetFiled(ctx context.Context, activityID ids.UUID) (crmcontrac
 		// No model lane is wired: the sections are the deterministic floor and
 		// say so, rather than passing a composition off as a written brief.
 		GeneratedBy: crmcontracts.Deterministic,
+		Scope:       scope,
 		Sections:    wireSections(Deterministic(in)),
 	}, filed, nil
 }
@@ -140,8 +161,14 @@ func (s *Service) GetFiled(ctx context.Context, activityID ids.UUID) (crmcontrac
 // assembled after it, in its own transaction, on purpose: it is the person
 // page's own read and reusing it whole is what keeps the brief and the page
 // from disagreeing about what this caller may see.
-func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input, error) {
+//
+// It answers the scope report beside the input: the lead attendee's page,
+// read under the scope, counts what the narrowing kept of their history.
+// Nil when the read ran unscoped, and nil too for a scoped room nobody in
+// may be seen — there is no attendee whose history the count would be of.
+func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID, requested *ids.ProjectID) (Input, *crmcontracts.ProjectScope, error) {
 	var room meeting
+	var scope *ids.ProjectID
 	var perAttendee map[ids.UUID][]crmcontracts.ConversationClaim
 	var earlier []priorMeeting
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -150,7 +177,12 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 			return err
 		}
 		room = loaded
-		perAttendee, err = s.claimsPerAttendee(ctx, tx, loaded)
+		chosen, err := resolveScope(ctx, tx, loaded, requested)
+		if err != nil {
+			return err
+		}
+		scope = chosen.project
+		perAttendee, err = s.claimsPerAttendee(ctx, tx, loaded, scope)
 		if err != nil {
 			return err
 		}
@@ -158,7 +190,7 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 		return err
 	})
 	if err != nil {
-		return Input{}, err
+		return Input{}, nil, err
 	}
 
 	in := FromMeeting(room, perAttendee, s.now().UTC())
@@ -167,40 +199,66 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 		// Nobody in the room this caller may see. The header still stands, and
 		// assembling a 360 for a person nobody named would be a read of a
 		// record this brief has no reason to touch.
-		return in, nil
+		return in, nil, nil
 	}
-	// Scoped to the meeting's own project, like the claims above: the lead
-	// attendee's page read for a meeting on one engagement must not describe
-	// the account's other engagement as this room's recent history.
+	// Scoped like the claims above: the lead attendee's page read for a
+	// meeting on one engagement must not describe the account's other
+	// engagement as this room's recent history.
 	view, err := s.view.AssembleScoped(ctx, ids.From[ids.PersonKind](room.Attendees[0].PersonID),
-		person360.AssembleOptions{ProjectID: filedProject(room)})
+		person360.AssembleOptions{ProjectID: scope})
 	if err != nil {
-		return Input{}, err
+		return Input{}, nil, err
 	}
 	WithCounterpart(&in, view)
-	return in, nil
+	return in, view.Scope, nil
 }
 
-// filedProject is the project the meeting is filed under, as the scope the
-// brief's reads are narrowed by; nil for a meeting filed under none, which
-// narrows nothing. The filing comes off the meeting's own link, so no gate
-// beyond the meeting's is owed: a caller who may read the meeting may read
-// which project it is filed under.
-func filedProject(room meeting) *ids.ProjectID {
-	if room.Project == nil {
-		return nil
+// resolveScope resolves the project the brief's reads are narrowed by.
+//
+// The meeting's own filing comes first and needs no gate beyond the
+// meeting's: a caller who may read the meeting may read which project it is
+// filed under. A request that names the same project agrees; one that names
+// another is refused as not-found, because the brief for a meeting about one
+// engagement is not available as a brief about another and the refusal must
+// not confirm which project the meeting IS filed under.
+//
+// A meeting filed under none takes the request as its scope, gated HERE as a
+// read of the project (activities.RequireProjectScope) rather than left to
+// the lead attendee's 360 — a room with no visible attendee never assembles
+// one, and a scope nobody checked would still narrow the claims read above.
+//
+// The answer is an option rather than a pointer: "narrows nothing" is one of
+// its three honest outcomes, not an absence.
+func resolveScope(ctx context.Context, tx pgx.Tx, room meeting, requested *ids.ProjectID) (scopeChoice, error) {
+	if room.Project != nil {
+		filed := ids.From[ids.ProjectKind](room.Project.ID)
+		if requested != nil && requested.UUID != filed.UUID {
+			return scopeChoice{}, apperrors.ErrNotFound
+		}
+		return scopeChoice{project: &filed}, nil
 	}
-	id := ids.From[ids.ProjectKind](room.Project.ID)
-	return &id
+	if requested == nil {
+		return scopeChoice{}, nil
+	}
+	if err := activities.RequireProjectScope(ctx, tx, *requested); err != nil {
+		return scopeChoice{}, err
+	}
+	return scopeChoice{project: requested}, nil
+}
+
+// scopeChoice is the resolved narrowing: the project the brief's reads are
+// scoped by, or none.
+type scopeChoice struct {
+	project *ids.ProjectID
 }
 
 // claimsPerAttendee reads what each person in the room has promised, asked and
 // decided. It runs inside the meeting's own transaction so the commitments a
 // reader is shown are the ones that were true when the room was read.
-func (s *Service) claimsPerAttendee(ctx context.Context, tx pgx.Tx, room meeting) (map[ids.UUID][]crmcontracts.ConversationClaim, error) {
+func (s *Service) claimsPerAttendee(ctx context.Context, tx pgx.Tx, room meeting, scope *ids.ProjectID) (map[ids.UUID][]crmcontracts.ConversationClaim, error) {
 	out := make(map[ids.UUID][]crmcontracts.ConversationClaim, len(room.Attendees))
 	for _, attendee := range room.Attendees {
-		found, err := s.claims.ClaimsForPerson(ctx, tx, ids.From[ids.PersonKind](attendee.PersonID), filedProject(room), briefClaims)
+		found, err := s.claims.ClaimsForPerson(ctx, tx, ids.From[ids.PersonKind](attendee.PersonID), scope, briefClaims)
 		if err != nil {
 			return nil, err
 		}

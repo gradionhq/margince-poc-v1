@@ -146,7 +146,11 @@ func (s *Service) Draft(
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
 	}
-	return wire(draft, by), nil
+	out := wire(draft, by)
+	// The scoped read's own report of what the narrowing kept, so the
+	// composer's scope line counts what the draft was actually written from.
+	out.Scope = view.Scope
+	return out, nil
 }
 
 // wire maps the written draft onto the contract.

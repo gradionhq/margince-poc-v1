@@ -2093,7 +2093,7 @@ export const de = {
   "today.source.nextSteps": "offene Aufgaben",
   "today.source.nextMeeting": "der Kalender",
   "today.source.deals": "Deals",
-  "today.meeting.prepare": "An die Teilnehmer schreiben",
+  "today.meeting.prepare": "Meeting vorbereiten",
   "today.source.people": "die Kontakte",
   "today.source.standing": "wer am Zug ist und die Signale",
   "today.source.activities": "was gesprochen wurde",
@@ -2309,6 +2309,8 @@ export const de = {
   "compose.relatedToNone": "Der Account allgemein",
   "compose.project": "Projekt",
   "compose.projectNone": "Kein Projekt",
+  "compose.scopedToCounted":
+    "Bezogen auf {key} · {inScope} von {total} Aktivitäten",
   "compose.scopedTo": "Bezogen auf {key}",
   "compose.basedOn": "Grundlage: {inputs}",
   "compose.whyThisDraft": "Warum dieser Entwurf?",
