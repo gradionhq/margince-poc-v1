@@ -367,6 +367,11 @@ func (s Server) ListActivities(w http.ResponseWriter, r *http.Request, params cr
 			// The mirror carries no project attribution either, so "minus the
 			// other engagement" cannot be answered from it.
 			{"project_id", params.ProjectId != nil},
+			// The mirror orders by its own notion of time and is not indexed
+			// by ours; a range answered unfiltered would read as an empty or
+			// a full day that never happened.
+			{"occurred_after", params.OccurredAfter != nil},
+			{"occurred_before", params.OccurredBefore != nil},
 		},
 		params.Q, params.Cursor, params.Limit, overlayWireActivity,
 		func(data []crmcontracts.Activity, page crmcontracts.PageInfo) any {

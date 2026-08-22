@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/accountdraft"
+	"github.com/gradionhq/margince/backend/internal/compose/dealbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/meetingbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/nextaction"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
@@ -77,6 +78,7 @@ type (
 	personResearchHandlers = personresearch.Handlers
 	meetingBriefHandlers   = meetingbrief.Handlers
 	nextActionHandlers     = nextaction.Handlers
+	dealBriefHandlers      = dealbrief.Handlers
 	orgBriefHandlers       = orgbrief.Handlers
 	orgDossierHandlers     = orgdossier.Handlers
 	accountDraftHandlers   = accountdraft.Handlers
@@ -114,6 +116,11 @@ func (s *Server) wirePerson360(pool *pgxpool.Pool) {
 	// verb the answer names.
 	s.nextActionHandlers = nextaction.NewHandlers(
 		nextaction.NewService(s.dealsStore, activities.NewStore(InstallationDB(pool)), time.Now),
+	)
+	// The deal brief reads the same deal, its health, timeline and tasks,
+	// plus its Deal Room, all through their own gates, and writes nothing.
+	s.dealBriefHandlers = dealbrief.NewHandlers(
+		dealbrief.NewService(s.dealsStore, activities.NewStore(InstallationDB(pool)), dealrooms.NewStore(InstallationDB(pool)), time.Now),
 	)
 	// No provider is registered, which is the supported configuration rather
 	// than a gap: the surface answers "not connected" and writes nothing

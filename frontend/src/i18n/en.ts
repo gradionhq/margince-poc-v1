@@ -748,6 +748,19 @@ export const en = {
   "timeline.group.collapse": "Close",
   "timeline.group.openThread": "View the whole thread",
   "timeline.group.mayContinue": "may continue earlier",
+  "timeline.filters.kind": "Activity kind",
+  "timeline.filters.kind.all": "All kinds",
+  "timeline.filters.kind.email": "Email",
+  "timeline.filters.kind.message": "Messages",
+  "timeline.filters.kind.call": "Calls",
+  "timeline.filters.kind.meeting": "Meetings",
+  "timeline.filters.kind.note": "Notes",
+  "timeline.filters.kind.task": "Tasks",
+  "timeline.filters.search": "Search this timeline",
+  "timeline.filters.from": "From",
+  "timeline.filters.to": "To",
+  "timeline.filters.searchOmitsLimited":
+    "Conversations whose content you may not open are left out of a search.",
   "tab.people": "People",
   "tab.deals": "Deals",
   "tab.tasks": "Tasks",
@@ -862,6 +875,10 @@ export const en = {
     "What the buyer reads first. Reaches them at the next publish.",
   "roompage.text.titleLabel": "Room title",
   "roompage.text.welcomeLabel": "Welcome message",
+  "roompage.viewAsBuyer": "View as buyer",
+  "roompage.previewDraft":
+    "Publish first — a buyer only ever sees a published release.",
+  "roompage.previewArchived": "An archived room has nothing to preview.",
   "roompage.publish": "Publish",
   "roompage.publishFinished":
     "This room is finished and takes no more releases.",
@@ -938,6 +955,14 @@ export const en = {
   "access.revokeBody":
     "Their session ends now and their link stops working. Their comments stay visible and attributed. Access cannot be restored by them asking for a link.",
   "access.changeCapabilityTitle": "What may {name} do?",
+  "persondealrooms.title": "Deal Rooms",
+  "persondealrooms.sub": "Rooms this contact can still enter.",
+  "persondealrooms.open": "Open",
+  "persondealrooms.seatGone":
+    "This address no longer holds a seat in that room.",
+  "persondealrooms.cut":
+    "Only the first rooms are shown; this contact sits in more.",
+  "persondealrooms.revokeTitle": "Revoke access to {room}?",
   "room.state.draft": "Draft",
   "room.state.building": "Building",
   "room.state.ready": "Ready",
@@ -4286,6 +4311,10 @@ export const en = {
   "buyer.eyebrow": "Deal Room",
   "buyer.contact": "Your contact: {steward}.",
   "buyer.closed": "This room is closed; what it shared is a record now.",
+  "buyer.previewBanner":
+    "You are previewing this room as a buyer would see it. You can read everything and change nothing.",
+  "buyer.previewReadOnly":
+    "A preview cannot write. Close this tab to return to the Deal Room page.",
   "buyer.closedNote": "This room is now read-only.",
   "buyer.stewardUnknown": "your contact",
   "buyer.signOut": "Sign out",
@@ -4338,6 +4367,13 @@ export const en = {
   "room.decisions.empty": "No decisions yet.",
   "room.decisions.confirm_version": "confirmed the version",
   "room.decisions.request_changes": "asked for changes",
+  "dealbrief.title": "Deal brief",
+  "dealbrief.sub": "Where it stands, in sentences you can check.",
+  "dealbrief.empty": "Nothing on the record yet.",
+  "dealbrief.standing": "Where it stands",
+  "dealbrief.activity": "Last and next",
+  "dealbrief.open": "Still owed",
+  "dealbrief.room": "Deal Room",
   "nba.title": "Next move",
   "nba.sub": "One thing to do on this deal, and why.",
   "nba.createTask": "Add this task",
@@ -5489,10 +5525,6 @@ export const en = {
   "person.thin.remediation.employer":
     "Add their employer and Margince can read that company's site for their role.",
   "person.thin.logFirst": "Log the first interaction",
-  "person.timeline.all": "All",
-  "person.timeline.messages": "Messages",
-  "person.timeline.meetings": "Meetings",
-  "person.timeline.tasks": "Tasks",
   "person.enriched.title": "What Margince read",
   "person.enriched.sub":
     "Each value with the text it was read from. Correct one and the correction stands.",

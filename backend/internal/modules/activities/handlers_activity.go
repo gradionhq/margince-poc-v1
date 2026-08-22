@@ -21,6 +21,8 @@ func (h Handlers) ListActivities(w http.ResponseWriter, r *http.Request, params 
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
 		AssigneeID:      idArg[ids.UserKind](params.AssigneeId),
 		WithinProjectID: idArg[ids.ProjectKind](params.ProjectId),
+		OccurredAfter:   params.OccurredAfter,
+		OccurredBefore:  params.OccurredBefore,
 	}
 	if params.Kind != nil {
 		k := string(*params.Kind)

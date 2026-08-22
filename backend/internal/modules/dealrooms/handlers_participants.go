@@ -139,3 +139,17 @@ func (h Handlers) recordSendOutcome(r *http.Request, issued IssuedInvitation, se
 			"participant_id", issued.Participant.Id, "err", err)
 	}
 }
+
+// PreviewDealRoom hands the seller a one-time credential for their own
+// preview seat. The credential is in the body exactly once and nowhere else.
+func (h Handlers) PreviewDealRoom(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	issued, err := h.store.PreviewRoom(r.Context(), pathID(id))
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusCreated, crmcontracts.DealRoomPreviewIssued{
+		Credential:          issued.Credential,
+		CredentialExpiresAt: issued.ExpiresAt,
+	})
+}

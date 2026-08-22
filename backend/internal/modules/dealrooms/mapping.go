@@ -181,6 +181,10 @@ func listInput(params crmcontracts.ListDealRoomsParams) ListRoomsInput {
 		s := string(*params.State)
 		in.State = &s
 	}
+	if params.ParticipantEmail != nil {
+		email := strings.ToLower(strings.TrimSpace(string(*params.ParticipantEmail)))
+		in.ParticipantEmail = &email
+	}
 	return in
 }
 

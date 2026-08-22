@@ -42,7 +42,12 @@ import {
 import type { ListChip } from "../design-system/listsurface";
 import type { ListColumn, ListSelection } from "../design-system/listtable";
 import { FieldGuard } from "../design-system/rbac";
+import {
+  useRecordTimeline,
+  useTimelineFilters,
+} from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
+import { TimelineFilterBar } from "../design-system/timelinefilterbar";
 import { type Toast, ToastRegion, useToast } from "../design-system/toast";
 import { AutonomyDot, ProvenanceTag } from "../design-system/trust";
 import {
@@ -90,12 +95,14 @@ function DealAside({
   return (
     <>
       <DealNextAction dealId={dealId} />
+      <DealBriefCard dealId={dealId} />
       <DealHealthCard dealId={dealId} />
       <DealRoomAside dealId={dealId} dealName={dealName} />
     </>
   );
 }
 
+import { DealBriefCard } from "./dealbrief";
 import { DealFiles } from "./dealfiles";
 import {
   DealProjectChip,
@@ -119,6 +126,7 @@ import { LogActivity } from "./logactivity";
 import { DealCoverageCard } from "./network";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import { ShareAction } from "./share";
+import { groupChronology } from "./timelinegroups";
 
 // Deal surfaces (B-EP09.11a/b/c): the five-stage Kanban with drag-to-advance
 // (terminal stages are a 🟡 confirm, AC-deal-6), the board↔table segmented
@@ -3234,19 +3242,17 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   // kept expired rows — so a visit here could silently cap the badge at 50 and
   // count approvals nobody can act on.
   const approvalsQuery = usePendingApprovals();
-  const timelineQuery = useQuery({
-    queryKey: ["activities", "deal", id],
-    enabled: !overlay,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/activities", {
-        params: { query: { entity_type: "deal", entity_id: id, limit: 20 } },
-      });
-      if (error) {
-        throwProblem(error);
-      }
-      return data;
-    },
+  const [timelineFilters, setTimelineFilters] = useTimelineFilters(id);
+  const timelineQuery = useRecordTimeline("deal", id, {
+    filters: timelineFilters,
   });
+  const timelineEntries = activityTimeline(
+    timelineQuery.activities,
+    viewerId,
+    (activity) => (
+      <TimelineActions activity={activity} entityType="deal" entityId={id} />
+    ),
+  );
   const offersQuery = useQuery({
     queryKey: ["deal-offers", id],
     enabled: !overlay,
@@ -3323,21 +3329,20 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                 />
               }
               band={archivedDealBand(deal, archivedReasonId, t)}
-              timeline={
-                timelineQuery.isSuccess
-                  ? activityTimeline(
-                      timelineQuery.data.data,
-                      viewerId,
-                      (activity) => (
-                        <TimelineActions
-                          activity={activity}
-                          entityType="deal"
-                          entityId={id}
-                        />
-                      ),
-                    )
-                  : []
+              timeline={timelineEntries}
+              timelineGroups={groupChronology(
+                timelineEntries,
+                timelineQuery.hasNextPage,
+              )}
+              timelineHeader={
+                overlay ? undefined : (
+                  <TimelineFilterBar
+                    value={timelineFilters}
+                    onChange={setTimelineFilters}
+                  />
+                )
               }
+              timelineFooter={<LoadMoreButton query={timelineQuery} />}
               timelineNotice={timelineZoneNotice(
                 { overlay, pending: timelineQuery.isPending },
                 t,

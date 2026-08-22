@@ -121,7 +121,9 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 			return crmcontracts.Project{}, apperrors.ErrNotFound
 		}
 		if constraint, ok := storekit.CheckViolation(err); ok {
-			return crmcontracts.Project{}, projectCheckError(constraint, submittedDateField(in.StartedAt, in.TargetEndDate, nil))
+			if refusal := projectCheckError(constraint, submittedDateField(in.StartedAt, in.TargetEndDate, nil)); refusal != nil {
+				return crmcontracts.Project{}, refusal
+			}
 		}
 		return crmcontracts.Project{}, fmt.Errorf("insert project: %w", err)
 	}
@@ -315,6 +317,13 @@ func submittedDateField(startedAt, targetEnd, endedAt *time.Time) string {
 // rather than an opaque server fault. dateField is the date input this request
 // actually carried, so a date-range breach points at the value the caller can
 // change; empty when the path submitted none.
+//
+// A CHECK this module has no message for answers nil, and the caller returns
+// the database error itself: httperr's constraint net still answers it as a
+// 422 business-rule breach, with the constraint name in the operator's log
+// rather than in the client's refusal. A schema identifier tells a caller our
+// table's shape and nothing it can act on. TestEveryNamedProjectCheckHasItsOwnRefusal
+// is what keeps that net from being the answer for a rule a request can reach.
 func projectCheckError(constraint string, dateField string) error {
 	switch constraint {
 	case "project_key_shape":
@@ -326,7 +335,7 @@ func projectCheckError(constraint string, dateField string) error {
 	case "project_phase_check":
 		return &ProjectPhaseError{}
 	default:
-		return &ProjectConstraintError{Constraint: constraint}
+		return nil
 	}
 }
 
@@ -404,21 +413,6 @@ func (e *ProjectDateRangeError) FieldFault() (field, code, message string) {
 		field = "ended_at"
 	}
 	return field, "invalid_date_range", e.Error()
-}
-
-// ProjectConstraintError is the honest fallback for a project CHECK this
-// module has not given its own message: still a 422 (a business rule was
-// broken, not a server fault), and it names the rule so the gap is
-// visible rather than silent.
-type ProjectConstraintError struct{ Constraint string }
-
-func (e *ProjectConstraintError) Error() string {
-	return "the project violates the " + e.Constraint + " rule"
-}
-
-// FieldFault names the violated database rule as the business rule it is.
-func (e *ProjectConstraintError) FieldFault() (field, code, message string) {
-	return e.Constraint, "constraint_violated", e.Error()
 }
 
 // DealProjectOrgMismatchError maps to 422: a deal and the project it

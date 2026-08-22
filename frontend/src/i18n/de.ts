@@ -708,6 +708,19 @@ export const de = {
   "timeline.group.collapse": "Schließen",
   "timeline.group.openThread": "Ganzen Verlauf ansehen",
   "timeline.group.mayContinue": "kann früher weitergehen",
+  "timeline.filters.kind": "Aktivitätsart",
+  "timeline.filters.kind.all": "Alle Arten",
+  "timeline.filters.kind.email": "E-Mail",
+  "timeline.filters.kind.message": "Nachrichten",
+  "timeline.filters.kind.call": "Anrufe",
+  "timeline.filters.kind.meeting": "Termine",
+  "timeline.filters.kind.note": "Notizen",
+  "timeline.filters.kind.task": "Aufgaben",
+  "timeline.filters.search": "In dieser Chronik suchen",
+  "timeline.filters.from": "Von",
+  "timeline.filters.to": "Bis",
+  "timeline.filters.searchOmitsLimited":
+    "Unterhaltungen, deren Inhalt Sie nicht öffnen dürfen, bleiben bei einer Suche außen vor.",
   "tab.people": "Personen",
   "tab.deals": "Deals",
   "tab.tasks": "Aufgaben",
@@ -821,6 +834,10 @@ export const de = {
     "Was der Käufer zuerst liest. Erreicht ihn bei der nächsten Veröffentlichung.",
   "roompage.text.titleLabel": "Titel des Raums",
   "roompage.text.welcomeLabel": "Begrüßungstext",
+  "roompage.viewAsBuyer": "Als Käufer ansehen",
+  "roompage.previewDraft":
+    "Zuerst veröffentlichen — ein Käufer sieht immer nur eine veröffentlichte Fassung.",
+  "roompage.previewArchived": "Ein archivierter Raum hat keine Vorschau.",
   "roompage.publish": "Veröffentlichen",
   "roompage.publishFinished":
     "Dieser Raum ist abgeschlossen und nimmt keine Veröffentlichungen mehr an.",
@@ -901,6 +918,14 @@ export const de = {
   "access.revokeBody":
     "Die Sitzung endet sofort und der Link funktioniert nicht mehr. Kommentare bleiben sichtbar und zugeordnet. Der Zugang lässt sich nicht durch eine Link-Anfrage wiederherstellen.",
   "access.changeCapabilityTitle": "Was darf {name} tun?",
+  "persondealrooms.title": "Deal Rooms",
+  "persondealrooms.sub": "Räume, die dieser Kontakt noch betreten kann.",
+  "persondealrooms.open": "Öffnen",
+  "persondealrooms.seatGone":
+    "Diese Adresse hat in dem Raum keinen Platz mehr.",
+  "persondealrooms.cut":
+    "Nur die ersten Räume werden gezeigt; dieser Kontakt sitzt in weiteren.",
+  "persondealrooms.revokeTitle": "Zugang zu {room} entziehen?",
   "room.state.draft": "Entwurf",
   "room.state.building": "Wird erstellt",
   "room.state.ready": "Bereit",
@@ -4232,6 +4257,10 @@ export const de = {
   "buyer.contact": "Ihr Ansprechpartner: {steward}.",
   "buyer.closed":
     "Dieser Raum ist geschlossen; das Geteilte ist jetzt ein Protokoll.",
+  "buyer.previewBanner":
+    "Sie sehen diesen Raum als Vorschau, so wie ein Käufer ihn sieht. Sie können alles lesen und nichts ändern.",
+  "buyer.previewReadOnly":
+    "Eine Vorschau kann nicht schreiben. Schließen Sie diesen Tab, um zur Deal-Room-Seite zurückzukehren.",
   "buyer.closedNote": "Dieser Raum ist jetzt schreibgeschützt.",
   "buyer.stewardUnknown": "Ihr Ansprechpartner",
   "buyer.signOut": "Abmelden",
@@ -4285,6 +4314,13 @@ export const de = {
   "room.decisions.empty": "Noch keine Entscheidungen.",
   "room.decisions.confirm_version": "hat die Version bestätigt",
   "room.decisions.request_changes": "hat Änderungen angefordert",
+  "dealbrief.title": "Deal-Briefing",
+  "dealbrief.sub": "Wo der Deal steht, in nachprüfbaren Sätzen.",
+  "dealbrief.empty": "Noch nichts in der Akte.",
+  "dealbrief.standing": "Stand",
+  "dealbrief.activity": "Zuletzt und als Nächstes",
+  "dealbrief.open": "Noch offen",
+  "dealbrief.room": "Deal Room",
   "nba.title": "Nächster Schritt",
   "nba.sub": "Eine Sache, die auf diesem Deal zu tun ist — und warum.",
   "nba.createTask": "Aufgabe anlegen",
@@ -5457,10 +5493,6 @@ export const de = {
   "person.thin.remediation.employer":
     "Hinterlegen Sie den Arbeitgeber, dann liest Margince dessen Website nach ihrer Rolle.",
   "person.thin.logFirst": "Ersten Kontakt erfassen",
-  "person.timeline.all": "Alle",
-  "person.timeline.messages": "Nachrichten",
-  "person.timeline.meetings": "Termine",
-  "person.timeline.tasks": "Aufgaben",
   "person.enriched.title": "Was Margince gelesen hat",
   "person.enriched.sub":
     "Jeder Wert mit dem Text, aus dem er gelesen wurde. Eine Korrektur bleibt bestehen.",

@@ -40,6 +40,9 @@ const sessionObject = "deal_room_session"
 const exchangeablePredicate = `i.token_hash = $1
 	  AND i.consumed_at IS NULL AND i.superseded_at IS NULL AND i.expires_at > now()
 	  AND p.id = i.participant_id AND p.revoked_at IS NULL
+	  AND (NOT p.preview OR EXISTS (
+	        SELECT 1 FROM app_user u
+	         WHERE u.id = p.invited_by AND u.status = 'active' AND u.archived_at IS NULL))
 	  AND r.id = p.room_id AND r.archived_at IS NULL AND r.state <> 'archived'`
 
 // PeekCredential answers whether a credential can be exchanged, and nothing
@@ -79,12 +82,13 @@ func (s *Store) ExchangeCredential(ctx context.Context, raw string) (IssuedSessi
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var participantID ids.DealRoomParticipantID
 		var roomID ids.DealRoomID
+		var preview bool
 		err := tx.QueryRow(ctx,
 			`UPDATE deal_room_invitation i SET consumed_at = now()
 			   FROM deal_room_participant p, deal_room r
 			  WHERE `+exchangeablePredicate+`
-			  RETURNING p.id, p.room_id`,
-			digestOfCredential(raw)).Scan(&participantID, &roomID)
+			  RETURNING p.id, p.room_id, p.preview`,
+			digestOfCredential(raw)).Scan(&participantID, &roomID, &preview)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -94,6 +98,10 @@ func (s *Store) ExchangeCredential(ctx context.Context, raw string) (IssuedSessi
 		// The actor is known only now: the buyer the credential named. Bound
 		// here so the audit row and captured_by attribute the session to them.
 		ctx := principal.WithActor(ctx, BuyerPrincipal(participantID))
+		if preview {
+			// A rep's tab, not a buyer's week: bounded like the credential was.
+			expiresAt = time.Now().UTC().Add(previewSessionTTL)
+		}
 		return openSession(ctx, tx, participantID, roomID, digest, expiresAt)
 	})
 	if err != nil {
@@ -147,18 +155,23 @@ var ErrSessionRefused = errors.New("dealrooms: the room session admits nobody")
 // Resolved fresh on EVERY request — this read is the revocation guarantee.
 // The participant is joined on (id, room_id), so a session can only ever name
 // a participant of its own room; a revoked participant, a revoked session and
-// a lapsed session all refuse on one path with ErrSessionRefused.
+// a lapsed session all refuse on one path with ErrSessionRefused. A preview
+// session is the seller's own authority worn as a buyer, so it ends the
+// moment the seller's seat does — a deactivated user keeps no preview tab.
 func (s *Store) ResolveSession(ctx context.Context, token string) (Session, error) {
 	var out Session
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var lastSeen *time.Time
 		err := tx.QueryRow(ctx,
-			`SELECT s.id, s.participant_id, s.room_id, p.capability, s.last_seen_at
+			`SELECT s.id, s.participant_id, s.room_id, p.capability, p.preview, s.last_seen_at
 			   FROM deal_room_session s
 			   JOIN deal_room_participant p ON p.id = s.participant_id AND p.room_id = s.room_id
 			  WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
-			    AND p.revoked_at IS NULL`,
-			digestOfCredential(token)).Scan(&out.ID, &out.ParticipantID, &out.RoomID, &out.Capability, &lastSeen)
+			    AND p.revoked_at IS NULL
+			    AND (NOT p.preview OR EXISTS (
+			          SELECT 1 FROM app_user u
+			           WHERE u.id = p.invited_by AND u.status = 'active' AND u.archived_at IS NULL))`,
+			digestOfCredential(token)).Scan(&out.ID, &out.ParticipantID, &out.RoomID, &out.Capability, &out.Preview, &lastSeen)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrSessionRefused
 		}

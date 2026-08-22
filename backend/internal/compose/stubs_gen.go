@@ -615,6 +615,10 @@ func (stubs) PauseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "PauseDealRoom")
 }
 
+func (stubs) PreviewDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PreviewDealRoom")
+}
+
 func (stubs) PublishDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "PublishDealRoom")
 }
@@ -665,6 +669,10 @@ func (stubs) UpdateDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 
 func (stubs) AdvanceDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.AdvanceDealParams) {
 	httperr.NotImplemented(w, r, "AdvanceDeal")
+}
+
+func (stubs) GetDealBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetDealBrief")
 }
 
 func (stubs) GetDealCoverage(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {

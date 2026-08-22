@@ -6,10 +6,17 @@ import { GroupedTimelineList } from "../design-system/composed";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import {
+  hasTimelineFilters,
+  type RecordTimeline,
+  useRecordTimeline,
+  useTimelineFilters,
+} from "../design-system/recordtimeline";
+import {
   type SectionState,
   SurfaceState,
   sectionState,
 } from "../design-system/surfacestate";
+import { TimelineFilterBar } from "../design-system/timelinefilterbar";
 import { formatDateTime } from "../format/format";
 import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
@@ -67,14 +74,20 @@ export function PersonTimelineTab({
 }>) {
   const t = useT();
   const [filter, setFilter] = useChronologyFilter(personId);
-  const logged = view?.activities?.data ?? [];
-  const hasMore = view?.activities?.page.has_more ?? false;
+  const [filters, setFilters] = useTimelineFilters(personId);
+  // The 360's own page seeds the list; older pages and every narrowed read
+  // come from the activity list itself.
+  const timeline = useRecordTimeline("person", personId, {
+    filters,
+    firstPage: view?.activities,
+  });
   const chronology = useRecordChronology({
     kind: "person",
     recordId: personId,
     filter,
-    activities: logged,
-    activitiesHaveMore: hasMore,
+    activities: timeline.activities,
+    activitiesHaveMore: timeline.hasNextPage,
+    loadMore: timeline,
     renderActions: (activity) => (
       <TimelineActions
         activity={activity}
@@ -98,12 +111,16 @@ export function PersonTimelineTab({
       }
     >
       <PanelBody>
+        {filter !== "changes" && (
+          <TimelineFilterBar value={filters} onChange={setFilters} />
+        )}
         <SurfaceState
           state={timelineState(
             view,
             filter,
             chronology,
-            logged.length,
+            timeline,
+            hasTimelineFilters(filters),
             loading,
           )}
           emptyLabel={
@@ -118,7 +135,7 @@ export function PersonTimelineTab({
           }
         >
           <GroupedTimelineList
-            groups={groupChronology(chronology.entries, hasMore)}
+            groups={groupChronology(chronology.entries, timeline.hasNextPage)}
             zone={RECORD_ZONE}
           />
         </SurfaceState>
@@ -137,17 +154,23 @@ function timelineState(
   view: Person360 | undefined,
   filter: TimelineFilter,
   chronology: RecordChronology,
-  activityCount: number,
+  timeline: RecordTimeline,
+  narrowed: boolean,
   loading: boolean,
 ): SectionState {
   if (filter === "activities") {
-    const base = sectionState(
-      view,
-      "activities",
-      Boolean(view?.activities),
-      activityCount,
-      loading,
-    );
+    // A narrowed read is the list's own, not the 360's section: it has its
+    // own wait and its own failure, and a grant that withheld the section
+    // withholds the list the same way through the server's 403.
+    const base = narrowed
+      ? narrowedState(timeline)
+      : sectionState(
+          view,
+          "activities",
+          Boolean(view?.activities),
+          timeline.activities.length,
+          loading,
+        );
     return base === "ready" && chronology.truncated ? "partial" : base;
   }
   if (chronology.loading) {
@@ -157,6 +180,16 @@ function timelineState(
     return "failed";
   }
   return chronology.entries.length === 0 ? "empty" : "ready";
+}
+
+function narrowedState(timeline: RecordTimeline): SectionState {
+  if (timeline.isPending) {
+    return "loading";
+  }
+  if (timeline.isError) {
+    return "failed";
+  }
+  return timeline.activities.length === 0 ? "empty" : "ready";
 }
 
 // --- Deals ------------------------------------------------------------------

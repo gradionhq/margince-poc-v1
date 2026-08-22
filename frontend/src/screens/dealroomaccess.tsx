@@ -54,6 +54,18 @@ export function participantsKey(roomId: string) {
   return ["deal-room-participants", roomId] as const;
 }
 
+// Every read of "who sits where" — the room's roster and the person page's
+// room list — goes stale together when a seat changes.
+export function refreshSeats(
+  queryClient: ReturnType<typeof useQueryClient>,
+  roomId: string,
+) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: participantsKey(roomId) }),
+    queryClient.invalidateQueries({ queryKey: ["deal-rooms-of"] }),
+  ]);
+}
+
 export function useParticipants(roomId: string) {
   return useQuery({
     queryKey: participantsKey(roomId),
@@ -305,7 +317,7 @@ function InviteDialog({
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: participantsKey(room.id) });
+      refreshSeats(queryClient, room.id);
       if (data) {
         setIssued(data);
       }
@@ -409,7 +421,7 @@ function ReissueDialog({
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: participantsKey(room.id) });
+      refreshSeats(queryClient, room.id);
       if (data) {
         setIssued(data);
       }
@@ -466,7 +478,7 @@ function RevokeDialog({
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: participantsKey(room.id) });
+      refreshSeats(queryClient, room.id);
       onClose();
     },
   });
@@ -522,7 +534,7 @@ function CapabilityDialog({
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: participantsKey(room.id) });
+      refreshSeats(queryClient, room.id);
       onClose();
     },
   });

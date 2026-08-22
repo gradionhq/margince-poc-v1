@@ -37,13 +37,27 @@ type anchorArgs struct {
 	RecordType string   `json:"record_type"`
 	RecordID   ids.UUID `json:"record_id"`
 	MaxItems   int      `json:"max_items"`
+	// ProjectID narrows the picture to one body of work. It is a co-filter on
+	// the anchor, not an anchor: material filed under another project drops
+	// out, material filed under none stays (retrieval.AssembleOptions).
+	ProjectID *ids.UUID `json:"project_id"`
 }
 
 const anchorSchema = `{"type":"object","required":["record_type","record_id"],"properties":{
 	"record_type":{"type":"string","enum":["person","organization","deal","lead","project","activity"]},
 	"record_id":{"type":"string","format":"uuid"},
-	"max_items":{"type":"integer","minimum":1,"maximum":20}},
+	"max_items":{"type":"integer","minimum":1,"maximum":20},
+	"project_id":{"type":"string","format":"uuid","description":"Keep only what is filed under this project or under none"}},
 	"additionalProperties":false}`
+
+// assembleOptions carries the caller's narrowing to the retriever.
+func (a anchorArgs) assembleOptions() retrieval.AssembleOptions {
+	opts := retrieval.AssembleOptions{MaxItems: a.MaxItems}
+	if a.ProjectID != nil {
+		opts.ProjectID = a.ProjectID.String()
+	}
+	return opts
+}
 
 // AssembledContextJSON renders a retrieval.Context in the
 // evidence-carrying wire shape both intent tools share (exported so the
@@ -118,7 +132,7 @@ func (t catchMeUpOn) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	}
 	assembled, err := t.retriever.AssembleContext(ctx,
 		datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.RecordID},
-		retrieval.AssembleOptions{MaxItems: args.MaxItems})
+		args.assembleOptions())
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +168,7 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	}
 	assembled, err := t.retriever.AssembleContext(ctx,
 		datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.RecordID},
-		retrieval.AssembleOptions{MaxItems: args.MaxItems})
+		args.assembleOptions())
 	if err != nil {
 		return nil, err
 	}
