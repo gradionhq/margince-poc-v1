@@ -258,7 +258,6 @@ var catalog = map[string]struct {
 	// without a publish, and either side may do it. Adding or rewording an item
 	// is editorial and reaches a buyer through deal_room.published, so it is not
 	// announced separately — the list a buyer sees changed only when that fired.
-	"deal_room.task_completion_changed": {dealStreamEntity, 1},
 	// The conversation is live on both sides and never waits for a publish, so
 	// each act announces itself: a comment (on a document or the room), the
 	// seller resolving a thread, and a buyer's decision on a document version.

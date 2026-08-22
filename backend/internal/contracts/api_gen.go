@@ -11786,7 +11786,7 @@ type AddDealRoomDocumentRequest struct {
 	// `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
 	// key never carries a display string. Not configurable, not AI-assigned — the
 	// person adding the document picks. A plain string rather than an inline enum
-	// for the reason `DealRoomTaskSide` gives.
+	// for the reason `DealRoomParticipantCapability` gives.
 	GroupKey DealRoomDocumentGroup `json:"group_key"`
 
 	// Position Order within the group. Defaults to 0.
@@ -12964,7 +12964,7 @@ type BuyerRoomDocument struct {
 	// `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
 	// key never carries a display string. Not configurable, not AI-assigned — the
 	// person adding the document picks. A plain string rather than an inline enum
-	// for the reason `DealRoomTaskSide` gives.
+	// for the reason `DealRoomParticipantCapability` gives.
 	GroupKey DealRoomDocumentGroup `json:"group_key"`
 	Id       openapi_types.UUID    `json:"id"`
 	Position int                   `json:"position"`
@@ -12994,33 +12994,6 @@ type BuyerRoomParticipant struct {
 	Email      openapi_types.Email           `json:"email"`
 	FullName   string                        `json:"full_name"`
 	Id         openapi_types.UUID            `json:"id"`
-}
-
-// BuyerRoomTask One item on the shared list, as the buyer sees it. No seller-side ids, no provenance.
-type BuyerRoomTask struct {
-	Done   bool       `json:"done"`
-	DoneAt *time.Time `json:"done_at,omitempty"`
-
-	// DoneBy Which side ticked it — `seller` or `buyer` — or null while open.
-	DoneBy   *string            `json:"done_by,omitempty"`
-	Id       openapi_types.UUID `json:"id"`
-	Position int                `json:"position"`
-
-	// Side Which side of the table owes this item: `seller` or `buyer`. One side, never
-	// both — an item two parties own is one nobody chases.
-	//
-	// Typed as a plain string rather than an inline enum for the reason
-	// `DealRoomParticipantCapability` gives: an inline enum would generate
-	// package-scope Go constants named `Seller` and `Buyer` in the shared contracts
-	// package, colliding with any other schema declaring those values. The closed set
-	// is stated here and held by the writer and the schema CHECK.
-	Side  DealRoomTaskSide `json:"side"`
-	Title string           `json:"title"`
-}
-
-// BuyerRoomTaskListResponse defines model for BuyerRoomTaskListResponse.
-type BuyerRoomTaskListResponse struct {
-	Data []BuyerRoomTask `json:"data"`
 }
 
 // BuyerRoomView defines model for BuyerRoomView.
@@ -13952,11 +13925,6 @@ type CompanySiteReadSuggestedChange struct {
 // CompanySiteReadSuggestedChangeField defines model for CompanySiteReadSuggestedChange.Field.
 type CompanySiteReadSuggestedChangeField string
 
-// CompleteBuyerRoomTaskRequest defines model for CompleteBuyerRoomTaskRequest.
-type CompleteBuyerRoomTaskRequest struct {
-	Done bool `json:"done"`
-}
-
 // ComposedExtension One enabled extension unit and what it contributes to this binary.
 type ComposedExtension struct {
 	// Jobs The scheduled jobs this boot actually RUNS for the unit — a job the unit declared with no handler ticks nothing and is deliberately absent, because an operator reading this list is asking what runs, not what was written down. Sorted.
@@ -14628,25 +14596,6 @@ type CreateDealRoomRequest struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
-// CreateDealRoomTaskRequest defines model for CreateDealRoomTaskRequest.
-type CreateDealRoomTaskRequest struct {
-	// Position Where the item sits in the list. Defaults to 0, which puts it first.
-	Position *int `json:"position,omitempty"`
-
-	// Side Which side of the table owes this item: `seller` or `buyer`. One side, never
-	// both — an item two parties own is one nobody chases.
-	//
-	// Typed as a plain string rather than an inline enum for the reason
-	// `DealRoomParticipantCapability` gives: an inline enum would generate
-	// package-scope Go constants named `Seller` and `Buyer` in the shared contracts
-	// package, colliding with any other schema declaring those values. The closed set
-	// is stated here and held by the writer and the schema CHECK.
-	Side                 DealRoomTaskSide       `json:"side"`
-	Source               string                 `json:"source"`
-	Title                string                 `json:"title"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
 // CreateImportRunRequest defines model for CreateImportRunRequest.
 type CreateImportRunRequest struct {
 	// Connector The source kind. The HubSpot and Salesforce connectors run the same engine and arrive with their own tickets (IEM-AC-8).
@@ -15308,7 +15257,7 @@ type DealListResponse struct {
 
 // DealNextBestAction One recommendation for a deal. `action` is one of `draft_email`,
 // `create_task`, `open_meeting_brief`, `none` — a plain string for the reason
-// `DealRoomTaskSide` gives. `arguments` is the body or the operand the named
+// `DealRoomParticipantCapability` gives. `arguments` is the body or the operand the named
 // verb takes, ready to send; absent for `none`.
 type DealNextBestAction struct {
 	Action string `json:"action"`
@@ -15459,7 +15408,7 @@ type DealRoomDocument struct {
 	// `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
 	// key never carries a display string. Not configurable, not AI-assigned — the
 	// person adding the document picks. A plain string rather than an inline enum
-	// for the reason `DealRoomTaskSide` gives.
+	// for the reason `DealRoomParticipantCapability` gives.
 	GroupKey  DealRoomDocumentGroup `json:"group_key"`
 	Id        openapi_types.UUID    `json:"id"`
 	Position  int                   `json:"position"`
@@ -15481,7 +15430,7 @@ type DealRoomDocument struct {
 // `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
 // key never carries a display string. Not configurable, not AI-assigned — the
 // person adding the document picks. A plain string rather than an inline enum
-// for the reason `DealRoomTaskSide` gives.
+// for the reason `DealRoomParticipantCapability` gives.
 type DealRoomDocumentGroup = string
 
 // DealRoomDocumentListResponse defines model for DealRoomDocumentListResponse.
@@ -15576,7 +15525,7 @@ type DealRoomParticipant struct {
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 
 	// RevokedAt When their access was taken away. The row survives revocation so their
-	// comments and completed to-dos stay attributed to a name.
+	// comments and decisions stay attributed to a name.
 	RevokedAt            *time.Time             `json:"revoked_at,omitempty"`
 	RoomId               openapi_types.UUID     `json:"room_id"`
 	Source               string                 `json:"source"`
@@ -15660,69 +15609,6 @@ type DealRoomSessionIssued struct {
 // room outright and frees the deal for another.
 type DealRoomState string
 
-// DealRoomTask One item on the shared to-do list. Deliberately carries no due date: the list
-// says what is outstanding and who owes it, and adding deadlines turns a shared
-// working list into a chase.
-type DealRoomTask struct {
-	ArchivedAt *time.Time `json:"archived_at,omitempty"`
-
-	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
-	CapturedBy *string   `json:"captured_by,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-
-	// Done Whether the item has been ticked off.
-	Done   bool       `json:"done"`
-	DoneAt *time.Time `json:"done_at,omitempty"`
-
-	// DoneByParticipantId Set when a buyer ticked it off. Exactly one of the two done_by fields is set on a done item.
-	DoneByParticipantId *openapi_types.UUID `json:"done_by_participant_id,omitempty"`
-
-	// DoneByUserId Set when someone on the seller's side ticked it off.
-	DoneByUserId *openapi_types.UUID `json:"done_by_user_id,omitempty"`
-	Id           openapi_types.UUID  `json:"id"`
-
-	// Position The order both sides see, ascending.
-	Position int                `json:"position"`
-	RoomId   openapi_types.UUID `json:"room_id"`
-
-	// Side Which side of the table owes this item: `seller` or `buyer`. One side, never
-	// both — an item two parties own is one nobody chases.
-	//
-	// Typed as a plain string rather than an inline enum for the reason
-	// `DealRoomParticipantCapability` gives: an inline enum would generate
-	// package-scope Go constants named `Seller` and `Buyer` in the shared contracts
-	// package, colliding with any other schema declaring those values. The closed set
-	// is stated here and held by the writer and the schema CHECK.
-	Side      DealRoomTaskSide `json:"side"`
-	Source    string           `json:"source"`
-	Title     string           `json:"title"`
-	UpdatedAt time.Time        `json:"updated_at"`
-
-	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
-	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
-	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
-	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
-	// not only overlay mode.
-	Version              *RowVersion            `json:"version,omitempty"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// DealRoomTaskListResponse defines model for DealRoomTaskListResponse.
-type DealRoomTaskListResponse struct {
-	Data []DealRoomTask `json:"data"`
-	Page PageInfo       `json:"page"`
-}
-
-// DealRoomTaskSide Which side of the table owes this item: `seller` or `buyer`. One side, never
-// both — an item two parties own is one nobody chases.
-//
-// Typed as a plain string rather than an inline enum for the reason
-// `DealRoomParticipantCapability` gives: an inline enum would generate
-// package-scope Go constants named `Seller` and `Buyer` in the shared contracts
-// package, colliding with any other schema declaring those values. The closed set
-// is stated here and held by the writer and the schema CHECK.
-type DealRoomTaskSide = string
-
 // DealRoomThread One thread of the room's conversation, with its comments. Served to both
 // sides in the same shape: the buyer and the seller read the same
 // conversation, and neither side's ids beyond the thread's own are in it.
@@ -15739,7 +15625,7 @@ type DealRoomThread struct {
 	ResolvedAt     *time.Time          `json:"resolved_at,omitempty"`
 	RoomId         openapi_types.UUID  `json:"room_id"`
 
-	// State `open` or `resolved`. A plain string, not an inline enum, for the reason `DealRoomTaskSide` gives.
+	// State `open` or `resolved`. A plain string, not an inline enum, for the reason `DealRoomParticipantCapability` gives.
 	State string `json:"state"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
@@ -22521,7 +22407,7 @@ type UpdateDealRoomDocumentRequest struct {
 	// `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
 	// key never carries a display string. Not configurable, not AI-assigned — the
 	// person adding the document picks. A plain string rather than an inline enum
-	// for the reason `DealRoomTaskSide` gives.
+	// for the reason `DealRoomParticipantCapability` gives.
 	GroupKey             *DealRoomDocumentGroup `json:"group_key,omitempty"`
 	Position             *int                   `json:"position,omitempty"`
 	Title                *string                `json:"title,omitempty"`
@@ -22561,26 +22447,6 @@ type UpdateDealRoomRequest struct {
 	StewardUserId        *openapi_types.UUID    `json:"steward_user_id,omitempty"`
 	Title                *string                `json:"title,omitempty"`
 	WelcomeMessage       *string                `json:"welcome_message,omitempty"`
-	AdditionalProperties map[string]interface{} `json:"-"`
-}
-
-// UpdateDealRoomTaskRequest Any subset; omit a field to leave it unchanged.
-type UpdateDealRoomTaskRequest struct {
-	// Done Tick or un-tick the item. Ticking stamps who did it from the authenticated
-	// principal; un-ticking clears both the time and the attribution.
-	Done     *bool `json:"done,omitempty"`
-	Position *int  `json:"position,omitempty"`
-
-	// Side Which side of the table owes this item: `seller` or `buyer`. One side, never
-	// both — an item two parties own is one nobody chases.
-	//
-	// Typed as a plain string rather than an inline enum for the reason
-	// `DealRoomParticipantCapability` gives: an inline enum would generate
-	// package-scope Go constants named `Seller` and `Buyer` in the shared contracts
-	// package, colliding with any other schema declaring those values. The closed set
-	// is stated here and held by the writer and the schema CHECK.
-	Side                 *DealRoomTaskSide      `json:"side,omitempty"`
-	Title                *string                `json:"title,omitempty"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
@@ -24409,42 +24275,6 @@ type ListDealRoomReleasesParams struct {
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// ListDealRoomTasksParams defines parameters for ListDealRoomTasks.
-type ListDealRoomTasksParams struct {
-	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` of the originating request (field + direction) plus the last row's keyset
-	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
-	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
-	// together with a `sort` that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
-	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
-	// remaining pages see, so re-issue the query without the cursor when changing filters.
-	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
-
-	// Limit Max items in the page.
-	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
-}
-
-// ArchiveDealRoomTaskParams defines parameters for ArchiveDealRoomTask.
-type ArchiveDealRoomTaskParams struct {
-	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
-	// the last-seen entity `version`. If the row's current `version` differs, the write is
-	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
-	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
-	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
-	IfMatch *IfMatch `json:"If-Match,omitempty"`
-}
-
-// UpdateDealRoomTaskParams defines parameters for UpdateDealRoomTask.
-type UpdateDealRoomTaskParams struct {
-	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
-	// the last-seen entity `version`. If the row's current `version` differs, the write is
-	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
-	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
-	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
-	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // ListDealRoomThreadsParams defines parameters for ListDealRoomThreads.
@@ -27577,12 +27407,6 @@ type UpdateDealRoomParticipantJSONRequestBody = UpdateDealRoomParticipantRequest
 // PublishDealRoomJSONRequestBody defines body for PublishDealRoom for application/json ContentType.
 type PublishDealRoomJSONRequestBody = PublishDealRoomRequest
 
-// CreateDealRoomTaskJSONRequestBody defines body for CreateDealRoomTask for application/json ContentType.
-type CreateDealRoomTaskJSONRequestBody = CreateDealRoomTaskRequest
-
-// UpdateDealRoomTaskJSONRequestBody defines body for UpdateDealRoomTask for application/json ContentType.
-type UpdateDealRoomTaskJSONRequestBody = UpdateDealRoomTaskRequest
-
 // OpenDealRoomThreadJSONRequestBody defines body for OpenDealRoomThread for application/json ContentType.
 type OpenDealRoomThreadJSONRequestBody = OpenDealRoomThreadRequest
 
@@ -27825,9 +27649,6 @@ type RequestDealRoomLinkJSONRequestBody = DealRoomLinkRequest
 
 // PeekDealRoomCredentialJSONRequestBody defines body for PeekDealRoomCredential for application/json ContentType.
 type PeekDealRoomCredentialJSONRequestBody = DealRoomCredentialRequest
-
-// CompleteBuyerRoomTaskJSONRequestBody defines body for CompleteBuyerRoomTask for application/json ContentType.
-type CompleteBuyerRoomTaskJSONRequestBody = CompleteBuyerRoomTaskRequest
 
 // OpenBuyerRoomThreadJSONRequestBody defines body for OpenBuyerRoomThread for application/json ContentType.
 type OpenBuyerRoomThreadJSONRequestBody = OpenDealRoomThreadRequest
@@ -28565,113 +28386,6 @@ func (a CreateDealRoomRequest) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'welcome_message': %w", err)
 		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for CreateDealRoomTaskRequest. Returns the specified
-// element and whether it was found
-func (a CreateDealRoomTaskRequest) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for CreateDealRoomTaskRequest
-func (a *CreateDealRoomTaskRequest) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for CreateDealRoomTaskRequest to handle AdditionalProperties
-func (a *CreateDealRoomTaskRequest) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["position"]; found {
-		err = json.Unmarshal(raw, &a.Position)
-		if err != nil {
-			return fmt.Errorf("error reading 'position': %w", err)
-		}
-		delete(object, "position")
-	}
-
-	if raw, found := object["side"]; found {
-		err = json.Unmarshal(raw, &a.Side)
-		if err != nil {
-			return fmt.Errorf("error reading 'side': %w", err)
-		}
-		delete(object, "side")
-	}
-
-	if raw, found := object["source"]; found {
-		err = json.Unmarshal(raw, &a.Source)
-		if err != nil {
-			return fmt.Errorf("error reading 'source': %w", err)
-		}
-		delete(object, "source")
-	}
-
-	if raw, found := object["title"]; found {
-		err = json.Unmarshal(raw, &a.Title)
-		if err != nil {
-			return fmt.Errorf("error reading 'title': %w", err)
-		}
-		delete(object, "title")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for CreateDealRoomTaskRequest to handle AdditionalProperties
-func (a CreateDealRoomTaskRequest) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.Position != nil {
-		object["position"], err = json.Marshal(a.Position)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'position': %w", err)
-		}
-	}
-
-	object["side"], err = json.Marshal(a.Side)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'side': %w", err)
-	}
-
-	object["source"], err = json.Marshal(a.Source)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'source': %w", err)
-	}
-
-	object["title"], err = json.Marshal(a.Title)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'title': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -31312,264 +31026,6 @@ func (a DealRoomRelease) MarshalJSON() ([]byte, error) {
 	object["source"], err = json.Marshal(a.Source)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'source': %w", err)
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
-// Getter for additional properties for DealRoomTask. Returns the specified
-// element and whether it was found
-func (a DealRoomTask) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for DealRoomTask
-func (a *DealRoomTask) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for DealRoomTask to handle AdditionalProperties
-func (a *DealRoomTask) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["archived_at"]; found {
-		err = json.Unmarshal(raw, &a.ArchivedAt)
-		if err != nil {
-			return fmt.Errorf("error reading 'archived_at': %w", err)
-		}
-		delete(object, "archived_at")
-	}
-
-	if raw, found := object["captured_by"]; found {
-		err = json.Unmarshal(raw, &a.CapturedBy)
-		if err != nil {
-			return fmt.Errorf("error reading 'captured_by': %w", err)
-		}
-		delete(object, "captured_by")
-	}
-
-	if raw, found := object["created_at"]; found {
-		err = json.Unmarshal(raw, &a.CreatedAt)
-		if err != nil {
-			return fmt.Errorf("error reading 'created_at': %w", err)
-		}
-		delete(object, "created_at")
-	}
-
-	if raw, found := object["done"]; found {
-		err = json.Unmarshal(raw, &a.Done)
-		if err != nil {
-			return fmt.Errorf("error reading 'done': %w", err)
-		}
-		delete(object, "done")
-	}
-
-	if raw, found := object["done_at"]; found {
-		err = json.Unmarshal(raw, &a.DoneAt)
-		if err != nil {
-			return fmt.Errorf("error reading 'done_at': %w", err)
-		}
-		delete(object, "done_at")
-	}
-
-	if raw, found := object["done_by_participant_id"]; found {
-		err = json.Unmarshal(raw, &a.DoneByParticipantId)
-		if err != nil {
-			return fmt.Errorf("error reading 'done_by_participant_id': %w", err)
-		}
-		delete(object, "done_by_participant_id")
-	}
-
-	if raw, found := object["done_by_user_id"]; found {
-		err = json.Unmarshal(raw, &a.DoneByUserId)
-		if err != nil {
-			return fmt.Errorf("error reading 'done_by_user_id': %w", err)
-		}
-		delete(object, "done_by_user_id")
-	}
-
-	if raw, found := object["id"]; found {
-		err = json.Unmarshal(raw, &a.Id)
-		if err != nil {
-			return fmt.Errorf("error reading 'id': %w", err)
-		}
-		delete(object, "id")
-	}
-
-	if raw, found := object["position"]; found {
-		err = json.Unmarshal(raw, &a.Position)
-		if err != nil {
-			return fmt.Errorf("error reading 'position': %w", err)
-		}
-		delete(object, "position")
-	}
-
-	if raw, found := object["room_id"]; found {
-		err = json.Unmarshal(raw, &a.RoomId)
-		if err != nil {
-			return fmt.Errorf("error reading 'room_id': %w", err)
-		}
-		delete(object, "room_id")
-	}
-
-	if raw, found := object["side"]; found {
-		err = json.Unmarshal(raw, &a.Side)
-		if err != nil {
-			return fmt.Errorf("error reading 'side': %w", err)
-		}
-		delete(object, "side")
-	}
-
-	if raw, found := object["source"]; found {
-		err = json.Unmarshal(raw, &a.Source)
-		if err != nil {
-			return fmt.Errorf("error reading 'source': %w", err)
-		}
-		delete(object, "source")
-	}
-
-	if raw, found := object["title"]; found {
-		err = json.Unmarshal(raw, &a.Title)
-		if err != nil {
-			return fmt.Errorf("error reading 'title': %w", err)
-		}
-		delete(object, "title")
-	}
-
-	if raw, found := object["updated_at"]; found {
-		err = json.Unmarshal(raw, &a.UpdatedAt)
-		if err != nil {
-			return fmt.Errorf("error reading 'updated_at': %w", err)
-		}
-		delete(object, "updated_at")
-	}
-
-	if raw, found := object["version"]; found {
-		err = json.Unmarshal(raw, &a.Version)
-		if err != nil {
-			return fmt.Errorf("error reading 'version': %w", err)
-		}
-		delete(object, "version")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for DealRoomTask to handle AdditionalProperties
-func (a DealRoomTask) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.ArchivedAt != nil {
-		object["archived_at"], err = json.Marshal(a.ArchivedAt)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'archived_at': %w", err)
-		}
-	}
-
-	if a.CapturedBy != nil {
-		object["captured_by"], err = json.Marshal(a.CapturedBy)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'captured_by': %w", err)
-		}
-	}
-
-	object["created_at"], err = json.Marshal(a.CreatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
-	}
-
-	object["done"], err = json.Marshal(a.Done)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'done': %w", err)
-	}
-
-	if a.DoneAt != nil {
-		object["done_at"], err = json.Marshal(a.DoneAt)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'done_at': %w", err)
-		}
-	}
-
-	if a.DoneByParticipantId != nil {
-		object["done_by_participant_id"], err = json.Marshal(a.DoneByParticipantId)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'done_by_participant_id': %w", err)
-		}
-	}
-
-	if a.DoneByUserId != nil {
-		object["done_by_user_id"], err = json.Marshal(a.DoneByUserId)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'done_by_user_id': %w", err)
-		}
-	}
-
-	object["id"], err = json.Marshal(a.Id)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'id': %w", err)
-	}
-
-	object["position"], err = json.Marshal(a.Position)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'position': %w", err)
-	}
-
-	object["room_id"], err = json.Marshal(a.RoomId)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'room_id': %w", err)
-	}
-
-	object["side"], err = json.Marshal(a.Side)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'side': %w", err)
-	}
-
-	object["source"], err = json.Marshal(a.Source)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'source': %w", err)
-	}
-
-	object["title"], err = json.Marshal(a.Title)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'title': %w", err)
-	}
-
-	object["updated_at"], err = json.Marshal(a.UpdatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'updated_at': %w", err)
-	}
-
-	object["version"], err = json.Marshal(a.Version)
-	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'version': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -34863,119 +34319,6 @@ func (a UpdateDealRoomRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
-// Getter for additional properties for UpdateDealRoomTaskRequest. Returns the specified
-// element and whether it was found
-func (a UpdateDealRoomTaskRequest) Get(fieldName string) (value interface{}, found bool) {
-	if a.AdditionalProperties != nil {
-		value, found = a.AdditionalProperties[fieldName]
-	}
-	return
-}
-
-// Setter for additional properties for UpdateDealRoomTaskRequest
-func (a *UpdateDealRoomTaskRequest) Set(fieldName string, value interface{}) {
-	if a.AdditionalProperties == nil {
-		a.AdditionalProperties = make(map[string]interface{})
-	}
-	a.AdditionalProperties[fieldName] = value
-}
-
-// Override default JSON handling for UpdateDealRoomTaskRequest to handle AdditionalProperties
-func (a *UpdateDealRoomTaskRequest) UnmarshalJSON(b []byte) error {
-	object := make(map[string]json.RawMessage)
-	err := json.Unmarshal(b, &object)
-	if err != nil {
-		return err
-	}
-
-	if raw, found := object["done"]; found {
-		err = json.Unmarshal(raw, &a.Done)
-		if err != nil {
-			return fmt.Errorf("error reading 'done': %w", err)
-		}
-		delete(object, "done")
-	}
-
-	if raw, found := object["position"]; found {
-		err = json.Unmarshal(raw, &a.Position)
-		if err != nil {
-			return fmt.Errorf("error reading 'position': %w", err)
-		}
-		delete(object, "position")
-	}
-
-	if raw, found := object["side"]; found {
-		err = json.Unmarshal(raw, &a.Side)
-		if err != nil {
-			return fmt.Errorf("error reading 'side': %w", err)
-		}
-		delete(object, "side")
-	}
-
-	if raw, found := object["title"]; found {
-		err = json.Unmarshal(raw, &a.Title)
-		if err != nil {
-			return fmt.Errorf("error reading 'title': %w", err)
-		}
-		delete(object, "title")
-	}
-
-	if len(object) != 0 {
-		a.AdditionalProperties = make(map[string]interface{})
-		for fieldName, fieldBuf := range object {
-			var fieldVal interface{}
-			err := json.Unmarshal(fieldBuf, &fieldVal)
-			if err != nil {
-				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
-			}
-			a.AdditionalProperties[fieldName] = fieldVal
-		}
-	}
-	return nil
-}
-
-// Override default JSON handling for UpdateDealRoomTaskRequest to handle AdditionalProperties
-func (a UpdateDealRoomTaskRequest) MarshalJSON() ([]byte, error) {
-	var err error
-	object := make(map[string]json.RawMessage)
-
-	if a.Done != nil {
-		object["done"], err = json.Marshal(a.Done)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'done': %w", err)
-		}
-	}
-
-	if a.Position != nil {
-		object["position"], err = json.Marshal(a.Position)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'position': %w", err)
-		}
-	}
-
-	if a.Side != nil {
-		object["side"], err = json.Marshal(a.Side)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'side': %w", err)
-		}
-	}
-
-	if a.Title != nil {
-		object["title"], err = json.Marshal(a.Title)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'title': %w", err)
-		}
-	}
-
-	for fieldName, field := range a.AdditionalProperties {
-		object[fieldName], err = json.Marshal(field)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
-		}
-	}
-	return json.Marshal(object)
-}
-
 // Getter for additional properties for UpdateLeadRequest. Returns the specified
 // element and whether it was found
 func (a UpdateLeadRequest) Get(fieldName string) (value interface{}, found bool) {
@@ -36655,18 +35998,6 @@ type ServerInterface interface {
 	// Resume a paused Deal Room.
 	// (POST /deal-rooms/{id}/resume)
 	ResumeDealRoom(w http.ResponseWriter, r *http.Request, id Id)
-	// List a room's shared to-do list, in the order both sides see it.
-	// (GET /deal-rooms/{id}/tasks)
-	ListDealRoomTasks(w http.ResponseWriter, r *http.Request, id Id, params ListDealRoomTasksParams)
-	// Add an item to the shared to-do list.
-	// (POST /deal-rooms/{id}/tasks)
-	CreateDealRoomTask(w http.ResponseWriter, r *http.Request, id Id)
-	// Take an item off the shared to-do list.
-	// (DELETE /deal-rooms/{id}/tasks/{taskId})
-	ArchiveDealRoomTask(w http.ResponseWriter, r *http.Request, id Id, taskId openapi_types.UUID, params ArchiveDealRoomTaskParams)
-	// Reword, reassign, reorder or tick off a to-do.
-	// (PATCH /deal-rooms/{id}/tasks/{taskId})
-	UpdateDealRoomTask(w http.ResponseWriter, r *http.Request, id Id, taskId openapi_types.UUID, params UpdateDealRoomTaskParams)
 	// The room's conversation — every thread with its comments.
 	// (GET /deal-rooms/{id}/threads)
 	ListDealRoomThreads(w http.ResponseWriter, r *http.Request, id Id, params ListDealRoomThreadsParams)
@@ -37315,12 +36646,6 @@ type ServerInterface interface {
 	// End the room session.
 	// (POST /public/rooms/sign-out)
 	SignOutBuyerRoom(w http.ResponseWriter, r *http.Request)
-	// The shared to-do list as published, with live completion state.
-	// (GET /public/rooms/tasks)
-	ListBuyerRoomTasks(w http.ResponseWriter, r *http.Request)
-	// Tick or un-tick an item on the shared list as the buyer.
-	// (POST /public/rooms/tasks/{taskId}/complete)
-	CompleteBuyerRoomTask(w http.ResponseWriter, r *http.Request, taskId openapi_types.UUID)
 	// The room's conversation as the buyer sees it.
 	// (GET /public/rooms/threads)
 	ListBuyerRoomThreads(w http.ResponseWriter, r *http.Request, params ListBuyerRoomThreadsParams)
@@ -38518,30 +37843,6 @@ func (_ Unimplemented) ListDealRoomReleases(w http.ResponseWriter, r *http.Reque
 // Resume a paused Deal Room.
 // (POST /deal-rooms/{id}/resume)
 func (_ Unimplemented) ResumeDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// List a room's shared to-do list, in the order both sides see it.
-// (GET /deal-rooms/{id}/tasks)
-func (_ Unimplemented) ListDealRoomTasks(w http.ResponseWriter, r *http.Request, id Id, params ListDealRoomTasksParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Add an item to the shared to-do list.
-// (POST /deal-rooms/{id}/tasks)
-func (_ Unimplemented) CreateDealRoomTask(w http.ResponseWriter, r *http.Request, id Id) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Take an item off the shared to-do list.
-// (DELETE /deal-rooms/{id}/tasks/{taskId})
-func (_ Unimplemented) ArchiveDealRoomTask(w http.ResponseWriter, r *http.Request, id Id, taskId openapi_types.UUID, params ArchiveDealRoomTaskParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Reword, reassign, reorder or tick off a to-do.
-// (PATCH /deal-rooms/{id}/tasks/{taskId})
-func (_ Unimplemented) UpdateDealRoomTask(w http.ResponseWriter, r *http.Request, id Id, taskId openapi_types.UUID, params UpdateDealRoomTaskParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -39838,18 +39139,6 @@ func (_ Unimplemented) PeekDealRoomCredential(w http.ResponseWriter, r *http.Req
 // End the room session.
 // (POST /public/rooms/sign-out)
 func (_ Unimplemented) SignOutBuyerRoom(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// The shared to-do list as published, with live completion state.
-// (GET /public/rooms/tasks)
-func (_ Unimplemented) ListBuyerRoomTasks(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Tick or un-tick an item on the shared list as the buyer.
-// (POST /public/rooms/tasks/{taskId}/complete)
-func (_ Unimplemented) CompleteBuyerRoomTask(w http.ResponseWriter, r *http.Request, taskId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -46570,237 +45859,6 @@ func (siw *ServerInterfaceWrapper) ResumeDealRoom(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ResumeDealRoom(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListDealRoomTasks operation middleware
-func (siw *ServerInterfaceWrapper) ListDealRoomTasks(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id Id
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListDealRoomTasksParams
-
-	// ------------- Optional query parameter "cursor" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListDealRoomTasks(w, r, id, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateDealRoomTask operation middleware
-func (siw *ServerInterfaceWrapper) CreateDealRoomTask(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id Id
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateDealRoomTask(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ArchiveDealRoomTask operation middleware
-func (siw *ServerInterfaceWrapper) ArchiveDealRoomTask(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id Id
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "taskId" -------------
-	var taskId openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "taskId", chi.URLParam(r, "taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ArchiveDealRoomTaskParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "If-Match" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
-		var IfMatch IfMatch
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
-			return
-		}
-
-		params.IfMatch = &IfMatch
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ArchiveDealRoomTask(w, r, id, taskId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// UpdateDealRoomTask operation middleware
-func (siw *ServerInterfaceWrapper) UpdateDealRoomTask(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id Id
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "taskId" -------------
-	var taskId openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "taskId", chi.URLParam(r, "taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params UpdateDealRoomTaskParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "If-Match" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
-		var IfMatch IfMatch
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
-			return
-		}
-
-		params.IfMatch = &IfMatch
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateDealRoomTask(w, r, id, taskId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -56760,58 +55818,6 @@ func (siw *ServerInterfaceWrapper) SignOutBuyerRoom(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
-// ListBuyerRoomTasks operation middleware
-func (siw *ServerInterfaceWrapper) ListBuyerRoomTasks(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListBuyerRoomTasks(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CompleteBuyerRoomTask operation middleware
-func (siw *ServerInterfaceWrapper) CompleteBuyerRoomTask(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "taskId" -------------
-	var taskId openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "taskId", chi.URLParam(r, "taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CompleteBuyerRoomTask(w, r, taskId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListBuyerRoomThreads operation middleware
 func (siw *ServerInterfaceWrapper) ListBuyerRoomThreads(w http.ResponseWriter, r *http.Request) {
 
@@ -62236,18 +61242,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/deal-rooms/{id}/resume", wrapper.ResumeDealRoom)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/deal-rooms/{id}/tasks", wrapper.ListDealRoomTasks)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/deal-rooms/{id}/tasks", wrapper.CreateDealRoomTask)
-	})
-	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/deal-rooms/{id}/tasks/{taskId}", wrapper.ArchiveDealRoomTask)
-	})
-	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/deal-rooms/{id}/tasks/{taskId}", wrapper.UpdateDealRoomTask)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deal-rooms/{id}/threads", wrapper.ListDealRoomThreads)
 	})
 	r.Group(func(r chi.Router) {
@@ -62894,12 +61888,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/public/rooms/sign-out", wrapper.SignOutBuyerRoom)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/public/rooms/tasks", wrapper.ListBuyerRoomTasks)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/public/rooms/tasks/{taskId}/complete", wrapper.CompleteBuyerRoomTask)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/public/rooms/threads", wrapper.ListBuyerRoomThreads)

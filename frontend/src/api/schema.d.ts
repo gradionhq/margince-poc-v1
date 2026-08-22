@@ -3068,52 +3068,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/public/rooms/tasks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The shared to-do list as published, with live completion state.
-         * @description Task DEFINITIONS come from the latest release; COMPLETION is live, so a tick
-         *     from either side shows without a republish. Empty while the room is paused
-         *     or expired.
-         */
-        get: operations["listBuyerRoomTasks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/public/rooms/tasks/{taskId}/complete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                taskId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Tick or un-tick an item on the shared list as the buyer.
-         * @description Completion is the one thing a buyer writes to the list in this release; they
-         *     never author an item. Refused with 422 `deal_room_task_not_editable` once the
-         *     room is paused, closed or expired — a finished room's list is a record.
-         */
-        post: operations["completeBuyerRoomTask"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/public/rooms/documents": {
         parameters: {
             query?: never;
@@ -7511,8 +7465,8 @@ export interface paths {
         put?: never;
         /**
          * Freeze the room's content, keeping buyer access.
-         * @description Closing freezes CONTENT, not ACCESS. The buyer keeps reading documents,
-         *     to-dos and history; no comment, decision or task toggle is accepted after it.
+         * @description Closing freezes CONTENT, not ACCESS. The buyer keeps reading documents and
+         *     history; no comment or decision is accepted after it.
          *
          *     Access management deliberately keeps working on a closed room — a steward can
          *     still revoke a participant — because being unable to remove someone from a
@@ -7569,7 +7523,7 @@ export interface paths {
         /**
          * List the people admitted to a room.
          * @description Revoked participants are included by default and marked: their comments and
-         *     completed to-dos stay attributed to them, so a roster that hid them would
+         *     decisions stay attributed to them, so a roster that hid them would
          *     leave unexplained names on the room's history.
          */
         get: operations["listDealRoomParticipants"];
@@ -7684,7 +7638,7 @@ export interface paths {
          *     closed, so this is never frozen along with the room's content.
          *
          *     Ends their live session immediately and retires any unconsumed credential. The
-         *     participant row survives, so their comments and completed to-dos stay
+         *     participant row survives, so their comments and decisions stay
          *     attributed. Revoking twice is accepted and changes nothing further.
          */
         post: operations["revokeDealRoomParticipant"];
@@ -7692,78 +7646,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/deal-rooms/{id}/tasks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-            };
-            cookie?: never;
-        };
-        /**
-         * List a room's shared to-do list, in the order both sides see it.
-         * @description The work outstanding between seller and buyer, each item owned by one side.
-         *     There are no due dates: an item is done or it is not.
-         */
-        get: operations["listDealRoomTasks"];
-        put?: never;
-        /**
-         * Add an item to the shared to-do list.
-         * @description Adding an item changes what the buyer is asked to do, so it is editorial: it
-         *     reaches them at the next publish, not immediately. Refused once the room can no
-         *     longer reach a buyer at all — closed, expired or archived.
-         */
-        post: operations["createDealRoomTask"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/deal-rooms/{id}/tasks/{taskId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-                taskId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Take an item off the shared to-do list.
-         * @description Archives the item rather than deleting it, so a completed item stays attributed
-         *     to whoever did it. Removal is editorial: the buyer stops seeing it at the next
-         *     publish.
-         */
-        delete: operations["archiveDealRoomTask"];
-        options?: never;
-        head?: never;
-        /**
-         * Reword, reassign, reorder or tick off a to-do.
-         * @description Two kinds of change go through here, and they are frozen differently.
-         *
-         *     DEFINITION — title, side and position — is editorial, exactly like adding an
-         *     item: the buyer sees it at the next publish, and it is refused once the room is
-         *     closed, expired or archived.
-         *
-         *     COMPLETION — `done` — is live collaboration state. Both sides tick items off
-         *     without republishing, so this is never frozen by a publish. It IS refused in a
-         *     room that can no longer reach a buyer, because a closed room's to-do list is a
-         *     record of what happened rather than a list anyone is still working.
-         *
-         *     Ticking an item stamps who did it. Un-ticking clears both the time and the
-         *     attribution, so a reopened item names nobody until it is done again.
-         */
-        patch: operations["updateDealRoomTask"];
         trace?: never;
     };
     "/deal-rooms/{id}/documents": {
@@ -13828,7 +13710,7 @@ export interface components {
         /**
          * @description One recommendation for a deal. `action` is one of `draft_email`,
          *     `create_task`, `open_meeting_brief`, `none` — a plain string for the reason
-         *     `DealRoomTaskSide` gives. `arguments` is the body or the operand the named
+         *     `DealRoomParticipantCapability` gives. `arguments` is the body or the operand the named
          *     verb takes, ready to send; absent for `none`.
          */
         DealNextBestAction: {
@@ -19815,7 +19697,7 @@ export interface components {
             /**
              * Format: date-time
              * @description When their access was taken away. The row survives revocation so their
-             *     comments and completed to-dos stay attributed to a name.
+             *     comments and decisions stay attributed to a name.
              */
             revoked_at?: string | null;
             source: string;
@@ -19880,63 +19762,11 @@ export interface components {
             page: components["schemas"]["PageInfo"];
         };
         /**
-         * @description Which side of the table owes this item: `seller` or `buyer`. One side, never
-         *     both — an item two parties own is one nobody chases.
-         *
-         *     Typed as a plain string rather than an inline enum for the reason
-         *     `DealRoomParticipantCapability` gives: an inline enum would generate
-         *     package-scope Go constants named `Seller` and `Buyer` in the shared contracts
-         *     package, colliding with any other schema declaring those values. The closed set
-         *     is stated here and held by the writer and the schema CHECK.
-         */
-        DealRoomTaskSide: string;
-        /**
-         * @description One item on the shared to-do list. Deliberately carries no due date: the list
-         *     says what is outstanding and who owes it, and adding deadlines turns a shared
-         *     working list into a chase.
-         */
-        DealRoomTask: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            room_id: string;
-            side: components["schemas"]["DealRoomTaskSide"];
-            title: string;
-            /** @description The order both sides see, ascending. */
-            position: number;
-            /** @description Whether the item has been ticked off. */
-            done: boolean;
-            /** Format: date-time */
-            done_at?: string | null;
-            /**
-             * Format: uuid
-             * @description Set when a buyer ticked it off. Exactly one of the two done_by fields is set on a done item.
-             */
-            done_by_participant_id?: string | null;
-            /**
-             * Format: uuid
-             * @description Set when someone on the seller's side ticked it off.
-             */
-            done_by_user_id?: string | null;
-            source: string;
-            /** @description Server-stamped from the authenticated principal; never client-supplied. */
-            readonly captured_by?: string;
-            version: components["schemas"]["RowVersion"];
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            updated_at: string;
-            /** Format: date-time */
-            archived_at?: string | null;
-        } & {
-            [key: string]: unknown;
-        };
-        /**
          * @description One of four fixed groups, as a machine key: `commercial`, `legal`,
          *     `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
          *     key never carries a display string. Not configurable, not AI-assigned — the
          *     person adding the document picks. A plain string rather than an inline enum
-         *     for the reason `DealRoomTaskSide` gives.
+         *     for the reason `DealRoomParticipantCapability` gives.
          */
         DealRoomDocumentGroup: string;
         /**
@@ -20045,7 +19875,7 @@ export interface components {
              */
             document_id?: string | null;
             required_change: boolean;
-            /** @description `open` or `resolved`. A plain string, not an inline enum, for the reason `DealRoomTaskSide` gives. */
+            /** @description `open` or `resolved`. A plain string, not an inline enum, for the reason `DealRoomParticipantCapability` gives. */
             state: string;
             author: components["schemas"]["DealRoomAuthor"];
             /** Format: date-time */
@@ -20104,32 +19934,6 @@ export interface components {
             /** @description `request_changes` or `confirm_version`. */
             kind: string;
             note?: string | null;
-        };
-        DealRoomTaskListResponse: {
-            data: components["schemas"]["DealRoomTask"][];
-            page: components["schemas"]["PageInfo"];
-        };
-        CreateDealRoomTaskRequest: {
-            side: components["schemas"]["DealRoomTaskSide"];
-            title: string;
-            /** @description Where the item sits in the list. Defaults to 0, which puts it first. */
-            position?: number;
-            source: string;
-        } & {
-            [key: string]: unknown;
-        };
-        /** @description Any subset; omit a field to leave it unchanged. */
-        UpdateDealRoomTaskRequest: {
-            side?: components["schemas"]["DealRoomTaskSide"];
-            title?: string;
-            position?: number;
-            /**
-             * @description Tick or un-tick the item. Ticking stamps who did it from the authenticated
-             *     principal; un-ticking clears both the time and the attribution.
-             */
-            done?: boolean;
-        } & {
-            [key: string]: unknown;
         };
         DealRoomCredentialRequest: {
             /** @description The one-time credential from the invitation link's fragment. */
@@ -20195,25 +19999,6 @@ export interface components {
             steward_name?: string | null;
             /** @description Omitted while access is `paused` or `expired`, and when nothing has been published yet. */
             room?: components["schemas"]["BuyerRoomContent"];
-        };
-        /** @description One item on the shared list, as the buyer sees it. No seller-side ids, no provenance. */
-        BuyerRoomTask: {
-            /** Format: uuid */
-            id: string;
-            side: components["schemas"]["DealRoomTaskSide"];
-            title: string;
-            position: number;
-            done: boolean;
-            /** Format: date-time */
-            done_at?: string | null;
-            /** @description Which side ticked it — `seller` or `buyer` — or null while open. */
-            done_by?: string | null;
-        };
-        BuyerRoomTaskListResponse: {
-            data: components["schemas"]["BuyerRoomTask"][];
-        };
-        CompleteBuyerRoomTaskRequest: {
-            done: boolean;
         };
         /** @description A branded, workspace-governed DE/EN PDF layout for offers (data-model §12.6). Mirrors the `offer_template` table. Deliberately carries no source/captured_by — like Quota/CustomField, this is workspace-authored config, not a captured record; provenance lives in the audit row, not this schema. */
         OfferTemplate: {
@@ -26432,75 +26217,6 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            /** @description Rate-limited. */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    listBuyerRoomTasks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The list, in the order both sides see it. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BuyerRoomTaskListResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            /** @description Rate-limited. */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    completeBuyerRoomTask: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                taskId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CompleteBuyerRoomTaskRequest"];
-            };
-        };
-        responses: {
-            /** @description The item as it now stands. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BuyerRoomTask"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["ValidationError"];
             /** @description Rate-limited. */
             429: {
                 headers: {
@@ -34461,157 +34177,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-        };
-    };
-    listDealRoomTasks: {
-        parameters: {
-            query?: {
-                /**
-                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
-                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
-                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
-                 *     together with a `sort` that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
-                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
-                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
-                 */
-                cursor?: components["parameters"]["Cursor"];
-                /** @description Max items in the page. */
-                limit?: components["parameters"]["Limit"];
-            };
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description A page of to-dos. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DealRoomTaskListResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    createDealRoomTask: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateDealRoomTaskRequest"];
-            };
-        };
-        responses: {
-            /** @description The added to-do. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DealRoomTask"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["ValidationError"];
-        };
-    };
-    archiveDealRoomTask: {
-        parameters: {
-            query?: never;
-            header?: {
-                /**
-                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
-                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
-                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
-                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
-                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
-                 */
-                "If-Match"?: components["parameters"]["IfMatch"];
-            };
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-                taskId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The archived to-do. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DealRoomTask"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-        };
-    };
-    updateDealRoomTask: {
-        parameters: {
-            query?: never;
-            header?: {
-                /**
-                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
-                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
-                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
-                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
-                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
-                 */
-                "If-Match"?: components["parameters"]["IfMatch"];
-            };
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-                taskId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateDealRoomTaskRequest"];
-            };
-        };
-        responses: {
-            /** @description The updated to-do. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DealRoomTask"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["ValidationError"];
         };
     };
     listDealRoomDocuments: {

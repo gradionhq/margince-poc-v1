@@ -54,7 +54,6 @@ components:
         - deal_room.participant_invited
         - deal_room.participant_revoked
         - deal_room.participant_credential_reissued
-        - deal_room.task_completion_changed
         - deal_room.comment_posted
         - deal_room.thread_resolved
         - deal_room.decision_recorded
@@ -588,35 +587,6 @@ components:
         kind:
           type: string
           description: '`request_changes` or `confirm_version`.'
-      additionalProperties: false
-
-    PublicEventDealRoomTaskCompletionChanged:
-      type: object
-      x-event-type: deal_room.task_completion_changed
-      x-entity-type: deal_room
-      x-version: 1
-      description: |
-        Payload for deal_room.task_completion_changed — an item on the shared to-do
-        list was ticked off or re-opened. Carries no title: the item's wording is
-        editorial and reaches a subscriber through the release that published it.
-      required:
-        - deal_id
-        - task_id
-        - side
-        - done
-      properties:
-        deal_id:
-          type: string
-          format: uuid
-        task_id:
-          type: string
-          format: uuid
-        side:
-          type: string
-          description: Which side owed the item — `seller` or `buyer`.
-        done:
-          type: boolean
-          description: Its state after the change. False means a completed item was re-opened.
       additionalProperties: false
 
     PublicEventContractCreated:

@@ -80,7 +80,7 @@ func liveRoomForBuyerWrite(ctx context.Context, tx pgx.Tx, sess Session, needs s
 	case accessPaused:
 		return crmcontracts.DealRoom{}, pausedForBuyer()
 	default:
-		return crmcontracts.DealRoom{}, notTaskEditable(access)
+		return crmcontracts.DealRoom{}, notContentEditable(access)
 	}
 	if _, err := storekit.LockRow(ctx, tx, roomObject, sess.RoomID.UUID, storekit.LiveOnly); err != nil {
 		return crmcontracts.DealRoom{}, err

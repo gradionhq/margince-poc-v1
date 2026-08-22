@@ -7,16 +7,15 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { DealRoomAside } from "./dealroom";
 
-// The shared to-do list as a rep meets it: the two sides' items are told apart,
-// ticking one writes with the row's version, and a finished room says why it
-// takes no more changes rather than failing the click.
+// The Deal Room aside as a rep meets it: the room's state is named, a finished
+// room says why it takes no more content rather than failing the click, and a
+// deal without a room gets no card at all.
 
 afterEach(() => {
   cleanup();
@@ -24,7 +23,6 @@ afterEach(() => {
 });
 
 type DealRoom = components["schemas"]["DealRoom"];
-type DealRoomTask = components["schemas"]["DealRoomTask"];
 
 const render = (ui: ReactNode) => {
   const client = new QueryClient({
@@ -49,22 +47,6 @@ function room(state: string): DealRoom {
     updated_at: "2026-08-22T09:00:00Z",
     release_count: 0,
   } as DealRoom;
-}
-
-function task(over: Partial<DealRoomTask>): DealRoomTask {
-  return {
-    id: "task-1",
-    room_id: "room-1",
-    side: "buyer",
-    title: "Return the signed NDA",
-    position: 0,
-    done: false,
-    source: "manual",
-    version: 3,
-    created_at: "2026-08-22T09:00:00Z",
-    updated_at: "2026-08-22T09:00:00Z",
-    ...over,
-  } as DealRoomTask;
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -97,11 +79,7 @@ function me(mayWrite: boolean) {
 
 // Routes the GETs the aside makes, and records every write so a test can
 // assert what actually went on the wire rather than what the UI drew.
-function stubApi(
-  rooms: DealRoom[],
-  tasks: DealRoomTask[],
-  mayWrite = true,
-): { calls: Request[] } {
+function stubApi(rooms: DealRoom[], mayWrite = true): { calls: Request[] } {
   const calls: Request[] = [];
   // openapi-fetch hands `fetch` a Request rather than a url string, so the url
   // and the method are read off that. Stringifying the argument yields
@@ -110,126 +88,64 @@ function stubApi(
   vi.stubGlobal("fetch", (input: Request) => {
     if (input.method !== "GET") {
       calls.push(input.clone());
-      return Promise.resolve(jsonResponse(task({ done: true, version: 4 })));
+      return Promise.resolve(jsonResponse({}));
     }
     const path = new URL(input.url).pathname;
     if (path.endsWith("/me")) {
       return Promise.resolve(jsonResponse(me(mayWrite)));
     }
-    if (path.endsWith("/tasks")) {
-      return Promise.resolve(jsonResponse({ data: tasks, page: {} }));
+    if (path.endsWith("/documents") || path.endsWith("/threads")) {
+      return Promise.resolve(jsonResponse({ data: [], page: {} }));
+    }
+    if (path.endsWith("/decisions")) {
+      return Promise.resolve(jsonResponse({ data: [] }));
     }
     return Promise.resolve(jsonResponse({ data: rooms, page: {} }));
   });
   return { calls };
 }
 
-it("tells the two sides' to-dos apart", async () => {
-  stubApi(
-    [room("live")],
-    [
-      task({ id: "t1", side: "buyer", title: "Return the signed NDA" }),
-      task({ id: "t2", side: "seller", title: "Send the pricing sheet" }),
-    ],
-  );
+it("names the room's state on the card", async () => {
+  stubApi([room("live")]);
   render(<DealRoomAside dealId="deal-1" />);
 
-  const theirs = await screen.findByRole("switch", {
-    name: /Return the signed NDA/,
-  });
-  const ours = screen.getByRole("switch", { name: /Send the pricing sheet/ });
-  // Who owes an item is the whole point of a shared list — an item with no side
-  // is one neither party chases.
-  expect(theirs).toHaveAccessibleDescription(/buyer/i);
-  expect(ours).toHaveAccessibleDescription(/We owe/i);
+  expect(await screen.findByText("Live")).toBeInTheDocument();
+  expect(screen.getByText("Documents")).toBeInTheDocument();
 });
 
-it("ticking an item sends the row's version, so a concurrent edit is refused", async () => {
-  const { calls } = stubApi([room("live")], [task({ version: 3 })]);
-  const user = userEvent.setup();
+it("a finished room says why it takes no more content", async () => {
+  stubApi([room("closed")]);
   render(<DealRoomAside dealId="deal-1" />);
 
-  await user.click(
-    await screen.findByRole("switch", { name: /Return the signed NDA/ }),
-  );
-
-  await waitFor(() => expect(calls).toHaveLength(1));
-  const write = calls[0];
-  expect(write.url).toContain("/deal-rooms/room-1/tasks/task-1");
-  expect(write.method).toBe("PATCH");
-  expect(await write.json()).toEqual({ done: true });
-  // Unpinned, the write lands on top of an edit it never saw and reports
-  // success to both editors.
-  expect(write.headers.get("If-Match")).toBe("3");
-});
-
-it("a finished room says why its list takes no more changes", async () => {
-  stubApi([room("closed")], [task({})]);
-  render(<DealRoomAside dealId="deal-1" />);
-
-  const toggle = await screen.findByRole("switch", {
-    name: /Return the signed NDA/,
-  });
-  // The refusal reaches a screen reader through the control's own description,
-  // rather than sitting beside it as decoration.
-  expect(toggle).toHaveAccessibleDescription(/record/i);
-  // A stated reason IS the refusal rather than a note beside one: Switch sets
-  // the native disabled attribute for it, so the click never reaches the
-  // server. A reader told why they may not change something, who then can, is
-  // worse off than one told nothing.
-  expect(toggle).toBeDisabled();
-  // And the add form is gone entirely: an input that refuses every submission
-  // is worse than no input.
-  expect(screen.queryByTestId("room-task-new")).not.toBeInTheDocument();
+  // The refusal IS the control's replacement: the add form is gone entirely,
+  // because an input that refuses every submission is worse than no input.
+  expect(
+    (await screen.findAllByText(/finished, so what it shared is now a record/))
+      .length,
+  ).toBeGreaterThan(0);
+  expect(
+    screen.queryByLabelText("File from this deal"),
+  ).not.toBeInTheDocument();
 });
 
 it("renders nothing at all when the deal has no room", async () => {
-  stubApi([], []);
+  stubApi([]);
   const { container } = render(<DealRoomAside dealId="deal-1" />);
 
   await waitFor(() => expect(container).toBeEmptyDOMElement());
-});
-
-it("says an empty list is empty rather than drawing a bare card", async () => {
-  stubApi([room("live")], []);
-  render(<DealRoomAside dealId="deal-1" />);
-
-  expect(
-    await screen.findByText(/Nothing outstanding between you and the buyer/),
-  ).toBeInTheDocument();
-});
-
-it("adding an item records which side was chosen", async () => {
-  // Both sides stay on screen, so a rep can see which one an item is going to
-  // before they add it. The wrong side is not a cosmetic slip: it decides who
-  // gets chased for the work.
-  const { calls } = stubApi([room("live")], []);
-  const user = userEvent.setup();
-  render(<DealRoomAside dealId="deal-1" />);
-
-  await user.click(await screen.findByRole("button", { name: /We owe/ }));
-  await user.type(screen.getByTestId("room-task-new"), "Draft the SOW");
-  await user.click(screen.getByRole("button", { name: "Add" }));
-
-  await waitFor(() => expect(calls).toHaveLength(1));
-  expect(await calls[0].json()).toEqual({
-    title: "Draft the SOW",
-    side: "seller",
-    source: "manual",
-  });
 });
 
 it("a reader who may not write is told so instead of being offered the controls", async () => {
   // The server refuses a read-only seat's write regardless, but only after the
   // click. A control that looks live and comes back 403 teaches a reader that
   // the product is broken rather than that the permission is.
-  stubApi([room("live")], [task({})], false);
+  stubApi([room("live")], false);
   render(<DealRoomAside dealId="deal-1" />);
 
-  const toggle = await screen.findByRole("switch", {
-    name: /Return the signed NDA/,
-  });
-  expect(toggle).toBeDisabled();
-  expect(toggle).toHaveAccessibleDescription(/read this list but not change/i);
-  expect(screen.queryByTestId("room-task-new")).not.toBeInTheDocument();
+  expect(
+    (await screen.findAllByText(/read this room but not change/i)).length,
+  ).toBeGreaterThan(0);
+  expect(
+    screen.queryByLabelText("File from this deal"),
+  ).not.toBeInTheDocument();
 });

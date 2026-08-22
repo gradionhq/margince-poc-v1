@@ -33,13 +33,10 @@ import (
 // operationId spelled the same way.
 const opRenameCustomField = "renameCustomField"
 
-// opUpdateDealRoomTask is named here for the same reason opRenameCustomField is:
-// three places have to spell one operationId identically — patchTargetParam
+// opUpdateDealRoomDocument is named here for the same reason opRenameCustomField
+// is: three places have to spell one operationId identically — patchTargetParam
 // below, agentcommand.go's restCommands entry, and the test that pins the
-// ownership probe onto the task rather than its room.
-const opUpdateDealRoomTask = "updateDealRoomTask"
-
-// opUpdateDealRoomDocument is its document sibling, named for the same reason.
+// ownership probe onto the document rather than its room.
 const opUpdateDealRoomDocument = "updateDealRoomDocument"
 
 // The remaining five action-shaped ops named below are ALSO both this
@@ -111,7 +108,6 @@ var actionShapedUpdateOps = map[string]bool{
 // wording is exactly such a field. This is the upsertPartner trap in a
 // different shape, and its comment above says why.
 var patchTargetParam = map[string]string{
-	opUpdateDealRoomTask:     "taskId",
 	opUpdateDealRoomDocument: "documentId",
 }
 

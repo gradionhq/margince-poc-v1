@@ -106,7 +106,7 @@ func addDocumentInput(req crmcontracts.AddDealRoomDocumentRequest) (AddDocumentI
 		Source:       req.Source,
 	}
 	if req.Title != nil {
-		title, err := cleanTaskTitle(*req.Title)
+		title, err := cleanTitle(*req.Title)
 		if err != nil {
 			return AddDocumentInput{}, err
 		}
@@ -128,7 +128,7 @@ func updateDocumentInput(req crmcontracts.UpdateDealRoomDocumentRequest, ifVersi
 		in.GroupKey = &group
 	}
 	if req.Title != nil {
-		title, err := cleanTaskTitle(*req.Title)
+		title, err := cleanTitle(*req.Title)
 		if err != nil {
 			return UpdateDocumentInput{}, err
 		}

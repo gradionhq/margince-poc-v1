@@ -137,7 +137,6 @@ const (
 	DealRoomPaused                        SubscribableEventType = "deal_room.paused"
 	DealRoomPublished                     SubscribableEventType = "deal_room.published"
 	DealRoomResumed                       SubscribableEventType = "deal_room.resumed"
-	DealRoomTaskCompletionChanged         SubscribableEventType = "deal_room.task_completion_changed"
 	DealRoomThreadResolved                SubscribableEventType = "deal_room.thread_resolved"
 	DealRoomUpdated                       SubscribableEventType = "deal_room.updated"
 	DealStageChanged                      SubscribableEventType = "deal.stage_changed"
@@ -273,8 +272,6 @@ func (e SubscribableEventType) Valid() bool {
 	case DealRoomPublished:
 		return true
 	case DealRoomResumed:
-		return true
-	case DealRoomTaskCompletionChanged:
 		return true
 	case DealRoomThreadResolved:
 		return true
@@ -789,20 +786,6 @@ type PublicEventDealRoomPublished struct {
 // PublicEventDealRoomResumed Payload for deal_room.resumed — a paused room serves its existing release again.
 type PublicEventDealRoomResumed struct {
 	DealId openapi_types.UUID `json:"deal_id"`
-}
-
-// PublicEventDealRoomTaskCompletionChanged Payload for deal_room.task_completion_changed — an item on the shared to-do
-// list was ticked off or re-opened. Carries no title: the item's wording is
-// editorial and reaches a subscriber through the release that published it.
-type PublicEventDealRoomTaskCompletionChanged struct {
-	DealId openapi_types.UUID `json:"deal_id"`
-
-	// Done Its state after the change. False means a completed item was re-opened.
-	Done bool `json:"done"`
-
-	// Side Which side owed the item — `seller` or `buyer`.
-	Side   string             `json:"side"`
-	TaskId openapi_types.UUID `json:"task_id"`
 }
 
 // PublicEventDealRoomThreadResolved Payload for deal_room.thread_resolved — a thread was closed by the seller's side.
@@ -1834,12 +1817,6 @@ func (PublicEventDealRoomResumed) EventType() string { return "deal_room.resumed
 
 func (PublicEventDealRoomResumed) EntityType() string { return "deal_room" }
 
-func (PublicEventDealRoomTaskCompletionChanged) EventType() string {
-	return "deal_room.task_completion_changed"
-}
-
-func (PublicEventDealRoomTaskCompletionChanged) EntityType() string { return "deal_room" }
-
 func (PublicEventDealRoomThreadResolved) EventType() string { return "deal_room.thread_resolved" }
 
 func (PublicEventDealRoomThreadResolved) EntityType() string { return "deal_room" }
@@ -2141,7 +2118,6 @@ var PublicEventVersions = map[string]int{
 	"deal_room.paused":                          1,
 	"deal_room.published":                       1,
 	"deal_room.resumed":                         1,
-	"deal_room.task_completion_changed":         1,
 	"deal_room.thread_resolved":                 1,
 	"deal_room.updated":                         1,
 	"email_signature.changed":                   1,

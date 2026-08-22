@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
-
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -56,39 +54,20 @@ func TestBuyerAccessFollowsTheRoomStateAndTheExpiryClock(t *testing.T) {
 	}
 }
 
-func TestTheBuyerListIsThePublishedDefinitionsWithLiveCompletion(t *testing.T) {
-	kept := openapi_types.UUID(ids.NewV7())
-	archived := openapi_types.UUID(ids.NewV7())
-	done := time.Date(2026, 8, 22, 9, 0, 0, 0, time.UTC)
-	buyer := "buyer"
-	snap := releaseSnapshot{Tasks: []snapshotTask{
-		{ID: kept, Side: "buyer", Title: "Sign the DPA", Position: 1},
-		{ID: archived, Side: "seller", Title: "Send the redline", Position: 2},
-	}}
-	live := map[openapi_types.UUID]liveCompletion{
-		kept: {doneAt: &done, doneBy: &buyer},
-		// The archived task has no live row: its definition was published, the
-		// row it would be ticked on is gone.
-	}
-	got := buyerTasks(snap, live)
-	if len(got) != 1 {
-		t.Fatalf("got %d tasks, want the one still live: %+v", len(got), got)
-	}
-	if got[0].Id != kept || !got[0].Done || got[0].DoneBy == nil || *got[0].DoneBy != buyer || got[0].Title != "Sign the DPA" {
-		t.Fatalf("task = %+v", got[0])
-	}
-
-	// A release published before task definitions rode the snapshot, and a
-	// room with no tasks at all, both decode to an empty list rather than nil.
-	old, err := decodeSnapshot([]byte(`{"title":"Acme","deal_id":"` + ids.NewV7().String() + `","released_at":"2026-08-01T00:00:00Z"}`))
+func TestAnOldReleaseCarryingKeysTheSnapshotNoLongerHasStillDecodes(t *testing.T) {
+	// Releases once froze a shared to-do list under a "tasks" key. The key is
+	// gone from the struct; a release that carries it must still decode, and
+	// what it froze there is simply not served again.
+	old, err := decodeSnapshot([]byte(`{"title":"Acme","deal_id":"` + ids.NewV7().String() +
+		`","released_at":"2026-08-01T00:00:00Z","tasks":[{"id":"` + ids.NewV7().String() + `","side":"buyer","title":"Sign","position":1}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tasks := buyerTasks(old, live); tasks == nil || len(tasks) != 0 {
-		t.Fatalf("an old release lists %v, want an empty list", tasks)
+	if old.Title != "Acme" || old.Documents != nil {
+		t.Fatalf("old release decoded as %+v", old)
 	}
-	empty := snapshotOf(crmcontracts.DealRoom{Title: "Acme"}, nil, nil)
-	if empty.Tasks == nil {
-		t.Fatal("a release with no tasks must carry an empty list, not a missing key")
+	empty := snapshotOf(crmcontracts.DealRoom{Title: "Acme"}, nil)
+	if empty.Documents == nil {
+		t.Fatal("a release with no documents must carry an empty list, not a missing key")
 	}
 }

@@ -190,19 +190,19 @@ func removeStakeholderCommand(_ agentPolicy, deps restCommandDeps, r *http.Reque
 	return agents.NewRemoveStakeholderCall(deps.records, agents.RemoveStakeholderCommand{ID: id, PersonID: personID}), nil
 }
 
-// createDealRoomTaskCommand decodes POST /v1/deal-rooms/{id}/tasks, and the
-// sibling POST /v1/deal-rooms/{id}/documents through the same code: the routed
-// room is folded into the body so the staged approval names where the item
-// lands, and the policy's record type says which kind of item it is.
+// createRoomItemCommand decodes POST /v1/deal-rooms/{id}/documents and the
+// thread-opening and reply POSTs through the same code: the routed room is
+// folded into the body so the staged approval names where the item lands, and
+// the policy's record type says which kind of item it is.
 //
-// The routed {id} names the ROOM, and the record being created is the task, so
+// The routed {id} names the ROOM, and the record being created is the item, so
 // this cannot be the plain createCommand: that one carries only the body, and an
 // approval of it would say nothing about which room the item lands in. The room
 // travels in the fields, where the staged proposed_change shows it beside the
 // wording a human is being asked to release.
 //
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
-func createDealRoomTaskCommand(pol agentPolicy, _ restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
+func createRoomItemCommand(pol agentPolicy, _ restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
 	roomID, err := routedID(r)
 	if err != nil {
 		return nil, err
@@ -217,16 +217,13 @@ func createDealRoomTaskCommand(pol agentPolicy, _ restCommandDeps, r *http.Reque
 	}), nil
 }
 
-// updateDealRoomTaskCommand decodes PATCH /v1/deal-rooms/{id}/tasks/{taskId},
-// and updateDealRoomDocumentCommand its sibling for documents. Both are
-// roomItemPatch, which binds to the ITEM rather than the routed {id}:
+// updateDealRoomDocumentCommand decodes PATCH
+// /v1/deal-rooms/{id}/documents/{documentId}. It is a roomItemPatch, which
+// binds to the ITEM rather than the routed {id}:
 // patchCommand would bind to the room, so the approval a human released would
 // name a different record than the one the call goes on to write — and the
 // item id it did carry would never be checked at all.
-var (
-	updateDealRoomTaskCommand     = roomItemPatch("taskId")
-	updateDealRoomDocumentCommand = roomItemPatch("documentId")
-)
+var updateDealRoomDocumentCommand = roomItemPatch("documentId")
 
 // roomItemPatch is the decoder for a PATCH on one item under a room, keyed by
 // the path parameter that names the item.

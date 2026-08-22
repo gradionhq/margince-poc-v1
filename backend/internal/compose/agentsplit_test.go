@@ -392,30 +392,30 @@ func (o ownedOnlyFor) HumanOwnedConflicts(_ context.Context, _ string, target id
 // On /deal-rooms/{id}/tasks/{taskId} the route's own {id} is the ROOM, so a
 // probe reading {id} asks "who typed this field on task ⟨room-id⟩" — a question
 // no audit row answers. It misses, the split sees no conflict, and an agent
-// overwrite of a human-typed to-do auto-executes instead of staging. The §2.1
+// overwrite of a human-typed document title auto-executes instead of staging. The §2.1
 // protection would be off while the route still looked governed.
 func TestASubResourcePatchProbesTheRecordItWrites(t *testing.T) {
-	roomID, taskID := ids.NewV7(), ids.NewV7()
+	roomID, documentID := ids.NewV7(), ids.NewV7()
 	staging := &capturingApprovals{}
 	pol := agentPolicy{
-		Op: opUpdateDealRoomTask, Access: accessTool,
-		Tool: "update_record", RecordType: recordTypeDealRoomTask,
+		Op: opUpdateDealRoomDocument, Access: accessTool,
+		Tool: "update_record", RecordType: recordTypeDealRoomDocument,
 	}
 	body := []byte(`{"title":"wording a human typed"}`)
-	req := operandRequest(http.MethodPatch, "/v1/deal-rooms", roomID.String(), "taskId", taskID.String(), body)
+	req := operandRequest(http.MethodPatch, "/v1/deal-rooms", roomID.String(), "documentId", documentID.String(), body)
 	rec := httptest.NewRecorder()
 	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("the handler ran — the title is human-owned, so the write must stage, not apply")
 	})
 
 	admitAgentCall(rec, req, next, admissionOutcome{
-		staging: staging, ownership: ownedOnlyFor{id: taskID},
+		staging: staging, ownership: ownedOnlyFor{id: documentID},
 		commands: restCommandDeps{records: seamRecord{}}, pol: pol, body: body,
 	})
 
-	if staging.last.TargetID != taskID {
+	if staging.last.TargetID != documentID {
 		t.Fatalf("staged target id = %s, want the task %s — an approval binding to the room names a "+
-			"different record than the one the released call goes on to write", staging.last.TargetID, taskID)
+			"different record than the one the released call goes on to write", staging.last.TargetID, documentID)
 	}
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want %d (approval_required) — an agent silently overwriting a human-typed "+

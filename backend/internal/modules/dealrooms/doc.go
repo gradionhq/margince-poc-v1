@@ -3,8 +3,8 @@
 
 // Package dealrooms owns the buyer-facing Deal Room: one room per deal, the
 // immutable releases that fix what a buyer was shown, the named people invited
-// into it, the credentials that admit them, and the shared to-do list both
-// sides work from.
+// into it, the credentials that admit them, the documents the seller shares
+// and the conversation both sides hold about them.
 //
 // THE ROOM IS A PROJECTION, NOT A SECOND CRM. Nothing here duplicates a record
 // the deal already owns. The room points at a deal; a published release freezes
@@ -37,6 +37,6 @@
 // like this one.
 //
 // Tables owned: deal_room, deal_room_release, deal_room_participant,
-// deal_room_invitation, deal_room_session, deal_room_task, deal_room_document,
+// deal_room_invitation, deal_room_session, deal_room_document,
 // deal_room_thread, deal_room_comment, deal_room_decision.
 package dealrooms

@@ -615,22 +615,6 @@ func (stubs) ResumeDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 	httperr.NotImplemented(w, r, "ResumeDealRoom")
 }
 
-func (stubs) ListDealRoomTasks(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealRoomTasksParams) {
-	httperr.NotImplemented(w, r, "ListDealRoomTasks")
-}
-
-func (stubs) CreateDealRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
-	httperr.NotImplemented(w, r, "CreateDealRoomTask")
-}
-
-func (stubs) ArchiveDealRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, taskId openapi_types.UUID, params crmcontracts.ArchiveDealRoomTaskParams) {
-	httperr.NotImplemented(w, r, "ArchiveDealRoomTask")
-}
-
-func (stubs) UpdateDealRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, taskId openapi_types.UUID, params crmcontracts.UpdateDealRoomTaskParams) {
-	httperr.NotImplemented(w, r, "UpdateDealRoomTask")
-}
-
 func (stubs) ListDealRoomThreads(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealRoomThreadsParams) {
 	httperr.NotImplemented(w, r, "ListDealRoomThreads")
 }
@@ -1493,14 +1477,6 @@ func (stubs) PeekDealRoomCredential(w nethttp.ResponseWriter, r *nethttp.Request
 
 func (stubs) SignOutBuyerRoom(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "SignOutBuyerRoom")
-}
-
-func (stubs) ListBuyerRoomTasks(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "ListBuyerRoomTasks")
-}
-
-func (stubs) CompleteBuyerRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, taskId openapi_types.UUID) {
-	httperr.NotImplemented(w, r, "CompleteBuyerRoomTask")
 }
 
 func (stubs) ListBuyerRoomThreads(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListBuyerRoomThreadsParams) {

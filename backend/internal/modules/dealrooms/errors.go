@@ -65,16 +65,15 @@ func notAdmitting(current string) error {
 	}
 }
 
-// notTaskEditable refuses every change to the shared to-do list in a room that
-// can no longer reach a buyer — completing an item as much as rewording one. A
-// finished room's list is the record of what the two sides owed each other, and
-// ticking an item off months later would rewrite that record rather than reflect
-// work anybody is still doing.
-func notTaskEditable(current string) error {
+// notContentEditable refuses every content change in a room that can no longer
+// reach a buyer — a comment as much as a document. A finished room is the
+// record of what the two sides shared, and a change months later would rewrite
+// that record rather than reflect work anybody is still doing.
+func notContentEditable(current string) error {
 	return &stateError{
-		code:    "deal_room_task_not_editable",
+		code:    "deal_room_content_not_editable",
 		current: current,
-		wanted:  "this room is finished and its to-do list is now a record: open a new Deal Room on the deal to track anything further",
+		wanted:  "this room is finished and is now a record: open a new Deal Room on the deal to share anything further",
 	}
 }
 
@@ -115,15 +114,6 @@ const fieldCapability = "capability"
 // module publishes, named once so the three that raise it cannot drift into
 // three spellings a client would have to special-case.
 const codeRequired = "required"
-
-// errCompletionNeedsActor refuses a completion nobody can be attributed to. The
-// schema requires a done item to name who did it, and a to-do list that says
-// work was finished without saying by whom answers neither side's question.
-var errCompletionNeedsActor = &fieldError{
-	field: "done",
-	code:  "actor_required",
-	msg:   "completing an item records who did it, and this request carries no user to record",
-}
 
 func notPausable(current string) error {
 	return &stateError{

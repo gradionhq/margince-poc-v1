@@ -215,16 +215,6 @@ func (DealRoomParticipantKind) kind() string { return "deal_room_participant" }
 // person admitted to one room.
 type DealRoomParticipantID = ID[DealRoomParticipantKind]
 
-// DealRoomTaskKind is the shared to-do entity tag. Declared out-of-line for the
-// reason given above OfferTemplateKind.
-type DealRoomTaskKind struct{}
-
-func (DealRoomTaskKind) kind() string { return "deal_room_task" }
-
-// DealRoomTaskID names one deal_room_task row — one item on the list of work
-// outstanding between a seller and a buyer.
-type DealRoomTaskID = ID[DealRoomTaskKind]
-
 // DealRoomDocumentKind is the room-document entity tag. Declared out-of-line
 // for the reason given above OfferTemplateKind.
 type DealRoomDocumentKind struct{}

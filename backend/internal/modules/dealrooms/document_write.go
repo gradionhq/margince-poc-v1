@@ -53,7 +53,7 @@ func (s *Store) AddDocument(ctx context.Context, roomID ids.DealRoomID, in AddDo
 }
 
 func addDocumentTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in AddDocumentInput, by string) (crmcontracts.DealRoomDocument, error) {
-	room, err := openRoomForItsList(ctx, tx, roomID)
+	room, err := openRoomForContent(ctx, tx, roomID)
 	if err != nil {
 		return crmcontracts.DealRoomDocument{}, err
 	}
@@ -84,7 +84,7 @@ func addDocumentTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in Add
 
 // attachmentOfDeal is the whole authority check on the file: it must be a live
 // attachment filed on THIS room's deal. That is a predicate, not a grant — the
-// caller already holds write on the deal (openRoomForItsList), and a deal's own
+// caller already holds write on the deal (openRoomForContent), and a deal's own
 // files are what that authority covers. Any other id is absent, so a caller
 // cannot use this path to learn that some other record's file exists.
 func attachmentOfDeal(ctx context.Context, tx pgx.Tx, attachmentID, dealID ids.UUID) (string, error) {
@@ -124,7 +124,7 @@ func (s *Store) UpdateDocument(ctx context.Context, roomID ids.DealRoomID, id id
 	}
 	var out crmcontracts.DealRoomDocument
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := openRoomForItsList(ctx, tx, roomID); err != nil {
+		if _, err := openRoomForContent(ctx, tx, roomID); err != nil {
 			return err
 		}
 		if _, err := storekit.LockRow(ctx, tx, documentObject, id.UUID, storekit.LiveOnly); err != nil {
@@ -170,7 +170,7 @@ func (s *Store) RemoveDocument(ctx context.Context, roomID ids.DealRoomID, id id
 	}
 	var out crmcontracts.DealRoomDocument
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := openRoomForItsList(ctx, tx, roomID); err != nil {
+		if _, err := openRoomForContent(ctx, tx, roomID); err != nil {
 			return err
 		}
 		if _, err := storekit.LockRow(ctx, tx, documentObject, id.UUID, storekit.LiveOnly); err != nil {
