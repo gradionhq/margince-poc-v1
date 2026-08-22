@@ -5327,6 +5327,7 @@ const (
 	MeetingBriefSectionKindHeader         MeetingBriefSectionKind = "header"
 	MeetingBriefSectionKindRisks          MeetingBriefSectionKind = "risks"
 	MeetingBriefSectionKindTalkingPoints  MeetingBriefSectionKind = "talking_points"
+	MeetingBriefSectionKindWhatChanged    MeetingBriefSectionKind = "what_changed"
 )
 
 // Valid indicates whether the value is a known member of the MeetingBriefSectionKind enum.
@@ -5347,6 +5348,8 @@ func (e MeetingBriefSectionKind) Valid() bool {
 	case MeetingBriefSectionKindRisks:
 		return true
 	case MeetingBriefSectionKindTalkingPoints:
+		return true
+	case MeetingBriefSectionKindWhatChanged:
 		return true
 	default:
 		return false
@@ -17407,15 +17410,19 @@ type MeetingBrief struct {
 	Sections []MeetingBriefSection `json:"sections"`
 }
 
-// MeetingBriefSection One of the eight fixed sections, with its cited sentences.
+// MeetingBriefSection One of the nine fixed sections, with its cited sentences.
 type MeetingBriefSection struct {
-	// Kind The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
-	// than a free-text heading, so a surface can label, order and collapse them and no
-	// writer can invent a ninth.
+	// Kind The eight of ADR-0097 D5 plus `what_changed`, in the order a reader reads them. A
+	// closed enum rather than a free-text heading, so a surface can label, order and
+	// collapse them and no writer can invent a tenth.
 	//
 	// `header` — meeting, time, company, deal and how long since the last touch (deterministic).
 	// `goal` — the single next-step target; it leads because burying the ask is the
 	// canonical prep failure.
+	// `what_changed` — what happened after the READER last dealt with this deal's people:
+	// promises made, objections raised, decisions taken, conversations held, files that
+	// changed hands. Its first line names the baseline; when the reader has never dealt
+	// with them it says so ("first contact") rather than "nothing changed".
 	// `attendees` — who is in the room, with the first-timers flagged.
 	// `commitments` — what was promised, ours and theirs, each with its source and status.
 	// `deal_state` — where the deal stands: last conversation, objections, open questions.
@@ -17428,13 +17435,17 @@ type MeetingBriefSection struct {
 	Sentences []OrganizationBriefSentence `json:"sentences"`
 }
 
-// MeetingBriefSectionKind The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
-// than a free-text heading, so a surface can label, order and collapse them and no
-// writer can invent a ninth.
+// MeetingBriefSectionKind The eight of ADR-0097 D5 plus `what_changed`, in the order a reader reads them. A
+// closed enum rather than a free-text heading, so a surface can label, order and
+// collapse them and no writer can invent a tenth.
 //
 // `header` — meeting, time, company, deal and how long since the last touch (deterministic).
 // `goal` — the single next-step target; it leads because burying the ask is the
 // canonical prep failure.
+// `what_changed` — what happened after the READER last dealt with this deal's people:
+// promises made, objections raised, decisions taken, conversations held, files that
+// changed hands. Its first line names the baseline; when the reader has never dealt
+// with them it says so ("first contact") rather than "nothing changed".
 // `attendees` — who is in the room, with the first-timers flagged.
 // `commitments` — what was promised, ours and theirs, each with its source and status.
 // `deal_state` — where the deal stands: last conversation, objections, open questions.

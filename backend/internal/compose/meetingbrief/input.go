@@ -46,6 +46,9 @@ type Input struct {
 	// what a recurring delivery review opens wanting: not the state of play,
 	// but what was agreed here last time.
 	PriorMeetings []PriorMeetingIn
+	// LastSpokeAt is when the READER last dealt with anyone in the room — the
+	// baseline "what changed" is measured from. Nil is first contact.
+	LastSpokeAt *time.Time
 	// LastTouchAt is the newest conversation with anyone in the room before
 	// this meeting. Nil means nothing was ever captured with any of them.
 	LastTouchAt *time.Time

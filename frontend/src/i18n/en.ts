@@ -5860,6 +5860,7 @@ export const en = {
   "person.meeting.loading": "Assembling the brief…",
   "person.meeting.assembledNow": "Assembled just now, from the latest data",
   "person.meeting.header": "At a glance",
+  "person.meeting.what_changed": "Since you last spoke",
   "person.meeting.goal": "Goal for this meeting",
   "person.meeting.attendees": "Attendees",
   "person.meeting.commitments": "Open commitments",

@@ -13573,16 +13573,20 @@ export interface components {
             /** @description The sections that had something to say, in ADR-0097 D5's fixed order. A section with no surviving sentence is absent, never present-and-empty: `risks` in particular is specified as omitted when empty, and the same rule reads honestly for every other. */
             sections: components["schemas"]["MeetingBriefSection"][];
         };
-        /** @description One of the eight fixed sections, with its cited sentences. */
+        /** @description One of the nine fixed sections, with its cited sentences. */
         MeetingBriefSection: {
             /**
-             * @description The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
-             *     than a free-text heading, so a surface can label, order and collapse them and no
-             *     writer can invent a ninth.
+             * @description The eight of ADR-0097 D5 plus `what_changed`, in the order a reader reads them. A
+             *     closed enum rather than a free-text heading, so a surface can label, order and
+             *     collapse them and no writer can invent a tenth.
              *
              *     `header` — meeting, time, company, deal and how long since the last touch (deterministic).
              *     `goal` — the single next-step target; it leads because burying the ask is the
              *     canonical prep failure.
+             *     `what_changed` — what happened after the READER last dealt with this deal's people:
+             *     promises made, objections raised, decisions taken, conversations held, files that
+             *     changed hands. Its first line names the baseline; when the reader has never dealt
+             *     with them it says so ("first contact") rather than "nothing changed".
              *     `attendees` — who is in the room, with the first-timers flagged.
              *     `commitments` — what was promised, ours and theirs, each with its source and status.
              *     `deal_state` — where the deal stands: last conversation, objections, open questions.
@@ -13591,7 +13595,7 @@ export interface components {
              *     `company_context` — background, collapsed and last.
              * @enum {string}
              */
-            kind: "header" | "goal" | "attendees" | "commitments" | "deal_state" | "risks" | "talking_points" | "company_context";
+            kind: "header" | "goal" | "what_changed" | "attendees" | "commitments" | "deal_state" | "risks" | "talking_points" | "company_context";
             /** @description The section's lines, each citing the records it was written from. A sentence whose citations do not resolve is dropped whole rather than shown uncited. */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
         };

@@ -72,6 +72,7 @@ func TestSectionsAreWrittenInTheSpecsFixedOrder(t *testing.T) {
 	want := []crmcontracts.MeetingBriefSectionKind{
 		crmcontracts.MeetingBriefSectionKindHeader,
 		crmcontracts.MeetingBriefSectionKindGoal,
+		crmcontracts.MeetingBriefSectionKindWhatChanged,
 		crmcontracts.MeetingBriefSectionKindAttendees,
 		crmcontracts.MeetingBriefSectionKindCommitments,
 		crmcontracts.MeetingBriefSectionKindDealState,
@@ -81,7 +82,7 @@ func TestSectionsAreWrittenInTheSpecsFixedOrder(t *testing.T) {
 	}
 	got := Deterministic(fullInput())
 	if len(got) != len(want) {
-		t.Fatalf("got %d sections, want the eight of ADR-0097 D5", len(got))
+		t.Fatalf("got %d sections, want the eight of ADR-0097 D5 plus what_changed", len(got))
 	}
 	for i, kind := range want {
 		if got[i].Kind != kind {

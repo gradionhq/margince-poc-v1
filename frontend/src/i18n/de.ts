@@ -5814,6 +5814,7 @@ export const de = {
   "person.meeting.assembledNow":
     "Soeben aus den aktuellen Daten zusammengestellt",
   "person.meeting.header": "Auf einen Blick",
+  "person.meeting.what_changed": "Seit dem letzten Kontakt",
   "person.meeting.goal": "Ziel dieses Meetings",
   "person.meeting.attendees": "Teilnehmende",
   "person.meeting.commitments": "Offene Zusagen",

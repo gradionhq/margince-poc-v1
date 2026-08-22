@@ -70,12 +70,13 @@ const statusOpen = string(crmcontracts.ConversationClaimStatusOpen)
 var specOrder = map[crmcontracts.MeetingBriefSectionKind]int{
 	crmcontracts.MeetingBriefSectionKindHeader:         0,
 	crmcontracts.MeetingBriefSectionKindGoal:           1,
-	crmcontracts.MeetingBriefSectionKindAttendees:      2,
-	crmcontracts.MeetingBriefSectionKindCommitments:    3,
-	crmcontracts.MeetingBriefSectionKindDealState:      4,
-	crmcontracts.MeetingBriefSectionKindRisks:          5,
-	crmcontracts.MeetingBriefSectionKindTalkingPoints:  6,
-	crmcontracts.MeetingBriefSectionKindCompanyContext: 7,
+	crmcontracts.MeetingBriefSectionKindWhatChanged:    2,
+	crmcontracts.MeetingBriefSectionKindAttendees:      3,
+	crmcontracts.MeetingBriefSectionKindCommitments:    4,
+	crmcontracts.MeetingBriefSectionKindDealState:      5,
+	crmcontracts.MeetingBriefSectionKindRisks:          6,
+	crmcontracts.MeetingBriefSectionKindTalkingPoints:  7,
+	crmcontracts.MeetingBriefSectionKindCompanyContext: 8,
 }
 
 // Section is one heading with its lines, before the grounding filter runs.
@@ -84,7 +85,7 @@ type Section struct {
 	Sentences []Sentence
 }
 
-// Deterministic writes all eight sections from the assembled input alone.
+// Deterministic writes all nine sections from the assembled input alone.
 //
 // The order is the spec's and is not a rendering choice: goal and commitments
 // lead because burying the ask is the canonical prep failure, and company
@@ -100,6 +101,7 @@ func Deterministic(in Input) []Section {
 	built := []Section{
 		{Kind: crmcontracts.MeetingBriefSectionKindHeader, Sentences: headerSection(in)},
 		{Kind: crmcontracts.MeetingBriefSectionKindGoal, Sentences: goalSection(in, ranked)},
+		{Kind: crmcontracts.MeetingBriefSectionKindWhatChanged, Sentences: whatChangedSection(in, ranked)},
 		{Kind: crmcontracts.MeetingBriefSectionKindAttendees, Sentences: attendeesSection(in)},
 		{Kind: crmcontracts.MeetingBriefSectionKindRisks, Sentences: risksSection(in, ranked)},
 		{Kind: crmcontracts.MeetingBriefSectionKindCommitments, Sentences: commitmentsSection(ranked)},
