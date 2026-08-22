@@ -13099,6 +13099,9 @@ type BuyerRoomView struct {
 	// Participant The caller, as the room knows them. Nothing about anyone else in the room.
 	Participant BuyerRoomParticipant `json:"participant"`
 
+	// Preview True when this session is a seller previewing the room as a buyer. Such a session can read and never write.
+	Preview *bool `json:"preview,omitempty"`
+
 	// Room Omitted while access is `paused` or `expired`, and when nothing has been published yet.
 	Room *BuyerRoomContent `json:"room,omitempty"`
 
@@ -15732,6 +15735,13 @@ type DealRoomParticipantListResponse struct {
 type DealRoomPeekResponse struct {
 	// Exchangeable True only for a credential that can be exchanged right now. Identical for a paused and a live room.
 	Exchangeable bool `json:"exchangeable"`
+}
+
+// DealRoomPreviewIssued defines model for DealRoomPreviewIssued.
+type DealRoomPreviewIssued struct {
+	// Credential The one-time `mdr_` credential. Shown once; the server keeps only its digest.
+	Credential          string    `json:"credential"`
+	CredentialExpiresAt time.Time `json:"credential_expires_at"`
 }
 
 // DealRoomRelease An immutable published snapshot. Every buyer-visible editorial value is COPIED
@@ -36329,6 +36339,9 @@ type ServerInterface interface {
 	// Pause buyer access without ending it.
 	// (POST /deal-rooms/{id}/pause)
 	PauseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
+	// See the room as a buyer would — a real buyer session, minted for the caller.
+	// (POST /deal-rooms/{id}/preview)
+	PreviewDealRoom(w http.ResponseWriter, r *http.Request, id Id)
 	// Publish the working copy as the next release.
 	// (POST /deal-rooms/{id}/publish)
 	PublishDealRoom(w http.ResponseWriter, r *http.Request, id Id)
@@ -38195,6 +38208,12 @@ func (_ Unimplemented) RevokeDealRoomParticipant(w http.ResponseWriter, r *http.
 // Pause buyer access without ending it.
 // (POST /deal-rooms/{id}/pause)
 func (_ Unimplemented) PauseDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// See the room as a buyer would — a real buyer session, minted for the caller.
+// (POST /deal-rooms/{id}/preview)
+func (_ Unimplemented) PreviewDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -46254,6 +46273,38 @@ func (siw *ServerInterfaceWrapper) PauseDealRoom(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PauseDealRoom(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) PreviewDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewDealRoom(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -61969,6 +62020,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deal-rooms/{id}/pause", wrapper.PauseDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/preview", wrapper.PreviewDealRoom)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deal-rooms/{id}/publish", wrapper.PublishDealRoom)

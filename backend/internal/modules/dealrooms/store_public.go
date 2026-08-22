@@ -79,12 +79,13 @@ func (s *Store) ExchangeCredential(ctx context.Context, raw string) (IssuedSessi
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var participantID ids.DealRoomParticipantID
 		var roomID ids.DealRoomID
+		var preview bool
 		err := tx.QueryRow(ctx,
 			`UPDATE deal_room_invitation i SET consumed_at = now()
 			   FROM deal_room_participant p, deal_room r
 			  WHERE `+exchangeablePredicate+`
-			  RETURNING p.id, p.room_id`,
-			digestOfCredential(raw)).Scan(&participantID, &roomID)
+			  RETURNING p.id, p.room_id, p.preview`,
+			digestOfCredential(raw)).Scan(&participantID, &roomID, &preview)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -94,6 +95,10 @@ func (s *Store) ExchangeCredential(ctx context.Context, raw string) (IssuedSessi
 		// The actor is known only now: the buyer the credential named. Bound
 		// here so the audit row and captured_by attribute the session to them.
 		ctx := principal.WithActor(ctx, BuyerPrincipal(participantID))
+		if preview {
+			// A rep's tab, not a buyer's week: bounded like the credential was.
+			expiresAt = time.Now().UTC().Add(previewSessionTTL)
+		}
 		return openSession(ctx, tx, participantID, roomID, digest, expiresAt)
 	})
 	if err != nil {
@@ -153,12 +158,12 @@ func (s *Store) ResolveSession(ctx context.Context, token string) (Session, erro
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var lastSeen *time.Time
 		err := tx.QueryRow(ctx,
-			`SELECT s.id, s.participant_id, s.room_id, p.capability, s.last_seen_at
+			`SELECT s.id, s.participant_id, s.room_id, p.capability, p.preview, s.last_seen_at
 			   FROM deal_room_session s
 			   JOIN deal_room_participant p ON p.id = s.participant_id AND p.room_id = s.room_id
 			  WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
 			    AND p.revoked_at IS NULL`,
-			digestOfCredential(token)).Scan(&out.ID, &out.ParticipantID, &out.RoomID, &out.Capability, &lastSeen)
+			digestOfCredential(token)).Scan(&out.ID, &out.ParticipantID, &out.RoomID, &out.Capability, &out.Preview, &lastSeen)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrSessionRefused
 		}

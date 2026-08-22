@@ -810,6 +810,10 @@ export const vi = {
     "Điều người mua đọc đầu tiên. Đến với họ ở lần công bố tiếp theo.",
   "roompage.text.titleLabel": "Tiêu đề phòng",
   "roompage.text.welcomeLabel": "Lời chào",
+  "roompage.viewAsBuyer": "Xem như người mua",
+  "roompage.previewDraft":
+    "Hãy công bố trước — người mua chỉ thấy bản đã công bố.",
+  "roompage.previewArchived": "Phòng đã lưu trữ không có gì để xem trước.",
   "roompage.publish": "Công bố",
   "roompage.publishFinished":
     "Phòng này đã kết thúc và không nhận thêm bản phát hành.",
@@ -4195,6 +4199,10 @@ export const vi = {
   "buyer.eyebrow": "Phòng giao dịch (Deal Room)",
   "buyer.contact": "Người liên hệ của bạn: {steward}.",
   "buyer.closed": "Phòng này đã đóng; những gì đã chia sẻ giờ là bản ghi.",
+  "buyer.previewBanner":
+    "Bạn đang xem trước phòng này như người mua sẽ thấy. Bạn có thể đọc mọi thứ và không thay đổi gì.",
+  "buyer.previewReadOnly":
+    "Bản xem trước không thể ghi. Đóng tab này để quay lại trang Deal Room.",
   "buyer.closedNote": "Phòng này hiện chỉ đọc.",
   "buyer.stewardUnknown": "người liên hệ của bạn",
   "buyer.signOut": "Đăng xuất",

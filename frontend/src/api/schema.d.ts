@@ -7564,6 +7564,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deal-rooms/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * See the room as a buyer would — a real buyer session, minted for the caller.
+         * @description Issues a one-time credential for a PREVIEW participant: the caller's own
+         *     seat, as a read-only buyer the real buyers never see. It goes through the
+         *     exact public edge a buyer uses, so what the rep sees is what the buyer gets
+         *     — only the latest release, the paused page, the closed page. The credential
+         *     lives ten minutes and the session one hour; every earlier preview session
+         *     of this rep is ended first. A preview session is refused by every public
+         *     write. Refused in `draft` (there is nothing published to see) and in
+         *     `archived`.
+         */
+        post: operations["previewDealRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deal-rooms/{id}/participants": {
         parameters: {
             query?: never;
@@ -20076,6 +20106,12 @@ export interface components {
             /** @description The document title the sentence names: current, or as last published. */
             title?: string | null;
         };
+        DealRoomPreviewIssued: {
+            /** @description The one-time `mdr_` credential. Shown once; the server keeps only its digest. */
+            credential: string;
+            /** Format: date-time */
+            credential_expires_at: string;
+        };
         DealRoomReleaseListResponse: {
             data: components["schemas"]["DealRoomRelease"][];
             page: components["schemas"]["PageInfo"];
@@ -20314,6 +20350,8 @@ export interface components {
         BuyerRoomView: {
             access: components["schemas"]["BuyerRoomAccess"];
             participant: components["schemas"]["BuyerRoomParticipant"];
+            /** @description True when this session is a seller previewing the room as a buyer. Such a session can read and never write. */
+            preview?: boolean;
             /** @description Whom to contact. Present in every access state, because a paused buyer needs it most. */
             steward_name?: string | null;
             /** @description Omitted while access is `paused` or `expired`, and when nothing has been published yet. */
@@ -34448,6 +34486,33 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    previewDealRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The one-time credential, returned exactly once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomPreviewIssued"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };
     };

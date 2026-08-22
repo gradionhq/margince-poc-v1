@@ -32,6 +32,12 @@ import (
 // uq_deal_room_invitation_live is what holds "at most one live credential", and
 // without the supersede this INSERT would simply collide with it.
 func issueCredential(ctx context.Context, tx pgx.Tx, participantID ids.DealRoomParticipantID, digest []byte, by string) (time.Time, error) {
+	return issueCredentialFor(ctx, tx, participantID, digest, by, invitationTTL)
+}
+
+// issueCredentialFor is issueCredential with the credential's lifetime chosen
+// by the caller: a buyer's invitation lives a week, a seller's preview minutes.
+func issueCredentialFor(ctx context.Context, tx pgx.Tx, participantID ids.DealRoomParticipantID, digest []byte, by string, ttl time.Duration) (time.Time, error) {
 	if _, err := tx.Exec(ctx,
 		`UPDATE deal_room_invitation SET superseded_at = now()
 		  WHERE participant_id = $1 AND consumed_at IS NULL AND superseded_at IS NULL`,
@@ -39,7 +45,7 @@ func issueCredential(ctx context.Context, tx pgx.Tx, participantID ids.DealRoomP
 		return time.Time{}, fmt.Errorf("supersede deal room invitation: %w", err)
 	}
 
-	expiresAt := time.Now().UTC().Add(invitationTTL)
+	expiresAt := time.Now().UTC().Add(ttl)
 	// attempt_no comes from the row itself rather than a counter the caller
 	// holds, so two resends racing cannot both claim the same number — the
 	// unique constraint on (participant_id, attempt_no) refuses the loser.

@@ -31,6 +31,9 @@ type Session struct {
 	// only, `comment` and `reviewer` may also work the list. Read at every
 	// write, so a capability lowered after sign-in binds on the next request.
 	Capability string
+	// Preview marks a seller looking at their own room as a buyer. Reads
+	// everything a buyer would; every write refuses it.
+	Preview bool
 }
 
 // The session token is minted like the credential it was exchanged from: 256

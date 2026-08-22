@@ -91,7 +91,8 @@ func (s *Store) ListParticipants(ctx context.Context, roomID ids.DealRoomID, act
 func participantRows(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, activeOnly bool) ([]crmcontracts.DealRoomParticipant, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
-	where := storekit.SQLf("p.room_id = $%d", arg(roomID))
+	// A preview seat is the seller's own and never part of the roster.
+	where := storekit.SQLf("p.room_id = $%d AND NOT p.preview", arg(roomID))
 	if activeOnly {
 		where += " AND p.revoked_at IS NULL"
 	}
@@ -127,9 +128,11 @@ func readParticipant(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, id i
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	row := tx.QueryRow(ctx, storekit.SQLf(
-		`SELECT %s FROM %s WHERE p.id = $%d AND p.room_id = $%d`,
+		`SELECT %s FROM %s WHERE p.id = $%d AND p.room_id = $%d AND NOT p.preview`,
 		participantColumns, participantFrom, arg(id), arg(roomID)), args...)
 
+	// A preview seat is absent here on purpose: every participant write
+	// resolves the row through this read, so none of them can reach it.
 	out, err := scanParticipant(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crmcontracts.DealRoomParticipant{}, apperrors.ErrNotFound

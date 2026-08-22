@@ -759,6 +759,9 @@ function RoomView({
   }
   return (
     <>
+      {view.preview ? (
+        <Callout tone="info">{t("buyer.previewBanner")}</Callout>
+      ) : null}
       <header className="buyer-header">
         <Eyebrow as="span">{t("buyer.eyebrow")}</Eyebrow>
         <h1>{view.room.title}</h1>
@@ -781,11 +784,13 @@ function RoomView({
           view.access === "live" && view.participant.capability !== "view"
         }
         refusal={
-          view.access === "closed"
-            ? t("buyer.closed")
-            : view.participant.capability === "view"
-              ? t("threads.readOnly")
-              : undefined
+          view.preview
+            ? t("buyer.previewReadOnly")
+            : view.access === "closed"
+              ? t("buyer.closed")
+              : view.participant.capability === "view"
+                ? t("threads.readOnly")
+                : undefined
         }
       />
     </>
