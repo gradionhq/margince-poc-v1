@@ -139,7 +139,6 @@ var tableOwners = map[string]string{
 	"deal_room_participant": "internal/modules/dealrooms",
 	"deal_room_invitation":  "internal/modules/dealrooms",
 	"deal_room_session":     "internal/modules/dealrooms",
-	"deal_room_task":        "internal/modules/dealrooms",
 	"deal_room_document":    "internal/modules/dealrooms",
 	"deal_room_thread":      "internal/modules/dealrooms",
 	"deal_room_comment":     "internal/modules/dealrooms",

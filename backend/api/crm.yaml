@@ -3995,6 +3995,72 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /activities/relink-thread:
+    post:
+      tags: [Activities]
+      operationId: relinkThread
+      summary: Re-associate every activity of one conversation thread to a chosen record, in one transaction.
+      description: |
+        The thread twin of `relinkActivity`: the same association applied to every non-archived
+        activity carrying `thread_key` that the caller may write. A mis-filed conversation is
+        usually mis-filed whole, and one call here is the remedy rather than one call per message.
+        Each moved activity gets its own `audit_log` row (`activity_relink`) and its own
+        `activity.updated` event, exactly as the single relink writes them; filing under a project
+        stamps each one as commercial correspondence the same way. An activity in the thread the
+        caller cannot write is left where it is and is not counted — the response says how many
+        moved. An activity already carrying the link is not counted either (the single
+        relink's idempotency, per row). All rows commit together or none do.
+      x-mcp-tool: { verb: relink_thread, record_type: activity, tier: dynamic, tier_resolver: destination_record_type, confirmation_required_when: 'entity_type is project — filing under a project classifies every activity in the thread as commercial correspondence, which is write-once and cannot be undone by relinking away', scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RelinkThreadRequest' }
+      responses:
+        '200':
+          description: How many activities moved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelinkBatchResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /activities/relink-bulk:
+    post:
+      tags: [Activities]
+      operationId: relinkActivities
+      summary: Re-associate a named set of activities to a chosen record, in one transaction.
+      description: |
+        The explicit-id twin of `relinkThread`, for a selection that is not one conversation. The
+        caller names up to 500 activities; each is relinked exactly as `relinkActivity` would
+        relink it, with its own `audit_log` row and `activity.updated` event. Unlike the thread
+        form, every named id must be one the caller can see and write: an id outside the caller's
+        sight answers `404` and one they may read but not write answers `403`, and in either case
+        NOTHING moves — the whole set is one transaction. An activity already carrying the link is
+        left as it is and not counted.
+      x-mcp-tool: { verb: relink_activities, record_type: activity, tier: dynamic, tier_resolver: destination_record_type, confirmation_required_when: 'entity_type is project — filing under a project classifies every named activity as commercial correspondence, which is write-once and cannot be undone by relinking away', scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RelinkActivitiesRequest' }
+      responses:
+        '200':
+          description: How many activities moved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelinkBatchResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /activities/{id}/transcript-proposals:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -4701,59 +4767,6 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/BuyerRoomView' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '429':
-          description: Rate-limited.
-          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
-
-  /public/rooms/tasks:
-    get:
-      tags: [Public]
-      operationId: listBuyerRoomTasks
-      security: [{ dealRoomSession: [] }]
-      summary: The shared to-do list as published, with live completion state.
-      description: |
-        Task DEFINITIONS come from the latest release; COMPLETION is live, so a tick
-        from either side shows without a republish. Empty while the room is paused
-        or expired.
-      responses:
-        '200':
-          description: The list, in the order both sides see it.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/BuyerRoomTaskListResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '429':
-          description: Rate-limited.
-          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
-
-  /public/rooms/tasks/{taskId}/complete:
-    parameters:
-      - { name: taskId, in: path, required: true, schema: { type: string, format: uuid } }
-    post:
-      tags: [Public]
-      operationId: completeBuyerRoomTask
-      security: [{ dealRoomSession: [] }]
-      x-agent-access: human-only
-      summary: Tick or un-tick an item on the shared list as the buyer.
-      description: |
-        Completion is the one thing a buyer writes to the list in this release; they
-        never author an item. Refused with 422 `deal_room_task_not_editable` once the
-        room is paused, closed or expired — a finished room's list is a record.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CompleteBuyerRoomTaskRequest' }
-      responses:
-        '200':
-          description: The item as it now stands.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/BuyerRoomTask' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
         '429':
           description: Rate-limited.
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
@@ -11308,8 +11321,8 @@ paths:
       operationId: closeDealRoom
       summary: Freeze the room's content, keeping buyer access.
       description: |
-        Closing freezes CONTENT, not ACCESS. The buyer keeps reading documents,
-        to-dos and history; no comment, decision or task toggle is accepted after it.
+        Closing freezes CONTENT, not ACCESS. The buyer keeps reading documents and
+        history; no comment or decision is accepted after it.
 
         Access management deliberately keeps working on a closed room — a steward can
         still revoke a participant — because being unable to remove someone from a
@@ -11379,7 +11392,7 @@ paths:
       summary: List the people admitted to a room.
       description: |
         Revoked participants are included by default and marked: their comments and
-        completed to-dos stay attributed to them, so a roster that hid them would
+        decisions stay attributed to them, so a roster that hid them would
         leave unexplained names on the room's history.
       x-mcp-tool: { verb: search_records, record_type: deal_room_participant, tier: auto_execute, scope: read }
       parameters:
@@ -11524,7 +11537,7 @@ paths:
         closed, so this is never frozen along with the room's content.
 
         Ends their live session immediately and retires any unconsumed credential. The
-        participant row survives, so their comments and completed to-dos stay
+        participant row survives, so their comments and decisions stay
         attributed. Revoking twice is accepted and changes nothing further.
       x-agent-access: human-only
       responses:
@@ -11536,121 +11549,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-
-  /deal-rooms/{id}/tasks:
-    parameters:
-      - $ref: '#/components/parameters/Id'
-    get:
-      tags: [Deals]
-      operationId: listDealRoomTasks
-      summary: List a room's shared to-do list, in the order both sides see it.
-      description: |
-        The work outstanding between seller and buyer, each item owned by one side.
-        There are no due dates: an item is done or it is not.
-      x-mcp-tool: { verb: search_records, record_type: deal_room_task, tier: auto_execute, scope: read }
-      parameters:
-        - $ref: '#/components/parameters/Cursor'
-        - $ref: '#/components/parameters/Limit'
-      responses:
-        '200':
-          description: A page of to-dos.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DealRoomTaskListResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    post:
-      tags: [Deals]
-      operationId: createDealRoomTask
-      summary: Add an item to the shared to-do list.
-      description: |
-        Adding an item changes what the buyer is asked to do, so it is editorial: it
-        reaches them at the next publish, not immediately. Refused once the room can no
-        longer reach a buyer at all — closed, expired or archived.
-      x-mcp-tool: { verb: create_record, record_type: deal_room_task, tier: auto_execute, scope: write }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CreateDealRoomTaskRequest' }
-      responses:
-        '201':
-          description: The added to-do.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DealRoomTask' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
-  /deal-rooms/{id}/tasks/{taskId}:
-    parameters:
-      - $ref: '#/components/parameters/Id'
-      - name: taskId
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    patch:
-      tags: [Deals]
-      operationId: updateDealRoomTask
-      summary: Reword, reassign, reorder or tick off a to-do.
-      description: |
-        Two kinds of change go through here, and they are frozen differently.
-
-        DEFINITION — title, side and position — is editorial, exactly like adding an
-        item: the buyer sees it at the next publish, and it is refused once the room is
-        closed, expired or archived.
-
-        COMPLETION — `done` — is live collaboration state. Both sides tick items off
-        without republishing, so this is never frozen by a publish. It IS refused in a
-        room that can no longer reach a buyer, because a closed room's to-do list is a
-        record of what happened rather than a list anyone is still working.
-
-        Ticking an item stamps who did it. Un-ticking clears both the time and the
-        attribution, so a reopened item names nobody until it is done again.
-      x-mcp-tool: { verb: update_record, record_type: deal_room_task, tier: auto_execute, scope: write }
-      parameters:
-        - $ref: '#/components/parameters/IfMatch'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/UpdateDealRoomTaskRequest' }
-      responses:
-        '200':
-          description: The updated to-do.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DealRoomTask' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-    delete:
-      tags: [Deals]
-      operationId: archiveDealRoomTask
-      summary: Take an item off the shared to-do list.
-      description: |
-        Archives the item rather than deleting it, so a completed item stays attributed
-        to whoever did it. Removal is editorial: the buyer stops seeing it at the next
-        publish.
-      x-agent-access: human-only
-      parameters:
-        - $ref: '#/components/parameters/IfMatch'
-      responses:
-        '200':
-          description: The archived to-do.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/DealRoomTask' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
 
   /deal-rooms/{id}/documents:
     parameters:
@@ -13044,7 +12942,7 @@ paths:
   # get, create, update (If-Match), archive — with schemas drawn 1:1 from the
   # §12.5 DDL. The contract-codegen + AC-MCP-3 lint MUST emit/verify these ops:
   #   /signals            (E08; now SPECIFIED above, B-E08.1–.4 — resolve via POST /signals/{id}/resolve, warm/cold via /signals/{id}/warmth + /signals/{id}/intro-path)
-  #   /deal-rooms         (E08/E12; the room + lifecycle + releases are now SPECIFIED above. Participants, documents, the shared to-do list and the public buyer edge still follow; engagement events are read via /deal-rooms/{id}/engagement)
+  #   /deal-rooms         (E08/E12; the room + lifecycle + releases are now SPECIFIED above. Participants, documents and the public buyer edge still follow; engagement events are read via /deal-rooms/{id}/engagement)
   #   /voice-profiles     (E07; now SPECIFIED above, B-E07.4/.5a — corpus sources via /voice-profiles/{id}/sources)
   #   /drafting-assets    (E07/E08; approval flips `approved` — admin/🟡)
   #   /agent-connections  (E10; revoke via POST /agent-connections/{id}/revoke; events read-only)
@@ -20021,7 +19919,7 @@ components:
       description: |
         One recommendation for a deal. `action` is one of `draft_email`,
         `create_task`, `open_meeting_brief`, `none` — a plain string for the reason
-        `DealRoomTaskSide` gives. `arguments` is the body or the operand the named
+        `DealRoomParticipantCapability` gives. `arguments` is the body or the operand the named
         verb takes, ready to send; absent for `none`.
       required: [deal_id, action, reason, evidence, computed_at]
       properties:
@@ -21263,6 +21161,56 @@ components:
         activity_id: { type: string, format: uuid }
         entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
+
+    RelinkThreadRequest:
+      type: object
+      description: |
+        The destination for every writable, non-archived activity of one conversation thread.
+        `entity_type`/`entity_id`/`replace_existing_of_type` mean exactly what they mean on
+        `relinkActivity`.
+      required: [thread_key, entity_type, entity_id]
+      properties:
+        thread_key: { type: string, minLength: 1, maxLength: 512, description: 'The conversation key the activities carry (`Activity.thread_key`, also the `thread_key` list filter).' }
+        entity_type: { $ref: '#/components/schemas/RelinkDestinationType' }
+        entity_id: { type: string, format: uuid }
+        replace_existing_of_type:
+          type: boolean
+          default: false
+          description: When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+
+    RelinkActivitiesRequest:
+      type: object
+      description: |
+        The destination for a named set of activities. Every id must be one the caller can see and
+        write, or the whole request is refused and nothing moves.
+      required: [activity_ids, entity_type, entity_id]
+      properties:
+        activity_ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { type: string, format: uuid }
+        entity_type: { $ref: '#/components/schemas/RelinkDestinationType' }
+        entity_id: { type: string, format: uuid }
+        replace_existing_of_type:
+          type: boolean
+          default: false
+          description: When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+
+    RelinkBatchResult:
+      type: object
+      description: |
+        A count and nothing else. The moved ids are deliberately not echoed: a replay of the same
+        Idempotency-Key, or an approval inbox showing the staged call, would otherwise hand back
+        rows the reader may since have lost sight of.
+      required: [relinked]
+      properties:
+        relinked: { type: integer, description: 'Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted.' }
+
+    RelinkDestinationType:
+      type: string
+      description: The record kinds an activity may be filed under.
+      enum: [person, organization, deal, lead, project]
 
     ActivityLinkInput:
       type: object
@@ -24375,7 +24323,6 @@ components:
             - deal_room_document
             - deal_room_participant
             - deal_room_release
-            - deal_room_task
             - deal_room_thread
             - import_run
             - lead
@@ -26458,10 +26405,9 @@ components:
         snapshot:
           type: object
           description: |
-            The frozen buyer projection — status sentence, next step, welcome text,
-            seller display fields and the task definitions as they read at publish time.
-            Task COMPLETION is deliberately absent: it is live collaboration state, not
-            editorial content, so a checkbox never needs a republish.
+            The frozen buyer projection — title, welcome text, steward and the document
+            manifest as they read at publish time. Comments and decisions are deliberately
+            absent: they are live collaboration state, not editorial content.
           additionalProperties: true
         release_note: { type: [string, 'null'] }
         published_by:
@@ -26546,7 +26492,7 @@ components:
           format: date-time
           description: |
             When their access was taken away. The row survives revocation so their
-            comments and completed to-dos stay attributed to a name.
+            comments and decisions stay attributed to a name.
         source: { type: string }
         captured_by: { type: string, readOnly: true }
         created_at: { type: string, format: date-time }
@@ -26621,50 +26567,6 @@ components:
         data: { type: array, items: { $ref: '#/components/schemas/DealRoomRelease' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
-    DealRoomTaskSide:
-      description: |
-        Which side of the table owes this item: `seller` or `buyer`. One side, never
-        both — an item two parties own is one nobody chases.
-
-        Typed as a plain string rather than an inline enum for the reason
-        `DealRoomParticipantCapability` gives: an inline enum would generate
-        package-scope Go constants named `Seller` and `Buyer` in the shared contracts
-        package, colliding with any other schema declaring those values. The closed set
-        is stated here and held by the writer and the schema CHECK.
-      type: string
-
-    DealRoomTask:
-      type: object
-      description: |
-        One item on the shared to-do list. Deliberately carries no due date: the list
-        says what is outstanding and who owes it, and adding deadlines turns a shared
-        working list into a chase.
-      required: [id, room_id, side, title, position, done, source, version, created_at, updated_at]
-      properties:
-        id: { type: string, format: uuid }
-        room_id: { type: string, format: uuid }
-        side: { $ref: '#/components/schemas/DealRoomTaskSide' }
-        title: { type: string }
-        position: { type: integer, description: 'The order both sides see, ascending.' }
-        done: { type: boolean, description: Whether the item has been ticked off. }
-        done_at: { type: [string, 'null'], format: date-time }
-        done_by_participant_id:
-          type: [string, 'null']
-          format: uuid
-          description: Set when a buyer ticked it off. Exactly one of the two done_by fields is set on a done item.
-        done_by_user_id:
-          type: [string, 'null']
-          format: uuid
-          description: Set when someone on the seller's side ticked it off.
-        source: { type: string }
-        captured_by: { type: string, readOnly: true, description: Server-stamped from the authenticated principal; never client-supplied. }
-        version: { $ref: '#/components/schemas/RowVersion' }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-        archived_at: { type: [string, 'null'], format: date-time }
-      additionalProperties: true
-      x-extension: true
-
     DealRoomDocumentGroup:
       type: string
       description: |
@@ -26672,7 +26574,7 @@ components:
         `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
         key never carries a display string. Not configurable, not AI-assigned — the
         person adding the document picks. A plain string rather than an inline enum
-        for the reason `DealRoomTaskSide` gives.
+        for the reason `DealRoomParticipantCapability` gives.
 
     DealRoomDocument:
       type: object
@@ -26784,7 +26686,7 @@ components:
         room_id: { type: string, format: uuid }
         document_id: { type: [string, 'null'], format: uuid, description: Null for a room-level thread. }
         required_change: { type: boolean }
-        state: { type: string, description: '`open` or `resolved`. A plain string, not an inline enum, for the reason `DealRoomTaskSide` gives.' }
+        state: { type: string, description: '`open` or `resolved`. A plain string, not an inline enum, for the reason `DealRoomParticipantCapability` gives.' }
         author: { $ref: '#/components/schemas/DealRoomAuthor' }
         created_at: { type: string, format: date-time }
         resolved_at: { type: [string, 'null'], format: date-time }
@@ -26854,41 +26756,6 @@ components:
         kind: { type: string, description: '`request_changes` or `confirm_version`.' }
         note: { type: [string, 'null'] }
       additionalProperties: false
-    DealRoomTaskListResponse:
-      type: object
-      required: [data, page]
-      properties:
-        data: { type: array, items: { $ref: '#/components/schemas/DealRoomTask' } }
-        page: { $ref: '#/components/schemas/PageInfo' }
-
-    CreateDealRoomTaskRequest:
-      type: object
-      required: [side, title, source]
-      properties:
-        side: { $ref: '#/components/schemas/DealRoomTaskSide' }
-        title: { type: string, minLength: 1 }
-        position:
-          type: integer
-          description: Where the item sits in the list. Defaults to 0, which puts it first.
-        source: { type: string }
-      additionalProperties: true
-      x-extension: true
-
-    UpdateDealRoomTaskRequest:
-      type: object
-      description: Any subset; omit a field to leave it unchanged.
-      properties:
-        side: { $ref: '#/components/schemas/DealRoomTaskSide' }
-        title: { type: string, minLength: 1 }
-        position: { type: integer }
-        done:
-          type: boolean
-          description: |
-            Tick or un-tick the item. Ticking stamps who did it from the authenticated
-            principal; un-ticking clears both the time and the attribution.
-      additionalProperties: true
-      x-extension: true
-
     DealRoomCredentialRequest:
       type: object
       required: [credential]
@@ -26984,35 +26851,6 @@ components:
           description: Omitted while access is `paused` or `expired`, and when nothing has been published yet.
       additionalProperties: false
 
-    BuyerRoomTask:
-      type: object
-      description: One item on the shared list, as the buyer sees it. No seller-side ids, no provenance.
-      required: [id, side, title, position, done]
-      properties:
-        id: { type: string, format: uuid }
-        side: { $ref: '#/components/schemas/DealRoomTaskSide' }
-        title: { type: string }
-        position: { type: integer }
-        done: { type: boolean }
-        done_at: { type: [string, 'null'], format: date-time }
-        done_by:
-          type: [string, 'null']
-          description: Which side ticked it — `seller` or `buyer` — or null while open.
-      additionalProperties: false
-
-    BuyerRoomTaskListResponse:
-      type: object
-      required: [data]
-      properties:
-        data: { type: array, items: { $ref: '#/components/schemas/BuyerRoomTask' } }
-      additionalProperties: false
-
-    CompleteBuyerRoomTaskRequest:
-      type: object
-      required: [done]
-      properties:
-        done: { type: boolean }
-      additionalProperties: false
     OfferTemplate:
       type: object
       description: >-

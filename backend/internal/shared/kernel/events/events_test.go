@@ -83,7 +83,6 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		// Either side ticking a shared to-do off, or re-opening one. Past tense
 		// like the rest, and it names the CHANGE rather than the completion
 		// because un-ticking is the same event travelling the other way.
-		"task_completion_changed": true,
 		// The room's conversation: somebody spoke, the seller settled a thread,
 		// a reviewer decided on a version. All three name the act done.
 		"comment_posted": true, "thread_resolved": true, "decision_recorded": true,

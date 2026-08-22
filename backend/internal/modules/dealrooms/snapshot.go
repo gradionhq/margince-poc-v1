@@ -18,14 +18,13 @@ import (
 )
 
 // releaseSnapshot is what a release freezes: every editorial value a buyer
-// reads. Task DEFINITIONS are here; task completion deliberately is not.
+// reads.
 type releaseSnapshot struct {
 	Title          string              `json:"title"`
 	DealID         openapi_types.UUID  `json:"deal_id"`
 	ReleasedAt     time.Time           `json:"released_at"`
 	WelcomeMessage *string             `json:"welcome_message,omitempty"`
 	StewardUserID  *openapi_types.UUID `json:"steward_user_id,omitempty"`
-	Tasks          []snapshotTask      `json:"tasks"`
 	Documents      []snapshotDocument  `json:"documents"`
 }
 
@@ -45,30 +44,18 @@ type snapshotDocument struct {
 	ByteSize     *int64             `json:"byte_size,omitempty"`
 }
 
-// snapshotTask is a to-do as published: what it says, who owes it, where it
-// sits. Nothing about whether it is done.
-type snapshotTask struct {
-	ID       openapi_types.UUID `json:"id"`
-	Side     string             `json:"side"`
-	Title    string             `json:"title"`
-	Position int                `json:"position"`
-}
-
 // snapshotOf copies every buyer-visible editorial value into the frozen
 // projection. What is NOT here matters as much as what is: no live CRM read
 // reaches the buyer through a release, so a deal renamed after publication does
 // not silently rewrite what the buyer was shown.
-func snapshotOf(room crmcontracts.DealRoom, tasks []crmcontracts.DealRoomTask, docs []crmcontracts.DealRoomDocument) releaseSnapshot {
+func snapshotOf(room crmcontracts.DealRoom, docs []crmcontracts.DealRoomDocument) releaseSnapshot {
 	snap := releaseSnapshot{
 		Title:          room.Title,
 		DealID:         room.DealId,
 		ReleasedAt:     time.Now().UTC(),
 		WelcomeMessage: room.WelcomeMessage,
 		StewardUserID:  room.StewardUserId,
-		// Never nil: a release with no tasks says so with an empty list, so a
-		// reader cannot mistake "published before tasks existed" for "no tasks".
-		Tasks:     make([]snapshotTask, 0, len(tasks)),
-		Documents: make([]snapshotDocument, 0, len(docs)),
+		Documents:      make([]snapshotDocument, 0, len(docs)),
 	}
 	for _, d := range docs {
 		snap.Documents = append(snap.Documents, snapshotDocument{
@@ -76,17 +63,12 @@ func snapshotOf(room crmcontracts.DealRoom, tasks []crmcontracts.DealRoomTask, d
 			Position: d.Position, Filename: filenameOf(d), ContentType: d.ContentType, ByteSize: d.ByteSize,
 		})
 	}
-	for _, t := range tasks {
-		snap.Tasks = append(snap.Tasks, snapshotTask{
-			ID: t.Id, Side: string(t.Side), Title: t.Title, Position: t.Position,
-		})
-	}
 	return snap
 }
 
-// decodeSnapshot reads a stored release back. A release published before task
-// definitions rode the snapshot decodes with no tasks, which is the truth about
-// what that release showed.
+// decodeSnapshot reads a stored release back. Keys this struct no longer
+// carries (releases once froze a shared to-do list) are ignored: an old release
+// still decodes, and what it showed in those keys is not served again.
 func decodeSnapshot(raw []byte) (releaseSnapshot, error) {
 	var snap releaseSnapshot
 	if err := json.Unmarshal(raw, &snap); err != nil {

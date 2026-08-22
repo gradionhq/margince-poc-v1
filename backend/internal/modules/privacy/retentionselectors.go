@@ -30,8 +30,11 @@ var retentionSelectors = map[string]string{
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id
 		        LEFT JOIN deal d ON d.id = l.deal_id
+		        LEFT JOIN lead ld ON ld.id = l.lead_id
+		        LEFT JOIN project pj ON pj.id = l.project_id
 		        WHERE l.activity_id = a.id
-		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
+		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)
+		               OR coalesce(ld.legal_hold, false) OR coalesce(pj.legal_hold, false)))
 		LIMIT $2`,
 	"activity/transcript": `SELECT a.id FROM activity a
 		WHERE a.source_system = 'transcript' AND a.body IS NOT NULL
@@ -41,8 +44,11 @@ var retentionSelectors = map[string]string{
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id
 		        LEFT JOIN deal d ON d.id = l.deal_id
+		        LEFT JOIN lead ld ON ld.id = l.lead_id
+		        LEFT JOIN project pj ON pj.id = l.project_id
 		        WHERE l.activity_id = a.id
-		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
+		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)
+		               OR coalesce(ld.legal_hold, false) OR coalesce(pj.legal_hold, false)))
 		LIMIT $2`,
 	"person/no_consent_no_deal": `SELECT p.id FROM person p
 		WHERE p.archived_at IS NULL AND NOT p.legal_hold

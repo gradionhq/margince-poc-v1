@@ -60,6 +60,8 @@ var probedRequiredIDBodies = map[string]bool{
 	"RecordConversationClaimRequest":  true,
 	"MergeOrganizationJSONBody":       true,
 	"RelinkActivityJSONBody":          true,
+	"RelinkThreadRequest":             true,
+	"RelinkActivitiesRequest":         true,
 	"DraftAccountEmailJSONBody":       true,
 	"AcceptExtractionRequest":         true,
 	"CreateDealRoomRequest":           true,

@@ -758,23 +758,11 @@ export const vi = {
   "co.routeIn.band.unknown": "có ghi nhận liên hệ, chưa rõ nhịp",
   "record.profile": "Hồ sơ",
   "record.context": "Bối cảnh",
-  "room.tasks.title": "Việc cần làm chung",
-  "room.tasks.sub": "Những gì mỗi bên còn nợ bên kia.",
-  "room.tasks.empty": "Không còn việc nào giữa bạn và người mua.",
-  "room.tasks.owedByUs": "Chúng ta phụ trách",
-  "room.tasks.owedByBuyer": "Người mua phụ trách",
-  "room.tasks.newLabel": "Thêm việc cần làm",
-  "room.tasks.sideLabel": "Ai phụ trách",
-  "room.tasks.add": "Thêm",
-  "room.tasks.adding": "Đang thêm",
-  "room.tasks.addFailed": "Không thể thêm mục này.",
-  "room.tasks.toggleFailed": "Không thể lưu thay đổi.",
-  "room.tasks.editorial":
-    "Mục mới và mục đã sửa sẽ đến với người mua ở lần công bố tiếp theo. Đánh dấu hoàn thành có hiệu lực ngay.",
-  "room.tasks.readOnly":
-    "Bạn có thể xem danh sách này nhưng không thể thay đổi.",
-  "room.tasks.finished":
-    "Phòng này đã kết thúc, danh sách việc cần làm giờ là hồ sơ lưu.",
+  "room.editorial":
+    "Thay đổi về tài liệu sẽ đến với người mua ở lần công bố tiếp theo. Bình luận có hiệu lực ngay.",
+  "room.readOnly": "Bạn có thể xem phòng này nhưng không thể thay đổi.",
+  "room.finished":
+    "Phòng này đã kết thúc, những gì đã chia sẻ giờ là hồ sơ lưu.",
   "room.state.draft": "Bản nháp",
   "room.state.building": "Đang dựng",
   "room.state.ready": "Sẵn sàng",
@@ -2175,6 +2163,9 @@ export const vi = {
   "compose.relinkReplaceHint":
     "Thay liên kết cùng loại đang có thay vì thêm một liên kết nữa.",
   "compose.relinkConfirm": "Liên kết lại",
+  "compose.relinkThread": "Chuyển cả phần còn lại của cuộc trò chuyện này",
+  "compose.relinkThreadHint":
+    "Mọi tin nhắn trong chuỗi này mà bạn được phép sửa sẽ được chuyển cùng, trong một bước.",
   "compose.emptyRecipients": "Hãy thêm ít nhất một người nhận.",
   "compose.removeRecipient": "Gỡ {recipient}",
   "compose.actionFailed": "Yêu cầu thất bại. Hãy thử lại.",
@@ -4058,17 +4049,10 @@ export const vi = {
     "{steward} chưa công bố gì trong phòng này. Hãy quay lại sau.",
   "buyer.eyebrow": "Phòng giao dịch (Deal Room)",
   "buyer.contact": "Người liên hệ của bạn: {steward}.",
+  "buyer.closed": "Phòng này đã đóng; những gì đã chia sẻ giờ là bản ghi.",
   "buyer.closedNote": "Phòng này hiện chỉ đọc.",
   "buyer.stewardUnknown": "người liên hệ của bạn",
   "buyer.signOut": "Đăng xuất",
-  "buyer.tasks.title": "Việc cần làm",
-  "buyer.tasks.sub": "Những gì mỗi bên còn nợ bên kia.",
-  "buyer.tasks.empty": "Không còn việc nào.",
-  "buyer.tasks.yours": "Của bạn",
-  "buyer.tasks.theirs": "Của bên kia",
-  "buyer.tasks.closed": "Phòng này đã đóng; danh sách giờ là bản ghi.",
-  "buyer.tasks.readOnly":
-    "Quyền truy cập của bạn chỉ đọc. Hãy hỏi người liên hệ nếu bạn cần làm việc với danh sách.",
   "room.docs.title": "Tài liệu",
   "room.docs.sub": "Những gì bên mua có thể đọc, trong bốn nhóm cố định.",
   "room.docs.empty": "Chưa có tài liệu nào trong phòng.",

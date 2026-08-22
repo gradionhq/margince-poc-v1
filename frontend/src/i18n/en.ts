@@ -814,22 +814,10 @@ export const en = {
   // The Deal Room aside on a deal. `room.` rather than `dealroom.` for the
   // reason the other abbreviated namespaces give: the surface is named once at
   // the top of the panel and every key under it is read in that context.
-  "room.tasks.title": "Shared to-dos",
-  "room.tasks.sub": "What each side still owes the other.",
-  "room.tasks.empty": "Nothing outstanding between you and the buyer.",
-  "room.tasks.owedByUs": "We owe this",
-  "room.tasks.owedByBuyer": "The buyer owes this",
-  "room.tasks.newLabel": "Add a to-do",
-  "room.tasks.sideLabel": "Who owes this",
-  "room.tasks.add": "Add",
-  "room.tasks.adding": "Adding",
-  "room.tasks.addFailed": "The item could not be added.",
-  "room.tasks.toggleFailed": "That could not be saved.",
-  "room.tasks.editorial":
-    "New and reworded items reach the buyer at the next publish. Ticking one off is immediate.",
-  "room.tasks.readOnly": "You can read this list but not change it.",
-  "room.tasks.finished":
-    "This room is finished, so its to-do list is now a record.",
+  "room.editorial":
+    "Changes to the documents reach the buyer at the next publish. Comments are immediate.",
+  "room.readOnly": "You can read this room but not change it.",
+  "room.finished": "This room is finished, so what it shared is now a record.",
   "room.state.draft": "Draft",
   "room.state.building": "Building",
   "room.state.ready": "Ready",
@@ -2225,6 +2213,9 @@ export const en = {
   "compose.relinkReplaceHint":
     "Replaces the existing link of the same type rather than adding another.",
   "compose.relinkConfirm": "Relink",
+  "compose.relinkThread": "Also move the rest of this conversation",
+  "compose.relinkThreadHint":
+    "Every message in this thread you can edit moves with it, in one step.",
   "compose.emptyRecipients": "Add at least one recipient.",
   "compose.removeRecipient": "Remove {recipient}",
   "compose.actionFailed": "The request failed. Please try again.",
@@ -4152,17 +4143,10 @@ export const en = {
     "{steward} has not published anything to this room yet. Check back soon.",
   "buyer.eyebrow": "Deal Room",
   "buyer.contact": "Your contact: {steward}.",
+  "buyer.closed": "This room is closed; what it shared is a record now.",
   "buyer.closedNote": "This room is now read-only.",
   "buyer.stewardUnknown": "your contact",
   "buyer.signOut": "Sign out",
-  "buyer.tasks.title": "To-dos",
-  "buyer.tasks.sub": "What each side still owes the other.",
-  "buyer.tasks.empty": "Nothing outstanding.",
-  "buyer.tasks.yours": "Yours",
-  "buyer.tasks.theirs": "Theirs",
-  "buyer.tasks.closed": "This room is closed; the list is a record now.",
-  "buyer.tasks.readOnly":
-    "Your access is read-only. Ask your contact if you need to work the list.",
   "room.docs.title": "Documents",
   "room.docs.sub": "What the buyer can read, in four fixed groups.",
   "room.docs.empty": "No documents in the room yet.",

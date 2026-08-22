@@ -770,22 +770,11 @@ export const de = {
   "co.routeIn.band.unknown": "Kontakt vorhanden, noch kein Muster",
   "record.profile": "Profil",
   "record.context": "Kontext",
-  "room.tasks.title": "Gemeinsame Aufgaben",
-  "room.tasks.sub": "Was jede Seite der anderen noch schuldet.",
-  "room.tasks.empty": "Zwischen Ihnen und dem Käufer ist nichts offen.",
-  "room.tasks.owedByUs": "Das schulden wir",
-  "room.tasks.owedByBuyer": "Das schuldet der Käufer",
-  "room.tasks.newLabel": "Aufgabe hinzufügen",
-  "room.tasks.sideLabel": "Wer ist zuständig",
-  "room.tasks.add": "Hinzufügen",
-  "room.tasks.adding": "Wird hinzugefügt",
-  "room.tasks.addFailed": "Die Aufgabe konnte nicht hinzugefügt werden.",
-  "room.tasks.toggleFailed": "Das konnte nicht gespeichert werden.",
-  "room.tasks.editorial":
-    "Neue und geänderte Aufgaben erreichen den Käufer bei der nächsten Veröffentlichung. Das Abhaken wirkt sofort.",
-  "room.tasks.readOnly": "Sie können diese Liste lesen, aber nicht ändern.",
-  "room.tasks.finished":
-    "Dieser Raum ist abgeschlossen, seine Aufgabenliste ist jetzt ein Protokoll.",
+  "room.editorial":
+    "Änderungen an den Dokumenten erreichen den Käufer bei der nächsten Veröffentlichung. Kommentare wirken sofort.",
+  "room.readOnly": "Sie können diesen Raum lesen, aber nicht ändern.",
+  "room.finished":
+    "Dieser Raum ist abgeschlossen, das Geteilte ist jetzt ein Protokoll.",
   "room.state.draft": "Entwurf",
   "room.state.building": "Wird erstellt",
   "room.state.ready": "Bereit",
@@ -2197,6 +2186,9 @@ export const de = {
   "compose.relinkReplaceHint":
     "Ersetzt die bestehende Verknüpfung desselben Typs, statt eine weitere hinzuzufügen.",
   "compose.relinkConfirm": "Neu verknüpfen",
+  "compose.relinkThread": "Auch den Rest dieser Konversation verschieben",
+  "compose.relinkThreadHint":
+    "Jede Nachricht dieses Threads, die Sie bearbeiten dürfen, wird in einem Schritt mit verschoben.",
   "compose.emptyRecipients": "Fügen Sie mindestens einen Empfänger hinzu.",
   "compose.removeRecipient": "{recipient} entfernen",
   "compose.actionFailed":
@@ -4090,18 +4082,11 @@ export const de = {
     "{steward} hat in diesem Raum noch nichts veröffentlicht. Schauen Sie bald wieder vorbei.",
   "buyer.eyebrow": "Ihr Deal Room",
   "buyer.contact": "Ihr Ansprechpartner: {steward}.",
+  "buyer.closed":
+    "Dieser Raum ist geschlossen; das Geteilte ist jetzt ein Protokoll.",
   "buyer.closedNote": "Dieser Raum ist jetzt schreibgeschützt.",
   "buyer.stewardUnknown": "Ihr Ansprechpartner",
   "buyer.signOut": "Abmelden",
-  "buyer.tasks.title": "To-dos",
-  "buyer.tasks.sub": "Was beide Seiten einander noch schulden.",
-  "buyer.tasks.empty": "Nichts offen.",
-  "buyer.tasks.yours": "Ihre Aufgabe",
-  "buyer.tasks.theirs": "Aufgabe der Gegenseite",
-  "buyer.tasks.closed":
-    "Dieser Raum ist geschlossen; die Liste ist jetzt ein Protokoll.",
-  "buyer.tasks.readOnly":
-    "Ihr Zugang ist schreibgeschützt. Wenden Sie sich an Ihren Ansprechpartner, wenn Sie die Liste bearbeiten möchten.",
   "room.docs.title": "Dokumente",
   "room.docs.sub": "Was der Käufer lesen kann, in vier festen Gruppen.",
   "room.docs.empty": "Noch keine Dokumente im Raum.",

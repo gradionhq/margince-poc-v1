@@ -179,6 +179,13 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		{"check_availability", `{"from":"2026-01-05T09:00:00Z","to":"2026-01-05T17:00:00Z"}`},
 		{"relink_activity", `{"activity_id":"` + activity.String() + `","entity_type":"person","entity_id":"` +
 			person.String() + `"}`},
+		// The batch forms answer a count-and-ids shape of their own. The thread
+		// one names a key no activity carries, which is a well-formed empty
+		// answer; the set one names the activity above, onto an organization.
+		{"relink_thread", `{"thread_key":"thread:conformance","entity_type":"person","entity_id":"` +
+			person.String() + `"}`},
+		{"relink_activities", `{"activity_ids":["` + activity.String() + `"],"entity_type":"organization","entity_id":"` +
+			org.String() + `"}`},
 		{"disqualify_lead", `{"lead_id":"` + lead.String() + `"}`},
 		{"log_activity", `{"kind":"note","body":"conformance","links":[{"entity_type":"deal","entity_id":"` +
 			deal.String() + `"}]}`},

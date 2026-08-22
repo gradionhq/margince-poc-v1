@@ -32,60 +32,23 @@ function room(state: string) {
   };
 }
 
-const TASKS = [
-  {
-    id: "t1",
-    room_id: "room-1",
-    side: "buyer",
-    title: "Return the signed NDA",
-    position: 0,
-    done: true,
-    done_at: "2026-08-21T15:04:00Z",
-    done_by_participant_id: "p1",
-    source: "manual",
-    version: 4,
-    created_at: "2026-08-20T09:00:00Z",
-    updated_at: "2026-08-21T15:04:00Z",
-  },
-  {
-    id: "t2",
-    room_id: "room-1",
-    side: "buyer",
-    title: "Confirm the security questionnaire",
-    position: 1,
-    done: false,
-    source: "manual",
-    version: 1,
-    created_at: "2026-08-20T09:00:00Z",
-    updated_at: "2026-08-20T09:00:00Z",
-  },
-  {
-    id: "t3",
-    room_id: "room-1",
-    side: "seller",
-    title: "Send the updated pricing sheet",
-    position: 2,
-    done: false,
-    source: "manual",
-    version: 1,
-    created_at: "2026-08-20T09:00:00Z",
-    updated_at: "2026-08-20T09:00:00Z",
-  },
-];
-
-// Answers the two reads the aside makes. A story that hits the real API shows
+// Answers the reads the aside makes. A story that hits the real API shows
 // whatever that installation happens to hold, which is not a state anybody
 // chose to review.
 function Served({
   rooms,
-  tasks,
   children,
-}: Readonly<{ rooms: unknown[]; tasks: unknown[]; children: ReactNode }>) {
+}: Readonly<{ rooms: unknown[]; children: ReactNode }>) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   client.setQueryData(["deal-rooms", "deal-1"], { data: rooms, page: {} });
-  client.setQueryData(["deal-room-tasks", "room-1"], { data: tasks, page: {} });
+  client.setQueryData(["deal-room-documents", "room-1"], {
+    data: [],
+    page: {},
+  });
+  client.setQueryData(["deal-room-threads", "room-1"], { data: [], page: {} });
+  client.setQueryData(["deal-room-decisions", "room-1"], { data: [] });
   return (
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">{children}</LocaleProvider>
@@ -93,19 +56,19 @@ function Served({
   );
 }
 
-/** A live room mid-negotiation: one item done, two outstanding, both sides. */
+/** A live room mid-negotiation. */
 export const Live: Story = {
   render: () => (
-    <Served rooms={[room("live")]} tasks={TASKS}>
+    <Served rooms={[room("live")]}>
       <DealRoomAside dealId="deal-1" />
     </Served>
   ),
 };
 
-/** A room nobody has published yet — the list is a draft the buyer cannot see. */
+/** A room nobody has published yet — a draft the buyer cannot see. */
 export const Draft: Story = {
   render: () => (
-    <Served rooms={[room("draft")]} tasks={TASKS.slice(1)}>
+    <Served rooms={[room("draft")]}>
       <DealRoomAside dealId="deal-1" />
     </Served>
   ),
@@ -118,16 +81,7 @@ export const Draft: Story = {
  */
 export const Closed: Story = {
   render: () => (
-    <Served rooms={[room("closed")]} tasks={TASKS}>
-      <DealRoomAside dealId="deal-1" />
-    </Served>
-  ),
-};
-
-/** Nothing outstanding between the two sides. */
-export const Empty: Story = {
-  render: () => (
-    <Served rooms={[room("live")]} tasks={[]}>
+    <Served rooms={[room("closed")]}>
       <DealRoomAside dealId="deal-1" />
     </Served>
   ),

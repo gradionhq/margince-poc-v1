@@ -146,6 +146,17 @@ func TestEachAnchoredCommandReadsItsRecordOnce(t *testing.T) {
 				})
 			},
 		},
+		{
+			// A batch card binds to the DESTINATION: the one record the decision
+			// is about, read once for the refusal and the pin alike.
+			"relink_activities",
+			oneRecord(datasource.EntityProject, id, `{"name":"Rollout"}`, 3),
+			func(p *tallyingProvider) GovernedCall {
+				return NewRelinkActivitiesCall(p, RelinkActivitiesCommand{
+					ActivityIDs: []ids.UUID{ids.NewV7(), ids.NewV7()}, EntityType: "project", EntityID: id,
+				})
+			},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -272,6 +283,21 @@ func TestTheSinglePurposeGuardsRefuseWhatExecutionWouldRefuse(t *testing.T) {
 			NewRelinkActivityCall(oneRecord(datasource.EntityActivity, id, `{}`, 1),
 				RelinkActivityCommand{ActivityID: id, EntityType: "invoice", EntityID: other}),
 			"is not a link target",
+		},
+		{
+			"a named-set relink with no ids",
+			NewRelinkActivitiesCall(oneRecord(datasource.EntityProject, other, `{}`, 1),
+				RelinkActivitiesCommand{EntityType: "project", EntityID: other}),
+			"between 1 and 500",
+		},
+		{
+			// The thread form never stages: a thread key is re-read at
+			// redemption, so the rows a human released would not be the rows
+			// moved. The refusal sends the caller to relink_activities.
+			"a thread relink onto a destination that needs a human",
+			NewRelinkThreadCall(oneRecord(datasource.EntityProject, other, `{}`, 1),
+				RelinkThreadCommand{ThreadKey: "thread:x", EntityType: "project", EntityID: other}),
+			"relink_activities",
 		},
 	}
 	for _, c := range cases {

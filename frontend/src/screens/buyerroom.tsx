@@ -6,8 +6,7 @@ import type { components } from "../api/schema";
 import { Button, EmptyState, Field, TextInput } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Eyebrow } from "../design-system/eyebrow";
-import { Panel, PanelBody, PanelRow } from "../design-system/panel";
-import { Switch } from "../design-system/switch";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryStates, throwProblem } from "./common";
@@ -24,7 +23,6 @@ import "./buyerroom.css";
 // back, and none of them names anything the link did not already name.
 
 type BuyerRoomView = components["schemas"]["BuyerRoomView"];
-type BuyerRoomTask = components["schemas"]["BuyerRoomTask"];
 
 const SESSION_KEY = "margince.room.session";
 const ROOM_ROUTE = "room";
@@ -784,147 +782,12 @@ function RoomView({
         }
         refusal={
           view.access === "closed"
-            ? t("buyer.tasks.closed")
+            ? t("buyer.closed")
             : view.participant.capability === "view"
               ? t("threads.readOnly")
               : undefined
         }
       />
-      <BuyerTasks
-        token={token}
-        readOnly={
-          view.access === "closed" || view.participant.capability === "view"
-        }
-        closed={view.access === "closed"}
-        onSessionLost={onSessionLost}
-      />
     </>
-  );
-}
-
-function BuyerTasks({
-  token,
-  readOnly,
-  closed,
-  onSessionLost,
-}: Readonly<{
-  token: string;
-  readOnly: boolean;
-  closed: boolean;
-  onSessionLost: () => void;
-}>) {
-  const t = useT();
-  const tasks = useQuery({
-    queryKey: ["buyer-room-tasks", token],
-    retry: false,
-    queryFn: async () => {
-      const { data, error, response } = await api.GET("/public/rooms/tasks", {
-        ...bearer(token),
-      });
-      if (error) {
-        if (response.status === 401) {
-          throw new SessionRefusedError();
-        }
-        throwProblem(error, t);
-      }
-      return data;
-    },
-  });
-  const lost = tasks.error instanceof SessionRefusedError;
-  useEffect(() => {
-    if (lost) {
-      onSessionLost();
-    }
-  }, [lost, onSessionLost]);
-  const refusal = closed
-    ? t("buyer.tasks.closed")
-    : readOnly
-      ? t("buyer.tasks.readOnly")
-      : undefined;
-  return (
-    <Panel title={t("buyer.tasks.title")} sub={t("buyer.tasks.sub")}>
-      <QueryStates query={tasks} pendingLines={3}>
-        {tasks.data ? (
-          tasks.data.data.length === 0 ? (
-            <PanelBody>
-              <EmptyState>
-                <p className="t-small">{t("buyer.tasks.empty")}</p>
-              </EmptyState>
-            </PanelBody>
-          ) : (
-            tasks.data.data.map((task) => (
-              <BuyerTaskRow
-                key={task.id}
-                token={token}
-                task={task}
-                refusal={refusal}
-                onSessionLost={onSessionLost}
-              />
-            ))
-          )
-        ) : null}
-      </QueryStates>
-    </Panel>
-  );
-}
-
-function BuyerTaskRow({
-  token,
-  task,
-  refusal,
-  onSessionLost,
-}: Readonly<{
-  token: string;
-  task: BuyerRoomTask;
-  refusal: string | undefined;
-  onSessionLost: () => void;
-}>) {
-  const t = useT();
-  const queryClient = useQueryClient();
-  const toggle = useMutation({
-    mutationKey: ["buyer-room-task-toggle"],
-    mutationFn: async (input: { taskId: string; done: boolean }) => {
-      const { data, error, response } = await api.POST(
-        "/public/rooms/tasks/{taskId}/complete",
-        {
-          params: { path: { taskId: input.taskId } },
-          body: { done: input.done },
-          ...bearer(token),
-        },
-      );
-      if (error) {
-        if (response.status === 401) {
-          throw new SessionRefusedError();
-        }
-        throwProblem(error, t);
-      }
-      return data;
-    },
-    onError: (error) => {
-      if (error instanceof SessionRefusedError) {
-        onSessionLost();
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["buyer-room-tasks", token] });
-    },
-  });
-  return (
-    <PanelRow>
-      <Switch
-        label={task.title}
-        hint={t(
-          task.side === "buyer" ? "buyer.tasks.yours" : "buyer.tasks.theirs",
-        )}
-        checked={task.done}
-        pending={toggle.isPending}
-        reason={refusal}
-        onChange={(done) => toggle.mutate({ taskId: task.id, done })}
-        testId={`buyer-task-${task.id}`}
-      />
-      {toggle.isError ? (
-        <p className="t-small t-danger">{problemMessageOf(toggle.error, t)}</p>
-      ) : null}
-    </PanelRow>
   );
 }

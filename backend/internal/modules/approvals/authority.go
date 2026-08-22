@@ -145,6 +145,11 @@ var decisionGrants = map[string][]grantRequirement{
 	// states: anything less puts the control point with somebody who could not
 	// do the thing they are releasing.
 	"relink_activity": {{objectActivity, principal.ActionUpdate}},
+	// The thread and named-set forms are the same decision at scale — every
+	// row they move is gated on activity.UPDATE in the store — so deciding
+	// them takes the same grant.
+	"relink_thread":     {{objectActivity, principal.ActionUpdate}},
+	"relink_activities": {{objectActivity, principal.ActionUpdate}},
 	// Accepting a cold-start read-back writes enrichment fields onto an
 	// organization; "enrich" is the same effect staged through the
 	// transport gate by an agent caller.

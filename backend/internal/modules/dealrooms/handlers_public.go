@@ -125,41 +125,6 @@ func (h Handlers) GetBuyerRoom(w http.ResponseWriter, r *http.Request) {
 	httperr.WriteJSON(w, http.StatusOK, view)
 }
 
-// ListBuyerRoomTasks serves the published list with live completion.
-func (h Handlers) ListBuyerRoomTasks(w http.ResponseWriter, r *http.Request) {
-	sess, ok := SessionFrom(r.Context())
-	if !ok {
-		httperr.Unauthorized(w, r, noSessionDetail)
-		return
-	}
-	tasks, err := h.store.BuyerTasks(r.Context(), sess)
-	if err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.BuyerRoomTaskListResponse{Data: tasks})
-}
-
-// CompleteBuyerRoomTask ticks or un-ticks one item.
-func (h Handlers) CompleteBuyerRoomTask(w http.ResponseWriter, r *http.Request, taskID openapi_types.UUID) {
-	sess, ok := SessionFrom(r.Context())
-	if !ok {
-		httperr.Unauthorized(w, r, noSessionDetail)
-		return
-	}
-	var req crmcontracts.CompleteBuyerRoomTaskRequest
-	if !httperr.Decode(w, r, &req) {
-		return
-	}
-	task, err := h.store.CompleteBuyerTask(r.Context(), sess,
-		ids.From[ids.DealRoomTaskKind](ids.UUID(taskID)), req.Done)
-	if err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-	httperr.WriteJSON(w, http.StatusOK, task)
-}
-
 // SignOutBuyerRoom ends the session.
 func (h Handlers) SignOutBuyerRoom(w http.ResponseWriter, r *http.Request) {
 	sess, ok := SessionFrom(r.Context())

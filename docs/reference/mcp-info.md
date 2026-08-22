@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 54 |
+| Tools | 56 |
 | Resources | 8 |
-| Tool catalog | 146.4 KB |
+| Tool catalog | 149.2 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 38256 |
+| Approx. wire tokens | 38981 |
 | Largest tool | `read_project_360` (6.3 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 70.2 KB | 47% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 34.0 KB | 23% | Yes, every step |
-| Input schemas | 30.9 KB | 21% | Yes, every step |
-| _Names, annotations, punctuation_ | 11.3 KB | 7% | Partly |
-| **Description + input schema** | **64.9 KB** | **44%** | **the recurring cost** |
+| Output schemas | 71.9 KB | 48% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 34.6 KB | 23% | Yes, every step |
+| Input schemas | 31.0 KB | 20% | Yes, every step |
+| _Names, annotations, punctuation_ | 11.8 KB | 7% | Partly |
+| **Description + input schema** | **65.6 KB** | **43%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -55,7 +55,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (54)
+### Tools (56)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
@@ -65,17 +65,17 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`apply_tag`](#apply_tag) | Apply a tag to a record |  |  | 2.0 KB |
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.5 KB |
-| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.8 KB |
+| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.7 KB |
 | [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.7 KB |
 | [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.2 KB |
 | [`commit_import`](#commit_import) | Commit an import |  |  | 1.8 KB |
 | [`create_record`](#create_record) | Create a record |  |  | 2.6 KB |
 | [`create_task`](#create_task) | Create a task |  |  | 2.2 KB |
-| [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 3.0 KB |
-| [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 3.0 KB |
+| [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 2.9 KB |
+| [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 2.9 KB |
 | [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 1.9 KB |
-| [`draft_email`](#draft_email) | Draft an email |  |  | 2.6 KB |
-| [`draft_follow_ups_for`](#draft_follow_ups_for) | Draft follow-ups |  |  | 2.7 KB |
+| [`draft_email`](#draft_email) | Draft an email |  |  | 2.5 KB |
+| [`draft_follow_ups_for`](#draft_follow_ups_for) | Draft follow-ups |  |  | 2.6 KB |
 | [`enrich`](#enrich) | Enrich an organization from its website |  |  | 2.5 KB |
 | [`intro_path_to`](#intro_path_to) | Find a warm introduction path | yes |  | 2.3 KB |
 | [`list_approvals`](#list_approvals) | List what is waiting for a decision | yes |  | 2.9 KB |
@@ -88,8 +88,8 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.8 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
-| [`preview_import`](#preview_import) | Preview an import |  |  | 2.3 KB |
-| [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
+| [`preview_import`](#preview_import) | Preview an import |  |  | 2.2 KB |
+| [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.0 KB |
 | [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.5 KB |
 | [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.4 KB |
 | [`query_workspace`](#query_workspace) | Query the workspace | yes |  | 3.5 KB |
@@ -99,17 +99,19 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`read_import_run`](#read_import_run) | Read an import run | yes |  | 1.4 KB |
 | [`read_project_360`](#read_project_360) | Read a project's page | yes |  | 6.2 KB |
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
-| [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.4 KB |
+| [`relink_activities`](#relink_activities) | Re-associate a set of activities to a record |  |  | 2.0 KB |
+| [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.2 KB |
+| [`relink_thread`](#relink_thread) | Re-associate a whole conversation to a record |  |  | 1.9 KB |
 | [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
 | [`run_report`](#run_report) | Run a report | yes |  | 4.5 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
-| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.4 KB |
+| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.3 KB |
 | [`send_email`](#send_email) | Send an email |  |  | 3.0 KB |
-| [`send_message`](#send_message) | Reply on a channel conversation |  |  | 2.4 KB |
-| [`update_record`](#update_record) | Update a record |  |  | 3.7 KB |
+| [`send_message`](#send_message) | Reply on a channel conversation |  |  | 2.3 KB |
+| [`update_record`](#update_record) | Update a record |  |  | 3.6 KB |
 | [`whats_slipping_this_week`](#whats_slipping_this_week) | What's slipping this week | yes | [`ui://margince/pipeline-review.html`](#pipeline_review_view) | 2.3 KB |
 | [`who_knows`](#who_knows) | Who knows this contact | yes | [`ui://margince/relationship-map.html`](#relationship_map_view) | 2.2 KB |
 | [`whoami`](#whoami) | Who this passport acts for | yes |  | 1.5 KB |
@@ -522,7 +524,7 @@ Move a deal to a different stage of its pipeline. The stage is named by id from 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -695,7 +697,7 @@ Move a project to another phase — initiative, pursuing, delivering, closed. Th
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -843,7 +845,7 @@ Tag a person, company, deal or lead by tag_id, or by tag_name, which reuses the 
   "additionalProperties": false,
   "properties": {
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -1014,7 +1016,7 @@ Retire a record that should no longer be worked — a duplicate, a dead account,
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -1354,7 +1356,7 @@ Hold a slot in the host's calendar and record the meeting against the records it
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -1900,7 +1902,7 @@ Write a checked import into the workspace, once a person approves. Only from awa
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2048,7 +2050,7 @@ Create a person, organization, deal, lead, project, activity or relationship tha
       "type": "object"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2214,7 +2216,7 @@ Put a to-do on someone's list: what is owed, by whom, on which records. Creates 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2391,7 +2393,7 @@ Answer one staged action for the person asking you: approve it, which lets it ha
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2605,7 +2607,7 @@ Answer every still-waiting proposal that one act staged together — the overnig
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2823,7 +2825,7 @@ Close out a lead that is not going anywhere, so it stops appearing as live work.
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2959,7 +2961,7 @@ Compose an email: a reply to a recorded thread (activity_id), or a FIRST message
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -3140,7 +3142,7 @@ Draft a follow-up for each deal in a segment at once — today only the slipping
   "additionalProperties": false,
   "properties": {
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -3336,7 +3338,7 @@ Learn about an organization by reading its public website, and propose what was 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -4657,7 +4659,7 @@ Record something that happened — a call, a meeting, a note, a message — on t
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -4855,7 +4857,7 @@ Collapse two records for the same real person or company into one, moving the so
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -5626,7 +5628,7 @@ Bring a spreadsheet in: send the CSV as text and this checks every row against t
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -5818,7 +5820,7 @@ Move a deal to a new stage and leave a note on its timeline saying why, in one c
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -5995,7 +5997,7 @@ Turn a lead who has genuinely engaged into a person record, carrying their histo
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -6162,7 +6164,7 @@ Fill in what a lead's own data already implies — today the company name, from 
   "additionalProperties": false,
   "properties": {
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -8096,11 +8098,166 @@ Read one record's own stored fields — the values a person would see on its det
 
 </details>
 
+### relink_activities
+
+**Re-associate a set of activities to a record**
+
+Move up to 500 named activities onto one record, all or nothing. Each id must be visible and writable to you. A project destination needs a human. relink_thread moves one conversation. The answer lists the ids moved. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "activity_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 500,
+      "minItems": 1,
+      "type": "array"
+    },
+    "entity_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "entity_type": {
+      "enum": [
+        "person",
+        "organization",
+        "deal",
+        "lead",
+        "project"
+      ],
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "replace_existing_of_type": {
+      "default": false,
+      "description": "Move rather than associate",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "activity_ids",
+    "entity_type",
+    "entity_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "relinked": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "relinked"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ### relink_activity
 
 **Re-associate an activity to a record**
 
-Fix what an already-recorded activity is about, when a captured mail or meeting landed on the wrong record or on none. It changes only the association. The activity's own content — subject, body, when it happened — is untouched, and by default the new link is ADDED alongside any existing one rather than replacing it. Use log_activity when the event is not recorded at all yet; this tool moves an existing one. Set replace_existing_of_type when you mean to move the activity rather than associate it with one more record. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
+Fix what a recorded activity is about, when a captured mail or meeting landed on the wrong record or on none. Changes only the association; content is untouched. By default the new link is ADDED beside existing ones. log_activity records an event not recorded yet; relink_thread moves a whole conversation; relink_activities a picked set. Set replace_existing_of_type to move rather than associate. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 
@@ -8129,7 +8286,7 @@ Fix what an already-recorded activity is about, when a captured mail or meeting 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -8249,6 +8406,156 @@ Fix what an already-recorded activity is about, when a captured mail or meeting 
 
 </details>
 
+### relink_thread
+
+**Re-associate a whole conversation to a record**
+
+Move one whole conversation (by thread_key) onto a record, in one transaction. Moves only activities you may write; the rest stay, uncounted. A project destination needs a human. relink_activity moves one message. The answer lists the ids moved. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "entity_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "entity_type": {
+      "enum": [
+        "person",
+        "organization",
+        "deal",
+        "lead",
+        "project"
+      ],
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "replace_existing_of_type": {
+      "default": false,
+      "description": "Move rather than associate",
+      "type": "boolean"
+    },
+    "thread_key": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "thread_key",
+    "entity_type",
+    "entity_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "relinked": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "relinked"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ### remove_tag
 
 **Take a tag off a record**
@@ -8262,7 +8569,7 @@ Take one tag off one record — by tag_id or tag_name — leaving the word itsel
   "additionalProperties": false,
   "properties": {
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -9471,7 +9778,7 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -9684,7 +9991,7 @@ Put a mail on the wire to a real recipient, from this workspace, and record it o
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -9862,7 +10169,7 @@ Reply on a captured chat conversation — the channels this workspace has connec
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     }
@@ -10007,7 +10314,7 @@ Change stored field values on a record that already exists — a corrected title
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. Same key, same result; a key reused with other arguments is refused.",
       "maxLength": 255,
       "type": "string"
     },

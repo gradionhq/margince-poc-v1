@@ -82,6 +82,15 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 	return redacted, nil
 }
 
+// subjectActivityEmbeddingsDelete drops the vectors of the subject's own
+// timeline rows. A held activity keeps its embedding along with its text: the
+// vector is derived from evidence the hold freezes, and destroying it while
+// the text stands would be a partial spoliation with nothing to show for it.
+var subjectActivityEmbeddingsDelete = `
+		DELETE FROM embedding e USING activity_link l
+		WHERE e.entity_type = 'activity' AND l.person_id = $1 AND e.entity_id = l.activity_id` +
+	notTransitivelyHeld("l.activity_id")
+
 // purgeDerivedTraces removes what the system DERIVED from the subject and
 // arms the suppression list. Raw capture is purged two ways: by email here
 // (crude on purpose — over-deleting evidence is recoverable, under-deleting
@@ -131,10 +140,7 @@ func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, e
 		return 0, 0, err
 	}
 	rawPurged += channelRawPurged
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM embedding e USING activity_link l
-		WHERE e.entity_type = 'activity' AND l.person_id = $1 AND e.entity_id = l.activity_id`,
-		personID); err != nil {
+	if _, err := tx.Exec(ctx, subjectActivityEmbeddingsDelete, personID); err != nil {
 		return 0, 0, err
 	}
 	// Captured AI payloads (Layer 3) are purged by the same identifier
