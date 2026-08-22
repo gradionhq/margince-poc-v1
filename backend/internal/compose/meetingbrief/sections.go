@@ -461,14 +461,3 @@ func companyContextSection(in Input) []Sentence {
 	}
 	return out
 }
-
-// firstOfKind returns the newest claim of one kind that is still open. Claims
-// arrive newest-first from the store, so the first match is the newest.
-func firstOfKind(in Input, kind string) (ClaimIn, bool) {
-	for _, claim := range in.Commitments {
-		if claim.Kind == kind && claim.Status == statusOpen {
-			return claim, true
-		}
-	}
-	return ClaimIn{}, false
-}
