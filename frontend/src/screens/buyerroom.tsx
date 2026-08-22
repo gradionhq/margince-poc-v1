@@ -81,6 +81,29 @@ function bearer(token: string): { headers: { Authorization: string } } {
 // The session stopped answering — revoked, lapsed, or signed out elsewhere.
 class SessionRefusedError extends Error {}
 
+// refuseOrThrow turns a failed public call into the right error: a 401 is the
+// session ending (the caller retires it), anything else is the server's own
+// explanation. Every buyer write goes through it so none can keep a dead token.
+function refuseOrThrow(
+  error: unknown,
+  response: Response,
+  t: ReturnType<typeof useT>,
+): never {
+  if (response.status === 401) {
+    throw new SessionRefusedError();
+  }
+  throwProblem(error, t);
+  throw new Error("unreachable");
+}
+
+function retireOnRefusal(onSessionLost: () => void) {
+  return (error: unknown) => {
+    if (error instanceof SessionRefusedError) {
+      onSessionLost();
+    }
+  };
+}
+
 export function BuyerRoomScreen() {
   // Read once, at mount. The credential is gone from the address bar after
   // this, so a re-render must not look for it again.
@@ -401,6 +424,7 @@ function BuyerDocuments({
                       token={token}
                       doc={doc}
                       mayDecide={reviewer && live}
+                      onSessionLost={onSessionLost}
                     />
                   ))}
                 </PanelBody>
@@ -420,13 +444,19 @@ function BuyerDocumentRow({
   token,
   doc,
   mayDecide,
-}: Readonly<{ token: string; doc: BuyerRoomDocument; mayDecide: boolean }>) {
+  onSessionLost,
+}: Readonly<{
+  token: string;
+  doc: BuyerRoomDocument;
+  mayDecide: boolean;
+  onSessionLost: () => void;
+}>) {
   const t = useT();
   const queryClient = useQueryClient();
   const decide = useMutation({
     mutationKey: ["buyer-room-document-decide"],
     mutationFn: async (input: { documentId: string; kind: string }) => {
-      const { data, error } = await api.POST(
+      const { data, error, response } = await api.POST(
         "/public/rooms/documents/{documentId}/decision",
         {
           params: { path: { documentId: input.documentId } },
@@ -435,10 +465,11 @@ function BuyerDocumentRow({
         },
       );
       if (error) {
-        throwProblem(error, t);
+        refuseOrThrow(error, response, t);
       }
       return data;
     },
+    onError: retireOnRefusal(onSessionLost),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["buyer-room-threads", token],
@@ -579,25 +610,29 @@ function BuyerConversation({
       body: string;
       requiredChange: boolean;
     }) => {
-      const { data, error } = await api.POST("/public/rooms/threads", {
-        body: {
-          document_id: input.documentId,
-          body: input.body,
-          required_change: input.requiredChange,
+      const { data, error, response } = await api.POST(
+        "/public/rooms/threads",
+        {
+          body: {
+            document_id: input.documentId,
+            body: input.body,
+            required_change: input.requiredChange,
+          },
+          ...bearer(token),
         },
-        ...bearer(token),
-      });
+      );
       if (error) {
-        throwProblem(error, t);
+        refuseOrThrow(error, response, t);
       }
       return data;
     },
+    onError: retireOnRefusal(onSessionLost),
     onSuccess: refresh,
   });
   const reply = useMutation({
     mutationKey: ["buyer-room-thread-reply"],
     mutationFn: async (input: { threadId: string; body: string }) => {
-      const { data, error } = await api.POST(
+      const { data, error, response } = await api.POST(
         "/public/rooms/threads/{threadId}/comments",
         {
           params: { path: { threadId: input.threadId } },
@@ -606,10 +641,11 @@ function BuyerConversation({
         },
       );
       if (error) {
-        throwProblem(error, t);
+        refuseOrThrow(error, response, t);
       }
       return data;
     },
+    onError: retireOnRefusal(onSessionLost),
     onSuccess: refresh,
   });
   const titles = Object.fromEntries(documents.map((d) => [d.id, d.title]));
