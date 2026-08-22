@@ -17,9 +17,9 @@ export type CfType =
 // accepting it. Its target set (customfields.FieldObjects) is now the objects
 // whose stores read cf_* columns AND whose contract schemas carry them, and an
 // activity has neither — so a field on one was creatable and never served, and
-// this screen was the only thing hiding it. `project` DOES qualify server-side
-// and is absent here, which is a screen gap rather than a mismatch: the screen
-// AC enumerates these four.
+// this screen was the only thing hiding it. `project` is absent for the
+// opposite reason: the custom-field contract (`CustomField.object`) does not
+// admit it, so a project carries no cf_* columns to define a field on.
 export const CF_OBJECTS: readonly CfObject[] = [
   "deal",
   "organization",

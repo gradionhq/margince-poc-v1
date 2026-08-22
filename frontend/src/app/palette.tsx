@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { CornerDownLeft, Search, Sparkles } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
@@ -134,15 +134,93 @@ function useSearchCommands(query: string): Command[] {
       return data.data;
     },
   });
-  return (result.data ?? [])
-    .filter((hit) => RECORD_KINDS.has(hit.type as EntityKind))
-    .map((hit) => ({
-      id: `record:${hit.type}:${hit.id}`,
-      label: hit.title ?? hit.id,
-      subtitle: hit.type,
-      type: "record" as const,
-      route: ENTITY[hit.type as EntityKind].route(hit.id),
-    }));
+  const hits = (result.data ?? []).filter((hit) =>
+    RECORD_KINDS.has(hit.type as EntityKind),
+  );
+  const projectLines = useProjectHitLines(
+    hits.filter((hit) => hit.type === "project").map((hit) => hit.id),
+  );
+  return hits.map((hit) => ({
+    id: `record:${hit.type}:${hit.id}`,
+    label: hit.title ?? hit.id,
+    // A project's secondary line is its key or its company, not the word
+    // "project": a search hit for one carries no snippet, and two projects
+    // called "Rollout" are told apart by the key a rep already types into
+    // subject lines. Every other kind keeps the kind.
+    subtitle:
+      hit.type === "project"
+        ? (projectLines.get(hit.id) ?? hit.type)
+        : hit.type,
+    type: "record" as const,
+    route: ENTITY[hit.type as EntityKind].route(hit.id),
+  }));
+}
+
+/**
+ * The secondary line for each project hit: the key when the project has one,
+ * else the company's name. At most five hits are on screen, so the reads are
+ * per record and share the cache entries the project page and the company
+ * reference already fill.
+ */
+function useProjectHitLines(projectIds: string[]): Map<string, string> {
+  const projects = useQueries({
+    queries: projectIds.map((id) => ({
+      queryKey: ["project", id, "ref"],
+      staleTime: 60_000,
+      queryFn: async () => {
+        const { data, error } = await api.GET("/projects/{id}", {
+          params: { path: { id } },
+        });
+        if (error) {
+          // A palette line that cannot be resolved falls back to the kind;
+          // the hit itself still routes. The project page reports the
+          // failure in full.
+          return null;
+        }
+        return data;
+      },
+    })),
+  });
+  const companyIds = projects.flatMap((query) =>
+    query.data && !query.data.key && query.data.organization_id
+      ? [query.data.organization_id]
+      : [],
+  );
+  const companies = useQueries({
+    queries: companyIds.map((id) => ({
+      // The same entry EntityRef fills for a company reference.
+      queryKey: ["organization", "ref", id],
+      staleTime: 60_000,
+      queryFn: async () => {
+        const { data, error } = await api.GET("/organizations/{id}", {
+          params: { path: { id } },
+        });
+        if (error) {
+          return null;
+        }
+        return data.display_name ?? null;
+      },
+    })),
+  });
+  const companyName = new Map(
+    companyIds.map((id, index) => [id, companies[index]?.data ?? null]),
+  );
+  const lines = new Map<string, string>();
+  projects.forEach((query, index) => {
+    const project = query.data;
+    if (!project) {
+      return;
+    }
+    const line =
+      project.key ??
+      (project.organization_id
+        ? companyName.get(project.organization_id)
+        : null);
+    if (line) {
+      lines.set(projectIds[index], line);
+    }
+  });
+  return lines;
 }
 
 const TYPE_KEY: Record<Command["type"], MessageKey> = {

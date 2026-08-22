@@ -183,6 +183,7 @@ var tableOwners = map[string]string{
 	"linkedin_account":    "internal/modules/people",
 	"linkedin_connection": "internal/modules/people",
 	"attachment":          "internal/modules/activities",
+	"deal_document_hide":  "internal/modules/activities",
 	"booking_page":        "internal/modules/activities",
 	// approvals (signing_key backs the approval-token JWS)
 	"approval":    "internal/modules/approvals",

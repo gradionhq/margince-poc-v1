@@ -105,7 +105,7 @@ func connectProvider(t *testing.T, e *Env) {
 
 func person360Service(e *Env) *person360.Service {
 	reg, _ := integrations.NewRegistry(integrations.NewOfflineProvider(0, time.Now))
-	return person360.NewService(e.Pool, people.NewStore(e.DB()),
+	return person360.NewService(e.Pool, people.NewStore(e.DB()), e.Deals,
 		consent.NewStore(e.DB()), ai.NewFeedbackStore(e.DB()), time.Now).WithProviders(reg)
 }
 

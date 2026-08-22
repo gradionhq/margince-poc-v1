@@ -1280,6 +1280,15 @@ BEGIN
   RETURN OLD;
 END;
 
+public.deal_document_hide acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
+public.deal_document_hide.attachment_id uuid NOT NULL gen=- def=-
+public.deal_document_hide.deal_document_hide_attachment_fkey FOREIGN KEY (attachment_id) REFERENCES attachment(id) ON DELETE CASCADE
+public.deal_document_hide.deal_document_hide_deal_fkey FOREIGN KEY (deal_id) REFERENCES deal(id) ON DELETE CASCADE
+public.deal_document_hide.deal_document_hide_pkey PRIMARY KEY (deal_id, attachment_id)
+public.deal_document_hide.deal_id uuid NOT NULL gen=- def=-
+public.deal_document_hide.hidden_at timestamp with time zone NOT NULL gen=- def=now()
+public.deal_document_hide.hidden_by text NOT NULL gen=- def=-
+public.deal_document_hide_pkey CREATE UNIQUE INDEX deal_document_hide_pkey ON public.deal_document_hide USING btree (deal_id, attachment_id)
 public.deal_forecast_history acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
 public.deal_forecast_history.amount_minor_at_change bigint gen=- def=-
 public.deal_forecast_history.changed_at timestamp with time zone NOT NULL gen=- def=now()

@@ -982,10 +982,48 @@ export function PendingBody({
   );
 }
 
-export function EmptyState({ children }: Readonly<{ children: ReactNode }>) {
+/**
+ * EmptyState is the one "nothing here" plate.
+ *
+ * Bare, it is a one-liner: the caller's sentence, centred, in the meta tone —
+ * the shape a filtered list or a section with no rows takes. With `title` it
+ * becomes the INSTRUCTIONAL variant a first-run surface needs: a heading that
+ * names what the page holds, the caller's paragraph saying how a record of
+ * this kind comes to exist, and the one primary `action` that makes the first
+ * one. The two are one component rather than two because they are the same
+ * plate with more or less on it, and a second spelling of the plate is how a
+ * page's first-run state came to look like a different product from its
+ * filtered-empty state.
+ *
+ * The words stay the caller's, translated with `t()`; nothing here knows what
+ * kind of record is missing.
+ */
+export function EmptyState({
+  title,
+  action,
+  children,
+}: Readonly<{
+  // The instructional variant's heading. Present, the children render as the
+  // explanatory paragraph under it rather than as the whole plate.
+  title?: string;
+  // The one verb that ends the empty state — a create button. Rendered only
+  // with `title`: a bare one-liner that offered a verb would be a filtered
+  // list inviting the reader to create what the filter hid.
+  action?: ReactNode;
+  children: ReactNode;
+}>) {
+  if (title === undefined) {
+    return (
+      <Card as="div" inset className="empty">
+        {children}
+      </Card>
+    );
+  }
   return (
-    <Card as="div" inset className="empty">
-      {children}
+    <Card as="div" inset className="empty empty-instructional">
+      <h2 className="t-h2 empty-title">{title}</h2>
+      <div className="empty-body">{children}</div>
+      {action && <div className="empty-action">{action}</div>}
     </Card>
   );
 }

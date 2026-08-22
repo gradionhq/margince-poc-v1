@@ -5775,6 +5775,7 @@ const (
 	Organization360SectionsOmittedNextSteps        Organization360SectionsOmitted = "next_steps"
 	Organization360SectionsOmittedPendingApprovals Organization360SectionsOmitted = "pending_approvals"
 	Organization360SectionsOmittedPeople           Organization360SectionsOmitted = "people"
+	Organization360SectionsOmittedProjects         Organization360SectionsOmitted = "projects"
 	Organization360SectionsOmittedSinceLastVisit   Organization360SectionsOmitted = "since_last_visit"
 	Organization360SectionsOmittedStateStrip       Organization360SectionsOmitted = "state_strip"
 	Organization360SectionsOmittedStrength         Organization360SectionsOmitted = "strength"
@@ -5802,6 +5803,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedPendingApprovals:
 		return true
 	case Organization360SectionsOmittedPeople:
+		return true
+	case Organization360SectionsOmittedProjects:
 		return true
 	case Organization360SectionsOmittedSinceLastVisit:
 		return true
@@ -5872,6 +5875,30 @@ func (e Organization360DealStatus) Valid() bool {
 	case Organization360DealStatusOpen:
 		return true
 	case Organization360DealStatusWon:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360ProjectPhase.
+const (
+	Organization360ProjectPhaseClosed     Organization360ProjectPhase = "closed"
+	Organization360ProjectPhaseDelivering Organization360ProjectPhase = "delivering"
+	Organization360ProjectPhaseInitiative Organization360ProjectPhase = "initiative"
+	Organization360ProjectPhasePursuing   Organization360ProjectPhase = "pursuing"
+)
+
+// Valid indicates whether the value is a known member of the Organization360ProjectPhase enum.
+func (e Organization360ProjectPhase) Valid() bool {
+	switch e {
+	case Organization360ProjectPhaseClosed:
+		return true
+	case Organization360ProjectPhaseDelivering:
+		return true
+	case Organization360ProjectPhaseInitiative:
+		return true
+	case Organization360ProjectPhasePursuing:
 		return true
 	default:
 		return false
@@ -6847,6 +6874,7 @@ const (
 	Person360SectionsOmittedNextMeeting         Person360SectionsOmitted = "next_meeting"
 	Person360SectionsOmittedNextSteps           Person360SectionsOmitted = "next_steps"
 	Person360SectionsOmittedProfileFields       Person360SectionsOmitted = "profile_fields"
+	Person360SectionsOmittedProjects            Person360SectionsOmitted = "projects"
 	Person360SectionsOmittedProviderProfile     Person360SectionsOmitted = "provider_profile"
 	Person360SectionsOmittedRelationshipChanges Person360SectionsOmitted = "relationship_changes"
 	Person360SectionsOmittedSinceLastVisit      Person360SectionsOmitted = "since_last_visit"
@@ -6881,6 +6909,8 @@ func (e Person360SectionsOmitted) Valid() bool {
 	case Person360SectionsOmittedNextSteps:
 		return true
 	case Person360SectionsOmittedProfileFields:
+		return true
+	case Person360SectionsOmittedProjects:
 		return true
 	case Person360SectionsOmittedProviderProfile:
 		return true
@@ -10687,6 +10717,36 @@ func (e ListDealsParamsPartnerAttribution) Valid() bool {
 	}
 }
 
+// Defines values for ListDealDocumentsParamsCategory.
+const (
+	ListDealDocumentsParamsCategoryContract          ListDealDocumentsParamsCategory = "contract"
+	ListDealDocumentsParamsCategoryEmailAttachment   ListDealDocumentsParamsCategory = "email_attachment"
+	ListDealDocumentsParamsCategoryLegal             ListDealDocumentsParamsCategory = "legal"
+	ListDealDocumentsParamsCategoryMessageAttachment ListDealDocumentsParamsCategory = "message_attachment"
+	ListDealDocumentsParamsCategoryOffer             ListDealDocumentsParamsCategory = "offer"
+	ListDealDocumentsParamsCategoryOther             ListDealDocumentsParamsCategory = "other"
+)
+
+// Valid indicates whether the value is a known member of the ListDealDocumentsParamsCategory enum.
+func (e ListDealDocumentsParamsCategory) Valid() bool {
+	switch e {
+	case ListDealDocumentsParamsCategoryContract:
+		return true
+	case ListDealDocumentsParamsCategoryEmailAttachment:
+		return true
+	case ListDealDocumentsParamsCategoryLegal:
+		return true
+	case ListDealDocumentsParamsCategoryMessageAttachment:
+		return true
+	case ListDealDocumentsParamsCategoryOffer:
+		return true
+	case ListDealDocumentsParamsCategoryOther:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListDealOffersParamsStatus.
 const (
 	ListDealOffersParamsStatusAccepted   ListDealOffersParamsStatus = "accepted"
@@ -10986,31 +11046,31 @@ func (e ListOrganizationsParamsCapturedByKind) Valid() bool {
 
 // Defines values for ListOrganizationsParamsLifecycle.
 const (
-	ListOrganizationsParamsLifecycleCustomer       ListOrganizationsParamsLifecycle = "customer"
-	ListOrganizationsParamsLifecycleDisqualified   ListOrganizationsParamsLifecycle = "disqualified"
-	ListOrganizationsParamsLifecycleFormerCustomer ListOrganizationsParamsLifecycle = "former_customer"
-	ListOrganizationsParamsLifecycleOpportunity    ListOrganizationsParamsLifecycle = "opportunity"
-	ListOrganizationsParamsLifecycleProspect       ListOrganizationsParamsLifecycle = "prospect"
-	ListOrganizationsParamsLifecycleTarget         ListOrganizationsParamsLifecycle = "target"
-	ListOrganizationsParamsLifecycleUnknown        ListOrganizationsParamsLifecycle = "unknown"
+	Customer       ListOrganizationsParamsLifecycle = "customer"
+	Disqualified   ListOrganizationsParamsLifecycle = "disqualified"
+	FormerCustomer ListOrganizationsParamsLifecycle = "former_customer"
+	Opportunity    ListOrganizationsParamsLifecycle = "opportunity"
+	Prospect       ListOrganizationsParamsLifecycle = "prospect"
+	Target         ListOrganizationsParamsLifecycle = "target"
+	Unknown        ListOrganizationsParamsLifecycle = "unknown"
 )
 
 // Valid indicates whether the value is a known member of the ListOrganizationsParamsLifecycle enum.
 func (e ListOrganizationsParamsLifecycle) Valid() bool {
 	switch e {
-	case ListOrganizationsParamsLifecycleCustomer:
+	case Customer:
 		return true
-	case ListOrganizationsParamsLifecycleDisqualified:
+	case Disqualified:
 		return true
-	case ListOrganizationsParamsLifecycleFormerCustomer:
+	case FormerCustomer:
 		return true
-	case ListOrganizationsParamsLifecycleOpportunity:
+	case Opportunity:
 		return true
-	case ListOrganizationsParamsLifecycleProspect:
+	case Prospect:
 		return true
-	case ListOrganizationsParamsLifecycleTarget:
+	case Target:
 		return true
-	case ListOrganizationsParamsLifecycleUnknown:
+	case Unknown:
 		return true
 	default:
 		return false
@@ -11250,22 +11310,22 @@ func (e ListPeopleParamsCapturedByKind) Valid() bool {
 
 // Defines values for ListProjectsParamsPhase.
 const (
-	ListProjectsParamsPhaseClosed     ListProjectsParamsPhase = "closed"
-	ListProjectsParamsPhaseDelivering ListProjectsParamsPhase = "delivering"
-	ListProjectsParamsPhaseInitiative ListProjectsParamsPhase = "initiative"
-	ListProjectsParamsPhasePursuing   ListProjectsParamsPhase = "pursuing"
+	Closed     ListProjectsParamsPhase = "closed"
+	Delivering ListProjectsParamsPhase = "delivering"
+	Initiative ListProjectsParamsPhase = "initiative"
+	Pursuing   ListProjectsParamsPhase = "pursuing"
 )
 
 // Valid indicates whether the value is a known member of the ListProjectsParamsPhase enum.
 func (e ListProjectsParamsPhase) Valid() bool {
 	switch e {
-	case ListProjectsParamsPhaseClosed:
+	case Closed:
 		return true
-	case ListProjectsParamsPhaseDelivering:
+	case Delivering:
 		return true
-	case ListProjectsParamsPhaseInitiative:
+	case Initiative:
 		return true
-	case ListProjectsParamsPhasePursuing:
+	case Pursuing:
 		return true
 	default:
 		return false
@@ -15276,6 +15336,37 @@ type DealCoverageSeat struct {
 	Role     string             `json:"role"`
 }
 
+// DealDocument One file in a deal's Files area: the attachment, whether it is hidden from this
+// deal, and where a captured file came from, so a reader can tell "the contract
+// Laura mailed on the 12th" from "the draft I uploaded".
+type DealDocument struct {
+	// Attachment A file hung off an entity. Mirrors the `attachment` table: the row is the
+	// system of record and the tenant anchor; the bytes live in object storage,
+	// addressed by an internal object key that is never exposed on the wire.
+	Attachment Attachment `json:"attachment"`
+	Hidden     bool       `json:"hidden"`
+
+	// Origin Where a captured file came from. Present for a file that arrived with a message linked to the deal; absent for a file uploaded on the deal.
+	Origin *DealDocumentOrigin `json:"origin,omitempty"`
+}
+
+// DealDocumentListResponse defines model for DealDocumentListResponse.
+type DealDocumentListResponse struct {
+	Data []DealDocument `json:"data"`
+	Page PageInfo       `json:"page"`
+}
+
+// DealDocumentOrigin Where a captured file came from. Present for a file that arrived with a message linked to the deal; absent for a file uploaded on the deal.
+type DealDocumentOrigin struct {
+	ActivityId        openapi_types.UUID   `json:"activity_id"`
+	CounterpartyEmail *openapi_types.Email `json:"counterparty_email,omitempty"`
+
+	// Kind The activity kind the file arrived with: email, message, meeting.
+	Kind       string    `json:"kind"`
+	OccurredAt time.Time `json:"occurred_at"`
+	Subject    *string   `json:"subject,omitempty"`
+}
+
 // DealHealthFactor defines model for DealHealthFactor.
 type DealHealthFactor struct {
 	// ActivityId The activity the factor points at, where one does.
@@ -17936,6 +18027,9 @@ type Organization360 struct {
 		Page PageInfo                 `json:"page"`
 	} `json:"people,omitempty"`
 
+	// Projects The company's unarchived projects, work in motion first (delivering, pursuing, initiative, then closed), under the caller's project row scope. Absent when the caller has no project grant, named in `sections_omitted` as `projects`.
+	Projects *[]Organization360Project `json:"projects,omitempty"`
+
 	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
 	SectionsOmitted []Organization360SectionsOmitted `json:"sections_omitted"`
 
@@ -18171,6 +18265,26 @@ type Organization360NextStep struct {
 	Overdue        bool                `json:"overdue"`
 	Subject        string              `json:"subject"`
 }
+
+// Organization360Project One body of work on the record page: enough to name it, say where it stands and who holds it. The full row is `GET /projects/{id}`. Shared by the company page and the person page, so a project reads the same on both.
+type Organization360Project struct {
+	// Key The subject-line handle, when the project has one.
+	Key            *string             `json:"key,omitempty"`
+	LastActivityAt *time.Time          `json:"last_activity_at,omitempty"`
+	Name           string              `json:"name"`
+	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
+
+	// OwnerName The owner's display name; null when the project has no owner or the owner is no longer an active member.
+	OwnerName *string `json:"owner_name,omitempty"`
+
+	// Phase Where a project stands on the record page; the same ladder the project's own `phase` walks.
+	Phase         Organization360ProjectPhase `json:"phase"`
+	ProjectId     openapi_types.UUID          `json:"project_id"`
+	TargetEndDate *openapi_types.Date         `json:"target_end_date,omitempty"`
+}
+
+// Organization360ProjectPhase Where a project stands on the record page; the same ladder the project's own `phase` walks.
+type Organization360ProjectPhase string
 
 // Organization360Route One colleague who has actually exchanged messages with this contact.
 type Organization360Route struct {
@@ -19505,6 +19619,9 @@ type Person360 struct {
 
 	// ProfileFields The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
 	ProfileFields *[]PersonProfileField `json:"profile_fields,omitempty"`
+
+	// Projects The unarchived projects this person is part of: the ones they hold a live stakeholder seat on, plus every project of the company they currently work for, one row per project, work in motion first. Absent when the caller has no project grant, named in `sections_omitted` as `projects`.
+	Projects *[]Organization360Project `json:"projects,omitempty"`
 
 	// ProviderProfile The purchased person-data snapshot (PO-EXT-9): what a connected provider returned about this person, kept beside the canonical record and never silently folded into it. Absent when the caller lacks the person grant, named in `sections_omitted` as `provider_profile`.
 	ProviderProfile *PersonProviderProfile `json:"provider_profile,omitempty"`
@@ -24570,6 +24687,27 @@ type AdvanceDealParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// ListDealDocumentsParams defines parameters for ListDealDocuments.
+type ListDealDocumentsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit         *Limit                           `form:"limit,omitempty" json:"limit,omitempty"`
+	Category      *ListDealDocumentsParamsCategory `form:"category,omitempty" json:"category,omitempty"`
+	IncludeHidden *bool                            `form:"include_hidden,omitempty" json:"include_hidden,omitempty"`
+}
+
+// ListDealDocumentsParamsCategory defines parameters for ListDealDocuments.
+type ListDealDocumentsParamsCategory string
+
 // ListDealOffersParams defines parameters for ListDealOffers.
 type ListDealOffersParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -25548,6 +25686,9 @@ type DraftAccountEmailJSONBody struct {
 
 	// PersonId Who the draft is addressed to. Required: a draft with no recipient has no relationship to ground itself in, and the one thing this endpoint adds over an empty compose box is that it knows who it is writing to. Must be a contact the caller can see on this account.
 	PersonId openapi_types.UUID `json:"person_id"`
+
+	// ProjectId Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
 }
 
 // UpdateOrganizationFactParams defines parameters for UpdateOrganizationFact.
@@ -26008,6 +26149,9 @@ type IssueDoubleOptInJSONBody struct {
 type DraftPersonEmailJSONBody struct {
 	// Intent Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence.
 	Intent *string `json:"intent,omitempty"`
+
+	// ProjectId Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
 }
 
 // CreatePersonEnrichmentRunParams defines parameters for CreatePersonEnrichmentRun.
@@ -36184,6 +36328,15 @@ type ServerInterface interface {
 	// Who covers this deal, and what is wrong with how it is covered.
 	// (GET /deals/{id}/coverage)
 	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// The deal's Files area — its own uploads and the files of every message linked to it.
+	// (GET /deals/{id}/documents)
+	ListDealDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListDealDocumentsParams)
+	// List the file on this deal again.
+	// (DELETE /deals/{id}/documents/{attachmentId}/hide)
+	UnhideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID)
+	// Stop listing a captured file on this deal without touching the file.
+	// (PUT /deals/{id}/documents/{attachmentId}/hide)
+	HideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID)
 	// How the deal stands — four named factors, each with the fact behind it.
 	// (GET /deals/{id}/health)
 	GetDealHealth(w http.ResponseWriter, r *http.Request, id Id)
@@ -38077,6 +38230,24 @@ func (_ Unimplemented) AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id
 // Who covers this deal, and what is wrong with how it is covered.
 // (GET /deals/{id}/coverage)
 func (_ Unimplemented) GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The deal's Files area — its own uploads and the files of every message linked to it.
+// (GET /deals/{id}/documents)
+func (_ Unimplemented) ListDealDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListDealDocumentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the file on this deal again.
+// (DELETE /deals/{id}/documents/{attachmentId}/hide)
+func (_ Unimplemented) UnhideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Stop listing a captured file on this deal without touching the file.
+// (PUT /deals/{id}/documents/{attachmentId}/hide)
+func (_ Unimplemented) HideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -46859,6 +47030,175 @@ func (siw *ServerInterfaceWrapper) GetDealCoverage(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDealCoverage(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDealDocuments operation middleware
+func (siw *ServerInterfaceWrapper) ListDealDocuments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDealDocumentsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_hidden" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_hidden", r.URL.Query(), &params.IncludeHidden, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_hidden"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_hidden", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDealDocuments(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnhideDealDocument operation middleware
+func (siw *ServerInterfaceWrapper) UnhideDealDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", chi.URLParam(r, "attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnhideDealDocument(w, r, id, attachmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HideDealDocument operation middleware
+func (siw *ServerInterfaceWrapper) HideDealDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", chi.URLParam(r, "attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HideDealDocument(w, r, id, attachmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -61585,6 +61925,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/documents", wrapper.ListDealDocuments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/deals/{id}/documents/{attachmentId}/hide", wrapper.UnhideDealDocument)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/deals/{id}/documents/{attachmentId}/hide", wrapper.HideDealDocument)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/health", wrapper.GetDealHealth)

@@ -25,8 +25,8 @@ import { throwProblem } from "./common";
 // customfields.logic.ts's CF_OBJECTS (which additionally excludes
 // "activity" for that screen's own reasons) and NOT renewal_reminder's
 // wider object vocabulary (automations_catalog.go's renewalReminderObjects,
-// which also allows "project" — a contract/backend gap already tracked
-// there, not something this picker can paper over). An `object` value
+// which also allows "project"; a project has a page of its own but no custom
+// fields, so the picker has nothing to offer for it). An `object` value
 // outside this set can never resolve to a real /custom-fields page, so the
 // picker degrades to its disabled, hinted state rather than issuing a query
 // the endpoint would refuse.

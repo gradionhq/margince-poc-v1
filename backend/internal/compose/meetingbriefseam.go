@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -40,7 +41,7 @@ import (
 // is who is asking.
 func meetingBriefReader(pool *pgxpool.Pool) agents.MeetingBriefReader {
 	peopleStore := people.NewStore(InstallationDB(pool))
-	view := person360.NewService(pool, peopleStore,
+	view := person360.NewService(pool, peopleStore, deals.NewStore(InstallationDB(pool), DealsInstallation()),
 		consent.NewStore(InstallationDB(pool)),
 		ai.NewFeedbackStore(InstallationDB(pool)), time.Now)
 	service := meetingbrief.NewService(pool, view, peopleStore, time.Now)

@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/personcontext"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
 )
 
@@ -28,6 +29,7 @@ func FromView(view crmcontracts.Person360, req Request) Input {
 		SectionsOmitted: omittedNames(view.SectionsOmitted),
 	}
 	foldCommercial(&in, view)
+	foldProject(&in, view, req.ProjectID)
 	foldClaims(&in, view, req.Envelope.At())
 	foldRecent(&in, view)
 	foldMeeting(&in, view, req.Envelope.At())
@@ -162,6 +164,41 @@ func foldCommercial(in *Input, view crmcontracts.Person360) {
 	}
 	in.Deal = &folded
 }
+
+// foldProject folds the named project off the view's own projects section —
+// the ones this person holds a seat on or that their employer carries. A
+// project outside that section is left unfolded, and the service refuses
+// the request; the scoped read has already refused one the caller may not see.
+func foldProject(in *Input, view crmcontracts.Person360, projectID *ids.ProjectID) {
+	if projectID == nil || view.Projects == nil {
+		return
+	}
+	for _, project := range *view.Projects {
+		if ids.UUID(project.ProjectId) != projectID.UUID {
+			continue
+		}
+		folded := ProjectIn{
+			ID:    project.ProjectId.String(),
+			Name:  project.Name,
+			Phase: string(project.Phase),
+		}
+		if project.Key != nil {
+			folded.Key = *project.Key
+		}
+		if project.TargetEndDate != nil {
+			folded.TargetEnd = project.TargetEndDate.Format(isoDate)
+		}
+		if view.NextSteps != nil {
+			folded.OpenCommitments = len(view.NextSteps.Data)
+		}
+		in.Project = &folded
+		return
+	}
+}
+
+// isoDate is how a date fact is written to the model: the calendar date alone,
+// because a project's target end has no time of day.
+const isoDate = "2006-01-02"
 
 // foldClaims keeps the claims a message can honestly refer to. A dismissed
 // claim is one a human said was never true, and writing an email from it would
