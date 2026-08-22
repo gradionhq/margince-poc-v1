@@ -205,66 +205,43 @@ type threadSpec struct {
 
 // threadsFor picks the conversations an account's own state calls for.
 func threadsFor(account Account) []threadSpec {
+	locale := localeOf(account.Domain)
+	words := wordsFor(locale)
+	// One helper so every spec below states only what differs. The subject and
+	// the body come from the same locale, which is what stops a German subject
+	// wrapping a Korean company name — the shape this generator shipped with.
+	spec := func(key, subject string, opener string, replies, dayStart int,
+		deal, meeting bool,
+	) threadSpec {
+		return threadSpec{
+			Key: key, Subject: subject, Opener: opener, Replies: replies,
+			DayStart: dayStart, Deal: deal, Meeting: meeting,
+			Body: bodiesFor(locale, key),
+		}
+	}
+
 	stage := strings.ToLower(dealStage(account))
 	switch {
 	case account.Lifecycle == "customer":
 		return []threadSpec{
-			{
-				Key: "kickoff", Subject: "Kickoff " + account.Name, Opener: directionOutbound, Replies: 2,
-				DayStart: 20, Deal: true, Meeting: true, Body: [3]string{
-					"vielen Dank für Ihr Vertrauen. Anbei der Terminvorschlag für den Kickoff.",
-					"passt uns gut, wir bringen die Fachbereiche mit.",
-					"prima, Einladung ist raus. Agenda hängt an.",
-				},
-			},
-			{
-				Key: "invoice", Subject: "Rechnung " + orDash(account.ContractNumber), Opener: directionInbound, Replies: 1,
-				DayStart: 60, Body: [3]string{
-					"kurze Rückfrage zur letzten Rechnung — ist die Position 3 anteilig berechnet?",
-					"ja, anteilig bis zum Periodenende. Ich schicke die Aufstellung mit.", "",
-				},
-			},
+			spec(threadKickoff, words.Kickoff+" "+account.Name, directionOutbound, 2, 20, true, true),
+			spec(threadInvoice, words.Invoice+" "+orDash(account.ContractNumber), directionInbound, 1, 60, false, false),
 		}
 	case account.Lifecycle == "former_customer":
 		return []threadSpec{
-			{
-				Key: "offboarding", Subject: "Kündigung bestätigt", Opener: directionOutbound, Replies: 1,
-				DayStart: 30, Body: [3]string{
-					"wir bestätigen den Eingang Ihrer Kündigung zum Ende der Laufzeit.",
-					"danke für die Bestätigung und die Zusammenarbeit.", "",
-				},
-			},
+			spec(threadOffboarding, words.Offboarding, directionOutbound, 1, 30, false, false),
 		}
 	case stage == "proposal" || stage == "negotiation":
 		return []threadSpec{
-			{
-				Key: "offer", Subject: "Angebot " + account.Name, Opener: directionOutbound, Replies: 2,
-				DayStart: 10, Deal: true, Meeting: true, Body: [3]string{
-					"anbei unser Angebot wie besprochen. Die Staffel greift ab 50 Lizenzen.",
-					"danke — zwei Rückfragen zur Laufzeit und zum Support-Level.",
-					"beides gerne im Termin, Vorschlag hängt an.",
-				},
-			},
+			spec(threadOffer, words.Offer+" "+account.Name, directionOutbound, 2, 10, true, true),
 		}
 	case stage != "":
 		return []threadSpec{
-			{
-				Key: "intro", Subject: "Kurzer Austausch?", Opener: directionOutbound, Replies: 1,
-				DayStart: 5, Deal: true, Body: [3]string{
-					"wir arbeiten mit mehreren Häusern Ihrer Größe — lohnt ein kurzer Austausch?",
-					"gerne, schicken Sie ein paar Slots.", "",
-				},
-			},
+			spec(threadIntro, words.Intro, directionOutbound, 1, 5, true, false),
 		}
 	case account.Lifecycle == "prospect":
 		return []threadSpec{
-			{
-				Key: directionInbound, Subject: "Anfrage über die Website", Opener: directionInbound, Replies: 1,
-				DayStart: 8, Body: [3]string{
-					"wir prüfen gerade Anbieter und würden gerne mehr erfahren.",
-					"sehr gerne — ich melde mich mit zwei Terminvorschlägen.", "",
-				},
-			},
+			spec(threadInbound, words.Enquiry, directionInbound, 1, 8, false, false),
 		}
 	default:
 		// A target nobody has worked. Most get nothing, which is the honest
@@ -273,12 +250,7 @@ func threadsFor(account Account) []threadSpec {
 			return nil
 		}
 		return []threadSpec{
-			{
-				Key: "cold", Subject: "Kurze Frage zu Ihrem Shop", Opener: directionOutbound, Replies: 0,
-				DayStart: 12, Body: [3]string{
-					"eine kurze Frage zu Ihrer Plattform — haben Sie zehn Minuten?", "", "",
-				},
-			},
+			spec(threadCold, words.Cold, directionOutbound, 0, 12, false, false),
 		}
 	}
 }
@@ -321,8 +293,9 @@ func writeThread(mailbox Mailbox, account Account, contact Person, anchor time.T
 	if spec.Meeting {
 		occurred = occurred.AddDate(0, 0, 5)
 		id := fmt.Sprintf("<%s.meet@offline-demo.invalid>", base)
+		words := wordsFor(localeOf(account.Domain))
 		meeting := newMessage(mailbox, account, contact, id, openerID, "",
-			"Termin: "+spec.Subject, "Abstimmung, 45 Minuten, per Video.",
+			words.Meeting+": "+spec.Subject, words.MeetingBody,
 			occurred, "", "meeting", dealID)
 		out = append(out, meeting)
 	}
@@ -338,10 +311,12 @@ func newMessage(mailbox Mailbox, account Account, contact Person,
 	if direction == directionInbound {
 		from, fromName, to, toName = contact.Email, contact.Name, mailbox.Email, mailbox.DisplayName
 	}
-	greeting := "Hallo " + firstWord(contact.Name) + ","
+	words := wordsFor(localeOf(account.Domain))
+	addressee := firstWord(contact.Name)
 	if direction == directionInbound {
-		greeting = "Hallo " + firstWord(mailbox.DisplayName) + ","
+		addressee = firstWord(mailbox.DisplayName)
 	}
+	greeting := words.Greeting(addressee)
 	cc := ""
 	// A CC on some threads, so the participant fan-out has more than two
 	// parties to record.
@@ -350,7 +325,7 @@ func newMessage(mailbox Mailbox, account Account, contact Person,
 	}
 	return message{
 		Mailbox: mailbox, MessageID: id, ThreadKey: threadKey, InReplyTo: inReplyTo,
-		Subject: subject, Body: greeting + "\n\n" + body + "\n\nViele Grüße",
+		Subject: subject, Body: greeting + "\n\n" + body + "\n\n" + words.SignOff,
 		OccurredAt: occurred.UTC(), Direction: direction, Kind: kind,
 		FromAddr: from, FromName: fromName, ToAddr: to, ToName: toName, CCAddr: cc,
 		OrgID: account.OrganizationID, DealID: dealID, PersonEmail: contact.Email,

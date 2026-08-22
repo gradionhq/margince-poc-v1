@@ -62,7 +62,10 @@ const Name = "offline_demo"
 // version bump is exactly the tool for that: the cursor no longer matches, the
 // generator starts from the beginning, and the natural key refuses whatever
 // did land.
-const generatorVersion = 2
+// 3: the correspondence is written in the account's own language rather than
+// German for everybody. Without the bump an existing demo keeps the German
+// mail it already captured and never sees a Korean or Vietnamese thread.
+const generatorVersion = 3
 
 // Directory is what the connector needs to know about the installation to
 // write plausible mail for it. Implemented in compose, because reading people
