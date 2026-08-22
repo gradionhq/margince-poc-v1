@@ -60,7 +60,7 @@ function Served({
 export const Live: Story = {
   render: () => (
     <Served rooms={[room("live")]}>
-      <DealRoomAside dealId="deal-1" />
+      <DealRoomAside dealId="deal-1" dealName="Acme Expansion" />
     </Served>
   ),
 };
@@ -69,7 +69,7 @@ export const Live: Story = {
 export const Draft: Story = {
   render: () => (
     <Served rooms={[room("draft")]}>
-      <DealRoomAside dealId="deal-1" />
+      <DealRoomAside dealId="deal-1" dealName="Acme Expansion" />
     </Served>
   ),
 };
@@ -82,7 +82,7 @@ export const Draft: Story = {
 export const Closed: Story = {
   render: () => (
     <Served rooms={[room("closed")]}>
-      <DealRoomAside dealId="deal-1" />
+      <DealRoomAside dealId="deal-1" dealName="Acme Expansion" />
     </Served>
   ),
 };

@@ -10,15 +10,15 @@
   "totals": {
     "tools": 56,
     "resources": 8,
-    "tool_catalog_bytes": 153353,
+    "tool_catalog_bytes": 153412,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 39115,
-    "largest_tool_bytes": 6414,
+    "approx_wire_tokens_total": 39130,
+    "largest_tool_bytes": 6473,
     "largest_tool": "read_project_360",
     "tool_catalog_composition": {
       "description_bytes": 35597,
       "input_schema_bytes": 32056,
-      "output_schema_bytes": 73662,
+      "output_schema_bytes": 73721,
       "description_plus_input_schema_bytes": 67653
     }
   },
@@ -7042,12 +7042,16 @@
                     "attributed": {
                       "type": "integer"
                     },
+                    "awaiting_decision": {
+                      "type": "integer"
+                    },
                     "unattributed_nearby": {
                       "type": "integer"
                     }
                   },
                   "required": [
                     "attributed",
+                    "awaiting_decision",
                     "unattributed_nearby"
                   ],
                   "type": "object"

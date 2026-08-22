@@ -775,6 +775,132 @@ export const de = {
   "room.readOnly": "Sie können diesen Raum lesen, aber nicht ändern.",
   "room.finished":
     "Dieser Raum ist abgeschlossen, das Geteilte ist jetzt ein Protokoll.",
+  "room.card.title": "Deal Room",
+  "room.card.people": "{invited} eingeladen · {active} angemeldet",
+  "room.card.unpublished": "unveröffentlichte Änderungen",
+  "room.card.lastSeen": "Zuletzt von einem Käufer gesehen: {when}",
+  "room.card.open": "Deal Room öffnen",
+  "room.create.sub":
+    "Ein Raum, den der Käufer per Link betritt, um zu lesen, was Sie teilen, und darüber zu sprechen.",
+  "room.create.open": "Deal Room eröffnen",
+  "room.create.confirm": "Eröffnen",
+  "room.create.titleLabel": "Titel des Raums",
+  "room.create.titleHint":
+    "Was der Käufer als Überschrift sieht. Später änderbar.",
+  "room.create.defaultTitle": "{deal}",
+  "roompage.none":
+    "Dieser Deal hat noch keinen Deal Room. Eröffnen Sie einen auf der Deal-Seite.",
+  "roompage.backToDeal": "← Zurück zum Deal",
+  "roompage.accessMenu": "Zugang zum Raum",
+  "roompage.pause": "Pausieren",
+  "roompage.pauseHint":
+    "Käufer behalten ihre Links, sehen aber eine Pausenseite, bis Sie fortsetzen.",
+  "roompage.resume": "Fortsetzen",
+  "roompage.close": "Raum schließen",
+  "roompage.closeHint":
+    "Käufer lesen weiter; nichts kann mehr hinzugefügt oder gesagt werden.",
+  "roompage.setExpiry": "Enddatum setzen",
+  "roompage.setExpiryHint": "Der Zugang endet an diesem Tag.",
+  "roompage.closeTitle": "Diesen Deal Room schließen?",
+  "roompage.closeBody":
+    "Käufer lesen weiter, was veröffentlicht wurde. Danach werden keine Dokumente, Kommentare oder Entscheidungen mehr angenommen. Personen entfernen und Links ausstellen geht weiterhin.",
+  "roompage.expiryLabel": "Zugang endet am",
+  "roompage.expiryHint": "Leer lassen für kein Enddatum.",
+  "roompage.banner.draft":
+    "Noch nicht veröffentlicht. Käufer sehen nichts, bis Sie veröffentlichen.",
+  "roompage.banner.paused":
+    "Pausiert. Käufer sehen eine Pausenseite, bis Sie fortsetzen.",
+  "roompage.banner.closed":
+    "Geschlossen. Käufer können das Veröffentlichte weiter lesen; mehr wird nicht angenommen.",
+  "roompage.banner.expired":
+    "Abgelaufen. Käufer-Links funktionieren nicht mehr.",
+  "roompage.banner.archived": "Archiviert. Niemand kann diesen Raum betreten.",
+  "roompage.banner.liveUntil": "Live. Der Zugang endet am {when}.",
+  "roompage.text.title": "Titel und Begrüßung",
+  "roompage.text.sub":
+    "Was der Käufer zuerst liest. Erreicht ihn bei der nächsten Veröffentlichung.",
+  "roompage.text.titleLabel": "Titel des Raums",
+  "roompage.text.welcomeLabel": "Begrüßungstext",
+  "roompage.publish": "Veröffentlichen",
+  "roompage.publishFinished":
+    "Dieser Raum ist abgeschlossen und nimmt keine Veröffentlichungen mehr an.",
+  "roompage.publishNothing":
+    "Seit der letzten Veröffentlichung hat sich nichts geändert.",
+  "roompage.publishChecking": "Prüfe, was sich geändert hat …",
+  "roompage.publishUnknown":
+    "Die Änderungen konnten nicht gelesen werden; laden Sie die Seite neu.",
+  "roompage.publishTitle": "Diese Änderungen für den Käufer veröffentlichen?",
+  "roompage.publishNoteLabel": "Notiz fürs Protokoll (optional)",
+  "publish.title": "Veröffentlichen",
+  "publish.sub":
+    "Was der Käufer anders sehen würde, und was bisher hinausging.",
+  "publish.pendingBadge": "Unveröffentlichte Änderungen",
+  "publish.noChanges":
+    "Seit der letzten Veröffentlichung hat sich nichts geändert.",
+  "publish.release": "Veröffentlichung {no}",
+  "publish.readers": "{count} Käufer haben sich angemeldet.",
+  "publish.change.title": "Der Titel wurde geändert.",
+  "publish.change.welcome": "Der Begrüßungstext wurde geändert.",
+  "publish.change.added": "Hinzugefügt: {title}",
+  "publish.change.removed": "Entfernt: {title}",
+  "publish.change.retitled": "Umbenannt: {title}",
+  "publish.change.regrouped": "In eine andere Gruppe verschoben: {title}",
+  "publish.change.reordered": "Umsortiert: {title}",
+  "publish.change.ineligible":
+    "Fällt heraus (am Deal ausgeblendet, entkoppelt oder gelöscht): {title}",
+  "publish.change.other": "Geändert: {title}",
+  "access.title": "Zugang",
+  "access.sub": "Wer eintreten darf und was jede Person tun kann.",
+  "access.invite": "Einladen",
+  "access.empty": "Noch niemand eingeladen.",
+  "access.noReviewer":
+    "Es gibt Dokumente, aber niemanden, der sie bestätigen kann. Laden Sie einen Prüfer ein oder machen Sie jemanden zum Prüfer.",
+  "access.cap.view": "Nur lesen",
+  "access.cap.viewHint": "Kann Dokumente und Unterhaltung lesen.",
+  "access.cap.comment": "Lesen und kommentieren",
+  "access.cap.commentHint": "Kann außerdem Fragen stellen und antworten.",
+  "access.cap.reviewer": "Lesen, kommentieren und Dokumente bestätigen",
+  "access.cap.reviewerHint":
+    "Kann außerdem Änderungen an einem Dokument anfordern oder eine Version bestätigen.",
+  "access.state.invited": "eingeladen",
+  "access.state.active": "angemeldet",
+  "access.state.revoked": "entzogen",
+  "access.lastSeen": "zuletzt gesehen {when}",
+  "access.linkRequested":
+    "Hat {when} um einen neuen Link gebeten. Stellen Sie einen aus und senden Sie ihn selbst.",
+  "access.rowActions": "Aktionen für {name}",
+  "access.issueLink": "Neuen Link ausstellen",
+  "access.changeCapability": "Rechte ändern",
+  "access.revoke": "Zugang entziehen",
+  "access.inviteTitle": "Jemanden in den Deal Room einladen",
+  "access.inviteConfirm": "Einladen",
+  "access.done": "Fertig",
+  "access.save": "Speichern",
+  "access.nameLabel": "Name",
+  "access.emailLabel": "E-Mail",
+  "access.capabilityLegend": "Was darf die Person tun?",
+  "access.inviteNote":
+    "Sie erhalten den Link zum Kopieren. Ist ein Mail-Relay konfiguriert, wird er zusätzlich versandt.",
+  "access.issued.title": "Link für {name}",
+  "access.issued.mailed":
+    "An {email} gesendet. Sie können ihn unten auch kopieren.",
+  "access.issued.notMailed":
+    "Es wurde keine Mail gesendet. Kopieren Sie den Link und senden Sie ihn selbst.",
+  "access.issued.linkLabel": "Der Link",
+  "access.issued.copy": "Link kopieren",
+  "access.issued.copied": "Kopiert",
+  "access.issued.copyFailed":
+    "Kopieren fehlgeschlagen; markieren und kopieren Sie den Link.",
+  "access.issued.oneTime":
+    "Persönlicher Einmal-Link. Er funktioniert einmal, auf einem Gerät. Jede Person braucht ihre eigene Einladung.",
+  "access.issueLinkTitle": "Neuen Link für {name} ausstellen",
+  "access.issueLinkBody":
+    "Der bisherige Link funktioniert dann nicht mehr. Sie erhalten den neuen zum Kopieren.",
+  "access.revokeTitle": "Zugang für {name} entziehen?",
+  "access.neverSignedIn": "nie angemeldet",
+  "access.revokeBody":
+    "Die Sitzung endet sofort und der Link funktioniert nicht mehr. Kommentare bleiben sichtbar und zugeordnet. Der Zugang lässt sich nicht durch eine Link-Anfrage wiederherstellen.",
+  "access.changeCapabilityTitle": "Was darf {name} tun?",
   "room.state.draft": "Entwurf",
   "room.state.building": "Wird erstellt",
   "room.state.ready": "Bereit",
@@ -1025,6 +1151,7 @@ export const de = {
   "approval.kind.site_lead": "Person von der Website aufnehmen",
   "approval.kind.capture_counterparty": "Person aus deiner Mail aufnehmen",
   "approval.kind.org_name_promotion": "Account umbenennen",
+  "approval.kind.project_attribution": "Unter einem Projekt ablegen",
   "approval.kind.lifecycle_change": "Account-Phase",
   "approval.kind.transcript_proposal":
     "Nächsten Schritt aus einem Transkript übernehmen",
@@ -4113,9 +4240,9 @@ export const de = {
   "room.docs.empty": "Noch keine Dokumente im Raum.",
   "room.docs.fileLabel": "Datei aus diesem Deal",
   "room.docs.fileHint":
-    "Laden Sie Dateien zuerst am Deal hoch; nur die Dateien des Deals können in den Raum.",
+    "Alles aus dem Dateibereich des Deals kann hinein: Uploads und die Dateien seiner E-Mails.",
   "room.docs.pickFile": "Datei wählen",
-  "room.docs.noFiles": "Dieser Deal hat noch keine Dateien",
+  "room.docs.noFiles": "Der Dateibereich des Deals ist leer",
   "room.docs.groupLabel": "Gruppe",
   "room.docs.add": "In den Raum legen",
   "room.docs.remove": "{title} aus dem Raum entfernen",
@@ -5930,7 +6057,7 @@ export const de = {
   "project.rollups.never": "noch nichts",
   "project.rollups.activityCount": "Aktivitäten",
   "project.coverage":
-    "{attributed} zugeordnet · {nearby} bei Personen und Deals dieses Projekts nicht zugeordnet",
+    "{attributed} zugeordnet · {awaiting} warten auf Entscheidung · {nearby} bei Personen und Deals dieses Projekts nicht zugeordnet",
   "project.history.title": "Phasenverlauf",
   "project.history.empty": "Noch kein Phasenwechsel erfasst.",
   "project.history.current": "aktuell",

@@ -150,13 +150,18 @@ function accountTrigger(page: Page) {
   });
 }
 
-// The canonical ten, in order: Home alone, then records / work / intelligence.
-// Ten rows, but not upstream's ten: Duplicates is a destination here (the queue
+// The canonical twelve, in order: Home alone, then records / work /
+// intelligence. Not upstream's set: Duplicates is a destination here (the queue
 // had no address outside a home digest card) while Automations is not (it is
 // set-and-forget configuration on Settings → AI). Two labels differ from their
 // route ids on purpose — `deals` presents as Pipeline and `inbox` as Approvals
 // — so this asserts what a person reads, not what the router matches.
-test("AC-shell-1: the rail renders the canonical 11 items in order", async ({
+//
+// The count and the list are both spelled out on purpose. NAV_GROUPS in
+// src/app/nav.ts is the source of the rail; deriving this from it would assert
+// only that the rail renders itself, so a destination added there is meant to
+// fail here until somebody says what a person now reads and where.
+test("AC-shell-1: the rail renders the canonical 12 items in order", async ({
   page,
 }) => {
   await page.goto("/#/home");
@@ -165,7 +170,7 @@ test("AC-shell-1: the rail renders the canonical 11 items in order", async ({
   // Scoped to the level the panel is showing: the DESTINATIONS are its rows,
   // while the foot's Settings door rides the same `.navitem` geometry without
   // being one of them.
-  await expect(page.locator("nav.rail .navlevel a.navitem")).toHaveCount(11);
+  await expect(page.locator("nav.rail .navlevel a.navitem")).toHaveCount(12);
   const labels = await page
     .locator("nav.rail .navlevel a.navitem")
     .evaluateAll((links) =>
@@ -179,6 +184,7 @@ test("AC-shell-1: the rail renders the canonical 11 items in order", async ({
     "Duplikate",
     "Filter & Ansichten",
     "Pipeline",
+    "Projekte",
     "Aufgaben",
     "Freigaben",
     "Berichte",
@@ -268,7 +274,7 @@ test("AC-shell-7: the top bar's search opens the palette", async ({ page }) => {
   ).toBeVisible();
   // And it is not a destination of its own — the links AC-shell-1 counts are
   // unchanged by search leaving the sidebar.
-  await expect(page.locator("nav.rail .navlevel a.navitem")).toHaveCount(11);
+  await expect(page.locator("nav.rail .navlevel a.navitem")).toHaveCount(12);
 });
 
 // The account menu carries what belongs to the PERSON rather than to the page:

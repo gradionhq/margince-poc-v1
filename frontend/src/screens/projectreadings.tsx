@@ -101,6 +101,7 @@ export function CoverageLine({ view }: Readonly<{ view: Project360 }>) {
     <p className="t-caption project-coverage" data-testid="project-coverage">
       {t("project.coverage", {
         attributed: coverage.attributed,
+        awaiting: coverage.awaiting_decision,
         nearby: coverage.unattributed_nearby,
       })}
     </p>

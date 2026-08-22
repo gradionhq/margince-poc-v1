@@ -15,6 +15,8 @@
 // Tables owned: raw_capture, capture_connection, capture_trace (the
 // 24-hour diagnostic trace of what the pipeline decided about each
 // message, swept rather than retained), capture_exclusion (the addresses
-// and domains the sink refuses before any write). Imports shared +
+// and domains the sink refuses before any write), project_link_candidate
+// (the project attribution ladder's uncertain rung: what it proposed, and
+// what a human decided). Imports shared +
 // platform only; never a sibling module.
 package capture

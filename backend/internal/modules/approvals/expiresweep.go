@@ -211,6 +211,14 @@ func (s *Service) expireOne(ctx context.Context, id ids.ApprovalID) (bool, error
 		}); err != nil {
 			return err
 		}
+		// In the expiry's own transaction, like a decline's effect in the
+		// decision's: a subject left waiting by an expiry that committed without
+		// it would be exactly the orphan the hook exists to prevent.
+		if effect, ok := s.expiries[a.Kind]; ok {
+			if err := effect(ctx, tx, id, a.ProposedChange); err != nil {
+				return fmt.Errorf("crmapprovals: the %s expiry effect: %w", a.Kind, err)
+			}
+		}
 		swept = true
 		return nil
 	})

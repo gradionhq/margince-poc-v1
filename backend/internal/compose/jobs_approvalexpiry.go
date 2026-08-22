@@ -91,7 +91,7 @@ func (w *approvalExpiryWorker) Work(ctx context.Context, _ *river.Job[ApprovalEx
 		Type: principal.PrincipalSystem, ID: approvals.ExpiryActor,
 	})
 	passCtx = principal.WithCorrelationID(passCtx, ids.NewV7())
-	expired, err := approvals.NewService(InstallationDB(w.pool)).ExpireDue(passCtx)
+	expired, err := expiringApprovalsService(w.pool).ExpireDue(passCtx)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}

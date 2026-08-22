@@ -1,0 +1,41 @@
+.access-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.access-row-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.access-row-email,
+.access-row-facts {
+  color: var(--textMeta);
+}
+
+.access-row-request {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.access-row-side {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.access-row-revoked .access-row-main {
+  opacity: 0.6;
+}
+
+.access-issued {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
