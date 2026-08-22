@@ -2069,6 +2069,27 @@ export const vi = {
   "docs.category.email": "Tệp đính kèm email",
   "docs.category.message": "Tệp đính kèm tin nhắn",
   "docs.category.other": "Khác",
+  "files.title": "Tệp",
+  "files.sub":
+    "Những gì bạn đã tải lên giao dịch này và những gì đến cùng email và tin nhắn của nó.",
+  "files.empty":
+    "Chưa có tệp nào trên giao dịch này. Hãy tải lên một tệp hoặc liên kết một email có đính kèm.",
+  "files.origin": "Tệp đính kèm của tin nhắn từ {who}, {when}",
+  "files.originUnknown": "người gửi không rõ",
+  "files.uploaded": "Đã tải lên {when}",
+  "files.hiddenBadge": "Đã ẩn",
+  "files.rowActions": "Thao tác cho {name}",
+  "files.hide": "Ẩn khỏi giao dịch này",
+  "files.unhide": "Hiện lại trên giao dịch này",
+  "files.delete": "Xóa",
+  "files.hideTitle": "Ẩn {name} khỏi giao dịch này?",
+  "files.hideBody":
+    "Tin nhắn và tệp đính kèm vẫn ở trên hoạt động và trong thư viện của công ty. Chỉ giao dịch này không còn liệt kê nó.",
+  "files.deleteTitle": "Xóa {name}?",
+  "files.deleteBody":
+    "Tệp bị gỡ khỏi giao dịch này. Bản phát hành Deal Room đã nêu tên tệp vẫn cung cấp nó cho đến khi phòng được công bố lại.",
+  "files.showHidden": "Hiện tệp đã ẩn ({count})",
+  "files.hideHidden": "Ẩn các tệp đã ẩn",
   "docs.state.draft": "Bản nháp",
   "docs.state.current": "Hiện hành",
   "docs.state.final": "Bản cuối",

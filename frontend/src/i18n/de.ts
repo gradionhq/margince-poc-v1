@@ -2092,6 +2092,27 @@ export const de = {
   "docs.category.email": "E-Mail-Anhang",
   "docs.category.message": "Nachrichtenanhang",
   "docs.category.other": "Sonstiges",
+  "files.title": "Dateien",
+  "files.sub":
+    "Was Sie an diesem Deal hochgeladen haben und was mit seinen E-Mails und Nachrichten eingegangen ist.",
+  "files.empty":
+    "Noch keine Dateien an diesem Deal. Laden Sie eine hoch oder verknüpfen Sie eine E-Mail mit Anhang.",
+  "files.origin": "Anhang einer Nachricht von {who}, {when}",
+  "files.originUnknown": "unbekanntem Absender",
+  "files.uploaded": "Hochgeladen {when}",
+  "files.hiddenBadge": "Ausgeblendet",
+  "files.rowActions": "Aktionen für {name}",
+  "files.hide": "Aus diesem Deal ausblenden",
+  "files.unhide": "Wieder an diesem Deal zeigen",
+  "files.delete": "Löschen",
+  "files.hideTitle": "{name} aus diesem Deal ausblenden?",
+  "files.hideBody":
+    "Die Nachricht und ihr Anhang bleiben an der Aktivität und in der Bibliothek des Unternehmens. Nur dieser Deal führt sie nicht mehr auf.",
+  "files.deleteTitle": "{name} löschen?",
+  "files.deleteBody":
+    "Die Datei wird von diesem Deal entfernt. Eine Deal-Room-Veröffentlichung, die sie nennt, liefert sie weiter aus, bis der Raum erneut veröffentlicht wird.",
+  "files.showHidden": "Ausgeblendete zeigen ({count})",
+  "files.hideHidden": "Ausgeblendete verbergen",
   "docs.state.draft": "Entwurf",
   "docs.state.current": "Aktuell",
   "docs.state.final": "Final",

@@ -48,6 +48,9 @@ type DealDocumentFilters struct {
 // a contract scan is never this small, and a logo is never larger.
 const inlineImageCeiling = 65536
 
+// fieldDealID names the deal in a hide's audit image.
+const fieldDealID = "deal_id"
+
 // dealDocumentMembership says which attachments a deal's Files area holds,
 // before any caller-bound visibility: the deal's own uploads, and the files of
 // an activity linked to the deal, minus inline mail images. `$deal` is the
@@ -108,7 +111,7 @@ func (s *Store) ListDealDocuments(
 			       EXISTS (SELECT 1 FROM deal_document_hide h WHERE h.deal_id = $%d AND h.attachment_id = at.id) AS hidden,
 			       a.id, a.kind, a.subject, a.occurred_at, a.counterparty_email
 			  FROM attachment at
-			  LEFT JOIN activity a ON at.entity_type = '%s' AND a.id = at.entity_id
+			  LEFT JOIN activity a ON at.entity_type = '%s' AND a.id = at.entity_id AND a.archived_at IS NULL
 			 WHERE %s
 			 ORDER BY at.created_at DESC, at.id DESC
 			 LIMIT %d`,
@@ -141,7 +144,10 @@ func (s *Store) ListDealDocuments(
 }
 
 // scanDealDocument reads the attachment columns plus the hide flag and the
-// origin activity in one Scan.
+// origin activity in one Scan. The origin join is on live activities only —
+// a held row is archived by CHECK — and the file itself already passed the
+// activity content clause through visibleParentClause, so a restricted
+// message contributes neither a file nor an origin line.
 func scanDealDocument(rows pgx.Rows) (crmcontracts.DealDocument, error) {
 	var (
 		cols         attachmentScan
@@ -200,18 +206,22 @@ func (s *Store) setDealDocumentHidden(ctx context.Context, dealID, attachmentID 
 		if err != nil {
 			return err
 		}
-		action := "hide"
-		statement := `INSERT INTO deal_document_hide (deal_id, attachment_id, hidden_by)
-		              VALUES ($1, $2, $3) ON CONFLICT (deal_id, attachment_id) DO NOTHING`
-		if !hidden {
-			action = "unhide"
-			statement = `DELETE FROM deal_document_hide WHERE deal_id = $1 AND attachment_id = $2 AND $3 = $3`
+		if hidden {
+			_, err = tx.Exec(ctx, `INSERT INTO deal_document_hide (deal_id, attachment_id, hidden_by)
+			                       VALUES ($1, $2, $3) ON CONFLICT (deal_id, attachment_id) DO NOTHING`,
+				dealID, attachmentID, by)
+		} else {
+			_, err = tx.Exec(ctx, `DELETE FROM deal_document_hide WHERE deal_id = $1 AND attachment_id = $2`,
+				dealID, attachmentID)
 		}
-		if _, err := tx.Exec(ctx, statement, dealID, attachmentID, by); err != nil {
-			return fmt.Errorf("activities: %s a deal document: %w", action, err)
+		if err != nil {
+			return fmt.Errorf("activities: changing whether a deal lists a document: %w", err)
 		}
-		if _, err := storekit.Audit(ctx, tx, action, "attachment", attachmentID, nil,
-			map[string]any{"deal_id": dealID.String()}); err != nil {
+		// The audit verb set is closed; a hide is an UPDATE to how the file is
+		// listed, and the image says on which deal and which way.
+		if _, err := storekit.Audit(ctx, tx, "update", "attachment", attachmentID,
+			map[string]any{fieldDealID: dealID.String(), "hidden_from_deal": !hidden},
+			map[string]any{fieldDealID: dealID.String(), "hidden_from_deal": hidden}); err != nil {
 			return err
 		}
 		return nil
