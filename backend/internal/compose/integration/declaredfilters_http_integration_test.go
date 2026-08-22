@@ -269,3 +269,55 @@ func TestTheActivityListNarrowsByProjectOnTheWire(t *testing.T) {
 		t.Errorf("GET %s lost the scoped project's own mail or the unfiled one: got %v", path, seen)
 	}
 }
+
+// The date range on the timeline list, over the wire. Three mails on three
+// days; `occurred_after` keeps its own instant (inclusive) and
+// `occurred_before` drops its own (exclusive), which is what makes a calendar
+// day spell as [day 00:00, next day 00:00) without double-counting midnight.
+func TestTheActivityListNarrowsByDateRangeOnTheWire(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+
+	person := createdRecord(t, e, "/v1/people", apptest.AnyMap{"full_name": "Dana Buyer"})
+	mail := func(subject, occurredAt string) string {
+		return createdRecord(t, e, "/v1/activities", apptest.AnyMap{
+			"kind": "email", "subject": subject, "direction": "inbound", "occurred_at": occurredAt,
+			"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": person}},
+		})
+	}
+	day1 := mail("Monday", "2026-03-02T10:00:00Z")
+	day2 := mail("Tuesday", "2026-03-03T10:00:00Z")
+	day3 := mail("Wednesday", "2026-03-04T10:00:00Z")
+
+	list := func(query string) map[string]bool {
+		var page listedIDs
+		path := "/v1/activities?entity_type=person&entity_id=" + person + query
+		if status := e.Call(t, "GET", path, nil, nil, &page); status != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200", path, status)
+		}
+		seen := map[string]bool{}
+		for _, row := range page.Data {
+			seen[row.ID] = true
+		}
+		return seen
+	}
+	cases := []struct {
+		query string
+		want  map[string]bool
+	}{
+		// after: the bound itself stays in.
+		{"&occurred_after=2026-03-03T10:00:00Z", map[string]bool{day2: true, day3: true}},
+		// before: the bound itself is out.
+		{"&occurred_before=2026-03-03T10:00:00Z", map[string]bool{day1: true}},
+		// both: one calendar day.
+		{"&occurred_after=2026-03-03T00:00:00Z&occurred_before=2026-03-04T00:00:00Z", map[string]bool{day2: true}},
+	}
+	for _, c := range cases {
+		got := list(c.query)
+		for _, id := range []string{day1, day2, day3} {
+			if got[id] != c.want[id] {
+				t.Errorf("GET ...%s: activity %q present=%v, want %v", c.query, id, got[id], c.want[id])
+			}
+		}
+	}
+}

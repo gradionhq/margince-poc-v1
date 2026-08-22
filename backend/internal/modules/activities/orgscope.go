@@ -292,6 +292,12 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 		pos := arg("%" + storekit.EscapeLike(*in.Query) + "%")
 		where = append(where, sprintf("(a.subject ILIKE $%d ESCAPE '\\' OR a.body ILIKE $%d ESCAPE '\\')", pos, pos))
 	}
+	if in.OccurredAfter != nil {
+		where = append(where, sprintf("a.occurred_at >= $%d", arg(*in.OccurredAfter)))
+	}
+	if in.OccurredBefore != nil {
+		where = append(where, sprintf("a.occurred_at < $%d", arg(*in.OccurredBefore)))
+	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, decodeErr := storekit.DecodeCursor(*in.Cursor)
 		if decodeErr != nil {

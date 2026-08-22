@@ -101,6 +101,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "people.email",
   "create.email",
   "restricted.kind.email",
+  "timeline.filters.kind.email",
   "auth.email",
   "person.identity.email",
   "person.action.email",

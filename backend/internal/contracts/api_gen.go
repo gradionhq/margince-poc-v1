@@ -23460,6 +23460,12 @@ type ListActivitiesParams struct {
 
 	// ThreadKey One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread.
 	ThreadKey *string `form:"thread_key,omitempty" json:"thread_key,omitempty"`
+
+	// OccurredAfter Only activities that occurred at or after this instant (inclusive). Pairs with `occurred_before` for a date range; either may stand alone.
+	OccurredAfter *time.Time `form:"occurred_after,omitempty" json:"occurred_after,omitempty"`
+
+	// OccurredBefore Only activities that occurred strictly before this instant (exclusive), so a day range is `occurred_after=<day 00:00>&occurred_before=<next day 00:00>`.
+	OccurredBefore *time.Time `form:"occurred_before,omitempty" json:"occurred_before,omitempty"`
 }
 
 // ListActivitiesParamsKind defines parameters for ListActivities.
@@ -40163,6 +40169,32 @@ func (siw *ServerInterfaceWrapper) ListActivities(w http.ResponseWriter, r *http
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "thread_key"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "thread_key", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "occurred_after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "occurred_after", r.URL.Query(), &params.OccurredAfter, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "occurred_after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "occurred_after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "occurred_before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "occurred_before", r.URL.Query(), &params.OccurredBefore, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "occurred_before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "occurred_before", Err: err})
 		}
 		return
 	}

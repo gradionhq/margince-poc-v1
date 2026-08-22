@@ -5,6 +5,7 @@ import type { EntityKind } from "../app/entity";
 import { activityTimeline } from "../design-system/activitytimeline";
 import { EmptyState, SegmentedControl, Skeleton } from "../design-system/atoms";
 import type { TimelineEntry } from "../design-system/composed";
+import type { RecordTimeline } from "../design-system/recordtimeline";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { coldFieldLabel, LoadMoreButton, useViewerId } from "./common";
@@ -87,6 +88,11 @@ export type RecordChronology = {
   // activity feed is the shorter of the two, it is not: the merge cuts at its
   // oldest row and every extra change page falls below that line.
   changesAreTheLimit: boolean;
+  // The activity feed's own next page, when the caller can fetch one. Under
+  // "all" it is offered exactly when the changes are NOT the limit — the
+  // activity feed is the cut, so another page of activities lengthens the
+  // merged view and another page of changes would not.
+  activities?: RecordTimeline;
 };
 
 /**
@@ -102,6 +108,7 @@ export function useRecordChronology({
   filter,
   activities,
   activitiesHaveMore,
+  loadMore,
   renderActions,
 }: Readonly<{
   kind: EntityKind;
@@ -109,6 +116,9 @@ export function useRecordChronology({
   filter: TimelineFilter;
   activities: Activity[];
   activitiesHaveMore: boolean;
+  // The paged read behind `activities`, for the footer's Load more. Absent on
+  // a surface that shows one page and says so.
+  loadMore?: RecordTimeline;
   // The per-row verbs (Reply, Relink). Absent on a surface that offers none.
   renderActions?: (activity: Activity) => ReactNode;
 }>): RecordChronology {
@@ -137,6 +147,7 @@ export function useRecordChronology({
       loading: false,
       failed: false,
       changesAreTheLimit: false,
+      activities: loadMore,
     };
   }
   if (filter === "changes") {
@@ -147,6 +158,7 @@ export function useRecordChronology({
       loading,
       failed,
       changesAreTheLimit: changes.hasNextPage,
+      activities: undefined,
     };
   }
   const merged = mergeChronology<TimelineEntry>(
@@ -168,6 +180,7 @@ export function useRecordChronology({
       changeEntries,
       activityEntries,
     ),
+    activities: loadMore,
   };
 }
 
@@ -183,7 +196,8 @@ export function hasChronologyFooter(
   return (
     chronology.truncated ||
     filter === "changes" ||
-    (filter === "all" && chronology.changesAreTheLimit)
+    (filter === "all" && chronology.changesAreTheLimit) ||
+    activitiesCanGrow(filter, chronology)
   );
 }
 
@@ -216,7 +230,25 @@ export function ChronologyFooter({
         (filter === "all" && chronology.changesAreTheLimit)) && (
         <LoadMoreButton query={chronology.changes} />
       )}
+      {activitiesCanGrow(filter, chronology) && chronology.activities && (
+        <LoadMoreButton query={chronology.activities} />
+      )}
     </>
+  );
+}
+
+// Another page of ACTIVITIES lengthens the list under Activities whenever the
+// server holds one, and under All only while the activity feed owns the cut.
+function activitiesCanGrow(
+  filter: TimelineFilter,
+  chronology: RecordChronology,
+): boolean {
+  if (!chronology.activities?.hasNextPage) {
+    return false;
+  }
+  return (
+    filter === "activities" ||
+    (filter === "all" && !chronology.changesAreTheLimit)
   );
 }
 
