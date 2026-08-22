@@ -56,20 +56,28 @@ func scrubSubjectFromParticipants(ctx context.Context, tx pgx.Tx, personID ids.P
 	// users is a different matter: the colleague was in that conversation and
 	// that is not the subject's data to erase, so the subject's arms are
 	// nulled and the row stands.
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM activity_participant
-		 WHERE user_id IS NULL
-		   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
-		personID, emails); err != nil {
+	if _, err := tx.Exec(ctx, subjectParticipantsDelete, personID, emails); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `
-		UPDATE activity_participant SET person_id = NULL, address = NULL
-		 WHERE user_id IS NOT NULL
-		   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
-		personID, emails)
+	_, err := tx.Exec(ctx, subjectParticipantsBlank, personID, emails)
 	return err
 }
+
+// Both participant statements carry the transitive hold exclusion: a
+// participant row is part of the held activity's record of who was in the
+// conversation, and a hold that keeps the message but loses its parties is
+// not a hold.
+var subjectParticipantsDelete = `
+		DELETE FROM activity_participant ap
+		 WHERE ap.user_id IS NULL
+		   AND (ap.person_id = $1 OR (ap.address IS NOT NULL AND ap.address = ANY($2)))` +
+	notTransitivelyHeld("ap.activity_id")
+
+var subjectParticipantsBlank = `
+		UPDATE activity_participant ap SET person_id = NULL, address = NULL
+		 WHERE ap.user_id IS NOT NULL
+		   AND (ap.person_id = $1 OR (ap.address IS NOT NULL AND ap.address = ANY($2)))` +
+	notTransitivelyHeld("ap.activity_id")
 
 // deleteSubjectLinkedInGhosts drops the subject's LinkedIn ghosts (CG-DDL-2).
 // A ghost can BE the subject: it holds their name, employer and — on CSV rows

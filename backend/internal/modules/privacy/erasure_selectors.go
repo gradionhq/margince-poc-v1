@@ -22,6 +22,11 @@ package privacy
 // re-admit exactly what its sibling just excluded, so the only way to write one
 // is to name its activity expression here.
 //
+// Every OTHER linkable record that carries a legal_hold column has an arm
+// here — TestEveryLegalHoldColumnIsReadByEveryActivityHoldSelector derives
+// that set from the committed schema, so the next table to gain the column
+// fails the test until its arm exists.
+//
 // The held-person arm is deliberately absent: a person-linked activity shared
 // with another subject is already outside every selector below, and the erased
 // subject itself is proven unheld before the cascade runs (ErasePerson's
@@ -32,8 +37,11 @@ func notTransitivelyHeld(activityID string) string {
 	    SELECT 1 FROM activity_link h
 	    LEFT JOIN organization org ON org.id = h.organization_id
 	    LEFT JOIN deal dl ON dl.id = h.deal_id
+	    LEFT JOIN lead ld ON ld.id = h.lead_id
+	    LEFT JOIN project pj ON pj.id = h.project_id
 	    WHERE h.activity_id = ` + activityID + `
-	      AND (coalesce(org.legal_hold, false) OR coalesce(dl.legal_hold, false)))`
+	      AND (coalesce(org.legal_hold, false) OR coalesce(dl.legal_hold, false)
+	           OR coalesce(ld.legal_hold, false) OR coalesce(pj.legal_hold, false)))`
 }
 
 // subjectOnlyActivities selects timeline rows linked to the erased
