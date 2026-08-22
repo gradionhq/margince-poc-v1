@@ -4,8 +4,8 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
-import { displayedKinds, lineFor } from "./ai-activity-lines";
 import { useAiActivity } from "./ai-activity";
+import { displayedKinds, lineFor } from "./ai-activity-lines";
 
 // What the rail asks the runner, and how often. Three things here can only be
 // wrong invisibly, which is why each has its own case: a poll left running for
