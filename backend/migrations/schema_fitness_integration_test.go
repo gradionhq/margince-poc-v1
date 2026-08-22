@@ -118,6 +118,7 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"activity_link.lead_id":           "gated: auth.EnsureLinkTarget in LogActivity",
 	"activity_link.project_id":        "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
 	"deal.project_id":                 "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
+	"deal_document_hide.deal_id":      "gated: auth.EnsureWritable(deal) in activities.setDealDocumentHidden — the deal is the route's own {id}, and hiding a file from its Files area changes what that deal lists, so the caller must be able to change the deal, not merely see it; the attachment half is then checked against THIS caller's view of the area, so a miss of either reads as not-found",
 	"deal_room.deal_id":               "gated: auth.EnsureWritableLive in createRoomTx — STRONGER than the EnsureLinkTarget its siblings take, deliberately. The deal a room is opened on is client-supplied, so naming it is a read of it; but opening a room also starts showing that deal to an outside party, which visibility alone does not authorize. A room on a deal the caller could merely see would publish that deal's existence, and its editorial text, to buyers",
 	"contract.organization_id":        "gated: auth.EnsureLinkTarget in createContractTx (H1) — the counterparty is client-supplied, so naming it is a read of it",
 	// The deal and project links carry a SECOND obligation the sibling columns
@@ -244,6 +245,12 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// activity's own id — a connector principal supplies message bytes, never
 	// a record reference.
 	"capture_pending_counterparty.activity_id": "server-derived: stamped by the capture Sink from the activity it just wrote",
+	// The attribution ladder's candidate ledger: both ends are the ladder's
+	// own reads — the activity capture just wrote, and a project the rung read
+	// under the caller's project grant and row scope (readableProjectScope +
+	// the finder's ScopeClauseFor), never a request body.
+	"project_link_candidate.activity_id": "server-derived: stamped by the capture Sink's attribution ladder from the activity it just wrote",
+	"project_link_candidate.project_id":  "gated then stamped: read under the caller's project row scope by the uncertain rung's finder before the candidate is written",
 	// Client-supplied edge endpoints — every one probed at the store:
 	"relationship.person_id":                     "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
 	"relationship.counterparty_org_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",

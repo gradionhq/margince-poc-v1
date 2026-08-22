@@ -64,10 +64,22 @@ func decodeRequest(w http.ResponseWriter, r *http.Request) (Request, bool) {
 	if !httperr.Decode(w, r, &body) {
 		return Request{}, false
 	}
-	if body.Intent == nil {
-		return Request{}, true
+	var req Request
+	if body.Intent != nil {
+		req.Intent = *body.Intent
 	}
-	return Request{Intent: *body.Intent}, true
+	if body.ProjectId != nil {
+		// A null project_id is "the person in general", which is ordinary. A
+		// present-but-zero one is a client bug, and answering "not part of
+		// that project" about the nil UUID would hide it.
+		if err := httperr.RequireBodyID("project_id", ids.UUID(*body.ProjectId)); err != nil {
+			httperr.Write(w, r, err)
+			return Request{}, false
+		}
+		project := ids.From[ids.ProjectKind](ids.UUID(*body.ProjectId))
+		req.ProjectID = &project
+	}
+	return req, true
 }
 
 // native refuses the draft in overlay mode.

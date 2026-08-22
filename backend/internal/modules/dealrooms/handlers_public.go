@@ -88,6 +88,11 @@ func (h Handlers) RequestDealRoomLink(w http.ResponseWriter, r *http.Request) {
 	// to the installation, the same actor the other anonymous edges write under.
 	w.WriteHeader(http.StatusAccepted)
 	ctx := principal.WithActor(context.WithoutCancel(r.Context()), linkRequestPrincipal)
+	// The ask is recorded for the seller whether or not a link can go out:
+	// without a relay, the seller handing one over is the only way in.
+	if err := h.store.NoteLinkRequest(ctx, email.String()); err != nil {
+		slog.ErrorContext(ctx, "deal room link request could not be noted", "err", err)
+	}
 	if !h.canSendInvite() {
 		// Without a relay there is nothing to do with a credential but mail it;
 		// minting one that nobody delivers would retire a link the buyer may

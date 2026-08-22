@@ -1090,6 +1090,15 @@ paths:
                     Optional steering in the caller's own words ("shorter", "warmer", "ask for
                     Tuesday"). The one input that is NOT untrusted — the caller typed it — and
                     so the only one outside the fence.
+                project_id:
+                  type: [string, 'null']
+                  format: uuid
+                  description: >-
+                    Which body of work the message is about. When set, the draft is grounded in
+                    the 360 scoped to that project — correspondence filed under another project
+                    drops out — and the project's name, key, phase and target end date are facts
+                    the draft may use. Must be a live project the caller can read; an invisible
+                    or archived one is `404`, the same answer a direct read gives.
       responses:
         '200':
           description: The draft, and what it was written from.
@@ -2385,6 +2394,15 @@ paths:
                   type: [string, 'null']
                   format: uuid
                   description: Which open deal the message is about. Absent draws on the account as a whole.
+                project_id:
+                  type: [string, 'null']
+                  format: uuid
+                  description: >-
+                    Which body of work the message is about. When set, the draft is grounded in
+                    the 360 scoped to that project — correspondence filed under another project
+                    drops out — and the project's name, key, phase and target end date are facts
+                    the draft may use. Must be a live project the caller can read; an invisible
+                    or archived one is `404`, the same answer a direct read gives.
                 intent:
                   type: [string, 'null']
                   maxLength: 400
@@ -3974,6 +3992,72 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Activity' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /activities/relink-thread:
+    post:
+      tags: [Activities]
+      operationId: relinkThread
+      summary: Re-associate every activity of one conversation thread to a chosen record, in one transaction.
+      description: |
+        The thread twin of `relinkActivity`: the same association applied to every non-archived
+        activity carrying `thread_key` that the caller may write. A mis-filed conversation is
+        usually mis-filed whole, and one call here is the remedy rather than one call per message.
+        Each moved activity gets its own `audit_log` row (`activity_relink`) and its own
+        `activity.updated` event, exactly as the single relink writes them; filing under a project
+        stamps each one as commercial correspondence the same way. An activity in the thread the
+        caller cannot write is left where it is and is not counted — the response says how many
+        moved. An activity already carrying the link is not counted either (the single
+        relink's idempotency, per row). All rows commit together or none do.
+      x-mcp-tool: { verb: relink_thread, record_type: activity, tier: dynamic, tier_resolver: destination_record_type, confirmation_required_when: 'entity_type is project — filing under a project classifies every activity in the thread as commercial correspondence, which is write-once and cannot be undone by relinking away', scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RelinkThreadRequest' }
+      responses:
+        '200':
+          description: How many activities moved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelinkBatchResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /activities/relink-bulk:
+    post:
+      tags: [Activities]
+      operationId: relinkActivities
+      summary: Re-associate a named set of activities to a chosen record, in one transaction.
+      description: |
+        The explicit-id twin of `relinkThread`, for a selection that is not one conversation. The
+        caller names up to 500 activities; each is relinked exactly as `relinkActivity` would
+        relink it, with its own `audit_log` row and `activity.updated` event. Unlike the thread
+        form, every named id must be one the caller can see and write: an id outside the caller's
+        sight answers `404` and one they may read but not write answers `403`, and in either case
+        NOTHING moves — the whole set is one transaction. An activity already carrying the link is
+        left as it is and not counted.
+      x-mcp-tool: { verb: relink_activities, record_type: activity, tier: dynamic, tier_resolver: destination_record_type, confirmation_required_when: 'entity_type is project — filing under a project classifies every named activity as commercial correspondence, which is write-once and cannot be undone by relinking away', scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RelinkActivitiesRequest' }
+      responses:
+        '200':
+          description: How many activities moved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelinkBatchResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
@@ -11687,6 +11771,29 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /deal-rooms/{id}/changes:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: getDealRoomChanges
+      summary: What the buyer would see differently if the room were published now.
+      description: |
+        The draft diffed against the latest release: the title or welcome text
+        changed, documents added, removed, retitled or regrouped, and documents that
+        are no longer eligible (archived, unlinked from the deal, or hidden from it)
+        and would drop out of the next release. A room never published reports every
+        document as added. This is what the Publish button is disabled on when empty.
+      responses:
+        '200':
+          description: The pending changes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomChanges' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /deal-rooms/{id}/releases:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -13064,6 +13171,84 @@ paths:
               schema: { $ref: '#/components/schemas/PersonNetwork' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /deals/{id}/documents:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Attachments]
+      operationId: listDealDocuments
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The deal's Files area — its own uploads and the files of every message linked to it.
+      description: |
+        Every attachment whose parent is the deal, plus every attachment of an activity
+        linked to the deal: that is where a captured email's files live, so without
+        this read an emailed contract is unreachable from the deal it is about.
+
+        **Each row is scoped through its own parent.** A captured file follows the
+        message's audience, so a colleague outside that audience sees a shorter list
+        than the mailbox owner — correct, and never widened here.
+
+        Inline mail images (small `image/*` parts of a captured message) are left out:
+        a logo in every signature would bury the one contract among thirty icons.
+        Files hidden from this deal are left out unless `include_hidden` is set, and
+        then carry `hidden: true`. Newest first.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: category
+          in: query
+          schema: { type: string, enum: [contract, offer, legal, email_attachment, message_attachment, other] }
+        - name: include_hidden
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The deal's documents.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealDocumentListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /deals/{id}/documents/{attachmentId}/hide:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: attachmentId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [Attachments]
+      operationId: hideDealDocument
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Stop listing a captured file on this deal without touching the file.
+      description: |
+        A captured attachment belongs to its message: it stays on the activity and in
+        the company library. Hiding only takes it off THIS deal's Files area. A file
+        already shared in the Deal Room stays in the room's draft, but drops out of the
+        next release and of the buyer's download.
+
+        Needs update on the deal, and the file must be in the deal's Files area for
+        this caller; anything else answers 404. Idempotent.
+      responses:
+        '204': { description: Hidden. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Attachments]
+      operationId: unhideDealDocument
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List the file on this deal again.
+      responses:
+        '204': { description: Listed again. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /deals/{id}/next-best-action:
@@ -18422,6 +18607,30 @@ components:
         expected_close_date: { type: [string, 'null'], format: date }
         stalled: { type: boolean, description: No linked activity inside the 60-day stall window. }
 
+    Organization360ProjectPhase:
+      type: string
+      enum: [initiative, pursuing, delivering, closed]
+      description: Where a project stands on the record page; the same ladder the project's own `phase` walks.
+
+    Organization360Project:
+      type: object
+      description: >-
+        One body of work on the record page: enough to name it, say where it stands and who
+        holds it. The full row is `GET /projects/{id}`. Shared by the company page and the
+        person page, so a project reads the same on both.
+      required: [project_id, name, phase]
+      properties:
+        project_id: { type: string, format: uuid }
+        name: { type: string }
+        key: { type: [string, 'null'], description: 'The subject-line handle, when the project has one.' }
+        phase: { $ref: '#/components/schemas/Organization360ProjectPhase' }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+        target_end_date: { type: [string, 'null'], format: date }
+        owner_id: { type: [string, 'null'], format: uuid }
+        owner_name:
+          type: [string, 'null']
+          description: The owner's display name; null when the project has no owner or the owner is no longer an active member.
+
     Organization360Deals:
       type: object
       description: The account's open deals plus the two lifetime figures the header needs.
@@ -18644,7 +18853,7 @@ components:
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health, next_meeting]
+            enum: [people, deals, projects, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health, next_meeting]
         people:
           type: object
           required: [data, page]
@@ -18652,6 +18861,13 @@ components:
             data: { type: array, items: { $ref: '#/components/schemas/Organization360Contact' } }
             page: { $ref: '#/components/schemas/PageInfo' }
         deals: { $ref: '#/components/schemas/Organization360Deals' }
+        projects:
+          type: array
+          description: >-
+            The company's unarchived projects, work in motion first (delivering, pursuing,
+            initiative, then closed), under the caller's project row scope. Absent when the
+            caller has no project grant, named in `sections_omitted` as `projects`.
+          items: { $ref: '#/components/schemas/Organization360Project' }
         strength: { $ref: '#/components/schemas/OrganizationStrength' }
         activities: { $ref: '#/components/schemas/ActivityListResponse' }
         tags: { type: array, items: { $ref: '#/components/schemas/Tag' } }
@@ -18863,8 +19079,16 @@ components:
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [employments, deal_roles, strength, network, activities, next_steps, consent, profile_fields, since_last_visit, last_touch, relationship_changes, moments, commercial, next_meeting, claims, conversation_memory, provider_profile]
+            enum: [employments, deal_roles, projects, strength, network, activities, next_steps, consent, profile_fields, since_last_visit, last_touch, relationship_changes, moments, commercial, next_meeting, claims, conversation_memory, provider_profile]
         strength: { $ref: '#/components/schemas/RelationshipStrength' }
+        projects:
+          type: array
+          description: >-
+            The unarchived projects this person is part of: the ones they hold a live
+            stakeholder seat on, plus every project of the company they currently work for,
+            one row per project, work in motion first. Absent when the caller has no project
+            grant, named in `sections_omitted` as `projects`.
+          items: { $ref: '#/components/schemas/Organization360Project' }
         provider_profile:
           description: >-
             The purchased person-data snapshot (PO-EXT-9): what a connected provider
@@ -20852,11 +21076,14 @@ components:
         scope. `attributed` is every live activity linked to the project (its whole lifecycle,
         and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
         activity linked to one of the project's deals or stakeholder people that carries no
-        project link at all — the filing debt a rep can work down.
-      required: [attributed, unattributed_nearby]
+        project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+        live activity the attribution ladder proposed for this project and nobody has answered
+        yet: a `project_attribution` approval standing in an inbox, not a link.
+      required: [attributed, unattributed_nearby, awaiting_decision]
       properties:
         attributed: { type: integer, minimum: 0 }
         unattributed_nearby: { type: integer, minimum: 0 }
+        awaiting_decision: { type: integer, minimum: 0 }
 
     Project360Rollups:
       type: object
@@ -21038,6 +21265,56 @@ components:
         activity_id: { type: string, format: uuid }
         entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
+
+    RelinkThreadRequest:
+      type: object
+      description: |
+        The destination for every writable, non-archived activity of one conversation thread.
+        `entity_type`/`entity_id`/`replace_existing_of_type` mean exactly what they mean on
+        `relinkActivity`.
+      required: [thread_key, entity_type, entity_id]
+      properties:
+        thread_key: { type: string, minLength: 1, maxLength: 512, description: 'The conversation key the activities carry (`Activity.thread_key`, also the `thread_key` list filter).' }
+        entity_type: { $ref: '#/components/schemas/RelinkDestinationType' }
+        entity_id: { type: string, format: uuid }
+        replace_existing_of_type:
+          type: boolean
+          default: false
+          description: When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+
+    RelinkActivitiesRequest:
+      type: object
+      description: |
+        The destination for a named set of activities. Every id must be one the caller can see and
+        write, or the whole request is refused and nothing moves.
+      required: [activity_ids, entity_type, entity_id]
+      properties:
+        activity_ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { type: string, format: uuid }
+        entity_type: { $ref: '#/components/schemas/RelinkDestinationType' }
+        entity_id: { type: string, format: uuid }
+        replace_existing_of_type:
+          type: boolean
+          default: false
+          description: When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+
+    RelinkBatchResult:
+      type: object
+      description: |
+        A count and nothing else. The moved ids are deliberately not echoed: a replay of the same
+        Idempotency-Key, or an approval inbox showing the staged call, would otherwise hand back
+        rows the reader may since have lost sight of.
+      required: [relinked]
+      properties:
+        relinked: { type: integer, description: 'Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted.' }
+
+    RelinkDestinationType:
+      type: string
+      description: The record kinds an activity may be filed under.
+      enum: [person, organization, deal, lead, project]
 
     ActivityLinkInput:
       type: object
@@ -21453,6 +21730,37 @@ components:
       required: [data, page]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Attachment' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    DealDocument:
+      type: object
+      description: |
+        One file in a deal's Files area: the attachment, whether it is hidden from this
+        deal, and where a captured file came from, so a reader can tell "the contract
+        Laura mailed on the 12th" from "the draft I uploaded".
+      required: [attachment, hidden]
+      properties:
+        attachment: { $ref: '#/components/schemas/Attachment' }
+        hidden: { type: boolean }
+        origin:
+          $ref: '#/components/schemas/DealDocumentOrigin'
+
+    DealDocumentOrigin:
+      type: object
+      description: Where a captured file came from. Present for a file that arrived with a message linked to the deal; absent for a file uploaded on the deal.
+      required: [activity_id, kind, occurred_at]
+      properties:
+        activity_id: { type: string, format: uuid }
+        kind: { type: string, description: 'The activity kind the file arrived with: email, message, meeting.' }
+        subject: { type: [string, 'null'] }
+        occurred_at: { type: string, format: date-time }
+        counterparty_email: { type: [string, 'null'], format: email }
+
+    DealDocumentListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/DealDocument' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
     ExtractedField:
@@ -26314,6 +26622,14 @@ components:
             move: it is what fixes their address, because redirecting a link somebody
             has already signed in with would hand their standing access to whoever the
             new address belongs to.
+        link_requested_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: |
+            When this person last asked for a new link from the public page. The
+            seller sees it beside the row so a buyer whose mail never arrived (no
+            relay configured, or a link still standing) can be handed one by hand.
         revoked_at:
           type: [string, 'null']
           format: date-time
@@ -26386,6 +26702,32 @@ components:
             credential are still recorded, and the caller is expected to deliver the
             link itself rather than being told the invitation failed.
       additionalProperties: false
+
+    DealRoomChanges:
+      type: object
+      required: [has_changes, changes]
+      properties:
+        has_changes: { type: boolean }
+        release_no:
+          type: [integer, 'null']
+          description: The release the draft was compared against; null when the room was never published.
+        changes:
+          type: array
+          items: { $ref: '#/components/schemas/DealRoomChange' }
+
+    DealRoomChange:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          description: >-
+            One of title_changed, welcome_changed, document_added, document_removed,
+            document_retitled, document_regrouped, document_reordered,
+            document_ineligible. A plain string
+            for the reason DealRoomParticipantCapability gives.
+        document_id: { type: [string, 'null'], format: uuid }
+        title: { type: [string, 'null'], description: 'The document title the sentence names: current, or as last published.' }
 
     DealRoomReleaseListResponse:
       type: object

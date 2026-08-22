@@ -15,8 +15,10 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/gradionhq/margince/backend/internal/compose/person360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -24,13 +26,19 @@ import (
 // Assembler is the caller's own composite read of the person — the same seam
 // the relationship brief uses, for the same reason: a draft may only mention
 // records this caller could open, and one gated read already answers that.
+// The scoped form is what a draft about one project reads: correspondence
+// filed under another project is not in the view to be drawn on.
 type Assembler interface {
-	Assemble(ctx context.Context, personID ids.PersonID) (crmcontracts.Person360, error)
+	AssembleScoped(ctx context.Context, personID ids.PersonID, opts person360.AssembleOptions) (crmcontracts.Person360, error)
 }
 
 // Request is the transport's body, narrowed to what the writer needs.
 type Request struct {
 	Intent string
+	// ProjectID names the body of work the message is about. When set, the
+	// draft is grounded in the 360 scoped to that project and the project's
+	// own facts are folded in; nil is the person in general.
+	ProjectID *ids.ProjectID
 	// Envelope is the correspondence this draft is written into: the language
 	// it must be in, where the conversation stands, the current time, and who
 	// is writing it. Resolved by the caller, never by the model.
@@ -80,15 +88,23 @@ func (s *Service) Draft(
 		return crmcontracts.AccountEmailDraft{}, err
 	}
 	// The gates that matter run HERE, in the caller's own composite read: a
-	// person they cannot read refuses before a word is written, and a deal or
-	// claim they cannot see is not in the view to be found.
-	view, err := s.view.Assemble(ctx, personID)
+	// person they cannot read refuses before a word is written, a deal or
+	// claim they cannot see is not in the view to be found, and a project they
+	// cannot see refuses the scoped read itself (activities.RequireProjectScope).
+	view, err := s.view.AssembleScoped(ctx, personID, person360.AssembleOptions{ProjectID: req.ProjectID})
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
 	}
 	req.Envelope = s.envelope.Resolve(ctx, CorrespondenceText(view),
 		ConversationState(view, s.envelope.Now()))
-	draft, by, err := Write(ctx, s.lane, FromView(view, req))
+	in := FromView(view, req)
+	// A project the caller can see but this person is not part of is not a
+	// body of work a message to them can be about.
+	if req.ProjectID != nil && in.Project == nil {
+		return crmcontracts.AccountEmailDraft{}, httperr.Validation("project_id", "not_found",
+			"that project is not one this person is part of, or you cannot see it")
+	}
+	draft, by, err := Write(ctx, s.lane, in)
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
 	}

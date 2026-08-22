@@ -120,3 +120,18 @@ func registeredEffectKinds() map[string]bool {
 	}
 	return registered
 }
+
+// A second-record gate on a kind nobody stages is a stale declaration that
+// reads as protection; one on a kind we stage is the whole protection there is.
+func TestEveryPayloadReferenceIsAKindWeStage(t *testing.T) {
+	registered := registeredEffectKinds()
+	kinds := approvals.PayloadReferenceKinds()
+	if len(kinds) == 0 {
+		t.Fatal("no payload-reference kinds declared — if the gate is unused, delete the mechanism")
+	}
+	for _, kind := range kinds {
+		if !registered[kind] {
+			t.Errorf("payloadReferences[%s] names no registered effect kind — stale gate, remove it", kind)
+		}
+	}
+}

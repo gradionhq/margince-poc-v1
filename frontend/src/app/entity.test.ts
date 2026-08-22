@@ -2,18 +2,20 @@ import { describe, expect, it } from "vitest";
 import { ENTITY, ENTITY_KINDS, SCREEN_ENTITY } from "./entity";
 
 describe("ENTITY registry", () => {
-  it("covers exactly the four record kinds (no activity)", () => {
+  it("covers exactly the five record kinds (no activity)", () => {
     expect([...ENTITY_KINDS]).toEqual([
       "person",
       "organization",
       "deal",
       "lead",
+      "project",
     ]);
     expect(Object.keys(ENTITY).sort()).toEqual([
       "deal",
       "lead",
       "organization",
       "person",
+      "project",
     ]);
   });
 
@@ -28,6 +30,10 @@ describe("ENTITY registry", () => {
     });
     expect(ENTITY.deal.route("d-1")).toEqual({ screen: "deals", id: "d-1" });
     expect(ENTITY.lead.route("l-1")).toEqual({ screen: "leads", id: "l-1" });
+    expect(ENTITY.project.route("pr-1")).toEqual({
+      screen: "projects",
+      id: "pr-1",
+    });
   });
 
   it("reverses every route into SCREEN_ENTITY, with nothing left over", () => {
@@ -36,6 +42,7 @@ describe("ENTITY registry", () => {
       companies: "organization",
       deals: "deal",
       leads: "lead",
+      projects: "project",
     });
     // Derived, not restated: adding a kind to ENTITY must extend the reverse map
     // on its own, or the breadcrumb quietly falls back to a raw uuid.

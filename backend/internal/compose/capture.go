@@ -209,10 +209,12 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// The stamp beside it comes from activities, which owns `activity` —
 		// filing an activity under a project qualifies its correspondence as
 		// a Handelsbrief (D5), and that classification commits with the link.
-		WithProjectAttribution(capture.ProjectAttribution{
+		// The uncertain rung's two seams (projectattribution.go): the live
+		// projects the message reaches, and the engine that asks a human.
+		WithProjectAttribution(withCandidateSeams(capture.ProjectAttribution{
 			Keys:  deals.NewStore(InstallationDB(pool), DealsInstallation()),
 			Stamp: activities.StampCorrespondenceForProject,
-		}).
+		}, pool)).
 		// The 24-hour trace's payload posture. It rides the Sink because the
 		// Sink is where a payload would be written, and it is a deployment
 		// decision rather than a workspace one -- there is no API that flips it.

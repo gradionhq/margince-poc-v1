@@ -65,6 +65,53 @@ func (h Handlers) RelinkActivity(w http.ResponseWriter, r *http.Request, id crmc
 	httperr.WriteJSON(w, http.StatusOK, activity)
 }
 
+// RelinkThread moves every writable activity of one conversation in one
+// transaction; the count and the ids are the answer.
+func (h Handlers) RelinkThread(w http.ResponseWriter, r *http.Request, _ crmcontracts.RelinkThreadParams) {
+	var req crmcontracts.RelinkThreadRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	out, err := h.store.RelinkThread(r.Context(), req.ThreadKey, RelinkActivityInput{
+		EntityType:            string(req.EntityType),
+		EntityID:              ids.UUID(req.EntityId),
+		ReplaceExistingOfType: req.ReplaceExistingOfType != nil && *req.ReplaceExistingOfType,
+	})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, relinkBatchWire(out))
+}
+
+// RelinkActivities moves a named set of activities in one transaction, or
+// none of them.
+func (h Handlers) RelinkActivities(w http.ResponseWriter, r *http.Request, _ crmcontracts.RelinkActivitiesParams) {
+	var req crmcontracts.RelinkActivitiesRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	activityIDs := make([]ids.UUID, 0, len(req.ActivityIds))
+	for _, id := range req.ActivityIds {
+		activityIDs = append(activityIDs, ids.UUID(id))
+	}
+	out, err := h.store.RelinkActivities(r.Context(), activityIDs, RelinkActivityInput{
+		EntityType:            string(req.EntityType),
+		EntityID:              ids.UUID(req.EntityId),
+		ReplaceExistingOfType: req.ReplaceExistingOfType != nil && *req.ReplaceExistingOfType,
+	})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, relinkBatchWire(out))
+}
+
+// relinkBatchWire projects the store's answer onto the contract shape.
+func relinkBatchWire(out RelinkBatchResult) crmcontracts.RelinkBatchResult {
+	return crmcontracts.RelinkBatchResult{Relinked: out.Relinked}
+}
+
 func (h Handlers) SetActivityAudience(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.SetActivityAudienceParams) {
 	ifVersion, ok := httperr.IfMatchVersion(w, r)
 	if !ok {

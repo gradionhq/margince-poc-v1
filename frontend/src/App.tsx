@@ -115,6 +115,13 @@ const DealsScreen = lazy(
     import("./screens/deals").then((m) => ({ default: m.DealsScreen })),
   ),
 );
+const DealRoomPage = lazy(
+  routed(() =>
+    import("./screens/dealroompage").then((m) => ({
+      default: m.DealRoomPage,
+    })),
+  ),
+);
 const DedupeScreen = lazy(
   routed(() =>
     import("./screens/dedupe").then((m) => ({ default: m.DedupeScreen })),
@@ -138,6 +145,20 @@ const LeadScreen = lazy(
 const LeadsScreen = lazy(
   routed(() =>
     import("./screens/leads").then((m) => ({ default: m.LeadsScreen })),
+  ),
+);
+const ProjectScreen = lazy(
+  routed(() =>
+    import("./screens/project360").then((m) => ({
+      default: m.ProjectScreen,
+    })),
+  ),
+);
+const ProjectsScreen = lazy(
+  routed(() =>
+    import("./screens/projects").then((m) => ({
+      default: m.ProjectsScreen,
+    })),
   ),
 );
 const OAuthConsent = lazy(
@@ -268,7 +289,10 @@ function ScreenPending() {
 
 // Split out of the dispatch table purely to keep the deals list/detail split in
 // one place — it has its own "new" vs existing-id branch below the id check.
-function DealsRoute({ id }: Readonly<{ id?: string }>) {
+function DealsRoute({ id, id2 }: Readonly<{ id?: string; id2?: string }>) {
+  if (id && id !== "new" && id2 === "room") {
+    return <DealRoomPage dealId={id} />;
+  }
   return id && id !== "new" ? (
     <DealScreen id={id} />
   ) : (
@@ -404,7 +428,8 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
       id ? <CompanyScreen id={id} /> : <CompaniesScreen />,
     partners: () => <PartnersScreen />,
     leads: ({ id }) => (id ? <LeadScreen id={id} /> : <LeadsScreen />),
-    deals: ({ id }) => <DealsRoute id={id} />,
+    deals: ({ id, id2 }) => <DealsRoute id={id} id2={id2} />,
+    projects: ({ id }) => (id ? <ProjectScreen id={id} /> : <ProjectsScreen />),
     tasks: () => <TasksScreen />,
     inbox: () => <InboxScreen />,
     reports: () => <ReportsScreen />,

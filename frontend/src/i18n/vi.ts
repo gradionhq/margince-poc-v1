@@ -763,6 +763,129 @@ export const vi = {
   "room.readOnly": "Bạn có thể xem phòng này nhưng không thể thay đổi.",
   "room.finished":
     "Phòng này đã kết thúc, những gì đã chia sẻ giờ là hồ sơ lưu.",
+  "room.card.title": "Deal Room",
+  "room.card.people": "{invited} được mời · {active} đã đăng nhập",
+  "room.card.unpublished": "thay đổi chưa công bố",
+  "room.card.lastSeen": "Người mua xem lần cuối: {when}",
+  "room.card.open": "Mở Deal Room",
+  "room.create.sub":
+    "Một không gian người mua vào bằng liên kết để đọc những gì bạn chia sẻ và trao đổi về chúng.",
+  "room.create.open": "Mở một Deal Room",
+  "room.create.confirm": "Mở",
+  "room.create.titleLabel": "Tiêu đề phòng",
+  "room.create.titleHint":
+    "Điều người mua thấy làm tiêu đề. Bạn có thể đổi sau.",
+  "room.create.defaultTitle": "{deal}",
+  "roompage.none":
+    "Giao dịch này chưa có Deal Room. Hãy mở một phòng từ trang giao dịch.",
+  "roompage.backToDeal": "← Về giao dịch",
+  "roompage.accessMenu": "Quyền vào phòng",
+  "roompage.pause": "Tạm dừng",
+  "roompage.pauseHint":
+    "Người mua giữ liên kết nhưng thấy trang tạm dừng cho đến khi bạn tiếp tục.",
+  "roompage.resume": "Tiếp tục",
+  "roompage.close": "Đóng phòng",
+  "roompage.closeHint":
+    "Người mua vẫn đọc được; không thể thêm hay nói gì nữa.",
+  "roompage.setExpiry": "Đặt ngày kết thúc",
+  "roompage.setExpiryHint": "Quyền truy cập dừng vào ngày đó.",
+  "roompage.closeTitle": "Đóng Deal Room này?",
+  "roompage.closeBody":
+    "Người mua vẫn đọc được những gì đã công bố. Sau đó không nhận thêm tài liệu, bình luận hay quyết định. Bạn vẫn có thể thu hồi người và cấp liên kết.",
+  "roompage.expiryLabel": "Quyền truy cập kết thúc vào",
+  "roompage.expiryHint": "Để trống nếu không có ngày kết thúc.",
+  "roompage.banner.draft":
+    "Chưa công bố. Người mua không thấy gì cho đến khi bạn công bố.",
+  "roompage.banner.paused":
+    "Đã tạm dừng. Người mua thấy trang tạm dừng cho đến khi bạn tiếp tục.",
+  "roompage.banner.closed":
+    "Đã đóng. Người mua vẫn đọc được những gì đã công bố; không nhận thêm gì.",
+  "roompage.banner.expired":
+    "Đã hết hạn. Liên kết của người mua không còn hoạt động.",
+  "roompage.banner.archived": "Đã lưu trữ. Không ai vào được phòng này.",
+  "roompage.banner.liveUntil":
+    "Đang hoạt động. Quyền truy cập kết thúc vào {when}.",
+  "roompage.text.title": "Tiêu đề và lời chào",
+  "roompage.text.sub":
+    "Điều người mua đọc đầu tiên. Đến với họ ở lần công bố tiếp theo.",
+  "roompage.text.titleLabel": "Tiêu đề phòng",
+  "roompage.text.welcomeLabel": "Lời chào",
+  "roompage.publish": "Công bố",
+  "roompage.publishFinished":
+    "Phòng này đã kết thúc và không nhận thêm bản phát hành.",
+  "roompage.publishNothing": "Không có gì thay đổi kể từ bản phát hành trước.",
+  "roompage.publishChecking": "Đang kiểm tra thay đổi…",
+  "roompage.publishUnknown": "Không đọc được thay đổi; hãy tải lại trang.",
+  "roompage.publishTitle": "Công bố những thay đổi này cho người mua?",
+  "roompage.publishNoteLabel": "Ghi chú lưu hồ sơ (tùy chọn)",
+  "publish.title": "Công bố",
+  "publish.sub":
+    "Người mua sẽ thấy gì khác đi, và những gì đã gửi đi cho đến nay.",
+  "publish.pendingBadge": "Thay đổi chưa công bố",
+  "publish.noChanges": "Không có gì thay đổi kể từ bản phát hành trước.",
+  "publish.release": "Bản phát hành {no}",
+  "publish.readers": "{count} người mua đã đăng nhập.",
+  "publish.change.title": "Tiêu đề đã thay đổi.",
+  "publish.change.welcome": "Lời chào đã thay đổi.",
+  "publish.change.added": "Đã thêm: {title}",
+  "publish.change.removed": "Đã gỡ: {title}",
+  "publish.change.retitled": "Đã đổi tên: {title}",
+  "publish.change.regrouped": "Đã chuyển nhóm: {title}",
+  "publish.change.reordered": "Đã sắp xếp lại: {title}",
+  "publish.change.ineligible":
+    "Sẽ bị loại (đã ẩn, bỏ liên kết hoặc xóa trên giao dịch): {title}",
+  "publish.change.other": "Đã thay đổi: {title}",
+  "access.title": "Quyền truy cập",
+  "access.sub": "Ai được vào, và mỗi người được làm gì.",
+  "access.invite": "Mời",
+  "access.empty": "Chưa mời ai.",
+  "access.noReviewer":
+    "Có tài liệu nhưng không ai có thể xác nhận chúng. Hãy mời một người duyệt, hoặc đổi ai đó thành người duyệt.",
+  "access.cap.view": "Chỉ đọc",
+  "access.cap.viewHint": "Có thể đọc tài liệu và cuộc trao đổi.",
+  "access.cap.comment": "Đọc và bình luận",
+  "access.cap.commentHint": "Cũng có thể đặt câu hỏi và trả lời.",
+  "access.cap.reviewer": "Đọc, bình luận và xác nhận tài liệu",
+  "access.cap.reviewerHint":
+    "Cũng có thể yêu cầu sửa một tài liệu hoặc xác nhận một phiên bản.",
+  "access.state.invited": "đã mời",
+  "access.state.active": "đã đăng nhập",
+  "access.state.revoked": "đã thu hồi",
+  "access.lastSeen": "xem lần cuối {when}",
+  "access.linkRequested":
+    "Đã xin liên kết mới {when}. Hãy cấp một liên kết và tự gửi.",
+  "access.rowActions": "Thao tác cho {name}",
+  "access.issueLink": "Cấp liên kết mới",
+  "access.changeCapability": "Đổi quyền",
+  "access.revoke": "Thu hồi quyền truy cập",
+  "access.inviteTitle": "Mời ai đó vào Deal Room",
+  "access.inviteConfirm": "Mời",
+  "access.done": "Xong",
+  "access.save": "Lưu",
+  "access.nameLabel": "Tên",
+  "access.emailLabel": "Địa chỉ email",
+  "access.capabilityLegend": "Họ được làm gì?",
+  "access.inviteNote":
+    "Bạn sẽ nhận được liên kết để sao chép. Nếu đã cấu hình gửi thư, liên kết cũng được gửi cho họ.",
+  "access.issued.title": "Liên kết cho {name}",
+  "access.issued.mailed":
+    "Đã gửi tới {email}. Bạn cũng có thể sao chép bên dưới.",
+  "access.issued.notMailed": "Chưa gửi thư. Hãy sao chép liên kết và tự gửi.",
+  "access.issued.linkLabel": "Liên kết của họ",
+  "access.issued.copy": "Sao chép liên kết",
+  "access.issued.copied": "Đã sao chép",
+  "access.issued.copyFailed":
+    "Không sao chép được; hãy chọn liên kết và sao chép.",
+  "access.issued.oneTime":
+    "Liên kết cá nhân, dùng một lần, trên một thiết bị. Mỗi người cần lời mời riêng.",
+  "access.issueLinkTitle": "Cấp liên kết mới cho {name}",
+  "access.issueLinkBody":
+    "Liên kết hiện có sẽ ngừng hoạt động. Bạn sẽ nhận liên kết mới để sao chép.",
+  "access.revokeTitle": "Thu hồi quyền truy cập của {name}?",
+  "access.neverSignedIn": "chưa từng đăng nhập",
+  "access.revokeBody":
+    "Phiên của họ kết thúc ngay và liên kết ngừng hoạt động. Bình luận của họ vẫn hiển thị và ghi tên. Không thể khôi phục bằng cách xin liên kết.",
+  "access.changeCapabilityTitle": "{name} được làm gì?",
   "room.state.draft": "Bản nháp",
   "room.state.building": "Đang dựng",
   "room.state.ready": "Sẵn sàng",
@@ -1021,6 +1144,7 @@ export const vi = {
   "approval.kind.site_lead": "Thêm người tìm thấy trên website",
   "approval.kind.capture_counterparty": "Thêm người từ email của bạn",
   "approval.kind.org_name_promotion": "Đổi tên một công ty",
+  "approval.kind.project_attribution": "Xếp vào một dự án",
   "approval.kind.lifecycle_change": "Giai đoạn công ty",
   "approval.kind.transcript_proposal":
     "Thêm bước tiếp theo từ bản ghi cuộc trò chuyện",
@@ -2069,6 +2193,27 @@ export const vi = {
   "docs.category.email": "Tệp đính kèm email",
   "docs.category.message": "Tệp đính kèm tin nhắn",
   "docs.category.other": "Khác",
+  "files.title": "Tệp",
+  "files.sub":
+    "Những gì bạn đã tải lên giao dịch này và những gì đến cùng email và tin nhắn của nó.",
+  "files.empty":
+    "Chưa có tệp nào trên giao dịch này. Hãy tải lên một tệp hoặc liên kết một email có đính kèm.",
+  "files.origin": "Tệp đính kèm của tin nhắn từ {who}, {when}",
+  "files.originUnknown": "người gửi không rõ",
+  "files.uploaded": "Đã tải lên {when}",
+  "files.hiddenBadge": "Đã ẩn",
+  "files.rowActions": "Thao tác cho {name}",
+  "files.hide": "Ẩn khỏi giao dịch này",
+  "files.unhide": "Hiện lại trên giao dịch này",
+  "files.delete": "Xóa",
+  "files.hideTitle": "Ẩn {name} khỏi giao dịch này?",
+  "files.hideBody":
+    "Tin nhắn và tệp đính kèm vẫn ở trên hoạt động và trong thư viện của công ty. Chỉ giao dịch này không còn liệt kê nó.",
+  "files.deleteTitle": "Xóa {name}?",
+  "files.deleteBody":
+    "Tệp bị gỡ khỏi giao dịch này. Bản phát hành Deal Room đã nêu tên tệp vẫn cung cấp nó cho đến khi phòng được công bố lại.",
+  "files.showHidden": "Hiện các tệp đã ẩn",
+  "files.hideHidden": "Ẩn các tệp đã ẩn",
   "docs.state.draft": "Bản nháp",
   "docs.state.current": "Hiện hành",
   "docs.state.final": "Bản cuối",
@@ -2120,6 +2265,9 @@ export const vi = {
   "compose.draftToUnset": "Chọn liên hệ",
   "compose.relatedTo": "Liên quan đến",
   "compose.relatedToNone": "Toàn bộ tài khoản",
+  "compose.project": "Dự án",
+  "compose.projectNone": "Không có dự án",
+  "compose.scopedTo": "Giới hạn trong {key}",
   "compose.basedOn": "Dựa trên: {inputs}",
   "compose.whyThisDraft": "Vì sao có bản nháp này?",
   "compose.body": "Nội dung",
@@ -2160,6 +2308,9 @@ export const vi = {
   "compose.relinkReplaceHint":
     "Thay liên kết cùng loại đang có thay vì thêm một liên kết nữa.",
   "compose.relinkConfirm": "Liên kết lại",
+  "compose.relinkThread": "Chuyển cả phần còn lại của cuộc trò chuyện này",
+  "compose.relinkThreadHint":
+    "Mọi tin nhắn trong chuỗi này mà bạn được phép sửa sẽ được chuyển cùng, trong một bước.",
   "compose.emptyRecipients": "Hãy thêm ít nhất một người nhận.",
   "compose.removeRecipient": "Gỡ {recipient}",
   "compose.actionFailed": "Yêu cầu thất bại. Hãy thử lại.",
@@ -4052,9 +4203,9 @@ export const vi = {
   "room.docs.empty": "Chưa có tài liệu nào trong phòng.",
   "room.docs.fileLabel": "Tệp từ giao dịch này",
   "room.docs.fileHint":
-    "Hãy tải tệp lên giao dịch trước; chỉ tệp của giao dịch mới có thể đưa vào phòng.",
+    "Mọi thứ trong khu Tệp của giao dịch đều có thể đưa vào: tệp tải lên và tệp đi kèm email.",
   "room.docs.pickFile": "Chọn tệp",
-  "room.docs.noFiles": "Giao dịch này chưa có tệp nào",
+  "room.docs.noFiles": "Khu Tệp của giao dịch đang trống",
   "room.docs.groupLabel": "Nhóm",
   "room.docs.add": "Thêm vào phòng",
   "room.docs.remove": "Gỡ {title} khỏi phòng",
@@ -5809,4 +5960,97 @@ export const vi = {
   "sched.skew":
     "Danh s\u00e1ch n\u00e0y \u0111\u00e3 l\u1ed7i th\u1eddi: tin nh\u1eafn b\u1ea1n v\u1eeba t\u00e1c \u0111\u1ed9ng \u0111\u00e3 g\u1eedi \u0111i, \u0111\u00e3 b\u1ecb thu h\u1ed3i, ho\u1eb7c \u0111\u00e3 \u0111\u01b0\u1ee3c chuy\u1ec3n sang th\u1eddi \u0111i\u1ec3m kh\u00e1c. H\u00e3y \u0111\u1ecdc l\u1ea1i danh s\u00e1ch.",
   "sched.reload": "\u0110\u1ecdc l\u1ea1i",
+  "nav.projects": "Dự án",
+  "unit.projects": "dự án",
+  "project.name": "Tên dự án",
+  "project.key": "Mã",
+  "project.keyHint":
+    "Mã ngắn tùy chọn, ví dụ ACME-CRM. Ghi [MÃ] trong tiêu đề email thì thư được xếp vào dự án này.",
+  "project.keyInvalid":
+    "Mã bắt đầu bằng chữ cái và gồm 2–24 chữ cái, chữ số, _ hoặc -.",
+  "project.company": "Công ty",
+  "project.owner": "Người phụ trách",
+  "project.ownerKeep": "Giữ người phụ trách hiện tại",
+  "project.ownerMe": "Tôi",
+  "project.ownerUnassign": "Bỏ phân công",
+  "project.description": "Mô tả",
+  "project.targetEnd": "Ngày kết thúc dự kiến",
+  "project.targetEndShort": "mục tiêu {date}",
+  "project.new": "Dự án mới",
+  "project.edit": "Sửa dự án",
+  "project.archive": "Lưu trữ dự án",
+  "project.archiveConfirm":
+    "Lưu trữ sẽ đưa dự án này ra khỏi danh sách đang hoạt động và giải phóng mã của nó. Không thể hoàn tác từ giao diện.",
+  "project.archivedReadOnly": "Dự án này đã lưu trữ và không nhận thay đổi.",
+  "project.railLabel": "Hồ sơ dự án",
+  "project.phaseLabel": "Giai đoạn",
+  "project.filterPhaseAll": "Mọi giai đoạn",
+  "project.viewDelivering": "Đang triển khai",
+  "project.phase.initiative": "Khởi xướng",
+  "project.phase.pursuing": "Đang theo đuổi",
+  "project.phase.delivering": "Đang triển khai",
+  "project.phase.closed": "Đã đóng",
+  "project.emptyTitle": "Chưa có dự án",
+  "project.emptyBody":
+    "Dự án là phần việc mà một thương vụ hướng tới. Nó bắt đầu trong thương vụ, ở giai đoạn khởi xướng, và tiếp tục sau khi thắng: khi thương vụ đã thắng, việc triển khai được theo dõi ở đây.",
+  "project.emptyKey":
+    "Đặt mã cho dự án thì mọi email có [MÃ] trong tiêu đề sẽ tự động được xếp vào dự án đó.",
+  "project.rollups.empty": "Chưa có số liệu cho dự án này.",
+  "project.rollups.openValue": "Giá trị thương vụ đang mở",
+  "project.rollups.wonValue": "Giá trị thương vụ đã thắng",
+  "project.rollups.openCommitments": "Cam kết đang mở",
+  "project.rollups.lastActivity": "Hoạt động gần nhất",
+  "project.rollups.never": "chưa có gì",
+  "project.rollups.activityCount": "Hoạt động",
+  "project.coverage":
+    "{attributed} đã gán · {awaiting} chờ quyết định · {nearby} ở người và thương vụ của dự án này chưa gán",
+  "project.history.title": "Lịch sử giai đoạn",
+  "project.history.empty": "Chưa ghi nhận thay đổi giai đoạn nào.",
+  "project.history.current": "hiện tại",
+  "project.history.moved": "{from} → {to}",
+  "project.history.born": "Bắt đầu ở {phase}",
+  "project.history.bySystem": "Hệ thống",
+  "project.deals.title": "Thương vụ",
+  "project.deals.empty":
+    "Chưa có thương vụ nào gắn với dự án này. Thương vụ chọn dự án trong biểu mẫu của chính nó.",
+  "project.deals.more": "Còn nhiều thương vụ hơn ở đây — mở pipeline.",
+  "project.stakeholders.title": "Các bên liên quan",
+  "project.stakeholders.empty":
+    "Chưa ai có vai trò trong dự án này. Bên liên quan là người giữ một vai trò ở đây — nhà tài trợ, trưởng dự án, người ủng hộ.",
+  "project.role.sponsor": "Nhà tài trợ",
+  "project.role.project_lead": "Trưởng dự án",
+  "project.role.delivery_lead": "Trưởng triển khai",
+  "project.role.subject_matter_expert": "Chuyên gia chuyên môn",
+  "project.contracts.title": "Hợp đồng",
+  "project.contracts.empty":
+    "Chưa có thỏa thuận nào xếp dưới dự án này. Hợp đồng chỉ định dự án khi được ghi nhận.",
+  "project.documents.title": "Tài liệu",
+  "project.documents.empty":
+    "Chưa có tệp nào đính kèm dự án này. Tệp đính kèm thương vụ vẫn ở lại thương vụ.",
+  "project.commitments.title": "Cam kết đang mở",
+  "project.commitments.empty":
+    "Chưa có việc đang mở nào xếp dưới dự án này. Việc liên kết với dự án sẽ hiện ở đây, hạn gần nhất trước.",
+  "project.commitments.overdue": "quá hạn",
+  "project.timeline.empty":
+    "Chưa có gì xếp dưới dự án này. Email mang mã trong tiêu đề và hoạt động liên kết với dự án sẽ hiện ở đây.",
+  "project.advance.title": "Chuyển sang {phase}",
+  "project.advance.confirm": "Chuyển",
+  "project.advance.close": "Đóng dự án",
+  "project.advance.body":
+    "Lần chuyển được ghi vào lịch sử giai đoạn cùng lý do bạn đưa ra.",
+  "project.advance.closeBody":
+    "Đóng sẽ kết thúc việc triển khai dự án. Có thể mở lại sau, và lý do vẫn được lưu.",
+  "project.advance.reason": "Lý do",
+  "project.advance.reasonRequired": "Dự án đã đóng cần có lý do.",
+  "deal.project": "Dự án",
+  "deal.projectNew": "Dự án mới…",
+  "deal.projectNeedsCompany":
+    "Chọn công ty của thương vụ trước — dự án được khởi tạo trên một công ty.",
+  "deal.projectUnnamed": "Dự án",
+  "deal.startDeliveryTitle": "Bắt đầu triển khai",
+  "deal.startDelivery": "Bắt đầu triển khai",
+  "deal.startDeliveryAttached":
+    "Thương vụ này đã gắn với {project}, nhưng dự án chưa ở giai đoạn triển khai. Chuyển ngay?",
+  "deal.startDeliveryBody":
+    "Thương vụ này đã thắng và chưa gắn dự án. Gắn vào {project} và chuyển dự án sang triển khai?",
 } as const satisfies Record<MessageKey, string>;

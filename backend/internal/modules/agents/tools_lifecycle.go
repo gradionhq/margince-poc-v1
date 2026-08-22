@@ -25,7 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// RegisterLifecycleTools wires the three transitions over the seams the
+// RegisterLifecycleTools wires the transitions over the seams the
 // composition layer implements. Separate from RegisterCoreTools because these
 // reach three different owning modules rather than the one provider seam the
 // CRUD set shares.
@@ -37,6 +37,8 @@ func RegisterLifecycleTools(
 	advancer ProjectPhaseAdvancer,
 ) {
 	r.Register(relinkActivity{relinker: relinker, p: p})
+	r.Register(relinkThread{relinker: relinker, p: p})
+	r.Register(relinkActivities{relinker: relinker, p: p})
 	r.Register(disqualifyLead{p: p, disqualifier: disqualifier})
 	r.Register(advanceProjectPhase{p: p, advancer: advancer})
 }
@@ -45,6 +47,11 @@ func RegisterLifecycleTools(
 // on (activity, entity_type, entity_id).
 type ActivityRelinker interface {
 	RelinkActivity(ctx context.Context, activityID ids.UUID, entityType string, entityID ids.UUID, replaceExistingOfType bool) (json.RawMessage, error)
+	// RelinkThread is the same move over every writable member of one
+	// conversation; RelinkActivities over a named set. Both answer the
+	// count-and-ids shape rather than a record.
+	RelinkThread(ctx context.Context, threadKey string, entityType string, entityID ids.UUID, replaceExistingOfType bool) (json.RawMessage, error)
+	RelinkActivities(ctx context.Context, activityIDs []ids.UUID, entityType string, entityID ids.UUID, replaceExistingOfType bool) (json.RawMessage, error)
 }
 
 // LeadDisqualifier retires a lead: status disqualified + archived_at, the row

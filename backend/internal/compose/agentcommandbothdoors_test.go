@@ -612,6 +612,14 @@ var dynamicTierVerbs = gatekit.Waive(map[string]string{
 		"the MCP door through the tool's own InputSchema — that second one exists because relinkActivity is " +
 		"not a dynamicTool, so the registry hands the resolver raw tool arguments and the two spellings of " +
 		"`entity_type` are held together by nothing else",
+	"relink_thread": "the same destination-type tier as relink_activity, answered by the same resolver " +
+		"(relinkActivityTier) off the same `entity_type` argument on both doors; " +
+		"TestEveryDynamicTierRouteHasACommandThatAnswersItsTier drives the REST door and " +
+		"TestRelinkTierReadsTheArgumentShapeTheToolActuallyDeclares the MCP door",
+	"relink_activities": "the same destination-type tier as relink_activity, answered by the same resolver " +
+		"(relinkActivityTier) off the same `entity_type` argument on both doors; " +
+		"TestEveryDynamicTierRouteHasACommandThatAnswersItsTier drives the REST door and " +
+		"TestRelinkTierReadsTheArgumentShapeTheToolActuallyDeclares the MCP door",
 })
 
 // assertVerbResolvesItsTierPerCall holds an unwritten fixture to the one

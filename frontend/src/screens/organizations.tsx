@@ -114,10 +114,9 @@ import {
 } from "./listquery";
 import { PartnerTab } from "./partners";
 import {
-  CHRONOLOGY_EMPTY_KEYS,
   ChronologyFilter,
   ChronologyFooter,
-  type TimelineFilter,
+  chronologyNotice,
   useChronologyFilter,
   useRecordChronology,
 } from "./recordchronology";
@@ -1852,6 +1851,7 @@ function useChronologySlots({
       timelineHeader: <ChronologyFilter filter={filter} onFilter={setFilter} />,
       timelineFooter: <ChronologyFooter filter={filter} chronology={history} />,
       timelineNotice: chronologyNotice(
+        "co.timeline.empty",
         {
           // Per filter, because the two feeds fail independently. A 360 that
           // omitted its activities section says nothing about the change
@@ -2807,44 +2807,5 @@ function ReferenceDisclosures({
         <DeepReadCard orgId={org.id} />
       </Disclosure>
     </>
-  );
-}
-
-// chronologyNotice keeps four things apart that all render as an empty
-// list if you let them: still loading, the read failed, the section was
-// never in the payload, and the account genuinely has nothing to show. Only
-// the last one may say so — the other three would have a rep conclude
-// nobody has ever touched this account.
-//
-// The empty sentence names what the filter was looking for. "Nothing logged
-// on this account" under the Changes filter would be a claim about the
-// activity feed the reader is not looking at.
-function chronologyNotice(
-  timeline: {
-    loading: boolean;
-    failed: boolean;
-    assembled: boolean;
-    filter: TimelineFilter;
-  },
-  count: number,
-  t: ReturnType<typeof useT>,
-): ReactNode {
-  if (timeline.loading) {
-    return <Skeleton width="100%" height={48} />;
-  }
-  if (timeline.failed || !timeline.assembled) {
-    return <EmptyState>{t("co.section.unavailable")}</EmptyState>;
-  }
-  if (count > 0) {
-    return undefined;
-  }
-  return (
-    <EmptyState>
-      {t(
-        timeline.filter === "activities"
-          ? "co.timeline.empty"
-          : CHRONOLOGY_EMPTY_KEYS[timeline.filter],
-      )}
-    </EmptyState>
   );
 }

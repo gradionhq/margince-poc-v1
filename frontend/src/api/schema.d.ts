@@ -2577,6 +2577,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/activities/relink-thread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-associate every activity of one conversation thread to a chosen record, in one transaction.
+         * @description The thread twin of `relinkActivity`: the same association applied to every non-archived
+         *     activity carrying `thread_key` that the caller may write. A mis-filed conversation is
+         *     usually mis-filed whole, and one call here is the remedy rather than one call per message.
+         *     Each moved activity gets its own `audit_log` row (`activity_relink`) and its own
+         *     `activity.updated` event, exactly as the single relink writes them; filing under a project
+         *     stamps each one as commercial correspondence the same way. An activity in the thread the
+         *     caller cannot write is left where it is and is not counted — the response says how many
+         *     moved. An activity already carrying the link is not counted either (the single
+         *     relink's idempotency, per row). All rows commit together or none do.
+         */
+        post: operations["relinkThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activities/relink-bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-associate a named set of activities to a chosen record, in one transaction.
+         * @description The explicit-id twin of `relinkThread`, for a selection that is not one conversation. The
+         *     caller names up to 500 activities; each is relinked exactly as `relinkActivity` would
+         *     relink it, with its own `audit_log` row and `activity.updated` event. Unlike the thread
+         *     form, every named id must be one the caller can see and write: an id outside the caller's
+         *     sight answers `404` and one they may read but not write answers `403`, and in either case
+         *     NOTHING moves — the whole set is one transaction. An activity already carrying the link is
+         *     left as it is and not counted.
+         */
+        post: operations["relinkActivities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activities/{id}/transcript-proposals": {
         parameters: {
             query?: never;
@@ -7810,6 +7864,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deal-rooms/{id}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What the buyer would see differently if the room were published now.
+         * @description The draft diffed against the latest release: the title or welcome text
+         *     changed, documents added, removed, retitled or regrouped, and documents that
+         *     are no longer eligible (archived, unlinked from the deal, or hidden from it)
+         *     and would drop out of the next release. A room never published reports every
+         *     document as added. This is what the Publish button is disabled on when empty.
+         */
+        get: operations["getDealRoomChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deal-rooms/{id}/releases": {
         parameters: {
             query?: never;
@@ -8517,6 +8598,71 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals/{id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The deal's Files area — its own uploads and the files of every message linked to it.
+         * @description Every attachment whose parent is the deal, plus every attachment of an activity
+         *     linked to the deal: that is where a captured email's files live, so without
+         *     this read an emailed contract is unreachable from the deal it is about.
+         *
+         *     **Each row is scoped through its own parent.** A captured file follows the
+         *     message's audience, so a colleague outside that audience sees a shorter list
+         *     than the mailbox owner — correct, and never widened here.
+         *
+         *     Inline mail images (small `image/*` parts of a captured message) are left out:
+         *     a logo in every signature would bury the one contract among thirty icons.
+         *     Files hidden from this deal are left out unless `include_hidden` is set, and
+         *     then carry `hidden: true`. Newest first.
+         */
+        get: operations["listDealDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals/{id}/documents/{attachmentId}/hide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                attachmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Stop listing a captured file on this deal without touching the file.
+         * @description A captured attachment belongs to its message: it stays on the activity and in
+         *     the company library. Hiding only takes it off THIS deal's Files area. A file
+         *     already shared in the Deal Room stays in the room's draft, but drops out of the
+         *     next release and of the buyer's download.
+         *
+         *     Needs update on the deal, and the file must be in the deal's Files area for
+         *     this caller; anything else answers 404. Idempotent.
+         */
+        put: operations["hideDealDocument"];
+        post?: never;
+        /** List the file on this deal again. */
+        delete: operations["unhideDealDocument"];
         options?: never;
         head?: never;
         patch?: never;
@@ -12644,6 +12790,28 @@ export interface components {
             /** @description No linked activity inside the 60-day stall window. */
             stalled: boolean;
         };
+        /**
+         * @description Where a project stands on the record page; the same ladder the project's own `phase` walks.
+         * @enum {string}
+         */
+        Organization360ProjectPhase: "initiative" | "pursuing" | "delivering" | "closed";
+        /** @description One body of work on the record page: enough to name it, say where it stands and who holds it. The full row is `GET /projects/{id}`. Shared by the company page and the person page, so a project reads the same on both. */
+        Organization360Project: {
+            /** Format: uuid */
+            project_id: string;
+            name: string;
+            /** @description The subject-line handle, when the project has one. */
+            key?: string | null;
+            phase: components["schemas"]["Organization360ProjectPhase"];
+            /** Format: date-time */
+            last_activity_at?: string | null;
+            /** Format: date */
+            target_end_date?: string | null;
+            /** Format: uuid */
+            owner_id?: string | null;
+            /** @description The owner's display name; null when the project has no owner or the owner is no longer an active member. */
+            owner_name?: string | null;
+        };
         /** @description The account's open deals plus the two lifetime figures the header needs. */
         Organization360Deals: {
             data: components["schemas"]["Organization360Deal"][];
@@ -12843,12 +13011,14 @@ export interface components {
             next_meeting?: components["schemas"]["Organization360NextMeeting"];
             health?: components["schemas"]["Organization360Health"];
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health" | "next_meeting")[];
+            sections_omitted: ("people" | "deals" | "projects" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health" | "next_meeting")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];
             };
             deals?: components["schemas"]["Organization360Deals"];
+            /** @description The company's unarchived projects, work in motion first (delivering, pursuing, initiative, then closed), under the caller's project row scope. Absent when the caller has no project grant, named in `sections_omitted` as `projects`. */
+            projects?: components["schemas"]["Organization360Project"][];
             strength?: components["schemas"]["OrganizationStrength"];
             activities?: components["schemas"]["ActivityListResponse"];
             tags?: components["schemas"]["Tag"][];
@@ -13033,8 +13203,10 @@ export interface components {
              */
             last_outbound_at?: string | null;
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments" | "commercial" | "next_meeting" | "claims" | "conversation_memory" | "provider_profile")[];
+            sections_omitted: ("employments" | "deal_roles" | "projects" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments" | "commercial" | "next_meeting" | "claims" | "conversation_memory" | "provider_profile")[];
             strength?: components["schemas"]["RelationshipStrength"];
+            /** @description The unarchived projects this person is part of: the ones they hold a live stakeholder seat on, plus every project of the company they currently work for, one row per project, work in motion first. Absent when the caller has no project grant, named in `sections_omitted` as `projects`. */
+            projects?: components["schemas"]["Organization360Project"][];
             /** @description The purchased person-data snapshot (PO-EXT-9): what a connected provider returned about this person, kept beside the canonical record and never silently folded into it. Absent when the caller lacks the person grant, named in `sections_omitted` as `provider_profile`. */
             provider_profile?: components["schemas"]["PersonProviderProfile"];
             /** @description What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold. */
@@ -14830,11 +15002,14 @@ export interface components {
          *     scope. `attributed` is every live activity linked to the project (its whole lifecycle,
          *     and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
          *     activity linked to one of the project's deals or stakeholder people that carries no
-         *     project link at all — the filing debt a rep can work down.
+         *     project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+         *     live activity the attribution ladder proposed for this project and nobody has answered
+         *     yet: a `project_attribution` approval standing in an inbox, not a link.
          */
         Project360Coverage: {
             attributed: number;
             unattributed_nearby: number;
+            awaiting_decision: number;
         };
         /**
          * @description The header figures. Money is in the installation's base currency at each deal's frozen
@@ -15015,6 +15190,52 @@ export interface components {
             /** Format: uuid */
             entity_id: string;
         };
+        /**
+         * @description The destination for every writable, non-archived activity of one conversation thread.
+         *     `entity_type`/`entity_id`/`replace_existing_of_type` mean exactly what they mean on
+         *     `relinkActivity`.
+         */
+        RelinkThreadRequest: {
+            /** @description The conversation key the activities carry (`Activity.thread_key`, also the `thread_key` list filter). */
+            thread_key: string;
+            entity_type: components["schemas"]["RelinkDestinationType"];
+            /** Format: uuid */
+            entity_id: string;
+            /**
+             * @description When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+             * @default false
+             */
+            replace_existing_of_type: boolean;
+        };
+        /**
+         * @description The destination for a named set of activities. Every id must be one the caller can see and
+         *     write, or the whole request is refused and nothing moves.
+         */
+        RelinkActivitiesRequest: {
+            activity_ids: string[];
+            entity_type: components["schemas"]["RelinkDestinationType"];
+            /** Format: uuid */
+            entity_id: string;
+            /**
+             * @description When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+             * @default false
+             */
+            replace_existing_of_type: boolean;
+        };
+        /**
+         * @description A count and nothing else. The moved ids are deliberately not echoed: a replay of the same
+         *     Idempotency-Key, or an approval inbox showing the staged call, would otherwise hand back
+         *     rows the reader may since have lost sight of.
+         */
+        RelinkBatchResult: {
+            /** @description Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted. */
+            relinked: number;
+        };
+        /**
+         * @description The record kinds an activity may be filed under.
+         * @enum {string}
+         */
+        RelinkDestinationType: "person" | "organization" | "deal" | "lead" | "project";
         /**
          * @description One record an activity is filed under, as a caller supplies it. The read shape
          *     (ActivityLink) carries the ids the server assigned; this carries only the target.
@@ -15410,6 +15631,32 @@ export interface components {
         };
         AttachmentListResponse: {
             data: components["schemas"]["Attachment"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description One file in a deal's Files area: the attachment, whether it is hidden from this
+         *     deal, and where a captured file came from, so a reader can tell "the contract
+         *     Laura mailed on the 12th" from "the draft I uploaded".
+         */
+        DealDocument: {
+            attachment: components["schemas"]["Attachment"];
+            hidden: boolean;
+            origin?: components["schemas"]["DealDocumentOrigin"];
+        };
+        /** @description Where a captured file came from. Present for a file that arrived with a message linked to the deal; absent for a file uploaded on the deal. */
+        DealDocumentOrigin: {
+            /** Format: uuid */
+            activity_id: string;
+            /** @description The activity kind the file arrived with: email, message, meeting. */
+            kind: string;
+            subject?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            /** Format: email */
+            counterparty_email?: string | null;
+        };
+        DealDocumentListResponse: {
+            data: components["schemas"]["DealDocument"][];
             page: components["schemas"]["PageInfo"];
         };
         /** @description One attempted grounded field from the staged AI-extraction read (RD-T10). */
@@ -19747,6 +19994,13 @@ export interface components {
             readonly has_signed_in?: boolean;
             /**
              * Format: date-time
+             * @description When this person last asked for a new link from the public page. The
+             *     seller sees it beside the row so a buyer whose mail never arrived (no
+             *     relay configured, or a link still standing) can be handed one by hand.
+             */
+            readonly link_requested_at?: string | null;
+            /**
+             * Format: date-time
              * @description When their access was taken away. The row survives revocation so their
              *     comments and decisions stay attributed to a name.
              */
@@ -19807,6 +20061,20 @@ export interface components {
              *     link itself rather than being told the invitation failed.
              */
             delivered: boolean;
+        };
+        DealRoomChanges: {
+            has_changes: boolean;
+            /** @description The release the draft was compared against; null when the room was never published. */
+            release_no?: number | null;
+            changes: components["schemas"]["DealRoomChange"][];
+        };
+        DealRoomChange: {
+            /** @description One of title_changed, welcome_changed, document_added, document_removed, document_retitled, document_regrouped, document_reordered, document_ineligible. A plain string for the reason DealRoomParticipantCapability gives. */
+            kind: string;
+            /** Format: uuid */
+            document_id?: string | null;
+            /** @description The document title the sentence names: current, or as last published. */
+            title?: string | null;
         };
         DealRoomReleaseListResponse: {
             data: components["schemas"]["DealRoomRelease"][];
@@ -21895,6 +22163,11 @@ export interface operations {
                 "application/json": {
                     /** @description Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence. */
                     intent?: string | null;
+                    /**
+                     * Format: uuid
+                     * @description Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+                     */
+                    project_id?: string | null;
                 };
             };
         };
@@ -23210,6 +23483,11 @@ export interface operations {
                      * @description Which open deal the message is about. Absent draws on the account as a whole.
                      */
                     deal_id?: string | null;
+                    /**
+                     * Format: uuid
+                     * @description Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+                     */
+                    project_id?: string | null;
                     /** @description Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence. */
                     intent?: string | null;
                 };
@@ -25367,6 +25645,98 @@ export interface operations {
                     "application/json": components["schemas"]["Activity"];
                 };
             };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    relinkThread: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelinkThreadRequest"];
+            };
+        };
+        responses: {
+            /** @description How many activities moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelinkBatchResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    relinkActivities: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelinkActivitiesRequest"];
+            };
+        };
+        responses: {
+            /** @description How many activities moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelinkBatchResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };
@@ -34511,6 +34881,32 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    getDealRoomChanges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pending changes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomChanges"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listDealRoomReleases: {
         parameters: {
             query?: {
@@ -36165,6 +36561,97 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listDealDocuments: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";
+                include_hidden?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deal's documents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealDocumentListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    hideDealDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                attachmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hidden. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    unhideDealDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                attachmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Listed again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
         };
     };

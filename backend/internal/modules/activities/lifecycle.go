@@ -21,7 +21,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -207,86 +206,14 @@ type RelinkActivityInput struct {
 }
 
 func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in RelinkActivityInput) (crmcontracts.Activity, error) {
-	// Relinking moves an activity ONTO a record; without an entity_id there is
-	// nowhere to move it. Required by the contract, and true only here: the zero
-	// UUID reaches the link-target gate and answers not-found for a record the
-	// caller never named.
-	if err := httperr.RequireBodyID("entity_id", in.EntityID); err != nil {
+	column, err := admitRelink(ctx, in)
+	if err != nil {
 		return crmcontracts.Activity{}, err
-	}
-	if err := auth.Require(ctx, "activity", principal.ActionUpdate); err != nil {
-		return crmcontracts.Activity{}, err
-	}
-	column := linkColumn(in.EntityType)
-	if column == "" {
-		return crmcontracts.Activity{}, &InvalidLinkTypeError{EntityType: in.EntityType}
 	}
 	var out crmcontracts.Activity
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureActivityWritable(ctx, tx, id.UUID); err != nil {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := relinkAdmittedRow(ctx, tx, id, in, column); err != nil {
 			return err
-		}
-		// The relink target is a client-supplied reference (H1).
-		if err := auth.EnsureLinkTarget(ctx, tx, in.EntityType, in.EntityID); err != nil {
-			return err
-		}
-		var displaced []ids.UUID
-		if in.ReplaceExistingOfType {
-			var err error
-			displaced, err = deleteVisibleLinksOfType(ctx, tx, id, in.EntityType, column)
-			if err != nil {
-				return err
-			}
-		}
-		if in.EntityType == linkEntityPerson && in.ReplaceExistingOfType && len(displaced) > 0 {
-			if err := repointDisplacedParticipants(ctx, tx, id, in.EntityID, displaced); err != nil {
-				return err
-			}
-		}
-
-		// Idempotent: replaying the same association is a no-op, and a
-		// no-op writes no audit noise.
-		tag, err := tx.Exec(ctx, storekit.SQLf(`
-			INSERT INTO activity_link (activity_id, entity_type, %s)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (activity_id, entity_type, `+linkIDCoalesce+`) DO NOTHING`, column),
-			id, in.EntityType, in.EntityID)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() > 0 {
-			// Touch the activity ROW itself, not just its link table: a
-			// staged approval pins activity.version (versionTables includes
-			// objectActivity), and that pin is the only defense between an
-			// approved "send this body on this conversation" and the
-			// conversation being silently repointed to someone else before
-			// the approval is redeemed. A relink that changes who the
-			// activity reaches must therefore move the version the pin
-			// re-checks, or a stale approval keeps redeeming as if nothing
-			// had changed. The trigger (set_updated_at_bump_version,
-			// 0008_activity.up.sql) does the actual bump; this only has to
-			// be a genuine UPDATE of the row.
-			if _, err := tx.Exec(ctx, `UPDATE activity SET updated_at = now() WHERE id = $1`, id); err != nil {
-				return err
-			}
-			// Filing under a project is what qualifies the correspondence
-			// (D5), so the stamp commits with the link that earned it.
-			if in.EntityType == linkEntityProject {
-				if err := StampCorrespondenceForProject(ctx, tx, id, in.EntityID); err != nil {
-					return err
-				}
-			}
-			auditID, err := storekit.Audit(ctx, tx, "activity_relink", "activity", id.UUID, nil, map[string]any{
-				"entity_type": in.EntityType, "entity_id": in.EntityID, "replaced": in.ReplaceExistingOfType,
-			})
-			if err != nil {
-				return err
-			}
-			if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventActivityUpdated{
-				ChangedFields: relinkedChangedFields(in.EntityType, in.EntityID),
-			}); err != nil {
-				return err
-			}
 		}
 		var err2 error
 		out, err2 = readActivity(ctx, tx, id, storekit.LiveOnly)
@@ -296,6 +223,43 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 		return crmcontracts.Activity{}, apperrors.ErrNotFound
 	}
 	return out, err
+}
+
+// RelinkActivityInTx is the single relink on the CALLER's transaction: the
+// same admission, the same target probe and the same guarded row write as
+// RelinkActivity, for a caller that must commit the link together with a
+// record of its own — the confirm of a project attribution candidate closes
+// the candidate in the transaction that writes the link, so neither can be
+// read without the other. It answers whether a link was written; replaying an
+// association the activity already carries is a no-op.
+func RelinkActivityInTx(ctx context.Context, tx pgx.Tx, id ids.ActivityID, in RelinkActivityInput) (bool, error) {
+	column, err := admitRelink(ctx, in)
+	if err != nil {
+		return false, err
+	}
+	return relinkAdmittedRow(ctx, tx, id, in, column)
+}
+
+// LockActivityLive takes the row lock on one live activity for the rest of the
+// caller's transaction, for a caller that must read something about the
+// activity and then relink it as ONE state — the attribution confirm reads
+// where the message is filed before filing it. The lock belongs to this
+// module because the row does; a gone or archived activity answers the same
+// not-found every live read gives.
+func LockActivityLive(ctx context.Context, tx pgx.Tx, id ids.ActivityID) error {
+	_, err := storekit.LockRow(ctx, tx, "activity", id.UUID, storekit.LiveOnly)
+	return err
+}
+
+// relinkAdmittedRow is the transactional half both doors share: the target
+// probe, then the guarded row write. The admission stays outside it so the
+// single door can refuse a malformed request before it opens a transaction.
+func relinkAdmittedRow(ctx context.Context, tx pgx.Tx, id ids.ActivityID, in RelinkActivityInput, column string) (bool, error) {
+	// The relink target is a client-supplied reference (H1).
+	if err := auth.EnsureLinkTarget(ctx, tx, in.EntityType, in.EntityID); err != nil {
+		return false, err
+	}
+	return relinkActivityRow(ctx, tx, id, in, column)
 }
 
 // deleteVisibleLinksOfType drops the activity's links of one entity type and

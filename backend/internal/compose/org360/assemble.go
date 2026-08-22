@@ -15,6 +15,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -31,6 +32,7 @@ import (
 const (
 	sectionPeople          = crmcontracts.Organization360SectionsOmitted("people")
 	sectionDeals           = crmcontracts.Organization360SectionsOmitted("deals")
+	sectionProjects        = crmcontracts.Organization360SectionsOmitted("projects")
 	sectionStrength        = crmcontracts.Organization360SectionsOmitted("strength")
 	sectionActivities      = crmcontracts.Organization360SectionsOmitted("activities")
 	sectionLastTouch       = crmcontracts.Organization360SectionsOmitted("last_touch")
@@ -49,6 +51,7 @@ const (
 type Service struct {
 	pool      *pgxpool.Pool
 	people    *people.Store
+	deals     *deals.Store
 	approvals *approvals.Service
 	now       func() time.Time
 }
@@ -57,8 +60,8 @@ type Service struct {
 // now is the read's injected clock (the house shape: a test pins a fixed
 // instant so a strength half-life or a stall window cannot flake between
 // seeding and reading).
-func NewService(pool *pgxpool.Pool, peopleStore *people.Store, approvalsSvc *approvals.Service, now func() time.Time) *Service {
-	return &Service{pool: pool, people: peopleStore, approvals: approvalsSvc, now: now}
+func NewService(pool *pgxpool.Pool, peopleStore *people.Store, dealsStore *deals.Store, approvalsSvc *approvals.Service, now func() time.Time) *Service {
+	return &Service{pool: pool, people: peopleStore, deals: dealsStore, approvals: approvalsSvc, now: now}
 }
 
 // Assemble reads the whole company page inside ONE workspace transaction.
@@ -141,6 +144,7 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 		{sectionPeople, a.readContacts},
 		{sectionStrength, a.readStrength},
 		{sectionDeals, a.readDeals},
+		{sectionProjects, a.readProjects},
 		{sectionActivities, a.readTimeline},
 		{sectionLastTouch, a.readLastTouch},
 		{sectionStateStrip, a.readStateStrip},

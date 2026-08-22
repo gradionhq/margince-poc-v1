@@ -84,18 +84,26 @@ import { DealNextAction } from "./dealnextaction";
 // has one. Its own component so the screen's render stays readable.
 function DealAside({
   dealId,
-  hasDealRoom,
-}: Readonly<{ dealId: string; hasDealRoom: boolean }>) {
+  dealName,
+}: Readonly<{ dealId: string; dealName: string }>) {
   return (
     <>
       <DealNextAction dealId={dealId} />
       <DealHealthCard dealId={dealId} />
-      {hasDealRoom ? <DealRoomAside dealId={dealId} /> : null}
+      <DealRoomAside dealId={dealId} dealName={dealName} />
     </>
   );
 }
 
-import { DealRoomAside, useDealRoomPresence } from "./dealroom";
+import { DealFiles } from "./dealfiles";
+import {
+  DealProjectChip,
+  dealProjectFields,
+  resolveDealProject,
+  StartDeliveryPrompt,
+  useOpenProjects,
+} from "./dealproject";
+import { DealRoomAside } from "./dealroom";
 import { EditAction } from "./edit";
 import { EntityRef, useEntityName } from "./entityref";
 import { RecordHistoryTab } from "./history";
@@ -474,7 +482,20 @@ function dealEditRecord(deal: Deal): Record<
     forecast_category: deal.forecast_category ?? "",
     expected_close_date: deal.expected_close_date ?? "",
     wait_until: deal.wait_until ?? "",
+    project_id: deal.project_id ?? "",
   };
+}
+
+// The edit form's values are typed `unknown` per key; the project resolver
+// reads the three it needs as strings, and anything else is not one.
+function stringValues(values: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (typeof value === "string") {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 // The attribution the form may send, narrowed the same way the forecast
@@ -541,6 +562,9 @@ export function mapDealUpdate(
     forecast_category: forecastCategory(forecast),
     expected_close_date: str(values.expected_close_date) || null,
     wait_until: str(values.wait_until) || null,
+    // Resolved by the screen before mapping: the "new project" answer has
+    // already become an id by the time the patch is built.
+    project_id: str(values.project_id) || null,
   };
   return withoutMasked(patch, masked);
 }
@@ -603,6 +627,7 @@ export function mapDealCreate(
     // refused 422 rather than defaulted — there would be nobody to credit.
     partner_attribution: partnerAttribution(str(values.partner_attribution)),
     expected_close_date: str(values.expected_close_date) || null,
+    project_id: str(values.project_id) || null,
     source: "manual",
   };
 }
@@ -1643,13 +1668,28 @@ export function DealsScreen({
 
   const partnerOptions = usePartnerOptions(orgsQuery.data?.data ?? []);
 
+  const openProjects = useOpenProjects();
+
   const createDeal = async (values: Record<string, string>) => {
     const pipeline = effectivePipeline;
     if (!pipeline) {
       throwProblem(null);
     }
+    // A project asked for on the form is born first, on the deal's company,
+    // so the deal can name it at birth.
+    const projectId = await resolveDealProject(
+      values,
+      values.organization_id?.trim() || null,
+      t,
+    );
     const { data, error } = await api.POST("/deals", {
-      body: { ...mapDealCreate(values, pipeline.id), ...cf.toBody(values) },
+      body: {
+        ...mapDealCreate(
+          { ...values, project_id: projectId ?? "" },
+          pipeline.id,
+        ),
+        ...cf.toBody(values),
+      },
     });
     if (error) {
       throwProblem(error, t);
@@ -1759,6 +1799,9 @@ export function DealsScreen({
             label: org.display_name,
           })),
         },
+        // The body of work this deal is about, chosen or started here: a
+        // project begins during the deal, in its initiative phase.
+        ...dealProjectFields(t, openProjects),
         // A deal brought by a partner is attributed at birth, not by editing
         // it afterwards: the win that pays them can come before anybody thinks
         // to revisit the record.
@@ -2594,9 +2637,15 @@ function DealBadges({
   // One fact refuses every write below, so it is named once. Undefined while
   // the deal is live, which is what leaves the verbs pressable.
   const refusedByArchive = deal.archived_at ? archivedReasonId : undefined;
+  const openProjects = useOpenProjects();
+  const projectById = useEntityName("project", deal.project_id);
+  const currentProject = deal.project_id
+    ? { id: deal.project_id, label: projectById.name ?? deal.project_id }
+    : undefined;
   return (
     <>
       <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
+      <DealProjectChip deal={deal} />
       <EditAction
         disabledReasonId={refusedByArchive}
         label={t("deal.edit")}
@@ -2615,17 +2664,31 @@ function DealBadges({
             // nobody has priced has none to put there.
             currency: deal.currency ?? "",
           }),
+          ...(masked.includes("project_id")
+            ? []
+            : dealProjectFields(t, openProjects, currentProject)),
           ...cf.formFields,
         ]}
         record={{ ...dealEditRecord(deal), ...cf.recordSlice(deal) }}
         update={async (values) => {
+          // The company the form SUBMITS, not the one the deal had: a
+          // project started here belongs to the company the save names.
+          const submitted = stringValues(values);
+          const projectId = await resolveDealProject(
+            submitted,
+            submitted.organization_id?.trim() || null,
+            t,
+          );
           const { data, error } = await api.PATCH("/deals/{id}", {
             params: {
               path: { id: deal.id },
               ...ifMatch(requireVersion(deal.version)),
             },
             body: {
-              ...mapDealUpdate(values, masked),
+              ...mapDealUpdate(
+                { ...values, project_id: projectId ?? "" },
+                masked,
+              ),
               ...cf.toBody(values),
             },
           });
@@ -2842,7 +2905,7 @@ export function OffersPanel({
   );
 }
 
-const DEAL_TABS = ["overview", "history"] as const;
+const DEAL_TABS = ["overview", "files", "history"] as const;
 type DealTab = (typeof DEAL_TABS)[number];
 
 type Relationship = components["schemas"]["Relationship"];
@@ -2989,6 +3052,9 @@ function DealOverviewPane({
           locale={locale}
         />
       )}
+      {/* A won deal with no project, on a company with exactly one open
+          project, is offered that project once. Nothing else here asks. */}
+      {!overlay && <StartDeliveryPrompt deal={deal} />}
       {/* A group, not a nav: these buttons move the deal, they do not take the
           reader anywhere, and a landmark in the navigation list that writes
           when you press it misdescribes what it does. */}
@@ -3123,7 +3189,6 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   // Asked here rather than inside the aside, because an element is truthy
   // whatever it renders: a slot filled with a component that draws nothing
   // still reserves the aside column and its landmark.
-  const hasDealRoom = useDealRoomPresence(id, !overlay);
   const orgs = useQuery({
     queryKey: ["organizations"],
     queryFn: async () => {
@@ -3265,7 +3330,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               )}
               aside={
                 overlay ? undefined : (
-                  <DealAside dealId={id} hasDealRoom={hasDealRoom} />
+                  <DealAside dealId={id} dealName={deal.name} />
                 )
               }
               asideLabel={t("nba.title")}
@@ -3277,6 +3342,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   onChange={setTab}
                   labels={{
                     overview: t("tab.overview"),
+                    files: t("tab.documents"),
                     history: t("tab.history"),
                   }}
                 />
@@ -3327,6 +3393,8 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   }}
                 />
               )}
+              {tab === "files" && !overlay && <DealFiles dealId={deal.id} />}
+              {tab === "files" && overlay && <OverlayUnavailable />}
               {tab === "history" && !overlay && (
                 <RecordHistoryTab kind="deal" id={deal.id} />
               )}

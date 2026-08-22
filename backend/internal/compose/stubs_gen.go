@@ -31,6 +31,14 @@ func (stubs) LogActivity(w nethttp.ResponseWriter, r *nethttp.Request, params cr
 	httperr.NotImplemented(w, r, "LogActivity")
 }
 
+func (stubs) RelinkActivities(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.RelinkActivitiesParams) {
+	httperr.NotImplemented(w, r, "RelinkActivities")
+}
+
+func (stubs) RelinkThread(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.RelinkThreadParams) {
+	httperr.NotImplemented(w, r, "RelinkThread")
+}
+
 func (stubs) ArchiveActivity(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveActivityParams) {
 	httperr.NotImplemented(w, r, "ArchiveActivity")
 }
@@ -551,6 +559,10 @@ func (stubs) UpdateDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 	httperr.NotImplemented(w, r, "UpdateDealRoom")
 }
 
+func (stubs) GetDealRoomChanges(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetDealRoomChanges")
+}
+
 func (stubs) CloseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "CloseDealRoom")
 }
@@ -657,6 +669,18 @@ func (stubs) AdvanceDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 
 func (stubs) GetDealCoverage(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
 	httperr.NotImplemented(w, r, "GetDealCoverage")
+}
+
+func (stubs) ListDealDocuments(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealDocumentsParams) {
+	httperr.NotImplemented(w, r, "ListDealDocuments")
+}
+
+func (stubs) UnhideDealDocument(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, attachmentId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "UnhideDealDocument")
+}
+
+func (stubs) HideDealDocument(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, attachmentId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "HideDealDocument")
 }
 
 func (stubs) GetDealHealth(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {

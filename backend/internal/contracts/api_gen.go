@@ -5775,6 +5775,7 @@ const (
 	Organization360SectionsOmittedNextSteps        Organization360SectionsOmitted = "next_steps"
 	Organization360SectionsOmittedPendingApprovals Organization360SectionsOmitted = "pending_approvals"
 	Organization360SectionsOmittedPeople           Organization360SectionsOmitted = "people"
+	Organization360SectionsOmittedProjects         Organization360SectionsOmitted = "projects"
 	Organization360SectionsOmittedSinceLastVisit   Organization360SectionsOmitted = "since_last_visit"
 	Organization360SectionsOmittedStateStrip       Organization360SectionsOmitted = "state_strip"
 	Organization360SectionsOmittedStrength         Organization360SectionsOmitted = "strength"
@@ -5802,6 +5803,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedPendingApprovals:
 		return true
 	case Organization360SectionsOmittedPeople:
+		return true
+	case Organization360SectionsOmittedProjects:
 		return true
 	case Organization360SectionsOmittedSinceLastVisit:
 		return true
@@ -5872,6 +5875,30 @@ func (e Organization360DealStatus) Valid() bool {
 	case Organization360DealStatusOpen:
 		return true
 	case Organization360DealStatusWon:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360ProjectPhase.
+const (
+	Organization360ProjectPhaseClosed     Organization360ProjectPhase = "closed"
+	Organization360ProjectPhaseDelivering Organization360ProjectPhase = "delivering"
+	Organization360ProjectPhaseInitiative Organization360ProjectPhase = "initiative"
+	Organization360ProjectPhasePursuing   Organization360ProjectPhase = "pursuing"
+)
+
+// Valid indicates whether the value is a known member of the Organization360ProjectPhase enum.
+func (e Organization360ProjectPhase) Valid() bool {
+	switch e {
+	case Organization360ProjectPhaseClosed:
+		return true
+	case Organization360ProjectPhaseDelivering:
+		return true
+	case Organization360ProjectPhaseInitiative:
+		return true
+	case Organization360ProjectPhasePursuing:
 		return true
 	default:
 		return false
@@ -6847,6 +6874,7 @@ const (
 	Person360SectionsOmittedNextMeeting         Person360SectionsOmitted = "next_meeting"
 	Person360SectionsOmittedNextSteps           Person360SectionsOmitted = "next_steps"
 	Person360SectionsOmittedProfileFields       Person360SectionsOmitted = "profile_fields"
+	Person360SectionsOmittedProjects            Person360SectionsOmitted = "projects"
 	Person360SectionsOmittedProviderProfile     Person360SectionsOmitted = "provider_profile"
 	Person360SectionsOmittedRelationshipChanges Person360SectionsOmitted = "relationship_changes"
 	Person360SectionsOmittedSinceLastVisit      Person360SectionsOmitted = "since_last_visit"
@@ -6881,6 +6909,8 @@ func (e Person360SectionsOmitted) Valid() bool {
 	case Person360SectionsOmittedNextSteps:
 		return true
 	case Person360SectionsOmittedProfileFields:
+		return true
+	case Person360SectionsOmittedProjects:
 		return true
 	case Person360SectionsOmittedProviderProfile:
 		return true
@@ -8185,6 +8215,33 @@ func (e RelationshipStrengthBucket) Valid() bool {
 	case RelationshipStrengthBucketWarm:
 		return true
 	case RelationshipStrengthBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RelinkDestinationType.
+const (
+	RelinkDestinationTypeDeal         RelinkDestinationType = "deal"
+	RelinkDestinationTypeLead         RelinkDestinationType = "lead"
+	RelinkDestinationTypeOrganization RelinkDestinationType = "organization"
+	RelinkDestinationTypePerson       RelinkDestinationType = "person"
+	RelinkDestinationTypeProject      RelinkDestinationType = "project"
+)
+
+// Valid indicates whether the value is a known member of the RelinkDestinationType enum.
+func (e RelinkDestinationType) Valid() bool {
+	switch e {
+	case RelinkDestinationTypeDeal:
+		return true
+	case RelinkDestinationTypeLead:
+		return true
+	case RelinkDestinationTypeOrganization:
+		return true
+	case RelinkDestinationTypePerson:
+		return true
+	case RelinkDestinationTypeProject:
 		return true
 	default:
 		return false
@@ -10660,6 +10717,36 @@ func (e ListDealsParamsPartnerAttribution) Valid() bool {
 	}
 }
 
+// Defines values for ListDealDocumentsParamsCategory.
+const (
+	ListDealDocumentsParamsCategoryContract          ListDealDocumentsParamsCategory = "contract"
+	ListDealDocumentsParamsCategoryEmailAttachment   ListDealDocumentsParamsCategory = "email_attachment"
+	ListDealDocumentsParamsCategoryLegal             ListDealDocumentsParamsCategory = "legal"
+	ListDealDocumentsParamsCategoryMessageAttachment ListDealDocumentsParamsCategory = "message_attachment"
+	ListDealDocumentsParamsCategoryOffer             ListDealDocumentsParamsCategory = "offer"
+	ListDealDocumentsParamsCategoryOther             ListDealDocumentsParamsCategory = "other"
+)
+
+// Valid indicates whether the value is a known member of the ListDealDocumentsParamsCategory enum.
+func (e ListDealDocumentsParamsCategory) Valid() bool {
+	switch e {
+	case ListDealDocumentsParamsCategoryContract:
+		return true
+	case ListDealDocumentsParamsCategoryEmailAttachment:
+		return true
+	case ListDealDocumentsParamsCategoryLegal:
+		return true
+	case ListDealDocumentsParamsCategoryMessageAttachment:
+		return true
+	case ListDealDocumentsParamsCategoryOffer:
+		return true
+	case ListDealDocumentsParamsCategoryOther:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListDealOffersParamsStatus.
 const (
 	ListDealOffersParamsStatusAccepted   ListDealOffersParamsStatus = "accepted"
@@ -10959,31 +11046,31 @@ func (e ListOrganizationsParamsCapturedByKind) Valid() bool {
 
 // Defines values for ListOrganizationsParamsLifecycle.
 const (
-	ListOrganizationsParamsLifecycleCustomer       ListOrganizationsParamsLifecycle = "customer"
-	ListOrganizationsParamsLifecycleDisqualified   ListOrganizationsParamsLifecycle = "disqualified"
-	ListOrganizationsParamsLifecycleFormerCustomer ListOrganizationsParamsLifecycle = "former_customer"
-	ListOrganizationsParamsLifecycleOpportunity    ListOrganizationsParamsLifecycle = "opportunity"
-	ListOrganizationsParamsLifecycleProspect       ListOrganizationsParamsLifecycle = "prospect"
-	ListOrganizationsParamsLifecycleTarget         ListOrganizationsParamsLifecycle = "target"
-	ListOrganizationsParamsLifecycleUnknown        ListOrganizationsParamsLifecycle = "unknown"
+	Customer       ListOrganizationsParamsLifecycle = "customer"
+	Disqualified   ListOrganizationsParamsLifecycle = "disqualified"
+	FormerCustomer ListOrganizationsParamsLifecycle = "former_customer"
+	Opportunity    ListOrganizationsParamsLifecycle = "opportunity"
+	Prospect       ListOrganizationsParamsLifecycle = "prospect"
+	Target         ListOrganizationsParamsLifecycle = "target"
+	Unknown        ListOrganizationsParamsLifecycle = "unknown"
 )
 
 // Valid indicates whether the value is a known member of the ListOrganizationsParamsLifecycle enum.
 func (e ListOrganizationsParamsLifecycle) Valid() bool {
 	switch e {
-	case ListOrganizationsParamsLifecycleCustomer:
+	case Customer:
 		return true
-	case ListOrganizationsParamsLifecycleDisqualified:
+	case Disqualified:
 		return true
-	case ListOrganizationsParamsLifecycleFormerCustomer:
+	case FormerCustomer:
 		return true
-	case ListOrganizationsParamsLifecycleOpportunity:
+	case Opportunity:
 		return true
-	case ListOrganizationsParamsLifecycleProspect:
+	case Prospect:
 		return true
-	case ListOrganizationsParamsLifecycleTarget:
+	case Target:
 		return true
-	case ListOrganizationsParamsLifecycleUnknown:
+	case Unknown:
 		return true
 	default:
 		return false
@@ -11223,22 +11310,22 @@ func (e ListPeopleParamsCapturedByKind) Valid() bool {
 
 // Defines values for ListProjectsParamsPhase.
 const (
-	ListProjectsParamsPhaseClosed     ListProjectsParamsPhase = "closed"
-	ListProjectsParamsPhaseDelivering ListProjectsParamsPhase = "delivering"
-	ListProjectsParamsPhaseInitiative ListProjectsParamsPhase = "initiative"
-	ListProjectsParamsPhasePursuing   ListProjectsParamsPhase = "pursuing"
+	Closed     ListProjectsParamsPhase = "closed"
+	Delivering ListProjectsParamsPhase = "delivering"
+	Initiative ListProjectsParamsPhase = "initiative"
+	Pursuing   ListProjectsParamsPhase = "pursuing"
 )
 
 // Valid indicates whether the value is a known member of the ListProjectsParamsPhase enum.
 func (e ListProjectsParamsPhase) Valid() bool {
 	switch e {
-	case ListProjectsParamsPhaseClosed:
+	case Closed:
 		return true
-	case ListProjectsParamsPhaseDelivering:
+	case Delivering:
 		return true
-	case ListProjectsParamsPhaseInitiative:
+	case Initiative:
 		return true
-	case ListProjectsParamsPhasePursuing:
+	case Pursuing:
 		return true
 	default:
 		return false
@@ -15249,6 +15336,37 @@ type DealCoverageSeat struct {
 	Role     string             `json:"role"`
 }
 
+// DealDocument One file in a deal's Files area: the attachment, whether it is hidden from this
+// deal, and where a captured file came from, so a reader can tell "the contract
+// Laura mailed on the 12th" from "the draft I uploaded".
+type DealDocument struct {
+	// Attachment A file hung off an entity. Mirrors the `attachment` table: the row is the
+	// system of record and the tenant anchor; the bytes live in object storage,
+	// addressed by an internal object key that is never exposed on the wire.
+	Attachment Attachment `json:"attachment"`
+	Hidden     bool       `json:"hidden"`
+
+	// Origin Where a captured file came from. Present for a file that arrived with a message linked to the deal; absent for a file uploaded on the deal.
+	Origin *DealDocumentOrigin `json:"origin,omitempty"`
+}
+
+// DealDocumentListResponse defines model for DealDocumentListResponse.
+type DealDocumentListResponse struct {
+	Data []DealDocument `json:"data"`
+	Page PageInfo       `json:"page"`
+}
+
+// DealDocumentOrigin Where a captured file came from. Present for a file that arrived with a message linked to the deal; absent for a file uploaded on the deal.
+type DealDocumentOrigin struct {
+	ActivityId        openapi_types.UUID   `json:"activity_id"`
+	CounterpartyEmail *openapi_types.Email `json:"counterparty_email,omitempty"`
+
+	// Kind The activity kind the file arrived with: email, message, meeting.
+	Kind       string    `json:"kind"`
+	OccurredAt time.Time `json:"occurred_at"`
+	Subject    *string   `json:"subject,omitempty"`
+}
+
 // DealHealthFactor defines model for DealHealthFactor.
 type DealHealthFactor struct {
 	// ActivityId The activity the factor points at, where one does.
@@ -15372,6 +15490,26 @@ type DealRoomAuthor struct {
 
 	// Side `seller` or `buyer`.
 	Side string `json:"side"`
+}
+
+// DealRoomChange defines model for DealRoomChange.
+type DealRoomChange struct {
+	DocumentId *openapi_types.UUID `json:"document_id,omitempty"`
+
+	// Kind One of title_changed, welcome_changed, document_added, document_removed, document_retitled, document_regrouped, document_reordered, document_ineligible. A plain string for the reason DealRoomParticipantCapability gives.
+	Kind string `json:"kind"`
+
+	// Title The document title the sentence names: current, or as last published.
+	Title *string `json:"title,omitempty"`
+}
+
+// DealRoomChanges defines model for DealRoomChanges.
+type DealRoomChanges struct {
+	Changes    []DealRoomChange `json:"changes"`
+	HasChanges bool             `json:"has_changes"`
+
+	// ReleaseNo The release the draft was compared against; null when the room was never published.
+	ReleaseNo *int `json:"release_no,omitempty"`
 }
 
 // DealRoomComment defines model for DealRoomComment.
@@ -15555,6 +15693,11 @@ type DealRoomParticipant struct {
 
 	// LastSeenAt When they last made a request. Null if they have never signed in.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+
+	// LinkRequestedAt When this person last asked for a new link from the public page. The
+	// seller sees it beside the row so a buyer whose mail never arrived (no
+	// relay configured, or a link still standing) can be handed one by hand.
+	LinkRequestedAt *time.Time `json:"link_requested_at,omitempty"`
 
 	// RevokedAt When their access was taken away. The row survives revocation so their
 	// comments and decisions stay attributed to a name.
@@ -17909,6 +18052,9 @@ type Organization360 struct {
 		Page PageInfo                 `json:"page"`
 	} `json:"people,omitempty"`
 
+	// Projects The company's unarchived projects, work in motion first (delivering, pursuing, initiative, then closed), under the caller's project row scope. Absent when the caller has no project grant, named in `sections_omitted` as `projects`.
+	Projects *[]Organization360Project `json:"projects,omitempty"`
+
 	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
 	SectionsOmitted []Organization360SectionsOmitted `json:"sections_omitted"`
 
@@ -18144,6 +18290,26 @@ type Organization360NextStep struct {
 	Overdue        bool                `json:"overdue"`
 	Subject        string              `json:"subject"`
 }
+
+// Organization360Project One body of work on the record page: enough to name it, say where it stands and who holds it. The full row is `GET /projects/{id}`. Shared by the company page and the person page, so a project reads the same on both.
+type Organization360Project struct {
+	// Key The subject-line handle, when the project has one.
+	Key            *string             `json:"key,omitempty"`
+	LastActivityAt *time.Time          `json:"last_activity_at,omitempty"`
+	Name           string              `json:"name"`
+	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
+
+	// OwnerName The owner's display name; null when the project has no owner or the owner is no longer an active member.
+	OwnerName *string `json:"owner_name,omitempty"`
+
+	// Phase Where a project stands on the record page; the same ladder the project's own `phase` walks.
+	Phase         Organization360ProjectPhase `json:"phase"`
+	ProjectId     openapi_types.UUID          `json:"project_id"`
+	TargetEndDate *openapi_types.Date         `json:"target_end_date,omitempty"`
+}
+
+// Organization360ProjectPhase Where a project stands on the record page; the same ladder the project's own `phase` walks.
+type Organization360ProjectPhase string
 
 // Organization360Route One colleague who has actually exchanged messages with this contact.
 type Organization360Route struct {
@@ -19479,6 +19645,9 @@ type Person360 struct {
 	// ProfileFields The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
 	ProfileFields *[]PersonProfileField `json:"profile_fields,omitempty"`
 
+	// Projects The unarchived projects this person is part of: the ones they hold a live stakeholder seat on, plus every project of the company they currently work for, one row per project, work in motion first. Absent when the caller has no project grant, named in `sections_omitted` as `projects`.
+	Projects *[]Organization360Project `json:"projects,omitempty"`
+
 	// ProviderProfile The purchased person-data snapshot (PO-EXT-9): what a connected provider returned about this person, kept beside the canonical record and never silently folded into it. Absent when the caller lacks the person grant, named in `sections_omitted` as `provider_profile`.
 	ProviderProfile *PersonProviderProfile `json:"provider_profile,omitempty"`
 
@@ -20419,7 +20588,9 @@ type Project360 struct {
 	// scope. `attributed` is every live activity linked to the project (its whole lifecycle,
 	// and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
 	// activity linked to one of the project's deals or stakeholder people that carries no
-	// project link at all — the filing debt a rep can work down.
+	// project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+	// live activity the attribution ladder proposed for this project and nobody has answered
+	// yet: a `project_attribution` approval standing in an inbox, not a link.
 	Coverage *Project360Coverage `json:"coverage,omitempty"`
 
 	// Deals The deals rolled up to the project, newest first, every status.
@@ -20479,9 +20650,12 @@ type Project360Commitment struct {
 // scope. `attributed` is every live activity linked to the project (its whole lifecycle,
 // and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
 // activity linked to one of the project's deals or stakeholder people that carries no
-// project link at all — the filing debt a rep can work down.
+// project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+// live activity the attribution ladder proposed for this project and nobody has answered
+// yet: a `project_attribution` approval standing in an inbox, not a link.
 type Project360Coverage struct {
 	Attributed         int `json:"attributed"`
+	AwaitingDecision   int `json:"awaiting_decision"`
 	UnattributedNearby int `json:"unattributed_nearby"`
 }
 
@@ -21206,6 +21380,46 @@ type RelationshipStrength struct {
 
 // RelationshipStrengthBucket Coarse band derived from score for display.
 type RelationshipStrengthBucket string
+
+// RelinkActivitiesRequest The destination for a named set of activities. Every id must be one the caller can see and
+// write, or the whole request is refused and nothing moves.
+type RelinkActivitiesRequest struct {
+	ActivityIds []openapi_types.UUID `json:"activity_ids"`
+	EntityId    openapi_types.UUID   `json:"entity_id"`
+
+	// EntityType The record kinds an activity may be filed under.
+	EntityType RelinkDestinationType `json:"entity_type"`
+
+	// ReplaceExistingOfType When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+	ReplaceExistingOfType *bool `json:"replace_existing_of_type,omitempty"`
+}
+
+// RelinkBatchResult A count and nothing else. The moved ids are deliberately not echoed: a replay of the same
+// Idempotency-Key, or an approval inbox showing the staged call, would otherwise hand back
+// rows the reader may since have lost sight of.
+type RelinkBatchResult struct {
+	// Relinked Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted.
+	Relinked int `json:"relinked"`
+}
+
+// RelinkDestinationType The record kinds an activity may be filed under.
+type RelinkDestinationType string
+
+// RelinkThreadRequest The destination for every writable, non-archived activity of one conversation thread.
+// `entity_type`/`entity_id`/`replace_existing_of_type` mean exactly what they mean on
+// `relinkActivity`.
+type RelinkThreadRequest struct {
+	EntityId openapi_types.UUID `json:"entity_id"`
+
+	// EntityType The record kinds an activity may be filed under.
+	EntityType RelinkDestinationType `json:"entity_type"`
+
+	// ReplaceExistingOfType When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+	ReplaceExistingOfType *bool `json:"replace_existing_of_type,omitempty"`
+
+	// ThreadKey The conversation key the activities carry (`Activity.thread_key`, also the `thread_key` list filter).
+	ThreadKey string `json:"thread_key"`
+}
 
 // RenameCustomFieldRequest Merge-PATCH; `label` only — `column_name`, `object`, and `type` are absent from this request schema entirely (immutable, not just ignored if sent).
 type RenameCustomFieldRequest struct {
@@ -23364,6 +23578,44 @@ type LogActivityParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// RelinkActivitiesParams defines parameters for RelinkActivities.
+type RelinkActivitiesParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RelinkThreadParams defines parameters for RelinkThread.
+type RelinkThreadParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ArchiveActivityParams defines parameters for ArchiveActivity.
 type ArchiveActivityParams struct {
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -24460,6 +24712,27 @@ type AdvanceDealParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// ListDealDocumentsParams defines parameters for ListDealDocuments.
+type ListDealDocumentsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit         *Limit                           `form:"limit,omitempty" json:"limit,omitempty"`
+	Category      *ListDealDocumentsParamsCategory `form:"category,omitempty" json:"category,omitempty"`
+	IncludeHidden *bool                            `form:"include_hidden,omitempty" json:"include_hidden,omitempty"`
+}
+
+// ListDealDocumentsParamsCategory defines parameters for ListDealDocuments.
+type ListDealDocumentsParamsCategory string
+
 // ListDealOffersParams defines parameters for ListDealOffers.
 type ListDealOffersParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -25438,6 +25711,9 @@ type DraftAccountEmailJSONBody struct {
 
 	// PersonId Who the draft is addressed to. Required: a draft with no recipient has no relationship to ground itself in, and the one thing this endpoint adds over an empty compose box is that it knows who it is writing to. Must be a contact the caller can see on this account.
 	PersonId openapi_types.UUID `json:"person_id"`
+
+	// ProjectId Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
 }
 
 // UpdateOrganizationFactParams defines parameters for UpdateOrganizationFact.
@@ -25898,6 +26174,9 @@ type IssueDoubleOptInJSONBody struct {
 type DraftPersonEmailJSONBody struct {
 	// Intent Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence.
 	Intent *string `json:"intent,omitempty"`
+
+	// ProjectId Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
 }
 
 // CreatePersonEnrichmentRunParams defines parameters for CreatePersonEnrichmentRun.
@@ -27251,6 +27530,12 @@ type ListWebhookDeliveriesParams struct {
 
 // LogActivityJSONRequestBody defines body for LogActivity for application/json ContentType.
 type LogActivityJSONRequestBody = CreateActivityRequest
+
+// RelinkActivitiesJSONRequestBody defines body for RelinkActivities for application/json ContentType.
+type RelinkActivitiesJSONRequestBody = RelinkActivitiesRequest
+
+// RelinkThreadJSONRequestBody defines body for RelinkThread for application/json ContentType.
+type RelinkThreadJSONRequestBody = RelinkThreadRequest
 
 // UpdateActivityJSONRequestBody defines body for UpdateActivity for application/json ContentType.
 type UpdateActivityJSONRequestBody = UpdateActivityRequest
@@ -30734,6 +31019,14 @@ func (a *DealRoomParticipant) UnmarshalJSON(b []byte) error {
 		delete(object, "last_seen_at")
 	}
 
+	if raw, found := object["link_requested_at"]; found {
+		err = json.Unmarshal(raw, &a.LinkRequestedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'link_requested_at': %w", err)
+		}
+		delete(object, "link_requested_at")
+	}
+
 	if raw, found := object["revoked_at"]; found {
 		err = json.Unmarshal(raw, &a.RevokedAt)
 		if err != nil {
@@ -30845,6 +31138,13 @@ func (a DealRoomParticipant) MarshalJSON() ([]byte, error) {
 		object["last_seen_at"], err = json.Marshal(a.LastSeenAt)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'last_seen_at': %w", err)
+		}
+	}
+
+	if a.LinkRequestedAt != nil {
+		object["link_requested_at"], err = json.Marshal(a.LinkRequestedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'link_requested_at': %w", err)
 		}
 	}
 
@@ -35591,6 +35891,12 @@ type ServerInterface interface {
 	// Log an activity (the `log_activity` MCP verb).
 	// (POST /activities)
 	LogActivity(w http.ResponseWriter, r *http.Request, params LogActivityParams)
+	// Re-associate a named set of activities to a chosen record, in one transaction.
+	// (POST /activities/relink-bulk)
+	RelinkActivities(w http.ResponseWriter, r *http.Request, params RelinkActivitiesParams)
+	// Re-associate every activity of one conversation thread to a chosen record, in one transaction.
+	// (POST /activities/relink-thread)
+	RelinkThread(w http.ResponseWriter, r *http.Request, params RelinkThreadParams)
 	// Archive (soft-delete) an activity.
 	// (DELETE /activities/{id})
 	ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id, params ArchiveActivityParams)
@@ -35981,6 +36287,9 @@ type ServerInterface interface {
 	// Edit a Deal Room's draft text (partial).
 	// (PATCH /deal-rooms/{id})
 	UpdateDealRoom(w http.ResponseWriter, r *http.Request, id Id, params UpdateDealRoomParams)
+	// What the buyer would see differently if the room were published now.
+	// (GET /deal-rooms/{id}/changes)
+	GetDealRoomChanges(w http.ResponseWriter, r *http.Request, id Id)
 	// Freeze the room's content, keeping buyer access.
 	// (POST /deal-rooms/{id}/close)
 	CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
@@ -36062,6 +36371,15 @@ type ServerInterface interface {
 	// Who covers this deal, and what is wrong with how it is covered.
 	// (GET /deals/{id}/coverage)
 	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// The deal's Files area — its own uploads and the files of every message linked to it.
+	// (GET /deals/{id}/documents)
+	ListDealDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListDealDocumentsParams)
+	// List the file on this deal again.
+	// (DELETE /deals/{id}/documents/{attachmentId}/hide)
+	UnhideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID)
+	// Stop listing a captured file on this deal without touching the file.
+	// (PUT /deals/{id}/documents/{attachmentId}/hide)
+	HideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID)
 	// How the deal stands — four named factors, each with the fact behind it.
 	// (GET /deals/{id}/health)
 	GetDealHealth(w http.ResponseWriter, r *http.Request, id Id)
@@ -37004,6 +37322,18 @@ func (_ Unimplemented) LogActivity(w http.ResponseWriter, r *http.Request, param
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Re-associate a named set of activities to a chosen record, in one transaction.
+// (POST /activities/relink-bulk)
+func (_ Unimplemented) RelinkActivities(w http.ResponseWriter, r *http.Request, params RelinkActivitiesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Re-associate every activity of one conversation thread to a chosen record, in one transaction.
+// (POST /activities/relink-thread)
+func (_ Unimplemented) RelinkThread(w http.ResponseWriter, r *http.Request, params RelinkThreadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Archive (soft-delete) an activity.
 // (DELETE /activities/{id})
 func (_ Unimplemented) ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id, params ArchiveActivityParams) {
@@ -37784,6 +38114,12 @@ func (_ Unimplemented) UpdateDealRoom(w http.ResponseWriter, r *http.Request, id
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// What the buyer would see differently if the room were published now.
+// (GET /deal-rooms/{id}/changes)
+func (_ Unimplemented) GetDealRoomChanges(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Freeze the room's content, keeping buyer access.
 // (POST /deal-rooms/{id}/close)
 func (_ Unimplemented) CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
@@ -37943,6 +38279,24 @@ func (_ Unimplemented) AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id
 // Who covers this deal, and what is wrong with how it is covered.
 // (GET /deals/{id}/coverage)
 func (_ Unimplemented) GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The deal's Files area — its own uploads and the files of every message linked to it.
+// (GET /deals/{id}/documents)
+func (_ Unimplemented) ListDealDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListDealDocumentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the file on this deal again.
+// (DELETE /deals/{id}/documents/{attachmentId}/hide)
+func (_ Unimplemented) UnhideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Stop listing a captured file on this deal without touching the file.
+// (PUT /deals/{id}/documents/{attachmentId}/hide)
+func (_ Unimplemented) HideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40027,6 +40381,104 @@ func (siw *ServerInterfaceWrapper) LogActivity(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.LogActivity(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RelinkActivities operation middleware
+func (siw *ServerInterfaceWrapper) RelinkActivities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RelinkActivitiesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RelinkActivities(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RelinkThread operation middleware
+func (siw *ServerInterfaceWrapper) RelinkThread(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RelinkThreadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RelinkThread(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -45202,6 +45654,40 @@ func (siw *ServerInterfaceWrapper) UpdateDealRoom(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// GetDealRoomChanges operation middleware
+func (siw *ServerInterfaceWrapper) GetDealRoomChanges(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealRoomChanges(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CloseDealRoom operation middleware
 func (siw *ServerInterfaceWrapper) CloseDealRoom(w http.ResponseWriter, r *http.Request) {
 
@@ -46627,6 +47113,175 @@ func (siw *ServerInterfaceWrapper) GetDealCoverage(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDealCoverage(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDealDocuments operation middleware
+func (siw *ServerInterfaceWrapper) ListDealDocuments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDealDocumentsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_hidden" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_hidden", r.URL.Query(), &params.IncludeHidden, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_hidden"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_hidden", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDealDocuments(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnhideDealDocument operation middleware
+func (siw *ServerInterfaceWrapper) UnhideDealDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", chi.URLParam(r, "attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnhideDealDocument(w, r, id, attachmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HideDealDocument operation middleware
+func (siw *ServerInterfaceWrapper) HideDealDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", chi.URLParam(r, "attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HideDealDocument(w, r, id, attachmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -60878,6 +61533,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/activities", wrapper.LogActivity)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/activities/relink-bulk", wrapper.RelinkActivities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/activities/relink-thread", wrapper.RelinkThread)
+	})
+	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/activities/{id}", wrapper.ArchiveActivity)
 	})
 	r.Group(func(r chi.Router) {
@@ -61268,6 +61929,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/deal-rooms/{id}", wrapper.UpdateDealRoom)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deal-rooms/{id}/changes", wrapper.GetDealRoomChanges)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deal-rooms/{id}/close", wrapper.CloseDealRoom)
 	})
 	r.Group(func(r chi.Router) {
@@ -61347,6 +62011,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/documents", wrapper.ListDealDocuments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/deals/{id}/documents/{attachmentId}/hide", wrapper.UnhideDealDocument)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/deals/{id}/documents/{attachmentId}/hide", wrapper.HideDealDocument)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/health", wrapper.GetDealHealth)

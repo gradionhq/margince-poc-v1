@@ -195,6 +195,51 @@ describe("CommandPalette (AC-shell-3/4/5/6)", () => {
     await userEvent.click(screen.getByText("Dana Buyer at Acme"));
     expect(window.location.hash).toBe("#/contacts/p1");
   });
+
+  // A project hit carries no snippet, and "project" under two projects both
+  // called Rollout tells them apart by nothing. The row reads the project
+  // itself for its key, and falls back to the company for a project without
+  // one; the hit routes to the project page either way.
+  it("routes a project hit to its page, with the key or the company as its line", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.includes("/search")) {
+          return jsonResponse({
+            data: [
+              { type: "project", id: "pr-1", title: "Rollout", snippet: null },
+              { type: "project", id: "pr-2", title: "Rollout", snippet: null },
+            ],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        if (url.endsWith("/projects/pr-1")) {
+          return jsonResponse({ id: "pr-1", name: "Rollout", key: "ACME-CRM" });
+        }
+        if (url.endsWith("/projects/pr-2")) {
+          return jsonResponse({
+            id: "pr-2",
+            name: "Rollout",
+            key: null,
+            organization_id: "o-9",
+          });
+        }
+        if (url.endsWith("/organizations/o-9")) {
+          return jsonResponse({ id: "o-9", display_name: "Brandt Automotive" });
+        }
+        return jsonResponse({ data: [], page: { next_cursor: null } });
+      }),
+    );
+    render(<CommandPalette open onClose={() => {}} commands={commands} />);
+    await userEvent.type(screen.getByRole("textbox"), "roll");
+    expect(await screen.findByText("ACME-CRM")).toBeTruthy();
+    expect(await screen.findByText("Brandt Automotive")).toBeTruthy();
+    expect(screen.queryByText("project")).toBeNull();
+
+    await userEvent.click(screen.getByText("ACME-CRM"));
+    expect(window.location.hash).toBe("#/projects/pr-1");
+  });
 });
 
 // The builtin set is DERIVED from the rail's destinations, so a screen with a

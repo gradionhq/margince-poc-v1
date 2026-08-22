@@ -212,6 +212,8 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"createTask":          createTaskCommand,
 	"draftEmail":          draftEmailCommand,
 	"relinkActivity":      relinkActivityCommand,
+	"relinkThread":        relinkThreadCommand,
+	"relinkActivities":    relinkActivitiesCommand,
 	"runReport":           runReportCommand,
 
 	// The two decisions, over four routes. They are the only entries here whose

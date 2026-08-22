@@ -207,11 +207,10 @@ func assertObjectSchemas(spec mcp.ToolSpec) error {
 
 // retryKeyProperty is the advertised member. The prose is short on purpose: it
 // is served in the tools/list catalog AND printed into every Surface-B run's
-// system prompt, once per mutating tool, so a sentence here is eighteen
+// system prompt, once per mutating tool, so a sentence here is twenty-eight
 // sentences of every run's context.
 const retryKeyProperty = `{"type":"string","maxLength":255,` +
-	`"description":"Optional. The same key returns the first result instead of acting twice; ` +
-	`different arguments under one key are refused."}`
+	`"description":"Optional. Same key, same result; a key reused with other arguments is refused."}`
 
 // unitOwned reports whether an extension unit shipped this tool's handler,
 // rather than the core tree. mcp.UnitScopedTool is the one declaration of that

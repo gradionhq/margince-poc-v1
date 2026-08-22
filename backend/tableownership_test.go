@@ -183,6 +183,7 @@ var tableOwners = map[string]string{
 	"linkedin_account":    "internal/modules/people",
 	"linkedin_connection": "internal/modules/people",
 	"attachment":          "internal/modules/activities",
+	"deal_document_hide":  "internal/modules/activities",
 	"booking_page":        "internal/modules/activities",
 	// approvals (signing_key backs the approval-token JWS)
 	"approval":    "internal/modules/approvals",
@@ -215,6 +216,7 @@ var tableOwners = map[string]string{
 	"workspace_email_domain":       "internal/modules/capture",
 	"capture_exclusion":            "internal/modules/capture",
 	"capture_digest":               "internal/modules/capture",
+	"project_link_candidate":       "internal/modules/capture",
 	"capture_auto_enrich_state":    "internal/modules/capture",
 	"capture_pending_counterparty": "internal/modules/capture",
 	"capture_auto_enrich_budget":   "internal/modules/capture",
