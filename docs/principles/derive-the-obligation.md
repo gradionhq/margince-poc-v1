@@ -30,7 +30,7 @@ This page is the method for writing a gate that actually holds.
    writer; reach for the real wiring. An unexpectedly uncovered new file usually
    means a test double stands where the real thing should.
 
-## The method — writing a gate that holds
+## Writing a gate that holds
 
 Every clause here exists because a gate in this tree failed it.
 
@@ -39,11 +39,16 @@ maintain, and it will be short. `draftrulesparity_test.go` asserts four drafting
 surfaces carry the shared rules while more than four exist — the gate is green
 and the rule is not held.
 
-**No waiver map in the test.** The escape hatch belongs at the subject — a
-`doc.go` line, a contract field, a `//craft:ignore <check> <reason>` — where the
-author editing that code sees it. A map inside the test file is invisible to
-exactly the person who needs it. `agenttoolparity_test.go` is the house shape:
-derived from the contract, no waiver map, escape hatch in the contract.
+**Put the escape hatch at the subject.** A `doc.go` line, a contract field, a
+`//craft:ignore <check> <reason>` — where the author editing that code sees it.
+A map inside the test file is invisible to exactly the person who needs it.
+`agenttoolparity_test.go` is the closest thing to the house shape: it derives
+its expectation from the contract rather than restating it, and its escape hatch
+for ordinary tools lives in the contract. It is not a pure example, and the
+impurity is instructive — a hand-maintained `composedIntents` map still sits in
+the test file for the tools that compose several operations, which is precisely
+the kind of list that goes quietly short. If you cannot get the hatch to the
+subject, say in the test why not.
 
 **Ratify the instance, never the category.** A waiver keyed by column, package
 or rule name admits the second offender for free under the first one's reason.

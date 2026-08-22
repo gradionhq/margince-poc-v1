@@ -5,8 +5,9 @@ Legibility is not polish applied at the end — it is the property that decides
 whether the next change is cheap or dangerous.
 
 The binding form is [*Craftsmanship*](../../CLAUDE.md#craftsmanship) in the
-rulebook: the anti-tell catalog T1–T11 and the deterministic `craft static` gate
-that runs on every push, diff-scoped and strict. This page is the reasoning
+rulebook: the anti-tell catalog T1–T11 and the deterministic `craft static` gate,
+diff-scoped and strict. It judges the **Go files a push changes** — a docs-only
+push exits before it runs at all. This page is the reasoning
 under it.
 
 ## Why this repo takes it as a principle rather than taste
@@ -45,15 +46,22 @@ cross-tenant id, an unset GUC. The happy path is the part that was never in
 doubt.
 
 **Tests prove behaviour or they are noise** (T11). No assertion-free test — it
-can only fail by panicking. No `time.Sleep`, no real clock, no real network.
-Mock only true boundaries (DB, HTTP, clock, queue) and inject a `Clock`;
+can only fail by panicking. In a **unit** test: no `time.Sleep`, no real clock,
+no real network — those are the flakiness sources, not virtues in themselves.
+The integration lane is the opposite case and uses a real Postgres and a real
+Redis on purpose, because a boundary faked on both sides proves nothing about
+the boundary. Mock only true boundaries (DB, HTTP, clock, queue) and inject a `Clock`;
 over-mocking that asserts call order tests your mock. Tests read as specs, and
 the integration lane fails loudly without a database, because **a skipped
 security gate looks exactly like a passing one**.
 
 **Size ceilings measure what a reader must hold at once**: 80 code lines / 500
-file lines for product code, 160 / 1000 for tests. A comment-only line is not
-length — an explanation *reduces* what the reader carries. A long scenario test
+file lines for product code, 160 / 1000 for tests. The two ceilings count
+differently, and it matters: `craft static`'s **function** ceiling discounts a
+comment-only line, because an explanation reduces what a reader carries. The
+whole-tree **file** cap in `scripts/check-go-file-length.sh` is a plain `wc -l`
+and counts every line, with a ratchet file freezing each pre-existing offender.
+A long scenario test
 that sets up, acts and asserts once is not the god-function smell; a suite still
 splits when it stops being navigable.
 

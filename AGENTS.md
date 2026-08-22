@@ -32,14 +32,18 @@ gives them, so write a rule out here rather than citing somewhere they cannot
 reach. A decision number (`ADR-0054`) may appear as a label, but never cite it
 as though a reader could open it — state the rule itself.
 
-**The reasoning under these rules lives in
-[docs/principles/](docs/principles/README.md)** — six pages, one per principle,
-each naming the rulebook section it explains, the method for checking the tree
-still holds it, and what it explicitly does not ask for. The rules below are the
-binding short form and stay here: `cli/craft` feeds the whole nearest
-`AGENTS.md` into its gate prompt, so a rule moved out of that file stops
-reaching the gate. Read a principle when you need to know *why* a rule is shaped
-the way it is, or when you are auditing a subsystem against it —
+**[docs/principles/](docs/principles/README.md) explains these rules** — six
+pages, one per principle, each naming the rulebook section it explains, the
+method for checking the tree still holds it, and what it explicitly does not ask
+for. That is the PUBLIC explanation and the audit method, which is a different
+thing from the private decision rationale described above: a principle page
+tells you how to check a rule, not why the team chose it.
+
+The binding short form stays in the rulebooks, and specifically in `AGENTS.md`:
+`cli/craft` feeds the whole nearest `AGENTS.md` into its gate prompt, so a rule
+relocated to `docs/` stops reaching the gate. Read a principle when you need to
+know *why* a rule is shaped the way it is, or when you are auditing a subsystem
+against it rather than obeying it on one diff —
 [one-source-of-truth.md](docs/principles/one-source-of-truth.md) carries the
 six-probe scan for finding a capability that got built twice.
 
@@ -503,9 +507,10 @@ function you add will block your push.
   `craftsmanship` job runs the same bar as a required check.
 - `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings are
   80 CODE lines / 500 file lines for product code and 160 / 1000 for `*_test.go`.
-  A comment-only line is not length: the ceiling asks how much a reader must hold
-  at once, and an explanation reduces that. The whole-tree file-length check in
-  `scripts/check-go-file-length.sh` counts the same way.
+  A comment-only line is not length for the FUNCTION ceiling: it asks how much a
+  reader must hold at once, and an explanation reduces that. The whole-tree file
+  check in `scripts/check-go-file-length.sh` is a plain `wc -l` and counts every
+  line, with a ratchet file freezing each pre-existing offender.
 - A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
   (a reasonless waiver is itself a finding).
 

@@ -1,8 +1,11 @@
 # The record is the code
 
 **What this product does is defined by its code, tests, migrations and
-`backend/api/crm.yaml` — not by any document describing them.** A document can
-be stale; a passing test cannot.
+`backend/api/crm.yaml` — not by any document describing them.** A document goes
+stale silently. A test goes stale loudly, *if* it still exercises the obligation
+it was written for — see
+[derive the obligation](derive-the-obligation.md#writing-a-gate-that-holds)
+for the ways a green one can prove nothing.
 
 This replaces the older arrangement where a separate specification outranked the
 tree. It is the principle behind the precedence order in
@@ -43,7 +46,7 @@ readable:
 |---|---|
 | An implementation decision you made | the commit and the PR — git history is the record |
 | A decision that binds future work | raised with the team, where the reasoning is kept |
-| Something found but NOT fixed here | a GitHub issue in this repo, labelled on all three axes |
+| Something found but NOT fixed here | a GitHub issue in this repo, labelled on all three axes — **unless it is an exploitable weakness**, which goes to a private Security Advisory and never a public issue ([nothing here is private](nothing-here-is-private.md)) |
 | Open work / the session pickup point | [STATUS.md](../../STATUS.md), kept to open work only |
 
 **No build-process residue in comments.** No review-ticket numbers, no fix

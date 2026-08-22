@@ -19,7 +19,7 @@ and say which.
 | [The record is the code](the-record-is-the-code.md) | What outranks what when two sources disagree, and where a finding goes once you have it. | *What decides a question here* |
 | [Every mutation leaves a trace](every-mutation-leaves-a-trace.md) | Why the domain row, the audit row and the event commit together, and what each of the two denials means. | *The write shape* |
 | [Legibility is the product](legibility-is-the-product.md) | Why the craft bar is a gate rather than taste, and what each anti-tell is defending against. | *Craftsmanship* |
-| [Derive the obligation](derive-the-obligation.md) | How to write a fitness function that actually holds, and the six ways one reads green over its own defect. | *Rules learned from the review loop* |
+| [Derive the obligation](derive-the-obligation.md) | The six rules from the review loop and what each defends against, plus how to write a fitness function that actually holds rather than one that reads green over its own defect. | *Rules learned from the review loop* |
 | [Nothing here is private](nothing-here-is-private.md) | Who the public reader is, what never appears in the tree, and why a working exploit takes the private path. | *This repository is public* |
 
 The rulebook sections stay where they are. `cli/craft` feeds the **whole**

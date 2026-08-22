@@ -42,7 +42,7 @@ writing anything.
 | Topic kind | The choke point | Where |
 |---|---|---|
 | Writing a domain row | the module's store method, and `storekit.Audit`/`Emit` inside one tx | `modules/<name>/`, `platform/database/storekit` |
-| Reading one record's world | an `Assembler` (`org360`/`person360`) | `compose/org360`, `compose/person360` |
+| Reading one record's world | `person360.Service.Assemble` / `org360.Service.Assemble`, reached through the `Assembler` interface each consumer declares | `compose/person360`, `compose/org360` |
 | An MCP tool that answers a question a page already answers | a `compose/*seam*.go` file | `internal/compose/` |
 | A model system prompt for correspondence | `draftrules.Shared` | `compose/draftrules` |
 | Fetching a tenant-supplied URL | `platform/webread` (SSRF-guarded via `platform/netguard`) | `platform/webread` |
@@ -95,7 +95,7 @@ Cheap first, and each probe finds a class the previous one cannot.
 
 ### 1. Grep the topic's nouns tree-wide, never your directory
 
-```
+```shell
 git grep -n "<noun>" origin/main -- backend/internal frontend/src extensions
 ```
 
@@ -115,9 +115,14 @@ spelling: the domain word ("brief", "weighted", "anonymize"), the mechanism
 
 For a topic that ends in a row, the census is exact:
 
+```shell
+git grep -nE "(INSERT INTO|UPDATE|DELETE FROM) <table>" origin/main \
+  -- backend/internal/modules backend/internal/compose | grep -v _test
 ```
-git grep -n "INSERT INTO <table>\|UPDATE <table>" origin/main -- backend/internal/modules backend/internal/compose | grep -v _test
-```
+
+Include `DELETE`. A table whose rows one package writes and another package
+destroys has two owners, not one, and a census of inserts and updates alone
+reports it as clean.
 
 More than one non-test writer is a finding to *rule on*, not automatically a
 defect — each writer may be a distinct verb. The question to answer in the code
@@ -130,7 +135,7 @@ A capability with exactly one non-test importer serves one surface. Sometimes
 that is correct (an internal helper of one package); sometimes it is the finding
 (the other surface built its own).
 
-```
+```shell
 git grep -l "internal/compose/<pkg>\"" origin/main -- 'backend/*.go' | grep -v _test
 ```
 
@@ -141,12 +146,14 @@ git grep -l "internal/compose/<pkg>\"" origin/main -- 'backend/*.go' | grep -v _
 
 Grep the tree for prose that asserts a choke point:
 
-```
+```shell
 git grep -n "the one spelling\|the only writer\|cannot drift\|the same .* the .* performs\|there is no other" origin/main -- backend frontend
 ```
 
-**Nine of the ten claims counted exhaustively in this tree were false**, and
-several of the rest were true but held by nothing. The claim is where the
+**Nine of the ten claims counted exhaustively in this tree were false.** Of the
+claims spot-checked rather than counted, several were true but held by no test,
+which is the next-worst state: correct today, with nothing to notice when it
+stops being. The claim is where the
 duplicate hides, because the next author reads it and stops looking. For each hit, run probe 1 or 2 against the thing it claims. A claim no
 test holds is either deleted or gated — never left standing.
 
@@ -157,7 +164,7 @@ twin; an Art. 17 erasure and a retention anonymize; a website assembler and a
 tool assembler), do not read them for similarity — **enumerate what each one
 touches and diff the lists**. Reference counts are the cheap version:
 
-```
+```shell
 grep -c "field_provenance" erasure.go retentionactions.go
 ```
 
@@ -168,8 +175,11 @@ nothing; counting does.
 
 The last probe is a thought experiment with a mechanical answer: *if a rule about
 this topic changed tomorrow, how many files would the change have to touch?* If
-the answer is more than one, the topic has no choke point yet, whatever the
-comments say. This is the probe that found `person_profile_field`'s five writers
+the answer is more than one, either the topic has no choke point yet — whatever
+the comments say — or it has a **declared divergence**, which is the legitimate
+multi-site case. The difference is whether each site says, in the code, what
+makes it different. An undeclared N is the finding; a declared N is a decision
+somebody already made and wrote down. This is the probe that found `person_profile_field`'s five writers
 and `relationship`'s four.
 
 ## What to do with a finding
@@ -206,8 +216,10 @@ The house shape for a reuse gate, learned from `agenttoolparity_test.go` and
 - **Derive the expectation from the tree, never from a list in the test.** A
   hardcoded coverage set is a list to maintain, and `CLAUDE.md` rule #2 says
   prefer the fitness function. `draftrulesparity_test.go` hardcodes four
-  drafting surfaces while seven exist — that is the failure mode, in the tree,
-  today.
+  drafting surfaces; a sweep found at least one more that carries none of the
+  shared rules and is invisible to it. The exact count is not the point and I am
+  deliberately not quoting one — the failure mode is that a hardcoded census
+  cannot notice the surface added after it was written.
 - **No waiver map in the test.** The escape hatch lives at the subject — a
   `doc.go` line, a contract field, a `//craft:ignore <check> <reason>` — where a
   reviewer editing that code sees it. A map in the test is invisible to the

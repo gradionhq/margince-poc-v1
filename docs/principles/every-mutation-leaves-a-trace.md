@@ -16,8 +16,12 @@ Three failures become impossible rather than unlikely:
   circumstances someone later asks about — is exactly the one most likely to be
   missing its record.
 - **An event that describes a row that does not exist**, or a row that changed
-  with no event. At-least-once delivery is survivable; never-delivered is not,
-  and neither is delivered-about-nothing.
+  with no outbox record. Note what the transaction does and does not buy: it
+  guarantees the *staging* is atomic — after the commit there is a durable
+  outbox row or there is no change at all. Getting that row onto the bus is the
+  relay's job, and it is at-least-once with retries, not a delivery guarantee.
+  Atomic staging is what makes the dual-write problem go away; monitoring the
+  relay is a separate obligation.
 - **A caller-supplied actor.** `captured_by` is stamped from the authenticated
   principal, never from the request body. An audit trail whose actor field is an
   input is not a trail.
@@ -50,9 +54,14 @@ including replay, conflict and error paths. That last clause is where this rule
 is usually broken: an error path that echoes the conflicting row has just served
 it.
 
-**A new seam owes the whole shape.** The write-shape gate refuses an optional
-publish, and its standing exceptions rest on reasons a new seam cannot claim.
-If you are adding a write path, audit implies event.
+**A new seam owes the whole shape.** Audit-only mutations do exist and are
+legitimate — installation configuration writes an audit row and no event,
+because the closed event catalog defines no type for it and inventing one
+build-side is forbidden. But they are *enumerated*: `backend/writeshape_test.go`
+carries each one with the argument for why, and the gate refuses an audit-only
+function that is not on the list — as well as a listed one that no longer
+exists. So the rule for a new write path is: audit implies event, unless you can
+write the paragraph that earns a place on that list.
 
 ## What this does not ask for
 

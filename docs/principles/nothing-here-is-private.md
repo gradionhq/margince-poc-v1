@@ -27,9 +27,11 @@ itself out, here.
 
 **Assume the automated net is partial, because it is.**
 `TestPublicTreeCitesNothingPrivate` catches a private repository name, a
-`specs/` path or a `foundation#NNNN` reference in tracked source and prose. It
-does **not** read commit messages or PR bodies, and it has no pattern for a
-secret or a machine path. Those stay your judgement, with the secret-scan gate
+`specs/` path or a `foundation#NNNN` reference — but only in the file types it
+scans, which are `.go .md .yml .yaml .json .ts .tsx .sh .sql`. A reference in
+CSS, HTML, or a `.mjs` script walks straight past it. It also does **not** read
+commit messages or PR bodies, and it has no pattern for a secret or a machine
+path. Those stay your judgement, with the secret-scan gate
 as the only other net.
 
 **A vulnerability is not reported here.** An exploitable weakness goes to a
@@ -44,9 +46,12 @@ The `security` label is for hardening and defence-in-depth carrying no live
 exploit. Using it to file a working exploit publishes the exploit.
 
 **Write the reason down when the reason is the rule.** The reasoning behind a
-guardrail is kept by the team and is not in this repository — which is fine only
-because every rule that binds a change is enforced by a gate that names what to
-do instead. If you cannot tell why a rule exists and the answer would change
+guardrail is kept by the team and is not in this repository — which is workable only
+because a rule that binds a change usually reaches you as a gate that names what
+to do instead. *Usually*, not always — some obligations are judgement and stay
+judgement ([derive the obligation](derive-the-obligation.md#what-this-does-not-ask-for)),
+and for those the rule has to be written out here in full or it does not reach
+you at all. If you cannot tell why a rule exists and the answer would change
 your patch, ask in the issue rather than guessing.
 
 ## What this does not ask for
