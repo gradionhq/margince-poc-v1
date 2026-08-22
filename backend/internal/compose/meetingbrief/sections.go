@@ -19,6 +19,7 @@ package meetingbrief
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -63,6 +64,20 @@ const (
 // done is not a watch-out and not an ask.
 const statusOpen = string(crmcontracts.ConversationClaimStatusOpen)
 
+// specOrder is the order the sections render in: goal and commitments lead
+// because burying the ask is the canonical prep failure, and company context
+// is last because it is background a reader skims only if they have time.
+var specOrder = map[crmcontracts.MeetingBriefSectionKind]int{
+	crmcontracts.MeetingBriefSectionKindHeader:         0,
+	crmcontracts.MeetingBriefSectionKindGoal:           1,
+	crmcontracts.MeetingBriefSectionKindAttendees:      2,
+	crmcontracts.MeetingBriefSectionKindCommitments:    3,
+	crmcontracts.MeetingBriefSectionKindDealState:      4,
+	crmcontracts.MeetingBriefSectionKindRisks:          5,
+	crmcontracts.MeetingBriefSectionKindTalkingPoints:  6,
+	crmcontracts.MeetingBriefSectionKindCompanyContext: 7,
+}
+
 // Section is one heading with its lines, before the grounding filter runs.
 type Section struct {
 	Kind      crmcontracts.MeetingBriefSectionKind
@@ -76,16 +91,24 @@ type Section struct {
 // context is last because it is background a reader skims only if they have
 // time.
 func Deterministic(in Input) []Section {
+	// One ranked claim set, consumed in section order: the goal takes the
+	// sharpest ask, risks take what is wrong, deal state takes what was
+	// settled, and talking points get what nobody else said. The commitments
+	// ledger reads the whole set without taking: it is a list to check, not
+	// a reading to avoid repeating.
+	ranked := rankClaims(in)
 	built := []Section{
 		{Kind: crmcontracts.MeetingBriefSectionKindHeader, Sentences: headerSection(in)},
-		{Kind: crmcontracts.MeetingBriefSectionKindGoal, Sentences: goalSection(in)},
+		{Kind: crmcontracts.MeetingBriefSectionKindGoal, Sentences: goalSection(in, ranked)},
 		{Kind: crmcontracts.MeetingBriefSectionKindAttendees, Sentences: attendeesSection(in)},
-		{Kind: crmcontracts.MeetingBriefSectionKindCommitments, Sentences: commitmentsSection(in)},
-		{Kind: crmcontracts.MeetingBriefSectionKindDealState, Sentences: dealStateSection(in)},
-		{Kind: crmcontracts.MeetingBriefSectionKindRisks, Sentences: risksSection(in)},
-		{Kind: crmcontracts.MeetingBriefSectionKindTalkingPoints, Sentences: talkingPointsSection(in)},
+		{Kind: crmcontracts.MeetingBriefSectionKindRisks, Sentences: risksSection(in, ranked)},
+		{Kind: crmcontracts.MeetingBriefSectionKindCommitments, Sentences: commitmentsSection(ranked)},
+		{Kind: crmcontracts.MeetingBriefSectionKindDealState, Sentences: dealStateSection(in, ranked)},
+		{Kind: crmcontracts.MeetingBriefSectionKindTalkingPoints, Sentences: talkingPointsSection(ranked)},
 		{Kind: crmcontracts.MeetingBriefSectionKindCompanyContext, Sentences: companyContextSection(in)},
 	}
+	// Rendered in the spec's order whatever order they were filled in.
+	sort.SliceStable(built, func(i, j int) bool { return specOrder[built[i].Kind] < specOrder[built[j].Kind] })
 	for i := range built {
 		built[i].Sentences = claims.Dedupe(built[i].Sentences)
 	}
@@ -149,35 +172,24 @@ func lastTouchLine(in Input) string {
 
 // goalSection (M) leads, because burying the ask is the canonical prep failure.
 //
-// The floor states the ask the RECORD supports rather than inventing one: an
-// open question to answer, a promise to close out, or the deal's own next step.
-// It never says "build rapport" — a goal nobody can check against a record is
-// the external-context filler the spec's first hard rule forbids.
-func goalSection(in Input) []Sentence {
-	if question, ok := firstOfKind(in, kindOpenQuestion); ok {
+// The goal is what must be true when the meeting ends: the sharpest open ask
+// the record holds — a promise of ours to close out, a question to answer, a
+// decision being waited on. It takes that claim out of the set, so no later
+// section restates it. It never says "move the deal on from its stage": a
+// sentence that restates the stage field the rep is looking at is filler, and
+// the package's own rule is that an ungroundable section is absent.
+func goalSection(in Input, ranked *rankedClaims) []Sentence {
+	if ask, ok := ranked.take(openOfKind(kindCommitmentOurs, kindOpenQuestion, kindDecision)); ok {
 		return []Sentence{{
-			Text:     fmt.Sprintf("Answer the open question from %s: %s", question.PersonName, question.Body),
+			Text:     goalLine(ask, in.Now),
 			Nature:   natureRecommendation,
-			Evidence: []Evidence{{EntityType: citeActivity, EntityID: question.SourceID}},
+			Evidence: []Evidence{{EntityType: citeActivity, EntityID: ask.SourceID}},
 		}}
 	}
-	if ours, ok := firstOfKind(in, kindCommitmentOurs); ok {
-		return []Sentence{{
-			Text:     fmt.Sprintf("Close out what we promised %s: %s", ours.PersonName, ours.Body),
-			Nature:   natureRecommendation,
-			Evidence: []Evidence{{EntityType: citeActivity, EntityID: ours.SourceID}},
-		}}
-	}
-	if in.Deal != nil {
-		return []Sentence{{
-			Text:     fmt.Sprintf("Move %s on from %s.", in.Deal.Name, stageOrUnnamed(in.Deal.Stage)),
-			Nature:   natureRecommendation,
-			Evidence: []Evidence{{EntityType: citeDeal, EntityID: in.Deal.ID}},
-		}}
-	}
-	// A delivery meeting months after close-won usually has no open deal, and
-	// this section went silent exactly there — on the engagement the meeting is
-	// about. The project's own next step is the ask the record supports.
+	// A delivery meeting months after close-won usually has no open claims,
+	// and this section went silent exactly there — on the engagement the
+	// meeting is about. The project's own next step is the ask the record
+	// supports.
 	//
 	// Cited to the MEETING, not the project: the evidence vocabulary the brief
 	// shares with the account brief has no `project` kind, and a citation the
@@ -194,11 +206,18 @@ func goalSection(in Input) []Sentence {
 	return nil
 }
 
-func stageOrUnnamed(stage string) string {
-	if stage == "" {
-		return "its current stage"
+func goalLine(ask ClaimIn, now time.Time) string {
+	switch ask.Kind {
+	case kindOpenQuestion:
+		return fmt.Sprintf("Answer the open question from %s: %s", ask.PersonName, ask.Body)
+	case kindDecision:
+		return fmt.Sprintf("Get the decision %s is holding: %s", ask.PersonName, ask.Body)
+	default:
+		if ask.DueAt != nil && ask.DueAt.Before(now) {
+			return fmt.Sprintf("Close out what we owe %s, overdue since %s: %s", ask.PersonName, ask.DueAt.UTC().Format("2 Jan"), ask.Body)
+		}
+		return fmt.Sprintf("Close out what we promised %s: %s", ask.PersonName, ask.Body)
 	}
-	return stage
 }
 
 // attendeesSection (D list + M one-liners) names the room, with the people the
@@ -251,18 +270,18 @@ func readableRole(role string) string {
 // Ours come first. A rep who walks in without having done what they promised
 // has a different meeting than one who has, and reading their own overdue
 // promise first is what changes the opening sentence.
-func commitmentsSection(in Input) []Sentence {
-	out := make([]Sentence, 0, len(in.Commitments))
-	for _, kind := range []string{kindCommitmentOurs, kindCommitmentTheirs, kindOpenQuestion} {
-		for _, claim := range in.Commitments {
-			if claim.Kind != kind {
-				continue
-			}
-			out = append(out, Sentence{
-				Text:     commitmentLine(claim),
-				Evidence: []Evidence{{EntityType: citeActivity, EntityID: claim.SourceID}},
-			})
-		}
+// The ledger: every promise and question, complete, in rank order. It does
+// not take from the set — the goal and a risk may each name one of these
+// lines as a reading of it, and the ledger still has to show the whole of
+// what is owed.
+func commitmentsSection(ranked *rankedClaims) []Sentence {
+	claims := ranked.all(ofKind(kindCommitmentOurs, kindCommitmentTheirs, kindOpenQuestion))
+	out := make([]Sentence, 0, len(claims))
+	for _, claim := range claims {
+		out = append(out, Sentence{
+			Text:     commitmentLine(claim),
+			Evidence: []Evidence{{EntityType: citeActivity, EntityID: claim.SourceID}},
+		})
 	}
 	return out
 }
@@ -299,7 +318,7 @@ func commitmentSource(claim ClaimIn) string {
 
 // dealStateSection (M) is where the deal stands: what was last said, what was
 // objected to, and what nobody has decided.
-func dealStateSection(in Input) []Sentence {
+func dealStateSection(in Input, ranked *rankedClaims) []Sentence {
 	out := make([]Sentence, 0, dealStateCap)
 	if len(in.Recent) > 0 {
 		last := in.Recent[0]
@@ -308,16 +327,14 @@ func dealStateSection(in Input) []Sentence {
 			Evidence: []Evidence{{EntityType: citeActivity, EntityID: last.ID}},
 		})
 	}
-	for _, kind := range []string{kindObjection, kindDecision, kindSuccessCriterion, kindPriority} {
-		for _, claim := range in.Commitments {
-			if claim.Kind != kind || len(out) == dealStateCap {
-				continue
-			}
-			out = append(out, Sentence{
-				Text:     dealStateLine(claim),
-				Evidence: []Evidence{{EntityType: citeActivity, EntityID: claim.SourceID}},
-			})
-		}
+	// Settled things: the decisions taken. An open objection is a risk and was
+	// taken there; open asks went to the goal and the ledger; what they said
+	// matters is what they will raise, so it is a talking point.
+	for _, claim := range ranked.takeAll(ofKind(kindDecision), dealStateCap-len(out)) {
+		out = append(out, Sentence{
+			Text:     dealStateLine(claim),
+			Evidence: []Evidence{{EntityType: citeActivity, EntityID: claim.SourceID}},
+		})
 	}
 	return out
 }
@@ -343,34 +360,23 @@ func lastConversationLine(last ActIn) string {
 }
 
 func dealStateLine(claim ClaimIn) string {
-	switch claim.Kind {
-	case kindObjection:
-		return fmt.Sprintf("%s objected: %s", claim.PersonName, claim.Body)
-	case kindDecision:
-		return fmt.Sprintf("Agreed with %s: %s", claim.PersonName, claim.Body)
-	case kindSuccessCriterion:
-		return fmt.Sprintf("%s measures success by: %s", claim.PersonName, claim.Body)
-	default:
-		return fmt.Sprintf("%s is focused on: %s", claim.PersonName, claim.Body)
-	}
+	return fmt.Sprintf("Agreed with %s: %s", claim.PersonName, claim.Body)
 }
 
 // risksSection (M, ≤3) is OMITTED when empty, and that is spelled in the spec
 // rather than inferred. A risks heading over nothing reads as "we looked and
 // found none", which is a claim this floor cannot make.
-func risksSection(in Input) []Sentence {
-	out := make([]Sentence, 0, riskCap)
-	for _, claim := range in.Commitments {
-		if len(out) == riskCap {
-			break
-		}
-		if text, ok := riskLine(claim, in.Now); ok {
-			out = append(out, Sentence{
-				Text:     text,
-				Nature:   natureAssessment,
-				Evidence: []Evidence{{EntityType: citeActivity, EntityID: claim.SourceID}},
-			})
-		}
+func risksSection(in Input, ranked *rankedClaims) []Sentence {
+	isRisk := func(c ClaimIn) bool { _, ok := riskLine(c, in.Now); return ok }
+	claims := ranked.takeAll(isRisk, riskCap)
+	out := make([]Sentence, 0, len(claims))
+	for _, claim := range claims {
+		text, _ := riskLine(claim, in.Now)
+		out = append(out, Sentence{
+			Text:     text,
+			Nature:   natureAssessment,
+			Evidence: []Evidence{{EntityType: citeActivity, EntityID: claim.SourceID}},
+		})
 	}
 	return out
 }
@@ -394,22 +400,19 @@ func riskLine(claim ClaimIn, now time.Time) (string, bool) {
 	return "", false
 }
 
-// talkingPointsSection (M, 3–5) is each point tied to a specific captured
+// talkingPointsSection (M, ≤5) is each point tied to a specific captured
 // statement — never a generic opener, because a talking point nobody said is
-// the filler the first hard rule forbids.
-func talkingPointsSection(in Input) []Sentence {
-	out := make([]Sentence, 0, talkingPointCap)
-	for _, kind := range []string{kindPriority, kindSuccessCriterion, kindDecisionProcess, kindObjection} {
-		for _, claim := range in.Commitments {
-			if claim.Kind != kind || len(out) == talkingPointCap {
-				continue
-			}
-			out = append(out, Sentence{
-				Text:     talkingPointLine(claim),
-				Nature:   natureRecommendation,
-				Evidence: []Evidence{{EntityType: citeActivity, EntityID: claim.SourceID}},
-			})
-		}
+// the filler the first hard rule forbids. Each point is a MOVE: the evidence
+// and what to do with it in the room, not a label on a record.
+func talkingPointsSection(ranked *rankedClaims) []Sentence {
+	claims := ranked.takeAll(ofKind(kindObjection, kindDecisionProcess, kindPriority, kindSuccessCriterion, kindCommitmentTheirs), talkingPointCap)
+	out := make([]Sentence, 0, len(claims))
+	for _, claim := range claims {
+		out = append(out, Sentence{
+			Text:     talkingPointLine(claim),
+			Nature:   natureRecommendation,
+			Evidence: []Evidence{{EntityType: citeActivity, EntityID: claim.SourceID}},
+		})
 	}
 	return out
 }
@@ -419,13 +422,18 @@ const talkingPointCap = 5
 func talkingPointLine(claim ClaimIn) string {
 	switch claim.Kind {
 	case kindObjection:
-		return fmt.Sprintf("Address what %s objected to: %s", claim.PersonName, claim.Body)
+		if claim.Status == statusOpen {
+			return fmt.Sprintf("%s objected to %s and we have not answered — bring the answer, or say when.", claim.PersonName, claim.Body)
+		}
+		return fmt.Sprintf("%s once objected to %s — confirm it is settled before moving on.", claim.PersonName, claim.Body)
 	case kindDecisionProcess:
-		return fmt.Sprintf("Confirm the process %s described: %s", claim.PersonName, claim.Body)
+		return fmt.Sprintf("%s described how they decide: %s — walk the next step of it in the room.", claim.PersonName, claim.Body)
 	case kindSuccessCriterion:
-		return fmt.Sprintf("Tie the demo to what %s called success: %s", claim.PersonName, claim.Body)
+		return fmt.Sprintf("%s calls success %s — tie what you show to it.", claim.PersonName, claim.Body)
+	case kindCommitmentTheirs:
+		return fmt.Sprintf("%s owes us %s — ask where it stands.", claim.PersonName, claim.Body)
 	default:
-		return fmt.Sprintf("Pick up what %s said matters: %s", claim.PersonName, claim.Body)
+		return fmt.Sprintf("%s said %s matters — lead with it.", claim.PersonName, claim.Body)
 	}
 }
 
@@ -451,17 +459,6 @@ func companyContextSection(in Input) []Sentence {
 		})
 	}
 	return out
-}
-
-// firstOfKind returns the newest claim of one kind that is still open. Claims
-// arrive newest-first from the store, so the first match is the newest.
-func firstOfKind(in Input, kind string) (ClaimIn, bool) {
-	for _, claim := range in.Commitments {
-		if claim.Kind == kind && claim.Status == statusOpen {
-			return claim, true
-		}
-	}
-	return ClaimIn{}, false
 }
 
 // spokenAmount renders a deal's value the way somebody would SAY it: "€95k",
