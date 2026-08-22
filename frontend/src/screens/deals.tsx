@@ -78,6 +78,21 @@ import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { DealBulkBar } from "./dealbulk";
 import { DealNextAction } from "./dealnextaction";
+
+// The deal page's aside: the next move first, then the Deal Room when the deal
+// has one. Its own component so the screen's render stays readable.
+function DealAside({
+  dealId,
+  hasDealRoom,
+}: Readonly<{ dealId: string; hasDealRoom: boolean }>) {
+  return (
+    <>
+      <DealNextAction dealId={dealId} />
+      {hasDealRoom ? <DealRoomAside dealId={dealId} /> : null}
+    </>
+  );
+}
+
 import { DealRoomAside, useDealRoomPresence } from "./dealroom";
 import { EditAction } from "./edit";
 import { EntityRef, useEntityName } from "./entityref";
@@ -3248,10 +3263,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               )}
               aside={
                 overlay ? undefined : (
-                  <>
-                    <DealNextAction dealId={id} />
-                    {hasDealRoom ? <DealRoomAside dealId={id} /> : null}
-                  </>
+                  <DealAside dealId={id} hasDealRoom={hasDealRoom} />
                 )
               }
               asideLabel={t("nba.title")}
