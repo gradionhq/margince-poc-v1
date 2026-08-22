@@ -77,6 +77,7 @@ import { CreateAction } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { DealBulkBar } from "./dealbulk";
+import { DealHealthCard } from "./dealhealth";
 import { DealNextAction } from "./dealnextaction";
 
 // The deal page's aside: the next move first, then the Deal Room when the deal
@@ -88,6 +89,7 @@ function DealAside({
   return (
     <>
       <DealNextAction dealId={dealId} />
+      <DealHealthCard dealId={dealId} />
       {hasDealRoom ? <DealRoomAside dealId={dealId} /> : null}
     </>
   );

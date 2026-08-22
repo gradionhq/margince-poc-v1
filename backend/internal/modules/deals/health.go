@@ -79,6 +79,9 @@ type DealHealthEvidence struct {
 	// operational explainability pointers gathered through the generic
 	// collectIDs helper, not typed entity handles — they stay ids.UUID.
 	MostRecentActivityID *ids.UUID
+	// LastActivityAt is the moment the recency factor was read from; nil
+	// with MostRecentActivityID.
+	LastActivityAt *time.Time
 
 	// StageVelocity: where the deal sits and how its pace compares.
 	CurrentStageID      ids.StageID
@@ -173,6 +176,7 @@ func healthFromInputs(in dealHealthInputs, now time.Time) DealHealth {
 			EngagedStakeholderIDs: in.engagedStakeholderIDs,
 			OverdueTaskIDs:        in.overdueTaskIDs,
 			Stalled:               stalled,
+			LastActivityAt:        in.lastActivityAt,
 		},
 	}
 }
