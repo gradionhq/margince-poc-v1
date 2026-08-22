@@ -28,6 +28,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -491,22 +492,21 @@ func TestACallThatCannotGetTheOccurrenceLockIsStillTraced(t *testing.T) {
 	}
 }
 
-// lockRailOccurrence takes the advisory lock the announcement takes, spelled the
-// way storekit.LockWriteIdentity spells it.
+// lockRailOccurrence takes the very lock the announcement takes, by calling the
+// production function rather than restating its SQL.
 //
-// The WORKSPACE GUC has to be bound first, and that is not incidental: the key
-// storekit builds includes current_setting('app.workspace_id'), so a holder that
-// left it unset locks a DIFFERENT key and contends with nothing. The first
-// version of this helper did exactly that, and the announcement sailed past a
-// lock the test believed it was holding.
+// Both halves of that matter. A hand-copied key would stop contending the moment
+// storekit changed its spelling, and the test would then pass by holding a lock
+// nothing else wants — which is the drift this test exists to catch, reproduced
+// inside the test itself. And the WORKSPACE GUC has to be bound first, because
+// storekit's key includes current_setting('app.workspace_id'): the first version
+// of this helper left it unset, locked a different key, and watched the
+// announcement sail past a lock it believed it was holding.
 func lockRailOccurrence(t *testing.T, tx pgx.Tx, ws ids.UUID, corr ids.UUID, task ai.Task) error {
 	t.Helper()
 	if _, err := tx.Exec(context.Background(),
 		`SELECT set_config('app.workspace_id', $1, true)`, ws.String()); err != nil {
 		return err
 	}
-	_, err := tx.Exec(context.Background(), `SELECT pg_advisory_xact_lock(hashtextextended(
-		$1 || ':' || coalesce(current_setting('app.workspace_id', true), '') || ':' || $2, 0))`,
-		"ai_task_run_write", corr.String()+":"+string(task))
-	return err
+	return storekit.LockWriteIdentity(context.Background(), tx, "ai_task_run", corr.String()+":"+string(task))
 }

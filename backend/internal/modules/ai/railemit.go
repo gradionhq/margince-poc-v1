@@ -93,7 +93,7 @@ func announceable(c Call) bool {
 	return c.CorrelationID != nil && !c.CorrelationID.IsZero()
 }
 
-// railLockOccurrence bounds the wait for the occurrence lock and then takes it.
+// railLockTimeout bounds the WAIT for the occurrence lock.
 //
 // The whole flush runs under traceWriteTimeout, and the lock serializes the
 // page-parallel fan-out this exists for — so an unbounded wait would spend the
@@ -102,6 +102,31 @@ func announceable(c Call) bool {
 // SQL error inside the savepoint instead, which costs one occurrence rather
 // than every ai_call row of the logical call.
 const railLockTimeout = "1500ms"
+
+// lockOccurrence takes the occurrence lock under a bounded wait, and puts the
+// timeout back the moment it holds it.
+//
+// SET LOCAL outlives the statement — it is scoped to the transaction, and a
+// subtransaction that COMMITS keeps it — so leaving it set would quietly impose
+// a 1.5s ceiling on the ledger and outbox writes that follow, which want to WAIT
+// for an unrelated lock rather than abandon an occurrence over one. The timeout
+// is here to bound acquisition, and acquisition only.
+//
+// The value is a compile-time literal in both directions: SET LOCAL takes no
+// placeholder, so the only safe spelling of a GUC value is one that cannot come
+// from a request.
+func lockOccurrence(ctx context.Context, tx pgx.Tx, key string) error {
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '`+railLockTimeout+`'`); err != nil {
+		return fmt.Errorf("ai: bounding the rail occurrence lock: %w", err)
+	}
+	if err := storekit.LockWriteIdentity(ctx, tx, "ai_task_run", key); err != nil {
+		return fmt.Errorf("ai: locking the rail occurrence: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = DEFAULT`); err != nil {
+		return fmt.Errorf("ai: restoring the lock timeout: %w", err)
+	}
+	return nil
+}
 
 // announceRail publishes the terminal attempt of one logical call as a state
 // change on the AI-activity projection.
@@ -132,14 +157,8 @@ func (m *CallMeter) announceRail(ctx context.Context, tx pgx.Tx, terminal Call) 
 	// error would poison the trace transaction itself, and every ai_call row of
 	// the logical call would be lost at COMMIT — the opposite of what the
 	// savepoint is here to guarantee.
-	// A compile-time literal, never a caller's value: SET LOCAL takes no
-	// placeholder, so the only safe spelling of a GUC value is one that cannot
-	// come from a request.
-	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '`+railLockTimeout+`'`); err != nil {
-		return fmt.Errorf("ai: bounding the rail occurrence lock: %w", err)
-	}
-	if err := storekit.LockWriteIdentity(ctx, tx, "ai_task_run", key); err != nil {
-		return fmt.Errorf("ai: locking the rail occurrence: %w", err)
+	if err := lockOccurrence(ctx, tx, key); err != nil {
+		return err
 	}
 	attempt, finished, err := railAttempt(ctx, tx, terminal)
 	if err != nil {
