@@ -19,9 +19,13 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // seedCapturedEcho writes the row the Gmail sync leaves behind when it re-reads
@@ -476,5 +480,56 @@ func TestAbsorbRePointsAQueuedCounterpartyReview(t *testing.T) {
 	}
 	if on != survivor {
 		t.Errorf("the queued review points at %s, want the surviving send %s", on, survivor)
+	}
+}
+
+// Filing under a project takes activity.UPDATE, not merely activity.CREATE —
+// on BOTH doors, which is the point of the test.
+//
+// The capture ladder has always refused to attribute for a principal that may
+// create captured mail but not change it. The create door had no such check, so
+// once filing under a project began writing a write-once six-year retention
+// mark, the cheaper grant became the cheaper way in. Two doors onto one act
+// must not disagree about who may perform it.
+//
+// A person link in the same body still lands on the create grant alone: the
+// rule is about what a PROJECT link means, not about links in general.
+func TestFilingUnderAProjectNeedsTheUpdateGrantNotJustCreate(t *testing.T) {
+	e := setupSend(t)
+	project := e.seedProject(t, "Migration")
+	person := e.seedPerson(t, "Dieter")
+
+	createOnly := principal.WithActor(
+		principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.ws), ids.NewV7()),
+		principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + e.rep.String(), UserID: e.rep,
+			Permissions: principal.Permissions{
+				RoleKeys: []string{"rep"},
+				Objects: map[string]principal.ObjectGrant{
+					"activity": {Create: true, Read: true},
+					"person":   {Read: true},
+					"project":  {Read: true},
+				},
+				RowScope: principal.RowScopeAll,
+			},
+		})
+
+	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
+	filed, ordinary := "Milestone 3", "Ordinary note"
+	_, _, err := store.LogActivity(createOnly, LogActivityInput{
+		Kind: "note", Subject: &filed,
+		Links: []ActivityLinkInput{{EntityType: "project", EntityID: project}},
+	})
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("logging an activity filed under a project on the CREATE grant alone returned %v, want permission denied — the create door must not be the cheap way to write an irreversible retention mark", err)
+	}
+
+	// The same grant still logs an ordinary activity: the refusal is about the
+	// project link, not about creating a row.
+	if _, _, err := store.LogActivity(createOnly, LogActivityInput{
+		Kind: "note", Subject: &ordinary,
+		Links: []ActivityLinkInput{{EntityType: "person", EntityID: person}},
+	}); err != nil {
+		t.Errorf("logging an ordinary person-linked activity on the create grant failed: %v — the gate is meant to narrow one link type, not the verb", err)
 	}
 }
