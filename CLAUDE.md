@@ -76,6 +76,17 @@ A decision number (`ADR-0054`) may appear as a label, but never cite it as
 though a reader could open it — the records are not in this tree. Write the rule
 itself out here, where a public contributor can read it.
 
+**The reasoning under these rules lives in
+[docs/principles/](docs/principles/README.md)** — six pages, one per principle,
+each naming the rulebook section it explains, the method for checking the tree
+still holds it, and what it explicitly does not ask for. The rules below are the
+binding short form and stay here: `cli/craft` feeds the whole nearest
+`AGENTS.md` into its gate prompt, so a rule moved out of that file stops
+reaching the gate. Read a principle when you need to know *why* a rule is shaped
+the way it is, or when you are auditing a subsystem against it —
+[one-source-of-truth.md](docs/principles/one-source-of-truth.md) carries the
+six-probe scan for finding a capability that got built twice.
+
 **Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
 Read its *Open work, in one screen* index first and open only the sections that
 bear on your change; the file is not meant to be read end to end. Update it at
@@ -440,8 +451,8 @@ rules, each of them here because this tree has already paid for it.
 grep its nouns across `backend/`, `frontend/src/` and `extensions/`. The
 duplicate is almost never in the package you are editing — that is precisely why
 it gets missed. The agent tool `prep_for_meeting` was written beside a working
-`compose/meetingbrief/` that a one-word grep would have found, and the two now
-answer one question with different grounding rules.
+`compose/meetingbrief/` that a one-word grep would have found, and the two
+answered one question with different grounding rules until a seam was written.
 
 **2. The tool surface and the web surface share ONE engine.** An MCP tool never
 re-derives what an HTTP handler already computes. The binding is a
@@ -472,9 +483,9 @@ an identifier a caller chose is an injection with a placeholder's manners.
 **4. A comment may not claim to be the only implementation unless a test holds
 it.** "the one spelling of X", "the only writer of Y", "the same anonymization
 the eraser performs" — if no test fails when a second one appears, delete the
-claim or write the test. Every such claim audited in this tree was false. A
-false uniqueness claim is worse than silence: the next author greps, finds it,
-and stops looking.
+claim or write the test. Nine of the ten claims counted in this tree were
+false. A false uniqueness claim is worse than silence: the next author greps,
+finds it, and stops looking.
 
 **Two writers of one invariant either share a helper or say why they do not.**
 If you are adding the second, put the reason in the code beside it, not in the
