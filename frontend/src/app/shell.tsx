@@ -114,7 +114,7 @@ function BrandBlock() {
 }
 
 // WCAG 2.4.1, Bypass Blocks. Every page in the product puts the same block ahead
-// of its content — up to eleven navigation rows and the entitlement row in the
+// of its content — up to twelve navigation rows and the entitlement row in the
 // sidebar, then the strip's collapse control, trail, search, system-of-record
 // chip, approvals bell and account menu — and without this a keyboard reader
 // walked all of it again on every page they opened.

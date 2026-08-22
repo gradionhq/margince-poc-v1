@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Bell,
+  Briefcase,
   Building2,
   CheckSquare,
   Home,
@@ -39,8 +40,8 @@ export {
 // structure and collapse to hairline rules at 64px, so the collapsed rail is the
 // flat list WDS-NAV-1 describes.
 //
-// It carries eleven rows against upstream's own ten, and not as a superset:
-// Duplicates and Filters & views are destinations here, Automations is not.
+// It carries twelve rows against upstream's own ten, and not as a superset:
+// Duplicates, Filters & views and Projects are destinations here, Automations is not.
 // Automations is set-and-forget configuration and now lives inside Settings →
 // AI, which is where the product already offered a second door to it; the dedupe
 // queue is work somebody has to get through, and it had no address outside a
@@ -97,6 +98,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // surface would be. A reader scanning five glyphs on a phone bar with no
       // labels under them has only the shape to go on.
       { screen: "deals", labelKey: "nav.deals", icon: Kanban },
+      // The body of work a deal is about. It starts during the deal and
+      // outlives close-won, so it sits beside the pipeline rather than under
+      // it: a project in delivery has no deal column to stand in.
+      { screen: "projects", labelKey: "nav.projects", icon: Briefcase },
       { screen: "tasks", labelKey: "nav.tasks", icon: CheckSquare },
       // The same bell the top bar rings. Approvals are the one queue that waits
       // on a PERSON, and the chrome reports it in three places at once — this
@@ -127,7 +132,7 @@ export const NAV: readonly NavItem[] = NAV_GROUPS.flatMap(
 export const BADGE_SCREENS: ReadonlySet<Screen> = new Set(["tasks", "inbox"]);
 
 // At phone width the sidebar becomes a bottom bar, which fits four thumb-sized
-// destinations plus More — eleven would need horizontal scrolling, and a nav you
+// destinations plus More — twelve would need horizontal scrolling, and a nav you
 // have to scroll is a nav you cannot see. Approvals is non-negotiable here: the
 // 390px approval path is required for V1.
 export const MOBILE_PRIMARY: ReadonlySet<Screen> = new Set([

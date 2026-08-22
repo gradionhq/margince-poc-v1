@@ -54,41 +54,52 @@ function unnamedOrThrow(error: unknown, response: Response): null {
   throwProblem(error);
 }
 
-async function fetchEntityName(
-  kind: EntityKind,
-  id: string,
-): Promise<string | null> {
-  // A missing name coerces to null (never undefined): react-query forbids an
-  // undefined resolve, and a record that answers without its name field has
-  // answered. Each kind reads a different endpoint and a differently-named
-  // field, so this stays a straight per-kind switch rather than a generic
-  // lookup.
-  if (kind === "person") {
-    const { data, error, response } = await api.GET("/people/{id}", {
-      params: { path: { id } },
-    });
-    if (error) return unnamedOrThrow(error, response);
-    return data.full_name ?? null;
-  }
-  if (kind === "organization") {
-    const { data, error, response } = await api.GET("/organizations/{id}", {
-      params: { path: { id } },
-    });
-    if (error) return unnamedOrThrow(error, response);
-    return data.display_name ?? null;
-  }
-  if (kind === "lead") {
-    const { data, error, response } = await api.GET("/leads/{id}", {
-      params: { path: { id } },
-    });
-    if (error) return unnamedOrThrow(error, response);
-    return data.full_name ?? data.email ?? null;
-  }
-  const { data, error, response } = await api.GET("/deals/{id}", {
-    params: { path: { id } },
-  });
-  if (error) return unnamedOrThrow(error, response);
-  return data.name ?? null;
+// One reader per kind: each reads a different endpoint and a differently
+// named field, so the table is the honest shape — a generic lookup would have
+// to guess the field. A missing name coerces to null (never undefined):
+// react-query forbids an undefined resolve, and a record that answers without
+// its name field has answered.
+const NAME_READERS: Record<EntityKind, (id: string) => Promise<string | null>> =
+  {
+    person: async (id) => {
+      const { data, error, response } = await api.GET("/people/{id}", {
+        params: { path: { id } },
+      });
+      if (error) return unnamedOrThrow(error, response);
+      return data.full_name ?? null;
+    },
+    organization: async (id) => {
+      const { data, error, response } = await api.GET("/organizations/{id}", {
+        params: { path: { id } },
+      });
+      if (error) return unnamedOrThrow(error, response);
+      return data.display_name ?? null;
+    },
+    lead: async (id) => {
+      const { data, error, response } = await api.GET("/leads/{id}", {
+        params: { path: { id } },
+      });
+      if (error) return unnamedOrThrow(error, response);
+      return data.full_name ?? data.email ?? null;
+    },
+    project: async (id) => {
+      const { data, error, response } = await api.GET("/projects/{id}", {
+        params: { path: { id } },
+      });
+      if (error) return unnamedOrThrow(error, response);
+      return data.name ?? null;
+    },
+    deal: async (id) => {
+      const { data, error, response } = await api.GET("/deals/{id}", {
+        params: { path: { id } },
+      });
+      if (error) return unnamedOrThrow(error, response);
+      return data.name ?? null;
+    },
+  };
+
+function fetchEntityName(kind: EntityKind, id: string): Promise<string | null> {
+  return NAME_READERS[kind](id);
 }
 
 // Roster lookups share one cache entry across every EntityRef + the Share

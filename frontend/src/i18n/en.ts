@@ -5937,6 +5937,102 @@ export const en = {
   "sched.skew":
     "This list is out of date: the message you acted on had already gone, been withdrawn, or been moved somewhere else. Read the list again.",
   "sched.reload": "Read it again",
+  // Projects — the body of work a deal is about. It starts during the deal,
+  // in the initiative phase, and outlives close-won; this namespace is every
+  // word the list, the page and the deal form's picker say about one.
+  "nav.projects": "Projects",
+  "unit.projects": "projects",
+  "project.name": "Project name",
+  "project.key": "Key",
+  "project.keyHint":
+    "Optional short handle, e.g. ACME-CRM. Write [KEY] in an email subject and the mail is filed under this project.",
+  "project.keyInvalid":
+    "A key starts with a letter and is 2–24 letters, digits, _ or -.",
+  "project.company": "Company",
+  "project.owner": "Owner",
+  "project.ownerKeep": "Keep current owner",
+  "project.ownerMe": "Me",
+  "project.ownerUnassign": "Unassign",
+  "project.description": "Description",
+  "project.targetEnd": "Target end date",
+  "project.targetEndShort": "target {date}",
+  "project.new": "New project",
+  "project.edit": "Edit project",
+  "project.archive": "Archive project",
+  "project.archiveConfirm":
+    "Archiving removes this project from the live list and frees its key. This cannot be undone from the UI.",
+  "project.archivedReadOnly": "This project is archived and takes no changes.",
+  "project.railLabel": "Project profile",
+  "project.phaseLabel": "Phase",
+  "project.filterPhaseAll": "All phases",
+  "project.viewDelivering": "In delivery",
+  "project.phase.initiative": "Initiative",
+  "project.phase.pursuing": "Pursuing",
+  "project.phase.delivering": "Delivering",
+  "project.phase.closed": "Closed",
+  "project.emptyTitle": "No projects yet",
+  "project.emptyBody":
+    "A project is the body of work a deal is about. It starts during the deal, in the initiative phase, and outlives close-won: once the deal is won, delivery is tracked here.",
+  "project.emptyKey":
+    "Give a project a key and any email whose subject carries [KEY] is filed under it automatically.",
+  "project.rollups.empty": "No figures for this project yet.",
+  "project.rollups.openValue": "Open deal value",
+  "project.rollups.wonValue": "Won deal value",
+  "project.rollups.openCommitments": "Open commitments",
+  "project.rollups.lastActivity": "Last activity",
+  "project.rollups.never": "nothing yet",
+  "project.rollups.activityCount": "Activities",
+  "project.coverage":
+    "{attributed} attributed · {nearby} on this project's people and deals not attributed",
+  "project.history.title": "Phase history",
+  "project.history.empty": "No phase change recorded yet.",
+  "project.history.current": "current",
+  "project.history.moved": "{from} → {to}",
+  "project.history.born": "Started in {phase}",
+  "project.history.bySystem": "System",
+  "project.deals.title": "Deals",
+  "project.deals.empty":
+    "No deal names this project yet. A deal picks its project on its own form.",
+  "project.deals.more": "More deals than shown here — open the pipeline.",
+  "project.stakeholders.title": "Stakeholders",
+  "project.stakeholders.empty":
+    "Nobody is seated on this project yet. A stakeholder is a person with a role here — a sponsor, a project lead, a champion.",
+  "project.role.sponsor": "Sponsor",
+  "project.role.project_lead": "Project lead",
+  "project.role.delivery_lead": "Delivery lead",
+  "project.role.subject_matter_expert": "Subject-matter expert",
+  "project.contracts.title": "Contracts",
+  "project.contracts.empty":
+    "No agreement is filed under this project. A contract names its project when it is recorded.",
+  "project.documents.title": "Documents",
+  "project.documents.empty":
+    "No file is attached to this project. Files attached to its deals stay on the deals.",
+  "project.commitments.title": "Open commitments",
+  "project.commitments.empty":
+    "No open task is filed under this project. Tasks linked to it land here, soonest due first.",
+  "project.commitments.overdue": "overdue",
+  "project.timeline.empty":
+    "Nothing is filed under this project yet. Mail carrying the key in its subject, and activities linked to it, land here.",
+  "project.advance.title": "Move to {phase}",
+  "project.advance.confirm": "Move",
+  "project.advance.close": "Close project",
+  "project.advance.body":
+    "The move is recorded in the phase history with the reason you give.",
+  "project.advance.closeBody":
+    "Closing ends the project's delivery. It can be reopened later, and the reason stays on record.",
+  "project.advance.reason": "Reason",
+  "project.advance.reasonRequired": "A closed project needs a reason.",
+  "deal.project": "Project",
+  "deal.projectNew": "New project…",
+  "deal.projectNeedsCompany":
+    "Choose the deal's company first — a project is started on a company.",
+  "deal.projectUnnamed": "Project",
+  "deal.startDeliveryTitle": "Start delivery",
+  "deal.startDelivery": "Start delivery",
+  "deal.startDeliveryAttached":
+    "This deal is attached to {project}, but the project is not in delivery yet. Move it now?",
+  "deal.startDeliveryBody":
+    "This deal is won and names no project. Attach it to {project} and move the project into delivery?",
 } as const;
 
 export type MessageKey = keyof typeof en;

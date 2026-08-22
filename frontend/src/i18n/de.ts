@@ -5865,4 +5865,99 @@ export const de = {
   "sched.skew":
     "Diese Liste ist nicht mehr aktuell: die Nachricht, auf die Sie eingewirkt haben, war schon hinausgegangen, zurückgezogen oder auf einen anderen Zeitpunkt verschoben. Lesen Sie die Liste erneut.",
   "sched.reload": "Erneut lesen",
+  "nav.projects": "Projekte",
+  "unit.projects": "Projekte",
+  "project.name": "Projektname",
+  "project.key": "Kürzel",
+  "project.keyHint":
+    "Optionales Kürzel, z. B. ACME-CRM. Steht [KÜRZEL] im Betreff einer E-Mail, wird sie diesem Projekt zugeordnet.",
+  "project.keyInvalid":
+    "Ein Kürzel beginnt mit einem Buchstaben und hat 2–24 Buchstaben, Ziffern, _ oder -.",
+  "project.company": "Unternehmen",
+  "project.owner": "Verantwortlich",
+  "project.ownerKeep": "Aktuelle Verantwortung behalten",
+  "project.ownerMe": "Ich",
+  "project.ownerUnassign": "Niemand",
+  "project.description": "Beschreibung",
+  "project.targetEnd": "Geplantes Ende",
+  "project.targetEndShort": "Ziel {date}",
+  "project.new": "Neues Projekt",
+  "project.edit": "Projekt bearbeiten",
+  "project.archive": "Projekt archivieren",
+  "project.archiveConfirm":
+    "Durch das Archivieren verschwindet dieses Projekt aus der aktiven Liste und sein Kürzel wird frei. Dies kann in der Oberfläche nicht rückgängig gemacht werden.",
+  "project.archivedReadOnly":
+    "Dieses Projekt ist archiviert und nimmt keine Änderungen an.",
+  "project.railLabel": "Projektprofil",
+  "project.phaseLabel": "Phase",
+  "project.filterPhaseAll": "Alle Phasen",
+  "project.viewDelivering": "In Umsetzung",
+  "project.phase.initiative": "Initiative",
+  "project.phase.pursuing": "Im Vertrieb",
+  "project.phase.delivering": "In Umsetzung",
+  "project.phase.closed": "Abgeschlossen",
+  "project.emptyTitle": "Noch keine Projekte",
+  "project.emptyBody":
+    "Ein Projekt ist das Vorhaben, um das es in einem Deal geht. Es beginnt während des Deals in der Phase Initiative und überlebt den Abschluss: Ist der Deal gewonnen, wird die Umsetzung hier verfolgt.",
+  "project.emptyKey":
+    "Gib einem Projekt ein Kürzel, und jede E-Mail mit [KÜRZEL] im Betreff wird ihm automatisch zugeordnet.",
+  "project.rollups.empty": "Noch keine Kennzahlen zu diesem Projekt.",
+  "project.rollups.openValue": "Offenes Dealvolumen",
+  "project.rollups.wonValue": "Gewonnenes Dealvolumen",
+  "project.rollups.openCommitments": "Offene Zusagen",
+  "project.rollups.lastActivity": "Letzte Aktivität",
+  "project.rollups.never": "noch nichts",
+  "project.rollups.activityCount": "Aktivitäten",
+  "project.coverage":
+    "{attributed} zugeordnet · {nearby} bei Personen und Deals dieses Projekts nicht zugeordnet",
+  "project.history.title": "Phasenverlauf",
+  "project.history.empty": "Noch kein Phasenwechsel erfasst.",
+  "project.history.current": "aktuell",
+  "project.history.moved": "{from} → {to}",
+  "project.history.born": "Gestartet in {phase}",
+  "project.history.bySystem": "System",
+  "project.deals.title": "Deals",
+  "project.deals.empty":
+    "Noch kein Deal nennt dieses Projekt. Ein Deal wählt sein Projekt in seinem eigenen Formular.",
+  "project.deals.more": "Mehr Deals als hier gezeigt — öffne die Pipeline.",
+  "project.stakeholders.title": "Beteiligte",
+  "project.stakeholders.empty":
+    "Noch niemand ist an diesem Projekt beteiligt. Beteiligte sind Personen mit einer Rolle hier — Sponsor, Projektleitung, Champion.",
+  "project.role.sponsor": "Sponsor",
+  "project.role.project_lead": "Projektleitung",
+  "project.role.delivery_lead": "Umsetzungsleitung",
+  "project.role.subject_matter_expert": "Fachexperte",
+  "project.contracts.title": "Verträge",
+  "project.contracts.empty":
+    "Unter diesem Projekt ist kein Vertrag abgelegt. Ein Vertrag nennt sein Projekt beim Erfassen.",
+  "project.documents.title": "Dokumente",
+  "project.documents.empty":
+    "An diesem Projekt hängt keine Datei. Dateien an seinen Deals bleiben bei den Deals.",
+  "project.commitments.title": "Offene Zusagen",
+  "project.commitments.empty":
+    "Unter diesem Projekt ist keine offene Aufgabe abgelegt. Verknüpfte Aufgaben erscheinen hier, die nächste Fälligkeit zuerst.",
+  "project.commitments.overdue": "überfällig",
+  "project.timeline.empty":
+    "Unter diesem Projekt ist noch nichts abgelegt. E-Mails mit dem Kürzel im Betreff und verknüpfte Aktivitäten erscheinen hier.",
+  "project.advance.title": "Wechsel zu {phase}",
+  "project.advance.confirm": "Wechseln",
+  "project.advance.close": "Projekt abschließen",
+  "project.advance.body":
+    "Der Wechsel wird mit deiner Begründung im Phasenverlauf festgehalten.",
+  "project.advance.closeBody":
+    "Der Abschluss beendet die Umsetzung. Das Projekt kann später wieder geöffnet werden; die Begründung bleibt erhalten.",
+  "project.advance.reason": "Begründung",
+  "project.advance.reasonRequired":
+    "Ein abgeschlossenes Projekt braucht eine Begründung.",
+  "deal.project": "Projekt",
+  "deal.projectNew": "Neues Projekt …",
+  "deal.projectNeedsCompany":
+    "Wähle zuerst das Unternehmen des Deals — ein Projekt wird an einem Unternehmen gestartet.",
+  "deal.projectUnnamed": "Projekt",
+  "deal.startDeliveryTitle": "Umsetzung starten",
+  "deal.startDelivery": "Umsetzung starten",
+  "deal.startDeliveryAttached":
+    "Dieser Deal hängt an {project}, das Projekt ist aber noch nicht in der Umsetzung. Jetzt wechseln?",
+  "deal.startDeliveryBody":
+    "Dieser Deal ist gewonnen und nennt kein Projekt. An {project} anhängen und das Projekt in die Umsetzung bringen?",
 } as const satisfies Record<MessageKey, string>;

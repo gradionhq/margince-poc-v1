@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { components } from "../api/schema";
 import type { EntityKind } from "../app/entity";
 import { activityTimeline } from "../design-system/activitytimeline";
-import { SegmentedControl } from "../design-system/atoms";
+import { EmptyState, SegmentedControl, Skeleton } from "../design-system/atoms";
 import type { TimelineEntry } from "../design-system/composed";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -256,5 +256,49 @@ function changesOwnTheCut(
       oldestChange === undefined ||
       oldestActivity === undefined ||
       oldestChange >= oldestActivity)
+  );
+}
+
+/**
+ * chronologyNotice keeps four things apart that all render as an empty list
+ * if you let them: still loading, the read failed, the section was never in
+ * the payload, and the record genuinely has nothing to show. Only the last
+ * one may say so — the other three would have a rep conclude nobody has ever
+ * touched this record.
+ *
+ * The empty sentence names what the filter was looking for. "Nothing logged
+ * on this account" under the Changes filter would be a claim about the
+ * activity feed the reader is not looking at. `activitiesEmptyKey` is the
+ * caller's own word for the Activities view, for the same reason
+ * CHRONOLOGY_EMPTY_KEYS leaves that one out.
+ */
+export function chronologyNotice(
+  activitiesEmptyKey: MessageKey,
+  timeline: {
+    loading: boolean;
+    failed: boolean;
+    assembled: boolean;
+    filter: TimelineFilter;
+  },
+  count: number,
+  t: ReturnType<typeof useT>,
+): ReactNode {
+  if (timeline.loading) {
+    return <Skeleton width="100%" height={48} />;
+  }
+  if (timeline.failed || !timeline.assembled) {
+    return <EmptyState>{t("co.section.unavailable")}</EmptyState>;
+  }
+  if (count > 0) {
+    return undefined;
+  }
+  return (
+    <EmptyState>
+      {t(
+        timeline.filter === "activities"
+          ? activitiesEmptyKey
+          : CHRONOLOGY_EMPTY_KEYS[timeline.filter],
+      )}
+    </EmptyState>
   );
 }
