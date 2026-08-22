@@ -3315,18 +3315,16 @@ func (e CreateContractRequestValueBasis) Valid() bool {
 
 // Defines values for CreateCustomFieldRequestObject.
 const (
-	CreateCustomFieldRequestObjectActivity     CreateCustomFieldRequestObject = "activity"
 	CreateCustomFieldRequestObjectDeal         CreateCustomFieldRequestObject = "deal"
 	CreateCustomFieldRequestObjectLead         CreateCustomFieldRequestObject = "lead"
 	CreateCustomFieldRequestObjectOrganization CreateCustomFieldRequestObject = "organization"
 	CreateCustomFieldRequestObjectPerson       CreateCustomFieldRequestObject = "person"
+	CreateCustomFieldRequestObjectProject      CreateCustomFieldRequestObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the CreateCustomFieldRequestObject enum.
 func (e CreateCustomFieldRequestObject) Valid() bool {
 	switch e {
-	case CreateCustomFieldRequestObjectActivity:
-		return true
 	case CreateCustomFieldRequestObjectDeal:
 		return true
 	case CreateCustomFieldRequestObjectLead:
@@ -3334,6 +3332,8 @@ func (e CreateCustomFieldRequestObject) Valid() bool {
 	case CreateCustomFieldRequestObjectOrganization:
 		return true
 	case CreateCustomFieldRequestObjectPerson:
+		return true
+	case CreateCustomFieldRequestObjectProject:
 		return true
 	default:
 		return false
@@ -3834,18 +3834,16 @@ func (e CreateVoiceBuildRequestReason) Valid() bool {
 
 // Defines values for CustomFieldObject.
 const (
-	CustomFieldObjectActivity     CustomFieldObject = "activity"
 	CustomFieldObjectDeal         CustomFieldObject = "deal"
 	CustomFieldObjectLead         CustomFieldObject = "lead"
 	CustomFieldObjectOrganization CustomFieldObject = "organization"
 	CustomFieldObjectPerson       CustomFieldObject = "person"
+	CustomFieldObjectProject      CustomFieldObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the CustomFieldObject enum.
 func (e CustomFieldObject) Valid() bool {
 	switch e {
-	case CustomFieldObjectActivity:
-		return true
 	case CustomFieldObjectDeal:
 		return true
 	case CustomFieldObjectLead:
@@ -3853,6 +3851,8 @@ func (e CustomFieldObject) Valid() bool {
 	case CustomFieldObjectOrganization:
 		return true
 	case CustomFieldObjectPerson:
+		return true
+	case CustomFieldObjectProject:
 		return true
 	default:
 		return false
@@ -10611,18 +10611,16 @@ func (e BookMeetingJSONBodyLinksEntityType) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsObject.
 const (
-	ListCustomFieldsParamsObjectActivity     ListCustomFieldsParamsObject = "activity"
 	ListCustomFieldsParamsObjectDeal         ListCustomFieldsParamsObject = "deal"
 	ListCustomFieldsParamsObjectLead         ListCustomFieldsParamsObject = "lead"
 	ListCustomFieldsParamsObjectOrganization ListCustomFieldsParamsObject = "organization"
 	ListCustomFieldsParamsObjectPerson       ListCustomFieldsParamsObject = "person"
+	ListCustomFieldsParamsObjectProject      ListCustomFieldsParamsObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsObject enum.
 func (e ListCustomFieldsParamsObject) Valid() bool {
 	switch e {
-	case ListCustomFieldsParamsObjectActivity:
-		return true
 	case ListCustomFieldsParamsObjectDeal:
 		return true
 	case ListCustomFieldsParamsObjectLead:
@@ -10630,6 +10628,8 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 	case ListCustomFieldsParamsObjectOrganization:
 		return true
 	case ListCustomFieldsParamsObjectPerson:
+		return true
+	case ListCustomFieldsParamsObjectProject:
 		return true
 	default:
 		return false

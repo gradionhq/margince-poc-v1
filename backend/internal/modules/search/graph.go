@@ -86,6 +86,11 @@ var anchorLinkColumn = map[string]string{
 func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID ids.UUID, maxItems int, within projectScope) ([]graphSection, error) {
 	var sections []graphSection
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// The scope is a read of the project it names, gated before any row
+		// of the walk is touched.
+		if err := within.require(ctx, tx); err != nil {
+			return err
+		}
 		var err error
 		if anchorType == string(datasource.EntityActivity) {
 			sections, err = s.assembleActivityWithin(ctx, tx, anchorID, maxItems, within)

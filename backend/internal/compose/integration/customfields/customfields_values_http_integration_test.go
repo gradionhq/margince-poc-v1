@@ -14,7 +14,9 @@ package customfields
 // the typed 422, never a 500.
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
@@ -280,4 +282,41 @@ func TestCustomFieldValuesHTTP(t *testing.T) {
 	t.Run("all six types round-trip their wire shape", func(t *testing.T) {
 		assertSixTypesWireRoundTrip(t, e)
 	})
+}
+
+// A runtime CHECK the deals module has no message for — the one behind a
+// project picklist — still answers 422, and the body names no schema: the
+// generated constraint name is our column's, and it reaches the operator's
+// log rather than the caller.
+func TestProjectPicklistCheckViolationAnswers422WithoutTheConstraintName(t *testing.T) {
+	e := schemaWiredEnv(t)
+	status, phaseKind, problem := createCustomField(t, e, apptest.AnyMap{
+		"object": "project", "label": "Delivery model", "type": "picklist",
+		"options": []string{"fixed", "t&m"}, "source": "ui",
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("create project field status = %d: %+v", status, problem)
+	}
+	_, orgID := createWithCF(t, e, "/v1/organizations", apptest.AnyMap{"display_name": "Acme", "source": "ui"})
+
+	var raw json.RawMessage
+	status = e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
+		"name": "Cutover", "organization_id": orgID, "source": "ui", phaseKind.ColumnName: "bogus",
+	}, nil, &raw)
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("create with an unsupported option status = %d, want 422 (%s)", status, raw)
+	}
+	var refusal customFieldProblem
+	if err := json.Unmarshal(raw, &refusal); err != nil {
+		t.Fatalf("decoding problem body: %v (%s)", err, raw)
+	}
+	if len(refusal.Details.Errors) != 1 || refusal.Details.Errors[0].Code != "value_not_allowed" ||
+		refusal.Details.Errors[0].Field != "body" {
+		t.Errorf("details.errors = %+v, want one {body value_not_allowed}", refusal.Details.Errors)
+	}
+	for _, leak := range []string{phaseKind.ColumnName, "_check", "cf_"} {
+		if strings.Contains(string(raw), leak) {
+			t.Errorf("the refusal leaks %q to the caller: %s", leak, raw)
+		}
+	}
 }

@@ -75,7 +75,10 @@ type CommitmentSweep struct {
 // CommitmentQuery narrows one sweep to what the caller asked for.
 type CommitmentQuery struct {
 	AssigneeID *ids.UUID
-	Limit      int
+	// WithinProjectID keeps the promises filed under this project or under
+	// none; ones filed under another project drop out.
+	WithinProjectID *ids.UUID
+	Limit           int
 }
 
 // CommitmentLister serves the row-scoped open-promise set. Compose
@@ -128,6 +131,7 @@ func (t reviewCommitments) Spec() mcp.ToolSpec {
 		OpenAPIOp: "listActivities",
 		InputSchema: schema(`{"type":"object","properties":{
 			"assignee_id":{"type":"string","format":"uuid","description":"Narrow to one owner's promises; omit for everyone's"},
+			"project_id":{"type":"string","format":"uuid","description":"Keep only promises filed under this project or under none"},
 			"limit":{"type":"integer","minimum":1,"maximum":50,"description":"Cap the set; omit for 50, the server-side ceiling"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[ReviewCommitmentsResult](),
@@ -141,6 +145,7 @@ func (t reviewCommitments) Spec() mcp.ToolSpec {
 func (t reviewCommitments) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
 		AssigneeID *ids.UUID `json:"assignee_id"`
+		ProjectID  *ids.UUID `json:"project_id"`
 		Limit      int       `json:"limit"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
@@ -149,7 +154,7 @@ func (t reviewCommitments) Handle(ctx context.Context, in json.RawMessage) (json
 	if err := requireCommitmentLimit(args.Limit); err != nil {
 		return nil, err
 	}
-	sweep, err := t.list(ctx, CommitmentQuery{AssigneeID: args.AssigneeID, Limit: args.Limit})
+	sweep, err := t.list(ctx, CommitmentQuery{AssigneeID: args.AssigneeID, WithinProjectID: args.ProjectID, Limit: args.Limit})
 	if err != nil {
 		return nil, err
 	}

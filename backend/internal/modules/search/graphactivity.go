@@ -154,7 +154,7 @@ const linkOnlyRole = -1
 
 // assembleActivityWithin builds the context for an activity anchor.
 func (s *Store) assembleActivityWithin(ctx context.Context, tx pgx.Tx, activityID ids.UUID, maxItems int, within projectScope) ([]graphSection, error) {
-	profile, err := activityProfile(ctx, tx, activityID)
+	profile, err := activityProfile(ctx, tx, activityID, within)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,15 @@ func (s *Store) assembleActivityWithin(ctx context.Context, tx pgx.Tx, activityI
 // EnsureActivityContentVisibleLive, not EnsureActivityContentVisible: this serves stored
 // content, so an archived event must not answer and an unbounded actor does
 // not skip the existence probe.
-func activityProfile(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (graphItem, error) {
+//
+// The project scope is applied HERE, to the anchor itself, and that is what
+// keeps it off the subjects and attendees: an event filed under another
+// project is outside the scoped picture entirely, so it answers the same
+// not-found an invisible one does, before a participant or a linked record
+// is read. Filtering the walk around it while still naming the room and who
+// was in it would hand over the other engagement under a scope that claims
+// to have excluded it.
+func activityProfile(ctx context.Context, tx pgx.Tx, activityID ids.UUID, within projectScope) (graphItem, error) {
 	// Object RBAC before row scope: a caller with no read grant on activity at
 	// all is denied the type (403), not handed the subset of events their row
 	// scope would have admitted.
@@ -226,9 +234,15 @@ func activityProfile(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (graph
 	}
 	var title, kind string
 	var occurredAt time.Time
+	args := []any{activityID}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	filed := ""
+	if clause := within.clause("a", arg); clause != "" {
+		filed = " AND " + clause
+	}
 	err := tx.QueryRow(ctx, `
-		SELECT coalesce(subject, channel_provider, kind), kind, occurred_at
-		  FROM activity WHERE id = $1 AND archived_at IS NULL`, activityID).
+		SELECT coalesce(a.subject, a.channel_provider, a.kind), a.kind, a.occurred_at
+		  FROM activity a WHERE a.id = $1 AND a.archived_at IS NULL`+filed, args...).
 		Scan(&title, &kind, &occurredAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

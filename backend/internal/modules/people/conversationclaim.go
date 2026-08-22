@@ -150,12 +150,37 @@ func claimFingerprint(in ClaimInput) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ClaimsForPerson reads this person's live claims, newest first.
+// claimSourceWithinProject keeps the claims whose source message is filed
+// under ONE project, plus the ones whose source is filed under none: a claim
+// is evidence from a conversation, and a conversation on another engagement
+// is the wrong evidence for this one, while most correspondence on an account
+// carries no project at all and dropping it would empty the card.
+//
+// activities.ActivityWithinProject and search's projectScope.clause are the
+// same predicate. This is a deliberate copy, not an oversight: a module never
+// imports a sibling (ADR-0054), and the rule is about subject matter rather
+// than authority, so platform/auth is the wrong home for it. Change one,
+// change all three.
+func claimSourceWithinProject(projectPos int) string {
+	return fmt.Sprintf(`(
+			EXISTS (
+			    SELECT 1 FROM activity_link scoped
+			    WHERE scoped.activity_id = a.id AND scoped.project_id = $%[1]d)
+			OR NOT EXISTS (
+			    SELECT 1 FROM activity_link filed
+			    WHERE filed.activity_id = a.id AND filed.project_id IS NOT NULL))`,
+		projectPos)
+}
+
+// ClaimsForPerson reads this person's live claims, newest first, optionally
+// narrowed to the claims whose source is filed under one project or under
+// none (claimSourceWithinProject). The caller that narrows owes the project's
+// own read gate first; this read filters, it does not authorize the filter.
 //
 // The activity join is what keeps a claim from outliving its evidence: a claim
 // whose source the caller may not read is not returned, because the claim
 // would otherwise quote a message the reader has no grant for.
-func (s *Store) ClaimsForPerson(ctx context.Context, tx pgx.Tx, personID ids.PersonID, limit int) ([]crmcontracts.ConversationClaim, error) {
+func (s *Store) ClaimsForPerson(ctx context.Context, tx pgx.Tx, personID ids.PersonID, within *ids.ProjectID, limit int) ([]crmcontracts.ConversationClaim, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
@@ -166,15 +191,19 @@ func (s *Store) ClaimsForPerson(ctx context.Context, tx pgx.Tx, personID ids.Per
 	if scope == "" {
 		scope = sqlAlwaysVisible
 	}
+	filed := sqlAlwaysVisible
+	if within != nil {
+		filed = claimSourceWithinProject(arg(*within))
+	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT c.id, c.kind, c.body, c.source_activity_id, c.source_quote,
 		       a.subject, a.occurred_at, c.status, c.due_at, c.needs_review,
 		       c.corrected_at, c.task_activity_id
 		FROM conversation_claim c
 		JOIN activity a ON a.id = c.source_activity_id AND a.archived_at IS NULL
-		WHERE c.person_id = $%d AND c.archived_at IS NULL AND (%s)
+		WHERE c.person_id = $%d AND c.archived_at IS NULL AND (%s) AND %s
 		ORDER BY c.created_at DESC
-		LIMIT %d`, personPos, scope, limit), args...)
+		LIMIT %d`, personPos, scope, filed, limit), args...)
 	if err != nil {
 		return nil, fmt.Errorf("read the conversation claims: %w", err)
 	}

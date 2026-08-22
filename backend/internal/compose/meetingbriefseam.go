@@ -46,11 +46,13 @@ func meetingBriefReader(pool *pgxpool.Pool) agents.MeetingBriefReader {
 		ai.NewFeedbackStore(InstallationDB(pool)), time.Now)
 	service := meetingbrief.NewService(pool, view, peopleStore, time.Now)
 	return func(ctx context.Context, activityID ids.UUID) (agents.MeetingBriefResult, error) {
-		brief, err := service.Get(ctx, activityID)
+		brief, filed, err := service.GetFiled(ctx, activityID)
 		if err != nil {
 			return agents.MeetingBriefResult{}, err
 		}
-		return agentMeetingBrief(brief), nil
+		out := agentMeetingBrief(brief)
+		out.ProjectID = filed
+		return out, nil
 	}
 }
 

@@ -3595,7 +3595,7 @@ public.saved_view.query jsonb NOT NULL gen=- def=-
 public.saved_view.resource text NOT NULL gen=- def=-
 public.saved_view.saved_view_owner_fkey FOREIGN KEY (owner_id) REFERENCES app_user(id) ON DELETE CASCADE
 public.saved_view.saved_view_pkey PRIMARY KEY (id)
-public.saved_view.saved_view_resource_check CHECK ((resource = ANY (ARRAY['people'::text, 'organizations'::text, 'deals'::text, 'activities'::text, 'leads'::text, 'partners'::text])))
+public.saved_view.saved_view_resource_check CHECK ((resource = ANY (ARRAY['people'::text, 'organizations'::text, 'deals'::text, 'activities'::text, 'leads'::text, 'partners'::text, 'projects'::text])))
 public.saved_view.saved_view_shared_scope_check CHECK ((shared_scope = ANY (ARRAY['private'::text, 'team'::text, 'workspace'::text])))
 public.saved_view.shared_scope text NOT NULL gen=- def='private'::text
 public.saved_view.trg_saved_view_updated CREATE TRIGGER trg_saved_view_updated BEFORE UPDATE ON public.saved_view FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version()
