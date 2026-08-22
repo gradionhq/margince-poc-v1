@@ -24,11 +24,15 @@ import (
 // The gate is the ACTIVITY read, not a gate of its own: every claim quotes a
 // captured message, and a reader who may not open the message may not read the
 // quote. The store's own query carries that predicate.
-func (s *Service) claimsSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, out *crmcontracts.Person360) error {
+//
+// A project scope narrows it like the timeline: a claim is evidence from a
+// conversation, so one made on another engagement's mail is not this
+// engagement's commitment.
+func (s *Service) claimsSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, opts AssembleOptions, out *crmcontracts.Person360) error {
 	if err := requireRead(ctx, "activity"); err != nil {
 		return err
 	}
-	claims, err := s.people.ClaimsForPerson(ctx, tx, personID, sectionCap)
+	claims, err := s.people.ClaimsForPerson(ctx, tx, personID, opts.ProjectID, sectionCap)
 	if err != nil {
 		return err
 	}

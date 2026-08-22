@@ -40,6 +40,12 @@ type ProjectActivityFacts struct {
 	// OpenCommitments is every open task filed under the project — the
 	// whole set, where the commitments section carries a page of it.
 	OpenCommitments int
+	// AwaitingDecision is every live activity the attribution ladder's
+	// uncertain rung proposed for THIS project and nobody has answered yet —
+	// a question standing in somebody's inbox, not a link. Counted only while
+	// the offer is still decidable: a candidate whose approval expired or was
+	// redacted is nobody's to answer any more.
+	AwaitingDecision int
 }
 
 // ProjectActivityFactsTx counts inside a caller-opened transaction. The
@@ -112,5 +118,37 @@ func (s *Store) ProjectActivityFactsTx(ctx context.Context, tx pgx.Tx, id ids.Pr
 	if err != nil {
 		return ProjectActivityFacts{}, err
 	}
+	facts.AwaitingDecision, err = awaitingAttributionDecision(ctx, tx, id)
+	if err != nil {
+		return ProjectActivityFacts{}, err
+	}
 	return facts, nil
+}
+
+// awaitingAttributionDecision counts the pending project_link_candidate rows
+// for the project whose offer a human can still answer, over the caller's
+// activity row scope — a candidate on a message the caller's timeline would
+// not show is not a question they can see, so it is not counted for them.
+func awaitingAttributionDecision(ctx context.Context, tx pgx.Tx, id ids.ProjectID) (int, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	projectPos := arg(id)
+	where := []string{"c.status = 'pending'", "a.archived_at IS NULL"}
+	scope, err := auth.ActivityContentClause(ctx, "a", arg)
+	if err != nil {
+		return 0, err
+	}
+	if scope != "" {
+		where = append(where, scope)
+	}
+	var n int
+	err = tx.QueryRow(ctx, sprintf(`
+		SELECT count(*)
+		  FROM project_link_candidate c
+		  JOIN activity a ON a.id = c.activity_id
+		  JOIN approval ap ON ap.id = c.proposal_id
+		 WHERE c.project_id = $%[1]d
+		   AND ap.status = 'pending' AND ap.expires_at > now()
+		   AND %[2]s`, projectPos, strings.Join(where, " AND ")), args...).Scan(&n)
+	return n, err
 }

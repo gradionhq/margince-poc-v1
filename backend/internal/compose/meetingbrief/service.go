@@ -9,6 +9,7 @@ package meetingbrief
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/compose/claims"
+	"github.com/gradionhq/margince/backend/internal/compose/person360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -36,14 +38,14 @@ type (
 // rather than imported so this package composes one seam instead of
 // re-deriving a dozen gated reads that could disagree with the page's own.
 type Assembler interface {
-	Assemble(ctx context.Context, personID ids.PersonID) (crmcontracts.Person360, error)
+	AssembleScoped(ctx context.Context, personID ids.PersonID, opts person360.AssembleOptions) (crmcontracts.Person360, error)
 }
 
 // ClaimReader reads one person's live conversation claims inside a caller's
 // transaction. It is the people store's own read, injected because a module is
 // never imported across a compose seam by another module.
 type ClaimReader interface {
-	ClaimsForPerson(ctx context.Context, tx pgx.Tx, personID ids.PersonID, limit int) ([]crmcontracts.ConversationClaim, error)
+	ClaimsForPerson(ctx context.Context, tx pgx.Tx, personID ids.PersonID, within *ids.ProjectID, limit int) ([]crmcontracts.ConversationClaim, error)
 }
 
 // briefClaims bounds the commitments the brief reads per attendee. The person
@@ -72,6 +74,15 @@ func NewService(pool *pgxpool.Pool, view Assembler, claimReader ClaimReader, now
 // caller's own composite read, which carries its own row scope. A brief can
 // therefore only describe records this caller could open themselves.
 func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.MeetingBrief, error) {
+	brief, _, err := s.GetFiled(ctx, activityID)
+	return brief, err
+}
+
+// GetFiled is Get plus the project the meeting is filed under, nil when it
+// is filed under none. The brief scopes itself by that project without
+// saying so on the wire; a surface that lets a caller ask for a project
+// needs it to tell an agreeing request from a disagreeing one.
+func (s *Service) GetFiled(ctx context.Context, activityID ids.UUID) (crmcontracts.MeetingBrief, *ids.UUID, error) {
 	// NO human gate. It used to read "an agent reading records through a
 	// passport has the records themselves", and that argument is what produced
 	// two answers to one question: agents could not reach this, so a second
@@ -88,17 +99,27 @@ func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.Me
 	// meetings at all, and a reader with no activity grant would otherwise
 	// reach the brief through a path every sibling read refuses.
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
-		return crmcontracts.MeetingBrief{}, err
+		return crmcontracts.MeetingBrief{}, nil, err
 	}
 	// The brief names the people in the room and what they promised, so it is
 	// also a person read — and the caller must hold that grant for the same
 	// reason the person page does.
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
-		return crmcontracts.MeetingBrief{}, err
+		return crmcontracts.MeetingBrief{}, nil, err
 	}
 	in, err := s.assembleInput(ctx, activityID)
 	if err != nil {
-		return crmcontracts.MeetingBrief{}, err
+		return crmcontracts.MeetingBrief{}, nil, err
+	}
+	var filed *ids.UUID
+	if in.Project != nil {
+		id, err := ids.Parse(in.Project.ID)
+		if err != nil {
+			// The id travels through the brief's input as the string the
+			// header line prints, and is parsed back here.
+			return crmcontracts.MeetingBrief{}, nil, fmt.Errorf("meeting brief: project id %q read off the meeting is not an id: %w", in.Project.ID, err)
+		}
+		filed = &id
 	}
 	return crmcontracts.MeetingBrief{
 		ActivityId: openapi_types.UUID(activityID),
@@ -109,7 +130,7 @@ func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.Me
 		// say so, rather than passing a composition off as a written brief.
 		GeneratedBy: crmcontracts.Deterministic,
 		Sections:    wireSections(Deterministic(in)),
-	}, nil
+	}, filed, nil
 }
 
 // assembleInput gathers everything the brief is written from.
@@ -148,12 +169,29 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 		// record this brief has no reason to touch.
 		return in, nil
 	}
-	view, err := s.view.Assemble(ctx, ids.From[ids.PersonKind](room.Attendees[0].PersonID))
+	// Scoped to the meeting's own project, like the claims above: the lead
+	// attendee's page read for a meeting on one engagement must not describe
+	// the account's other engagement as this room's recent history.
+	view, err := s.view.AssembleScoped(ctx, ids.From[ids.PersonKind](room.Attendees[0].PersonID),
+		person360.AssembleOptions{ProjectID: filedProject(room)})
 	if err != nil {
 		return Input{}, err
 	}
 	WithCounterpart(&in, view)
 	return in, nil
+}
+
+// filedProject is the project the meeting is filed under, as the scope the
+// brief's reads are narrowed by; nil for a meeting filed under none, which
+// narrows nothing. The filing comes off the meeting's own link, so no gate
+// beyond the meeting's is owed: a caller who may read the meeting may read
+// which project it is filed under.
+func filedProject(room meeting) *ids.ProjectID {
+	if room.Project == nil {
+		return nil
+	}
+	id := ids.From[ids.ProjectKind](room.Project.ID)
+	return &id
 }
 
 // claimsPerAttendee reads what each person in the room has promised, asked and
@@ -162,7 +200,7 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 func (s *Service) claimsPerAttendee(ctx context.Context, tx pgx.Tx, room meeting) (map[ids.UUID][]crmcontracts.ConversationClaim, error) {
 	out := make(map[ids.UUID][]crmcontracts.ConversationClaim, len(room.Attendees))
 	for _, attendee := range room.Attendees {
-		found, err := s.claims.ClaimsForPerson(ctx, tx, ids.From[ids.PersonKind](attendee.PersonID), briefClaims)
+		found, err := s.claims.ClaimsForPerson(ctx, tx, ids.From[ids.PersonKind](attendee.PersonID), filedProject(room), briefClaims)
 		if err != nil {
 			return nil, err
 		}

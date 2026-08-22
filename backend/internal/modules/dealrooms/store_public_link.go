@@ -20,6 +20,7 @@ package dealrooms
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -145,4 +146,70 @@ func reissueFor(ctx context.Context, tx pgx.Tx, seat crmcontracts.DealRoomPartic
 		return IssuedInvitation{}, err
 	}
 	return IssuedInvitation{Participant: current, Credential: raw, ExpiresAt: expiresAt}, nil
+}
+
+// NoteLinkRequest stamps every live seat with this address as having asked
+// for a link, whether or not a credential can then be mailed: the seat that
+// still holds a live link gets no mail, an installation without a relay mails
+// nothing at all, and in both the seller is the only one who can hand that
+// buyer a link by hand — so the ask has to be visible to them. The caller
+// binds linkRequestPrincipal first; any other actor is refused.
+//
+// Audited per seat with the timestamp before and after, and no event: a
+// buyer asking for a link is not a change to the room's record.
+func (s *Store) NoteLinkRequest(ctx context.Context, email string) error {
+	actor, err := storekit.Actor(ctx)
+	if err != nil {
+		return err
+	}
+	if actor.ID != linkRequestPrincipal.ID {
+		return apperrors.ErrPermissionDenied
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		seats, err := stampLinkRequest(ctx, tx, email)
+		if err != nil {
+			return err
+		}
+		for _, st := range seats {
+			if _, err := storekit.Audit(ctx, tx, "update", participantObject, st.id,
+				map[string]any{fieldRoomID: st.roomID, "link_requested_at": st.before},
+				map[string]any{fieldRoomID: st.roomID, "link_requested_at": st.after}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// linkRequestStamp is one seat's stamp, before and after, for its audit image.
+type linkRequestStamp struct {
+	id, roomID ids.UUID
+	before     *time.Time
+	after      time.Time
+}
+
+func stampLinkRequest(ctx context.Context, tx pgx.Tx, email string) ([]linkRequestStamp, error) {
+	rows, err := tx.Query(ctx, `
+		UPDATE deal_room_participant p SET link_requested_at = now()
+		  FROM deal_room r, deal_room_participant was
+		 WHERE r.id = p.room_id AND was.id = p.id
+		   AND p.email = $1 AND p.revoked_at IS NULL AND NOT p.preview
+		   AND r.archived_at IS NULL AND r.state <> 'archived'
+		 RETURNING p.id, p.room_id, was.link_requested_at, p.link_requested_at`, email)
+	if err != nil {
+		return nil, fmt.Errorf("note a deal room link request: %w", err)
+	}
+	defer rows.Close()
+	var seats []linkRequestStamp
+	for rows.Next() {
+		var st linkRequestStamp
+		if err := rows.Scan(&st.id, &st.roomID, &st.before, &st.after); err != nil {
+			return nil, fmt.Errorf("scan a deal room link request: %w", err)
+		}
+		seats = append(seats, st)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("note a deal room link request: %w", err)
+	}
+	return seats, nil
 }

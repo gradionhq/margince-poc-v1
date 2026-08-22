@@ -61,6 +61,11 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc.WithEffect(orgNameProposalKind, orgNameAcceptEffect(svc, store))
 	svc.WithEffect(linkedInMatchKind, linkedInMatchAcceptEffect(svc, store))
 	svc.WithEffect(lifecycleProposalKind, lifecycleAcceptEffect(svc, store))
+	// Both halves, like the held message below: a "no" here has work to do —
+	// the candidate ledger records the refusal — where most proposals' "no" is
+	// the absence of an effect.
+	svc.WithEffect(approvals.KindProjectAttribution, projectAttributionConfirmEffect(svc))
+	svc.WithDeclinedEffect(approvals.KindProjectAttribution, projectAttributionDeclineEffect())
 	// A held message is the one kind with BOTH halves registered, because its
 	// subject is already waiting: Accept re-arms it, Reject abandons it, and a
 	// card whose buttons only dismissed it would report a decision the message
@@ -83,6 +88,16 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(InstallationDB(pool), DealsInstallation())))
 	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(InstallationDB(pool))))
 	return svc
+}
+
+// expiringApprovalsService is the engine the clock's sweep runs on: every
+// expiry effect a kind registers, and nothing else. Split from the deciding
+// registration because the two services run in different processes — the
+// sweep is a worker job — and a hook registered only on the deciding one
+// would be absent exactly where the expiry happens.
+func expiringApprovalsService(pool *pgxpool.Pool) *approvals.Service {
+	return approvals.NewService(InstallationDB(pool)).
+		WithExpiredEffect(approvals.KindProjectAttribution, projectAttributionExpiredEffect())
 }
 
 // coldstartAcceptEffect builds the approvals.ApprovedEffect compose

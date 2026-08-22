@@ -776,6 +776,129 @@ export const vi = {
   "room.readOnly": "Bạn có thể xem phòng này nhưng không thể thay đổi.",
   "room.finished":
     "Phòng này đã kết thúc, những gì đã chia sẻ giờ là hồ sơ lưu.",
+  "room.card.title": "Deal Room",
+  "room.card.people": "{invited} được mời · {active} đã đăng nhập",
+  "room.card.unpublished": "thay đổi chưa công bố",
+  "room.card.lastSeen": "Người mua xem lần cuối: {when}",
+  "room.card.open": "Mở Deal Room",
+  "room.create.sub":
+    "Một không gian người mua vào bằng liên kết để đọc những gì bạn chia sẻ và trao đổi về chúng.",
+  "room.create.open": "Mở một Deal Room",
+  "room.create.confirm": "Mở",
+  "room.create.titleLabel": "Tiêu đề phòng",
+  "room.create.titleHint":
+    "Điều người mua thấy làm tiêu đề. Bạn có thể đổi sau.",
+  "room.create.defaultTitle": "{deal}",
+  "roompage.none":
+    "Giao dịch này chưa có Deal Room. Hãy mở một phòng từ trang giao dịch.",
+  "roompage.backToDeal": "← Về giao dịch",
+  "roompage.accessMenu": "Quyền vào phòng",
+  "roompage.pause": "Tạm dừng",
+  "roompage.pauseHint":
+    "Người mua giữ liên kết nhưng thấy trang tạm dừng cho đến khi bạn tiếp tục.",
+  "roompage.resume": "Tiếp tục",
+  "roompage.close": "Đóng phòng",
+  "roompage.closeHint":
+    "Người mua vẫn đọc được; không thể thêm hay nói gì nữa.",
+  "roompage.setExpiry": "Đặt ngày kết thúc",
+  "roompage.setExpiryHint": "Quyền truy cập dừng vào ngày đó.",
+  "roompage.closeTitle": "Đóng Deal Room này?",
+  "roompage.closeBody":
+    "Người mua vẫn đọc được những gì đã công bố. Sau đó không nhận thêm tài liệu, bình luận hay quyết định. Bạn vẫn có thể thu hồi người và cấp liên kết.",
+  "roompage.expiryLabel": "Quyền truy cập kết thúc vào",
+  "roompage.expiryHint": "Để trống nếu không có ngày kết thúc.",
+  "roompage.banner.draft":
+    "Chưa công bố. Người mua không thấy gì cho đến khi bạn công bố.",
+  "roompage.banner.paused":
+    "Đã tạm dừng. Người mua thấy trang tạm dừng cho đến khi bạn tiếp tục.",
+  "roompage.banner.closed":
+    "Đã đóng. Người mua vẫn đọc được những gì đã công bố; không nhận thêm gì.",
+  "roompage.banner.expired":
+    "Đã hết hạn. Liên kết của người mua không còn hoạt động.",
+  "roompage.banner.archived": "Đã lưu trữ. Không ai vào được phòng này.",
+  "roompage.banner.liveUntil":
+    "Đang hoạt động. Quyền truy cập kết thúc vào {when}.",
+  "roompage.text.title": "Tiêu đề và lời chào",
+  "roompage.text.sub":
+    "Điều người mua đọc đầu tiên. Đến với họ ở lần công bố tiếp theo.",
+  "roompage.text.titleLabel": "Tiêu đề phòng",
+  "roompage.text.welcomeLabel": "Lời chào",
+  "roompage.publish": "Công bố",
+  "roompage.publishFinished":
+    "Phòng này đã kết thúc và không nhận thêm bản phát hành.",
+  "roompage.publishNothing": "Không có gì thay đổi kể từ bản phát hành trước.",
+  "roompage.publishChecking": "Đang kiểm tra thay đổi…",
+  "roompage.publishUnknown": "Không đọc được thay đổi; hãy tải lại trang.",
+  "roompage.publishTitle": "Công bố những thay đổi này cho người mua?",
+  "roompage.publishNoteLabel": "Ghi chú lưu hồ sơ (tùy chọn)",
+  "publish.title": "Công bố",
+  "publish.sub":
+    "Người mua sẽ thấy gì khác đi, và những gì đã gửi đi cho đến nay.",
+  "publish.pendingBadge": "Thay đổi chưa công bố",
+  "publish.noChanges": "Không có gì thay đổi kể từ bản phát hành trước.",
+  "publish.release": "Bản phát hành {no}",
+  "publish.readers": "{count} người mua đã đăng nhập.",
+  "publish.change.title": "Tiêu đề đã thay đổi.",
+  "publish.change.welcome": "Lời chào đã thay đổi.",
+  "publish.change.added": "Đã thêm: {title}",
+  "publish.change.removed": "Đã gỡ: {title}",
+  "publish.change.retitled": "Đã đổi tên: {title}",
+  "publish.change.regrouped": "Đã chuyển nhóm: {title}",
+  "publish.change.reordered": "Đã sắp xếp lại: {title}",
+  "publish.change.ineligible":
+    "Sẽ bị loại (đã ẩn, bỏ liên kết hoặc xóa trên giao dịch): {title}",
+  "publish.change.other": "Đã thay đổi: {title}",
+  "access.title": "Quyền truy cập",
+  "access.sub": "Ai được vào, và mỗi người được làm gì.",
+  "access.invite": "Mời",
+  "access.empty": "Chưa mời ai.",
+  "access.noReviewer":
+    "Có tài liệu nhưng không ai có thể xác nhận chúng. Hãy mời một người duyệt, hoặc đổi ai đó thành người duyệt.",
+  "access.cap.view": "Chỉ đọc",
+  "access.cap.viewHint": "Có thể đọc tài liệu và cuộc trao đổi.",
+  "access.cap.comment": "Đọc và bình luận",
+  "access.cap.commentHint": "Cũng có thể đặt câu hỏi và trả lời.",
+  "access.cap.reviewer": "Đọc, bình luận và xác nhận tài liệu",
+  "access.cap.reviewerHint":
+    "Cũng có thể yêu cầu sửa một tài liệu hoặc xác nhận một phiên bản.",
+  "access.state.invited": "đã mời",
+  "access.state.active": "đã đăng nhập",
+  "access.state.revoked": "đã thu hồi",
+  "access.lastSeen": "xem lần cuối {when}",
+  "access.linkRequested":
+    "Đã xin liên kết mới {when}. Hãy cấp một liên kết và tự gửi.",
+  "access.rowActions": "Thao tác cho {name}",
+  "access.issueLink": "Cấp liên kết mới",
+  "access.changeCapability": "Đổi quyền",
+  "access.revoke": "Thu hồi quyền truy cập",
+  "access.inviteTitle": "Mời ai đó vào Deal Room",
+  "access.inviteConfirm": "Mời",
+  "access.done": "Xong",
+  "access.save": "Lưu",
+  "access.nameLabel": "Tên",
+  "access.emailLabel": "Địa chỉ email",
+  "access.capabilityLegend": "Họ được làm gì?",
+  "access.inviteNote":
+    "Bạn sẽ nhận được liên kết để sao chép. Nếu đã cấu hình gửi thư, liên kết cũng được gửi cho họ.",
+  "access.issued.title": "Liên kết cho {name}",
+  "access.issued.mailed":
+    "Đã gửi tới {email}. Bạn cũng có thể sao chép bên dưới.",
+  "access.issued.notMailed": "Chưa gửi thư. Hãy sao chép liên kết và tự gửi.",
+  "access.issued.linkLabel": "Liên kết của họ",
+  "access.issued.copy": "Sao chép liên kết",
+  "access.issued.copied": "Đã sao chép",
+  "access.issued.copyFailed":
+    "Không sao chép được; hãy chọn liên kết và sao chép.",
+  "access.issued.oneTime":
+    "Liên kết cá nhân, dùng một lần, trên một thiết bị. Mỗi người cần lời mời riêng.",
+  "access.issueLinkTitle": "Cấp liên kết mới cho {name}",
+  "access.issueLinkBody":
+    "Liên kết hiện có sẽ ngừng hoạt động. Bạn sẽ nhận liên kết mới để sao chép.",
+  "access.revokeTitle": "Thu hồi quyền truy cập của {name}?",
+  "access.neverSignedIn": "chưa từng đăng nhập",
+  "access.revokeBody":
+    "Phiên của họ kết thúc ngay và liên kết ngừng hoạt động. Bình luận của họ vẫn hiển thị và ghi tên. Không thể khôi phục bằng cách xin liên kết.",
+  "access.changeCapabilityTitle": "{name} được làm gì?",
   "room.state.draft": "Bản nháp",
   "room.state.building": "Đang dựng",
   "room.state.ready": "Sẵn sàng",
@@ -1034,6 +1157,7 @@ export const vi = {
   "approval.kind.site_lead": "Thêm người tìm thấy trên website",
   "approval.kind.capture_counterparty": "Thêm người từ email của bạn",
   "approval.kind.org_name_promotion": "Đổi tên một công ty",
+  "approval.kind.project_attribution": "Xếp vào một dự án",
   "approval.kind.lifecycle_change": "Giai đoạn công ty",
   "approval.kind.transcript_proposal":
     "Thêm bước tiếp theo từ bản ghi cuộc trò chuyện",
@@ -4092,9 +4216,9 @@ export const vi = {
   "room.docs.empty": "Chưa có tài liệu nào trong phòng.",
   "room.docs.fileLabel": "Tệp từ giao dịch này",
   "room.docs.fileHint":
-    "Hãy tải tệp lên giao dịch trước; chỉ tệp của giao dịch mới có thể đưa vào phòng.",
+    "Mọi thứ trong khu Tệp của giao dịch đều có thể đưa vào: tệp tải lên và tệp đi kèm email.",
   "room.docs.pickFile": "Chọn tệp",
-  "room.docs.noFiles": "Giao dịch này chưa có tệp nào",
+  "room.docs.noFiles": "Khu Tệp của giao dịch đang trống",
   "room.docs.groupLabel": "Nhóm",
   "room.docs.add": "Thêm vào phòng",
   "room.docs.remove": "Gỡ {title} khỏi phòng",
@@ -5888,7 +6012,7 @@ export const vi = {
   "project.rollups.never": "chưa có gì",
   "project.rollups.activityCount": "Hoạt động",
   "project.coverage":
-    "{attributed} đã gán · {nearby} ở người và thương vụ của dự án này chưa gán",
+    "{attributed} đã gán · {awaiting} chờ quyết định · {nearby} ở người và thương vụ của dự án này chưa gán",
   "project.history.title": "Lịch sử giai đoạn",
   "project.history.empty": "Chưa ghi nhận thay đổi giai đoạn nào.",
   "project.history.current": "hiện tại",

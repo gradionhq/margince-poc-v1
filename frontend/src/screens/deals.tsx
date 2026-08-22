@@ -89,13 +89,13 @@ import { DealNextAction } from "./dealnextaction";
 // has one. Its own component so the screen's render stays readable.
 function DealAside({
   dealId,
-  hasDealRoom,
-}: Readonly<{ dealId: string; hasDealRoom: boolean }>) {
+  dealName,
+}: Readonly<{ dealId: string; dealName: string }>) {
   return (
     <>
       <DealNextAction dealId={dealId} />
       <DealHealthCard dealId={dealId} />
-      {hasDealRoom ? <DealRoomAside dealId={dealId} /> : null}
+      <DealRoomAside dealId={dealId} dealName={dealName} />
     </>
   );
 }
@@ -108,7 +108,7 @@ import {
   StartDeliveryPrompt,
   useOpenProjects,
 } from "./dealproject";
-import { DealRoomAside, useDealRoomPresence } from "./dealroom";
+import { DealRoomAside } from "./dealroom";
 import { EditAction } from "./edit";
 import { EntityRef, useEntityName } from "./entityref";
 import { RecordHistoryTab } from "./history";
@@ -3195,7 +3195,6 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   // Asked here rather than inside the aside, because an element is truthy
   // whatever it renders: a slot filled with a component that draws nothing
   // still reserves the aside column and its landmark.
-  const hasDealRoom = useDealRoomPresence(id, !overlay);
   const orgs = useQuery({
     queryKey: ["organizations"],
     queryFn: async () => {
@@ -3334,7 +3333,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               )}
               aside={
                 overlay ? undefined : (
-                  <DealAside dealId={id} hasDealRoom={hasDealRoom} />
+                  <DealAside dealId={id} dealName={deal.name} />
                 )
               }
               asideLabel={t("nba.title")}

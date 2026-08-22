@@ -9013,7 +9013,7 @@ paths:
         - name: object
           in: query
           required: true
-          schema: { type: string, enum: [person, organization, deal, lead, activity] }
+          schema: { type: string, enum: [person, organization, deal, lead, project] }
           description: Target core object (CUSTOM-FIELDS-PARAM-2).
         - name: status
           in: query
@@ -11783,6 +11783,29 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /deal-rooms/{id}/changes:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: getDealRoomChanges
+      summary: What the buyer would see differently if the room were published now.
+      description: |
+        The draft diffed against the latest release: the title or welcome text
+        changed, documents added, removed, retitled or regrouped, and documents that
+        are no longer eligible (archived, unlinked from the deal, or hidden from it)
+        and would drop out of the next release. A room never published reports every
+        document as added. This is what the Publish button is disabled on when empty.
+      responses:
+        '200':
+          description: The pending changes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomChanges' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /deal-rooms/{id}/releases:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -21065,11 +21088,14 @@ components:
         scope. `attributed` is every live activity linked to the project (its whole lifecycle,
         and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
         activity linked to one of the project's deals or stakeholder people that carries no
-        project link at all — the filing debt a rep can work down.
-      required: [attributed, unattributed_nearby]
+        project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+        live activity the attribution ladder proposed for this project and nobody has answered
+        yet: a `project_attribution` approval standing in an inbox, not a link.
+      required: [attributed, unattributed_nearby, awaiting_decision]
       properties:
         attributed: { type: integer, minimum: 0 }
         unattributed_nearby: { type: integer, minimum: 0 }
+        awaiting_decision: { type: integer, minimum: 0 }
 
     Project360Rollups:
       type: object
@@ -23985,7 +24011,7 @@ components:
         id: { type: string, format: uuid }
         object:
           type: string
-          enum: [person, organization, deal, lead, activity]
+          enum: [person, organization, deal, lead, project]
           description: The existing core object this field is added to (CUSTOM-FIELDS-PARAM-2).
         label: { type: string, description: Display label; the only thing a rename updates. }
         slug: { type: string, description: Admin-facing key the column_name derives from. }
@@ -24043,7 +24069,7 @@ components:
       properties:
         object:
           type: string
-          enum: [person, organization, deal, lead, activity]
+          enum: [person, organization, deal, lead, project]
         label: { type: string }
         type:
           type: string
@@ -26608,6 +26634,14 @@ components:
             move: it is what fixes their address, because redirecting a link somebody
             has already signed in with would hand their standing access to whoever the
             new address belongs to.
+        link_requested_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: |
+            When this person last asked for a new link from the public page. The
+            seller sees it beside the row so a buyer whose mail never arrived (no
+            relay configured, or a link still standing) can be handed one by hand.
         revoked_at:
           type: [string, 'null']
           format: date-time
@@ -26680,6 +26714,32 @@ components:
             credential are still recorded, and the caller is expected to deliver the
             link itself rather than being told the invitation failed.
       additionalProperties: false
+
+    DealRoomChanges:
+      type: object
+      required: [has_changes, changes]
+      properties:
+        has_changes: { type: boolean }
+        release_no:
+          type: [integer, 'null']
+          description: The release the draft was compared against; null when the room was never published.
+        changes:
+          type: array
+          items: { $ref: '#/components/schemas/DealRoomChange' }
+
+    DealRoomChange:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          description: >-
+            One of title_changed, welcome_changed, document_added, document_removed,
+            document_retitled, document_regrouped, document_reordered,
+            document_ineligible. A plain string
+            for the reason DealRoomParticipantCapability gives.
+        document_id: { type: [string, 'null'], format: uuid }
+        title: { type: [string, 'null'], description: 'The document title the sentence names: current, or as last published.' }
 
     DealRoomReleaseListResponse:
       type: object

@@ -113,15 +113,11 @@ func TestProjectCheckErrorNamesEachRule(t *testing.T) {
 		}
 	}
 
-	// An unmapped CHECK is still a business-rule breach, so it stays a
-	// typed error naming the rule — never an opaque server fault.
-	fallback := projectCheckError("project_some_future_rule", "")
-	var unnamed *ProjectConstraintError
-	if !errors.As(fallback, &unnamed) {
-		t.Fatalf("an unmapped constraint produced %T, want *ProjectConstraintError", fallback)
-	}
-	if unnamed.Constraint != "project_some_future_rule" {
-		t.Errorf("fallback named %q, want the constraint it was given", unnamed.Constraint)
+	// An unmapped CHECK is nobody's message to give: the caller returns the
+	// database error and httperr's constraint net answers the 422, keeping
+	// the constraint name in the log rather than in the refusal.
+	if fallback := projectCheckError("project_some_future_rule", ""); fallback != nil {
+		t.Fatalf("an unmapped constraint produced %v, want nil so the database error reaches the constraint net", fallback)
 	}
 }
 

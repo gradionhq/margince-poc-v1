@@ -6,6 +6,7 @@ package search
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -98,6 +100,44 @@ type searchBranch struct {
 	// narrowing belongs to whichever of them is being discovered. A fixed
 	// alias silently narrowed the wrong table.
 	extraWhere string
+	// snippetFor, when set, renders the excerpt for this caller in place of
+	// `snippet` — for an excerpt that reads a SECOND record and so owes that
+	// record's own gate. `snippet` stays the ungated floor it falls back to.
+	snippetFor func(ctx context.Context, fallback string, arg func(any) int) (string, error)
+}
+
+// projectSnippet is `key · company`, with the company named only to a caller
+// who may read that organization: naming the account behind a project is a
+// read of the organization row, and a searcher with no organization grant,
+// or one outside the row's scope — a capture-private company another rep
+// owns — gets the key alone. coalesce keeps the key when the scoped subselect
+// finds no row; concat_ws skips a NULL key rather than printing the dot.
+func projectSnippet(ctx context.Context, fallback string, arg func(any) int) (string, error) {
+	// A denied organization grant is the key-only excerpt, not a refusal:
+	// the hit is the project's, which the caller may read.
+	if denied := auth.Require(ctx, "organization", principal.ActionRead); denied != nil {
+		if !errors.Is(denied, apperrors.ErrPermissionDenied) {
+			return "", denied
+		}
+		return fallback, nil
+	}
+	scope, err := auth.ScopeClauseFor(ctx, "organization", "o", arg)
+	if err != nil {
+		return "", err
+	}
+	if scope != "" {
+		scope = " AND " + scope
+	}
+	return fmt.Sprintf(`coalesce((SELECT concat_ws(' · ', t.key, o.display_name) FROM organization o
+			WHERE o.id = t.organization_id AND o.archived_at IS NULL%s), %s)`, scope, fallback), nil
+}
+
+// excerpt renders the branch's snippet expression for this caller.
+func (b searchBranch) excerpt(ctx context.Context, arg func(any) int) (string, error) {
+	if b.snippetFor == nil {
+		return b.snippet, nil
+	}
+	return b.snippetFor(ctx, b.snippet, arg)
 }
 
 // narrowing renders this branch's discovery narrowing for one alias, and the
@@ -137,7 +177,11 @@ var searchBranches = []searchBranch{
 	{entity: "organization", table: "organization", title: "display_name", snippet: "NULL", extraWhere: "NOT %s.is_anchor"},
 	{entity: "deal", table: "deal", title: "name", snippet: "NULL"},
 	{entity: "lead", table: "lead", title: "coalesce(full_name, company_name, email)", snippet: "NULL"},
-	{entity: "project", table: "project", title: "name", snippet: "NULL"},
+	// A project's name alone does not say which account's work it is, and two
+	// accounts can run a "Phase 2". The excerpt is the key and the company,
+	// which is how a person tells the hits apart; see projectSnippet for the
+	// gate the company name passes first.
+	{entity: "project", table: "project", title: "name", snippet: "t.key", snippetFor: projectSnippet},
 	// `entity` stays a literal and `table` takes the constant, which looks
 	// inconsistent and is not: TestContextAnchorEnumMatchesTheSearchableEntities
 	// AST-parses the `entity` values and can only read literals, while goconst
@@ -254,13 +298,17 @@ func admittedBranchSQL(ctx context.Context, types []string, qPos int, arg func(a
 				`(websearch_to_tsquery('simple', f_unaccent($%[1]d)) || websearch_to_tsquery('simple', f_fold_apostrophes($%[1]d)) || websearch_to_tsquery('german', f_unaccent($%[1]d)) || websearch_to_tsquery('english', f_unaccent($%[1]d)))`,
 				qPos)
 		}
+		snippet, err := branch.excerpt(ctx, arg)
+		if err != nil {
+			return nil, err
+		}
 		sql := fmt.Sprintf(
 			`SELECT '%s'::text AS rtype, t.id, %s AS title, %s AS snippet,
 			        ts_rank_cd(t.search_tsv, %s)::float8 AS score
 			 FROM %s t
 			 WHERE t.search_tsv @@ %s
 			   AND t.archived_at IS NULL`,
-			branch.entity, branch.title, branch.snippet, tsquery, branch.table, tsquery)
+			branch.entity, branch.title, snippet, tsquery, branch.table, tsquery)
 		if narrowing := branch.narrowing("t"); narrowing != "" {
 			sql += " AND " + narrowing
 		}

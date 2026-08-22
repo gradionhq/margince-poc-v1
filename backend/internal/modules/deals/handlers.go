@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -111,10 +112,16 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	// Defense-in-depth net: a CHECK constraint is a business rule, so a
 	// breach that slipped past the per-path validations still answers a
-	// typed 422 naming the rule — never an opaque 500.
+	// typed 422 — never an opaque 500. The constraint's NAME stays out of
+	// the body: it is schema, and the one a caller can reach here is a
+	// runtime `cf_*_check` behind a picklist custom field, whose name
+	// tells them our column and nothing they can act on. The operator's
+	// log gets the name instead.
 	if constraint, ok := storekit.CheckViolation(err); ok {
-		httperr.Write(w, r, httperr.Validation(constraint, "constraint_violated",
-			"the request violates the "+constraint+" business rule"))
+		slog.WarnContext(r.Context(), "a schema rule with no message of its own refused a write",
+			"method", r.Method, "path", r.URL.Path, "constraint", constraint)
+		httperr.Write(w, r, httperr.Validation("body", "value_not_allowed",
+			"a value violates a rule on this record; check the picklist options"))
 		return
 	}
 	httperr.Write(w, r, err)

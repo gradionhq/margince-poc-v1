@@ -5,7 +5,17 @@ package search
 
 // Narrowing a context walk to ONE body of work.
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+)
 
 // projectScope narrows a walk to one body of work. The zero value scopes
 // nothing, which is the ordinary read.
@@ -16,6 +26,34 @@ import "fmt"
 // refuses to be told about the other engagement.
 type projectScope struct {
 	projectID string
+}
+
+// require is the authority check the scope owes before it filters on a
+// project. Filtering by a record is a read of it: the scoped walk answers
+// "these touches are filed under this project", which a caller with no
+// project grant may not learn, and a caller outside its row scope may not
+// learn it exists. Object denial is a 403; an invisible, archived or missing
+// project is the same existence-hiding 404 a direct read gives.
+//
+// The LIVE probe, because EnsureVisible lets an unbounded caller through
+// without touching the table — a scope naming a project nobody ever created
+// would then answer a full picture as though the filter had matched.
+//
+// activities.RequireProjectScope is the same check for the timeline list and
+// the record pages; a module never imports a sibling (ADR-0054), so this is
+// its deliberate copy. Change one, change both.
+func (s projectScope) require(ctx context.Context, tx pgx.Tx) error {
+	if s.projectID == "" {
+		return nil
+	}
+	projectID, err := ids.ParseAs[ids.ProjectKind](s.projectID)
+	if err != nil {
+		return err
+	}
+	if err := auth.Require(ctx, string(datasource.RecordProject), principal.ActionRead); err != nil {
+		return err
+	}
+	return auth.EnsureVisibleLive(ctx, tx, string(datasource.RecordProject), projectID.UUID)
 }
 
 // clause renders the exclusion the scope stands for, or "" when there is no

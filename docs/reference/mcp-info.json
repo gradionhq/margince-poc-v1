@@ -10,16 +10,16 @@
   "totals": {
     "tools": 56,
     "resources": 8,
-    "tool_catalog_bytes": 152817,
+    "tool_catalog_bytes": 153412,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 38981,
-    "largest_tool_bytes": 6414,
+    "approx_wire_tokens_total": 39130,
+    "largest_tool_bytes": 6473,
     "largest_tool": "read_project_360",
     "tool_catalog_composition": {
-      "description_bytes": 35469,
-      "input_schema_bytes": 31695,
-      "output_schema_bytes": 73615,
-      "description_plus_input_schema_bytes": 67164
+      "description_bytes": 35597,
+      "input_schema_bytes": 32056,
+      "output_schema_bytes": 73721,
+      "description_plus_input_schema_bytes": 67653
     }
   },
   "tools": {
@@ -1207,6 +1207,11 @@
               "maximum": 20,
               "minimum": 1,
               "type": "integer"
+            },
+            "project_id": {
+              "description": "Keep only what is filed under this project or under none",
+              "format": "uuid",
+              "type": "string"
             },
             "record_id": {
               "format": "uuid",
@@ -4496,6 +4501,11 @@
               "minimum": 1,
               "type": "integer"
             },
+            "project_id": {
+              "description": "Keep only what is filed under this project or under none",
+              "format": "uuid",
+              "type": "string"
+            },
             "record_id": {
               "format": "uuid",
               "type": "string"
@@ -4533,6 +4543,10 @@
                       "type": "string"
                     },
                     "generated_by": {
+                      "type": "string"
+                    },
+                    "project_id": {
+                      "format": "uuid",
                       "type": "string"
                     },
                     "sections": {
@@ -7028,12 +7042,16 @@
                     "attributed": {
                       "type": "integer"
                     },
+                    "awaiting_decision": {
+                      "type": "integer"
+                    },
                     "unattributed_nearby": {
                       "type": "integer"
                     }
                   },
                   "required": [
                     "attributed",
+                    "awaiting_decision",
                     "unattributed_nearby"
                   ],
                   "type": "object"
@@ -8303,6 +8321,11 @@
               "maximum": 50,
               "minimum": 1,
               "type": "integer"
+            },
+            "project_id": {
+              "description": "Keep only promises filed under this project or under none",
+              "format": "uuid",
+              "type": "string"
             }
           },
           "type": "object"
@@ -8660,7 +8683,7 @@
           "readOnlyHint": true,
           "title": "Search for relevant material"
         },
-        "description": "Find the records most relevant to a description, ranked by meaning as well as by wording, each with the excerpt that ranked it. Ranked, never exhaustive: records that also match may be absent, and no count of them exists. You can narrow it to particular record types, but not by field, date or owner, and it does not group or total. Use query_workspace when the question has conditions, a date bound or a related record to reach through, and search_records when you have the exact name or phrase. Read `coverage`: `partial_degraded` means `notes` matters, and `semantic_ranking_degraded_to_lexical` there means the ranking fell back to word overlap. Keep each hit's record_type and id. (Governance: runs immediately; requires passport scope \"read\".)",
+        "description": "Find the records most relevant to a description, ranked by meaning as well as by wording, each with the excerpt that ranked it. Ranked, never exhaustive: records that also match may be absent, and no count of them exists. You can narrow it to particular record types, but not by field, date or owner, and it does not group or total. It cannot be narrowed to a project either: the index carries no project column, so use catch_me_up_on with project_id for that. Use query_workspace when the question has conditions, a date bound or a related record to reach through, and search_records when you have the exact name or phrase. Read `coverage`: `partial_degraded` means `notes` matters, and `semantic_ranking_degraded_to_lexical` there means the ranking fell back to word overlap. Keep each hit's record_type and id. (Governance: runs immediately; requires passport scope \"read\".)",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {

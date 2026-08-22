@@ -3315,18 +3315,16 @@ func (e CreateContractRequestValueBasis) Valid() bool {
 
 // Defines values for CreateCustomFieldRequestObject.
 const (
-	CreateCustomFieldRequestObjectActivity     CreateCustomFieldRequestObject = "activity"
 	CreateCustomFieldRequestObjectDeal         CreateCustomFieldRequestObject = "deal"
 	CreateCustomFieldRequestObjectLead         CreateCustomFieldRequestObject = "lead"
 	CreateCustomFieldRequestObjectOrganization CreateCustomFieldRequestObject = "organization"
 	CreateCustomFieldRequestObjectPerson       CreateCustomFieldRequestObject = "person"
+	CreateCustomFieldRequestObjectProject      CreateCustomFieldRequestObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the CreateCustomFieldRequestObject enum.
 func (e CreateCustomFieldRequestObject) Valid() bool {
 	switch e {
-	case CreateCustomFieldRequestObjectActivity:
-		return true
 	case CreateCustomFieldRequestObjectDeal:
 		return true
 	case CreateCustomFieldRequestObjectLead:
@@ -3334,6 +3332,8 @@ func (e CreateCustomFieldRequestObject) Valid() bool {
 	case CreateCustomFieldRequestObjectOrganization:
 		return true
 	case CreateCustomFieldRequestObjectPerson:
+		return true
+	case CreateCustomFieldRequestObjectProject:
 		return true
 	default:
 		return false
@@ -3834,18 +3834,16 @@ func (e CreateVoiceBuildRequestReason) Valid() bool {
 
 // Defines values for CustomFieldObject.
 const (
-	CustomFieldObjectActivity     CustomFieldObject = "activity"
 	CustomFieldObjectDeal         CustomFieldObject = "deal"
 	CustomFieldObjectLead         CustomFieldObject = "lead"
 	CustomFieldObjectOrganization CustomFieldObject = "organization"
 	CustomFieldObjectPerson       CustomFieldObject = "person"
+	CustomFieldObjectProject      CustomFieldObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the CustomFieldObject enum.
 func (e CustomFieldObject) Valid() bool {
 	switch e {
-	case CustomFieldObjectActivity:
-		return true
 	case CustomFieldObjectDeal:
 		return true
 	case CustomFieldObjectLead:
@@ -3853,6 +3851,8 @@ func (e CustomFieldObject) Valid() bool {
 	case CustomFieldObjectOrganization:
 		return true
 	case CustomFieldObjectPerson:
+		return true
+	case CustomFieldObjectProject:
 		return true
 	default:
 		return false
@@ -10611,18 +10611,16 @@ func (e BookMeetingJSONBodyLinksEntityType) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsObject.
 const (
-	ListCustomFieldsParamsObjectActivity     ListCustomFieldsParamsObject = "activity"
 	ListCustomFieldsParamsObjectDeal         ListCustomFieldsParamsObject = "deal"
 	ListCustomFieldsParamsObjectLead         ListCustomFieldsParamsObject = "lead"
 	ListCustomFieldsParamsObjectOrganization ListCustomFieldsParamsObject = "organization"
 	ListCustomFieldsParamsObjectPerson       ListCustomFieldsParamsObject = "person"
+	ListCustomFieldsParamsObjectProject      ListCustomFieldsParamsObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsObject enum.
 func (e ListCustomFieldsParamsObject) Valid() bool {
 	switch e {
-	case ListCustomFieldsParamsObjectActivity:
-		return true
 	case ListCustomFieldsParamsObjectDeal:
 		return true
 	case ListCustomFieldsParamsObjectLead:
@@ -10630,6 +10628,8 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 	case ListCustomFieldsParamsObjectOrganization:
 		return true
 	case ListCustomFieldsParamsObjectPerson:
+		return true
+	case ListCustomFieldsParamsObjectProject:
 		return true
 	default:
 		return false
@@ -15492,6 +15492,26 @@ type DealRoomAuthor struct {
 	Side string `json:"side"`
 }
 
+// DealRoomChange defines model for DealRoomChange.
+type DealRoomChange struct {
+	DocumentId *openapi_types.UUID `json:"document_id,omitempty"`
+
+	// Kind One of title_changed, welcome_changed, document_added, document_removed, document_retitled, document_regrouped, document_reordered, document_ineligible. A plain string for the reason DealRoomParticipantCapability gives.
+	Kind string `json:"kind"`
+
+	// Title The document title the sentence names: current, or as last published.
+	Title *string `json:"title,omitempty"`
+}
+
+// DealRoomChanges defines model for DealRoomChanges.
+type DealRoomChanges struct {
+	Changes    []DealRoomChange `json:"changes"`
+	HasChanges bool             `json:"has_changes"`
+
+	// ReleaseNo The release the draft was compared against; null when the room was never published.
+	ReleaseNo *int `json:"release_no,omitempty"`
+}
+
 // DealRoomComment defines model for DealRoomComment.
 type DealRoomComment struct {
 	// Author Who spoke — which side, and the name that side knows them by.
@@ -15673,6 +15693,11 @@ type DealRoomParticipant struct {
 
 	// LastSeenAt When they last made a request. Null if they have never signed in.
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
+
+	// LinkRequestedAt When this person last asked for a new link from the public page. The
+	// seller sees it beside the row so a buyer whose mail never arrived (no
+	// relay configured, or a link still standing) can be handed one by hand.
+	LinkRequestedAt *time.Time `json:"link_requested_at,omitempty"`
 
 	// RevokedAt When their access was taken away. The row survives revocation so their
 	// comments and decisions stay attributed to a name.
@@ -20563,7 +20588,9 @@ type Project360 struct {
 	// scope. `attributed` is every live activity linked to the project (its whole lifecycle,
 	// and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
 	// activity linked to one of the project's deals or stakeholder people that carries no
-	// project link at all — the filing debt a rep can work down.
+	// project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+	// live activity the attribution ladder proposed for this project and nobody has answered
+	// yet: a `project_attribution` approval standing in an inbox, not a link.
 	Coverage *Project360Coverage `json:"coverage,omitempty"`
 
 	// Deals The deals rolled up to the project, newest first, every status.
@@ -20623,9 +20650,12 @@ type Project360Commitment struct {
 // scope. `attributed` is every live activity linked to the project (its whole lifecycle,
 // and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
 // activity linked to one of the project's deals or stakeholder people that carries no
-// project link at all — the filing debt a rep can work down.
+// project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+// live activity the attribution ladder proposed for this project and nobody has answered
+// yet: a `project_attribution` approval standing in an inbox, not a link.
 type Project360Coverage struct {
 	Attributed         int `json:"attributed"`
+	AwaitingDecision   int `json:"awaiting_decision"`
 	UnattributedNearby int `json:"unattributed_nearby"`
 }
 
@@ -30995,6 +31025,14 @@ func (a *DealRoomParticipant) UnmarshalJSON(b []byte) error {
 		delete(object, "last_seen_at")
 	}
 
+	if raw, found := object["link_requested_at"]; found {
+		err = json.Unmarshal(raw, &a.LinkRequestedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'link_requested_at': %w", err)
+		}
+		delete(object, "link_requested_at")
+	}
+
 	if raw, found := object["revoked_at"]; found {
 		err = json.Unmarshal(raw, &a.RevokedAt)
 		if err != nil {
@@ -31106,6 +31144,13 @@ func (a DealRoomParticipant) MarshalJSON() ([]byte, error) {
 		object["last_seen_at"], err = json.Marshal(a.LastSeenAt)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'last_seen_at': %w", err)
+		}
+	}
+
+	if a.LinkRequestedAt != nil {
+		object["link_requested_at"], err = json.Marshal(a.LinkRequestedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'link_requested_at': %w", err)
 		}
 	}
 
@@ -36248,6 +36293,9 @@ type ServerInterface interface {
 	// Edit a Deal Room's draft text (partial).
 	// (PATCH /deal-rooms/{id})
 	UpdateDealRoom(w http.ResponseWriter, r *http.Request, id Id, params UpdateDealRoomParams)
+	// What the buyer would see differently if the room were published now.
+	// (GET /deal-rooms/{id}/changes)
+	GetDealRoomChanges(w http.ResponseWriter, r *http.Request, id Id)
 	// Freeze the room's content, keeping buyer access.
 	// (POST /deal-rooms/{id}/close)
 	CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
@@ -38069,6 +38117,12 @@ func (_ Unimplemented) GetDealRoom(w http.ResponseWriter, r *http.Request, id Id
 // Edit a Deal Room's draft text (partial).
 // (PATCH /deal-rooms/{id})
 func (_ Unimplemented) UpdateDealRoom(w http.ResponseWriter, r *http.Request, id Id, params UpdateDealRoomParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What the buyer would see differently if the room were published now.
+// (GET /deal-rooms/{id}/changes)
+func (_ Unimplemented) GetDealRoomChanges(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -45623,6 +45677,40 @@ func (siw *ServerInterfaceWrapper) UpdateDealRoom(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateDealRoom(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDealRoomChanges operation middleware
+func (siw *ServerInterfaceWrapper) GetDealRoomChanges(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealRoomChanges(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -61871,6 +61959,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/deal-rooms/{id}", wrapper.UpdateDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deal-rooms/{id}/changes", wrapper.GetDealRoomChanges)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deal-rooms/{id}/close", wrapper.CloseDealRoom)
