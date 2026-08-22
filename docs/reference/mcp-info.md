@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 56 |
 | Resources | 8 |
-| Tool catalog | 149.2 KB |
+| Tool catalog | 149.3 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 38981 |
+| Approx. wire tokens | 38996 |
 | Largest tool | `read_project_360` (6.3 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -97,7 +97,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`read_brief`](#read_brief) | Read the morning brief | yes | [`ui://margince/account-brief.html`](#account_brief_view) | 2.8 KB |
 | [`read_import_report`](#read_import_report) | Read an import report | yes |  | 2.5 KB |
 | [`read_import_run`](#read_import_run) | Read an import run | yes |  | 1.4 KB |
-| [`read_project_360`](#read_project_360) | Read a project's page | yes |  | 6.2 KB |
+| [`read_project_360`](#read_project_360) | Read a project's page | yes |  | 6.3 KB |
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
 | [`relink_activities`](#relink_activities) | Re-associate a set of activities to a record |  |  | 2.0 KB |
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.2 KB |
@@ -7648,12 +7648,16 @@ Read one project's whole page: company, phase history with time per phase, deals
             "attributed": {
               "type": "integer"
             },
+            "awaiting_decision": {
+              "type": "integer"
+            },
             "unattributed_nearby": {
               "type": "integer"
             }
           },
           "required": [
             "attributed",
+            "awaiting_decision",
             "unattributed_nearby"
           ],
           "type": "object"

@@ -99,6 +99,7 @@ func (a *assembly) readCoverage() error {
 	a.out.Coverage = &crmcontracts.Project360Coverage{
 		Attributed:         facts.Attributed,
 		UnattributedNearby: facts.UnattributedNearby,
+		AwaitingDecision:   facts.AwaitingDecision,
 	}
 	return nil
 }

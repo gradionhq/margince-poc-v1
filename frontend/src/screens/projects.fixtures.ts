@@ -75,7 +75,11 @@ export function project360(overrides: Partial<Project360> = {}): Project360 {
     documents: emptySection,
     commitments: emptySection,
     activities: emptySection,
-    coverage: { attributed: 142, unattributed_nearby: 23 },
+    coverage: {
+      attributed: 142,
+      unattributed_nearby: 23,
+      awaiting_decision: 8,
+    },
     rollups: {
       open_deal_value: { amount_minor: 1_200_000, currency: "EUR" },
       won_deal_value: { amount_minor: 450_000, currency: "EUR" },

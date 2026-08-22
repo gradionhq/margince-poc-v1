@@ -20,6 +20,10 @@ import { vi as viCatalog } from "./vi";
 // name" from "missed translation" at a glance — an addition to any group
 // must be defensible on the same grounds as its neighbours.
 const KEPT_IN_ENGLISH = new Set<string>([
+  // The product name of the buyer surface, and a title that is only the
+  // deal's own name in a placeholder.
+  "room.card.title",
+  "room.create.defaultTitle",
   // Pure punctuation layouts: every word in them is a placeholder, so there is
   // nothing to translate and a "translation" could only reorder the slots.
   "today.exchange.subjectWhen",

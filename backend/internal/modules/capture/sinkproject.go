@@ -64,6 +64,14 @@ type StampProjectCorrespondence func(ctx context.Context, tx pgx.Tx, activityID 
 type ProjectAttribution struct {
 	Keys  ProjectKeyMatcher
 	Stamp StampProjectCorrespondence
+	// Candidates and Propose are the uncertain rung's two halves
+	// (projectcandidate.go): which live projects the message reaches, and the
+	// engine that asks a human. Both or neither — a finder with nobody to ask
+	// would compute candidates nothing records, and a proposer with nothing to
+	// propose is inert — so the rung runs only when both are wired, and the
+	// zero value leaves the ladder at its three deterministic rungs.
+	Candidates ProjectCandidateFinder
+	Propose    ProjectCandidateProposer
 }
 
 // WithProjectAttribution returns a copy that files captured activities under a
@@ -75,6 +83,8 @@ func (s *Sink) WithProjectAttribution(attribution ProjectAttribution) *Sink {
 	c := *s
 	c.projectKeys = attribution.Keys
 	c.stampProject = attribution.Stamp
+	c.projectCandidates = attribution.Candidates
+	c.proposeCandidate = attribution.Propose
 	return &c
 }
 
@@ -90,16 +100,57 @@ func (s *Sink) attributeProject(ctx context.Context, rec connector.NormalizedRec
 		return
 	}
 	activityID := ids.From[ids.ActivityKind](ref.ID)
+	var verdict ladderVerdict
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		projectID, err := s.decideProject(ctx, tx, rec, activityID)
-		if err != nil || projectID.IsZero() {
+		var err error
+		verdict, err = s.decideProject(ctx, tx, rec, activityID)
+		if err != nil || verdict.project.IsZero() {
 			return err
 		}
-		return linkActivityToProject(ctx, tx, activityID, projectID, s.stampProject)
+		return linkActivityToProject(ctx, tx, activityID, verdict.project, s.stampProject)
 	})
+	if err == nil && verdict.asks {
+		// After the ladder's transaction, not inside it: staging takes the
+		// approval row lock itself and has no in-transaction form
+		// (StageUnlessDeclined), and the ladder wrote nothing a candidate
+		// would need to be atomic with.
+		err = s.offerCandidate(ctx, verdict.candidate)
+	}
 	if err != nil {
 		s.logProjectAttributionFault(ctx, rec, err)
 	}
+}
+
+// offerCandidate asks a human about the uncertain rung's conclusion and records
+// that it asked. Staging first, then the ledger row naming the staged offer:
+// the engine is the one that knows whether this pairing was already refused,
+// and a candidate row for a question nobody is being asked would count as
+// awaiting a decision forever.
+//
+// A crash between the two leaves an offer with no ledger row. The decision
+// still applies — the effect carries everything it needs in the payload and
+// resolves the ledger by proposal id, finding nothing — so the only loss is the
+// coverage count, and the next capture in the thread opens a fresh question.
+func (s *Sink) offerCandidate(ctx context.Context, candidate ProjectCandidate) error {
+	proposalID, staged, err := s.proposeCandidate.ProposeProjectCandidate(ctx, candidate)
+	if err != nil {
+		return fmt.Errorf("capture: offering the project candidate: %w", err)
+	}
+	if !staged {
+		return nil
+	}
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+		return recordCandidate(ctx, tx, candidate, proposalID)
+	})
+}
+
+// ladderVerdict is what one run of the ladder concluded: a project to file
+// under, a candidate to ask about (asks), or neither. Never both — a candidate
+// is only computed when every deterministic rung found nothing.
+type ladderVerdict struct {
+	project   ids.UUID
+	candidate ProjectCandidate
+	asks      bool
 }
 
 // logProjectAttributionFault records a failed attribution in system_log, on its
@@ -147,17 +198,22 @@ func (s *Sink) logProjectAttributionFault(ctx context.Context, rec connector.Nor
 // ever be: uq_activity_link_project admits one per activity, and
 // linkActivityToProject writes ON CONFLICT DO NOTHING. Replacing a filing is a
 // human's relink alone.
-func (s *Sink) decideProject(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, activityID ids.ActivityID) (ids.UUID, error) {
+//
+// Below the three deterministic rungs sits the uncertain one
+// (candidateProject), which reaches the verdict as a CANDIDATE rather than a
+// project: it is asked only when the rungs above found nothing, and what it
+// finds is offered to a human, never filed.
+func (s *Sink) decideProject(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, activityID ids.ActivityID) (ladderVerdict, error) {
 	fields, isActivity := rec.Fields.(ActivityFields)
 	if !isActivity {
-		return ids.Nil, nil
+		return ladderVerdict{}, nil
 	}
 	grant, err := readableProjectScope(ctx)
 	if err != nil || grant.deniedOutright {
 		// No project grant at all: this principal may not learn a project id,
 		// let alone have one copied onto their timeline. Not a fault — a role
 		// that never sees projects is a legitimate role.
-		return ids.Nil, err
+		return ladderVerdict{}, err
 	}
 	for _, rung := range []func() (ids.UUID, error){
 		func() (ids.UUID, error) { return threadProject(ctx, tx, rec, fields, activityID) },
@@ -166,10 +222,11 @@ func (s *Sink) decideProject(ctx context.Context, tx pgx.Tx, rec connector.Norma
 	} {
 		projectID, err := rung()
 		if err != nil || !projectID.IsZero() {
-			return projectID, err
+			return ladderVerdict{project: projectID}, err
 		}
 	}
-	return ids.Nil, nil
+	candidate, asks, err := s.candidateProject(ctx, tx, rec, fields, activityID)
+	return ladderVerdict{candidate: candidate, asks: asks}, err
 }
 
 // subjectProject asks the key matcher about the subject's bracketed keys. A

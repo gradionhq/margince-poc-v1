@@ -157,10 +157,13 @@ type Project360Activity struct {
 
 // Project360Filing is how well the project's correspondence is filed:
 // attributed is every activity on the project, unattributed_nearby every
-// activity on its deals or stakeholders that carries no project link at all.
+// activity on its deals or stakeholders that carries no project link at all,
+// awaiting_decision every activity the attribution ladder proposed for it
+// that a human has yet to answer.
 type Project360Filing struct {
 	Attributed         int `json:"attributed"`
 	UnattributedNearby int `json:"unattributed_nearby"`
+	AwaitingDecision   int `json:"awaiting_decision"`
 }
 
 // Project360Rollups is the header figures: money in the installation's base
@@ -236,6 +239,7 @@ func project360Result(page crmcontracts.Project360) Project360Result {
 	if page.Coverage != nil {
 		out.Filing = &Project360Filing{
 			Attributed: page.Coverage.Attributed, UnattributedNearby: page.Coverage.UnattributedNearby,
+			AwaitingDecision: page.Coverage.AwaitingDecision,
 		}
 	}
 	if page.Rollups != nil {

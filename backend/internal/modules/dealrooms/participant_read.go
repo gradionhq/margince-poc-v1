@@ -31,7 +31,7 @@ const participantObject = "deal_room_participant"
 // neither reads as nulls, which the scanner turns into the `none` delivery
 // state rather than an absent field.
 const participantColumns = `p.id, p.room_id, p.full_name, p.email, p.capability,
-	p.invited_by, p.revoked_at, p.source, p.captured_by, p.created_at, p.updated_at,
+	p.invited_by, p.revoked_at, p.source, p.captured_by, p.created_at, p.updated_at, p.link_requested_at,
 	latest.expires_at, latest.sent_at, latest.delivered_at, latest.failed_at,
 	latest.consumed_at, latest.superseded_at,
 	(SELECT max(s.last_seen_at) FROM deal_room_session s
@@ -151,7 +151,7 @@ func scanParticipant(row rowScanner) (crmcontracts.DealRoomParticipant, error) {
 		everSignedIn bool
 	)
 	if err := row.Scan(&id, &roomID, &out.FullName, &out.Email, &capability,
-		&invitedBy, &out.RevokedAt, &out.Source, &capturedBy, &out.CreatedAt, &out.UpdatedAt,
+		&invitedBy, &out.RevokedAt, &out.Source, &capturedBy, &out.CreatedAt, &out.UpdatedAt, &out.LinkRequestedAt,
 		&delivery.expiresAt, &delivery.sentAt, &delivery.deliveredAt, &delivery.failedAt,
 		&delivery.consumedAt, &delivery.supersededAt, &out.LastSeenAt, &everSignedIn); err != nil {
 		return crmcontracts.DealRoomParticipant{}, err
