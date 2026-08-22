@@ -11151,6 +11151,12 @@ paths:
         - name: state
           in: query
           schema: { $ref: '#/components/schemas/DealRoomState' }
+        - name: participant_email
+          in: query
+          schema: { type: string, format: email }
+          description: >-
+            Only rooms this address may currently enter — a live, non-revoked seat.
+            The admin's path to "which rooms is this departed contact still in".
       responses:
         '200':
           description: A page of Deal Rooms.
@@ -13313,6 +13319,30 @@ paths:
       responses:
         '204': { description: Listed again. }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /deals/{id}/brief:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: getDealBrief
+      summary: The deal in a few cited sentences — where it stands, who is on it, what is open, what happened last.
+      description: |
+        Deterministic: every sentence restates a record the caller can open and
+        cites it, so the card renders the same whichever writer produced it. No
+        inference — a sentence nobody can check is worth less than the number it
+        paraphrases. Reads the deal, its health, its timeline, its open tasks and
+        its Deal Room through their own gated reads; a record the caller cannot
+        see never reaches a sentence.
+      responses:
+        '200':
+          description: The brief.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealBrief' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /deals/{id}/next-best-action:
@@ -20122,6 +20152,33 @@ components:
             other kind. It carries the number rather than a second `kind`, so the 30-day and
             60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
             61 days cannot appear on one surface and not the other.
+
+    DealBrief:
+      type: object
+      required: [deal_id, generated_at, generated_by, sections]
+      properties:
+        deal_id: { type: string, format: uuid }
+        generated_at: { type: string, format: date-time }
+        generated_by: { $ref: '#/components/schemas/WrittenBy' }
+        sections:
+          type: array
+          items: { $ref: '#/components/schemas/DealBriefSection' }
+
+    DealBriefSection:
+      type: object
+      required: [kind, sentences]
+      properties:
+        kind:
+          type: string
+          enum: [standing, activity, open, room]
+          description: |
+            `standing` — stage, value, close date, health.
+            `activity` — what happened last and what is booked next.
+            `open` — the tasks still owed.
+            `room` — the Deal Room: state, what the buyer said, what they decided.
+        sentences:
+          type: array
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
 
     DealNextBestAction:
       type: object

@@ -94,12 +94,14 @@ function DealAside({
   return (
     <>
       <DealNextAction dealId={dealId} />
+      <DealBriefCard dealId={dealId} />
       <DealHealthCard dealId={dealId} />
       <DealRoomAside dealId={dealId} dealName={dealName} />
     </>
   );
 }
 
+import { DealBriefCard } from "./dealbrief";
 import { DealFiles } from "./dealfiles";
 import {
   DealProjectChip,

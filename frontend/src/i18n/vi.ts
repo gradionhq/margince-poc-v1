@@ -903,6 +903,13 @@ export const vi = {
   "access.revokeBody":
     "Phiên của họ kết thúc ngay và liên kết ngừng hoạt động. Bình luận của họ vẫn hiển thị và ghi tên. Không thể khôi phục bằng cách xin liên kết.",
   "access.changeCapabilityTitle": "{name} được làm gì?",
+  "persondealrooms.title": "Deal Room",
+  "persondealrooms.sub": "Các phòng liên hệ này vẫn có thể vào.",
+  "persondealrooms.open": "Mở",
+  "persondealrooms.seatGone": "Địa chỉ này không còn chỗ trong phòng đó.",
+  "persondealrooms.cut":
+    "Chỉ hiện các phòng đầu tiên; liên hệ này còn ở trong các phòng khác.",
+  "persondealrooms.revokeTitle": "Thu hồi quyền vào {room}?",
   "room.state.draft": "Bản nháp",
   "room.state.building": "Đang dựng",
   "room.state.ready": "Sẵn sàng",
@@ -4269,6 +4276,14 @@ export const vi = {
   "room.decisions.empty": "Chưa có quyết định.",
   "room.decisions.confirm_version": "đã xác nhận phiên bản",
   "room.decisions.request_changes": "đã yêu cầu thay đổi",
+  "dealbrief.title": "Tóm tắt giao dịch",
+  "dealbrief.sub":
+    "Giao dịch đang ở đâu, bằng những câu bạn có thể kiểm chứng.",
+  "dealbrief.empty": "Chưa có gì trong hồ sơ.",
+  "dealbrief.standing": "Hiện trạng",
+  "dealbrief.activity": "Gần nhất và tiếp theo",
+  "dealbrief.open": "Còn nợ",
+  "dealbrief.room": "Deal Room",
   "nba.title": "Bước tiếp theo",
   "nba.sub": "Một việc cần làm trên giao dịch này, và lý do.",
   "nba.createTask": "Thêm việc này",
