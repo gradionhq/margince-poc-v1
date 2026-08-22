@@ -2197,6 +2197,8 @@ paths:
 
         Human-only: a brief is a reading aid for a person, and an agent reading records
         through a passport has the records themselves.
+      parameters:
+        - $ref: '#/components/parameters/BriefProjectId'
       responses:
         '200':
           description: The account brief.
@@ -2216,6 +2218,8 @@ paths:
       description: |
         The explicit refresh behind the brief card's "outdated — refresh". It reads and
         writes only the cached brief: no record field changes, and nothing is sent.
+      parameters:
+        - $ref: '#/components/parameters/BriefProjectId'
       responses:
         '200':
           description: The regenerated brief.
@@ -2320,6 +2324,15 @@ paths:
               required: [question]
               properties:
                 question: { $ref: '#/components/schemas/OrganizationQuestion' }
+                project_id:
+                  type: [string, 'null']
+                  format: uuid
+                  description: >-
+                    Which body of work the question is about. When set, the answer is written
+                    from the 360 scoped to that project — activity filed under another project
+                    drops out, activity filed under none stays — and the answer's `scope` says so.
+                    Must be a live project the caller can read; an invisible or archived one is
+                    `404`, the same answer a direct read gives.
       responses:
         '200':
           description: The answer.
@@ -3917,6 +3930,16 @@ paths:
         human-only until that split was found; nothing about it widened when the gate came
         off, because every gate that decides what a brief may say is the caller's own and a
         passport is already capped by the granting human's live seat.
+      parameters:
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: >-
+            The body of work to prepare for, for a meeting filed under NO project. A meeting
+            filed under a project scopes itself by that filing: naming the same project here
+            is accepted, naming a different one is `404` — the brief for a meeting about one
+            engagement is not available as a brief about another. Must be a live project the
+            caller can read.
       responses:
         '200':
           description: The pre-meeting brief.
@@ -15005,6 +15028,16 @@ components:
 
   # --------------------------- shared parameters ----------------------------
   parameters:
+    BriefProjectId:
+      name: project_id
+      in: query
+      schema: { type: string, format: uuid }
+      description: >-
+        Narrow the brief to one body of work: it is written from the 360 scoped to that
+        project — activity filed under another project drops out, activity filed under none
+        stays — and the response's `scope` says so. The cache fingerprint carries the
+        project, so a scoped and an unscoped brief never serve each other. Must be a live
+        project the caller can read; an invisible or archived one is `404`.
     ProfileFieldKey:
       name: field
       in: path
@@ -18091,6 +18124,25 @@ components:
         generated_at: { type: string, format: date-time }
         generated_by: { $ref: '#/components/schemas/WrittenBy' }
 
+    ProjectScope:
+      type: object
+      description: |
+        What a read narrowed to one project reports about the narrowing, so a surface can
+        say "Scoped to KEY · N of M activities" from the server's own count rather than
+        guessing. Present only when the request named a `project_id`.
+
+        `in_scope` counts the activities the scoped read could see — filed under this
+        project or under none — and `total` the same anchor's activities unscoped, both
+        under the caller's own row scope. Both are ABSENT, not zero, when the caller holds
+        no activity grant: the project is still named, the count is not invented.
+      required: [project_id, name]
+      properties:
+        project_id: { type: string, format: uuid }
+        name: { type: string }
+        key: { type: [string, 'null'], description: 'The subject-line handle, when the project has one.' }
+        in_scope: { type: integer, minimum: 0 }
+        total: { type: integer, minimum: 0 }
+
     OrganizationBrief:
       type: object
       description: |
@@ -18102,6 +18154,9 @@ components:
         organization_id: { type: string, format: uuid }
         generated_at: { type: string, format: date-time }
         generated_by: { $ref: '#/components/schemas/WrittenBy' }
+        scope:
+          $ref: '#/components/schemas/ProjectScope'
+          description: The project this was narrowed to, when the request named one.
         sections:
           type: array
           description: |
@@ -18162,6 +18217,9 @@ components:
         question: { $ref: '#/components/schemas/OrganizationQuestion' }
         generated_at: { type: string, format: date-time }
         generated_by: { $ref: '#/components/schemas/WrittenBy' }
+        scope:
+          $ref: '#/components/schemas/ProjectScope'
+          description: The project this was narrowed to, when the request named one.
         sentences:
           type: array
           description: |
@@ -18947,6 +19005,9 @@ components:
           format: date-time
           description: The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
         organization: { $ref: '#/components/schemas/Organization' }
+        scope:
+          $ref: '#/components/schemas/ProjectScope'
+          description: The project this was narrowed to, when the request named one.
         last_inbound_at:
           type: [string, 'null']
           format: date-time
@@ -19182,6 +19243,9 @@ components:
           format: date-time
           description: The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
         person: { $ref: '#/components/schemas/Person' }
+        scope:
+          $ref: '#/components/schemas/ProjectScope'
+          description: The project this was narrowed to, when the request named one.
         last_inbound_at:
           type: [string, 'null']
           format: date-time
@@ -19629,6 +19693,9 @@ components:
           format: date-time
           description: The instant this read assembled the brief. Always now — nothing here is stored.
         generated_by: { $ref: '#/components/schemas/WrittenBy' }
+        scope:
+          $ref: '#/components/schemas/ProjectScope'
+          description: The project this was narrowed to, when the request named one.
         sections:
           type: array
           description: >-
@@ -22057,6 +22124,9 @@ components:
             sanitiser and no HTML+text send pair, so a formatted draft would be a wire
             change rather than a toolbar.
         to: { type: array, items: { type: string, format: email } }
+        scope:
+          $ref: '#/components/schemas/ProjectScope'
+          description: The project this was narrowed to, when the request named one.
         reasoning:
           type: array
           description: |

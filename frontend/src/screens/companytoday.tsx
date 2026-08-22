@@ -113,10 +113,10 @@ export function TodayOnThisAccount({
   // is happening on this account" — all three draw a short section, and only
   // one of them is a fact about the account.
   failed: boolean;
+  // Opens the pre-meeting brief for the day's meeting.
   onPrepareMeeting?: (activityId: string) => void;
-  // Starting a message from the account. Named separately from
-  // onPrepareMeeting because the two open the composer on different grounds:
-  // one anchors on a meeting, this one on the account and its recipient.
+  // Starting a message from the account: opens the composer anchored on the
+  // account and its recipient.
   onDraftTo?: (personId: string) => void;
   onOpenRecord?: (entityType: string, entityId: string) => void;
   // Performing a suggestion's own action. The composer, the deal and the

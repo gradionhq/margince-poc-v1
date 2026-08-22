@@ -32,7 +32,7 @@ import (
 // before this meeting, and whether they ever have. Any captured activity the
 // reader took part in counts, whichever way it went: an outbound-only gap
 // does not reset the baseline.
-func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, now time.Time) (time.Time, bool, error) {
+func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, project *ids.ProjectID, now time.Time) (time.Time, bool, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.UserID == (ids.UUID{}) || len(room.Room) == 0 {
 		// An agent on a passport reads as the human behind it; a principal with
@@ -58,17 +58,18 @@ func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, no
 	if scope == "" {
 		scope = scopeAll
 	}
-	// The meeting's project narrows the baseline like every other read the
-	// brief makes: contact on another engagement is not "we last spoke" here.
+	// The resolved project — the meeting's own filing, or the one requested
+	// for an unattributed meeting — narrows the baseline like every other read
+	// the brief makes: contact on another engagement is not "we last spoke".
 	within := scopeAll
-	if room.Project != nil {
+	if project != nil {
 		within = fmt.Sprintf(`(EXISTS (
 			    SELECT 1 FROM activity_link pl
 			    WHERE pl.activity_id = a.id AND pl.project_id = $%d)
 			  OR NOT EXISTS (
 			    SELECT 1 FROM activity_link pf
 			    WHERE pf.activity_id = a.id AND pf.project_id IS NOT NULL))`,
-			arg(room.Project.ID))
+			arg(*project))
 	}
 	var last *time.Time
 	err = tx.QueryRow(ctx, fmt.Sprintf(`

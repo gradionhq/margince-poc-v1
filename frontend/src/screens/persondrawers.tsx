@@ -13,20 +13,20 @@ import type { components } from "../api/schema";
 import { ENTITY, isEntityKind } from "../app/entity";
 import { navigate } from "../app/router";
 import { Badge, Button, Modal, TextInput } from "../design-system/atoms";
+import {
+  liveProjects,
+  type PickableProject,
+  ProjectPicker,
+  ScopeLine,
+  useSoleProjectDefault,
+} from "../design-system/projectpicker";
 import { RichText } from "../design-system/richtext";
 import { Select } from "../design-system/select";
 import { webUrl } from "../format/weburl";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import { SentenceList } from "./company360";
-import {
-  liveProjects,
-  ProjectPicker,
-  refusalOf,
-  SendRefusal,
-  scheduleFields,
-  useSoleProjectDefault,
-} from "./compose";
+import { refusalOf, SendRefusal, scheduleFields } from "./compose";
 import { useConsentPurposes } from "./consent";
 import { PersonProviderSection } from "./personprovider";
 import type { Transport } from "./persontransports";
@@ -781,6 +781,7 @@ export function PersonComposer({
                 setProjectId(next);
                 retireUneditedDraft(draft.data, subject, body, clearMessage);
               }}
+              scope={draft.data?.scope}
             />
             <MailOnlyFields
               sendAt={sendAt}
@@ -1056,18 +1057,39 @@ export function PersonMeetingBrief({
   activityId,
   open,
   onClose,
+  projects = [],
 }: Readonly<{
   activityId: string | null;
   open: boolean;
   onClose: () => void;
+  // The person's live projects, for a meeting filed under none: the brief
+  // scopes itself by the meeting's own filing, and only an unattributed
+  // meeting needs to be told which body of work to prepare for.
+  projects?: readonly PickableProject[];
 }>) {
   const t = useT();
+  // The project the reader chose to prepare for. It belongs to ONE meeting:
+  // the same drawer is reused for the next meeting on the page, and a scope
+  // chosen for a room about the ERP rollout must not narrow the brief for a
+  // different room. No sole-project default here, unlike the composers — the
+  // first read has to be unscoped to learn whether the meeting is filed, and
+  // a default sent before that answer would refuse on a meeting filed
+  // elsewhere.
+  const [projectId, setProjectId] = useState("");
+  const [chosenFor, setChosenFor] = useState(activityId);
+  if (chosenFor !== activityId) {
+    setChosenFor(activityId);
+    setProjectId("");
+  }
   const brief = useQuery({
     enabled: open && activityId != null,
-    queryKey: ["meetingBrief", activityId],
+    queryKey: ["meetingBrief", activityId, projectId],
     queryFn: async () => {
       const { data, error } = await api.GET("/activities/{id}/meeting-brief", {
-        params: { path: { id: activityId ?? "" } },
+        params: {
+          path: { id: activityId ?? "" },
+          query: projectId ? { project_id: projectId } : undefined,
+        },
       });
       if (error) {
         throwProblem(error);
@@ -1075,6 +1097,10 @@ export function PersonMeetingBrief({
       return data;
     },
   });
+  // A scope the server reports while the reader chose none is the meeting's
+  // own filing: the brief is about that project whatever the reader picks,
+  // so the picker stands down and the line alone says so.
+  const filedByMeeting = brief.data?.scope != null && projectId === "";
 
   return (
     <Modal
@@ -1093,6 +1119,17 @@ export function PersonMeetingBrief({
         </div>
       </div>
       <div className="drawer-body">
+        {filedByMeeting && brief.data?.scope && (
+          <ScopeLine scope={brief.data.scope} />
+        )}
+        {!filedByMeeting && (brief.isSuccess || projectId !== "") && (
+          <ProjectPicker
+            projects={projects}
+            projectId={projectId}
+            onChange={setProjectId}
+            scope={brief.data?.scope}
+          />
+        )}
         {brief.isLoading && (
           <p className="pe-prose">{t("person.meeting.loading")}</p>
         )}

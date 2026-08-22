@@ -54,7 +54,11 @@ type priorMeeting struct {
 // And it recalls only meetings that actually HAPPENED: earlier than this one,
 // already past, and not cancelled or no-showed. "You met 4 days ago" about a
 // meeting nobody attended is worse than saying nothing.
-func (s *Service) readPriorMeetings(ctx context.Context, tx pgx.Tx, room meeting, now time.Time) ([]priorMeeting, error) {
+//
+// project is the one the brief is narrowed by — the meeting's own filing,
+// or the one the caller asked to prepare for — resolved by the caller so the
+// history cannot read wider than the sections beside it.
+func (s *Service) readPriorMeetings(ctx context.Context, tx pgx.Tx, room meeting, project *ids.ProjectID, now time.Time) ([]priorMeeting, error) {
 	// room.Room, not room.Attendees: the latter is the DISPLAY list and stops
 	// at eight, so matching on it would lose history shared only with the ninth
 	// person in a large room.
@@ -90,14 +94,14 @@ func (s *Service) readPriorMeetings(ctx context.Context, tx pgx.Tx, room meeting
 	// unattributed meeting reads its whole shared history, which is what it had
 	// before this section existed.
 	within := scopeAll
-	if room.Project != nil {
+	if project != nil {
 		within = fmt.Sprintf(`(EXISTS (
 			    SELECT 1 FROM activity_link ml
 			    WHERE ml.activity_id = m.id AND ml.project_id = $%d)
 			  OR NOT EXISTS (
 			    SELECT 1 FROM activity_link mf
 			    WHERE mf.activity_id = m.id AND mf.project_id IS NOT NULL))`,
-			arg(room.Project.ID))
+			arg(project.UUID))
 	}
 
 	rows, err := tx.Query(ctx, fmt.Sprintf(priorMeetingsQuery, scope, within, roomPos, startsPos, nowPos, attendeePos, priorMeetingCap), args...)

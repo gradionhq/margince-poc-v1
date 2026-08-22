@@ -385,7 +385,7 @@ func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	get := httptest.NewRequest(http.MethodGet, path, nil)
-	handlers.GetOrganizationBrief(rec, get.WithContext(reader), crmcontracts.Id(org.UUID))
+	handlers.GetOrganizationBrief(rec, get.WithContext(reader), crmcontracts.Id(org.UUID), crmcontracts.GetOrganizationBriefParams{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200; body %s", rec.Code, rec.Body.String())
 	}
@@ -399,7 +399,7 @@ func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
 
 	// A second GET is the cache; the POST is the reader asking anyway.
 	rec = httptest.NewRecorder()
-	handlers.GetOrganizationBrief(rec, get.WithContext(reader), crmcontracts.Id(org.UUID))
+	handlers.GetOrganizationBrief(rec, get.WithContext(reader), crmcontracts.Id(org.UUID), crmcontracts.GetOrganizationBriefParams{})
 	// The status matters as much as the call count: a cache read that failed
 	// would also leave the model unasked, and "0 extra calls" would read as a
 	// hit.
@@ -419,7 +419,7 @@ func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
 	}
 	rec = httptest.NewRecorder()
 	post := httptest.NewRequest(http.MethodPost, path, nil)
-	handlers.RegenerateOrganizationBrief(rec, post.WithContext(reader), crmcontracts.Id(org.UUID))
+	handlers.RegenerateOrganizationBrief(rec, post.WithContext(reader), crmcontracts.Id(org.UUID), crmcontracts.RegenerateOrganizationBriefParams{})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST status = %d, want 200; body %s", rec.Code, rec.Body.String())
 	}
@@ -442,7 +442,8 @@ func TestOrganizationBriefTransportRefusesOutOfScope(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/"+theirs.String()+"/brief", nil)
 	handlers.GetOrganizationBrief(rec,
-		req.WithContext(e.As(e.Rep1, []ids.UUID{e.Team1}, scoped)), crmcontracts.Id(theirs.UUID))
+		req.WithContext(e.As(e.Rep1, []ids.UUID{e.Team1}, scoped)), crmcontracts.Id(theirs.UUID),
+		crmcontracts.GetOrganizationBriefParams{})
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d for an out-of-scope account, want 404", rec.Code)
@@ -464,7 +465,8 @@ func TestOrganizationBriefTransportRefusesAnOverlayWorkspace(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/"+org.String()+"/brief", nil)
 	handlers.GetOrganizationBrief(rec,
-		req.WithContext(e.As(e.Rep1, nil, briefReaderPerms)), crmcontracts.Id(org.UUID))
+		req.WithContext(e.As(e.Rep1, nil, briefReaderPerms)), crmcontracts.Id(org.UUID),
+		crmcontracts.GetOrganizationBriefParams{})
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d in overlay mode, want 422; body %s", rec.Code, rec.Body.String())

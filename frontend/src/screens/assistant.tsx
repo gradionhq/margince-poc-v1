@@ -1,5 +1,6 @@
 import { Badge } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
+import type { PickableProject } from "../design-system/projectpicker";
 import { useT } from "../i18n";
 import { AskSection } from "./company360";
 
@@ -22,10 +23,13 @@ export function AssistantPanel({
   orgId,
   enabled,
   onOpenRecord,
+  projects,
 }: Readonly<{
   orgId: string;
   enabled: boolean;
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  // The account's projects, for the question to be asked about one of them.
+  projects?: readonly PickableProject[];
 }>) {
   const t = useT();
   if (!enabled) {
@@ -45,6 +49,7 @@ export function AssistantPanel({
           orgId={orgId}
           enabled={enabled}
           onOpenRecord={onOpenRecord}
+          projects={projects}
         />
       </PanelBody>
     </Panel>
