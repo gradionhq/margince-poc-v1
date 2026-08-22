@@ -121,7 +121,19 @@ func (w *aiActivityReconcileWorker) passContext(ctx context.Context, actor strin
 	}), nil
 }
 
-// aiActivityRetentionWorker drops the settled occurrences nothing reads.
+// abandonedRouterGrace is how long past its own lease a live router occurrence
+// must sit before the sweep closes it.
+//
+// DERIVED from what it must not race: the lease already covers the whole logical
+// call, so a row still live past it has either been settled by a flush this
+// sweep has not read yet, or never will be. traceWriteTimeout is the window that
+// last flush is allowed, so waiting that long again plus a full retention tick
+// means a row is only closed after the flush that could have settled it has
+// certainly finished or certainly died.
+const abandonedRouterGrace = 2 * time.Hour
+
+// aiActivityRetentionWorker drops the settled occurrences nothing reads, and
+// closes the live ones whose source will never settle them.
 type aiActivityRetentionWorker struct {
 	projection *aiactivity.Store
 	identity   *identity.Service
@@ -137,6 +149,17 @@ func (w *aiActivityRetentionWorker) Work(ctx context.Context, _ *river.Job[AIAct
 	wsCtx = principal.WithActor(wsCtx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: aiActivityRetentionActor,
 	})
+	// Closing runs BEFORE purging, and the order is not cosmetic: closing moves
+	// an abandoned row into the settled states, which is what makes it reachable
+	// by the purge at all. Purging first would leave every row this sweep closes
+	// waiting a whole extra tick for a lifetime it has already served.
+	closed, err := w.projection.CloseAbandonedRouterRuns(wsCtx, w.now().Add(-abandonedRouterGrace))
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	if closed > 0 {
+		w.log.InfoContext(wsCtx, "ai activity retention: router occurrences closed after their lease ran out with no settle", "rows", closed)
+	}
 	purged, err := w.projection.PurgeSettledBefore(wsCtx, w.now().Add(-aiActivityRetentionWindow))
 	if err != nil {
 		return jobs.FaultContext(ctx, err)

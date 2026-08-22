@@ -44,6 +44,17 @@ type Validator func(text string) error
 // call (spec §4): they share a LogicalCallID and are flushed together, so
 // a certification read sees the retry/escalation chain as the single
 // served-or-failed decision it is, not three unrelated ai_call rows.
+// maxLadderWalks is how many times CompleteStructured can walk the ladder for
+// ONE logical call: the first try, the schema-invalid retry, and the escalation.
+//
+// It is a constant here rather than a comment because railLease depends on it —
+// the rail announces a start ONCE and can never extend the lease, so the lease
+// must cover the whole logical call and not one walk of it. A fourth walk added
+// below without changing this would leave a healthy call rendering stalled
+// before it finished, which is why TestStructuredWalksTheLadderNoMoreThanTheLeaseAssumes
+// counts the walks rather than trusting this number.
+const maxLadderWalks = 3
+
 func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Request, validate Validator) (model.Response, RouteInfo, error) {
 	ladder, ok := taskLadders[task]
 	if !ok {

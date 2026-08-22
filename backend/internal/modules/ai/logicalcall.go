@@ -29,6 +29,11 @@ const (
 type logicalCall struct {
 	id       ids.UUID
 	attempts []Call
+	// railAnnounced records that this call's occurrence has been opened on the
+	// AI-activity rail. It lives here rather than on Router because the unit it
+	// guards is THIS call: a Router serves many concurrently, and a flag on it
+	// would let one caller's start suppress another's.
+	railAnnounced bool
 }
 
 func newLogicalCall() *logicalCall {

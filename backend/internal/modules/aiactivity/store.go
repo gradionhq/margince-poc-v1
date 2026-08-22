@@ -159,6 +159,66 @@ func (c Change) args() []any {
 	}
 }
 
+// abandonedReason is why a live occurrence was closed by the sweep rather than
+// by its own source. Server-authored and closed, like every other value that
+// reaches this column.
+const abandonedReason = "abandoned"
+
+// closeAbandonedSQL settles the live occurrences whose source will never settle
+// them.
+//
+// Only ai_router's, and only past their own lease. A carrier's live row is left
+// alone because a carrier holds a durable claim it can re-arm from — that is
+// what purgeSettledSQL's comment means by "an occurrence the source still holds
+// a claim on". The ROUTER holds no such claim: its start is committed in its own
+// transaction before the call, and the only thing that closes it is a flush that
+// is best-effort by design. A flush that times out, or a process that dies
+// mid-call, therefore leaves a row that renders stalled once its lease expires
+// and is reached by nothing afterwards — the live feed has no time bound and the
+// settled purge only sees settled rows. Every interrupted call would leave one
+// on a rep's rail permanently.
+//
+// It settles rather than deletes, because the work really did start and saying
+// so is more honest than erasing it — and settling hands the row to the ordinary
+// retention window instead of inventing a second lifetime for it.
+//
+// finished_at is set because ai_task_run_settled_has_finish requires it, and the
+// lease is cleared because a settled row has nothing left to miss.
+const closeAbandonedSQL = `
+UPDATE ai_task_run
+   SET state = 'failed',
+       finished_at = now(),
+       stale_after = NULL,
+       degrade_reason = $2,
+       seq = nextval('ai_task_run_seq'),
+       updated_at = now()
+ WHERE source = 'ai_router'
+   AND state IN ('queued','running')
+   AND stale_after IS NOT NULL
+   AND stale_after < $1`
+
+// CloseAbandonedRouterRuns settles router occurrences whose lease ran out
+// before, returning how many went.
+//
+// The cutoff is the caller's, not now(): a sweep that closed a row the instant
+// its lease expired would race the flush that was about to settle it properly,
+// and the caller is the one that knows how much slack the flush is owed.
+func (s *Store) CloseAbandonedRouterRuns(ctx context.Context, cutoff time.Time) (int64, error) {
+	var closed int64
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, closeAbandonedSQL, cutoff, abandonedReason)
+		if err != nil {
+			return fmt.Errorf("aiactivity: closing abandoned router occurrences leased before %s: %w", cutoff, err)
+		}
+		closed = tag.RowsAffected()
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return closed, nil
+}
+
 // purgeSettledSQL drops what the feed no longer reaches. Only settled rows: a
 // live one has no finished_at to compare, and deleting one would erase an
 // occurrence the source still holds a claim on.
