@@ -119,7 +119,7 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"updateOfferTemplate":       patchCommand,
 	"updateDeal":                patchCommand,
 	"updateDealRoom":            patchCommand,
-	"updateDealRoomTask":        updateDealRoomTaskCommand,
+	opUpdateDealRoomTask:        updateDealRoomTaskCommand,
 	"updateLead":                patchCommand,
 	"updateOffer":               patchCommand,
 	"updateOrganization":        patchCommand,

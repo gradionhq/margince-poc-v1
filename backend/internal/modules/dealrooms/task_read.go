@@ -87,13 +87,26 @@ func taskRows(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID) ([]crmcontr
 // absent rather than refused, so a caller cannot use a cross-room id to learn
 // that one exists.
 func readTask(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, taskID ids.DealRoomTaskID) (crmcontracts.DealRoomTask, error) {
+	return readTaskIn(ctx, tx, roomID, taskID, " AND t.archived_at IS NULL")
+}
+
+// readArchivedTask returns a task the caller just archived, which readTask
+// deliberately cannot see. The archive response has to come from the row rather
+// than from the pre-update struct with a timestamp pasted on: the version and
+// updated_at are written by a trigger, so a hand-built answer reports a version
+// the row does not have and the caller's next If-Match fails on it.
+func readArchivedTask(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, taskID ids.DealRoomTaskID) (crmcontracts.DealRoomTask, error) {
+	return readTaskIn(ctx, tx, roomID, taskID, "")
+}
+
+func readTaskIn(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, taskID ids.DealRoomTaskID, liveOnly string) (crmcontracts.DealRoomTask, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	roomPos, taskPos := arg(roomID), arg(taskID)
 
 	row := tx.QueryRow(ctx, storekit.SQLf(
 		`SELECT %s FROM deal_room_task t
-		  WHERE t.room_id = $%d AND t.id = $%d AND t.archived_at IS NULL`,
+		  WHERE t.room_id = $%d AND t.id = $%d`+liveOnly,
 		taskColumns, roomPos, taskPos), args...)
 
 	task, err := scanTask(row)

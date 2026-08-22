@@ -12,6 +12,7 @@ package compose
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +32,12 @@ import (
 // stages, so it is the one place those two lists have to agree on the same
 // operationId spelled the same way.
 const opRenameCustomField = "renameCustomField"
+
+// opUpdateDealRoomTask is named here for the same reason opRenameCustomField is:
+// three places have to spell one operationId identically — patchTargetParam
+// below, agentcommand.go's restCommands entry, and the test that pins the
+// ownership probe onto the task rather than its room.
+const opUpdateDealRoomTask = "updateDealRoomTask"
 
 // The remaining five action-shaped ops named below are ALSO both this
 // file's and agentcommand.go's restCommands table's
@@ -84,6 +91,51 @@ var actionShapedUpdateOps = map[string]bool{
 	opRenameCustomField:   true,
 }
 
+// patchTargetParam names the path parameter carrying the record a field patch
+// actually writes, for the operations where that is NOT the route's own {id}.
+//
+// The ownership probe asks "who last typed this field on THIS record", so it
+// has to be asked about the record being patched. On a sub-resource route the
+// {id} names the PARENT — a Deal Room, not the to-do inside it — and asking
+// about the parent's id under the child's record type is a question no audit
+// row can answer. It misses every time, the split sees no conflict, and an
+// agent overwrite of a human-typed field auto-executes instead of staging:
+// the §2.1 protection turns itself off silently, which is worse than being
+// absent, because the route still looks governed.
+//
+// Adding such a route to actionShapedUpdateOps would NOT be the fix — that map
+// is for calls with no human-typed field of their target at all, and a to-do's
+// wording is exactly such a field. This is the upsertPartner trap in a
+// different shape, and its comment above says why.
+var patchTargetParam = map[string]string{
+	opUpdateDealRoomTask: "taskId",
+}
+
+// patchTargetID resolves the record a field patch writes: the route's own {id}
+// unless the operation declares another parameter above.
+func patchTargetID(r *http.Request, op string) (ids.UUID, string, error) {
+	param := "id"
+	if named, ok := patchTargetParam[op]; ok {
+		param = named
+	}
+	raw := chi.URLParam(r, param)
+	if raw == "" {
+		return ids.UUID{}, param, errNoPatchTarget
+	}
+	id, err := ids.Parse(raw)
+	if err != nil {
+		// Existence-hiding, the same answer the handler behind this gate gives:
+		// a malformed id must not be told apart from one naming no row.
+		return ids.UUID{}, param, apperrors.ErrNotFound
+	}
+	return id, param, nil
+}
+
+// errNoPatchTarget marks a route that patches fields without naming the record
+// it patches. It is refused rather than admitted unprobed, because the whole
+// question this gate exists to ask cannot be put.
+var errNoPatchTarget = fmt.Errorf("no target id on the route: %w", apperrors.ErrPermissionDenied)
+
 // splitUpdateDeps is what splitHumanOwnedUpdate needs to decide and stage a
 // conflict, bundled for the same reason restCommandDeps is: the three are
 // fixed at composition (admissionOutcome.staging/commands/ownership, set once
@@ -113,19 +165,18 @@ type splitUpdateDeps struct {
 // one (gradionhq/margince-poc-v1#812).
 func splitHumanOwnedUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, deps splitUpdateDeps, pol agentPolicy, body []byte) {
 	ctx := r.Context()
-	raw := chi.URLParam(r, "id")
-	if raw == "" {
-		// Every field-patch twin routes with {id} today; a future route
-		// without one cannot answer the ownership question, so it is
-		// refused, never admitted unprobed.
-		httperr.Write(w, r, fmt.Errorf(
-			"agent gate: %s routes update_record without a target id — the ownership probe cannot run: %w",
-			pol.Op, apperrors.ErrPermissionDenied))
-		return
-	}
-	targetID, err := ids.Parse(raw)
+	targetID, param, err := patchTargetID(r, pol.Op)
 	if err != nil {
-		httperr.Write(w, r, apperrors.ErrNotFound)
+		if errors.Is(err, errNoPatchTarget) {
+			// A route that patches fields without naming the record it patches
+			// cannot answer the ownership question, so it is refused, never
+			// admitted unprobed.
+			httperr.Write(w, r, fmt.Errorf(
+				"agent gate: %s routes update_record without a target id in {%s} — the ownership probe cannot run: %w",
+				pol.Op, param, apperrors.ErrPermissionDenied))
+			return
+		}
+		httperr.Write(w, r, err)
 		return
 	}
 	split, err := agents.SplitHumanOwned(ctx, deps.ownership, string(pol.RecordType), targetID, body)

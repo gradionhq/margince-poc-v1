@@ -48,16 +48,38 @@ func (s *Store) CreateTask(ctx context.Context, roomID ids.DealRoomID, in Create
 	return out, err
 }
 
-func createTaskTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in CreateTaskInput, by string) (crmcontracts.DealRoomTask, error) {
+// openRoomForItsList returns the room a to-do write is about to land in, with
+// its state settled under a lock.
+//
+// The lock is what makes the state answer trustworthy. Without it a close or an
+// archive committing after the unlocked read leaves this write landing on a
+// terminal room — an item added to, or ticked off, a list that is supposed to
+// have become a record. This is the same lock-then-re-read the lifecycle moves
+// take, and for the same reason: a decision read outside a lock is a guess.
+func openRoomForItsList(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID) (crmcontracts.DealRoom, error) {
 	room, err := readRoom(ctx, tx, roomID)
 	if err != nil {
-		return crmcontracts.DealRoomTask{}, err
+		return crmcontracts.DealRoom{}, err
 	}
 	if err := ensureDealWritable(ctx, tx, room); err != nil {
-		return crmcontracts.DealRoomTask{}, err
+		return crmcontracts.DealRoom{}, err
+	}
+	if _, err := storekit.LockRow(ctx, tx, roomObject, ids.UUID(room.Id), storekit.LiveOnly); err != nil {
+		return crmcontracts.DealRoom{}, err
+	}
+	room, err = readRoom(ctx, tx, roomID)
+	if err != nil {
+		return crmcontracts.DealRoom{}, err
 	}
 	if !publishable(string(room.State)) {
-		return crmcontracts.DealRoomTask{}, notTaskEditable(string(room.State))
+		return crmcontracts.DealRoom{}, notTaskEditable(string(room.State))
+	}
+	return room, nil
+}
+
+func createTaskTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in CreateTaskInput, by string) (crmcontracts.DealRoomTask, error) {
+	if _, err := openRoomForItsList(ctx, tx, roomID); err != nil {
+		return crmcontracts.DealRoomTask{}, err
 	}
 
 	id := ids.New[ids.DealRoomTaskKind]()
@@ -98,15 +120,9 @@ func (s *Store) UpdateTask(ctx context.Context, roomID ids.DealRoomID, taskID id
 	}
 	var out crmcontracts.DealRoomTask
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		room, err := readRoom(ctx, tx, roomID)
+		room, err := openRoomForItsList(ctx, tx, roomID)
 		if err != nil {
 			return err
-		}
-		if err := ensureDealWritable(ctx, tx, room); err != nil {
-			return err
-		}
-		if !publishable(string(room.State)) {
-			return notTaskEditable(string(room.State))
 		}
 		// Locked before the decision is read, so two people ticking the same item
 		// at once cannot both read it open and both stamp themselves as the one
@@ -160,10 +176,17 @@ func applyTaskPatch(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, 
 	if in.Done == nil || *in.Done == current.Done {
 		return nil
 	}
+	// The side as the row now holds it, not as it was read. One request may
+	// reassign an item and tick it off together, and an event naming the side it
+	// used to be owed by sends a subscriber to the wrong half of the list.
+	side := current.Side
+	if in.Side != nil {
+		side = *in.Side
+	}
 	changed := crmcontracts.PublicEventDealRoomTaskCompletionChanged{
 		DealId: room.DealId,
 		TaskId: openapi_types.UUID(taskID.UUID),
-		Side:   current.Side,
+		Side:   side,
 		Done:   *in.Done,
 	}
 	if err := storekit.EmitEvent(ctx, tx, auditID, ids.UUID(room.Id), changed); err != nil {
@@ -232,15 +255,15 @@ func (s *Store) ArchiveTask(ctx context.Context, roomID ids.DealRoomID, taskID i
 	}
 	var out crmcontracts.DealRoomTask
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		room, err := readRoom(ctx, tx, roomID)
-		if err != nil {
+		if _, err := openRoomForItsList(ctx, tx, roomID); err != nil {
 			return err
 		}
-		if err := ensureDealWritable(ctx, tx, room); err != nil {
+		// Locked before the row is read, so the wording this records as removed
+		// and the version it archives are the ones actually on the row. Reading
+		// first would let a concurrent rewording land in between, leaving an audit
+		// entry naming text that was never what got taken off the list.
+		if _, err := storekit.LockRow(ctx, tx, taskObject, taskID.UUID, storekit.LiveOnly); err != nil {
 			return err
-		}
-		if !publishable(string(room.State)) {
-			return notTaskEditable(string(room.State))
 		}
 		current, err := readTask(ctx, tx, roomID, taskID)
 		if err != nil {
@@ -256,12 +279,8 @@ func (s *Store) ArchiveTask(ctx context.Context, roomID ids.DealRoomID, taskID i
 			map[string]any{columnTitle: current.Title}, p.After()); err != nil {
 			return fmt.Errorf("audit deal room task archive: %w", err)
 		}
-		// Returned from the row already read plus the stamp just written, because
-		// readTask deliberately answers only for live rows — re-reading here
-		// would report the item this call just archived as absent.
-		out = current
-		out.ArchivedAt = &archivedAt
-		return nil
+		out, err = readArchivedTask(ctx, tx, roomID, taskID)
+		return err
 	})
 	return out, err
 }
