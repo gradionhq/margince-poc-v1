@@ -244,6 +244,115 @@ func normalizeCandidate(rawURL string) (string, bool) {
 	return parsed.String(), true
 }
 
+// The words a path uses to name its about, team and contact pages.
+//
+// German and English only, until this: a Vietnamese site mounts the same page
+// at /gioi-thieu and a Korean one at /회사소개, and neither matched, so both were
+// classified `other` and the reader never looked for staff on them. It is not
+// a small effect on a dataset with an Asian half — vinatechgroup.vn names its
+// chairman on /gioi-thieu, and the only page that DID classify was the English
+// /en/about-us, which names nobody. The company then read as publishing no
+// staff at all.
+//
+// EXACT-matched, not substring-matched, and that difference is the whole
+// design. The German and English words above stay on containsAny because years
+// of paths have shown what they do. The added ones cannot: a substring test on
+// them is demonstrably wrong, and so is a prefix test.
+//
+//	/gioi-thieu-san-pham-moi  "introducing our new PRODUCT" -> about
+//	/acme-introduces-widget   a press release               -> about
+//	/nhan-su/tuyen-dung       a JOBS page                   -> team
+//	/임직원복지                staff BENEFITS                 -> team
+//	/신년인사말                a new-year greeting            -> about
+//	/alienhero                a product name                -> contact
+//
+// Every one of those was produced by earlier versions of this list. A false
+// `about` is worse than a miss: the profile lane spends a limited page budget
+// on what this function names, so a wrong classification starves the
+// commercial evidence rather than merely failing to help.
+//
+// A prefix does not save it. Vietnamese says what it is introducing right
+// after the verb, so `gioi-thieu-cong-ty` ("introducing the company") and
+// `gioi-thieu-san-pham` ("introducing the product") share every leading
+// character that matters. Separating them needs a Vietnamese noun list, which
+// is a bigger claim than this classifier should make on a path alone.
+//
+// So the list holds the forms the corpus actually publishes, matched whole. It
+// reaches every real page in the dataset — a Vietnamese site names the page
+// plainly or appends its own company name — and admits nothing else.
+//
+// Deliberately NOT here at all: `company`, `info`, `introduce`, `nhan-su`,
+// `인사말`. The first two are ordinary section words. `introduce` is an English
+// verb before it is a page name. `nhan-su` ("personnel") and `인사말`
+// ("greeting") name a subject rather than a staff directory. That is the
+// argument legalNoticeSegments already makes for keeping contact and about out
+// of the LEGAL gate, one level down.
+var (
+	// vi: gioi thieu = "introduction", ve chung toi = "about us".
+	// ko: 회사소개 = "company introduction".
+	aboutSegments = map[string]bool{
+		"gioi-thieu": true, "gioithieu": true,
+		"gioi-thieu-cong-ty": true, "ve-chung-toi": true,
+		"회사소개": true,
+	}
+	// vi: doi ngu = "the team". ko: 조직도 = "org chart", 임직원 = "executives
+	// and staff" — whole only, so 임직원복지 (staff benefits) is not a directory.
+	teamSegments = map[string]bool{
+		"doi-ngu": true, "doingu": true,
+		"조직도": true, "임직원": true,
+	}
+	// vi: lien he = "contact". ko: 연락처 = "contact details", 오시는길 = "how to
+	// find us", which is where a Korean site prints its address.
+	contactSegments = map[string]bool{
+		"lien-he": true, "lienhe": true,
+		"연락처": true, "오시는길": true,
+	}
+)
+
+// namedSegment matches a path segment against one of the whole-word sets,
+// tolerating the file extension a static site appends: the corpus publishes
+// both `lien-he` and `lien-he.html`, and both name the same page.
+//
+// It also accepts `<word>-<company name>`, which is the one qualifier a real
+// about page carries — `gioi-thieu-han-my-viet`, `gioi-thieu-ve-tth-automation`
+// — recognised by matching the site's own host label rather than by guessing
+// at Vietnamese grammar.
+func namedSegment(segment, host string, words map[string]bool) bool {
+	segment = strings.TrimSuffix(strings.TrimSuffix(segment, ".html"), ".htm")
+	if words[segment] {
+		return true
+	}
+	label := hostLabel(host)
+	if label == "" {
+		return false
+	}
+	// Compared with the hyphens removed from BOTH sides, because a path spells
+	// a company name in words where the domain runs them together:
+	// hanmyviet.vn publishes /gioi-thieu-han-my-viet.
+	flat := strings.ReplaceAll(segment, "-", "")
+	label = strings.ReplaceAll(label, "-", "")
+	for word := range words {
+		word = strings.ReplaceAll(word, "-", "")
+		if flat == word+label || flat == word+"ve"+label {
+			return true
+		}
+	}
+	return false
+}
+
+// hostLabel is the site's own name as a path would spell it: the registrable
+// label with its dots turned into hyphens, so han-my-viet.vn yields
+// "han-my-viet" and tth-automation.com yields "tth-automation".
+func hostLabel(host string) string {
+	host = strings.ToLower(host)
+	if h, _, ok := strings.Cut(host, ":"); ok {
+		host = h
+	}
+	host = strings.TrimPrefix(host, "www.")
+	label, _, _ := strings.Cut(host, ".")
+	return label
+}
+
 // classifyKind names what a discovered page probably is, from its path alone.
 // Keyword order mirrors the probe list; the first family that matches wins.
 func classifyKind(rawURL string) crmcontracts.SiteReadPageKind {
@@ -263,11 +372,14 @@ func classifyKind(rawURL string) crmcontracts.SiteReadPageKind {
 	switch {
 	case legalIdentityPath(rawURL):
 		return crmcontracts.SiteReadPageKindImpressum
-	case shallow && containsAny(first, "about", "ueber"):
+	case shallow && (containsAny(first, "about", "ueber") ||
+		namedSegment(first, parsed.Host, aboutSegments)):
 		return crmcontracts.SiteReadPageKindAbout
-	case shallow && containsAny(first, "team", "leadership"):
+	case shallow && (containsAny(first, "team", "leadership") ||
+		namedSegment(first, parsed.Host, teamSegments)):
 		return crmcontracts.SiteReadPageKindTeam
-	case shallow && containsAny(first, "kontakt", "contact"):
+	case shallow && (containsAny(first, "kontakt", "contact") ||
+		namedSegment(first, parsed.Host, contactSegments)):
 		return crmcontracts.SiteReadPageKindContact
 	case containsAny(first, "service", "leistung", "solution", "loesung", "lösung"):
 		return crmcontracts.SiteReadPageKindServices

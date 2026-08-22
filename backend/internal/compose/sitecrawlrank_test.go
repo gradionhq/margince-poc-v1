@@ -52,6 +52,72 @@ func TestClassifyKindDoesNotPromoteGuidesBecauseTheirSlugsMentionTeamsOrProducts
 	}
 }
 
+// Every URL here is a real path from the demo corpus, and every one of them
+// classified `other` before the Vietnamese and Korean words were added — so the
+// reader never looked for staff on any of them. vinatechgroup.vn is the case
+// that shows what it cost: it names its chairman on /gioi-thieu, the only page
+// that DID classify was the English /en/about-us, and that page names nobody,
+// so the company read as publishing no staff at all.
+func TestClassifyKindReadsVietnameseAndKoreanPageNames(t *testing.T) {
+	for rawURL, want := range map[string]crmcontracts.SiteReadPageKind{
+		"https://vinatechgroup.vn/gioi-thieu":                    crmcontracts.SiteReadPageKindAbout,
+		"https://thinksmart.com.vn/gioi-thieu":                   crmcontracts.SiteReadPageKindAbout,
+		"https://tinthanhphat.vn/gioi-thieu/gioi-thieu-cong-ty/": crmcontracts.SiteReadPageKindAbout,
+		// The one qualifier a real about page carries is the site's OWN name,
+		// matched against the host rather than guessed at as grammar.
+		"https://tth-automation.com/gioi-thieu-ve-tth-automation.html": crmcontracts.SiteReadPageKindAbout,
+		"https://hanmyviet.vn/gioi-thieu-han-my-viet.html":             crmcontracts.SiteReadPageKindAbout,
+		"https://tth-automation.com/lien-he.html":                      crmcontracts.SiteReadPageKindContact,
+		"https://itgtechnology.vn/lien-he/":                            crmcontracts.SiteReadPageKindContact,
+		"https://aubot.vn/vi/lien-he/":                                 crmcontracts.SiteReadPageKindContact,
+		// Korean sites percent-encode Hangul in links; url.Parse decodes it
+		// into Path, so both spellings have to land in the same place.
+		"https://example.co.kr/회사소개":                                 crmcontracts.SiteReadPageKindAbout,
+		"https://example.co.kr/%ED%9A%8C%EC%82%AC%EC%86%8C%EA%B0%9C": crmcontracts.SiteReadPageKindAbout,
+		"https://example.co.kr/임직원":                                  crmcontracts.SiteReadPageKindTeam,
+		"https://example.co.kr/연락처":                                  crmcontracts.SiteReadPageKindContact,
+	} {
+		if got := classifyKind(rawURL); got != want {
+			t.Errorf("classifyKind(%q) = %q, want %q", rawURL, got, want)
+		}
+	}
+}
+
+// The widened vocabulary must not start naming ordinary pages, and every URL
+// here is one the FIRST version of it got wrong — matched as a substring
+// anywhere in the leading segment rather than as a prefix of it.
+//
+// They are in the first path segment on purpose: classifyKind only ever looks
+// at that one, so a case built from a two-segment path passes without
+// exercising the match at all. That was the bug in this test before it was the
+// bug in the code.
+//
+// A false `about` costs more than a missed one: the profile lane spends a
+// limited page budget on what classifyKind names, so a wrong classification
+// starves the commercial evidence rather than merely failing to help.
+func TestClassifyKindStillRefusesOrdinaryPagesInEveryLanguage(t *testing.T) {
+	for _, rawURL := range []string{
+		// "introducing our new PRODUCT", not an about page.
+		"https://example.vn/gioi-thieu-san-pham-moi",
+		// A press release. `introduce` is an English verb before it is a page.
+		"https://example.com/acme-introduces-widget",
+		// Staff BENEFITS, not a staff directory.
+		"https://example.co.kr/임직원복지",
+		// A new-year greeting, not the chairman's introduction.
+		"https://example.co.kr/신년인사말",
+		// A product name that happens to contain "lienhe".
+		"https://example.com/alienhero",
+		// Ordinary section words, deliberately never in the lists.
+		"https://example.com/company",
+		"https://example.com/info",
+		"https://example.co.kr/news",
+	} {
+		if got := classifyKind(rawURL); got != crmcontracts.SiteReadPageKindOther {
+			t.Errorf("classifyKind(%q) = %q, want other", rawURL, got)
+		}
+	}
+}
+
 func TestProfileEvidenceReadyRequiresCommercialPages(t *testing.T) {
 	pages := make([]crawlPage, profileTriggerNonLegalPages+12)
 	for i := range pages {
