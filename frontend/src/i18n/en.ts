@@ -955,6 +955,14 @@ export const en = {
   "access.revokeBody":
     "Their session ends now and their link stops working. Their comments stay visible and attributed. Access cannot be restored by them asking for a link.",
   "access.changeCapabilityTitle": "What may {name} do?",
+  "persondealrooms.title": "Deal Rooms",
+  "persondealrooms.sub": "Rooms this contact can still enter.",
+  "persondealrooms.open": "Open",
+  "persondealrooms.seatGone":
+    "This address no longer holds a seat in that room.",
+  "persondealrooms.cut":
+    "Only the first rooms are shown; this contact sits in more.",
+  "persondealrooms.revokeTitle": "Revoke access to {room}?",
   "room.state.draft": "Draft",
   "room.state.building": "Building",
   "room.state.ready": "Ready",
@@ -4359,6 +4367,13 @@ export const en = {
   "room.decisions.empty": "No decisions yet.",
   "room.decisions.confirm_version": "confirmed the version",
   "room.decisions.request_changes": "asked for changes",
+  "dealbrief.title": "Deal brief",
+  "dealbrief.sub": "Where it stands, in sentences you can check.",
+  "dealbrief.empty": "Nothing on the record yet.",
+  "dealbrief.standing": "Where it stands",
+  "dealbrief.activity": "Last and next",
+  "dealbrief.open": "Still owed",
+  "dealbrief.room": "Deal Room",
   "nba.title": "Next move",
   "nba.sub": "One thing to do on this deal, and why.",
   "nba.createTask": "Add this task",

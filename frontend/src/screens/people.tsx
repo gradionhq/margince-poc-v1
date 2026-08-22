@@ -55,6 +55,7 @@ import {
   WhoKnowsThem,
 } from "./person360";
 import { EnrichedFields } from "./personcorrections";
+import { PersonDealRooms } from "./persondealrooms";
 import { PersonGraphPanel } from "./persongraph";
 import {
   createdColumn,
@@ -302,10 +303,15 @@ function PersonAside({
   if (!view) {
     return undefined;
   }
+  // Every address the contact has: a seat may have been invited on a
+  // secondary one, and a card that checked only the primary would tell an
+  // admin the contact is out of every room when they are not.
+  const emails = (view.person.emails ?? []).map((e) => e.email);
   return (
     <>
       <RelationshipPulse view={view} />
       <WhoKnowsThem view={view} />
+      {emails.length > 0 ? <PersonDealRooms emails={emails} /> : null}
     </>
   );
 }
