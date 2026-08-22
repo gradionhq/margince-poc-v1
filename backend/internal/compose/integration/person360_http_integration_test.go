@@ -62,7 +62,9 @@ func TestPerson360SurfacesAllRefuseAForeignContactWith404(t *testing.T) {
 	id := crmcontracts.Id(theirs)
 
 	for name, run := range map[string]func(http.ResponseWriter, *http.Request){
-		"the composite read": func(w http.ResponseWriter, r *http.Request) { h.GetPerson360(w, r, id) },
+		"the composite read": func(w http.ResponseWriter, r *http.Request) {
+			h.GetPerson360(w, r, id, crmcontracts.GetPerson360Params{})
+		},
 		"the profile-field sidecar": func(w http.ResponseWriter, r *http.Request) {
 			h.GetPersonProfileFields(w, r, id)
 		},
@@ -86,7 +88,9 @@ func TestGetPerson360AnswersOneParseableComposite(t *testing.T) {
 	h := personHandlers(e)
 
 	code, body := call(rep, http.MethodGet, "/v1/people/"+mine.String()+"/360",
-		func(w http.ResponseWriter, r *http.Request) { h.GetPerson360(w, r, crmcontracts.Id(mine)) })
+		func(w http.ResponseWriter, r *http.Request) {
+			h.GetPerson360(w, r, crmcontracts.Id(mine), crmcontracts.GetPerson360Params{})
+		})
 	if code != http.StatusOK {
 		t.Fatalf("360 → %d, want 200", code)
 	}
@@ -125,7 +129,9 @@ func TestTheViewBaselineMovesOnlyOnTheAcknowledgement(t *testing.T) {
 	}
 
 	if code, _ := call(rep, http.MethodGet, "/v1/people/"+mine.String()+"/360",
-		func(w http.ResponseWriter, r *http.Request) { h.GetPerson360(w, r, crmcontracts.Id(mine)) }); code != http.StatusOK {
+		func(w http.ResponseWriter, r *http.Request) {
+			h.GetPerson360(w, r, crmcontracts.Id(mine), crmcontracts.GetPerson360Params{})
+		}); code != http.StatusOK {
 		t.Fatalf("360 → %d", code)
 	}
 	if baseline() != 0 {
@@ -199,7 +205,9 @@ func TestAMomentDoesNotClaimAbsenceForASectionTheReaderCouldNotSee(t *testing.T)
 	read := func(ctx context.Context) crmcontracts.Person360 {
 		t.Helper()
 		code, body := call(ctx, http.MethodGet, "/v1/people/"+mine.String()+"/360",
-			func(w http.ResponseWriter, r *http.Request) { h.GetPerson360(w, r, crmcontracts.Id(mine)) })
+			func(w http.ResponseWriter, r *http.Request) {
+				h.GetPerson360(w, r, crmcontracts.Id(mine), crmcontracts.GetPerson360Params{})
+			})
 		if code != http.StatusOK {
 			t.Fatalf("360 → %d, want 200", code)
 		}

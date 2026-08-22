@@ -9,9 +9,12 @@ package activities
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -164,6 +167,25 @@ func ActivityWithinProject(projectPos int) string {
 			    SELECT 1 FROM activity_link filed
 			    WHERE filed.activity_id = a.id AND filed.project_id IS NOT NULL))`,
 		projectPos)
+}
+
+// RequireProjectScope is the authority check every read narrowed BY a project
+// owes before it filters on one. Filtering by a record is a read of it: the
+// scoped page answers "these activities are filed under this project", which
+// a caller with no project grant may not learn, and a caller outside its row
+// scope may not learn it exists. Object denial is a 403; an invisible,
+// archived or missing project is the same existence-hiding 404 a direct read
+// gives.
+//
+// The LIVE probe, not the plain one: EnsureVisible lets an unbounded caller
+// through without touching the table, so a scope naming a project nobody ever
+// created would answer a full page as though the filter had matched, and an
+// archived project is no longer a body of work a page can be narrowed to.
+func RequireProjectScope(ctx context.Context, tx pgx.Tx, projectID ids.ProjectID) error {
+	if err := auth.Require(ctx, string(datasource.RecordProject), principal.ActionRead); err != nil {
+		return err
+	}
+	return auth.EnsureVisibleLive(ctx, tx, string(datasource.RecordProject), projectID.UUID)
 }
 
 // openTaskAssigneeClause narrows the timeline to the OPEN tasks one person

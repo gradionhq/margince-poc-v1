@@ -134,13 +134,12 @@ var runReportCopy = toolCopy{
 	Purpose: "Answer a question about totals, counts or breakdowns — pipeline by stage, deals " +
 		"won by owner, activity volume over time — by running one of this workspace's prebuilt " +
 		"reports.",
-	Limits: "Only the named reports exist, and each accepts only its own filter, grouping and " +
-		"measure names; anything outside its lists is refused rather than approximated. It " +
-		"aggregates, so it answers how many and how much, never which record.",
+	Limits: "Only the named reports exist, each with its own filter, grouping and measure names; " +
+		"anything else is refused. It aggregates: how many and how much, never which record.",
 	Instead: "Use search_records or whats_slipping_this_week when the answer wanted is the " +
 		"records themselves rather than a number over them.",
-	Retain: "Call a report with no plan arguments first to see what it answers by default, then " +
-		"narrow using the names its own catalog entry lists.",
+	Retain: "Call a report with no plan first to see its default answer, then narrow with the " +
+		"names its catalog entry lists.",
 }
 
 var readBriefCopy = toolCopy{

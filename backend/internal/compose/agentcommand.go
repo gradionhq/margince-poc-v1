@@ -211,6 +211,7 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"scrapeCompany":       scrapeCompanyCommand,
 	"deepReadCompany":     deepReadCompanyCommand,
 	"logActivity":         logActivityCommand,
+	"createTask":          createTaskCommand,
 	"draftEmail":          draftEmailCommand,
 	"relinkActivity":      relinkActivityCommand,
 	"runReport":           runReportCommand,

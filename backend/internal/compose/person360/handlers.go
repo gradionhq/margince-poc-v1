@@ -46,11 +46,15 @@ func NewHandlers(svc *Service, overlay OverlayMode) Handlers {
 }
 
 // GetPerson360 implements GET /people/{id}/360.
-func (h Handlers) GetPerson360(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (h Handlers) GetPerson360(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.GetPerson360Params) {
 	if !h.nativeOnly(w, r) {
 		return
 	}
-	view, err := h.svc.Assemble(r.Context(), ids.From[ids.PersonKind](ids.UUID(id)))
+	var opts AssembleOptions
+	if params.ProjectId != nil {
+		opts.ProjectID = ptr(ids.From[ids.ProjectKind](ids.UUID(*params.ProjectId)))
+	}
+	view, err := h.svc.AssembleScoped(r.Context(), ids.From[ids.PersonKind](ids.UUID(id)), opts)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

@@ -35,7 +35,7 @@ func TestGetOrganization360RefusesAnOverlayWorkspace(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/x/360", nil)
 
-	h.GetOrganization360(rec, req, crmcontracts.Id(ids.NewV7()))
+	h.GetOrganization360(rec, req, crmcontracts.Id(ids.NewV7()), crmcontracts.GetOrganization360Params{})
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422", rec.Code)
@@ -95,7 +95,7 @@ func TestGetOrganization360RefusesWhenTheModeCannotBeResolved(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/x/360", nil)
 
-	h.GetOrganization360(rec, req, crmcontracts.Id(ids.NewV7()))
+	h.GetOrganization360(rec, req, crmcontracts.Id(ids.NewV7()), crmcontracts.GetOrganization360Params{})
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d after a failed mode lookup, want 500 — the mode is unknown, so neither native data nor a tidy refusal is an honest answer",

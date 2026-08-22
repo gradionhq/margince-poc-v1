@@ -14,6 +14,6 @@ var resolveEntitiesCopy = toolCopy{
 	Instead: "Use search_records to find a record you know exists, and merge_records once a person " +
 		"has decided that two records are one.",
 	Retain: "Call this BEFORE creating a person or company from anything you did not type. Act on " +
-		"`matched`; on `ambiguous` ask which is meant; on `unresolved` say what you are about to " +
-		"create, because a miss is not proof that nothing exists.",
+		"`matched`; on `ambiguous` ask which is meant; on `unresolved` say what you will create — " +
+		"a miss is not proof nothing exists.",
 }

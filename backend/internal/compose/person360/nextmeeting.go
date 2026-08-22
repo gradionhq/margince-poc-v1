@@ -40,7 +40,7 @@ const meetingParticipantCap = 8
 // ONE query, not two. Participants come back as JSON from a lateral sub-select
 // carrying its own row-scope predicate: a section that read the row and then
 // its children is how a composite read starts costing per record.
-func (s *Service) nextMeetingSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, now time.Time, out *crmcontracts.Person360) error {
+func (s *Service) nextMeetingSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, now time.Time, opts AssembleOptions, out *crmcontracts.Person360) error {
 	if err := requireRead(ctx, "activity"); err != nil {
 		return err
 	}
@@ -85,9 +85,9 @@ func (s *Service) nextMeetingSection(ctx context.Context, tx pgx.Tx, personID id
 		  AND (a.meeting_status IS NULL OR a.meeting_status = 'booked')
 		  AND a.occurred_at > $%d
 		  AND `+personLinkedActivity+`
-		  AND (%s)
+		  AND (%s)%s
 		ORDER BY a.occurred_at, a.id
-		LIMIT 1`, participantScope, nowPos, linkPos, scope), args...).
+		LIMIT 1`, participantScope, nowPos, linkPos, scope, projectScope(opts, arg)), args...).
 		Scan(&activityID, &meeting.StartsAt, &subject, &dealID, &participants)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Nothing booked. That IS the answer, and the strip renders "None".

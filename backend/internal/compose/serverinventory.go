@@ -112,6 +112,7 @@ type Server struct {
 	person360Handlers
 	personBriefHandlers
 	meetingBriefHandlers
+	nextActionHandlers
 	personResearchHandlers
 	personDraftHandlers
 	orgBriefHandlers

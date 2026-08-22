@@ -421,7 +421,7 @@ func repointDisplacedParticipants(ctx context.Context, tx pgx.Tx, id ids.Activit
 func updateDelta(in UpdateActivityInput) map[string]any {
 	delta := map[string]any{}
 	if in.Subject != nil {
-		delta["subject"] = *in.Subject
+		delta[fieldSubject] = *in.Subject
 	}
 	if in.Body != nil {
 		delta["body"] = true // presence, not content — bodies can be large

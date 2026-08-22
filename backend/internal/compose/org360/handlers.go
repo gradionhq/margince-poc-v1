@@ -36,11 +36,16 @@ func NewHandlers(svc *Service, overlay OverlayMode) Handlers {
 }
 
 // GetOrganization360 implements GET /organizations/{id}/360.
-func (h Handlers) GetOrganization360(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+func (h Handlers) GetOrganization360(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.GetOrganization360Params) {
 	if !h.nativeOnly(w, r) {
 		return
 	}
-	view, err := h.svc.Assemble(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)))
+	var opts AssembleOptions
+	if params.ProjectId != nil {
+		projectID := ids.From[ids.ProjectKind](ids.UUID(*params.ProjectId))
+		opts.ProjectID = &projectID
+	}
+	view, err := h.svc.AssembleScoped(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)), opts)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return

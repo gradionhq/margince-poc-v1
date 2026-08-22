@@ -222,3 +222,50 @@ func TestTheOwnerDialsRefuseEachOtherOnTheWire(t *testing.T) {
 		t.Fatalf("GET %s = %d, want 422 — two owner dials name two different sets", path, status)
 	}
 }
+
+// The project scope on the timeline list, over the wire. Three activities on
+// one person — filed under the asked-for project, filed under another, filed
+// under none — and the scoped page must be exactly the first and the third: a
+// handler that drops `project_id` answers all three with the right shape.
+func TestTheActivityListNarrowsByProjectOnTheWire(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+
+	org := createdRecord(t, e, "/v1/organizations", apptest.AnyMap{"display_name": "Acme"})
+	person := createdRecord(t, e, "/v1/people", apptest.AnyMap{"full_name": "Dana Buyer"})
+	project := func(name string) string {
+		return createdRecord(t, e, "/v1/projects", apptest.AnyMap{
+			"name": name, "organization_id": org, "source": "manual",
+		})
+	}
+	erp, migration := project("ERP rollout"), project("Datacentre migration")
+
+	mail := func(subject string, within string) string {
+		links := []apptest.AnyMap{{"entity_type": "person", "entity_id": person}}
+		if within != "" {
+			links = append(links, apptest.AnyMap{"entity_type": "project", "entity_id": within})
+		}
+		return createdRecord(t, e, "/v1/activities", apptest.AnyMap{
+			"kind": "email", "subject": subject, "direction": "inbound", "links": links,
+		})
+	}
+	onERP := mail("ERP cutover plan", erp)
+	onOther := mail("Rack decommissioning", migration)
+	unfiled := mail("Invoice question", "")
+
+	var page listedIDs
+	path := "/v1/activities?entity_type=person&entity_id=" + person + "&project_id=" + erp
+	if status := e.Call(t, "GET", path, nil, nil, &page); status != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", path, status)
+	}
+	seen := map[string]bool{}
+	for _, row := range page.Data {
+		seen[row.ID] = true
+	}
+	if seen[onOther] {
+		t.Errorf("GET %s returned the other engagement's mail — the handler dropped project_id", path)
+	}
+	if !seen[onERP] || !seen[unfiled] {
+		t.Errorf("GET %s lost the scoped project's own mail or the unfiled one: got %v", path, seen)
+	}
+}

@@ -106,7 +106,7 @@ func linkScope(ctx context.Context, alias string, arg func(any) int) (string, er
 // is an any-link rule, so a task reachable through a visible contact would
 // otherwise hand back the id of a deal the caller may not read — the task
 // is theirs to see, the colleague's deal is not.
-func nextStepsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time) ([]crmcontracts.Organization360NextStep, crmcontracts.PageInfo, error) {
+func nextStepsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, opts AssembleOptions) ([]crmcontracts.Organization360NextStep, crmcontracts.PageInfo, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
@@ -138,10 +138,11 @@ func nextStepsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, 
 		         ORDER BY pl.id LIMIT 1)
 		FROM activity a
 		WHERE a.kind = 'task' AND NOT a.is_done AND a.archived_at IS NULL AND %[1]s
-		  AND %[2]s
+		  AND %[2]s%[6]s
 		ORDER BY (a.due_at IS NULL), a.due_at, a.id
 		LIMIT %[5]d`,
-		activityScope, activities.OrgLinkedActivityExists(orgPos), linkVisible, personVisible, sectionLimit+1), args...)
+		activityScope, activities.OrgLinkedActivityExists(orgPos), linkVisible, personVisible, sectionLimit+1,
+		opts.projectScope(arg)), args...)
 	if err != nil {
 		return nil, crmcontracts.PageInfo{}, err
 	}

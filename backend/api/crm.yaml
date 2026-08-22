@@ -930,6 +930,13 @@ paths:
 
         Native system-of-record only: a workspace reading from an incumbent mirror gets
         `422 unsupported_in_overlay_mode`.
+      parameters:
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: >-
+            Narrow the timeline sections to one body of work: what is filed under this project
+            or under no project; correspondence filed under another project is left out.
       responses:
         '200':
           description: The person's 360 view.
@@ -1877,6 +1884,13 @@ paths:
         Native system-of-record only: a workspace reading from an incumbent mirror gets
         `422 unsupported_in_overlay_mode`, the same refusal entity-scoped activity reads
         give, because the mirror holds none of these relationships.
+      parameters:
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: >-
+            Narrow the timeline sections to one body of work: what is filed under this project
+            or under no project; correspondence filed under another project is left out.
       responses:
         '200':
           description: The organization's 360 view.
@@ -3530,6 +3544,36 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------- /activities ---------------------------------
+  /tasks:
+    post:
+      tags: [Activities]
+      operationId: createTask
+      summary: Create a task — a commitment with an owner, on the records it is about.
+      description: |
+        A task is an activity of kind `task`, and this is the one door that says so:
+        `POST /activities` with `kind: task` stores the same row, but a caller
+        (an agent above all) should not have to know that a to-do is a species of
+        timeline entry. Takes what a task needs and nothing a meeting does.
+      x-mcp-tool: { verb: create_task, record_type: activity, tier: auto_execute, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskRequest' }
+      responses:
+        '201':
+          description: The task, as an activity.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /activities:
     get:
       tags: [Activities]
@@ -3565,6 +3609,12 @@ paths:
         - name: q
           in: query
           schema: { type: string }
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: >-
+            Narrow the timeline sections to one body of work: what is filed under this project
+            or under no project; correspondence filed under another project is left out.
         - name: thread_key
           in: query
           schema: { type: string }
@@ -13139,6 +13189,32 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /deals/{id}/next-best-action:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: getDealNextBestAction
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: The one thing to do next on this deal, computed — never performed — on read.
+      description: |
+        A pure read: it COMPUTES a recommendation and returns it with the evidence
+        it rests on. Nothing executes here, because the deal page's reads retry and
+        re-run on remount, and a mutation hidden in a read would fire repeatedly and
+        skip the write shape. Performing it is the client's click, through the verb
+        the recommendation names: `draft_email` (`POST /activities/{id}/draft-email`),
+        `create_task` (`POST /tasks`, the arguments are its body), or
+        `open_meeting_brief` (navigation to the activity's brief). `none` says why
+        nothing is recommended. Deterministic: the same facts give the same answer.
+      responses:
+        '200':
+          description: The recommendation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealNextBestAction' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /deals/{id}/coverage:
     get:
       tags: [Deals]
@@ -19817,6 +19893,36 @@ components:
             60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
             61 days cannot appear on one surface and not the other.
 
+    DealNextBestAction:
+      type: object
+      description: |
+        One recommendation for a deal. `action` is one of `draft_email`,
+        `create_task`, `open_meeting_brief`, `none` — a plain string for the reason
+        `DealRoomTaskSide` gives. `arguments` is the body or the operand the named
+        verb takes, ready to send; absent for `none`.
+      required: [deal_id, action, reason, evidence, computed_at]
+      properties:
+        deal_id: { type: string, format: uuid }
+        action: { type: string }
+        reason: { type: string, description: "One sentence, in the user's terms, saying why this and not something else." }
+        arguments:
+          type: object
+          additionalProperties: true
+          description: "`draft_email` and `open_meeting_brief` carry `{activity_id}`; `create_task` carries a `CreateTaskRequest` body."
+        evidence:
+          type: array
+          items: { $ref: '#/components/schemas/DealNextBestActionEvidence' }
+        computed_at: { type: string, format: date-time }
+      additionalProperties: false
+
+    DealNextBestActionEvidence:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string }
+        activity_id: { type: [string, 'null'], format: uuid }
+        occurred_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: false
     DealCoverage:
       type: object
       required: [deal_id, stakeholders, our_side, risks, sections_omitted]
@@ -21065,6 +21171,26 @@ components:
                 a transport that sends text-with-files as a caption bounds it far below a
                 text-only message. Zero means no extra bound.
 
+    CreateTaskRequest:
+      type: object
+      description: What a task needs. Stored as an activity of kind `task`.
+      required: [subject, source]
+      properties:
+        subject: { type: string, minLength: 1, description: 'What has to be done, as one line.' }
+        body: { type: [string, 'null'], description: 'Detail, if one line is not enough.' }
+        due_at: { type: [string, 'null'], format: date-time, description: 'When it is due. Optional — a task without a date is still a task.' }
+        assignee_id: { type: [string, 'null'], format: uuid, description: 'Who owes it. Defaults to the caller.' }
+        links:
+          type: array
+          description: The records the task is about. Omit it and the task appears on no timeline.
+          items:
+            type: object
+            required: [entity_type, entity_id]
+            properties:
+              entity_type: { type: string, enum: [person, organization, deal, lead, project] }
+              entity_id: { type: string, format: uuid }
+        source: { type: string }
+      additionalProperties: false
     CreateActivityRequest:
       type: object
       required: [kind, source]

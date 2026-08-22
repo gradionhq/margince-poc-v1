@@ -66,6 +66,34 @@ func NewService(pool *pgxpool.Pool, peopleStore *people.Store, approvalsSvc *app
 // refusal; every other section is attempted, and a section refused for
 // lack of a grant is omitted and named rather than returned empty.
 func (s *Service) Assemble(ctx context.Context, orgID ids.OrganizationID) (crmcontracts.Organization360, error) {
+	return s.AssembleScoped(ctx, orgID, AssembleOptions{})
+}
+
+// AssembleOptions narrows what the page reads. The zero value is the whole
+// record.
+type AssembleOptions struct {
+	// ProjectID scopes the timeline and the last-touch dates to one body of
+	// work: rows filed under this project or under none, never rows filed
+	// under another project. The rule is activities.ActivityWithinProject;
+	// contacts, deals and tags describe the account, not a project, and stay
+	// whole.
+	ProjectID *ids.ProjectID
+}
+
+// projectScope renders the body-of-work narrowing as one more WHERE term on
+// the activity alias `a`, or nothing when the page is unscoped. Every
+// activity-reading section goes through it — timeline, last touch, next
+// steps, next meeting, the since-last-visit count — so the page cannot show
+// one project's rows beside another project's date or task.
+func (o AssembleOptions) projectScope(arg func(any) int) string {
+	if o.ProjectID == nil {
+		return ""
+	}
+	return " AND " + activities.ActivityWithinProject(arg(*o.ProjectID))
+}
+
+// AssembleScoped is Assemble narrowed by opts.
+func (s *Service) AssembleScoped(ctx context.Context, orgID ids.OrganizationID, opts AssembleOptions) (crmcontracts.Organization360, error) {
 	now := s.now().UTC()
 	out := crmcontracts.Organization360{AsOf: now, SectionsOmitted: []crmcontracts.Organization360SectionsOmitted{}}
 	// The custom-field catalog is read above the transaction, not inside it:
@@ -81,7 +109,16 @@ func (s *Service) Assemble(ctx context.Context, orgID ids.OrganizationID) (crmco
 			return err
 		}
 		out.Organization = org
-		return s.sections(ctx, tx, orgID, now, &out)
+		// The scope is a read of the project, gated before any section
+		// filters on it — and as the whole read's refusal, not a section's:
+		// a page narrowed to a project the caller may not see has no honest
+		// sections at all.
+		if opts.ProjectID != nil {
+			if err := activities.RequireProjectScope(ctx, tx, *opts.ProjectID); err != nil {
+				return err
+			}
+		}
+		return s.sections(ctx, tx, orgID, now, opts, &out)
 	})
 	if err != nil {
 		return crmcontracts.Organization360{}, err
@@ -95,8 +132,8 @@ func (s *Service) Assemble(ctx context.Context, orgID ids.OrganizationID) (crmco
 // apperrors.ErrPermissionDenied is omitted and named; any other error
 // fails the whole read, because a section that broke for a real reason
 // must never be reported as one the caller may not see.
-func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, out *crmcontracts.Organization360) error {
-	a := &assembly{svc: s, ctx: ctx, tx: tx, orgID: orgID, now: now, out: out}
+func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, opts AssembleOptions, out *crmcontracts.Organization360) error {
+	a := &assembly{svc: s, ctx: ctx, tx: tx, orgID: orgID, now: now, opts: opts, out: out}
 	each := []struct {
 		name crmcontracts.Organization360SectionsOmitted
 		read func() error
@@ -145,6 +182,7 @@ type assembly struct {
 	tx    pgx.Tx
 	orgID ids.OrganizationID
 	now   time.Time
+	opts  AssembleOptions
 	out   *crmcontracts.Organization360
 
 	// baseCurrency is the installation's reporting currency, resolved at most
@@ -262,9 +300,10 @@ func (a *assembly) readTimeline() error {
 	entityType := "organization"
 	limit := sectionLimit
 	data, page, err := activities.ListActivitiesTx(a.ctx, a.tx, activities.ListActivitiesInput{
-		EntityType: &entityType,
-		EntityID:   &orgUUID,
-		Limit:      &limit,
+		EntityType:      &entityType,
+		EntityID:        &orgUUID,
+		Limit:           &limit,
+		WithinProjectID: a.opts.ProjectID,
 	})
 	if err != nil {
 		return err
@@ -321,7 +360,7 @@ func (a *assembly) readNextSteps() error {
 	if err := auth.Require(a.ctx, "activity", principal.ActionRead); err != nil {
 		return err
 	}
-	data, page, err := nextStepsSection(a.ctx, a.tx, a.orgID, a.now)
+	data, page, err := nextStepsSection(a.ctx, a.tx, a.orgID, a.now, a.opts)
 	if err != nil {
 		return err
 	}
@@ -339,7 +378,7 @@ func (a *assembly) readNextMeeting() error {
 	if err := auth.Require(a.ctx, "activity", principal.ActionRead); err != nil {
 		return err
 	}
-	meeting, err := nextMeetingSection(a.ctx, a.tx, a.orgID, a.now)
+	meeting, err := nextMeetingSection(a.ctx, a.tx, a.orgID, a.now, a.opts)
 	if err != nil {
 		return err
 	}

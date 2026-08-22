@@ -33,6 +33,19 @@ func logActivityCommand(_ agentPolicy, _ restCommandDeps, _ *http.Request, body 
 	return agents.NewLogActivityCall(agents.LogActivityCommand{Fields: json.RawMessage(body)}), nil
 }
 
+// createTaskCommand decodes POST /v1/tasks. A task is an activity of kind
+// task, so it binds to the same resolver a logged activity does; the kind is
+// stamped here so the staged command names what the door will write.
+//
+//nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
+func createTaskCommand(_ agentPolicy, _ restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
+	fields, err := agents.TaskAsActivity(json.RawMessage(body))
+	if err != nil {
+		return nil, err
+	}
+	return agents.NewLogActivityCall(agents.LogActivityCommand{Fields: fields}), nil
+}
+
 // draftEmailCommand decodes POST /v1/activities/{id}/draft-email. The optional
 // `intent` body is not read: nothing the resolver answers depends on it.
 //
