@@ -1090,6 +1090,15 @@ paths:
                     Optional steering in the caller's own words ("shorter", "warmer", "ask for
                     Tuesday"). The one input that is NOT untrusted — the caller typed it — and
                     so the only one outside the fence.
+                project_id:
+                  type: [string, 'null']
+                  format: uuid
+                  description: >-
+                    Which body of work the message is about. When set, the draft is grounded in
+                    the 360 scoped to that project — correspondence filed under another project
+                    drops out — and the project's name, key, phase and target end date are facts
+                    the draft may use. Must be a live project the caller can read; an invisible
+                    or archived one is `404`, the same answer a direct read gives.
       responses:
         '200':
           description: The draft, and what it was written from.
@@ -2385,6 +2394,15 @@ paths:
                   type: [string, 'null']
                   format: uuid
                   description: Which open deal the message is about. Absent draws on the account as a whole.
+                project_id:
+                  type: [string, 'null']
+                  format: uuid
+                  description: >-
+                    Which body of work the message is about. When set, the draft is grounded in
+                    the 360 scoped to that project — correspondence filed under another project
+                    drops out — and the project's name, key, phase and target end date are facts
+                    the draft may use. Must be a live project the caller can read; an invisible
+                    or archived one is `404`, the same answer a direct read gives.
                 intent:
                   type: [string, 'null']
                   maxLength: 400
@@ -18488,6 +18506,30 @@ components:
         expected_close_date: { type: [string, 'null'], format: date }
         stalled: { type: boolean, description: No linked activity inside the 60-day stall window. }
 
+    Organization360ProjectPhase:
+      type: string
+      enum: [initiative, pursuing, delivering, closed]
+      description: Where a project stands on the record page; the same ladder the project's own `phase` walks.
+
+    Organization360Project:
+      type: object
+      description: >-
+        One body of work on the record page: enough to name it, say where it stands and who
+        holds it. The full row is `GET /projects/{id}`. Shared by the company page and the
+        person page, so a project reads the same on both.
+      required: [project_id, name, phase]
+      properties:
+        project_id: { type: string, format: uuid }
+        name: { type: string }
+        key: { type: [string, 'null'], description: 'The subject-line handle, when the project has one.' }
+        phase: { $ref: '#/components/schemas/Organization360ProjectPhase' }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+        target_end_date: { type: [string, 'null'], format: date }
+        owner_id: { type: [string, 'null'], format: uuid }
+        owner_name:
+          type: [string, 'null']
+          description: The owner's display name; null when the project has no owner or the owner is no longer an active member.
+
     Organization360Deals:
       type: object
       description: The account's open deals plus the two lifetime figures the header needs.
@@ -18710,7 +18752,7 @@ components:
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health, next_meeting]
+            enum: [people, deals, projects, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health, next_meeting]
         people:
           type: object
           required: [data, page]
@@ -18718,6 +18760,13 @@ components:
             data: { type: array, items: { $ref: '#/components/schemas/Organization360Contact' } }
             page: { $ref: '#/components/schemas/PageInfo' }
         deals: { $ref: '#/components/schemas/Organization360Deals' }
+        projects:
+          type: array
+          description: >-
+            The company's unarchived projects, work in motion first (delivering, pursuing,
+            initiative, then closed), under the caller's project row scope. Absent when the
+            caller has no project grant, named in `sections_omitted` as `projects`.
+          items: { $ref: '#/components/schemas/Organization360Project' }
         strength: { $ref: '#/components/schemas/OrganizationStrength' }
         activities: { $ref: '#/components/schemas/ActivityListResponse' }
         tags: { type: array, items: { $ref: '#/components/schemas/Tag' } }
@@ -18929,8 +18978,16 @@ components:
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [employments, deal_roles, strength, network, activities, next_steps, consent, profile_fields, since_last_visit, last_touch, relationship_changes, moments, commercial, next_meeting, claims, conversation_memory, provider_profile]
+            enum: [employments, deal_roles, projects, strength, network, activities, next_steps, consent, profile_fields, since_last_visit, last_touch, relationship_changes, moments, commercial, next_meeting, claims, conversation_memory, provider_profile]
         strength: { $ref: '#/components/schemas/RelationshipStrength' }
+        projects:
+          type: array
+          description: >-
+            The unarchived projects this person is part of: the ones they hold a live
+            stakeholder seat on, plus every project of the company they currently work for,
+            one row per project, work in motion first. Absent when the caller has no project
+            grant, named in `sections_omitted` as `projects`.
+          items: { $ref: '#/components/schemas/Organization360Project' }
         provider_profile:
           description: >-
             The purchased person-data snapshot (PO-EXT-9): what a connected provider

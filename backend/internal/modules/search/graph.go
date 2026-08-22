@@ -341,12 +341,15 @@ func MemberNames(ctx context.Context, tx pgx.Tx, edges []InteractionEdge) (map[i
 // section for, in the order they are emitted.
 //
 // It is a SUBSET of activity_link's arms (activityLinkArms) and the walk skips
-// the rest: a project or a lead reached at hop 2 has nowhere to be reported, so
-// reading them would be a query whose result is discarded.
+// the rest: a lead reached at hop 2 has nowhere to be reported, so reading it
+// would be a query whose result is discarded. A project IS reported — the
+// bodies of work an account's correspondence is filed under are what a
+// catch-up on that account is about.
 var relatedSectionOrder = []string{
 	string(datasource.EntityPerson),
 	string(datasource.EntityOrganization),
 	string(datasource.EntityDeal),
+	string(datasource.EntityProject),
 }
 
 func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, activityIDs []ids.ActivityID, maxItems int) ([]graphSection, error) {

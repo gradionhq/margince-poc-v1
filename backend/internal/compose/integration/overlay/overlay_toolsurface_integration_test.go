@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -424,38 +425,42 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 	registry := compose.NewRegistryFor(e.DB(), compose.SendPath{})
 	ctx := e.As(e.Rep1, nil, nativeToolReaderPerms())
 
-	// The tools whose NOT-FOUND is itself a served answer — the answer only a
-	// workspace that actually ran the lookup can give. Everything else must
-	// SUCCEED, so a native path that broke outright cannot hide behind "well, it
-	// didn't say unsupported_by_sor".
-	notFoundIsAnAnswer := map[string]bool{
-		// Anchored intents and writes, against an anchor id that is minted
-		// rather than seeded.
-		"catch_me_up_on": true, "prep_for_meeting": true, "intro_path_to": true,
-		"disqualify_lead": true, "promote_lead": true, "merge_records": true, "advance_deal": true,
-		// The delivery briefing is anchored on a project id, and the anchor
-		// above is minted rather than seeded. Not-found is the served answer
-		// here, and the RIGHT one: the project read runs first and its refusal
-		// is returned unchanged, so a native workspace saying "no such project"
-		// is the mode guard having stood aside exactly as it should.
-		"prepare_handoff": true,
-		// A rep with no assembled brief: read_brief re-reads a persisted run and
-		// never ranks, so "none has been generated" is what it owes rather than
-		// an empty queue that reads as a quiet morning.
-		"read_brief": true,
-	}
+	// A tool whose fixture carries the MINTED anchor is asking about a record
+	// that was never seeded, so not-found is itself a served answer — the answer
+	// only a workspace that actually ran the lookup can give. Everything else
+	// must SUCCEED, so a native path that broke outright cannot hide behind
+	// "well, it didn't say unsupported_by_sor".
+	//
+	// Derived from the fixture rather than listed, because a hand-kept list is
+	// the wrong shape for this: it has to be extended by whoever adds an
+	// anchored tool, and the failure when they forget accuses the new tool of
+	// breaking the native path when nothing is wrong with it. read_project_360
+	// was added with its fixture and without its list entry, and that is exactly
+	// how it read.
+	//
+	// One tool answers not-found without an anchor, and it is named because
+	// nothing about its arguments could tell you: read_brief re-reads a
+	// persisted run and never ranks, so "none has been generated" is what it
+	// owes a rep with no assembled brief, rather than an empty queue that reads
+	// as a quiet morning.
+	const unanchoredNotFound = "read_brief"
 
 	anchor := ids.NewV7()
-	for name, args := range mergedFixtures(nativeOnlyAgentTools(anchor), providerRefusedRecordWrites(anchor)) {
+	fixtures := mergedFixtures(nativeOnlyAgentTools(anchor), providerRefusedRecordWrites(anchor))
+	if _, ok := fixtures[unanchoredNotFound]; !ok {
+		t.Fatalf("%s is no longer in the fixture set — the exception outlived the tool it names", unanchoredNotFound)
+	}
+	for name, args := range fixtures {
 		t.Run(name, func(t *testing.T) {
+			notFoundIsAnAnswer := name == unanchoredNotFound || strings.Contains(args, anchor.String())
 			_, err := registry.Invoke(ctx, name, json.RawMessage(args))
 			if errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 				t.Fatalf("%s refused a NATIVE workspace with unsupported_by_sor — the mode guard is inverted", name)
 			}
 			switch {
-			case notFoundIsAnAnswer[name] && err != nil && !errors.Is(err, apperrors.ErrNotFound):
+			case notFoundIsAnAnswer && err != nil && !errors.Is(err, apperrors.ErrNotFound):
 				t.Fatalf("%s err = %v, want nil or ErrNotFound", name, err)
-			case !notFoundIsAnAnswer[name] && err != nil:
+			case !notFoundIsAnAnswer && err != nil:
 				t.Fatalf("%s err = %v, want nil — a native workspace must actually be served", name, err)
 			}
 		})
