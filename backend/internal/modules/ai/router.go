@@ -143,11 +143,18 @@ func (r *Router) Complete(ctx context.Context, task Task, req model.Request) (mo
 // convenience wrapper Complete uses for its single-attempt case.
 func (r *Router) serveCompletion(ctx context.Context, task Task, ladder []Tier, req model.Request) (model.Response, RouteInfo, error) {
 	lc := newLogicalCall()
-	resp, info, err := r.serveAttempt(ctx, lc, task, ladder, req, "")
+	// DEFERRED, like CompleteStructured's. A panic in a provider adapter, the
+	// cache or the meter unwinds through finalizeAttempt — which appends the
+	// terminal trace to lc — and would then skip a plain statement here, so the
+	// trace would be built and never written. That was survivable while the
+	// router only ever announced a settled occurrence; it stopped being
+	// survivable when it began announcing a start, because the start is
+	// committed durable state that only this flush closes.
+	//
 	// The same binding the attempt served itself from, so the flushed trace
 	// files the call under the configuration that actually ran it.
-	r.flushDetached(ctx, r.binding(), lc)
-	return resp, info, err
+	defer func() { r.flushDetached(ctx, r.binding(), lc) }()
+	return r.serveAttempt(ctx, lc, task, ladder, req, "")
 }
 
 // serveAttempt serves ONE attempt over ladder and appends its trace to lc
@@ -200,14 +207,8 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 	}
 	ladder = r.applyProfile(ladder)
 
-	// The rail's opening line, and this is the earliest place it can honestly
-	// be drawn. Every return ABOVE is untraced — no workspace, a refused
-	// budget, an unbuildable cache key — so announcing there would open an
-	// occurrence that no flush ever settles, leaving a rep watching work that
-	// is not happening until the lease expired. From here the deferred
-	// finalizeAttempt has been armed, so this attempt appends a terminal trace
-	// whatever it does next, and the settle is guaranteed. The ladder is the
-	// ADJUSTED one, so the lease is sized to the rungs that can really run.
+	// The rail's opening line. It sits HERE and not higher, and the ladder it
+	// is given is the ADJUSTED one — announceRailStartOnce says why both.
 	lc.announceRailStartOnce(ctx, r, task, ladder)
 
 	// A cached answer only serves when its tier is still on the adjusted

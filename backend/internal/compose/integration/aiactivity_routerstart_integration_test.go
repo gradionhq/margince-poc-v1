@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 )
 
 // start announces one call's beginning the way the router does before it serves
@@ -179,5 +180,106 @@ func TestTheRouterAnnouncesNoStartForACarrierOwnedTask(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("the router announced %d start(s) for a task the agent runner reports", rows)
+	}
+}
+
+// sweep closes the router occurrences whose lease ran out before cutoff, the
+// way the retention job does.
+func (f *routerFixture) sweep(t *testing.T, cutoff time.Time) int64 {
+	t.Helper()
+	closed, err := aiactivity.NewStore(f.env.DB()).CloseAbandonedRouterRuns(f.ctx, cutoff)
+	if err != nil {
+		t.Fatalf("closing abandoned router occurrences: %v", err)
+	}
+	return closed
+}
+
+// A start that nothing ever settles must not sit on a rep's rail forever.
+//
+// This is the failure the start announcement CREATES and the reason the sweep
+// exists: the router commits its start in its own transaction before the call,
+// and the only thing that closes it is a flush that is best-effort by design. A
+// flush that times out, or a process killed mid-call, leaves a row that renders
+// stalled once its lease expires — and nothing else would ever reach it, because
+// the live feed has no time bound and the settled purge only sees settled rows.
+func TestAStartNothingSettledIsClosedByTheSweep(t *testing.T) {
+	f := newRouterFixture(t)
+
+	// A one-second lease and a cutoff past it, rather than a backdated row: the
+	// sweep takes its cutoff from the caller precisely so a test can reach the
+	// real predicate without writing state the real writer never writes.
+	f.start(t, ai.TaskSummarize, time.Second)
+	f.drain(t)
+	if got := f.row(t, ai.TaskSummarize); got.State != "running" {
+		t.Fatalf("state before the sweep = %q, want running", got.State)
+	}
+
+	if closed := f.sweep(t, time.Now().Add(time.Hour)); closed != 1 {
+		t.Fatalf("the sweep closed %d occurrences, want 1", closed)
+	}
+
+	got := f.row(t, ai.TaskSummarize)
+	if got.State != "failed" {
+		t.Errorf("state after the sweep = %q, want failed", got.State)
+	}
+	if got.FinishedAt == nil {
+		t.Error("the sweep settled the row without a finished_at, which ai_task_run_settled_has_finish forbids")
+	}
+	if got.StaleAfter != nil {
+		t.Errorf("a settled row still leases until %s", got.StaleAfter)
+	}
+	if got.DegradeReason == nil || *got.DegradeReason != "abandoned" {
+		t.Errorf("degrade reason = %v, want the sweep's own closed reason", got.DegradeReason)
+	}
+}
+
+// The sweep must not close a call that is simply still working. Its whole
+// predicate is the lease, and a sweep that ignored it would settle live work
+// under a rep's eyes — the opposite failure, and the more visible one.
+func TestTheSweepLeavesAnOccurrenceInsideItsLease(t *testing.T) {
+	f := newRouterFixture(t)
+
+	f.start(t, ai.TaskSummarize, time.Hour)
+	f.drain(t)
+
+	if closed := f.sweep(t, time.Now()); closed != 0 {
+		t.Fatalf("the sweep closed %d occurrences that are still inside their lease, want 0", closed)
+	}
+	if got := f.row(t, ai.TaskSummarize); got.State != "running" {
+		t.Errorf("state after the sweep = %q, want running — the sweep settled work that is still happening", got.State)
+	}
+}
+
+// A CARRIER's live occurrence is not the sweep's to close, however old.
+//
+// The distinction is the reason the predicate names ai_router rather than a
+// state: a carrier holds a durable row it can re-arm from, so a live line of its
+// is a claim it still owns. The router holds no such claim, which is the whole
+// argument for sweeping its rows and only its rows.
+func TestTheSweepDoesNotCloseACarriersLiveOccurrence(t *testing.T) {
+	f := newRunnerFixture(t)
+	ctx := f.env.AgentCtxWithPassport(f.passport.UUID)
+	if err := f.runs.EnqueueJob(ctx, f.spec.Name, f.trigger, &f.passport, f.dbNow(t)); err != nil {
+		t.Fatalf("enqueuing the run: %v", err)
+	}
+	if _, created, err := f.runs.StartRun(ctx, f.spec, f.trigger, f.passport); err != nil || !created {
+		t.Fatalf("claiming the run: created=%v err=%v", created, err)
+	}
+	f.drain(t)
+
+	live, _ := f.feed(t)
+	if len(live) != 1 {
+		t.Fatalf("the runner has %d live occurrences before the sweep, want 1", len(live))
+	}
+
+	closed, err := aiactivity.NewStore(f.env.DB()).CloseAbandonedRouterRuns(ctx, time.Now().Add(365*24*time.Hour))
+	if err != nil {
+		t.Fatalf("closing abandoned router occurrences: %v", err)
+	}
+	if closed != 0 {
+		t.Fatalf("the sweep closed %d carrier-owned occurrences, want 0", closed)
+	}
+	if live, _ = f.feed(t); len(live) != 1 {
+		t.Errorf("the runner has %d live occurrences after the sweep, want 1", len(live))
 	}
 }

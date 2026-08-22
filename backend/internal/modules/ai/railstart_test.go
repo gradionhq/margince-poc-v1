@@ -5,16 +5,20 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-// countingStarter records how often the rail was told a call began.
+// countingStarter records how often the rail was told a call began, and still
+// records the calls themselves — so one recorder can drive a real router call
+// and answer both halves of what that call owes the rail.
 type countingStarter struct {
-	memCallStore
+	fakeCallStore
 	starts []Call
 	leases []time.Duration
 }
@@ -36,10 +40,16 @@ func (c *countingStarter) AnnounceRailStart(_ context.Context, call Call, lease 
 func TestTheLeaseOutlastsEveryRungTheLadderCanSpend(t *testing.T) {
 	for _, rungs := range []int{1, 2, 3, 4} {
 		ladder := make([]Tier, rungs)
-		worstCase := requestTimeout * time.Duration(rungs)
+		// The worst case is not one walk of the ladder. CompleteStructured
+		// walks it up to maxLadderWalks times for ONE logical call, the start
+		// is announced once, and the projection refuses a re-announcement at
+		// the same attempt — so the lease has to cover every walk or a
+		// structured call that legitimately retried renders stalled while it is
+		// still working.
+		worstCase := requestTimeout * time.Duration(rungs*maxLadderWalks)
 		if got := railLease(ladder); got <= worstCase {
-			t.Errorf("railLease over %d rungs = %s, which does not outlast the %s those rungs can spend — "+
-				"a call still running would render stalled", rungs, got, worstCase)
+			t.Errorf("railLease over %d rungs = %s, which does not outlast the %s that %d walks of those rungs can spend — "+
+				"a healthy structured call would render stalled", rungs, got, worstCase, maxLadderWalks)
 		}
 	}
 }
@@ -90,5 +100,93 @@ func TestARecorderThatCannotAnnounceIsNotAskedTo(t *testing.T) {
 
 	if lc.railAnnounced {
 		t.Error("a recorder that announces nothing marked the call announced, so a recorder that CAN announce would be skipped after it")
+	}
+}
+
+// The PRODUCTION call site, which nothing else here exercises.
+//
+// Every other test in this file drives announceRailStartOnce by hand, and the
+// integration tests drive CallMeter.AnnounceRailStart by hand. Both would pass
+// against a router that never announces anything — which is exactly the
+// behaviour this feature replaces. So this one serves a real call through
+// serveCompletion and asserts the rail heard about it, with the identity it
+// needs to pair the start with the settle that follows.
+func TestServingACallAnnouncesItsStartToTheRail(t *testing.T) {
+	starter := &countingStarter{}
+	r := assembleRouter(
+		map[Tier]model.Client{TierCheapCloud: stubClient{resp: model.Response{Text: "answer"}}},
+		nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, starter,
+		map[Tier]routeMeta{TierCheapCloud: {provider: "openai", model: "gpt-cheap"}},
+		false, nil,
+	)
+	corr := ids.NewV7()
+	ctx := principal.WithCorrelationID(wsCtx(), corr)
+
+	if _, _, err := r.serveCompletion(ctx, TaskSummarize, []Tier{TierCheapCloud}, model.Request{}); err != nil {
+		t.Fatalf("serving the call: %v", err)
+	}
+
+	if len(starter.starts) != 1 {
+		t.Fatalf("serving one call announced %d starts, want 1", len(starter.starts))
+	}
+	got := starter.starts[0]
+	if got.Task != TaskSummarize {
+		t.Errorf("the start named task %q, want %q", got.Task, TaskSummarize)
+	}
+	// The correlation id is what pairs this start with its own settle. A start
+	// carrying a different one opens an occurrence the flush never closes.
+	if got.CorrelationID == nil || *got.CorrelationID != corr {
+		t.Errorf("the start carried correlation %v, want %s — the settle would land on a different occurrence", got.CorrelationID, corr)
+	}
+}
+
+// A structured call is ONE piece of work however many walks it takes, and the
+// production path is what has to know that. Driven through CompleteStructured
+// with a validator that never accepts, so all maxLadderWalks walks really run.
+func TestAStructuredCallAnnouncesOneStartAcrossEveryWalk(t *testing.T) {
+	starter := &countingStarter{}
+	r := assembleRouter(
+		map[Tier]model.Client{TierCheapCloud: stubClient{resp: model.Response{Text: "answer"}}},
+		nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, starter,
+		map[Tier]routeMeta{TierCheapCloud: {provider: "openai", model: "gpt-cheap"}},
+		false, nil,
+	)
+	ctx := principal.WithCorrelationID(wsCtx(), ids.NewV7())
+	rejectEverything := func(string) error { return errors.New("never valid") }
+
+	if _, _, err := r.CompleteStructured(ctx, TaskSummarize, model.Request{}, rejectEverything); err == nil {
+		t.Fatal("a validator that never accepts returned no error, so the retry and escalation did not run")
+	}
+
+	if len(starter.starts) != 1 {
+		t.Fatalf("a structured call that walked the ladder every time announced %d starts, want 1 — "+
+			"a second start outranks the first attempt's settle and reports one request as several", len(starter.starts))
+	}
+}
+
+// The lease's worst case is arithmetic over maxLadderWalks, and this is what
+// keeps that number honest: a fourth walk added to CompleteStructured without
+// changing the constant would leave a healthy call rendering stalled before it
+// finished. Counted from the calls the router actually recorded, so the number
+// is observed rather than restated.
+func TestStructuredWalksTheLadderNoMoreThanTheLeaseAssumes(t *testing.T) {
+	starter := &countingStarter{}
+	r := assembleRouter(
+		map[Tier]model.Client{TierCheapCloud: stubClient{resp: model.Response{Text: "answer"}}},
+		nil, ProfileCloudFrontier, stubMeter{}, unlimitedBudget{}, starter,
+		map[Tier]routeMeta{TierCheapCloud: {provider: "openai", model: "gpt-cheap"}},
+		false, nil,
+	)
+	ctx := principal.WithCorrelationID(wsCtx(), ids.NewV7())
+
+	if _, _, err := r.CompleteStructured(ctx, TaskSummarize, model.Request{},
+		func(string) error { return errors.New("never valid") }); err == nil {
+		t.Fatal("a validator that never accepts returned no error")
+	}
+
+	// One rung, so each walk of the ladder is exactly one recorded attempt.
+	if walks := len(starter.recorded); walks > maxLadderWalks {
+		t.Errorf("CompleteStructured walked the ladder %d times and railLease is sized for %d — "+
+			"a healthy call now outlives its own lease and renders stalled", walks, maxLadderWalks)
 	}
 }

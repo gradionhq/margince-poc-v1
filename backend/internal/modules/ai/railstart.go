@@ -58,18 +58,29 @@ type railStarter interface {
 
 // railLease is how long a live router occurrence stays believable.
 //
-// DERIVED from the bound it must outlast, never chosen: requestTimeout caps a
-// single model call (it is the http.Client timeout every adapter is built
-// with), and a logical call may walk every rung of its ladder, spending that
-// bound on each. traceWriteTimeout is added because the occurrence is not
-// settled by the last rung but by the flush that follows it — a lease that
-// expired between the two would render a call stalled in the instant before it
-// reported success.
+// DERIVED from the bound it must outlast, never chosen. Three factors, and the
+// third is the one an earlier version of this file got wrong:
 //
-// A round number here would be a guess that happens to look like a decision,
-// and the failure it buys is silent: too short renders healthy work as a dead
-// worker, too long leaves a killed process claiming to work until somebody
-// notices. Neither is visible in a test that does not run for minutes.
+//   - requestTimeout caps a SINGLE model call — the http.Client timeout every
+//     adapter is built with.
+//   - a walk of the ladder may spend that bound on EVERY rung.
+//   - and CompleteStructured walks the ladder up to maxLadderWalks times for one
+//     logical call: the first try, the schema-invalid retry, the escalation.
+//
+// The third matters because the start is announced ONCE, by construction, and
+// the projection's guard refuses an equal (attempt, rank) re-announcement — so
+// there is no such thing as extending this lease later. It has to cover the
+// whole logical call on the day it is written. Sized for one walk, a structured
+// call that legitimately retried would render stalled while it was still
+// working, which is precisely the failure this derivation exists to prevent.
+//
+// traceWriteTimeout is added because the occurrence is settled not by the last
+// rung but by the flush that follows it.
+//
+// A round number would be a guess that happens to look like a decision, and the
+// failure it buys is silent in both directions: too short renders healthy work
+// as a dead worker, too long leaves a killed process claiming to work. Neither
+// is visible in a test that does not run for minutes.
 func railLease(ladder []Tier) time.Duration {
 	rungs := len(ladder)
 	if rungs < 1 {
@@ -78,7 +89,7 @@ func railLease(ladder []Tier) time.Duration {
 		// occurrence stale the instant it appeared.
 		rungs = 1
 	}
-	return requestTimeout*time.Duration(rungs) + traceWriteTimeout
+	return requestTimeout*time.Duration(rungs*maxLadderWalks) + traceWriteTimeout
 }
 
 // announceRailStartOnce opens this logical call's occurrence, at most once.
@@ -93,6 +104,22 @@ func railLease(ladder []Tier) time.Duration {
 // It reads the correlation id off the SAME context value Call.CorrelationID is
 // read from at flush, so the opening and closing announcements agree about
 // which occurrence they describe, or neither is made.
+//
+// WHERE IT IS CALLED FROM is as load-bearing as what it does. serveAttempt
+// calls it after the workspace check, the budget, the cache key and the profile
+// — every return above those is untraced, so announcing higher would open an
+// occurrence with no terminal trace behind it at all. From that point the
+// deferred finalizeAttempt is armed, so the attempt APPENDS a terminal trace
+// whatever it does next, and the ladder in hand is the adjusted one, so the
+// lease is sized to rungs that can really run.
+//
+// Appending is not writing, and that gap is this placement's honest limit: the
+// flush is best-effort by design (it must never fail a working model call), so
+// a flush that times out — or a process that dies between the two — leaves a
+// start nothing settles. The lease bounds how long such a row claims to be
+// working, and aiactivity's sweep of abandoned router occurrences is what
+// finally closes it. The settle is LIKELY, not guaranteed; a comment claiming
+// otherwise would be the kind nobody re-checks.
 func (lc *logicalCall) announceRailStartOnce(ctx context.Context, r *Router, task Task, ladder []Tier) {
 	if lc.railAnnounced {
 		return
@@ -143,15 +170,26 @@ func (m *CallMeter) AnnounceRailStart(ctx context.Context, c Call, lease time.Du
 
 // announceRailStartTx writes the ledger row and publishes the running state.
 //
-// No lock, and that is a difference from the settling half worth stating. The
-// settle COUNTS terminal calls under a write-identity lock because two
-// concurrent settles that computed the same attempt would have one of their
-// outcomes silently refused — and losing an outcome is losing a fact. Two
-// concurrent STARTS that compute the same attempt both publish `running` for
-// one occurrence; the projection's guard refuses the second as an equal
-// (attempt, rank) redelivery and the row reads running either way. Nothing is
-// lost, so nothing needs serializing, and the hot path does not pay for a lock
-// to protect a value it cannot get wrong.
+// No lock, unlike the settling half — and what that costs is worth stating
+// exactly, because it is not nothing.
+//
+// The settle COUNTS terminal calls under a write-identity lock because two
+// concurrent settles that computed one attempt would have an OUTCOME silently
+// refused, and losing an outcome is losing a fact that nothing can recover.
+//
+// Two concurrent starts under one key lose something smaller and recoverable. B
+// counts the same terminals as A, both publish `running` at that attempt, and
+// the projection refuses the second as an equal (attempt, rank) event. The row
+// reads running either way, so nothing is wrong on screen — but if A then
+// SETTLES while B is still working, the row reads settled while B runs, until
+// B's own settle reopens it at the next attempt. A live interval is suppressed;
+// no fact is lost.
+//
+// That is accepted rather than overlooked, because it needs two logical calls
+// of ONE task under ONE correlation id — which is the multi-call shape the file
+// header already names as churn-prone, which no displayed kind has, and which a
+// unit-of-work frame is what actually fixes. Paying a lock on every start to
+// tighten a live interval nobody currently renders is the wrong trade.
 func (m *CallMeter) announceRailStartTx(ctx context.Context, tx pgx.Tx, c Call, lease time.Duration) error {
 	key := unitOfWorkKey(c)
 	attempt, started, err := railStartAttempt(ctx, tx, c)
@@ -191,8 +229,11 @@ func (m *CallMeter) announceRailStartTx(ctx context.Context, tx pgx.Tx, c Call, 
 //
 // One more than the terminal calls already recorded for the occurrence, because
 // the settle counts the same rows once its own is written — so the two agree by
-// construction for a logical call that is alone under its key, which is every
-// oneShot task and therefore every kind the rail draws.
+// construction for a logical call that is alone under its key. Every kind the
+// rail DRAWS today is such a call (summarize, draft_reply and offer_draft are
+// registered oneShot), which is not the same as every router-owned task: the
+// registry also hands the router page-parallel work like site_fact_extract, and
+// those are the calls the paragraph below is about.
 //
 // Where they can disagree is a page-PARALLEL fan-out under one correlation id:
 // a sibling settling between this start and this settle lifts the settle's
