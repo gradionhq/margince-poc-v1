@@ -4006,6 +4006,9 @@ export const en = {
   "ob.payoff.seats":
     "The one thing left is your colleagues. Seats are billed, so you create them in Settings → People.",
   "ob.payoff.understood": "Understood",
+  "ob.payoff.projects":
+    "When a deal turns into work, open a project for it: a project starts during the deal and outlives close-won, so delivery keeps its own timeline.",
+  "ob.payoff.projectsLink": "See projects",
 
   // --- the handoff into the app -----------------------------------------
   "ob.enter.cta": "Enter Margince",

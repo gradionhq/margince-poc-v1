@@ -100,6 +100,48 @@ describe("ProjectsScreen", () => {
     expect(firstRead).toContain("sort=-last_activity_at");
   });
 
+  it("offers a saved view as a tab and sends its filter when selected", async () => {
+    const user = userEvent.setup();
+    const { urls } = projectsBackend({
+      projects: [project({ id: "pr-1", name: "CRM rollout" })],
+      respond: async (url, method) =>
+        method === "GET" && url.includes("/views")
+          ? jsonResponse({
+              data: [
+                {
+                  id: "v-1",
+                  resource: "projects",
+                  name: "In delivery, mine",
+                  query: {
+                    list: {
+                      sort: "name",
+                      filters: { phase: "delivering", owner_id: "u-1" },
+                    },
+                  },
+                  created_at: "2026-06-01T00:00:00Z",
+                  updated_at: "2026-06-01T00:00:00Z",
+                },
+              ],
+              page: { next_cursor: null },
+            })
+          : null,
+    });
+    render(<ProjectsScreen />);
+    await screen.findByText("CRM rollout");
+
+    await user.click(
+      await screen.findByRole("button", { name: "In delivery, mine" }),
+    );
+
+    await waitFor(() => {
+      const read = urls.find(
+        (url) => url.includes("/projects?") && url.includes("phase=delivering"),
+      );
+      expect(read).toContain("owner_id=u-1");
+      expect(read).toContain("sort=name");
+    });
+  });
+
   it("shows the instructional plate on a first run", async () => {
     projectsBackend({ projects: [] });
     render(<ProjectsScreen />);

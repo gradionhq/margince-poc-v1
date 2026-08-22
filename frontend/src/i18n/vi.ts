@@ -3936,6 +3936,9 @@ export const vi = {
   "ob.payoff.seats":
     "Việc còn lại là các đồng nghiệp của bạn. Mỗi suất người dùng đều tính phí, nên bạn tạo họ trong Cài đặt → Người dùng.",
   "ob.payoff.understood": "Đã rõ",
+  "ob.payoff.projects":
+    "Khi một thương vụ trở thành công việc, hãy mở một dự án cho nó: dự án bắt đầu ngay trong thương vụ và tiếp tục sau khi chốt thắng, để việc triển khai có dòng thời gian riêng.",
+  "ob.payoff.projectsLink": "Xem dự án",
 
   // --- the handoff into the app -----------------------------------------
   "ob.enter.cta": "Vào Margince",

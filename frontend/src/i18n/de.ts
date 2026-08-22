@@ -3975,6 +3975,9 @@ export const de = {
   "ob.payoff.seats":
     "Es fehlen nur noch deine Kollegen. Sitze sind kostenpflichtig, deshalb legst du sie unter Einstellungen → Nutzer selbst an.",
   "ob.payoff.understood": "Verstanden",
+  "ob.payoff.projects":
+    "Wird aus einem Deal Arbeit, leg dafür ein Projekt an: Ein Projekt beginnt während des Deals und bleibt nach dem Gewinn bestehen, damit die Lieferung ihre eigene Chronik behält.",
+  "ob.payoff.projectsLink": "Projekte ansehen",
 
   // --- die Übergabe in die App ------------------------------------------
   "ob.enter.cta": "Margince öffnen",

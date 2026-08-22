@@ -28,6 +28,7 @@ import {
   projectFields,
 } from "./projects.form";
 import { lastActivityColumn, ownerColumn } from "./recordlist";
+import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import "./projects.css";
 
 // The projects list: every body of work the reader may see, newest activity
@@ -171,6 +172,7 @@ export function ProjectsScreen() {
   const me = useMe();
   const overlay = useSorMode() === "overlay";
   const companies = useCompanyOptions();
+  const savedViews = useSavedViewTabs("projects");
   const state = useListQuery<Project>({
     key: "projects",
     initialSort: "-last_activity_at",
@@ -249,8 +251,10 @@ export function ProjectsScreen() {
           ownerColumn<Project>(t),
           lastActivityColumn<Project>(t, locale),
         ]}
+        tools={<SaveViewAction resource="projects" query={state.query} />}
         rowKey={(project) => project.id}
         rowRoute={(project) => ({ screen: "projects", id: project.id })}
+        dataViews={savedViews}
         chips={[
           {
             key: "phase",
