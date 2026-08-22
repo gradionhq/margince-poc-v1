@@ -141,7 +141,7 @@ func TestPerson360ScopedToOneProjectDropsTheOtherEngagement(t *testing.T) {
 func TestOrganization360ScopedToOneProjectDropsTheOtherEngagement(t *testing.T) {
 	e := Setup(t)
 	f := seedTwoEngagementAccount(t, e)
-	svc := org360.NewService(e.Pool, e.People, approvals.NewService(e.DB()),
+	svc := org360.NewService(e.Pool, e.People, e.Deals, approvals.NewService(e.DB()),
 		func() time.Time { return roomFixedNow })
 	orgID := orgIDOf(f.org)
 
@@ -188,8 +188,7 @@ func TestOrganization360ScopedToOneProjectDropsTheOtherEngagement(t *testing.T) 
 func TestAProjectScopeIsGatedLikeAReadOfTheProject(t *testing.T) {
 	e := Setup(t)
 	f := seedTwoEngagementAccount(t, e)
-	noProjectGrant := roomPerms
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, noProjectGrant)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, withoutGrant(roomPerms, "project"))
 	nobodyID := ids.From[ids.ProjectKind](ids.NewV7())
 	person := string(datasource.RecordPerson)
 
@@ -212,7 +211,7 @@ func TestAProjectScopeIsGatedLikeAReadOfTheProject(t *testing.T) {
 		t.Errorf("person page scoped to a project that does not exist: err = %v, want not found", err)
 	}
 
-	orgSvc := org360.NewService(e.Pool, e.People, approvals.NewService(e.DB()), func() time.Time { return roomFixedNow })
+	orgSvc := org360.NewService(e.Pool, e.People, e.Deals, approvals.NewService(e.DB()), func() time.Time { return roomFixedNow })
 	if _, err := orgSvc.AssembleScoped(rep, orgIDOf(f.org), org360.AssembleOptions{ProjectID: &f.erp}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("company page scoped without a project grant: err = %v, want permission denied", err)
 	}
@@ -227,7 +226,7 @@ func TestAProjectScopeOnTheActivityListAnswers403And404OnTheWire(t *testing.T) {
 	e := Setup(t)
 	f := seedTwoEngagementAccount(t, e)
 	h := activities.NewHandlers(e.DB())
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, withoutGrant(roomPerms, "project"))
 	list := func(ctx context.Context, projectID ids.UUID) int {
 		t.Helper()
 		wire := openapi_types.UUID(projectID)

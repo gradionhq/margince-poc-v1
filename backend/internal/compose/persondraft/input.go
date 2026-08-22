@@ -59,6 +59,10 @@ type Input struct {
 	// Deal is the open opportunity this person sits on, when the caller can see
 	// deals and one is open.
 	Deal *DealIn `json:"deal,omitempty"`
+	// Project is the body of work the message is about, when the caller named
+	// one. The view it is folded from is already scoped to it, so Recent and
+	// Claims below describe this project's correspondence, not another's.
+	Project *ProjectIn `json:"project,omitempty"`
 	// Claims are the things this person actually said — what they asked for,
 	// promised, or objected to. They outrank the conversation below them: a
 	// message is context for writing, where a claim is a reason to write.
@@ -112,6 +116,23 @@ type DealIn struct {
 	AmountMinor int64  `json:"-"`
 	Currency    string `json:"currency,omitempty"`
 	CloseDate   string `json:"close_date,omitempty"`
+}
+
+// ProjectIn is the body of work the message is about.
+type ProjectIn struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Key is the handle a human writes in a subject line, when the project
+	// has one.
+	Key   string `json:"key,omitempty"`
+	Phase string `json:"phase"`
+	// TargetEnd is the date the work is meant to finish, YYYY-MM-DD, empty
+	// when nobody set one.
+	TargetEnd string `json:"target_end,omitempty"`
+	// OpenCommitments counts the open tasks in this project's scope — the
+	// rows the next-steps section shows — so the draft can say "two things
+	// are still open" without naming ones it was not shown.
+	OpenCommitments int `json:"open_commitments"`
 }
 
 // MarshalJSON renders the deal's amount as a person would say it, derived from

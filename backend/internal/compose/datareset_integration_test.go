@@ -705,8 +705,6 @@ func TestSweepClearsADealRoomsFrozenReleases(t *testing.T) {
 		VALUES ($1, $2, 'Bea Buyer', 'bea@voltaq.example', 'manual', 'human:test')`, participantID, roomID)
 	e.WsExec(t, `INSERT INTO deal_room_release (room_id, release_no, snapshot, source, captured_by)
 		VALUES ($1, 1, '{"status": "shown in August"}'::jsonb, 'manual', 'human:test')`, roomID)
-	e.WsExec(t, `INSERT INTO deal_room_task (room_id, side, title, done_at, done_by_participant_id, source, captured_by)
-		VALUES ($1, 'buyer', 'Sign the order form', now(), $2, 'manual', 'human:test')`, roomID, participantID)
 
 	// The premise the preserve entry rests on, asserted rather than assumed: a
 	// release can never be a legitimate sweep target, because the guard refuses

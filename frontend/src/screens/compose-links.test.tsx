@@ -41,8 +41,9 @@ const PURPOSES = {
   ],
 };
 
-// The account view the grounding selects are populated from: one contact and
-// two open deals, so a pick is a real choice rather than the only option.
+// The account view the grounding selects are populated from: two contacts,
+// two open deals and two live projects, so every pick is a real choice rather
+// than the only option — and the sole-project default stays out of the way.
 const ORG_VIEW = {
   organization: { id: "org-1", name: "Acme" },
   people: {
@@ -57,6 +58,20 @@ const ORG_VIEW = {
       { deal_id: "deal-2", name: "Acme Expansion" },
     ],
   },
+  projects: [
+    {
+      project_id: "proj-1",
+      name: "ERP rollout",
+      key: "ERP-27",
+      phase: "delivering",
+    },
+    {
+      project_id: "proj-2",
+      name: "Datacentre migration",
+      key: "DC-4",
+      phase: "pursuing",
+    },
+  ],
 };
 
 const SENT_ACTIVITY = {
@@ -173,6 +188,125 @@ describe("what a sent message files under", () => {
       { entity_type: "organization", entity_id: "org-1" },
       { entity_type: "person", entity_id: "per-1" },
       { entity_type: "deal", entity_id: "deal-1" },
+    ]);
+  });
+
+  it("files under the project the rep chose, beside the deal and the recipient", async () => {
+    const sent = stubRoutes({
+      "POST /emails": () => jsonResponse(SENT_ACTIVITY, 202),
+    });
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        personId="per-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByLabelText("Project");
+    await pickBy("Related to", "Acme Renewal");
+    await pickBy("Project", "ERP-27 · ERP rollout");
+    // The choice is visible, and so is what it does to the draft.
+    expect(screen.getByText("Scoped to ERP-27")).toBeTruthy();
+    await fillBody();
+    await pickBy("Consent purpose", "Deal messages");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(linksOf(sent)).toBeDefined());
+    // One choice, two effects: the same project id that scoped the draft
+    // files the sent message, so the project's timeline sees it.
+    expect(linksOf(sent)).toEqual([
+      { entity_type: "organization", entity_id: "org-1" },
+      { entity_type: "person", entity_id: "per-1" },
+      { entity_type: "deal", entity_id: "deal-1" },
+      { entity_type: "project", entity_id: "proj-1" },
+    ]);
+  });
+
+  it("sends the chosen project on the draft request, so the draft is grounded in that project alone", async () => {
+    const sent = stubRoutes({
+      "POST /organizations/org-1/draft-email": () =>
+        jsonResponse({
+          subject: "ERP-27 cutover",
+          body: "About the cutover.",
+          generated_by: "deterministic",
+          reasoning: [],
+        }),
+    });
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        personId="per-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByLabelText("Project");
+    await pickBy("Project", "ERP-27 · ERP rollout");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        sent.some((r) => r.key === "POST /organizations/org-1/draft-email"),
+      ).toBe(true),
+    );
+    const request = sent.find(
+      (r) => r.key === "POST /organizations/org-1/draft-email",
+    );
+    expect(request?.body).toEqual({ person_id: "per-1", project_id: "proj-1" });
+  });
+
+  it("defaults to the account's only live project, visibly", async () => {
+    // A closed project is not offered, so the account below has ONE live
+    // project and the picker lands on it without a click. The default is a
+    // rendered selection, never a silent addition to the request.
+    const sent = stubRoutes({
+      "POST /emails": () => jsonResponse(SENT_ACTIVITY, 202),
+      "GET /organizations/org-1/360": () =>
+        jsonResponse({
+          ...ORG_VIEW,
+          projects: [
+            {
+              project_id: "proj-1",
+              name: "ERP rollout",
+              key: "ERP-27",
+              phase: "delivering",
+            },
+            {
+              project_id: "proj-old",
+              name: "Old CRM",
+              key: "CRM-1",
+              phase: "closed",
+            },
+          ],
+        }),
+    });
+    render(
+      <ComposeModal
+        entityType="organization"
+        entityId="org-1"
+        personId="per-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Scoped to ERP-27")).toBeTruthy();
+    await fillBody();
+    await pickBy("Consent purpose", "Deal messages");
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(linksOf(sent)).toBeDefined());
+    expect(linksOf(sent)).toEqual([
+      { entity_type: "organization", entity_id: "org-1" },
+      { entity_type: "person", entity_id: "per-1" },
+      { entity_type: "project", entity_id: "proj-1" },
     ]);
   });
 

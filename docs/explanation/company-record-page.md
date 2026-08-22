@@ -58,14 +58,14 @@ whole honesty mechanism of the page:
 Empty arrays would be indistinguishable from an account with no contacts, no
 deals and no history — and would be *believed*. The named-omission vocabulary
 lets every card on the screen say **"hidden from you"** instead of drawing a
-blank list. The thirteen section names are spelled once
+blank list. The section names are spelled once
 (`org360/assemble.go`) and are simultaneously the contract's
 `sections_omitted` enum and the keys the assembly reasons about, so a rename
 cannot leave the two halves disagreeing:
 
-`people` · `strength` · `deals` · `activities` · `last_touch` · `state_strip` ·
-`health` · `next_steps` · `tags` · `list_memberships` · `pending_approvals` ·
-`since_last_visit` · `suggestions`
+`people` · `strength` · `deals` · `projects` · `activities` · `last_touch` ·
+`state_strip` · `health` · `next_steps` · `next_meeting` · `tags` ·
+`list_memberships` · `pending_approvals` · `since_last_visit` · `suggestions`
 
 They run in a fixed order, so two reads of the same account produce the same
 `sections_omitted` list. Any error that is **not** a permission refusal fails

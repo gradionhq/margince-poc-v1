@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -45,6 +46,7 @@ const sectionCap = 25
 type Service struct {
 	pool    *pgxpool.Pool
 	people  *people.Store
+	deals   *deals.Store
 	consent *consent.Store
 	// feedback is the correction ledger, consulted so a moment a human
 	// dismissed does not come back.
@@ -61,11 +63,12 @@ type Service struct {
 func NewService(
 	pool *pgxpool.Pool,
 	peopleStore *people.Store,
+	dealsStore *deals.Store,
 	consentStore *consent.Store,
 	feedbackStore *ai.FeedbackStore,
 	now func() time.Time,
 ) *Service {
-	return &Service{pool: pool, people: peopleStore, consent: consentStore, feedback: feedbackStore, now: now}
+	return &Service{pool: pool, people: peopleStore, deals: dealsStore, consent: consentStore, feedback: feedbackStore, now: now}
 }
 
 // WithProviders binds the licensed-data-provider registry, which the provider
@@ -174,6 +177,9 @@ func (s *Service) sections(personID ids.PersonID, now time.Time, opts AssembleOp
 		}},
 		{name: crmcontracts.Person360SectionsOmittedDealRoles, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.dealRolesSection(ctx, tx, personID, out)
+		}},
+		{name: crmcontracts.Person360SectionsOmittedProjects, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
+			return s.projectsSection(ctx, tx, personID, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedActivities, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.activitiesSection(ctx, tx, personID, opts, out)

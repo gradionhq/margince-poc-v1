@@ -57,18 +57,6 @@ var project360RepPerms = principal.Permissions{
 	RowScope: principal.RowScopeTeam,
 }
 
-// withoutGrant is the same rep minus one object grant — the fixture that
-// proves omission is distinguishable from emptiness.
-func withoutGrant(base principal.Permissions, object string) principal.Permissions {
-	objects := make(map[string]principal.ObjectGrant, len(base.Objects))
-	for k, v := range base.Objects {
-		if k != object {
-			objects[k] = v
-		}
-	}
-	return principal.Permissions{RoleKeys: base.RoleKeys, Objects: objects, RowScope: base.RowScope}
-}
-
 type project360Fixture struct {
 	project ids.ProjectID
 	deal    ids.UUID

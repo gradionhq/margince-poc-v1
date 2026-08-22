@@ -19,7 +19,14 @@ import { webUrl } from "../format/weburl";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import { SentenceList } from "./company360";
-import { refusalOf, SendRefusal, scheduleFields } from "./compose";
+import {
+  liveProjects,
+  ProjectPicker,
+  refusalOf,
+  SendRefusal,
+  scheduleFields,
+  useSoleProjectDefault,
+} from "./compose";
 import { useConsentPurposes } from "./consent";
 import { PersonProviderSection } from "./personprovider";
 import type { Transport } from "./persontransports";
@@ -514,6 +521,37 @@ function ComposerHead({
   );
 }
 
+// What a person-started message files under: the recipient, and the project
+// the rep attributed it to when they chose one. The same id scoped the draft,
+// so the attribution and the grounding are one statement.
+function composerLinks(
+  personId: string,
+  projectId: string,
+): { entity_type: "person" | "project"; entity_id: string }[] {
+  const links: { entity_type: "person" | "project"; entity_id: string }[] = [
+    { entity_type: "person", entity_id: personId },
+  ];
+  if (projectId) {
+    links.push({ entity_type: "project", entity_id: projectId });
+  }
+  return links;
+}
+
+// A draft written about one project does not describe another, so changing
+// the project retires the words — but only DRAFTED words: a rep who typed
+// their own message, or edited the draft, keeps what they have. "Drafted" is
+// decided by comparison, because this composer keeps no provenance of its own.
+function retireUneditedDraft(
+  written: { subject: string; body: string } | undefined,
+  subject: string,
+  body: string,
+  clear: () => void,
+) {
+  if (written && subject === written.subject && body === written.body) {
+    clear();
+  }
+}
+
 export function PersonComposer({
   personId,
   view,
@@ -555,6 +593,13 @@ export function PersonComposer({
   // that sends formatted mail.
   const [bcc, setBcc] = useState("");
   const [sendAt, setSendAt] = useState("");
+  // The project the message belongs to — one choice, two effects: the draft
+  // is grounded in the person's page SCOPED to it, and the sent mail is
+  // filed under it. Offered only when the person is part of any; the sole
+  // live one is the default, shown in the picker rather than sent silently.
+  const [projectId, setProjectId] = useState("");
+  const projects = liveProjects(view.projects);
+  useSoleProjectDefault(projects, projectId, setProjectId);
   const { transports, transport, isChannel, setTransportId } =
     useTransportChoice(view);
 
@@ -576,6 +621,9 @@ export function PersonComposer({
   if (wroteFor !== personId) {
     setWroteFor(personId);
     clearMessage();
+    // The project belongs to the recipient too: a project chosen for A would
+    // otherwise ride along as a link on B's mail.
+    setProjectId("");
     // The transport belongs to the recipient too. Left alone, a composer
     // switched from a contact reachable on Dispact to one reachable only by
     // mail would keep a channel selected and send nowhere.
@@ -588,10 +636,16 @@ export function PersonComposer({
   // before they can ignore it. The company composer has always worked this way.
   const draft = useMutation({
     mutationKey: ["email-draft", personId],
-    mutationFn: async () => {
+    // The project is the mutation's variable rather than a closure read, so
+    // a stale closure cannot ground the draft in a project the picker no
+    // longer shows (mutation-variable-coverage.test.ts).
+    mutationFn: async (project: string) => {
       const { data, error } = await api.POST("/people/{id}/draft-email", {
         params: { path: { id: personId } },
-        body: intent.trim() ? { intent: intent.trim() } : {},
+        body: {
+          ...(intent.trim() ? { intent: intent.trim() } : {}),
+          ...(project ? { project_id: project } : {}),
+        },
       });
       if (error) {
         throwProblem(error);
@@ -624,7 +678,9 @@ export function PersonComposer({
   // carries the person as its link.
   const send = useMutation({
     mutationKey: ["email", personId],
-    mutationFn: async () => {
+    // Same rule as the draft: the project the mail files under is passed in,
+    // never read off the closure.
+    mutationFn: async (project: string) => {
       // A channel reply is a different operation against a different shape —
       // see sendChannelReply.
       if (isChannel && transport?.anchorId) {
@@ -643,7 +699,7 @@ export function PersonComposer({
           // the rep would learn that from a 422 about a line they cannot see.
           bcc: addressList(bcc),
           consent_purpose: purpose,
-          links: [{ entity_type: "person" as const, entity_id: personId }],
+          links: composerLinks(personId, project),
           ...scheduleFields(sendAt),
         },
       });
@@ -717,17 +773,27 @@ export function PersonComposer({
         <PurposePicker purpose={purpose} onChange={setPurpose} />
 
         {!isChannel && (
-          <MailOnlyFields
-            sendAt={sendAt}
-            onSendAtChange={setSendAt}
-            subject={subject}
-            onSubjectChange={setSubject}
-            intent={intent}
-            onIntentChange={setIntent}
-            draftPending={draft.isPending}
-            draftError={draft.isError ? draft.error : null}
-            onDraft={() => draft.mutate()}
-          />
+          <>
+            <ProjectPicker
+              projects={projects}
+              projectId={projectId}
+              onChange={(next) => {
+                setProjectId(next);
+                retireUneditedDraft(draft.data, subject, body, clearMessage);
+              }}
+            />
+            <MailOnlyFields
+              sendAt={sendAt}
+              onSendAtChange={setSendAt}
+              subject={subject}
+              onSubjectChange={setSubject}
+              intent={intent}
+              onIntentChange={setIntent}
+              draftPending={draft.isPending}
+              draftError={draft.isError ? draft.error : null}
+              onDraft={() => draft.mutate(projectId)}
+            />
+          </>
         )}
 
         <label className="pe-field-label" htmlFor="composer-body">
@@ -795,7 +861,7 @@ export function PersonComposer({
         <Button
           variant="primary"
           disabled={!sendable || send.isPending}
-          onClick={() => send.mutate()}
+          onClick={() => send.mutate(projectId)}
         >
           <Send size={15} aria-hidden="true" />
           {sendPhase(send, t)}

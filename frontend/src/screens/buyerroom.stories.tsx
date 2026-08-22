@@ -28,27 +28,6 @@ const ROOM = {
   steward_name: "Ada Admin",
 };
 
-const TASKS = {
-  data: [
-    {
-      id: "t-1",
-      side: "buyer",
-      title: "Sign the DPA",
-      position: 0,
-      done: false,
-    },
-    {
-      id: "t-2",
-      side: "seller",
-      title: "Send the redlined MSA",
-      position: 1,
-      done: true,
-      done_at: "2026-08-21T15:00:00Z",
-      done_by: "seller",
-    },
-  ],
-};
-
 function room(routes: RouteMap, session = true) {
   return () => {
     installFetchStub(routes);
@@ -82,7 +61,6 @@ export const Live: Story = {
         steward_name: "Ada Admin",
         room: ROOM,
       }),
-    "GET /public/rooms/tasks": () => jsonResponse(TASKS),
   }),
 };
 
@@ -95,7 +73,6 @@ export const Closed: Story = {
         steward_name: "Ada Admin",
         room: { ...ROOM, closed_at: "2026-08-22T10:00:00Z" },
       }),
-    "GET /public/rooms/tasks": () => jsonResponse(TASKS),
   }),
 };
 
