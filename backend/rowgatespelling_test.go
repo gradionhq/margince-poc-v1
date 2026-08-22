@@ -68,7 +68,7 @@ type rowGateFn struct {
 func TestNoWriteResolvesItsRowThroughAPackagesReadSpelling(t *testing.T) {
 	byDir := rowGateIndex(t)
 	pairs := 0
-	for dir, fns := range byDir {
+	for _, fns := range byDir {
 		readSpellings := readSpellingsOf(fns)
 		twinned := twinnedReadSpellings(fns, readSpellings)
 		pairs += len(twinned)
@@ -77,13 +77,14 @@ func TestNoWriteResolvesItsRowThroughAPackagesReadSpelling(t *testing.T) {
 				continue
 			}
 			for call := range fn.calls {
-				if !twinned[call] {
+				twin, isReadSpelling := twinned[call]
+				if !isReadSpelling {
 					continue
 				}
 				t.Errorf("%s:%d: %s writes after resolving its row through %s, this package's READ spelling — "+
 					"a manual grant widens VISIBILITY at either access level, so this admits a caller holding only "+
-					"a `read` share; resolve the row through the write-authority twin this package already has (%s)",
-					fn.file, fn.line, fn.name, call, dir)
+					"a `read` share; resolve the row through %s, the write-authority twin this package already has",
+					fn.file, fn.line, fn.name, call, twin)
 			}
 		}
 	}
@@ -163,17 +164,24 @@ func readSpellingsOf(fns []*rowGateFn) map[string]bool {
 }
 
 // twinnedReadSpellings narrows the read spellings to those the package itself
-// has already paired with a write-authority probe — the pairing IS the
-// package's statement that the two authorities differ for its rows.
-func twinnedReadSpellings(fns []*rowGateFn, reads map[string]bool) map[string]bool {
-	twinned := map[string]bool{}
+// has already paired with a write-authority probe, and answers each one's
+// TWIN — the pairing IS the package's statement that the two authorities
+// differ for its rows, and naming the twin is what lets a failure say which
+// function to route through rather than leaving the author to find it.
+//
+// A read spelling with more than one twin keeps the first in the tier walk's
+// file-and-declaration order, so the message a given tree produces is stable:
+// any twin proves the pairing, and the diagnostic needs one to point at, not a
+// census of them.
+func twinnedReadSpellings(fns []*rowGateFn, reads map[string]bool) map[string]string {
+	twinned := map[string]string{}
 	for _, fn := range fns {
 		if !fn.authority {
 			continue
 		}
 		for call := range fn.calls {
-			if reads[call] {
-				twinned[call] = true
+			if _, known := twinned[call]; reads[call] && !known {
+				twinned[call] = fn.name
 			}
 		}
 	}
