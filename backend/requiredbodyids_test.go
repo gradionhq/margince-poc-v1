@@ -44,6 +44,7 @@ const generatedContract = "internal/contracts/api_gen.go"
 // that owns the mapping.
 var probedRequiredIDBodies = map[string]bool{
 	"CreateDealRequest":              true,
+	"AddDealRoomDocumentRequest":     true,
 	"CreateProjectRequest":           true,
 	"CreateContractRequest":          true,
 	"AdvanceDealRequest":             true,

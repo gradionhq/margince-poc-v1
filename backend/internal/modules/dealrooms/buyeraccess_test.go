@@ -87,7 +87,7 @@ func TestTheBuyerListIsThePublishedDefinitionsWithLiveCompletion(t *testing.T) {
 	if tasks := buyerTasks(old, live); tasks == nil || len(tasks) != 0 {
 		t.Fatalf("an old release lists %v, want an empty list", tasks)
 	}
-	empty := snapshotOf(crmcontracts.DealRoom{Title: "Acme"}, nil)
+	empty := snapshotOf(crmcontracts.DealRoom{Title: "Acme"}, nil, nil)
 	if empty.Tasks == nil {
 		t.Fatal("a release with no tasks must carry an empty list, not a missing key")
 	}

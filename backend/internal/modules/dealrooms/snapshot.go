@@ -26,6 +26,23 @@ type releaseSnapshot struct {
 	WelcomeMessage *string             `json:"welcome_message,omitempty"`
 	StewardUserID  *openapi_types.UUID `json:"steward_user_id,omitempty"`
 	Tasks          []snapshotTask      `json:"tasks"`
+	Documents      []snapshotDocument  `json:"documents"`
+}
+
+// snapshotDocument is a document as published: the buyer-facing title, its
+// group and order, and the exact attachment (version) it points at, with the
+// file facts a download needs. The storage key is deliberately NOT here — the
+// public read resolves it through the attachment row at download time, so a
+// release never carries a locator.
+type snapshotDocument struct {
+	ID           openapi_types.UUID `json:"id"`
+	AttachmentID openapi_types.UUID `json:"attachment_id"`
+	GroupKey     string             `json:"group_key"`
+	Title        string             `json:"title"`
+	Position     int                `json:"position"`
+	Filename     string             `json:"filename"`
+	ContentType  *string            `json:"content_type,omitempty"`
+	ByteSize     *int64             `json:"byte_size,omitempty"`
 }
 
 // snapshotTask is a to-do as published: what it says, who owes it, where it
@@ -41,7 +58,7 @@ type snapshotTask struct {
 // projection. What is NOT here matters as much as what is: no live CRM read
 // reaches the buyer through a release, so a deal renamed after publication does
 // not silently rewrite what the buyer was shown.
-func snapshotOf(room crmcontracts.DealRoom, tasks []crmcontracts.DealRoomTask) releaseSnapshot {
+func snapshotOf(room crmcontracts.DealRoom, tasks []crmcontracts.DealRoomTask, docs []crmcontracts.DealRoomDocument) releaseSnapshot {
 	snap := releaseSnapshot{
 		Title:          room.Title,
 		DealID:         room.DealId,
@@ -50,7 +67,14 @@ func snapshotOf(room crmcontracts.DealRoom, tasks []crmcontracts.DealRoomTask) r
 		StewardUserID:  room.StewardUserId,
 		// Never nil: a release with no tasks says so with an empty list, so a
 		// reader cannot mistake "published before tasks existed" for "no tasks".
-		Tasks: make([]snapshotTask, 0, len(tasks)),
+		Tasks:     make([]snapshotTask, 0, len(tasks)),
+		Documents: make([]snapshotDocument, 0, len(docs)),
+	}
+	for _, d := range docs {
+		snap.Documents = append(snap.Documents, snapshotDocument{
+			ID: d.Id, AttachmentID: d.AttachmentId, GroupKey: string(d.GroupKey), Title: d.Title,
+			Position: d.Position, Filename: filenameOf(d), ContentType: d.ContentType, ByteSize: d.ByteSize,
+		})
 	}
 	for _, t := range tasks {
 		snap.Tasks = append(snap.Tasks, snapshotTask{
@@ -69,4 +93,14 @@ func decodeSnapshot(raw []byte) (releaseSnapshot, error) {
 		return releaseSnapshot{}, fmt.Errorf("decode release snapshot: %w", err)
 	}
 	return snap, nil
+}
+
+// filenameOf reads the attachment's stored filename off a document row. The
+// contract marks it readOnly, which the generator renders as optional; every
+// row this module reads joins the attachment, so it is always present here.
+func filenameOf(d crmcontracts.DealRoomDocument) string {
+	if d.Filename == nil {
+		return ""
+	}
+	return *d.Filename
 }

@@ -37,5 +37,5 @@
 // like this one.
 //
 // Tables owned: deal_room, deal_room_release, deal_room_participant,
-// deal_room_invitation, deal_room_session, deal_room_task.
+// deal_room_invitation, deal_room_session, deal_room_task, deal_room_document.
 package dealrooms

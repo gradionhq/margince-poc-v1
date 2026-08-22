@@ -14,6 +14,8 @@ package dealrooms
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -171,3 +173,60 @@ func (h Handlers) SignOutBuyerRoom(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// ListBuyerRoomDocuments serves the published manifest.
+func (h Handlers) ListBuyerRoomDocuments(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFrom(r.Context())
+	if !ok {
+		httperr.Unauthorized(w, r, noSessionDetail)
+		return
+	}
+	docs, err := h.store.BuyerDocuments(r.Context(), sess)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.BuyerRoomDocumentListResponse{Data: docs})
+}
+
+// DownloadBuyerRoomDocument streams one published document's bytes.
+func (h Handlers) DownloadBuyerRoomDocument(w http.ResponseWriter, r *http.Request, documentID openapi_types.UUID) {
+	sess, ok := SessionFrom(r.Context())
+	if !ok {
+		httperr.Unauthorized(w, r, noSessionDetail)
+		return
+	}
+	if h.documents == nil {
+		httperr.Write(w, r, errNoDocumentStore)
+		return
+	}
+	file, err := h.store.BuyerDocumentLocator(r.Context(), sess, documentIDOf(documentID))
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	body, _, err := h.documents.Get(r.Context(), file.StorageKey)
+	if err != nil {
+		httperr.Write(w, r, fmt.Errorf("open deal room document %s: %w", documentID, err))
+		return
+	}
+	contentType := "application/octet-stream"
+	if file.ContentType != nil && *file.ContentType != "" {
+		contentType = *file.ContentType
+	}
+	var size int64
+	if file.ByteSize != nil {
+		size = *file.ByteSize
+	}
+	httperr.StreamObject(w, r, httperr.StreamedObject{
+		Body:        body,
+		ContentType: contentType,
+		Filename:    file.Filename,
+		Size:        size,
+	}, "deal room document "+documentID.String())
+}
+
+// errNoDocumentStore says the installation cannot serve files at all, which is
+// a deployment fact and not something a buyer can fix — but it is not "the
+// file is gone", which is what a 404 would claim.
+var errNoDocumentStore = errors.New("dealrooms: no object store is configured, so documents cannot be downloaded; the operator must configure one")

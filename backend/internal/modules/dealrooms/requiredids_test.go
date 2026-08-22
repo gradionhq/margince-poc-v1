@@ -95,3 +95,27 @@ func TestEveryRequiredBodyIDIsNamedWhenAbsent(t *testing.T) {
 		})
 	}
 }
+
+func TestAnAddedDocumentNamesItsOmittedAttachment(t *testing.T) {
+	shape := reflect.TypeFor[crmcontracts.AddDealRoomDocumentRequest]()
+	fields := requiredIDFields(shape)
+	if len(fields) == 0 {
+		t.Fatal("AddDealRoomDocumentRequest declares no required id — the probe is asserting nothing")
+	}
+	for _, field := range fields {
+		t.Run(field, func(t *testing.T) {
+			body := completeBody(t, shape, field)
+			body["group_key"] = "legal"
+			raw, err := json.Marshal(body)
+			if err != nil {
+				t.Fatalf("marshal probe body: %v", err)
+			}
+			var req crmcontracts.AddDealRoomDocumentRequest
+			if err := json.Unmarshal(raw, &req); err != nil {
+				t.Fatalf("probe body does not decode: %v", err)
+			}
+			_, err = addDocumentInput(req)
+			faulttest.AssertNamesOmittedID(t, err, field)
+		})
+	}
+}

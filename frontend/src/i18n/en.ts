@@ -4127,6 +4127,27 @@ export const en = {
   "buyer.tasks.closed": "This room is closed; the list is a record now.",
   "buyer.tasks.readOnly":
     "Your access is read-only. Ask your contact if you need to work the list.",
+  "room.docs.title": "Documents",
+  "room.docs.sub": "What the buyer can read, in four fixed groups.",
+  "room.docs.empty": "No documents in the room yet.",
+  "room.docs.fileLabel": "File from this deal",
+  "room.docs.fileHint":
+    "Upload files on the deal first; only the deal's own files can go into the room.",
+  "room.docs.pickFile": "Pick a file",
+  "room.docs.noFiles": "This deal has no files yet",
+  "room.docs.groupLabel": "Group",
+  "room.docs.add": "Add to room",
+  "room.docs.remove": "Remove {title} from the room",
+  "room.docs.group.commercial": "Commercial",
+  "room.docs.group.legal": "Legal",
+  "room.docs.group.security_privacy": "Security & Privacy",
+  "room.docs.group.delivery_operations": "Delivery & Operations",
+  "buyer.docs.title": "Documents",
+  "buyer.docs.sub": "What has been shared with you.",
+  "buyer.docs.empty": "No documents yet.",
+  "buyer.docs.download": "Download {title}",
+  "buyer.docs.downloadFailed":
+    "The download did not start. Try again, or ask your contact.",
   "prefs.rateLimited":
     "Too many attempts from here just now. Wait a minute and reload.",
   "prefs.subscribed": "Subscribed",

@@ -88,11 +88,15 @@ func publishRoomTx(ctx context.Context, tx pgx.Tx, id ids.DealRoomID, note *stri
 	if err != nil {
 		return crmcontracts.DealRoomRelease{}, err
 	}
+	docs, err := publishableDocumentRows(ctx, tx, id)
+	if err != nil {
+		return crmcontracts.DealRoomRelease{}, err
+	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO deal_room_release (id, room_id, release_no, snapshot, release_note,
 		                                published_by, source, captured_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		releaseID, id, next, snapshotOf(room, tasks), note, publisher, room.Source, by)
+		releaseID, id, next, snapshotOf(room, tasks, docs), note, publisher, room.Source, by)
 	if err != nil {
 		if storekit.IsUniqueViolation(err) {
 			return crmcontracts.DealRoomRelease{}, apperrors.ErrConflict

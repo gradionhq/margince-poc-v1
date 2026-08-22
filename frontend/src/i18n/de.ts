@@ -4067,6 +4067,27 @@ export const de = {
     "Dieser Raum ist geschlossen; die Liste ist jetzt ein Protokoll.",
   "buyer.tasks.readOnly":
     "Ihr Zugang ist schreibgeschützt. Wenden Sie sich an Ihren Ansprechpartner, wenn Sie die Liste bearbeiten möchten.",
+  "room.docs.title": "Dokumente",
+  "room.docs.sub": "Was der Käufer lesen kann, in vier festen Gruppen.",
+  "room.docs.empty": "Noch keine Dokumente im Raum.",
+  "room.docs.fileLabel": "Datei aus diesem Deal",
+  "room.docs.fileHint":
+    "Laden Sie Dateien zuerst am Deal hoch; nur die Dateien des Deals können in den Raum.",
+  "room.docs.pickFile": "Datei wählen",
+  "room.docs.noFiles": "Dieser Deal hat noch keine Dateien",
+  "room.docs.groupLabel": "Gruppe",
+  "room.docs.add": "In den Raum legen",
+  "room.docs.remove": "{title} aus dem Raum entfernen",
+  "room.docs.group.commercial": "Kommerziell",
+  "room.docs.group.legal": "Rechtliches",
+  "room.docs.group.security_privacy": "Sicherheit & Datenschutz",
+  "room.docs.group.delivery_operations": "Lieferung & Betrieb",
+  "buyer.docs.title": "Dokumente",
+  "buyer.docs.sub": "Was mit Ihnen geteilt wurde.",
+  "buyer.docs.empty": "Noch keine Dokumente.",
+  "buyer.docs.download": "{title} herunterladen",
+  "buyer.docs.downloadFailed":
+    "Der Download hat nicht begonnen. Versuchen Sie es erneut oder wenden Sie sich an Ihren Ansprechpartner.",
   "prefs.rateLimited":
     "Gerade zu viele Versuche von hier aus. Warte eine Minute und lade neu.",
   "prefs.subscribed": "Abonniert",

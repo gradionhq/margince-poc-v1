@@ -140,6 +140,7 @@ var tableOwners = map[string]string{
 	"deal_room_invitation":  "internal/modules/dealrooms",
 	"deal_room_session":     "internal/modules/dealrooms",
 	"deal_room_task":        "internal/modules/dealrooms",
+	"deal_room_document":    "internal/modules/dealrooms",
 	// Kept apart from deal_stage_history rather than folded into it: readers
 	// outside this module count that table's rows as stage movements.
 	"deal_forecast_history": "internal/modules/deals",

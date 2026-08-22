@@ -4037,6 +4037,27 @@ export const vi = {
   "buyer.tasks.closed": "Phòng này đã đóng; danh sách giờ là bản ghi.",
   "buyer.tasks.readOnly":
     "Quyền truy cập của bạn chỉ đọc. Hãy hỏi người liên hệ nếu bạn cần làm việc với danh sách.",
+  "room.docs.title": "Tài liệu",
+  "room.docs.sub": "Những gì bên mua có thể đọc, trong bốn nhóm cố định.",
+  "room.docs.empty": "Chưa có tài liệu nào trong phòng.",
+  "room.docs.fileLabel": "Tệp từ giao dịch này",
+  "room.docs.fileHint":
+    "Hãy tải tệp lên giao dịch trước; chỉ tệp của giao dịch mới có thể đưa vào phòng.",
+  "room.docs.pickFile": "Chọn tệp",
+  "room.docs.noFiles": "Giao dịch này chưa có tệp nào",
+  "room.docs.groupLabel": "Nhóm",
+  "room.docs.add": "Thêm vào phòng",
+  "room.docs.remove": "Gỡ {title} khỏi phòng",
+  "room.docs.group.commercial": "Thương mại",
+  "room.docs.group.legal": "Pháp lý",
+  "room.docs.group.security_privacy": "Bảo mật & Quyền riêng tư",
+  "room.docs.group.delivery_operations": "Triển khai & Vận hành",
+  "buyer.docs.title": "Tài liệu",
+  "buyer.docs.sub": "Những gì đã được chia sẻ với bạn.",
+  "buyer.docs.empty": "Chưa có tài liệu.",
+  "buyer.docs.download": "Tải xuống {title}",
+  "buyer.docs.downloadFailed":
+    "Tải xuống chưa bắt đầu. Hãy thử lại hoặc liên hệ người liên hệ của bạn.",
   "prefs.rateLimited":
     "Vừa có quá nhiều lần thử từ đây. Hãy đợi một phút rồi tải lại.",
   "prefs.subscribed": "Đã đăng ký",

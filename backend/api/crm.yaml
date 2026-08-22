@@ -4610,6 +4610,50 @@ paths:
           description: Rate-limited.
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
 
+  /public/rooms/documents:
+    get:
+      tags: [Public]
+      operationId: listBuyerRoomDocuments
+      security: [{ dealRoomSession: [] }]
+      summary: The documents as published, grouped.
+      description: |
+        The manifest frozen in the latest release. A document the seller added or
+        removed since is not reflected until they publish again. Empty while the
+        room is paused or expired.
+      responses:
+        '200':
+          description: The published documents.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BuyerRoomDocumentListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /public/rooms/documents/{documentId}/file:
+    parameters:
+      - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Public]
+      operationId: downloadBuyerRoomDocument
+      security: [{ dealRoomSession: [] }]
+      summary: The bytes of one published document.
+      description: |
+        Served only for a document named in the latest release of the session's room,
+        and only while the room serves content. The file is the exact version that
+        release froze.
+      responses:
+        '200':
+          description: The file bytes; Content-Disposition names the file.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
   /public/rooms/sign-out:
     post:
       tags: [Public]
@@ -11350,6 +11394,106 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /deal-rooms/{id}/documents:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: listDealRoomDocuments
+      summary: List the documents a room puts in front of its buyer.
+      description: |
+        Each entry points at an attachment already filed on the room's deal; the room
+        holds no bytes of its own. Grouped by one of four fixed groups and ordered
+        within each.
+      x-mcp-tool: { verb: search_records, record_type: deal_room_document, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: The room's documents.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomDocumentListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Deals]
+      operationId: addDealRoomDocument
+      summary: Put an attachment of the deal in front of the buyer.
+      description: |
+        The attachment must be filed on THIS room's deal (`entity_type: deal`, the
+        room's `deal_id`); any other id is 404. The attachment row is the exact
+        version the buyer will be shown. Editorial: the buyer sees it at the next
+        publish. Refused once the room can no longer reach a buyer.
+      x-mcp-tool: { verb: create_record, record_type: deal_room_document, tier: auto_execute, scope: write }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddDealRoomDocumentRequest' }
+      responses:
+        '201':
+          description: The added document.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /deal-rooms/{id}/documents/{documentId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: documentId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Deals]
+      operationId: updateDealRoomDocument
+      summary: Rename, regroup or reorder a room document.
+      description: Editorial, like adding one — the buyer sees the change at the next publish.
+      x-mcp-tool: { verb: update_record, record_type: deal_room_document, tier: auto_execute, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDealRoomDocumentRequest' }
+      responses:
+        '200':
+          description: The updated document.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Deals]
+      operationId: removeDealRoomDocument
+      summary: Take a document out of the room.
+      description: |
+        Marks the entry removed; the attachment itself is untouched. The buyer stops
+        seeing it at the next publish — a release already published keeps naming it,
+        because that release is what they were shown.
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The removed document.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /deal-rooms/{id}/releases:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -23502,6 +23646,7 @@ components:
             - data_subject_request
             - deal
             - deal_room
+            - deal_room_document
             - deal_room_participant
             - deal_room_release
             - deal_room_task
@@ -25777,6 +25922,93 @@ components:
       additionalProperties: true
       x-extension: true
 
+    DealRoomDocumentGroup:
+      type: string
+      description: |
+        One of four fixed groups, as a machine key: `commercial`, `legal`,
+        `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
+        key never carries a display string. Not configurable, not AI-assigned — the
+        person adding the document picks. A plain string rather than an inline enum
+        for the reason `DealRoomTaskSide` gives.
+
+    DealRoomDocument:
+      type: object
+      description: |
+        One document a room puts in front of its buyer: a pointer at an attachment
+        filed on the deal, with a buyer-facing title, a group and an order. The
+        attachment row is the exact version shown.
+      required: [id, room_id, attachment_id, group_key, title, position, filename, source, version, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        attachment_id: { type: string, format: uuid }
+        group_key: { $ref: '#/components/schemas/DealRoomDocumentGroup' }
+        title: { type: string }
+        position: { type: integer }
+        filename: { type: string, readOnly: true, description: "The attachment's stored filename, for the seller's reference." }
+        content_type: { type: [string, 'null'], readOnly: true }
+        byte_size: { type: [integer, 'null'], format: int64, readOnly: true }
+        archived_at: { type: [string, 'null'], format: date-time }
+        source: { type: string }
+        captured_by: { type: string, readOnly: true }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      additionalProperties: true
+      x-extension: true
+
+    DealRoomDocumentListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/DealRoomDocument' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    AddDealRoomDocumentRequest:
+      type: object
+      required: [attachment_id, group_key, source]
+      properties:
+        attachment_id: { type: string, format: uuid, description: "An attachment filed on this room's deal." }
+        group_key: { $ref: '#/components/schemas/DealRoomDocumentGroup' }
+        title:
+          type: string
+          minLength: 1
+          description: The buyer-facing name. Defaults to the attachment's filename.
+        position: { type: integer, description: Order within the group. Defaults to 0. }
+        source: { type: string }
+      additionalProperties: true
+      x-extension: true
+
+    UpdateDealRoomDocumentRequest:
+      type: object
+      description: Any subset; omit a field to leave it unchanged.
+      properties:
+        group_key: { $ref: '#/components/schemas/DealRoomDocumentGroup' }
+        title: { type: string, minLength: 1 }
+        position: { type: integer }
+      additionalProperties: true
+      x-extension: true
+
+    BuyerRoomDocument:
+      type: object
+      description: One published document as the buyer sees it. No seller-side ids beyond its own.
+      required: [id, group_key, title, position, filename]
+      properties:
+        id: { type: string, format: uuid }
+        group_key: { $ref: '#/components/schemas/DealRoomDocumentGroup' }
+        title: { type: string }
+        position: { type: integer }
+        filename: { type: string }
+        content_type: { type: [string, 'null'] }
+        byte_size: { type: [integer, 'null'], format: int64 }
+      additionalProperties: false
+
+    BuyerRoomDocumentListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/BuyerRoomDocument' } }
+      additionalProperties: false
     DealRoomTaskListResponse:
       type: object
       required: [data, page]

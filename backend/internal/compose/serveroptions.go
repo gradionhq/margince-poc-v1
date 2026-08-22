@@ -132,6 +132,9 @@ func WithBusReady(check func(context.Context) error) Option {
 func WithBlobstore(store blobstore.Store) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.blob = store
+		// A buyer's document download reads the same store the seller's
+		// attachment upload wrote to.
+		s.dealroomsHandlers = s.WithDocumentStore(store)
 		// Captured mail carries files too. Recorded as the STORE, which the sink
 		// turns into a writer when it is built: a keeper assigned here would be
 		// dropped by a WithCaptureConfig that runs afterwards and assigns the
