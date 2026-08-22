@@ -178,6 +178,10 @@ type JobRunnerConfig struct {
 	// that geocodes nothing — an offline demo, or one that has not been given
 	// a provider — and the worker records that rather than retrying forever.
 	Geocoder geocode.Client
+	// Geocoding carries the backfill's cadence — the sweep that reaches
+	// companies whose address was written before this installation had a
+	// geocoder, and which no write will ever touch again.
+	Geocoding GeocodingConfig
 	// DocumentExtractBrain is the lane a queued document reading runs on. Nil =
 	// no AI configured, and the kind registers anyway so the reading FAILS with
 	// a message the rep can see rather than sitting queued behind a worker that
@@ -335,6 +339,7 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 		addScheduledSendRecoveryJob(reg, pool, cfg, log),
 		addPrivacyRetentionJobs(reg, pool, cfg, log),
 		addWebhookRetryJobs(reg, pool, cfg),
+		addGeocodeBackfillJobs(reg, pool, cfg),
 		addProviderRunJobs(reg, pool, cfg),
 		addAgentSchedulerJobs(reg, pool, cfg),
 		addSignalJobs(reg, pool, cfg, log),

@@ -29,6 +29,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -365,6 +366,19 @@ func movedAddress(after map[string]any) bool {
 // the rule cannot be forgotten: six writers in this package touch an address,
 // several through table-driven SQL with no seam to carry, and the seventh will
 // be written by somebody who never read this file.
+// namesAPlace says whether a create carried an address worth looking up.
+//
+// The same question locatable answers for a stored row, asked of the input
+// instead: a country alone is not a place a radius can measure from, and
+// spending one of the installation's four-per-minute lookups on "Germany" is
+// spending it on nothing.
+func namesAPlace(address *crmcontracts.Address) bool {
+	if address == nil {
+		return false
+	}
+	return locatable(address.Line1, address.City, address.PostalCode)
+}
+
 func (s *Store) enqueueGeocode(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) error {
 	if s.geocodeEnqueue == nil {
 		return nil

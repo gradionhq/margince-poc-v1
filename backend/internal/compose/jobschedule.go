@@ -149,13 +149,14 @@ func configDependencies(cfg JobRunnerConfig) map[string]bool {
 // field paths, and answered the same way and for the same reasons.
 func operatorIntervals(cfg JobRunnerConfig) map[string]time.Duration {
 	return map[string]time.Duration{
-		"AgentScheduler.Interval":   cfg.AgentScheduler.Interval,
-		"CloseDateInterval":         cfg.CloseDateInterval,
-		"GmailWatch.Interval":       cfg.GmailWatch.Interval,
-		"OverlayInterval":           cfg.OverlayInterval,
-		"PrivacyRetention.Interval": cfg.PrivacyRetention.Interval,
-		"ReconcileInterval":         cfg.ReconcileInterval,
-		"TimeScanInterval":          cfg.TimeScanInterval,
-		"WebhookRetry.Interval":     cfg.WebhookRetry.Interval,
+		"AgentScheduler.Interval":    cfg.AgentScheduler.Interval,
+		"CloseDateInterval":          cfg.CloseDateInterval,
+		"Geocoding.BackfillInterval": cfg.Geocoding.BackfillInterval,
+		"GmailWatch.Interval":        cfg.GmailWatch.Interval,
+		"OverlayInterval":            cfg.OverlayInterval,
+		"PrivacyRetention.Interval":  cfg.PrivacyRetention.Interval,
+		"ReconcileInterval":          cfg.ReconcileInterval,
+		"TimeScanInterval":           cfg.TimeScanInterval,
+		"WebhookRetry.Interval":      cfg.WebhookRetry.Interval,
 	}
 }

@@ -58,6 +58,7 @@ type workerConfig struct {
 	sendMaxAge           time.Duration
 	webhookKey           string
 	geocodeBaseURL       string
+	geocodeBackfill      time.Duration
 	webhookRetryInterval time.Duration
 	deepReadMaxPages     int
 	deepReadMaxBytes     int
@@ -100,6 +101,11 @@ func workerFlagSet() (*flag.FlagSet, *cliflags.Env, *workerConfig, error) {
 	fs.DurationVar(&cfg.closeDateInterval, "close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
 	fs.DurationVar(&cfg.reconcileInterval, "reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
 	fs.DurationVar(&cfg.timeScanInterval, "time-scan-interval", time.Hour, "clock-trigger scan interval (no_activity_reminder et al., Task 14)")
+	fs.DurationVar(&cfg.geocodeBackfill, "geocode-backfill-interval", time.Hour,
+		"how often to look for companies whose address predates this installation's geocoder — a "+
+			"seeded or imported database, or one configured after the fact. Nothing writes those "+
+			"addresses again, so without this pass they are never located. Runs on start; 0 turns "+
+			"the sweep off and leaves geocoding-on-write alone.")
 	env.String(fs, &cfg.gmailClientID, "gmail-client-id", "MARGINCE_GMAIL_CLIENT_ID", "", "Google OAuth client id for the Gmail capture connector; enables the background Gmail sync poll")
 	env.String(fs, &cfg.gmailClientSecret, "gmail-client-secret", "MARGINCE_GMAIL_CLIENT_SECRET", "", "Google OAuth client secret for the Gmail capture connector")
 	env.String(fs, &cfg.graphClientID, "graph-client-id", "MARGINCE_GRAPH_CLIENT_ID", "", "Microsoft (Entra) application id for the Outlook/M365 capture connector; enables its background sync poll")
