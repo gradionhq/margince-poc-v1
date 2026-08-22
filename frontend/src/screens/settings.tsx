@@ -2501,7 +2501,8 @@ function diffKeys(
   for (const key of Object.keys(after ?? {})) {
     keys.add(key);
   }
-  return [...keys].sort();
+  // Read by a person, so the reader's own collation is the right one here.
+  return [...keys].sort((a, b) => a.localeCompare(b));
 }
 
 // A key absent from an object (withheld/never set) reads the same as an

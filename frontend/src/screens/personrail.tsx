@@ -557,9 +557,12 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
   // identity as a new search space and clears the picker's candidates —
   // so the set only gets a new identity when the set of ids it names
   // actually changes.
+  // "en" rather than the reader's locale, because this string is only ever
+  // compared against a previous rendering of itself: whose locale produced it
+  // must not be part of the answer.
   const connectedOrgKey = employments
     .map((employment) => employment.organization_id)
-    .sort()
+    .sort((a, b) => a.localeCompare(b, "en"))
     .join(",");
   const connectedOrgIds = useMemo(
     () => (connectedOrgKey === "" ? [] : connectedOrgKey.split(",")),

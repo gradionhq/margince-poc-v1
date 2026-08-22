@@ -66,18 +66,26 @@ export function mergeChronology<Row>(
   // the clock does. The whole point of this function is an order a reader can
   // trust, so it compares numbers.
   const instant = (row: Row) => Date.parse(at(row));
+  // Both folds carry a seed, so neither depends on the filter above still
+  // being there to keep them off an empty array: an unseeded reduce throws on
+  // one, and a guard two lines away is not where the next reader looks.
   const boundaries = feeds
     .filter((feed) => feed.hasMore && feed.rows.length > 0)
     .map((feed) =>
-      feed.rows.reduce((a, b) => (instant(a) < instant(b) ? a : b)),
-    )
-    .map(instant);
+      feed.rows.reduce(
+        (oldest, row) => Math.min(oldest, instant(row)),
+        Number.POSITIVE_INFINITY,
+      ),
+    );
   // A feed that has more but loaded NOTHING bounds the merge at the top: its
   // very newest row is unknown, so no part of the merge is provably complete.
   const blind = feeds.some((feed) => feed.hasMore && feed.rows.length === 0);
   const floor =
     boundaries.length > 0
-      ? boundaries.reduce((a, b) => (a > b ? a : b))
+      ? boundaries.reduce(
+          (newest, boundary) => Math.max(newest, boundary),
+          Number.NEGATIVE_INFINITY,
+        )
       : undefined;
 
   const all = feeds

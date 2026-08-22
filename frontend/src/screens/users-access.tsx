@@ -38,7 +38,13 @@ const PREVIEW_OBJECTS = [
 
 function useAccessPreview(role: Role, teamIds: string[]) {
   return useQuery({
-    queryKey: ["access-preview", role, [...teamIds].sort().join(",")],
+    // "en", not the reader's locale: this is a cache key, so the same set of
+    // teams has to spell the same key wherever it is read.
+    queryKey: [
+      "access-preview",
+      role,
+      [...teamIds].sort((a, b) => a.localeCompare(b, "en")).join(","),
+    ],
     queryFn: async (): Promise<AccessPreview> => {
       const { data, error } = await api.POST("/users/access-preview", {
         body: { role, team_ids: teamIds },

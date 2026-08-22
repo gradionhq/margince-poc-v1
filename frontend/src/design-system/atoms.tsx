@@ -1175,10 +1175,9 @@ export function Modal({
   // menu — would otherwise be hidden along with it, and the click that opened
   // the dialog is the same click that collapses the menu.
   return createPortal(
-    // NOSONAR: backdrop dismiss only; keyboard path (Esc) handled by the effect above
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a convention; Esc is the keyboard path
     // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handles the keyboard path above
-    <div
+    <div // NOSONAR: backdrop dismiss only; keyboard path (Esc) handled by the effect above
       className={placement === "right" ? "overlay overlay-right" : "overlay"}
       onClick={(event) => {
         if (event.target === event.currentTarget) {

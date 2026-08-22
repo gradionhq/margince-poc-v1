@@ -81,6 +81,13 @@ export function DocumentHost({
     // loaded during render would post ui/initialize into a window with no
     // listener yet, and the story would sit empty with nothing saying why.
     const onMessage = (e: MessageEvent) => {
+      // Origin FIRST, then the window. The sandbox above withholds
+      // allow-same-origin, so everything the child posts carries the opaque
+      // origin — the string "null" — and a message arriving from a real origin
+      // did not come from this frame whatever its source claims. Retaining
+      // contentWindow is what authenticates the frame; naming the origin is
+      // what states the boundary the listener trusts.
+      if (e.origin !== "null") return;
       if (e.source !== child) return;
       const msg = e.data as { id?: unknown; method?: unknown } | null;
       if (msg?.method === "ui/initialize") {

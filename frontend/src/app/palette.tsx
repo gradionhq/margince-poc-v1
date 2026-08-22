@@ -237,10 +237,9 @@ export function CommandPalette({
   }
 
   return (
-    // NOSONAR: backdrop dismiss only; keyboard path (Esc) is handled on the input inside
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss; Esc is the keyboard path
     // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handled on the input below
-    <div
+    <div // NOSONAR: backdrop dismiss only; keyboard path (Esc) is handled on the input inside
       className="overlay palette-overlay"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
