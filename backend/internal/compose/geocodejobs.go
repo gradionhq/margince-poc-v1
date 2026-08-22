@@ -31,6 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/geocode"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -213,6 +214,25 @@ func (w *geocodeWorker) Work(ctx context.Context, job *river.Job[GeocodeOrganiza
 
 	point, found, err := w.geocoder.Resolve(wsCtx, address.Query)
 	if err != nil {
+		// A CANCELLED job never asked the provider, so it is not a failure of
+		// this address and must not spend one of its three attempts.
+		//
+		// The pacer holds a job for up to the policy interval before the
+		// request is even built, and it gives up when the context does — so
+		// every lookup waiting its turn when the worker shuts down came back
+		// here with context.Canceled. Recording that as `failed` burned an
+		// attempt, set a day-long backoff, and left a company unlocated for a
+		// reason that had nothing to do with its address. Six of Lars's
+		// companies sat that way, every one of them a valid German address
+		// that resolves in under a second.
+		//
+		// Returned unrecorded: River re-queues the job, and the next worker
+		// asks properly.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return jobs.FaultContext(wsCtx,
+				fmt.Errorf("geocoding %q was cut short before the provider was asked: %w",
+					address.Query, err))
+		}
 		// The lookup did not complete. Recorded as failed so the ledger counts
 		// the attempt, and returned so River retries — a rate limit or a network
 		// fault is worth asking again, unlike an address that does not exist.
@@ -229,8 +249,18 @@ func (w *geocodeWorker) Work(ctx context.Context, job *river.Job[GeocodeOrganiza
 		if errors.As(err, &refused) && refused.RetryAfter > 0 {
 			recErr = store.RecordGeocodeBackoff(wsCtx, orgID, address.InputHash, refused.RetryAfter)
 		}
+		// Wrapped so the ROW says what kind of thing went wrong. Unclassified,
+		// it published "the diagnosis is in the process log", which is true and
+		// useless once the process has restarted — exactly when somebody looks.
+		//
+		// The ADDRESS stays out of the published sentence and rides the log
+		// instead: that column is fleet-visible and a provider's prose
+		// routinely quotes what it refused, which is why classified failures
+		// publish a fixed sentence rather than a formatted cause. FaultContext
+		// logs the cause for us, so the wrap below is what an operator reads.
 		return jobs.FaultContext(wsCtx, errors.Join(
-			fmt.Errorf("geocoding %q: %w", address.Query, err), recErr))
+			fmt.Errorf("geocoding %q: %w: %w", address.Query, apperrors.ErrProviderUnreachable, err),
+			recErr))
 	}
 	if !found {
 		// The geocoder answered, and the answer is that this address is not a

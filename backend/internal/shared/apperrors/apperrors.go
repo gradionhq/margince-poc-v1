@@ -163,3 +163,18 @@ var ErrBaseCurrencyLocked = errors.New("base currency is locked by frozen conver
 // row) — so a caller must never retry it; the one way past it is the audited
 // release, which is its own operation.
 var ErrRetentionHold = errors.New("record is held under a statutory retention obligation")
+
+// ErrProviderUnreachable says an outside service could not be asked — the
+// request did not complete, so nothing was learned about the subject.
+//
+// Distinct from a service that ANSWERED unhelpfully: "this address is not a
+// place" is a fact worth recording and never retrying, while "the lookup did
+// not finish" is no answer at all and is worth asking again. A job that
+// conflates the two either retries forever against a settled question or
+// gives up on a transient one.
+//
+// It exists so that failure reaches the job row rather than only the process
+// log. An unclassified cause is published as "the diagnosis is in the process
+// log" — true, and useless once the process has restarted, which is exactly
+// when an operator goes looking.
+var ErrProviderUnreachable = errors.New("the provider could not be reached")
