@@ -2,23 +2,27 @@ import { describe, expect, it } from "vitest";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 import { vi } from "../i18n/vi";
-import { ACTIVITY_LINE, lineFor } from "./ai-activity-lines";
+import { ACTIVITY_LINE, displayedKinds, lineFor } from "./ai-activity-lines";
 
 /**
- * The kinds the rail narrates, with their (state -> key) tables.
+ * The kinds the rail narrates, paired with their (state -> key) tables.
  *
- * ACTIVITY_LINE is total over the contract's kinds and most entries are a
- * stated decision NOT to narrate, so every assertion about copy has to start by
- * separating the two. Derived from the map rather than listed here: a list
- * would be a second answer to "what does the rail show", and it would be the
- * one that goes stale.
+ * The classification itself comes from the exported `displayedKinds()`, never a
+ * second copy of the `"notDisplayed" in entry` predicate: that derivation is
+ * this PR's single authoritative answer to "what does the rail show", and a
+ * test carrying its own copy is the drift the change exists to remove — the
+ * copy that goes stale is the one nothing else reads.
  */
-function displayedKinds(): [string, Readonly<Record<string, string>>][] {
-  return Object.entries(ACTIVITY_LINE).flatMap(([kind, entry]) =>
-    "notDisplayed" in entry
-      ? []
-      : [[kind, entry] as [string, Readonly<Record<string, string>>]],
-  );
+function displayedLines(): [string, Readonly<Record<string, string>>][] {
+  return displayedKinds().map((kind) => {
+    const entry = ACTIVITY_LINE[kind];
+    if ("notDisplayed" in entry) {
+      throw new Error(
+        `displayedKinds() returned ${kind}, which is not displayed`,
+      );
+    }
+    return [kind, entry as Readonly<Record<string, string>>];
+  });
 }
 
 // A key the map names must exist in the catalog, and a translated
@@ -28,7 +32,7 @@ function displayedKinds(): [string, Readonly<Record<string, string>>][] {
 describe("the activity copy set", () => {
   it("is exactly the key set the map names", () => {
     const named = new Set<string>(
-      displayedKinds().flatMap(([, byState]) => Object.values(byState)),
+      displayedLines().flatMap(([, byState]) => Object.values(byState)),
     );
     const inCatalog = Object.keys(en).filter((key) =>
       key.startsWith("agent.activity."),
@@ -62,7 +66,7 @@ describe("the activity copy set", () => {
   ])(
     "never says done or ready about a run that stopped early ($locale)",
     ({ catalog, done, ready }) => {
-      for (const [, byState] of displayedKinds()) {
+      for (const [, byState] of displayedLines()) {
         const key = byState.degraded;
         if (key === undefined) continue;
         const degraded = catalog[key as keyof typeof catalog].toLowerCase();
@@ -80,7 +84,7 @@ describe("the activity copy set", () => {
   // typechecks but names no message renders as the key string to a reader.
   it("names copy that exists, for every displayed kind and state", () => {
     let checked = 0;
-    for (const [kind, byState] of displayedKinds()) {
+    for (const [kind, byState] of displayedLines()) {
       for (const [state, key] of Object.entries(byState)) {
         expect(
           en[key as keyof typeof en],
@@ -90,9 +94,9 @@ describe("the activity copy set", () => {
       }
     }
     // A map that lost its entries would pass every assertion above.
-    expect(checked).toBe(displayedKinds().length * 6);
+    expect(checked).toBe(displayedLines().length * 6);
     // And a map that narrated NOTHING would pass that too.
-    expect(displayedKinds().length).toBeGreaterThan(0);
+    expect(displayedLines().length).toBeGreaterThan(0);
   });
 
   // A kind that is not narrated says why, in a sentence a reader of this file
@@ -117,7 +121,7 @@ describe("the activity copy set", () => {
   // It is the only state no writer produces — the server derives it — so a kind
   // that forgot it would go silent for exactly the case it exists to report.
   it("gives every displayed kind a line for the derived stalled state", () => {
-    for (const [kind, byState] of displayedKinds()) {
+    for (const [kind, byState] of displayedLines()) {
       expect(byState.stalled, kind).toBeDefined();
       expect(en[byState.stalled as keyof typeof en], kind).toBeTruthy();
     }
