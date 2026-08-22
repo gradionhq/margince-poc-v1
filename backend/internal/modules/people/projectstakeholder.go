@@ -218,35 +218,51 @@ func (s *Store) PersonNames(ctx context.Context, people []ids.PersonID) (map[ids
 		return nil, err
 	}
 	names := map[ids.UUID]string{}
+	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+		names, err = personNames(ctx, tx, people)
+		return err
+	})
+	return names, err
+}
+
+// PersonNamesTx is PersonNames inside a caller-opened transaction — the
+// composite record read. Same gate, same row scope; only the transaction is
+// borrowed.
+func (s *Store) PersonNamesTx(ctx context.Context, tx pgx.Tx, people []ids.PersonID) (map[ids.UUID]string, error) {
+	if err := auth.Require(ctx, entityPerson, principal.ActionRead); err != nil {
+		return nil, err
+	}
+	return personNames(ctx, tx, people)
+}
+
+func personNames(ctx context.Context, tx pgx.Tx, people []ids.PersonID) (map[ids.UUID]string, error) {
+	names := map[ids.UUID]string{}
 	if len(people) == 0 {
 		return names, nil
 	}
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		args := []any{people}
-		arg := func(v any) int { args = append(args, v); return len(args) }
-		scope, err := auth.ScopeClauseFor(ctx, entityPerson, "p", arg)
-		if err != nil {
-			return err
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	q := storekit.SQLf(`SELECT p.id, p.full_name FROM person p
+		WHERE p.id = ANY($%d) AND p.archived_at IS NULL`, arg(people))
+	scope, err := auth.ScopeClauseFor(ctx, entityPerson, "p", arg)
+	if err != nil {
+		return nil, err
+	}
+	if scope != "" {
+		q += " AND " + scope
+	}
+	rows, err := tx.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id ids.UUID
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
 		}
-		q := `SELECT p.id, p.full_name FROM person p
-			WHERE p.id = ANY($1) AND p.archived_at IS NULL`
-		if scope != "" {
-			q += " AND " + scope
-		}
-		rows, err := tx.Query(ctx, q, args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var id ids.UUID
-			var name string
-			if err := rows.Scan(&id, &name); err != nil {
-				return err
-			}
-			names[id] = name
-		}
-		return rows.Err()
-	})
-	return names, err
+		names[id] = name
+	}
+	return names, rows.Err()
 }

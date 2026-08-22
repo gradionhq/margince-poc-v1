@@ -240,4 +240,5 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// dispatch, so it is wired here rather than beside the handler sets: a
 	// workspace on the incumbent mirror refuses both the same way.
 	s.wirePerson360(pool)
+	s.wireProject360(pool)
 }

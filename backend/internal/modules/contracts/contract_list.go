@@ -126,3 +126,53 @@ func cursorTime(t *time.Time) time.Time {
 	}
 	return *t
 }
+
+// ListProjectContractsTx reads the agreements attached to one project, newest
+// first, inside a caller-opened transaction — the project page's contracts
+// section. The project itself is the caller's to see before its paper is:
+// naming it is a read of it, the same rule the account list keeps for the
+// organization.
+func (s *Store) ListProjectContractsTx(ctx context.Context, tx pgx.Tx, projectID ids.ProjectID, limit *int) (crmcontracts.ContractListResponse, error) {
+	if err := auth.Require(ctx, contractObject, principal.ActionRead); err != nil {
+		return crmcontracts.ContractListResponse{}, err
+	}
+	if err := auth.EnsureLinkTarget(ctx, tx, "project", projectID.UUID); err != nil {
+		return crmcontracts.ContractListResponse{}, err
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	asOfPos := arg(s.today())
+	where := []string{storekit.SQLf("project_id = $%d", arg(projectID)), "archived_at IS NULL"}
+	scope, err := VisibleClause(ctx, "", arg)
+	if err != nil {
+		return crmcontracts.ContractListResponse{}, err
+	}
+	if scope != "" {
+		where = append(where, scope)
+	}
+	lim := storekit.ClampLimit(limit)
+	rows, err := tx.Query(ctx, storekit.SQLf(
+		`SELECT %s, %s FROM contract WHERE %s ORDER BY created_at DESC, id DESC LIMIT $%d`,
+		contractColumns, underContractSQL(asOfPos), strings.Join(where, " AND "), arg(lim+1)), args...)
+	if err != nil {
+		return crmcontracts.ContractListResponse{}, fmt.Errorf("list project contracts: %w", err)
+	}
+	defer rows.Close()
+	contracts := make([]crmcontracts.Contract, 0, lim)
+	for rows.Next() {
+		c, err := scanContract(rows)
+		if err != nil {
+			return crmcontracts.ContractListResponse{}, fmt.Errorf("scan contract: %w", err)
+		}
+		contracts = append(contracts, c)
+	}
+	if err := rows.Err(); err != nil {
+		return crmcontracts.ContractListResponse{}, fmt.Errorf("read contract page: %w", err)
+	}
+	page := crmcontracts.PageInfo{}
+	if len(contracts) > lim {
+		contracts = contracts[:lim]
+		page.HasMore = true
+	}
+	return crmcontracts.ContractListResponse{Data: contracts, Page: page}, nil
+}
