@@ -61,6 +61,11 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc.WithEffect(orgNameProposalKind, orgNameAcceptEffect(svc, store))
 	svc.WithEffect(linkedInMatchKind, linkedInMatchAcceptEffect(svc, store))
 	svc.WithEffect(lifecycleProposalKind, lifecycleAcceptEffect(svc, store))
+	// Both halves, like the held message below: a "no" here has work to do —
+	// the candidate ledger records the refusal — where most proposals' "no" is
+	// the absence of an effect.
+	svc.WithEffect(approvals.KindProjectAttribution, projectAttributionConfirmEffect(svc))
+	svc.WithDeclinedEffect(approvals.KindProjectAttribution, projectAttributionDeclineEffect())
 	// A held message is the one kind with BOTH halves registered, because its
 	// subject is already waiting: Accept re-arms it, Reject abandons it, and a
 	// card whose buttons only dismissed it would report a decision the message

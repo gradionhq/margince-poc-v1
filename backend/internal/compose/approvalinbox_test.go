@@ -128,6 +128,7 @@ func TestEveryReleasableKindSaysWhetherItsReleaseSends(t *testing.T) {
 		"lifecycle_change": true, "assign_owner": true, "close_date_correction": true,
 		"deal_follow_up": true, "transcript_proposal": true,
 		"fx_rate_proposal": true, "ai_model_rate_proposal": true,
+		"project_attribution": true,
 	}
 	kinds := decidingApprovalsService(nil, SendPath{}, nil).EffectKinds()
 	if len(kinds) == 0 {

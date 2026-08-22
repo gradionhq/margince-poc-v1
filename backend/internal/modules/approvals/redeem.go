@@ -242,6 +242,14 @@ var contextTargetKinds = map[string]string{
 // removes. TestEveryUnpinnedKindIsExplained holds each entry to its rationale,
 // and TestNoKindIsBothContextOnlyAndUnpinned holds the two maps apart.
 var unpinnedKinds = map[string]string{
+	KindProjectAttribution: "The proposal's claim is \"this captured message is about this project\", " +
+		"and no field edit on the message makes that claim false — a subject fix, a participant " +
+		"correction or a relink to the deal it was about is ordinary inbox work on the very " +
+		"message the question concerns, and the offer waits until somebody works their inbox. " +
+		"The write it authorizes is an additive activity_link insert, and the one change a pin " +
+		"would guard against — a human filing the message under another project while the " +
+		"offer waited — is read by the effect itself before it writes: it stands down and " +
+		"closes the candidate, the human's filing wins, and nothing is overwritten.",
 	kindLinkedInMatch: "The proposal's claim is \"this imported connection is this contact\", and no " +
 		"field edit on the contact can make that claim false — the founder decision is " +
 		"explicitly that editing a contact must not cancel a LinkedIn match waiting to be " +

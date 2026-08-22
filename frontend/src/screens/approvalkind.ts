@@ -45,6 +45,7 @@ export const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
   deal_follow_up: "approval.kind.deal_follow_up",
   capture_counterparty: "approval.kind.capture_counterparty",
   org_name_promotion: "approval.kind.org_name_promotion",
+  project_attribution: "approval.kind.project_attribution",
   lifecycle_change: "approval.kind.lifecycle_change",
   transcript_proposal: "approval.kind.transcript_proposal",
   fx_rate_proposal: "approval.kind.fx_rate_proposal",

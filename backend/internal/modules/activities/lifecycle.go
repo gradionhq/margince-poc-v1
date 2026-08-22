@@ -212,11 +212,7 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 	}
 	var out crmcontracts.Activity
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		// The relink target is a client-supplied reference (H1).
-		if err := auth.EnsureLinkTarget(ctx, tx, in.EntityType, in.EntityID); err != nil {
-			return err
-		}
-		if _, err := relinkActivityRow(ctx, tx, id, in, column); err != nil {
+		if _, err := relinkAdmittedRow(ctx, tx, id, in, column); err != nil {
 			return err
 		}
 		var err2 error
@@ -227,6 +223,32 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 		return crmcontracts.Activity{}, apperrors.ErrNotFound
 	}
 	return out, err
+}
+
+// RelinkActivityInTx is the single relink on the CALLER's transaction: the
+// same admission, the same target probe and the same guarded row write as
+// RelinkActivity, for a caller that must commit the link together with a
+// record of its own — the confirm of a project attribution candidate closes
+// the candidate in the transaction that writes the link, so neither can be
+// read without the other. It answers whether a link was written; replaying an
+// association the activity already carries is a no-op.
+func RelinkActivityInTx(ctx context.Context, tx pgx.Tx, id ids.ActivityID, in RelinkActivityInput) (bool, error) {
+	column, err := admitRelink(ctx, in)
+	if err != nil {
+		return false, err
+	}
+	return relinkAdmittedRow(ctx, tx, id, in, column)
+}
+
+// relinkAdmittedRow is the transactional half both doors share: the target
+// probe, then the guarded row write. The admission stays outside it so the
+// single door can refuse a malformed request before it opens a transaction.
+func relinkAdmittedRow(ctx context.Context, tx pgx.Tx, id ids.ActivityID, in RelinkActivityInput, column string) (bool, error) {
+	// The relink target is a client-supplied reference (H1).
+	if err := auth.EnsureLinkTarget(ctx, tx, in.EntityType, in.EntityID); err != nil {
+		return false, err
+	}
+	return relinkActivityRow(ctx, tx, id, in, column)
 }
 
 // deleteVisibleLinksOfType drops the activity's links of one entity type and

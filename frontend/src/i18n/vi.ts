@@ -1021,6 +1021,7 @@ export const vi = {
   "approval.kind.site_lead": "Thêm người tìm thấy trên website",
   "approval.kind.capture_counterparty": "Thêm người từ email của bạn",
   "approval.kind.org_name_promotion": "Đổi tên một công ty",
+  "approval.kind.project_attribution": "Xếp vào một dự án",
   "approval.kind.lifecycle_change": "Giai đoạn công ty",
   "approval.kind.transcript_proposal":
     "Thêm bước tiếp theo từ bản ghi cuộc trò chuyện",

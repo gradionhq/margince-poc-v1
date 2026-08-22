@@ -215,6 +215,7 @@ var tableOwners = map[string]string{
 	"workspace_email_domain":       "internal/modules/capture",
 	"capture_exclusion":            "internal/modules/capture",
 	"capture_digest":               "internal/modules/capture",
+	"project_link_candidate":       "internal/modules/capture",
 	"capture_auto_enrich_state":    "internal/modules/capture",
 	"capture_pending_counterparty": "internal/modules/capture",
 	"capture_auto_enrich_budget":   "internal/modules/capture",
