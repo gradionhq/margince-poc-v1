@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 import { vi } from "../i18n/vi";
-import { ACTIVITY_LINE, displayedLines, lineFor } from "./ai-activity-lines";
+import {
+  ACTIVITY_LINE,
+  displayedKinds,
+  displayedLines,
+  lineFor,
+} from "./ai-activity-lines";
 
 // A key the map names must exist in the catalog, and a translated
 // `agent.activity.` key nothing names is copy three translators paid for and
@@ -139,5 +144,30 @@ describe("lineFor", () => {
     ["a task nothing has built", { kind: "nl_search", state: "done" }],
   ])("renders nothing at all for %s", (_name, item) => {
     expect(lineFor(item, (key) => en[key])).toBeNull();
+  });
+});
+
+// The set the rail asks the server for, pinned.
+//
+// Not a tautology restating the map: it is the one place a kind ENTERS the
+// product, and adding one has consequences a compiler cannot see. `enrich` was
+// added here and reverted, because every occurrence of it is workspace-scoped —
+// its only production site runs under a system principal with no on_behalf_of,
+// and the personal feed selects on actor_user_id, so no reader could ever have
+// been shown the copy that came with it.
+//
+// A failure here is not a bug. It means somebody widened what the rail draws,
+// and owes two answers: can an occurrence of that kind reach ONE person's feed,
+// and does it still fit inside `recent`'s cap of ten alongside the rest.
+describe("the kinds the rail asks for", () => {
+  it("is exactly the reviewed set", () => {
+    expect([...displayedKinds()].sort()).toEqual([
+      "document_extract",
+      "draft_reply",
+      "morning_brief",
+      "offer_draft",
+      "overnight_at_risk_sweep",
+      "summarize",
+    ]);
   });
 });

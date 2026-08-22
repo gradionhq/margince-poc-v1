@@ -2396,14 +2396,6 @@ export const en = {
   "agent.activity.offerDraft.failed": "I couldn't draft your offer.",
   "agent.activity.offerDraft.stalled":
     "Drafting your offer has taken unusually long. It may have stopped.",
-  "agent.activity.enrich.queued": "Filling in the missing details is queued.",
-  "agent.activity.enrich.running": "I'm filling in the missing details.",
-  "agent.activity.enrich.done": "I've filled in the missing details.",
-  "agent.activity.enrich.degraded":
-    "I filled in some of the missing details and stopped.",
-  "agent.activity.enrich.failed": "I couldn't fill in the missing details.",
-  "agent.activity.enrich.stalled":
-    "Filling in the details has taken unusually long. It may have stopped.",
   "agent.panel.runningNow": "Running now",
   "agent.panel.finishedToday": "Finished today",
   "agent.panel.stoppedEarly": "Why it stopped",

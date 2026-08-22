@@ -2363,16 +2363,6 @@ export const de = {
     "Ich konnte dein Angebot nicht entwerfen.",
   "agent.activity.offerDraft.stalled":
     "Das Entwerfen deines Angebots dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
-  "agent.activity.enrich.queued":
-    "Das Ergänzen der fehlenden Angaben steht in der Warteschlange.",
-  "agent.activity.enrich.running": "Ich ergänze die fehlenden Angaben.",
-  "agent.activity.enrich.done": "Ich habe die fehlenden Angaben ergänzt.",
-  "agent.activity.enrich.degraded":
-    "Ich habe einen Teil der fehlenden Angaben ergänzt und dann gestoppt.",
-  "agent.activity.enrich.failed":
-    "Ich konnte die fehlenden Angaben nicht ergänzen.",
-  "agent.activity.enrich.stalled":
-    "Das Ergänzen der Angaben dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
   "agent.panel.runningNow": "Läuft jetzt",
   "agent.panel.finishedToday": "Heute abgeschlossen",
   "agent.panel.stoppedEarly": "Warum es gestoppt hat",

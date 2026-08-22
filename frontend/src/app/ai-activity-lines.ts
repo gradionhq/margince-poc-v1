@@ -25,7 +25,7 @@ const notDisplayed = (reason: string): NotDisplayed => ({
 });
 
 const WATCHED_BY_THE_ASKER = notDisplayed(
-  "interactive AND its own answer is the notification: the person asked for it, is watching the surface it lands on, and that surface CHANGES when it arrives — a scored fit appears on the card, a cold start rebuilds the workspace in front of them. summarize, draft_reply and offer_draft used to sit here and no longer do: their answer arrives somewhere the asker may have navigated away from, and until the router could say `running` a rail line for them would have narrated work already over",
+  "an EDITORIAL choice, and named as one rather than dressed as a structural rule. growth_fit lands on the panel that asked for it and renders the band it returns, so a rail line would narrate what the reader is already looking at. cold_start is the weaker case and the honest reason to leave it here is that its preview path behaves the same way — not that the whole task does, because it also has an out-of-band arm that becomes an approval nobody is watching. If that arm ever wants a line it should get one; a task-level map cannot tell the two apart, and pretending otherwise is how this comment would start lying",
 );
 const SYSTEM_SWEEP = notDisplayed(
   "background workspace work that belongs to nobody in particular, so it has no personal line to draw",
@@ -116,14 +116,9 @@ export const ACTIVITY_LINE: Readonly<
   brief_ranking: SYSTEM_SWEEP,
   capture_classify: SYSTEM_SWEEP,
   capture_counterparty_verdict: SYSTEM_SWEEP,
-  enrich: {
-    queued: "agent.activity.enrich.queued",
-    running: "agent.activity.enrich.running",
-    stalled: "agent.activity.enrich.stalled",
-    done: "agent.activity.enrich.done",
-    degraded: "agent.activity.enrich.degraded",
-    failed: "agent.activity.enrich.failed",
-  },
+  enrich: notDisplayed(
+    "it can reach nobody, and that is a fact about the work rather than an editorial choice: the one production site for this task is the signature-enrichment pass, which runs under a system principal with no on_behalf_of, so ResolveActor scopes every occurrence to the workspace with a NULL actor_user_id — and the personal feed selects on actor_user_id. Copy for it would be copy no reader can ever be shown. The ticker's own `enrich` key names DIFFERENT work (a provider run on a person, and the site-read lanes on a company), which is what makes this one easy to mistake for visible",
+  ),
   rate_extract: SYSTEM_SWEEP,
   signal_extract: SYSTEM_SWEEP,
   site_extract: SYSTEM_SWEEP,

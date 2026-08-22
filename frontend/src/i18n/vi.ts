@@ -2338,15 +2338,6 @@ export const vi = {
   "agent.activity.offerDraft.failed": "Tôi không soạn được báo giá của bạn.",
   "agent.activity.offerDraft.stalled":
     "Việc soạn báo giá của bạn kéo dài bất thường. Có thể nó đã dừng.",
-  "agent.activity.enrich.queued":
-    "Việc bổ sung thông tin còn thiếu đang chờ xử lý.",
-  "agent.activity.enrich.running": "Tôi đang bổ sung thông tin còn thiếu.",
-  "agent.activity.enrich.done": "Tôi đã bổ sung thông tin còn thiếu.",
-  "agent.activity.enrich.degraded":
-    "Tôi mới bổ sung được một phần thông tin còn thiếu rồi dừng.",
-  "agent.activity.enrich.failed": "Tôi không bổ sung được thông tin còn thiếu.",
-  "agent.activity.enrich.stalled":
-    "Việc bổ sung thông tin kéo dài bất thường. Có thể nó đã dừng.",
   "agent.panel.runningNow": "Đang chạy",
   "agent.panel.finishedToday": "Đã xong hôm nay",
   "agent.panel.stoppedEarly": "Vì sao nó dừng",
