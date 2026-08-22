@@ -143,7 +143,12 @@ func accrueTx(ctx context.Context, tx pgx.Tx, in AccrueInput, by string) (crmcon
 // zero, which under-pays by at most one minor unit — the direction that never
 // over-states what is owed.
 func commissionAmount(basisMinor int64, rateBps int) int64 {
-	return basisMinor * int64(rateBps) / 10_000
+	// money-scale-exempt: 10_000 is the BASIS-POINT denominator, not a minor
+	// unit. basisMinor arrives in minor units and stays in them; the division
+	// converts a rate, and routing it through the ISO table would be a category
+	// error. Named here rather than excluded in the gate, so a reader of this
+	// line meets the reason.
+	return basisMinor * int64(rateBps) / 10_000 // money-scale-exempt: basis points, see above
 }
 
 // RateBpsForTier maps a partner's margin tier onto the rate it means.

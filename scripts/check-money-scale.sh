@@ -20,8 +20,14 @@
 #
 # THE OWNERS. Go: internal/shared/kernel/values (MajorUnits, WholeMajorUnits,
 # MinorUnits, MinorUnitDigits). TypeScript: src/format/minorunits
-# (toMinorUnits, toMajorUnits, minorUnitDigits), which reads the count from Intl
-# rather than keeping a second table.
+# (toMinorUnits, toMajorUnits, minorUnitDigits), which MIRRORS the Go table
+# rather than asking Intl.
+#
+# It asked Intl in the first version of this change, and that was the same
+# defect one currency over: Intl follows CLDR, which records how a currency is
+# USED, and the server follows ISO 4217, which records what the standard
+# ASSIGNS. They disagree on ten codes, two of them ordinary spendable money.
+# backend/frontendminorunits_test.go holds the mirror in both directions.
 #
 # WHAT THIS GATE IS NOT. A token scanner, not a proof. `scale := 100` and then a
 # divide by `scale` is a real instance it will not see, and so is any of it
@@ -69,7 +75,7 @@ names='[Mm]inor[A-Za-z_]*|MINOR[A-Z_]*'
 # scripts/test-check-money-scale.sh is the belt to this brace: its `fires` cases
 # run the real gate, so on any awk where the pattern stopped matching the tests
 # go red rather than the gate going quietly green.
-powers='[/*%][[:space:]]*(10|100|1000|10000)([^0-9.]|$)'
+powers='[/*%][[:space:]]*(10|100|1000|10000|1_000|10_000)([^0-9.]|$)'
 
 # strip <files…>: emit `file:line:statement` with comments removed and
 # CONTINUATION LINES JOINED, so a wrapped expression is judged whole.
@@ -116,8 +122,15 @@ strip() {
           continue
         }
         if (ch == "\"" || ch == "\x27" || ch == "`") { quote = ch; continue }
-        if (ch == "/" && substr(s, i + 1, 1) == "/" && prev != ":") return i
-        if (ch == "/" && substr(s, i + 1, 1) == "*") return i
+        # An ESCAPED slash is not a comment opener. `u.replace(/^https?:\/\//,
+        # "")` is a TypeScript regex literal, and reading its `\/\/` as a
+        # comment truncated the rest of the line — including, on the line that
+        # found this, a real `amountMinor / 100` after it. Regex literals are
+        # not tracked as a state of their own (that needs to know whether a `/`
+        # is division or a literal, which needs a parser); skipping an escaped
+        # slash covers the spelling that actually occurs.
+        if (ch == "/" && prev != "\\" && substr(s, i + 1, 1) == "/" && prev != ":") return i
+        if (ch == "/" && prev != "\\" && substr(s, i + 1, 1) == "*") return i
         prev = ch
       }
       return 0
@@ -168,13 +181,16 @@ strip() {
       # counting them swallowed whole function bodies.
       trailing = c
       sub(/[[:space:]]+$/, "", trailing)
-      if (trailing ~ /(=|\+|-|\*|\/|&&|\|\|)$/ && lines < 4) next
-      # Bounded at four lines. A wrapped expression is two to four; a `const (`
-      # block is thirty, and joining one turns every unrelated pairing inside it
-      # into a finding — measured on compose/report.go, whose const block holds
-      # `amount_minor` and a `/ 100.0` thirty lines apart with nothing to do
-      # with each other. A blank line ends a statement too.
-      if (depth <= 0 || lines >= 4) flush()
+      if (trailing ~ /(=|\+|-|\*|\/|&&|\|\|)$/ && lines < 6) next
+      # Bounded at SIX lines. Four was the first bound and it missed the shape
+      # this gate exists for, one line longer: biome wraps
+      # `const amountMinor = Math.round(Number(amount) * 100)` across five when
+      # the expression is long enough, and the buffer flushed with the name in
+      # one half and the power in the other. A `const (` block is thirty lines,
+      # so six still refuses to join one — measured on compose/report.go, whose
+      # block holds `amount_minor` and a `/ 100.0` thirty lines apart with
+      # nothing to do with each other. A blank line ends a statement too.
+      if (depth <= 0 || lines >= 6) flush()
     }
     END { flush() }'
 }
@@ -197,16 +213,19 @@ hits() {
     stmt = $0
     sub(/^[^:]+:[0-9]+:/, "", stmt)
     if (!(stmt ~ names) || !(stmt ~ powers)) next
-    # Two spellings carry a "10" and are not a hard-coded scale, so they are
+    # One spelling carries a "10" and is not a hard-coded scale, so it is
     # removed before the statement is judged again:
     #
-    #   10 ** digits   the SANCTIONED form — a power raised to the currency
+    #   10 ** digits   the SANCTIONED form: a power raised to the currency
     #                  digit count is exactly what the owners compute with
-    #   10_000         a grouped integer literal; the basis-point divisor in
-    #                  commissions is a rate, not a minor unit
     probe = stmt
     gsub(/10[[:space:]]*\*\*/, " ", probe)
-    gsub(/10_[0-9_]+/, " ", probe)
+    # A grouped literal such as 10_000 is NOT stripped any more. It was, to
+    # spare the commissions basis-point divisor, and that blanket also hid
+    # `kwdMinor / 1_000`: a genuine hard-coded scale for a three-digit
+    # currency, written in the house style for grouped literals. The bps line
+    # carries an in-source waiver now, stating its reason where a reader of
+    # that line meets it.
     if (probe ~ powers) print
   }'
 }

@@ -78,6 +78,28 @@ func probe(v int64) int64 { return AMOUNT_MINOR_SCALE * v / 100 }'
 
 echo
 echo "== TypeScript: the write direction the Go-only gate could not see =="
+# The wrap biome actually produces for a longer expression: five lines, which
+# the first four-line bound flushed in half.
+expect fires ts "a multiply wrapped across five lines" 'export const toWire = (amount: string) => {
+  const amountMinor =
+    Math.round(
+      Number(
+        amount,
+      ) * 100,
+    );
+  return amountMinor;
+};'
+
+# A `//` inside a TS regex literal is not a comment, and reading it as one
+# truncated the real defect after it off the line.
+expect fires ts "a regex literal does not hide the defect after it" \
+  'export const f = (u: string, amountMinor: number) => { const clean = u.replace(/^https?:\/\//, ""); return [clean, amountMinor / 100]; };'
+
+# Grouped integer literals are the house style for a four-digit scale, and the
+# blanket strip that spared the basis-point divisor was hiding them.
+expect fires ts "a grouped 1_000"  'export const m = (kwdMinor: number) => kwdMinor / 1_000;'
+expect fires go "a grouped 10_000" 'func probe(amountMinor int64) int64 { return amountMinor / 10_000 }'
+
 expect fires ts "a multiply on the write path, wrapped" 'export const toWire = (amount: string) => ({
   amount_minor: Math.round(Number(amount) * 100),
 });'

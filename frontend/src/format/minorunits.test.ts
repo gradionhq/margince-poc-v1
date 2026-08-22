@@ -35,33 +35,49 @@ describe("the scale between what a person types and what we store", () => {
     }
   });
 
-  it("rounds a typed amount rather than truncating a cent", () => {
-    expect(toMinorUnits(12.345, "EUR")).toBe(1235);
-    expect(toMinorUnits(12.344, "EUR")).toBe(1234);
+  // A figure finer than its currency is REFUSED, not rounded.
+  //
+  // Two reviewers arrived at this from opposite ends and neither could be
+  // satisfied by rounding. One reported that 1.005 EUR stored 100 rather than
+  // 101 — the cent a person typed, lost to binary. The other reported that
+  // 1.004951 EUR stored 101 rather than 100 — a cent invented out of a value
+  // below the halfway point. Both are true, and they differ only past the
+  // tolerance any rounding has to pick, so any choice of tolerance is wrong for
+  // one of them.
+  //
+  // Refusing is the only answer that never stores a number nobody typed, and it
+  // is the rule this tree already reached in documentextraction: "a figure with
+  // more decimals than the currency has is a misread, and silently dropping a
+  // digit is how an amount becomes wrong by an order of magnitude."
+  it.each([
+    [1.005, "EUR"],
+    [1.004951, "EUR"],
+    [0.004951, "EUR"],
+    [12.345, "EUR"],
+    [1.0005, "KWD"],
+    [12.3444951, "KWD"],
+    [1.5, "VND"],
+  ])("refuses %p %s, which the currency cannot hold", (major, currency) => {
+    expect(toMinorUnits(major, currency)).toBeNaN();
   });
 
-  // The cases binary floating point loses. `1.005 * 100` is
-  // 100.49999999999999, so a multiply-then-round drops the cent the person
-  // typed exactly; shifting the decimal point in the TEXT cannot.
+  // What the currency CAN hold still scales exactly, and that is the half the
+  // string shift exists for: 1.23 * 100 is 122.99999999999999 as a multiply.
   it.each([
-    [1.005, "EUR", 101],
-    [8.165, "EUR", 817],
-    [1.0005, "KWD", 1001],
-    [0.145, "EUR", 15],
-  ])(
-    "%f %s scales to %i without losing the last unit",
-    (major, currency, want) => {
-      expect(toMinorUnits(major, currency)).toBe(want);
-    },
-  );
+    [1.23, "EUR", 123],
+    [8.16, "EUR", 816],
+    [0.15, "EUR", 15],
+    [12.345, "KWD", 12_345],
+    [-1.23, "EUR", -123],
+  ])("%p %s scales to %i exactly", (major, currency, want) => {
+    expect(toMinorUnits(major, currency)).toBe(want);
+  });
 
-  // A credit and a charge of the same size must scale to the same magnitude.
+  // A credit and a charge of the same size must reach the same magnitude.
   // Math.round sends -0.5 to -0 and 0.5 to 1, which makes them differ by one.
   it("rounds a half away from zero in both directions", () => {
-    expect(toMinorUnits(-12.345, "EUR")).toBe(-1235);
-    expect(toMinorUnits(12.345, "EUR")).toBe(1235);
-    expect(toMinorUnits(-0.005, "EUR")).toBe(-1);
-    expect(toMinorUnits(0.005, "EUR")).toBe(1);
+    expect(toMinorUnits(-0.005, "KWD")).toBe(-5);
+    expect(toMinorUnits(0.005, "KWD")).toBe(5);
   });
 
   // A pasted overflowing exponent parses to Infinity, which is not NaN.

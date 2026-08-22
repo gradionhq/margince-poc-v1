@@ -61,8 +61,12 @@ export function MoneyInput({
   const lastRenderedCurrency = useRef(currency);
 
   useEffect(() => {
+    // Object.is, not ===: a refused amount travels as NaN, and NaN === NaN is
+    // false, so the parent echoing our own NaN back read as an external change
+    // and snapped the buffer mid-edit — the one thing this guard exists to
+    // prevent.
     if (
-      valueMinor === lastCommittedMinor.current &&
+      Object.is(valueMinor, lastCommittedMinor.current) &&
       currency === lastRenderedCurrency.current
     ) {
       return;
