@@ -205,7 +205,7 @@ type threadSpec struct {
 
 // threadsFor picks the conversations an account's own state calls for.
 func threadsFor(account Account) []threadSpec {
-	locale := localeOf(account.Domain)
+	locale := localeFor(account)
 	words := wordsFor(locale)
 	// One helper so every spec below states only what differs. The subject and
 	// the body come from the same locale, which is what stops a German subject
@@ -293,7 +293,7 @@ func writeThread(mailbox Mailbox, account Account, contact Person, anchor time.T
 	if spec.Meeting {
 		occurred = occurred.AddDate(0, 0, 5)
 		id := fmt.Sprintf("<%s.meet@offline-demo.invalid>", base)
-		words := wordsFor(localeOf(account.Domain))
+		words := wordsFor(localeFor(account))
 		meeting := newMessage(mailbox, account, contact, id, openerID, "",
 			words.Meeting+": "+spec.Subject, words.MeetingBody,
 			occurred, "", "meeting", dealID)
@@ -311,7 +311,7 @@ func newMessage(mailbox Mailbox, account Account, contact Person,
 	if direction == directionInbound {
 		from, fromName, to, toName = contact.Email, contact.Name, mailbox.Email, mailbox.DisplayName
 	}
-	words := wordsFor(localeOf(account.Domain))
+	words := wordsFor(localeFor(account))
 	addressee := firstWord(contact.Name)
 	if direction == directionInbound {
 		addressee = firstWord(mailbox.DisplayName)

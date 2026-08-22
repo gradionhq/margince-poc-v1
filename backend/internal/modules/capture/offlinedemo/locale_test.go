@@ -90,6 +90,74 @@ func TestAGermanAccountStillReadsAsGerman(t *testing.T) {
 	}
 }
 
+// The dataset's answer beats the domain, which is the whole point: nine of its
+// 21 Vietnamese companies are on a .com, fpt-is.com and vuletech.com among
+// them, and a suffix rule writes German to every one of them.
+func TestTheDatasetsLocaleBeatsTheDomainSuffix(t *testing.T) {
+	account := testAccount("vuletech.com", "VULETECH")
+	account.Locale = "vi"
+	if got := localeFor(account); got != localeVI {
+		t.Fatalf("localeFor(vuletech.com stated vi) = %q, want vi", got)
+	}
+	for _, msg := range generate(testMailbox(), account) {
+		for _, german := range []string{"Viele Grüße", "Hallo ", "Kickoff", "Rechnung"} {
+			if strings.Contains(msg.Subject, german) || strings.Contains(msg.Body, german) {
+				t.Errorf("a .com Vietnamese company got German %q in\n  subject: %s\n  body: %s",
+					german, msg.Subject, msg.Body)
+			}
+		}
+	}
+}
+
+// An account with no stated locale falls back to the suffix. That is an
+// installation seeded by something other than the demo dataset, and German is
+// the right answer for the majority it will hold.
+func TestAnAccountWithNoStatedLocaleFallsBackToTheSuffix(t *testing.T) {
+	for domain, want := range map[string]docLocale{
+		"vinatechgroup.vn": localeVI,
+		"tipa.or.kr":       localeKO,
+		"valantic.com":     localeDE,
+	} {
+		account := testAccount(domain, "Test")
+		if got := localeFor(account); got != want {
+			t.Errorf("localeFor(%q with no stated locale) = %q, want %q", domain, got, want)
+		}
+	}
+}
+
+// A locale the dataset does not use must not silently become German — it falls
+// through to the suffix, which is a real answer rather than a wrong one.
+func TestAnUnknownStatedLocaleFallsThroughRatherThanDefaulting(t *testing.T) {
+	account := testAccount("vinatechgroup.vn", "Vinatech")
+	account.Locale = "zz"
+	if got := localeFor(account); got != localeVI {
+		t.Errorf("an unrecognised locale on a .vn domain gave %q, want vi from the suffix", got)
+	}
+}
+
+// The dataset marks EVERY Korean company `en`, because that is what their
+// websites and contracts are in. Taking that literally for correspondence
+// writes English to Seoul and turns 착수 회의 back into Kickoff — the exact bug
+// this connector was fixed for.
+//
+// This test carries the dataset's REAL value (`en` for tipa.or.kr, verified in
+// company-locale.json) rather than a convenient one, because the earlier
+// Korean test left Locale empty and so never exercised the seeded path at all.
+func TestAKoreanDomainStaysKoreanEvenThoughItsPaperIsEnglish(t *testing.T) {
+	for _, domain := range []string{"tipa.or.kr", "condt.co.kr", "mv21.kr"} {
+		account := testAccount(domain, "중소기업기술정보진흥원")
+		account.Locale = "en" // what company-locale.json actually says
+		if got := localeFor(account); got != localeKO {
+			t.Errorf("localeFor(%q stated en) = %q, want ko — the dataset's `en` is about PAPER", domain, got)
+		}
+		for _, msg := range generate(testMailbox(), account) {
+			if strings.Contains(msg.Subject, "Kickoff") || strings.Contains(msg.Body, "Best regards") {
+				t.Errorf("%s got English correspondence: %s / %s", domain, msg.Subject, msg.Body)
+			}
+		}
+	}
+}
+
 func TestLocaleOfReadsTheDomainSuffix(t *testing.T) {
 	for domain, want := range map[string]docLocale{
 		"tipa.or.kr":       localeKO,
@@ -186,5 +254,32 @@ func TestWordsForAlwaysReturnsAUsableGreeting(t *testing.T) {
 		if strings.TrimSpace(words.SignOff) == "" {
 			t.Errorf("wordsFor(%q) has no sign-off", locale)
 		}
+	}
+}
+
+// The auth bundle must still accept the bare seat id. scripts/seed-dev.sql
+// writes one, and so did every seeder before the locale map — treating that as
+// a parse error would leave a dev database with a mailbox that never syncs.
+func TestReadAuthAcceptsBothTheJSONBundleAndTheBareSeatID(t *testing.T) {
+	const seat = "01a00000-0000-7000-8000-00000000000a"
+
+	bare := readAuth([]byte(seat))
+	if bare.UserID != seat {
+		t.Errorf("a bare seat id parsed to %q, want %q", bare.UserID, seat)
+	}
+	if len(bare.Locales) != 0 {
+		t.Errorf("a bare seat id carried locales: %v", bare.Locales)
+	}
+
+	bundle := readAuth([]byte(`{"user_id":"` + seat + `","locales":{"vuletech.com":"vi"}}`))
+	if bundle.UserID != seat {
+		t.Errorf("the bundle's seat id parsed to %q, want %q", bundle.UserID, seat)
+	}
+	if bundle.Locales["vuletech.com"] != "vi" {
+		t.Errorf("the bundle lost its locales: %v", bundle.Locales)
+	}
+
+	if empty := readAuth(nil); empty.UserID != "" {
+		t.Errorf("an empty credential produced a seat id %q", empty.UserID)
 	}
 }

@@ -103,8 +103,13 @@ type Account struct {
 	Name           string
 	Domain         string
 	Lifecycle      string
-	People         []Person
-	Deals          []Deal
+	// Locale is the dataset's own answer for this company — `de`, `vi`, `ko`
+	// or `en` — carried in from company-locale.json through the auth payload.
+	// Empty when the installation was not seeded from a dataset, and the
+	// domain suffix answers instead.
+	Locale string
+	People []Person
+	Deals  []Deal
 	// ContractEndsInDays is negative for a contract already over. Zero when
 	// the account holds none.
 	ContractEndsInDays int
@@ -161,6 +166,42 @@ func (c *Connector) Authenticate(_ context.Context, req connector.AuthRequest) (
 // HealthCheck always succeeds — there is no remote to be unhealthy.
 func (c *Connector) HealthCheck(context.Context, connector.Auth) error { return nil }
 
+// authPayload is what the seeder writes into capture_connection.auth.
+//
+// The seat id alone was enough until the correspondence had to be written in
+// the account's own language. That answer lives in the DATASET
+// (datasets/v1/company-locale.json, hand-checked, because a domain suffix gets
+// it wrong for a fifth of the Automation World list — vuletech.com is
+// Vietnamese and dacell.com is Korean, both on .com). The seeder reads that
+// file; this connector runs in the worker and has no dataset directory, so the
+// answer has to travel, and `auth` is the channel that already exists between
+// exactly these two.
+type authPayload struct {
+	UserID string `json:"user_id"`
+	// Locales maps a lowercased domain to `de`, `vi`, `ko` or `en`. A domain
+	// absent from it falls back to the suffix rule, which is right for the
+	// German majority and is all an installation without a seeded dataset has.
+	Locales map[string]string `json:"locales,omitempty"`
+}
+
+// readAuth parses the credential bundle, tolerating the bare seat id.
+//
+// scripts/seed-dev.sql writes the user id as a plain string, and so did every
+// seeder before the locale map. A payload that is not JSON is therefore not an
+// error: it is the older form, and treating it as one keeps a dev database
+// seeded by either route working.
+func readAuth(auth connector.Auth) authPayload {
+	raw := strings.TrimSpace(string(auth))
+	if raw == "" {
+		return authPayload{}
+	}
+	var payload authPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err == nil && payload.UserID != "" {
+		return payload
+	}
+	return authPayload{UserID: raw}
+}
+
 // cursorState is what a completed sync remembers.
 type cursorState struct {
 	Version int    `json:"v"`
@@ -177,12 +218,14 @@ type cursorState struct {
 func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connector.Cursor, sink connector.Sink) (connector.Cursor, error) {
 	// The seat rides in Auth, the way imap carries its mailbox owner: Auth is
 	// an opaque credential bundle and the connector decides what is in it.
-	// The seeder writes the user id there with no vault ref, so nothing here
-	// needs a keyvault to resolve a secret that does not exist.
-	userID := strings.TrimSpace(string(auth))
-	if userID == "" {
+	// The seeder writes the seat id and the dataset's locale map there with no
+	// vault ref, so nothing here needs a keyvault to resolve a secret that does
+	// not exist.
+	payload := readAuth(auth)
+	if payload.UserID == "" {
 		return cursor, fmt.Errorf("offline demo sync has no seat to generate for")
 	}
+	userID := payload.UserID
 
 	state, since := readCursor(cursor)
 
@@ -193,6 +236,7 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 	newest := since
 	emitted, skipped := 0, 0
 	for _, account := range mailbox.Accounts {
+		account.Locale = payload.Locales[strings.ToLower(account.Domain)]
 		for _, msg := range generate(mailbox, account) {
 			if !since.IsZero() && !msg.OccurredAt.After(since) {
 				skipped++

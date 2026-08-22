@@ -24,6 +24,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -43,6 +44,14 @@ import (
 // is no secret: the generator reads the local database and talks to nobody, so
 // a sealed credential would protect an empty room. imap carries its mailbox
 // owner the same way.
+//
+// The DATASET'S LOCALE MAP rides along with it. The connector writes each
+// account's correspondence in that company's own language, and the only
+// trustworthy answer is company-locale.json — hand-checked precisely because a
+// domain suffix is wrong for about a fifth of the Automation World list, where
+// vuletech.com is Vietnamese and dacell.com is Korean. The connector runs in the
+// worker and has no dataset directory, so the seeder carries the answer to it
+// through the one channel these two already share.
 func seedCommsConnections(dsn string, cfg demoConfig, mode runMode) (int, error) {
 	if mode == modeDryRun || dsn == "" {
 		return 0, nil
@@ -53,6 +62,14 @@ func seedCommsConnections(dsn string, cfg demoConfig, mode runMode) (int, error)
 		return 0, fmt.Errorf("connecting to provision the mailboxes: %w", err)
 	}
 	defer func() { _ = conn.Close(ctx) }() //craft:ignore swallowed-errors closing a seed connection has no failure the caller can act on
+
+	// One map for every seat: the same 272 domains, and the connector picks the
+	// account it is writing to out of it. Small enough to repeat per row and
+	// simpler than a second table nobody else would read.
+	locales := make(map[string]string, len(companyLocales))
+	for domain, locale := range companyLocales {
+		locales[domain] = string(locale)
+	}
 
 	created := 0
 	for _, user := range cfg.Users {
@@ -71,12 +88,34 @@ func seedCommsConnections(dsn string, cfg demoConfig, mode runMode) (int, error)
 		// No workspace_id: migration 0282 dropped the tenant column from
 		// capture_connection, because the installation is a singleton and the
 		// row is installation-wide by construction (ADR-0091 §8 phase D).
+		auth, err := json.Marshal(struct {
+			UserID  string            `json:"user_id"`
+			Locales map[string]string `json:"locales,omitempty"`
+		}{UserID: userID, Locales: locales})
+		if err != nil {
+			return created, fmt.Errorf("encoding the mailbox credential for %s: %w", user.Email, err)
+		}
+
+		// DO UPDATE, not DO NOTHING. A re-seed after the dataset's locales
+		// change has to reach the connector; leaving the old bundle in place
+		// would keep writing German to a company the dataset has since
+		// corrected, and nothing would report it.
+		//
+		// credential_ref is CLEARED with it, and that is the load-bearing half.
+		// BackfillCredentials runs on every boot: it seals the auth bytes into
+		// the vault, records a ref and NULLs the column, and Registry's
+		// resolveCredential then prefers the ref unconditionally. So a demo
+		// whose backfill had already run would take a new auth payload into a
+		// column nothing reads — silently, because there is no error in
+		// writing to it. Clearing the ref returns the row to the un-backfilled
+		// state, and the next boot re-seals it from the payload written here.
 		tag, err := conn.Exec(ctx, `
 			INSERT INTO capture_connection
 			       (provider, user_id, scopes, status, account_label, auth, share_acknowledged_at)
 			VALUES ('offline_demo', $1::uuid, '{read}', 'connected', $2, $3::bytea, now())
-			ON CONFLICT (user_id, provider) DO NOTHING`,
-			userID, user.Email, []byte(userID))
+			ON CONFLICT (user_id, provider) DO UPDATE
+			   SET auth = EXCLUDED.auth, credential_ref = NULL`,
+			userID, user.Email, auth)
 		if err != nil {
 			return created, fmt.Errorf("provisioning the mailbox for %s: %w", user.Email, err)
 		}

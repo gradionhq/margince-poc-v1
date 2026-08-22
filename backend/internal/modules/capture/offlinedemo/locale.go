@@ -15,12 +15,16 @@ package offlinedemo
 // Hanoi and Seoul, and a Vietnamese manufacturer reading German boilerplate is
 // the one thing it cannot survive being.
 //
-// DERIVED FROM THE DOMAIN, not configured. The seeder has its own localeFor in
-// tools/seed-demo/locale.go, reading datasets/v1/company-locale.json — but that
-// runs in the seeder binary against a dataset directory, and this runs in the
-// WORKER, which has neither. The domain is what both have, and it is already on
-// the Account. So the two answer the same question from the same evidence
-// without one importing the other.
+// THE DATASET'S ANSWER WINS. datasets/v1/company-locale.json is hand-checked
+// precisely because a domain suffix gets this wrong for about a fifth of the
+// Automation World list: vuletech.com is Vietnamese, dacell.com is Korean, and
+// nine of the dataset's 21 Vietnamese companies sit on a .com. Guessing from
+// the suffix would write German to all of them.
+//
+// The seeder reads that file and carries the answer into
+// capture_connection.auth, which this connector already reads for the seat id.
+// The suffix rule below is the FALLBACK, for an installation that was never
+// seeded from a dataset and so has nothing better.
 //
 // The disagreement that matters is deliberate. company-locale.json marks Korean
 // companies `en`, because that is what their WEBSITES publish. That file drives
@@ -33,12 +37,9 @@ package offlinedemo
 // localeKO here and no localeKO there, and the seeder's file is not wrong for
 // lacking it.
 //
-// KNOWN GAP, tracked as issue #2263: a Vietnamese or Korean company on a `.com`
-// still reads as German here, because a suffix cannot see what a hand-checked
-// file knows. Nine of the dataset's 21 Vietnamese companies are affected,
-// fpt-is.com and vuletech.com among them. Closing it means carrying the
-// locale to the worker through the database, which is a wider change than a
-// vocabulary.
+// Issue #2263 is what this closes: nine of the dataset's 21 Vietnamese
+// companies are on a `.com`, fpt-is.com and vuletech.com among them, and every
+// one of them was written to in German.
 
 import "strings"
 
@@ -52,18 +53,45 @@ const (
 	localeEN docLocale = "en"
 )
 
-// localeOf reads the correspondence language off the domain.
+// localeFor answers an account's CORRESPONDENCE language, which is not always
+// the language of its paper.
 //
-// The suffix is the whole rule here, unlike the seeder's, which consults a
-// hand-checked file. That is a smaller claim and the right one for a fallback:
-// this only decides the language of GENERATED filler, and a company whose
-// domain says nothing gets German, which is the dataset's own majority.
+// The dataset's stated locale wins, with one exception that the dataset itself
+// forces: it marks every Korean company `en`, because that is what their
+// websites and therefore their contracts are in. Taking that literally here
+// would write English to Seoul — and re-break the exact bug this connector was
+// fixed for, since `착수 회의` would go back to `Kickoff`. So a `.kr` domain
+// reads as Korean whatever the dataset says about its paper.
 //
-// A `.com` Korean or Vietnamese company therefore reads as German here and is
-// correct in the seeder. That gap is closed by scripting the account's threads
-// rather than by teaching a suffix table to guess — a guess that is wrong for a
-// fifth of the Automation World list, which is exactly why the seeder stopped
-// guessing and read a file instead.
+// The exception is narrow on purpose. It applies only where the domain PROVES
+// the country, never where it merely suggests one: `.kr` is a country-code TLD
+// that a non-Korean company does not hold, whereas a `.com` proves nothing and
+// is left to the dataset, which is the whole reason the dataset is consulted.
+//
+// Everything else takes the dataset's answer, and an account carrying none
+// falls back to the suffix — an installation seeded by something other than
+// this dataset.
+func localeFor(account Account) docLocale {
+	// Korean correspondence is decided by the domain, not by the paper locale.
+	if localeOf(account.Domain) == localeKO {
+		return localeKO
+	}
+	switch docLocale(strings.ToLower(strings.TrimSpace(account.Locale))) {
+	case localeDE:
+		return localeDE
+	case localeVI:
+		return localeVI
+	case localeKO:
+		return localeKO
+	case localeEN:
+		return localeEN
+	}
+	return localeOf(account.Domain)
+}
+
+// localeOf reads a language off the domain suffix. The fallback, not the rule:
+// it is right for the German majority and wrong for every Vietnamese or Korean
+// company on a generic TLD, which is why localeFor consults the dataset first.
 func localeOf(domain string) docLocale {
 	domain = strings.ToLower(strings.TrimSpace(domain))
 	switch {
