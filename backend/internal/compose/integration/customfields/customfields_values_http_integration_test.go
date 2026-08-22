@@ -223,17 +223,26 @@ func assertSixTypesWireRoundTrip(t *testing.T, e *apptest.AppEnv) {
 
 func assertPicklistCheckViolation422(t *testing.T, e *apptest.AppEnv, col string) {
 	t.Helper()
-	var problem customFieldProblem
+	// The RAW body, decoded into the typed shape afterwards. Decoding straight
+	// into customFieldProblem discards every field that struct does not name,
+	// so a constraint leaked into one of THOSE would be gone before the search
+	// below could look for it — a disclosure guard reading a filtered copy of
+	// the thing it is guarding.
+	var raw json.RawMessage
 	status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Bad Option", "source": "ui", col: "bogus",
-	}, nil, &problem)
+	}, nil, &raw)
+	var problem customFieldProblem
+	if err := json.Unmarshal(raw, &problem); err != nil {
+		t.Fatalf("decoding the refusal %s: %v", raw, err)
+	}
 	if status != http.StatusUnprocessableEntity || problem.Code != "value_not_allowed" {
 		t.Fatalf("create with invalid picklist option = %d %+v, want 422 value_not_allowed", status, problem)
 	}
 	// The generated CHECK is named after the column, so the constraint name is
 	// the one piece of schema this refusal must not carry.
 	//
-	// Checked against the WHOLE body, not against Detail. The leak this guards
+	// Checked against the whole RAW body, not against Detail. The leak this guards
 	// was in the `field` slot of details.errors — a guard reading only Detail
 	// passes unchanged with the deleted translation restored, which makes it a
 	// test of nothing. The empty-errors assertion is the same claim from the
@@ -242,12 +251,8 @@ func assertPicklistCheckViolation422(t *testing.T, e *apptest.AppEnv, col string
 	if len(problem.Details.Errors) != 0 {
 		t.Errorf("the refusal named a field: %+v", problem.Details.Errors)
 	}
-	body, err := json.Marshal(problem)
-	if err != nil {
-		t.Fatalf("re-encoding the problem to search it: %v", err)
-	}
-	if bytes.Contains(body, []byte(col+"_check")) {
-		t.Errorf("the refusal disclosed the generated constraint somewhere in its body: %s", body)
+	if bytes.Contains(raw, []byte(col+"_check")) {
+		t.Errorf("the refusal disclosed the generated constraint somewhere in its body: %s", raw)
 	}
 }
 

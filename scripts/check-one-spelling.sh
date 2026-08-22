@@ -56,7 +56,14 @@ cd "$(dirname "$0")/.."
 # real tree makes `make -j` a race — a concurrent one-spelling would read the
 # probe as a finding, and gofmt/license/craft would read it as an unlicensed
 # file. The default is the real answer; the override only moves where it looks.
-IFS=' ' read -r -a scan <<< "${ONE_SPELLING_SCAN:-backend/internal backend/cmd backend/pkg backend/tools extensions fixtures}"
+# An overridden root is taken WHOLE, not word-split: the self-test hands this a
+# mktemp path, and splitting one that contains a space would silently scan two
+# directories that do not exist — a gate reading green over an empty universe.
+if [[ -n "${ONE_SPELLING_SCAN:-}" ]]; then
+  scan=("$ONE_SPELLING_SCAN")
+else
+  scan=(backend/internal backend/cmd backend/pkg backend/tools extensions fixtures)
+fi
 waiver='one-spelling-exempt:'
 
 # The gate reads CODE, so the whole tree is stripped of comments ONCE, into a

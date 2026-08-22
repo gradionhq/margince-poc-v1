@@ -24,9 +24,15 @@ fails=0
 # plant <body> — write a compiling-shaped probe file carrying <body>.
 plant() { printf '// SPDX-License-Identifier: BUSL-1.1\npackage storekit\n\n%s\n' "$1" > "$PLANT"; }
 
-# expect <fires|silent> <name> <body>
+# expect <fires|silent> <name> <body> [must-report] [must-not-report]
+#
+# The two optional arguments are what make a MIXED probe worth planting. A case
+# that plants a waived defect beside an unwaived one and only checks the exit
+# status passes just as well from a scanner that reports BOTH — the waiver could
+# be doing nothing and the run would still be red for the right overall reason.
+# So the case names the finding it must see and the one it must not.
 expect() {
-  local want="$1" name="$2" body="$3" out rc
+  local want="$1" name="$2" body="$3" must="${4:-}" mustnot="${5:-}" out rc
   plant "$body"
   out="$(ONE_SPELLING_SCAN="$PROBE_DIR" $GATE 2>&1)"; rc=$?
   rm -f "$PLANT"
@@ -35,6 +41,14 @@ expect() {
   fi
   if [[ "$want" == silent && $rc -ne 0 ]]; then
     echo "FAIL: $name — the gate refused it"; echo "$out" | sed 's/^/    /'; fails=1; return
+  fi
+  if [[ -n "$must" ]] && ! grep -qF -- "$must" <<< "$out"; then
+    echo "FAIL: $name — it never reported $must, so the red came from something else"
+    echo "$out" | sed 's/^/    /'; fails=1; return
+  fi
+  if [[ -n "$mustnot" ]] && grep -qF -- "$mustnot" <<< "$out"; then
+    echo "FAIL: $name — it reported $mustnot, which is waived"
+    echo "$out" | sed 's/^/    /'; fails=1; return
   fi
   echo "ok: $name"
 }
@@ -49,9 +63,9 @@ echo "ok: clean tree passes"
 
 echo
 echo "== each arm fires on its own defect =="
-expect fires "SQLSTATE literal"        'func probe(c string) bool { return c == "23505" }'
-expect fires "CHECK-to-422 re-spelling" 'const probeCode = "constraint_violated"'
-expect fires "private ISO-4217 regexp"  'const probeShape = `^[A-Z]{3}$`'
+expect fires "SQLSTATE literal"        'func probe(c string) bool { return c == "23505" }' '23505'
+expect fires "CHECK-to-422 re-spelling" 'const probeCode = "constraint_violated"' 'constraint_violated'
+expect fires "private ISO-4217 regexp"  'const probeShape = `^[A-Z]{3}$`' 'A-Z'
 
 echo
 echo "== a SQLSTATE the gate was never told about, read from sqlstate.go =="
@@ -69,7 +83,8 @@ expect silent "a waived line" \
 # free, under a reason written about something else entirely.
 expect fires "a waiver silences its own line only" \
   'func waived(c string) bool { return c == "23505" } // one-spelling-exempt: probing the gate
-func notWaived(c string) bool { return c == "23503" }'
+func notWaived(c string) bool { return c == "23503" }' \
+  '23503' '23505'
 expect silent "the same token in a line comment" \
   '// A dedupe hit is "23505", named in sqlstate.go.'
 expect silent "the same token in a block comment" \
