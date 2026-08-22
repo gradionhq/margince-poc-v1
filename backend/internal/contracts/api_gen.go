@@ -15331,10 +15331,49 @@ type DealRoom struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// DealRoomAuthor Who spoke — which side, and the name that side knows them by.
+type DealRoomAuthor struct {
+	Name string `json:"name"`
+
+	// Side `seller` or `buyer`.
+	Side string `json:"side"`
+}
+
+// DealRoomComment defines model for DealRoomComment.
+type DealRoomComment struct {
+	// Author Who spoke — which side, and the name that side knows them by.
+	Author    DealRoomAuthor     `json:"author"`
+	Body      string             `json:"body"`
+	CreatedAt time.Time          `json:"created_at"`
+	Id        openapi_types.UUID `json:"id"`
+	ThreadId  openapi_types.UUID `json:"thread_id"`
+}
+
 // DealRoomCredentialRequest defines model for DealRoomCredentialRequest.
 type DealRoomCredentialRequest struct {
 	// Credential The one-time credential from the invitation link's fragment.
 	Credential string `json:"credential"`
+}
+
+// DealRoomDecision A buyer's decision about one document version. Insert-only; a later decision is a new row.
+type DealRoomDecision struct {
+	// AttachmentId The exact version decided on.
+	AttachmentId openapi_types.UUID `json:"attachment_id"`
+	CreatedAt    time.Time          `json:"created_at"`
+	DocumentId   openapi_types.UUID `json:"document_id"`
+	Id           openapi_types.UUID `json:"id"`
+
+	// Kind `request_changes` or `confirm_version`.
+	Kind            string             `json:"kind"`
+	Note            *string            `json:"note,omitempty"`
+	ParticipantId   openapi_types.UUID `json:"participant_id"`
+	ParticipantName *string            `json:"participant_name,omitempty"`
+	RoomId          openapi_types.UUID `json:"room_id"`
+}
+
+// DealRoomDecisionListResponse defines model for DealRoomDecisionListResponse.
+type DealRoomDecisionListResponse struct {
+	Data []DealRoomDecision `json:"data"`
 }
 
 // DealRoomDeliveryState What happened to the credential we last sent this person — delivery, modelled
@@ -15629,6 +15668,45 @@ type DealRoomTaskListResponse struct {
 // package, colliding with any other schema declaring those values. The closed set
 // is stated here and held by the writer and the schema CHECK.
 type DealRoomTaskSide = string
+
+// DealRoomThread One thread of the room's conversation, with its comments. Served to both
+// sides in the same shape: the buyer and the seller read the same
+// conversation, and neither side's ids beyond the thread's own are in it.
+type DealRoomThread struct {
+	// Author Who spoke — which side, and the name that side knows them by.
+	Author    DealRoomAuthor    `json:"author"`
+	Comments  []DealRoomComment `json:"comments"`
+	CreatedAt time.Time         `json:"created_at"`
+
+	// DocumentId Null for a room-level thread.
+	DocumentId     *openapi_types.UUID `json:"document_id,omitempty"`
+	Id             openapi_types.UUID  `json:"id"`
+	RequiredChange bool                `json:"required_change"`
+	ResolvedAt     *time.Time          `json:"resolved_at,omitempty"`
+	RoomId         openapi_types.UUID  `json:"room_id"`
+
+	// State `open` or `resolved`. A plain string, not an inline enum, for the reason `DealRoomTaskSide` gives.
+	State string `json:"state"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version *RowVersion `json:"version,omitempty"`
+}
+
+// DealRoomThreadListResponse defines model for DealRoomThreadListResponse.
+type DealRoomThreadListResponse struct {
+	Data []DealRoomThread `json:"data"`
+}
+
+// DecideBuyerRoomDocumentRequest defines model for DecideBuyerRoomDocumentRequest.
+type DecideBuyerRoomDocumentRequest struct {
+	// Kind `request_changes` or `confirm_version`.
+	Kind string  `json:"kind"`
+	Note *string `json:"note,omitempty"`
+}
 
 // DecideCommissionRequest defines model for DecideCommissionRequest.
 type DecideCommissionRequest struct {
@@ -17677,6 +17755,21 @@ type OnboardingStateSourceMode string
 
 // OnboardingStateStep defines model for OnboardingState.Step.
 type OnboardingStateStep string
+
+// OpenDealRoomThreadRequest defines model for OpenDealRoomThreadRequest.
+type OpenDealRoomThreadRequest struct {
+	// Body The first comment.
+	Body string `json:"body"`
+
+	// DocumentId The room document the thread is about. Omit for a room-level exchange.
+	DocumentId *openapi_types.UUID `json:"document_id,omitempty"`
+
+	// RequiredChange Only with a document. Marks the thread as blocking confirmation until resolved.
+	RequiredChange *bool `json:"required_change,omitempty"`
+
+	// Source Provenance. Defaults to `ui` on the public edge.
+	Source *string `json:"source,omitempty"`
+}
 
 // Organization A company. Mirrors the `organization` table.
 type Organization struct {
@@ -20195,6 +20288,12 @@ type PipelineTrace struct {
 
 	// Stages Every registered stage, ordered as a message meets them. Never a subset.
 	Stages []PipelineStageRung `json:"stages"`
+}
+
+// PostDealRoomCommentRequest defines model for PostDealRoomCommentRequest.
+type PostDealRoomCommentRequest struct {
+	Body   string  `json:"body"`
+	Source *string `json:"source,omitempty"`
 }
 
 // PreferenceCenter The buyer-facing preference center's per-purpose view (B-E11.32): each tracked consent purpose
@@ -24106,6 +24205,11 @@ type UpdateDealRoomTaskParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// ListDealRoomThreadsParams defines parameters for ListDealRoomThreads.
+type ListDealRoomThreadsParams struct {
+	DocumentId *openapi_types.UUID `form:"document_id,omitempty" json:"document_id,omitempty"`
+}
+
 // ListDealsParams defines parameters for ListDeals.
 type ListDealsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -26131,6 +26235,11 @@ type OneClickUnsubscribeParams struct {
 	Purpose *string `form:"purpose,omitempty" json:"purpose,omitempty"`
 }
 
+// ListBuyerRoomThreadsParams defines parameters for ListBuyerRoomThreads.
+type ListBuyerRoomThreadsParams struct {
+	DocumentId *openapi_types.UUID `form:"document_id,omitempty" json:"document_id,omitempty"`
+}
+
 // ListQuotasParams defines parameters for ListQuotas.
 type ListQuotasParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -27185,6 +27294,12 @@ type CreateDealRoomTaskJSONRequestBody = CreateDealRoomTaskRequest
 // UpdateDealRoomTaskJSONRequestBody defines body for UpdateDealRoomTask for application/json ContentType.
 type UpdateDealRoomTaskJSONRequestBody = UpdateDealRoomTaskRequest
 
+// OpenDealRoomThreadJSONRequestBody defines body for OpenDealRoomThread for application/json ContentType.
+type OpenDealRoomThreadJSONRequestBody = OpenDealRoomThreadRequest
+
+// ReplyDealRoomThreadJSONRequestBody defines body for ReplyDealRoomThread for application/json ContentType.
+type ReplyDealRoomThreadJSONRequestBody = PostDealRoomCommentRequest
+
 // CreateDealJSONRequestBody defines body for CreateDeal for application/json ContentType.
 type CreateDealJSONRequestBody = CreateDealRequest
 
@@ -27407,6 +27522,9 @@ type BookPublicMeetingJSONRequestBody BookPublicMeetingJSONBody
 // UpdatePreferencesJSONRequestBody defines body for UpdatePreferences for application/json ContentType.
 type UpdatePreferencesJSONRequestBody UpdatePreferencesJSONBody
 
+// DecideBuyerRoomDocumentJSONRequestBody defines body for DecideBuyerRoomDocument for application/json ContentType.
+type DecideBuyerRoomDocumentJSONRequestBody = DecideBuyerRoomDocumentRequest
+
 // ExchangeDealRoomCredentialJSONRequestBody defines body for ExchangeDealRoomCredential for application/json ContentType.
 type ExchangeDealRoomCredentialJSONRequestBody = DealRoomCredentialRequest
 
@@ -27418,6 +27536,12 @@ type PeekDealRoomCredentialJSONRequestBody = DealRoomCredentialRequest
 
 // CompleteBuyerRoomTaskJSONRequestBody defines body for CompleteBuyerRoomTask for application/json ContentType.
 type CompleteBuyerRoomTaskJSONRequestBody = CompleteBuyerRoomTaskRequest
+
+// OpenBuyerRoomThreadJSONRequestBody defines body for OpenBuyerRoomThread for application/json ContentType.
+type OpenBuyerRoomThreadJSONRequestBody = OpenDealRoomThreadRequest
+
+// ReplyBuyerRoomThreadJSONRequestBody defines body for ReplyBuyerRoomThread for application/json ContentType.
+type ReplyBuyerRoomThreadJSONRequestBody = PostDealRoomCommentRequest
 
 // CreateQuotaJSONRequestBody defines body for CreateQuota for application/json ContentType.
 type CreateQuotaJSONRequestBody = CreateQuotaRequest
@@ -36191,6 +36315,9 @@ type ServerInterface interface {
 	// Freeze the room's content, keeping buyer access.
 	// (POST /deal-rooms/{id}/close)
 	CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
+	// Every decision a buyer recorded on a document version, newest first.
+	// (GET /deal-rooms/{id}/decisions)
+	ListDealRoomDecisions(w http.ResponseWriter, r *http.Request, id Id)
 	// List the documents a room puts in front of its buyer.
 	// (GET /deal-rooms/{id}/documents)
 	ListDealRoomDocuments(w http.ResponseWriter, r *http.Request, id Id)
@@ -36245,6 +36372,18 @@ type ServerInterface interface {
 	// Reword, reassign, reorder or tick off a to-do.
 	// (PATCH /deal-rooms/{id}/tasks/{taskId})
 	UpdateDealRoomTask(w http.ResponseWriter, r *http.Request, id Id, taskId openapi_types.UUID, params UpdateDealRoomTaskParams)
+	// The room's conversation — every thread with its comments.
+	// (GET /deal-rooms/{id}/threads)
+	ListDealRoomThreads(w http.ResponseWriter, r *http.Request, id Id, params ListDealRoomThreadsParams)
+	// Open a thread as the seller's side — a question on a document, or a room-level update.
+	// (POST /deal-rooms/{id}/threads)
+	OpenDealRoomThread(w http.ResponseWriter, r *http.Request, id Id)
+	// Reply in a thread as the seller's side.
+	// (POST /deal-rooms/{id}/threads/{threadId}/comments)
+	ReplyDealRoomThread(w http.ResponseWriter, r *http.Request, id Id, threadId openapi_types.UUID)
+	// Close a thread — the seller's side saying the point is settled.
+	// (POST /deal-rooms/{id}/threads/{threadId}/resolve)
+	ResolveDealRoomThread(w http.ResponseWriter, r *http.Request, id Id, threadId openapi_types.UUID)
 	// List deals (live by default; cursor-paginated). Supports Kanban-by-stage reads.
 	// (GET /deals)
 	ListDeals(w http.ResponseWriter, r *http.Request, params ListDealsParams)
@@ -36851,6 +36990,9 @@ type ServerInterface interface {
 	// The documents as published, grouped.
 	// (GET /public/rooms/documents)
 	ListBuyerRoomDocuments(w http.ResponseWriter, r *http.Request)
+	// Ask for changes to, or confirm, the published version of a document.
+	// (POST /public/rooms/documents/{documentId}/decision)
+	DecideBuyerRoomDocument(w http.ResponseWriter, r *http.Request, documentId openapi_types.UUID)
 	// The bytes of one published document.
 	// (GET /public/rooms/documents/{documentId}/file)
 	DownloadBuyerRoomDocument(w http.ResponseWriter, r *http.Request, documentId openapi_types.UUID)
@@ -36875,6 +37017,15 @@ type ServerInterface interface {
 	// Tick or un-tick an item on the shared list as the buyer.
 	// (POST /public/rooms/tasks/{taskId}/complete)
 	CompleteBuyerRoomTask(w http.ResponseWriter, r *http.Request, taskId openapi_types.UUID)
+	// The room's conversation as the buyer sees it.
+	// (GET /public/rooms/threads)
+	ListBuyerRoomThreads(w http.ResponseWriter, r *http.Request, params ListBuyerRoomThreadsParams)
+	// Ask a question on a published document, or post a room-level update, as the buyer.
+	// (POST /public/rooms/threads)
+	OpenBuyerRoomThread(w http.ResponseWriter, r *http.Request)
+	// Reply in a thread as the buyer.
+	// (POST /public/rooms/threads/{threadId}/comments)
+	ReplyBuyerRoomThread(w http.ResponseWriter, r *http.Request, threadId openapi_types.UUID)
 	// List quotas (cursor-paginated).
 	// (GET /quotas)
 	ListQuotas(w http.ResponseWriter, r *http.Request, params ListQuotasParams)
@@ -37973,6 +38124,12 @@ func (_ Unimplemented) CloseDealRoom(w http.ResponseWriter, r *http.Request, id 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Every decision a buyer recorded on a document version, newest first.
+// (GET /deal-rooms/{id}/decisions)
+func (_ Unimplemented) ListDealRoomDecisions(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List the documents a room puts in front of its buyer.
 // (GET /deal-rooms/{id}/documents)
 func (_ Unimplemented) ListDealRoomDocuments(w http.ResponseWriter, r *http.Request, id Id) {
@@ -38078,6 +38235,30 @@ func (_ Unimplemented) ArchiveDealRoomTask(w http.ResponseWriter, r *http.Reques
 // Reword, reassign, reorder or tick off a to-do.
 // (PATCH /deal-rooms/{id}/tasks/{taskId})
 func (_ Unimplemented) UpdateDealRoomTask(w http.ResponseWriter, r *http.Request, id Id, taskId openapi_types.UUID, params UpdateDealRoomTaskParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The room's conversation — every thread with its comments.
+// (GET /deal-rooms/{id}/threads)
+func (_ Unimplemented) ListDealRoomThreads(w http.ResponseWriter, r *http.Request, id Id, params ListDealRoomThreadsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Open a thread as the seller's side — a question on a document, or a room-level update.
+// (POST /deal-rooms/{id}/threads)
+func (_ Unimplemented) OpenDealRoomThread(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reply in a thread as the seller's side.
+// (POST /deal-rooms/{id}/threads/{threadId}/comments)
+func (_ Unimplemented) ReplyDealRoomThread(w http.ResponseWriter, r *http.Request, id Id, threadId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Close a thread — the seller's side saying the point is settled.
+// (POST /deal-rooms/{id}/threads/{threadId}/resolve)
+func (_ Unimplemented) ResolveDealRoomThread(w http.ResponseWriter, r *http.Request, id Id, threadId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -39293,6 +39474,12 @@ func (_ Unimplemented) ListBuyerRoomDocuments(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Ask for changes to, or confirm, the published version of a document.
+// (POST /public/rooms/documents/{documentId}/decision)
+func (_ Unimplemented) DecideBuyerRoomDocument(w http.ResponseWriter, r *http.Request, documentId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The bytes of one published document.
 // (GET /public/rooms/documents/{documentId}/file)
 func (_ Unimplemented) DownloadBuyerRoomDocument(w http.ResponseWriter, r *http.Request, documentId openapi_types.UUID) {
@@ -39338,6 +39525,24 @@ func (_ Unimplemented) ListBuyerRoomTasks(w http.ResponseWriter, r *http.Request
 // Tick or un-tick an item on the shared list as the buyer.
 // (POST /public/rooms/tasks/{taskId}/complete)
 func (_ Unimplemented) CompleteBuyerRoomTask(w http.ResponseWriter, r *http.Request, taskId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The room's conversation as the buyer sees it.
+// (GET /public/rooms/threads)
+func (_ Unimplemented) ListBuyerRoomThreads(w http.ResponseWriter, r *http.Request, params ListBuyerRoomThreadsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ask a question on a published document, or post a room-level update, as the buyer.
+// (POST /public/rooms/threads)
+func (_ Unimplemented) OpenBuyerRoomThread(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reply in a thread as the buyer.
+// (POST /public/rooms/threads/{threadId}/comments)
+func (_ Unimplemented) ReplyBuyerRoomThread(w http.ResponseWriter, r *http.Request, threadId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -45358,6 +45563,40 @@ func (siw *ServerInterfaceWrapper) CloseDealRoom(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListDealRoomDecisions operation middleware
+func (siw *ServerInterfaceWrapper) ListDealRoomDecisions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDealRoomDecisions(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListDealRoomDocuments operation middleware
 func (siw *ServerInterfaceWrapper) ListDealRoomDocuments(w http.ResponseWriter, r *http.Request) {
 
@@ -46218,6 +46457,176 @@ func (siw *ServerInterfaceWrapper) UpdateDealRoomTask(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateDealRoomTask(w, r, id, taskId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDealRoomThreads operation middleware
+func (siw *ServerInterfaceWrapper) ListDealRoomThreads(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDealRoomThreadsParams
+
+	// ------------- Optional query parameter "document_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "document_id", r.URL.Query(), &params.DocumentId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "document_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "document_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDealRoomThreads(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OpenDealRoomThread operation middleware
+func (siw *ServerInterfaceWrapper) OpenDealRoomThread(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenDealRoomThread(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplyDealRoomThread operation middleware
+func (siw *ServerInterfaceWrapper) ReplyDealRoomThread(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "threadId" -------------
+	var threadId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "threadId", chi.URLParam(r, "threadId"), &threadId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "threadId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplyDealRoomThread(w, r, id, threadId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveDealRoomThread operation middleware
+func (siw *ServerInterfaceWrapper) ResolveDealRoomThread(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "threadId" -------------
+	var threadId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "threadId", chi.URLParam(r, "threadId"), &threadId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "threadId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveDealRoomThread(w, r, id, threadId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -55712,6 +56121,38 @@ func (siw *ServerInterfaceWrapper) ListBuyerRoomDocuments(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// DecideBuyerRoomDocument operation middleware
+func (siw *ServerInterfaceWrapper) DecideBuyerRoomDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "documentId" -------------
+	var documentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "documentId", chi.URLParam(r, "documentId"), &documentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "documentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DecideBuyerRoomDocument(w, r, documentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DownloadBuyerRoomDocument operation middleware
 func (siw *ServerInterfaceWrapper) DownloadBuyerRoomDocument(w http.ResponseWriter, r *http.Request) {
 
@@ -55869,6 +56310,97 @@ func (siw *ServerInterfaceWrapper) CompleteBuyerRoomTask(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CompleteBuyerRoomTask(w, r, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBuyerRoomThreads operation middleware
+func (siw *ServerInterfaceWrapper) ListBuyerRoomThreads(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListBuyerRoomThreadsParams
+
+	// ------------- Optional query parameter "document_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "document_id", r.URL.Query(), &params.DocumentId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "document_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "document_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBuyerRoomThreads(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OpenBuyerRoomThread operation middleware
+func (siw *ServerInterfaceWrapper) OpenBuyerRoomThread(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenBuyerRoomThread(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplyBuyerRoomThread operation middleware
+func (siw *ServerInterfaceWrapper) ReplyBuyerRoomThread(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "threadId" -------------
+	var threadId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "threadId", chi.URLParam(r, "threadId"), &threadId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "threadId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplyBuyerRoomThread(w, r, threadId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -61117,6 +61649,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/deal-rooms/{id}/close", wrapper.CloseDealRoom)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deal-rooms/{id}/decisions", wrapper.ListDealRoomDecisions)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deal-rooms/{id}/documents", wrapper.ListDealRoomDocuments)
 	})
 	r.Group(func(r chi.Router) {
@@ -61169,6 +61704,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/deal-rooms/{id}/tasks/{taskId}", wrapper.UpdateDealRoomTask)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deal-rooms/{id}/threads", wrapper.ListDealRoomThreads)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/threads", wrapper.OpenDealRoomThread)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/threads/{threadId}/comments", wrapper.ReplyDealRoomThread)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/threads/{threadId}/resolve", wrapper.ResolveDealRoomThread)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals", wrapper.ListDeals)
@@ -61777,6 +62324,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/public/rooms/documents", wrapper.ListBuyerRoomDocuments)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/rooms/documents/{documentId}/decision", wrapper.DecideBuyerRoomDocument)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/public/rooms/documents/{documentId}/file", wrapper.DownloadBuyerRoomDocument)
 	})
 	r.Group(func(r chi.Router) {
@@ -61799,6 +62349,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/public/rooms/tasks/{taskId}/complete", wrapper.CompleteBuyerRoomTask)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/rooms/threads", wrapper.ListBuyerRoomThreads)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/rooms/threads", wrapper.OpenBuyerRoomThread)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/rooms/threads/{threadId}/comments", wrapper.ReplyBuyerRoomThread)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/quotas", wrapper.ListQuotas)

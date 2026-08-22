@@ -4658,6 +4658,116 @@ paths:
         '429':
           description: Rate-limited.
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+  /public/rooms/threads:
+    get:
+      tags: [Public]
+      operationId: listBuyerRoomThreads
+      security: [{ dealRoomSession: [] }]
+      summary: The room's conversation as the buyer sees it.
+      description: Optionally narrowed to one published document. Empty while the room serves no content.
+      parameters:
+        - name: document_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The threads.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomThreadListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+    post:
+      tags: [Public]
+      operationId: openBuyerRoomThread
+      security: [{ dealRoomSession: [] }]
+      x-agent-access: human-only
+      summary: Ask a question on a published document, or post a room-level update, as the buyer.
+      description: |
+        Needs the `comment` or `reviewer` capability. A document thread may be
+        marked `required_change`, which blocks confirming that document's version
+        until the seller resolves it. Refused while the room is paused, closed or
+        expired.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OpenDealRoomThreadRequest' }
+      responses:
+        '201':
+          description: The new thread.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomThread' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /public/rooms/threads/{threadId}/comments:
+    parameters:
+      - { name: threadId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Public]
+      operationId: replyBuyerRoomThread
+      security: [{ dealRoomSession: [] }]
+      x-agent-access: human-only
+      summary: Reply in a thread as the buyer.
+      description: Needs the `comment` or `reviewer` capability. Refused on a resolved thread.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostDealRoomCommentRequest' }
+      responses:
+        '201':
+          description: The thread as it now stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomThread' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /public/rooms/documents/{documentId}/decision:
+    parameters:
+      - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Public]
+      operationId: decideBuyerRoomDocument
+      security: [{ dealRoomSession: [] }]
+      x-agent-access: human-only
+      summary: Ask for changes to, or confirm, the published version of a document.
+      description: |
+        Needs the `reviewer` capability. `confirm_version` is refused with 422
+        `open_required_threads` while any required-change thread on the document is
+        open — the seller resolves those first. A confirmation is a working decision
+        inside the room, explicitly not a legal signature. Recorded against the exact
+        version the latest release names.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecideBuyerRoomDocumentRequest' }
+      responses:
+        '201':
+          description: The recorded decision.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomDecision' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
   /public/rooms/sign-out:
     post:
       tags: [Public]
@@ -11498,6 +11608,127 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /deal-rooms/{id}/threads:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: listDealRoomThreads
+      summary: The room's conversation — every thread with its comments.
+      description: |
+        Live on both sides: nothing here waits for a publish. Optionally narrowed to
+        one document. A room-level thread has no `document_id`.
+      x-mcp-tool: { verb: search_records, record_type: deal_room_thread, tier: auto_execute, scope: read }
+      parameters:
+        - name: document_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The threads, oldest first, each with its comments oldest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomThreadListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Deals]
+      operationId: openDealRoomThread
+      summary: Open a thread as the seller's side — a question on a document, or a room-level update.
+      description: |
+        The first comment is the body. Refused once the room can no longer reach a
+        buyer (closed, expired, archived). A document thread is pinned to the
+        document's current version.
+      x-mcp-tool: { verb: create_record, record_type: deal_room_thread, tier: auto_execute, scope: write }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OpenDealRoomThreadRequest' }
+      responses:
+        '201':
+          description: The new thread with its first comment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomThread' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /deal-rooms/{id}/threads/{threadId}/comments:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: threadId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Deals]
+      operationId: replyDealRoomThread
+      summary: Reply in a thread as the seller's side.
+      description: Refused on a resolved thread and in a room that can no longer reach a buyer.
+      x-mcp-tool: { verb: create_record, record_type: deal_room_comment, tier: auto_execute, scope: write }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostDealRoomCommentRequest' }
+      responses:
+        '201':
+          description: The thread as it now stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomThread' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /deal-rooms/{id}/threads/{threadId}/resolve:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: threadId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Deals]
+      operationId: resolveDealRoomThread
+      summary: Close a thread — the seller's side saying the point is settled.
+      description: |
+        Human-only: resolving a required-change thread is what unblocks the buyer's
+        confirmation of a document version, so a person stands behind it. Resolving
+        an already resolved thread answers 200 with the thread unchanged.
+      x-agent-access: human-only
+      responses:
+        '200':
+          description: The resolved thread.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomThread' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /deal-rooms/{id}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: listDealRoomDecisions
+      summary: Every decision a buyer recorded on a document version, newest first.
+      x-mcp-tool: { verb: search_records, record_type: deal_room_decision, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: The decisions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomDecisionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /deal-rooms/{id}/releases:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -23650,10 +23881,13 @@ components:
             - data_subject_request
             - deal
             - deal_room
+            - deal_room_comment
+            - deal_room_decision
             - deal_room_document
             - deal_room_participant
             - deal_room_release
             - deal_room_task
+            - deal_room_thread
             - import_run
             - lead
             - list
@@ -26012,6 +26246,108 @@ components:
       required: [data]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/BuyerRoomDocument' } }
+      additionalProperties: false
+    DealRoomAuthor:
+      type: object
+      description: Who spoke — which side, and the name that side knows them by.
+      required: [side, name]
+      properties:
+        side: { type: string, description: '`seller` or `buyer`.' }
+        name: { type: string }
+      additionalProperties: false
+
+    DealRoomComment:
+      type: object
+      required: [id, thread_id, body, author, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        thread_id: { type: string, format: uuid }
+        body: { type: string }
+        author: { $ref: '#/components/schemas/DealRoomAuthor' }
+        created_at: { type: string, format: date-time }
+      additionalProperties: false
+
+    DealRoomThread:
+      type: object
+      description: |
+        One thread of the room's conversation, with its comments. Served to both
+        sides in the same shape: the buyer and the seller read the same
+        conversation, and neither side's ids beyond the thread's own are in it.
+      required: [id, room_id, required_change, state, author, created_at, comments]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        document_id: { type: [string, 'null'], format: uuid, description: Null for a room-level thread. }
+        required_change: { type: boolean }
+        state: { type: string, description: '`open` or `resolved`. A plain string, not an inline enum, for the reason `DealRoomTaskSide` gives.' }
+        author: { $ref: '#/components/schemas/DealRoomAuthor' }
+        created_at: { type: string, format: date-time }
+        resolved_at: { type: [string, 'null'], format: date-time }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        comments:
+          type: array
+          items: { $ref: '#/components/schemas/DealRoomComment' }
+      additionalProperties: false
+
+    DealRoomThreadListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/DealRoomThread' } }
+      additionalProperties: false
+
+    OpenDealRoomThreadRequest:
+      type: object
+      required: [body]
+      properties:
+        document_id:
+          type: [string, 'null']
+          format: uuid
+          description: The room document the thread is about. Omit for a room-level exchange.
+        body: { type: string, minLength: 1, description: The first comment. }
+        required_change:
+          type: boolean
+          description: Only with a document. Marks the thread as blocking confirmation until resolved.
+        source: { type: string, description: Provenance. Defaults to `ui` on the public edge. }
+      additionalProperties: false
+
+    PostDealRoomCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1 }
+        source: { type: string }
+      additionalProperties: false
+
+    DealRoomDecision:
+      type: object
+      description: A buyer's decision about one document version. Insert-only; a later decision is a new row.
+      required: [id, room_id, document_id, attachment_id, participant_id, kind, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        document_id: { type: string, format: uuid }
+        attachment_id: { type: string, format: uuid, description: The exact version decided on. }
+        participant_id: { type: string, format: uuid }
+        participant_name: { type: string, readOnly: true }
+        kind: { type: string, description: '`request_changes` or `confirm_version`.' }
+        note: { type: [string, 'null'] }
+        created_at: { type: string, format: date-time }
+      additionalProperties: false
+
+    DealRoomDecisionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/DealRoomDecision' } }
+      additionalProperties: false
+
+    DecideBuyerRoomDocumentRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, description: '`request_changes` or `confirm_version`.' }
+        note: { type: [string, 'null'] }
       additionalProperties: false
     DealRoomTaskListResponse:
       type: object

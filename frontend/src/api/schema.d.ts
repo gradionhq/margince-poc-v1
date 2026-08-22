@@ -3064,6 +3064,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/rooms/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The room's conversation as the buyer sees it.
+         * @description Optionally narrowed to one published document. Empty while the room serves no content.
+         */
+        get: operations["listBuyerRoomThreads"];
+        put?: never;
+        /**
+         * Ask a question on a published document, or post a room-level update, as the buyer.
+         * @description Needs the `comment` or `reviewer` capability. A document thread may be
+         *     marked `required_change`, which blocks confirming that document's version
+         *     until the seller resolves it. Refused while the room is paused, closed or
+         *     expired.
+         */
+        post: operations["openBuyerRoomThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/rooms/threads/{threadId}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reply in a thread as the buyer.
+         * @description Needs the `comment` or `reviewer` capability. Refused on a resolved thread.
+         */
+        post: operations["replyBuyerRoomThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/rooms/documents/{documentId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for changes to, or confirm, the published version of a document.
+         * @description Needs the `reviewer` capability. `confirm_version` is refused with 422
+         *     `open_required_threads` while any required-change thread on the document is
+         *     open — the seller resolves those first. A confirmation is a working decision
+         *     inside the room, explicitly not a legal signature. Recorded against the exact
+         *     version the latest release names.
+         */
+        post: operations["decideBuyerRoomDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/rooms/sign-out": {
         parameters: {
             query?: never;
@@ -7655,6 +7730,106 @@ export interface paths {
          * @description Editorial, like adding one — the buyer sees the change at the next publish.
          */
         patch: operations["updateDealRoomDocument"];
+        trace?: never;
+    };
+    "/deal-rooms/{id}/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The room's conversation — every thread with its comments.
+         * @description Live on both sides: nothing here waits for a publish. Optionally narrowed to
+         *     one document. A room-level thread has no `document_id`.
+         */
+        get: operations["listDealRoomThreads"];
+        put?: never;
+        /**
+         * Open a thread as the seller's side — a question on a document, or a room-level update.
+         * @description The first comment is the body. Refused once the room can no longer reach a
+         *     buyer (closed, expired, archived). A document thread is pinned to the
+         *     document's current version.
+         */
+        post: operations["openDealRoomThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/threads/{threadId}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reply in a thread as the seller's side.
+         * @description Refused on a resolved thread and in a room that can no longer reach a buyer.
+         */
+        post: operations["replyDealRoomThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/threads/{threadId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close a thread — the seller's side saying the point is settled.
+         * @description Human-only: resolving a required-change thread is what unblocks the buyer's
+         *     confirmation of a document version, so a person stands behind it. Resolving
+         *     an already resolved thread answers 200 with the thread unchanged.
+         */
+        post: operations["resolveDealRoomThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Every decision a buyer recorded on a document version, newest first. */
+        get: operations["listDealRoomDecisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/deal-rooms/{id}/releases": {
@@ -17272,7 +17447,7 @@ export interface components {
              * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
              * @enum {string}
              */
-            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_document" | "deal_room_participant" | "deal_room_release" | "deal_room_task" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_comment" | "deal_room_decision" | "deal_room_document" | "deal_room_participant" | "deal_room_release" | "deal_room_task" | "deal_room_thread" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
             /**
              * @description The autonomy tier, identical on REST and MCP (ADR-0055).
              * @enum {string}
@@ -19498,6 +19673,98 @@ export interface components {
         };
         BuyerRoomDocumentListResponse: {
             data: components["schemas"]["BuyerRoomDocument"][];
+        };
+        /** @description Who spoke — which side, and the name that side knows them by. */
+        DealRoomAuthor: {
+            /** @description `seller` or `buyer`. */
+            side: string;
+            name: string;
+        };
+        DealRoomComment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            thread_id: string;
+            body: string;
+            author: components["schemas"]["DealRoomAuthor"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        /**
+         * @description One thread of the room's conversation, with its comments. Served to both
+         *     sides in the same shape: the buyer and the seller read the same
+         *     conversation, and neither side's ids beyond the thread's own are in it.
+         */
+        DealRoomThread: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            /**
+             * Format: uuid
+             * @description Null for a room-level thread.
+             */
+            document_id?: string | null;
+            required_change: boolean;
+            /** @description `open` or `resolved`. A plain string, not an inline enum, for the reason `DealRoomTaskSide` gives. */
+            state: string;
+            author: components["schemas"]["DealRoomAuthor"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            resolved_at?: string | null;
+            version?: components["schemas"]["RowVersion"];
+            comments: components["schemas"]["DealRoomComment"][];
+        };
+        DealRoomThreadListResponse: {
+            data: components["schemas"]["DealRoomThread"][];
+        };
+        OpenDealRoomThreadRequest: {
+            /**
+             * Format: uuid
+             * @description The room document the thread is about. Omit for a room-level exchange.
+             */
+            document_id?: string | null;
+            /** @description The first comment. */
+            body: string;
+            /** @description Only with a document. Marks the thread as blocking confirmation until resolved. */
+            required_change?: boolean;
+            /** @description Provenance. Defaults to `ui` on the public edge. */
+            source?: string;
+        };
+        PostDealRoomCommentRequest: {
+            body: string;
+            source?: string;
+        };
+        /** @description A buyer's decision about one document version. Insert-only; a later decision is a new row. */
+        DealRoomDecision: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            /** Format: uuid */
+            document_id: string;
+            /**
+             * Format: uuid
+             * @description The exact version decided on.
+             */
+            attachment_id: string;
+            /** Format: uuid */
+            participant_id: string;
+            readonly participant_name?: string;
+            /** @description `request_changes` or `confirm_version`. */
+            kind: string;
+            note?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        DealRoomDecisionListResponse: {
+            data: components["schemas"]["DealRoomDecision"][];
+        };
+        DecideBuyerRoomDocumentRequest: {
+            /** @description `request_changes` or `confirm_version`. */
+            kind: string;
+            note?: string | null;
         };
         DealRoomTaskListResponse: {
             data: components["schemas"]["DealRoomTask"][];
@@ -25831,6 +26098,150 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listBuyerRoomThreads: {
+        parameters: {
+            query?: {
+                document_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The threads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomThreadListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    openBuyerRoomThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenDealRoomThreadRequest"];
+            };
+        };
+        responses: {
+            /** @description The new thread. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomThread"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    replyBuyerRoomThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostDealRoomCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description The thread as it now stands. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomThread"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    decideBuyerRoomDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideBuyerRoomDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded decision. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomDecision"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
             /** @description Rate-limited. */
             429: {
                 headers: {
@@ -33872,6 +34283,150 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listDealRoomThreads: {
+        parameters: {
+            query?: {
+                document_id?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The threads, oldest first, each with its comments oldest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomThreadListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    openDealRoomThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpenDealRoomThreadRequest"];
+            };
+        };
+        responses: {
+            /** @description The new thread with its first comment. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomThread"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    replyDealRoomThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostDealRoomCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description The thread as it now stands. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomThread"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    resolveDealRoomThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                threadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The resolved thread. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomThread"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listDealRoomDecisions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The decisions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomDecisionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listDealRoomReleases: {

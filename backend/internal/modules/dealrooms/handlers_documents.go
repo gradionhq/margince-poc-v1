@@ -94,7 +94,7 @@ func addDocumentInput(req crmcontracts.AddDealRoomDocumentRequest) (AddDocumentI
 	}
 	// An omitted attachment_id decodes to the zero UUID with no error and would
 	// otherwise be reported as a file that does not exist.
-	if err := httperr.RequireBodyID("attachment_id", ids.UUID(req.AttachmentId)); err != nil {
+	if err := httperr.RequireBodyID(fieldAttachmentID, ids.UUID(req.AttachmentId)); err != nil {
 		return AddDocumentInput{}, err
 	}
 	if err := refuseUnknownGroup(string(req.GroupKey)); err != nil {

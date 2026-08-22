@@ -99,6 +99,15 @@ var errViewerCannotWrite = &fieldError{
 	msg:   "your access to this room is read-only; ask your contact to let you work the list",
 }
 
+// The fault code every over-long text refuses with, and the audit-image keys
+// three writers share; named once so they cannot drift into spellings a client
+// or a reader would have to special-case.
+const (
+	codeTooLong       = "too_long"
+	fieldAttachmentID = "attachment_id"
+	fieldSide         = "side"
+)
+
 // fieldCapability names the participant's capability in a fault and an audit image.
 const fieldCapability = "capability"
 

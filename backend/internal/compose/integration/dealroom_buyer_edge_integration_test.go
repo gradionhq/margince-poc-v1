@@ -380,3 +380,110 @@ func TestABuyerReadsAndDownloadsOnlyWhatTheReleaseNames(t *testing.T) {
 		t.Fatalf("a removed document survived the republish: %v", list)
 	}
 }
+
+func TestTheConversationFlowsBothWaysAndAConfirmationWaitsForOpenChanges(t *testing.T) {
+	e := apptest.SetupAppWithOptions(t, compose.WithBlobstore(blobstore.NewMemory()))
+	e.BootstrapWorkspace(t)
+	room := openPublishedRoom(t, e)
+	var roomRow apptest.AnyMap
+	e.Call(t, "GET", "/v1/deal-rooms/"+room.roomID, nil, nil, &roomRow)
+	dealID, _ := roomRow["deal_id"].(string)
+	attachmentID := uploadDealFile(t, e, dealID, "MSA_v2.pdf", []byte("%PDF-MSA"))
+	var doc apptest.AnyMap
+	e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/documents", apptest.AnyMap{
+		"attachment_id": attachmentID, "group_key": "legal", "source": "ui",
+	}, nil, &doc)
+	docID, _ := doc["id"].(string)
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/publish", apptest.AnyMap{}, nil, nil); status != http.StatusCreated {
+		t.Fatalf("publish = %d", status)
+	}
+
+	// Laura may comment; Rita may decide.
+	var session apptest.AnyMap
+	publicCall(t, e, "POST", "/v1/public/rooms/exchange", apptest.AnyMap{"credential": room.credential}, nil, &session)
+	laura, _ := session["session_token"].(string)
+	var reviewerIssued, reviewerSession apptest.AnyMap
+	e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/participants", apptest.AnyMap{
+		"full_name": "Rita Reviewer", "email": "rita@buyer.example", "capability": "reviewer", "source": "ui",
+	}, nil, &reviewerIssued)
+	publicCall(t, e, "POST", "/v1/public/rooms/exchange", apptest.AnyMap{"credential": reviewerIssued["credential"]}, nil, &reviewerSession)
+	rita, _ := reviewerSession["session_token"].(string)
+
+	// The seller asks on the document; the buyer answers; both names show.
+	var opened apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/threads", apptest.AnyMap{
+		"document_id": docID, "body": "Does clause 4 work for you?", "source": "ui",
+	}, nil, &opened); status != http.StatusCreated {
+		t.Fatalf("open thread = %d %v", status, opened)
+	}
+	threadID, _ := opened["id"].(string)
+	var replied apptest.AnyMap
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/threads/"+threadID+"/comments", apptest.AnyMap{"body": "Thirty days would."}, bearer(laura), &replied); status != http.StatusCreated {
+		t.Fatalf("buyer reply = %d %v", status, replied)
+	}
+	comments, _ := replied["comments"].([]any)
+	if len(comments) != 2 {
+		t.Fatalf("comments = %v, want two", comments)
+	}
+	second, _ := comments[1].(map[string]any)
+	author, _ := second["author"].(map[string]any)
+	if author["side"] != "buyer" || author["name"] != "Laura Buyer" {
+		t.Fatalf("reply author = %v", author)
+	}
+
+	// A required change from the reviewer blocks confirmation until resolved.
+	var required apptest.AnyMap
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/threads", apptest.AnyMap{
+		"document_id": docID, "body": "Please shorten the cure period.", "required_change": true,
+	}, bearer(rita), &required); status != http.StatusCreated {
+		t.Fatalf("required-change thread = %d %v", status, required)
+	}
+	var refused apptest.AnyMap
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/documents/"+docID+"/decision", apptest.AnyMap{"kind": "confirm_version"}, bearer(rita), &refused); status != http.StatusUnprocessableEntity || refused["code"] != "open_required_threads" {
+		t.Fatalf("confirm with an open change = %d %v, want 422 open_required_threads", status, refused)
+	}
+	// Laura is not a reviewer: no decision at all.
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/documents/"+docID+"/decision", apptest.AnyMap{"kind": "request_changes"}, bearer(laura), nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("decision by a commenter = %d, want 422", status)
+	}
+	requiredID, _ := required["id"].(string)
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/threads/"+requiredID+"/resolve", nil, nil, nil); status != http.StatusOK {
+		t.Fatalf("resolve = %d", status)
+	}
+	var decision apptest.AnyMap
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/documents/"+docID+"/decision", apptest.AnyMap{"kind": "confirm_version"}, bearer(rita), &decision); status != http.StatusCreated || decision["kind"] != "confirm_version" || decision["attachment_id"] != attachmentID {
+		t.Fatalf("confirm after resolve = %d %v", status, decision)
+	}
+	// A resolved thread takes no more replies.
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/threads/"+requiredID+"/comments", apptest.AnyMap{"body": "one more"}, bearer(rita), nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("reply on resolved = %d, want 422", status)
+	}
+
+	// The seller reads the decision with the reviewer's name.
+	var decisions apptest.AnyMap
+	e.Call(t, "GET", "/v1/deal-rooms/"+room.roomID+"/decisions", nil, nil, &decisions)
+	list, _ := decisions["data"].([]any)
+	first, _ := list[0].(map[string]any)
+	if len(list) != 1 || first["participant_name"] != "Rita Reviewer" {
+		t.Fatalf("decisions = %v", list)
+	}
+
+	// A thread on a document the seller has not published stays the seller's.
+	hidden := uploadDealFile(t, e, dealID, "pricing_internal.xlsx", []byte("secret"))
+	var hiddenDoc apptest.AnyMap
+	e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/documents", apptest.AnyMap{"attachment_id": hidden, "group_key": "commercial", "source": "ui"}, nil, &hiddenDoc)
+	e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/threads", apptest.AnyMap{"document_id": hiddenDoc["id"], "body": "internal note on pricing", "source": "ui"}, nil, nil)
+	var visible apptest.AnyMap
+	publicCall(t, e, "GET", "/v1/public/rooms/threads", nil, bearer(laura), &visible)
+	for _, th := range visible["data"].([]any) {
+		if m, _ := th.(map[string]any); m["document_id"] == hiddenDoc["id"] {
+			t.Fatalf("a thread on an unpublished document reached the buyer: %v", m)
+		}
+	}
+
+	// Paused: the conversation reads, but nobody on the buyer's side writes.
+	e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/pause", apptest.AnyMap{}, nil, nil)
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/threads", apptest.AnyMap{"body": "hello?"}, bearer(laura), nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("thread while paused = %d, want 422", status)
+	}
+}

@@ -555,6 +555,10 @@ func (stubs) CloseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "CloseDealRoom")
 }
 
+func (stubs) ListDealRoomDecisions(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ListDealRoomDecisions")
+}
+
 func (stubs) ListDealRoomDocuments(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ListDealRoomDocuments")
 }
@@ -625,6 +629,22 @@ func (stubs) ArchiveDealRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, i
 
 func (stubs) UpdateDealRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, taskId openapi_types.UUID, params crmcontracts.UpdateDealRoomTaskParams) {
 	httperr.NotImplemented(w, r, "UpdateDealRoomTask")
+}
+
+func (stubs) ListDealRoomThreads(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealRoomThreadsParams) {
+	httperr.NotImplemented(w, r, "ListDealRoomThreads")
+}
+
+func (stubs) OpenDealRoomThread(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "OpenDealRoomThread")
+}
+
+func (stubs) ReplyDealRoomThread(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, threadId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "ReplyDealRoomThread")
+}
+
+func (stubs) ResolveDealRoomThread(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, threadId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "ResolveDealRoomThread")
 }
 
 func (stubs) ListDeals(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListDealsParams) {
@@ -1435,6 +1455,10 @@ func (stubs) ListBuyerRoomDocuments(w nethttp.ResponseWriter, r *nethttp.Request
 	httperr.NotImplemented(w, r, "ListBuyerRoomDocuments")
 }
 
+func (stubs) DecideBuyerRoomDocument(w nethttp.ResponseWriter, r *nethttp.Request, documentId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "DecideBuyerRoomDocument")
+}
+
 func (stubs) DownloadBuyerRoomDocument(w nethttp.ResponseWriter, r *nethttp.Request, documentId openapi_types.UUID) {
 	httperr.NotImplemented(w, r, "DownloadBuyerRoomDocument")
 }
@@ -1465,6 +1489,18 @@ func (stubs) ListBuyerRoomTasks(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func (stubs) CompleteBuyerRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, taskId openapi_types.UUID) {
 	httperr.NotImplemented(w, r, "CompleteBuyerRoomTask")
+}
+
+func (stubs) ListBuyerRoomThreads(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListBuyerRoomThreadsParams) {
+	httperr.NotImplemented(w, r, "ListBuyerRoomThreads")
+}
+
+func (stubs) OpenBuyerRoomThread(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "OpenBuyerRoomThread")
+}
+
+func (stubs) ReplyBuyerRoomThread(w nethttp.ResponseWriter, r *nethttp.Request, threadId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "ReplyBuyerRoomThread")
 }
 
 func (stubs) ListQuotas(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListQuotasParams) {

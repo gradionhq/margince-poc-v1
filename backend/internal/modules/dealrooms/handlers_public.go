@@ -230,3 +230,85 @@ func (h Handlers) DownloadBuyerRoomDocument(w http.ResponseWriter, r *http.Reque
 // a deployment fact and not something a buyer can fix — but it is not "the
 // file is gone", which is what a 404 would claim.
 var errNoDocumentStore = errors.New("dealrooms: no object store is configured, so documents cannot be downloaded; the operator must configure one")
+
+// ListBuyerRoomThreads serves the conversation.
+func (h Handlers) ListBuyerRoomThreads(w http.ResponseWriter, r *http.Request, params crmcontracts.ListBuyerRoomThreadsParams) {
+	sess, ok := SessionFrom(r.Context())
+	if !ok {
+		httperr.Unauthorized(w, r, noSessionDetail)
+		return
+	}
+	threads, err := h.store.BuyerThreads(r.Context(), sess, optionalUUID(params.DocumentId))
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.DealRoomThreadListResponse{Data: threads})
+}
+
+// OpenBuyerRoomThread opens a thread as the buyer.
+func (h Handlers) OpenBuyerRoomThread(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFrom(r.Context())
+	if !ok {
+		httperr.Unauthorized(w, r, noSessionDetail)
+		return
+	}
+	var req crmcontracts.OpenDealRoomThreadRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	in, err := openThreadInput(req, false)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	thread, err := h.store.OpenBuyerThread(r.Context(), sess, in)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusCreated, thread)
+}
+
+// ReplyBuyerRoomThread answers in a thread as the buyer.
+func (h Handlers) ReplyBuyerRoomThread(w http.ResponseWriter, r *http.Request, threadID openapi_types.UUID) {
+	sess, ok := SessionFrom(r.Context())
+	if !ok {
+		httperr.Unauthorized(w, r, noSessionDetail)
+		return
+	}
+	var req crmcontracts.PostDealRoomCommentRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	body, source, err := commentInput(req, false)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	thread, err := h.store.ReplyAsBuyer(r.Context(), sess, ids.UUID(threadID), body, source)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusCreated, thread)
+}
+
+// DecideBuyerRoomDocument records the buyer's decision on a document version.
+func (h Handlers) DecideBuyerRoomDocument(w http.ResponseWriter, r *http.Request, documentID openapi_types.UUID) {
+	sess, ok := SessionFrom(r.Context())
+	if !ok {
+		httperr.Unauthorized(w, r, noSessionDetail)
+		return
+	}
+	var req crmcontracts.DecideBuyerRoomDocumentRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	decision, err := h.store.DecideAsBuyer(r.Context(), sess, ids.UUID(documentID), req.Kind, req.Note)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusCreated, decision)
+}

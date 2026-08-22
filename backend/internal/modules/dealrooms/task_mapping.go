@@ -72,7 +72,7 @@ func cleanTaskTitle(title string) (string, error) {
 	if len([]rune(trimmed)) > titleLimit {
 		return "", &fieldError{
 			field: columnTitle,
-			code:  "too_long",
+			code:  codeTooLong,
 			msg:   "title is longer than 255 characters",
 		}
 	}
