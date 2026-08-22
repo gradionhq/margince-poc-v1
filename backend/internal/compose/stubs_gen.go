@@ -667,6 +667,18 @@ func (stubs) GetDealCoverage(w nethttp.ResponseWriter, r *nethttp.Request, id op
 	httperr.NotImplemented(w, r, "GetDealCoverage")
 }
 
+func (stubs) ListDealDocuments(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealDocumentsParams) {
+	httperr.NotImplemented(w, r, "ListDealDocuments")
+}
+
+func (stubs) UnhideDealDocument(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, attachmentId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "UnhideDealDocument")
+}
+
+func (stubs) HideDealDocument(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, attachmentId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "HideDealDocument")
+}
+
 func (stubs) GetDealHealth(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetDealHealth")
 }
