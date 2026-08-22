@@ -192,7 +192,11 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 			inner: search.NewRetriever(search.NewStore(InstallationDB(pool)), embedder),
 		},
 	}
-	agents.RegisterIntentTools(registry, retriever)
+	// The brief seam takes no overlay guard of its own: nativeOnlyRetriever
+	// above refuses an overlay workspace before prep_for_meeting reaches
+	// either half, and a second guard on one tool would make two comments
+	// claim one refusal — which is what the guard census refuses.
+	agents.RegisterIntentTools(registry, retriever, meetingBriefReader(pool))
 	// The transport directory, read from this package's boot snapshot — the
 	// composed set is the composition root's fact, so the module takes it as a
 	// seam rather than enumerating connectors it may not reach.

@@ -297,6 +297,12 @@ type MeetingFocusItem struct {
 type PrepForMeetingResult struct {
 	Briefing     AssembledContextResult `json:"briefing"`
 	MeetingFocus []MeetingFocusItem     `json:"meeting_focus"`
+	// Brief is the written pre-meeting brief — the SAME eight cited sections a
+	// person reads on the record page, not a second assembly of the same
+	// question. Present only for a meeting anchor the caller may read: the
+	// other anchors name a record rather than a room, and there is no brief to
+	// write for them.
+	Brief *MeetingBriefResult `json:"brief,omitempty"`
 }
 
 // QualifiedField is one gap the tool filled and the evidence it filled it from.

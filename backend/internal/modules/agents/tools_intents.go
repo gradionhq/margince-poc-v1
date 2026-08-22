@@ -11,7 +11,9 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -22,12 +24,12 @@ import (
 // RegisterIntentTools wires the intent surface; compose passes the
 // search module's Retriever. No retriever, no tools — a surface that
 // cannot ground does not pretend to.
-func RegisterIntentTools(r *Registry, retriever retrieval.Retriever) {
+func RegisterIntentTools(r *Registry, retriever retrieval.Retriever, brief MeetingBriefReader) {
 	if retriever == nil {
 		return
 	}
 	r.Register(catchMeUpOn{retriever: retriever})
-	r.Register(prepForMeeting{retriever: retriever})
+	r.Register(prepForMeeting{retriever: retriever, brief: brief})
 }
 
 // anchorArgs is the shared input shape: one record to build around.
@@ -127,6 +129,11 @@ func (t catchMeUpOn) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 
 type prepForMeeting struct {
 	retriever retrieval.Retriever
+	// brief is the person page's own assembler. Nil is a wiring the tool
+	// survives rather than refuses: an installation without it answers the
+	// assembled picture, which is what this tool has always returned, instead
+	// of losing a read it can still perform.
+	brief MeetingBriefReader
 }
 
 func (t prepForMeeting) Spec() mcp.ToolSpec {
@@ -134,7 +141,7 @@ func (t prepForMeeting) Spec() mcp.ToolSpec {
 		Name: "prep_for_meeting", Title: "Prepare for a meeting", Version: toolVersionV1,
 		Description:   prepForMeetingCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp:    "getPerson/getOrganization/getDeal + listActivities",
+		OpenAPIOp:    "getMeetingBrief | getPerson/getOrganization/getDeal + listActivities",
 		InputSchema:  schema(anchorSchema),
 		OutputSchema: schemaFor[PrepForMeetingResult](),
 	}
@@ -164,7 +171,69 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	for _, item := range focus {
 		focusItems = append(focusItems, MeetingFocusItem{RecordID: item.Ref.ID, Summary: item.Summary})
 	}
-	return json.Marshal(PrepForMeetingResult{
+	result := PrepForMeetingResult{
 		Briefing: assembledContext(ctx, assembled), MeetingFocus: focusItems,
-	})
+	}
+	// The focus list keeps naming open TASKS from the walk. The brief's
+	// commitments cite the conversation a promise was extracted from, not the
+	// promise itself, so re-sourcing the list from them would publish a
+	// message id under a field whose contract says "what to act on" — and two
+	// promises made in one email would collide on it.
+	written, hasBrief, err := t.writtenBrief(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	if hasBrief {
+		noteBriefEvidence(ctx, written)
+		result.Brief = &written
+	}
+	return json.Marshal(result)
+}
+
+// noteBriefEvidence charges the brief's own citations against the read bound
+// and puts them in the envelope.
+//
+// Naming a record to an agent is handing that record over, which is why
+// noteEvidence charges rather than only recording. The brief names attendees,
+// the meetings this room held before, and the conversations promises were
+// extracted from — records the context walk beside it never touched. Left
+// uncharged, the richest read on this surface would also be the cheapest, and
+// its sources would be absent from the envelope that is supposed to say where
+// an answer came from.
+func noteBriefEvidence(ctx context.Context, written MeetingBriefResult) {
+	noteEvidence(ctx, datasource.EntityActivity, written.ActivityID)
+	for _, section := range written.Sections {
+		for _, sentence := range section.Sentences {
+			for _, cited := range sentence.Evidence {
+				noteEvidence(ctx, datasource.EntityType(cited.RecordType), cited.RecordID)
+			}
+		}
+	}
+}
+
+// writtenBrief is the eight-section brief, when this anchor has one.
+//
+// Only an ACTIVITY anchor can have one: the other three name a record rather
+// than a room. A nil reader is a legal wiring — a role composed without the
+// seam answers the assembled picture, which is what this tool always answered.
+//
+// NOT-FOUND is the one error that falls back rather than failing. It is what
+// the service returns for an activity that is not a booked meeting, and for a
+// meeting outside this caller's own scope: both are "there is no brief for you
+// here", and the assembled picture the caller CAN have still stands. Every
+// other error is returned — a permission failure or a database fault reported
+// as a brief-less answer would look exactly like an ordinary meeting-less
+// record, and the caller would act on a picture it was never told was partial.
+func (t prepForMeeting) writtenBrief(ctx context.Context, args anchorArgs) (MeetingBriefResult, bool, error) {
+	if t.brief == nil || args.RecordType != string(datasource.EntityActivity) {
+		return MeetingBriefResult{}, false, nil
+	}
+	written, err := t.brief(ctx, args.RecordID)
+	switch {
+	case errors.Is(err, apperrors.ErrNotFound):
+		return MeetingBriefResult{}, false, nil
+	case err != nil:
+		return MeetingBriefResult{}, false, err
+	}
+	return written, true, nil
 }
