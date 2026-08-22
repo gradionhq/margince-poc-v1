@@ -4289,9 +4289,9 @@ export const en = {
   "room.docs.empty": "No documents in the room yet.",
   "room.docs.fileLabel": "File from this deal",
   "room.docs.fileHint":
-    "Upload files on the deal first; only the deal's own files can go into the room.",
+    "Anything in the deal's Files area can go in: uploads and the files its emails carried.",
   "room.docs.pickFile": "Pick a file",
-  "room.docs.noFiles": "This deal has no files yet",
+  "room.docs.noFiles": "The deal's Files area is empty",
   "room.docs.groupLabel": "Group",
   "room.docs.add": "Add to room",
   "room.docs.remove": "Remove {title} from the room",

@@ -285,7 +285,10 @@ function ExpiryDialog({
   const set = useMutation({
     mutationFn: async (day: string) => {
       const { error } = await api.PUT("/deal-rooms/{id}/expiry", {
-        params: { path: { id: room.id } },
+        params: {
+          path: { id: room.id },
+          ...ifMatch(requireVersion(room.version)),
+        },
         body: {
           expires_at:
             day === "" ? null : new Date(`${day}T23:59:59Z`).toISOString(),

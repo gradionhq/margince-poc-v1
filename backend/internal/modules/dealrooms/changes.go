@@ -80,6 +80,14 @@ func (s *Store) Changes(ctx context.Context, roomID ids.DealRoomID) (crmcontract
 func diffRelease(room crmcontracts.DealRoom, published *releaseSnapshot, eligible, all []crmcontracts.DealRoomDocument) []crmcontracts.DealRoomChange {
 	changes := []crmcontracts.DealRoomChange{}
 	was := map[openapi_types.UUID]snapshotDocument{}
+	if published == nil {
+		// Never published: the title is what the first release would show,
+		// so a room with nothing else in it can still go out.
+		changes = append(changes, crmcontracts.DealRoomChange{Kind: changeTitle})
+		if room.WelcomeMessage != nil && *room.WelcomeMessage != "" {
+			changes = append(changes, crmcontracts.DealRoomChange{Kind: changeWelcome})
+		}
+	}
 	if published != nil {
 		if published.Title != room.Title {
 			changes = append(changes, crmcontracts.DealRoomChange{Kind: changeTitle})

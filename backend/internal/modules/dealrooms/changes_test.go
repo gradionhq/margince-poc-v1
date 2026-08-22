@@ -60,13 +60,17 @@ func TestTheDiffNamesEveryWayTheNextReleaseWouldDiffer(t *testing.T) {
 		t.Errorf("kinds = %v, want exactly %v", got, want)
 	}
 
-	// Never published: everything eligible is an addition, nothing else.
+	// Never published: the title (and a welcome, when set) plus every
+	// eligible document as an addition — so the first publish is possible
+	// even for a room with no documents yet.
 	first := diffRelease(room, nil, eligible, all)
 	adds := 0
 	for _, c := range first {
-		if c.Kind == changeDocumentAdded {
+		switch c.Kind {
+		case changeDocumentAdded:
 			adds++
-		} else if c.Kind != changeDocumentIneligible {
+		case changeTitle, changeWelcome, changeDocumentIneligible:
+		default:
 			t.Errorf("unpublished room reports %s", c.Kind)
 		}
 	}

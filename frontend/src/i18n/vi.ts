@@ -4199,9 +4199,9 @@ export const vi = {
   "room.docs.empty": "Chưa có tài liệu nào trong phòng.",
   "room.docs.fileLabel": "Tệp từ giao dịch này",
   "room.docs.fileHint":
-    "Hãy tải tệp lên giao dịch trước; chỉ tệp của giao dịch mới có thể đưa vào phòng.",
+    "Mọi thứ trong khu Tệp của giao dịch đều có thể đưa vào: tệp tải lên và tệp đi kèm email.",
   "room.docs.pickFile": "Chọn tệp",
-  "room.docs.noFiles": "Giao dịch này chưa có tệp nào",
+  "room.docs.noFiles": "Khu Tệp của giao dịch đang trống",
   "room.docs.groupLabel": "Nhóm",
   "room.docs.add": "Thêm vào phòng",
   "room.docs.remove": "Gỡ {title} khỏi phòng",

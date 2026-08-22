@@ -4235,9 +4235,9 @@ export const de = {
   "room.docs.empty": "Noch keine Dokumente im Raum.",
   "room.docs.fileLabel": "Datei aus diesem Deal",
   "room.docs.fileHint":
-    "Laden Sie Dateien zuerst am Deal hoch; nur die Dateien des Deals können in den Raum.",
+    "Alles aus dem Dateibereich des Deals kann hinein: Uploads und die Dateien seiner E-Mails.",
   "room.docs.pickFile": "Datei wählen",
-  "room.docs.noFiles": "Dieser Deal hat noch keine Dateien",
+  "room.docs.noFiles": "Der Dateibereich des Deals ist leer",
   "room.docs.groupLabel": "Gruppe",
   "room.docs.add": "In den Raum legen",
   "room.docs.remove": "{title} aus dem Raum entfernen",
