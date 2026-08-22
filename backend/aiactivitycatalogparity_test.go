@@ -16,6 +16,7 @@ package backendarch
 import (
 	"os"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -42,13 +43,51 @@ func TestEveryKindSomethingProducesIsOneTheContractCanExpress(t *testing.T) {
 	if len(declared) == 0 {
 		t.Fatal("AiActivityKind declares no enum; this gate would pass vacuously")
 	}
+	var missing []string
 	for _, kind := range producedKinds() {
 		if !slices.Contains(declared, kind) {
+			missing = append(missing, kind)
 			t.Errorf("something announces kind %q and the contract's enum does not carry it — the wire "+
 				"cannot express it, and the rail would render nothing for AI work that really happened. "+
 				"Add it to the enum and ship its copy in en/de/vi", kind)
 		}
 	}
+	if len(missing) > 0 {
+		t.Log(alignEnum(declared, missing))
+	}
+}
+
+// alignEnum renders the enum block to paste into crm.yaml, in the same spirit as
+// gen-composition's `align:` line for its committed stubs.
+//
+// The enum is HAND-MAINTAINED here on purpose. A sibling generated file cannot
+// work: every $ref in crm.yaml is internal, and at least three consumers read
+// that file as plain YAML and resolve nothing — gen-agentpolicy, gen-recordfields
+// and crmYAMLNamedEnum, the helper this very gate uses to read the enum. A
+// generator writing into a region of the authoritative contract would also be
+// the first of its kind in this tree; every other generator owns its whole file.
+//
+// So what is missing is not the gate — the gate above cannot be fooled — but the
+// paste. Naming what to add is the difference between a red test that teaches
+// and one that sets homework.
+func alignEnum(declared, missing []string) string {
+	full := append(append([]string{}, declared...), missing...)
+	sort.Strings(full)
+	var b strings.Builder
+	b.WriteString("align backend/api/crm.yaml's AiActivityKind with the producers — replace its enum with:\n")
+	b.WriteString("      enum:\n        [")
+	for i, kind := range full {
+		switch {
+		case i == 0:
+		case i%4 == 0:
+			b.WriteString(",\n         ")
+		default:
+			b.WriteString(", ")
+		}
+		b.WriteString(kind)
+	}
+	b.WriteString("]")
+	return b.String()
 }
 
 // producedKinds is every kind an emitter can announce.

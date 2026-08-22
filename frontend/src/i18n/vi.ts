@@ -2312,6 +2312,41 @@ export const vi = {
     "Tôi mới đọc được một phần tài liệu của bạn rồi dừng.",
   "agent.activity.documentExtract.failed":
     "Tôi không đọc được tài liệu của bạn.",
+  "agent.activity.summarize.queued": "Bản tóm tắt của bạn đang chờ được viết.",
+  "agent.activity.summarize.running": "Tôi đang viết bản tóm tắt của bạn.",
+  "agent.activity.summarize.done": "Bản tóm tắt của bạn đã sẵn sàng.",
+  "agent.activity.summarize.degraded":
+    "Tôi mới viết được một phần bản tóm tắt của bạn rồi dừng.",
+  "agent.activity.summarize.failed":
+    "Tôi không hoàn thành được bản tóm tắt của bạn.",
+  "agent.activity.summarize.stalled":
+    "Bản tóm tắt của bạn chạy lâu bất thường. Có thể nó đã dừng.",
+  "agent.activity.draftReply.queued": "Thư trả lời của bạn đang chờ được soạn.",
+  "agent.activity.draftReply.running": "Tôi đang soạn thư trả lời của bạn.",
+  "agent.activity.draftReply.done": "Bản nháp thư trả lời của bạn đã sẵn sàng.",
+  "agent.activity.draftReply.degraded":
+    "Tôi mới soạn được một phần thư trả lời của bạn rồi dừng.",
+  "agent.activity.draftReply.failed":
+    "Tôi không soạn được thư trả lời của bạn.",
+  "agent.activity.draftReply.stalled":
+    "Việc soạn thư trả lời của bạn kéo dài bất thường. Có thể nó đã dừng.",
+  "agent.activity.offerDraft.queued": "Báo giá của bạn đang chờ được soạn.",
+  "agent.activity.offerDraft.running": "Tôi đang soạn báo giá của bạn.",
+  "agent.activity.offerDraft.done": "Bản nháp báo giá của bạn đã sẵn sàng.",
+  "agent.activity.offerDraft.degraded":
+    "Tôi mới soạn được một phần báo giá của bạn rồi dừng.",
+  "agent.activity.offerDraft.failed": "Tôi không soạn được báo giá của bạn.",
+  "agent.activity.offerDraft.stalled":
+    "Việc soạn báo giá của bạn kéo dài bất thường. Có thể nó đã dừng.",
+  "agent.activity.enrich.queued":
+    "Việc bổ sung thông tin còn thiếu đang chờ xử lý.",
+  "agent.activity.enrich.running": "Tôi đang bổ sung thông tin còn thiếu.",
+  "agent.activity.enrich.done": "Tôi đã bổ sung thông tin còn thiếu.",
+  "agent.activity.enrich.degraded":
+    "Tôi mới bổ sung được một phần thông tin còn thiếu rồi dừng.",
+  "agent.activity.enrich.failed": "Tôi không bổ sung được thông tin còn thiếu.",
+  "agent.activity.enrich.stalled":
+    "Việc bổ sung thông tin kéo dài bất thường. Có thể nó đã dừng.",
   "agent.panel.runningNow": "Đang chạy",
   "agent.panel.finishedToday": "Đã xong hôm nay",
   "agent.panel.stoppedEarly": "Vì sao nó dừng",

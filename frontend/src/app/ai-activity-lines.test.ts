@@ -129,7 +129,14 @@ describe("lineFor", () => {
     // The third way to draw nothing, and the one the server now produces by
     // the thousand: a kind this build reports and deliberately does not
     // narrate. It must read as silence, not as a message key.
-    ["a kind the rail does not narrate", { kind: "summarize", state: "done" }],
+    // One per REASON, not one example: the three not-displayed reasons are
+    // separate editorial decisions and a single case would keep passing while
+    // two of them were narrated by accident. `summarize` used to stand here and
+    // no longer can — it is displayed now, which is exactly the change this
+    // shape of test is meant to notice.
+    ["a background sweep", { kind: "brief_ranking", state: "done" }],
+    ["work the asker is watching", { kind: "cold_start", state: "done" }],
+    ["a task nothing has built", { kind: "nl_search", state: "done" }],
   ])("renders nothing at all for %s", (_name, item) => {
     expect(lineFor(item, (key) => en[key])).toBeNull();
   });

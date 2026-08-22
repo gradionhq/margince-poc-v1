@@ -25,7 +25,7 @@ const notDisplayed = (reason: string): NotDisplayed => ({
 });
 
 const WATCHED_BY_THE_ASKER = notDisplayed(
-  "interactive: the person asked for it and is watching the request it answers, so a rail line would narrate work already in front of them",
+  "interactive AND its own answer is the notification: the person asked for it, is watching the surface it lands on, and that surface CHANGES when it arrives — a scored fit appears on the card, a cold start rebuilds the workspace in front of them. summarize, draft_reply and offer_draft used to sit here and no longer do: their answer arrives somewhere the asker may have navigated away from, and until the router could say `running` a rail line for them would have narrated work already over",
 );
 const SYSTEM_SWEEP = notDisplayed(
   "background workspace work that belongs to nobody in particular, so it has no personal line to draw",
@@ -85,16 +85,45 @@ export const ACTIVITY_LINE: Readonly<
     failed: "agent.activity.documentExtract.failed",
   },
 
-  summarize: WATCHED_BY_THE_ASKER,
-  draft_reply: WATCHED_BY_THE_ASKER,
-  offer_draft: WATCHED_BY_THE_ASKER,
+  summarize: {
+    queued: "agent.activity.summarize.queued",
+    running: "agent.activity.summarize.running",
+    stalled: "agent.activity.summarize.stalled",
+    done: "agent.activity.summarize.done",
+    degraded: "agent.activity.summarize.degraded",
+    failed: "agent.activity.summarize.failed",
+  },
+  draft_reply: {
+    queued: "agent.activity.draftReply.queued",
+    running: "agent.activity.draftReply.running",
+    stalled: "agent.activity.draftReply.stalled",
+    done: "agent.activity.draftReply.done",
+    degraded: "agent.activity.draftReply.degraded",
+    failed: "agent.activity.draftReply.failed",
+  },
+  offer_draft: {
+    queued: "agent.activity.offerDraft.queued",
+    running: "agent.activity.offerDraft.running",
+    stalled: "agent.activity.offerDraft.stalled",
+    done: "agent.activity.offerDraft.done",
+    degraded: "agent.activity.offerDraft.degraded",
+    failed: "agent.activity.offerDraft.failed",
+  },
+
   growth_fit: WATCHED_BY_THE_ASKER,
   cold_start: WATCHED_BY_THE_ASKER,
 
   brief_ranking: SYSTEM_SWEEP,
   capture_classify: SYSTEM_SWEEP,
   capture_counterparty_verdict: SYSTEM_SWEEP,
-  enrich: SYSTEM_SWEEP,
+  enrich: {
+    queued: "agent.activity.enrich.queued",
+    running: "agent.activity.enrich.running",
+    stalled: "agent.activity.enrich.stalled",
+    done: "agent.activity.enrich.done",
+    degraded: "agent.activity.enrich.degraded",
+    failed: "agent.activity.enrich.failed",
+  },
   rate_extract: SYSTEM_SWEEP,
   signal_extract: SYSTEM_SWEEP,
   site_extract: SYSTEM_SWEEP,
