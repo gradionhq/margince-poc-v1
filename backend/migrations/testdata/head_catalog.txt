@@ -3267,6 +3267,7 @@ public.project.ended_at date gen=- def=-
 public.project.id uuid NOT NULL gen=- def=uuidv7()
 public.project.key text gen=- def=-
 public.project.last_activity_at timestamp with time zone gen=- def=-
+public.project.legal_hold boolean NOT NULL gen=- def=false
 public.project.name text NOT NULL gen=- def=-
 public.project.organization_id uuid NOT NULL gen=- def=-
 public.project.owner_id uuid gen=- def=-

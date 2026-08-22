@@ -683,6 +683,10 @@ func (stubs) GetDealCoverage(w nethttp.ResponseWriter, r *nethttp.Request, id op
 	httperr.NotImplemented(w, r, "GetDealCoverage")
 }
 
+func (stubs) GetDealHealth(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetDealHealth")
+}
+
 func (stubs) GetDealNextBestAction(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetDealNextBestAction")
 }
