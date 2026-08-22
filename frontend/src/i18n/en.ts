@@ -4015,6 +4015,9 @@ export const en = {
   "ob.payoff.seats":
     "The one thing left is your colleagues. Seats are billed, so you create them in Settings → People.",
   "ob.payoff.understood": "Understood",
+  "ob.payoff.projects":
+    "When a deal turns into work, open a project for it: a project starts during the deal and outlives close-won, so delivery keeps its own timeline.",
+  "ob.payoff.projectsLink": "See projects",
 
   // --- the handoff into the app -----------------------------------------
   "ob.enter.cta": "Enter Margince",
@@ -4376,6 +4379,16 @@ export const en = {
   "room.decisions.empty": "No decisions yet.",
   "room.decisions.confirm_version": "confirmed the version",
   "room.decisions.request_changes": "asked for changes",
+  "dealbrief.title": "Deal brief",
+  "dealbrief.sub": "Where it stands, in sentences you can check.",
+  "dealbrief.empty": "Nothing on the record yet.",
+  "dealbrief.standing": "Where it stands",
+  "dealbrief.activity": "Last and next",
+  "dealbrief.open": "Still owed",
+  "dealbrief.room": "Deal Room",
+  "dealmeeting.title": "Next meeting",
+  "dealmeeting.untitled": "Meeting",
+  "dealmeeting.openBrief": "Open the brief",
   "nba.title": "Next move",
   "nba.sub": "One thing to do on this deal, and why.",
   "nba.createTask": "Add this task",

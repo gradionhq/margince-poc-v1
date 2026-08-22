@@ -3945,6 +3945,9 @@ export const vi = {
   "ob.payoff.seats":
     "Việc còn lại là các đồng nghiệp của bạn. Mỗi suất người dùng đều tính phí, nên bạn tạo họ trong Cài đặt → Người dùng.",
   "ob.payoff.understood": "Đã rõ",
+  "ob.payoff.projects":
+    "Khi một thương vụ trở thành công việc, hãy mở một dự án cho nó: dự án bắt đầu ngay trong thương vụ và tiếp tục sau khi chốt thắng, để việc triển khai có dòng thời gian riêng.",
+  "ob.payoff.projectsLink": "Xem dự án",
 
   // --- the handoff into the app -----------------------------------------
   "ob.enter.cta": "Vào Margince",
@@ -4283,6 +4286,17 @@ export const vi = {
   "room.decisions.empty": "Chưa có quyết định.",
   "room.decisions.confirm_version": "đã xác nhận phiên bản",
   "room.decisions.request_changes": "đã yêu cầu thay đổi",
+  "dealbrief.title": "Tóm tắt giao dịch",
+  "dealbrief.sub":
+    "Giao dịch đang ở đâu, bằng những câu bạn có thể kiểm chứng.",
+  "dealbrief.empty": "Chưa có gì trong hồ sơ.",
+  "dealbrief.standing": "Hiện trạng",
+  "dealbrief.activity": "Gần nhất và tiếp theo",
+  "dealbrief.open": "Còn nợ",
+  "dealbrief.room": "Deal Room",
+  "dealmeeting.title": "Cuộc họp tiếp theo",
+  "dealmeeting.untitled": "Cuộc họp",
+  "dealmeeting.openBrief": "Mở bản tóm tắt",
   "nba.title": "Bước tiếp theo",
   "nba.sub": "Một việc cần làm trên giao dịch này, và lý do.",
   "nba.createTask": "Thêm việc này",

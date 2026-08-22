@@ -111,6 +111,8 @@ type ClaimIn struct {
 	// the promise was made without pasting a record id into the text.
 	SourceLabel string
 	DueAt       *time.Time
+	// OccurredAt is when the claim was made, for ranking the newer first.
+	OccurredAt *time.Time
 }
 
 // ActIn is one recent conversation as the brief reads it.
@@ -183,6 +185,7 @@ func foldClaims(personName string, found []crmcontracts.ConversationClaim) []Cla
 			Status:     string(claim.Status),
 			SourceID:   ids.UUID(claim.SourceActivityId).String(),
 			DueAt:      claim.DueAt,
+			OccurredAt: claim.OccurredAt,
 		}
 		if claim.SourceLabel != nil {
 			folded.SourceLabel = *claim.SourceLabel

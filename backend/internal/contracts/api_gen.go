@@ -4045,6 +4045,30 @@ func (e DealWonWithoutContractReason) Valid() bool {
 	}
 }
 
+// Defines values for DealBriefSectionKind.
+const (
+	DealBriefSectionKindActivity DealBriefSectionKind = "activity"
+	DealBriefSectionKindOpen     DealBriefSectionKind = "open"
+	DealBriefSectionKindRoom     DealBriefSectionKind = "room"
+	DealBriefSectionKindStanding DealBriefSectionKind = "standing"
+)
+
+// Valid indicates whether the value is a known member of the DealBriefSectionKind enum.
+func (e DealBriefSectionKind) Valid() bool {
+	switch e {
+	case DealBriefSectionKindActivity:
+		return true
+	case DealBriefSectionKindOpen:
+		return true
+	case DealBriefSectionKindRoom:
+		return true
+	case DealBriefSectionKindStanding:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DealCoverageSectionsOmitted.
 const (
 	DealCoverageSectionsOmittedOurSide      DealCoverageSectionsOmitted = "our_side"
@@ -11547,22 +11571,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
-	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
-	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case ListSignalsParamsResolutionStateDropped:
+	case Dropped:
 		return true
-	case ListSignalsParamsResolutionStateLowConfidence:
+	case LowConfidence:
 		return true
-	case ListSignalsParamsResolutionStateResolved:
+	case Resolved:
 		return true
-	case ListSignalsParamsResolutionStateUnresolved:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -15295,6 +15319,35 @@ type DealStatus string
 
 // DealWonWithoutContractReason Why this deal was won with no contract behind it (ADR-0109 §6). NULL on a won deal that HAS one — the two are distinguishable, which is what makes "how many won deals have no paper, and why" answerable. Cleared on reopen and on any transition away from won.
 type DealWonWithoutContractReason string
+
+// DealBrief defines model for DealBrief.
+type DealBrief struct {
+	DealId      openapi_types.UUID `json:"deal_id"`
+	GeneratedAt time.Time          `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy WrittenBy          `json:"generated_by"`
+	Sections    []DealBriefSection `json:"sections"`
+}
+
+// DealBriefSection defines model for DealBriefSection.
+type DealBriefSection struct {
+	// Kind `standing` — stage, value, close date, health.
+	// `activity` — what happened last and what is booked next.
+	// `open` — the tasks still owed.
+	// `room` — the Deal Room: state, what the buyer said, what they decided.
+	Kind      DealBriefSectionKind        `json:"kind"`
+	Sentences []OrganizationBriefSentence `json:"sentences"`
+}
+
+// DealBriefSectionKind `standing` — stage, value, close date, health.
+// `activity` — what happened last and what is booked next.
+// `open` — the tasks still owed.
+// `room` — the Deal Room: state, what the buyer said, what they decided.
+type DealBriefSectionKind string
 
 // DealCoverage defines model for DealCoverage.
 type DealCoverage struct {
@@ -36451,6 +36504,9 @@ type ServerInterface interface {
 	// Advance a deal to a new stage (audit-logged with prior + next stage).
 	// (POST /deals/{id}/advance)
 	AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id, params AdvanceDealParams)
+	// The deal in a few cited sentences — where it stands, who is on it, what is open, what happened last.
+	// (GET /deals/{id}/brief)
+	GetDealBrief(w http.ResponseWriter, r *http.Request, id Id)
 	// Who covers this deal, and what is wrong with how it is covered.
 	// (GET /deals/{id}/coverage)
 	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
@@ -38362,6 +38418,12 @@ func (_ Unimplemented) UpdateDeal(w http.ResponseWriter, r *http.Request, id Id,
 // Advance a deal to a new stage (audit-logged with prior + next stage).
 // (POST /deals/{id}/advance)
 func (_ Unimplemented) AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id, params AdvanceDealParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The deal in a few cited sentences — where it stands, who is on it, what is open, what happened last.
+// (GET /deals/{id}/brief)
+func (_ Unimplemented) GetDealBrief(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -47239,6 +47301,40 @@ func (siw *ServerInterfaceWrapper) AdvanceDeal(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AdvanceDeal(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDealBrief operation middleware
+func (siw *ServerInterfaceWrapper) GetDealBrief(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealBrief(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -62171,6 +62267,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deals/{id}/advance", wrapper.AdvanceDeal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/brief", wrapper.GetDealBrief)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)

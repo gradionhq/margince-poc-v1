@@ -313,6 +313,7 @@ per-client throttling at the proxy.
   task policy, behind the `company_context.rollout` kill switch. See
   [docs/explanation/ai-runtime.md](docs/explanation/ai-runtime.md) and
   [docs/explanation/company-context.md](docs/explanation/company-context.md).
+- **Projects**: the body of work a deal is about — four phases (initiative → pursuing → delivering → closed, movable both ways, closing needs a reason), a key that files any email carrying `[KEY]` in its subject, a deal win that moves its project into delivery, a project 360 with coverage figures, and the composer's project scope for AI drafts; walkthrough in [docs/tutorials/run-your-first-project.md](docs/tutorials/run-your-first-project.md).
 - **Web UI**: the Vite/React app in `frontend/` — login, the scene-based
   cold start (website read or manual entry, resumable, with a separate
   three-stop path for an invited member), a collapsible labeled shell over

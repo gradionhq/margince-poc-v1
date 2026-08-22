@@ -3984,6 +3984,9 @@ export const de = {
   "ob.payoff.seats":
     "Es fehlen nur noch deine Kollegen. Sitze sind kostenpflichtig, deshalb legst du sie unter Einstellungen → Nutzer selbst an.",
   "ob.payoff.understood": "Verstanden",
+  "ob.payoff.projects":
+    "Wird aus einem Deal Arbeit, leg dafür ein Projekt an: Ein Projekt beginnt während des Deals und bleibt nach dem Gewinn bestehen, damit die Lieferung ihre eigene Chronik behält.",
+  "ob.payoff.projectsLink": "Projekte ansehen",
 
   // --- die Übergabe in die App ------------------------------------------
   "ob.enter.cta": "Margince öffnen",
@@ -4323,6 +4326,16 @@ export const de = {
   "room.decisions.empty": "Noch keine Entscheidungen.",
   "room.decisions.confirm_version": "hat die Version bestätigt",
   "room.decisions.request_changes": "hat Änderungen angefordert",
+  "dealbrief.title": "Deal-Briefing",
+  "dealbrief.sub": "Wo der Deal steht, in nachprüfbaren Sätzen.",
+  "dealbrief.empty": "Noch nichts in der Akte.",
+  "dealbrief.standing": "Stand",
+  "dealbrief.activity": "Zuletzt und als Nächstes",
+  "dealbrief.open": "Noch offen",
+  "dealbrief.room": "Deal Room",
+  "dealmeeting.title": "Nächstes Meeting",
+  "dealmeeting.untitled": "Meeting",
+  "dealmeeting.openBrief": "Briefing öffnen",
   "nba.title": "Nächster Schritt",
   "nba.sub": "Eine Sache, die auf diesem Deal zu tun ist — und warum.",
   "nba.createTask": "Aufgabe anlegen",
