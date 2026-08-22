@@ -559,6 +559,26 @@ func (stubs) SetDealRoomExpiry(w nethttp.ResponseWriter, r *nethttp.Request, id 
 	httperr.NotImplemented(w, r, "SetDealRoomExpiry")
 }
 
+func (stubs) ListDealRoomParticipants(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealRoomParticipantsParams) {
+	httperr.NotImplemented(w, r, "ListDealRoomParticipants")
+}
+
+func (stubs) InviteDealRoomParticipant(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.InviteDealRoomParticipantParams) {
+	httperr.NotImplemented(w, r, "InviteDealRoomParticipant")
+}
+
+func (stubs) UpdateDealRoomParticipant(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, participantId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "UpdateDealRoomParticipant")
+}
+
+func (stubs) ResendDealRoomInvitation(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, participantId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "ResendDealRoomInvitation")
+}
+
+func (stubs) RevokeDealRoomParticipant(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, participantId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "RevokeDealRoomParticipant")
+}
+
 func (stubs) PauseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "PauseDealRoom")
 }

@@ -78,8 +78,10 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		// release buyer-visible; `closed` freezes content while access
 		// continues, which is why it is not `archived`.
 		"opened": true, "published": true, "paused": true, "resumed": true, "closed": true,
-		"state_changed":   true,
-		"profile_created": true, "profile_updated": true, "profile_archived": true,
+		"participant_invited": true, "participant_revoked": true,
+		"participant_credential_reissued": true,
+		"state_changed":                   true,
+		"profile_created":                 true, "profile_updated": true, "profile_archived": true,
 		"corpus_changed": true, "build_changed": true, "version_changed": true,
 		"draft_outcome_recorded": true,
 		// engagement.reply is the §5.11 spec-pinned type name (EVT-SEM-14):

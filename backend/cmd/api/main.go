@@ -349,7 +349,7 @@ func passwordResetOptions(ctx context.Context, deployCfg deployconfig.Config, po
 	_, _ = fmt.Fprintln(stdout, "api operator mail enabled (password reset, invites)")
 	// The link base rides compose.WithPublicBaseURL, assembled with the base
 	// options — this option carries the transport alone.
-	return []compose.Option{compose.WithOperatorMail(m)}, nil
+	return []compose.Option{compose.WithOperatorMail(m), compose.WithDealRoomInviteMail(m)}, nil
 }
 
 // blobstoreOptions wires the attachment endpoints (and their /readyz probe +

@@ -57,6 +57,20 @@ func WithOperatorMail(m mailer.Mailer) Option {
 	}
 }
 
+// WithDealRoomInviteMail wires the operator relay into Deal Room invitations.
+//
+// It rides the SAME mailer as password reset rather than a second channel: both
+// are product-originated transactional mail an operator configures once, and a
+// separate relay would let an installation deliver one and silently not the
+// other. The link base arrives separately through WithPublicBaseURL, for the
+// reason stated there — a buyer link carries a live credential, so its origin
+// must never come from a request Host.
+func WithDealRoomInviteMail(m mailer.Mailer) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.dealroomsHandlers = s.dealroomsHandlers.WithInviteMailer(m)
+	}
+}
+
 // WithMCPResource injects the canonical MCP resource URL — public_base_url
 // + "/mcp" — onto the identity discovery handlers, so the RFC 9728
 // protected-resource document names the MCP server URL itself rather than
@@ -424,6 +438,9 @@ func WithPublicBaseURL(base string) Option {
 		// single-use credential, so it must never be derived from a request
 		// Host an attacker controls.
 		s.authHandlers = s.WithPasswordLinkBase(base)
+		// A Deal Room invitation carries the same kind of credential and is
+		// bound to the same canonical origin for the same reason.
+		s.dealroomsHandlers = s.dealroomsHandlers.WithInviteLinkBase(base)
 		s.rebuildToolRegistry(pool)
 	}
 }

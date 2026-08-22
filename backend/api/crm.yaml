@@ -10874,6 +10874,175 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # Who is let into a room, and the credentials that admit them.
+  #
+  # EVERY mutation here is human-only. Deciding which outside person may read a
+  # deal's material is not a judgement an agent makes, and neither is taking that
+  # access back — so unlike the room's draft text, none of this carries an
+  # x-mcp-tool. Reading the roster is agent-readable: an agent summarising a
+  # deal's state may say who is in the room.
+  /deal-rooms/{id}/participants:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: listDealRoomParticipants
+      summary: List the people admitted to a room.
+      description: |
+        Revoked participants are included by default and marked: their comments and
+        completed to-dos stay attributed to them, so a roster that hid them would
+        leave unexplained names on the room's history.
+      x-mcp-tool: { verb: search_records, record_type: deal_room_participant, tier: auto_execute, scope: read }
+      parameters:
+        - name: active_only
+          in: query
+          schema: { type: boolean }
+          description: Only participants whose access has not been revoked.
+      responses:
+        '200':
+          description: The room's roster.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomParticipantListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Deals]
+      operationId: inviteDealRoomParticipant
+      summary: Admit a named person to the room.
+      description: |
+        HUMAN-ONLY. Records the person and mints one credential for them. Whether that
+        credential is delivered depends on the installation having outbound mail
+        configured; the participant and the invitation are recorded either way, so a
+        mail failure never leaves a half-admitted person.
+
+        One live seat per address: inviting an address that already holds one is
+        rejected (409 `deal_room_participant_already_invited`). Re-inviting an address
+        whose access was revoked is allowed and creates a fresh participant — the old
+        row stays, keeping their earlier comments attributed.
+
+        The raw credential is returned ONCE, in this response, and never again. It is
+        stored only as a hash, so a resend mints a new one rather than recovering this.
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InviteDealRoomParticipantRequest' }
+      responses:
+        '201':
+          description: The participant, with the one-time credential.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomInvitationIssued' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /deal-rooms/{id}/participants/{participantId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: participantId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Deals]
+      operationId: updateDealRoomParticipant
+      summary: Correct a participant's name, address or capability.
+      description: |
+        HUMAN-ONLY. Correcting the ADDRESS is only possible while their credential is
+        still unconsumed — once someone has signed in, changing where their link goes
+        would hand their access to a different person. Correcting it invalidates the
+        credential already sent and mints nothing: resend to issue a new one.
+
+        Capability may be changed at any time and binds on the participant's next
+        request.
+      x-agent-access: human-only
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDealRoomParticipantRequest' }
+      responses:
+        '200':
+          description: The corrected participant.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomParticipant' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /deal-rooms/{id}/participants/{participantId}/resend:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: participantId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Deals]
+      operationId: resendDealRoomInvitation
+      summary: Issue a fresh credential, retiring the previous one.
+      description: |
+        HUMAN-ONLY. Supersedes rather than accumulates: the moment a new credential is
+        issued the previous one stops working, so an old link sitting in an old mailbox
+        cannot still admit anyone.
+
+        Available while the participant's access stands, including on a closed or
+        paused room — a buyer who lost their link to a closed room still needs to reach
+        what they were shown.
+      x-agent-access: human-only
+      responses:
+        '201':
+          description: The participant, with the new one-time credential.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomInvitationIssued' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /deal-rooms/{id}/participants/{participantId}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: participantId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Deals]
+      operationId: revokeDealRoomParticipant
+      summary: Take a person's access away.
+      description: |
+        HUMAN-ONLY, and deliberately available in EVERY room state including closed and
+        archived. Revocation is a security control: being unable to remove somebody
+        from a room holding your signed contract is a real hazard months after the deal
+        closed, so this is never frozen along with the room's content.
+
+        Ends their live session immediately and retires any unconsumed credential. The
+        participant row survives, so their comments and completed to-dos stay
+        attributed. Revoking twice is accepted and changes nothing further.
+      x-agent-access: human-only
+      responses:
+        '200':
+          description: The revoked participant.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomParticipant' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /deal-rooms/{id}/releases:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -22432,13 +22601,18 @@ components:
           # floor instead of destroying it, and an administrator placed a record
           # under the floor the derivation could not see. `resolve` was in the DDL
           # since 0047 and missing here — a row a strict client could not decode.
+          # `invite`/`revoke` are the Deal Room access verbs: admitting an outside
+          # person to a room and taking that access away. Neither reuses an
+          # existing verb — `create`/`archive` would describe the participant ROW
+          # rather than the access it carries, and the question an auditor asks
+          # months later is "who let them in, and who took it back".
           # `publish`/`pause`/`resume`/`close` are the Deal Room lifecycle verbs.
           # None reuses an existing one, because none means the same thing:
           # `publish` puts editorial text in front of a party outside the company,
           # `close` freezes content while access continues, and `pause`/`resume`
           # suspend reads without touching a single credential. `hold`/`release`
           # and `expire` are retention and scheduling verbs and would read as those.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold, expire, resolve, restrict, pin, accrue, pay, publish, pause, resume, close]
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold, expire, resolve, restrict, pin, accrue, pay, publish, pause, resume, close, invite, revoke]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before:
@@ -22951,6 +23125,7 @@ components:
             - data_subject_request
             - deal
             - deal_room
+            - deal_room_participant
             - deal_room_release
             - import_run
             - lead
@@ -25033,6 +25208,134 @@ components:
         created_at: { type: string, format: date-time }
       additionalProperties: true
       x-extension: true
+
+    DealRoomParticipantCapability:
+      description: |
+        What a participant may do in the room. Coarse and room-wide on purpose — a
+        per-document permission matrix is a product nobody asked for.
+
+        `view` reads. `comment` also writes comments and messages. `reviewer` also
+        confirms a document version, which is the only one that carries weight in a
+        negotiation, so it is granted deliberately and never by default.
+
+        Typed as a plain string rather than an inline enum: `view`, `comment` and
+        `reviewer` would generate package-scope Go constants named `View`, `Comment`
+        and `Reviewer` in the shared contracts package, which collide with — and
+        silently rename — the constants of any other schema declaring the same value.
+        The closed set is stated here and held by the writer and the schema CHECK.
+      type: string
+
+    DealRoomDeliveryState:
+      type: string
+      description: |
+        What happened to the credential we last sent this person — delivery, modelled
+        apart from access. A bounced invitation and a revoked one look identical
+        otherwise, and a seller chasing silence needs to tell them apart.
+
+        `pending` was minted but not handed to a mail relay (the installation may have
+        none configured). `sent` left the building. `delivered` was accepted by the
+        recipient's server. `failed` bounced. `consumed` was exchanged for a session —
+        they are in. `superseded` was retired by a later resend. `none` means no
+        credential currently stands, which is what a revoked participant shows.
+      enum: [none, pending, sent, delivered, failed, consumed, superseded]
+
+    DealRoomParticipant:
+      type: object
+      description: |
+        One named person admitted to one room. Not an app_user: a participant consumes
+        no licence, holds no CRM authority, and their whole reach is this one room.
+      required: [id, room_id, full_name, email, capability, delivery_state, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        full_name: { type: string }
+        email: { type: string, format: email, description: Stored lowercase. }
+        capability: { $ref: '#/components/schemas/DealRoomParticipantCapability' }
+        delivery_state: { $ref: '#/components/schemas/DealRoomDeliveryState' }
+        invited_by:
+          type: [string, 'null']
+          format: uuid
+          description: The user who admitted them. Null once that user is deleted.
+        credential_expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: When the standing credential lapses. Null when none stands.
+        last_seen_at:
+          type: [string, 'null']
+          format: date-time
+          description: When they last made a request. Null if they have never signed in.
+        revoked_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            When their access was taken away. The row survives revocation so their
+            comments and completed to-dos stay attributed to a name.
+        source: { type: string }
+        captured_by: { type: string, readOnly: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      additionalProperties: true
+      x-extension: true
+
+    DealRoomParticipantListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/DealRoomParticipant' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    InviteDealRoomParticipantRequest:
+      type: object
+      required: [full_name, email, source]
+      properties:
+        full_name: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        capability:
+          allOf:
+            - $ref: '#/components/schemas/DealRoomParticipantCapability'
+          description: Defaults to `view` — the least that lets someone read the room.
+        source: { type: string }
+      additionalProperties: true
+      x-extension: true
+
+    UpdateDealRoomParticipantRequest:
+      type: object
+      description: Any subset; omit a field to leave it unchanged.
+      properties:
+        full_name: { type: string, minLength: 1 }
+        email:
+          type: string
+          format: email
+          description: |
+            Only while their credential is unconsumed. Changing it invalidates the link
+            already sent; resend to issue a new one.
+        capability: { $ref: '#/components/schemas/DealRoomParticipantCapability' }
+      additionalProperties: true
+      x-extension: true
+
+    DealRoomInvitationIssued:
+      type: object
+      description: |
+        A participant and the credential just minted for them.
+
+        `credential` is returned ONCE and never again — only its hash is stored, so it
+        cannot be recovered, only replaced by a resend. Treat it as a secret: it admits
+        the bearer to everything the room has published.
+      required: [participant, credential, credential_expires_at, delivered]
+      properties:
+        participant: { $ref: '#/components/schemas/DealRoomParticipant' }
+        credential:
+          type: string
+          description: The raw one-time credential. Put it in the link's fragment, never its path.
+        credential_expires_at: { type: string, format: date-time }
+        delivered:
+          type: boolean
+          description: |
+            Whether the invitation was handed to a mail relay. False when the
+            installation has no outbound mail configured — the participant and the
+            credential are still recorded, and the caller is expected to deliver the
+            link itself rather than being told the invitation failed.
+      additionalProperties: false
 
     DealRoomReleaseListResponse:
       type: object

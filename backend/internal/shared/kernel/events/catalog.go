@@ -249,6 +249,11 @@ var catalog = map[string]struct {
 	"deal_room.resumed":   {dealStreamEntity, 1},
 	"deal_room.closed":    {dealStreamEntity, 1},
 	"deal_room.archived":  {dealStreamEntity, 1},
+	// Access changes ride the same stream: who may read a deal's material is part
+	// of that deal's arc, and a consumer following it wants both.
+	"deal_room.participant_invited":             {dealStreamEntity, 1},
+	"deal_room.participant_revoked":             {dealStreamEntity, 1},
+	"deal_room.participant_credential_reissued": {dealStreamEntity, 1},
 
 	"lead.created":      {leadStreamEntity, 1},
 	"lead.updated":      {leadStreamEntity, 1},

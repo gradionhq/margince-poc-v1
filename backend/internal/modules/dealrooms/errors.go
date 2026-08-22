@@ -54,6 +54,17 @@ func notEditable(current string) error {
 	}
 }
 
+// notAdmitting refuses an invitation into a room that can no longer publish.
+// The link would open a room that will never tell the recipient anything
+// further, which is worse than being told no.
+func notAdmitting(current string) error {
+	return &stateError{
+		code:    "deal_room_not_admitting",
+		current: current,
+		wanted:  "this room is finished and admits nobody new: open a new Deal Room on the deal",
+	}
+}
+
 func notPausable(current string) error {
 	return &stateError{
 		code:    "deal_room_not_pausable",
@@ -91,6 +102,37 @@ var errStewardUnknown = &fieldError{
 	field: "steward_user_id",
 	code:  "unknown_user",
 	msg:   "no live user with that id: the steward is the person a buyer contacts for help",
+}
+
+// errAlreadyInvited refuses a second live seat for one address. It names
+// revoking as the way out, because the caller's alternative — inviting the same
+// person twice — is exactly what the index prevents.
+var errAlreadyInvited = &messageError{
+	code: "deal_room_participant_already_invited",
+	msg:  "that address already has access to this room: revoke it first, or resend their invitation",
+}
+
+// errRevokedNoResend refuses a resend to somebody whose access was taken away.
+// Silently re-admitting them would turn a resend into an un-revoke, which is a
+// different decision and belongs to a fresh invitation.
+var errRevokedNoResend = &messageError{
+	code: "deal_room_participant_revoked",
+	msg:  "this person's access was revoked: invite the address again to admit them",
+}
+
+// errRevokedNoEdit refuses corrections to a revoked participant. Their row is
+// kept to attribute what they already wrote, not to go on being managed.
+var errRevokedNoEdit = &messageError{
+	code: "deal_room_participant_revoked",
+	msg:  "this person's access was revoked: their record is kept for attribution and is no longer editable",
+}
+
+// errAddressSettled refuses moving an address after its credential was used.
+// Redirecting a link somebody has already signed in with would hand their
+// standing access to a different person.
+var errAddressSettled = &messageError{
+	code: "deal_room_address_settled",
+	msg:  "this person has already signed in, so their address is fixed: revoke them and invite the correct address",
 }
 
 type messageError struct {
