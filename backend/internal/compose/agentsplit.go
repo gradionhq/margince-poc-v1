@@ -39,6 +39,9 @@ const opRenameCustomField = "renameCustomField"
 // ownership probe onto the task rather than its room.
 const opUpdateDealRoomTask = "updateDealRoomTask"
 
+// opUpdateDealRoomDocument is its document sibling, named for the same reason.
+const opUpdateDealRoomDocument = "updateDealRoomDocument"
+
 // The remaining five action-shaped ops named below are ALSO both this
 // file's and agentcommand.go's restCommands table's
 // (agentcommandnested.go): named once here so the two do not spell an
@@ -108,7 +111,8 @@ var actionShapedUpdateOps = map[string]bool{
 // wording is exactly such a field. This is the upsertPartner trap in a
 // different shape, and its comment above says why.
 var patchTargetParam = map[string]string{
-	opUpdateDealRoomTask: "taskId",
+	opUpdateDealRoomTask:     "taskId",
+	opUpdateDealRoomDocument: "documentId",
 }
 
 // patchTargetID resolves the record a field patch writes: the route's own {id}

@@ -190,7 +190,10 @@ func removeStakeholderCommand(_ agentPolicy, deps restCommandDeps, r *http.Reque
 	return agents.NewRemoveStakeholderCall(deps.records, agents.RemoveStakeholderCommand{ID: id, PersonID: personID}), nil
 }
 
-// createDealRoomTaskCommand decodes POST /v1/deal-rooms/{id}/tasks.
+// createDealRoomTaskCommand decodes POST /v1/deal-rooms/{id}/tasks, and the
+// sibling POST /v1/deal-rooms/{id}/documents through the same code: the routed
+// room is folded into the body so the staged approval names where the item
+// lands, and the policy's record type says which kind of item it is.
 //
 // The routed {id} names the ROOM, and the record being created is the task, so
 // this cannot be the plain createCommand: that one carries only the body, and an
@@ -214,34 +217,46 @@ func createDealRoomTaskCommand(pol agentPolicy, _ restCommandDeps, r *http.Reque
 	}), nil
 }
 
-// updateDealRoomTaskCommand decodes PATCH /v1/deal-rooms/{id}/tasks/{taskId}.
-//
-// It binds to the TASK, not the routed {id}. patchCommand would bind to the
-// room, so the approval a human released would name a different record than the
-// one the call goes on to write — and the task id it did carry would never be
-// checked at all.
-//
+// updateDealRoomTaskCommand decodes PATCH /v1/deal-rooms/{id}/tasks/{taskId},
+// and updateDealRoomDocumentCommand its sibling for documents. Both are
+// roomItemPatch, which binds to the ITEM rather than the routed {id}:
+// patchCommand would bind to the room, so the approval a human released would
+// name a different record than the one the call goes on to write — and the
+// item id it did carry would never be checked at all.
+var (
+	updateDealRoomTaskCommand     = roomItemPatch("taskId")
+	updateDealRoomDocumentCommand = roomItemPatch("documentId")
+)
+
+// roomItemPatch is the decoder for a PATCH on one item under a room, keyed by
+// the path parameter that names the item.
+func roomItemPatch(param string) func(agentPolicy, restCommandDeps, *http.Request, []byte) (agents.GovernedCall, error) {
+	return func(pol agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
+		return roomItemPatchCommand(pol, deps, r, body, param)
+	}
+}
+
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
-func updateDealRoomTaskCommand(pol agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
+func roomItemPatchCommand(pol agentPolicy, deps restCommandDeps, r *http.Request, body []byte, param string) (agents.GovernedCall, error) {
 	if _, err := routedID(r); err != nil {
 		return nil, err
 	}
-	raw, err := pathOperand(r, "taskId")
+	raw, err := pathOperand(r, param)
 	if err != nil {
 		return nil, err
 	}
 	// The existence-hiding 404 routedID gives, not the 422 person_id gives.
-	// taskId names a ROW rather than an edge, so "that is not a uuid" and "there
-	// is no such item" must read alike, or the shape of a caller's id tells them
-	// which of a room's items exist. It is also not a contract field, so it has
-	// no name a validation fault could legitimately publish.
-	taskID, perr := ids.Parse(raw)
+	// The item id names a ROW rather than an edge, so "that is not a uuid" and
+	// "there is no such item" must read alike, or the shape of a caller's id
+	// tells them which of a room's items exist. It is also not a contract field,
+	// so it has no name a validation fault could legitimately publish.
+	itemID, perr := ids.Parse(raw)
 	if perr != nil {
 		return nil, apperrors.ErrNotFound
 	}
 	return agents.NewPatchCall(deps.records, agents.PatchCommand{
 		RecordType: string(pol.RecordType),
-		ID:         taskID,
+		ID:         itemID,
 		Fields:     json.RawMessage(body),
 	}), nil
 }
