@@ -748,23 +748,28 @@ function RoomView({
   const steward = view.steward_name ?? t("buyer.stewardUnknown");
   if (view.access === "paused" || view.access === "expired") {
     return (
-      <Panel title={t(ACCESS_TITLE[view.access])}>
-        <PanelBody>
-          <p>
-            {t(
-              view.access === "paused"
-                ? "buyer.pausedBody"
-                : "buyer.expiredBody",
-              { steward },
-            )}
-          </p>
-        </PanelBody>
-        {view.access === "expired" ? (
-          <PanelBody>
-            <LinkRequest />
-          </PanelBody>
+      <>
+        {view.preview ? (
+          <Callout tone="info">{t("buyer.previewBanner")}</Callout>
         ) : null}
-      </Panel>
+        <Panel title={t(ACCESS_TITLE[view.access])}>
+          <PanelBody>
+            <p>
+              {t(
+                view.access === "paused"
+                  ? "buyer.pausedBody"
+                  : "buyer.expiredBody",
+                { steward },
+              )}
+            </p>
+          </PanelBody>
+          {view.access === "expired" ? (
+            <PanelBody>
+              <LinkRequest />
+            </PanelBody>
+          ) : null}
+        </Panel>
+      </>
     );
   }
   if (!view.room) {

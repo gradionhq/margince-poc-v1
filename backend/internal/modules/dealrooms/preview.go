@@ -64,6 +64,11 @@ func (s *Store) PreviewRoom(ctx context.Context, roomID ids.DealRoomID) (IssuedP
 	if err := auth.RequireHuman(ctx); err != nil {
 		return IssuedPreview{}, err
 	}
+	// RequireHuman admits the system principal; a preview is a person's act
+	// on their own seat and a system caller has no seat to preview from.
+	if actor, ok := principal.Actor(ctx); !ok || actor.Type != principal.PrincipalHuman {
+		return IssuedPreview{}, apperrors.ErrPermissionDenied
+	}
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return IssuedPreview{}, err
@@ -158,6 +163,16 @@ func endPreviewSessions(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID) e
 		  WHERE p.id = s.participant_id AND p.room_id = $1 AND p.preview AND s.revoked_at IS NULL`,
 		roomID); err != nil {
 		return fmt.Errorf("end deal room preview sessions: %w", err)
+	}
+	// And the credential not yet opened: a preview minted a minute before the
+	// pause must not become a session a minute after it.
+	if _, err := tx.Exec(ctx,
+		`UPDATE deal_room_invitation i SET superseded_at = now()
+		   FROM deal_room_participant p
+		  WHERE p.id = i.participant_id AND p.room_id = $1 AND p.preview
+		    AND i.consumed_at IS NULL AND i.superseded_at IS NULL`,
+		roomID); err != nil {
+		return fmt.Errorf("retire deal room preview credentials: %w", err)
 	}
 	return nil
 }

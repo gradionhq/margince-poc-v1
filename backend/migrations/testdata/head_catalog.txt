@@ -1407,6 +1407,7 @@ public.deal_room_participant.deal_room_participant_capability_check CHECK ((capa
 public.deal_room_participant.deal_room_participant_email_norm CHECK ((email = lower(email)))
 public.deal_room_participant.deal_room_participant_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES app_user(id) ON DELETE SET NULL
 public.deal_room_participant.deal_room_participant_pkey PRIMARY KEY (id)
+public.deal_room_participant.deal_room_participant_preview_named CHECK (((NOT preview) OR (invited_by IS NOT NULL)))
 public.deal_room_participant.deal_room_participant_preview_reads_only CHECK (((NOT preview) OR (capability = 'view'::text)))
 public.deal_room_participant.deal_room_participant_room_fkey FOREIGN KEY (room_id) REFERENCES deal_room(id) ON DELETE CASCADE
 public.deal_room_participant.deal_room_participant_touch CREATE TRIGGER deal_room_participant_touch BEFORE UPDATE ON public.deal_room_participant FOR EACH ROW EXECUTE FUNCTION set_updated_at()

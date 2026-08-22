@@ -10,6 +10,7 @@ package integration
 // buyer ever sees the seat, and pausing the room ends it.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -74,12 +75,20 @@ func TestASellerPreviewsTheRoomAsABuyerAndCanChangeNothing(t *testing.T) {
 		t.Fatalf("link request = %d, want the uniform 202", status)
 	}
 
-	// Pausing ends the preview; the buyer's own session would survive.
+	// A second credential minted just before the pause: the pause retires it
+	// unopened, and ends the open preview — the buyer's own session survives.
+	var unopened apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/preview", nil, nil, &unopened); status != http.StatusCreated {
+		t.Fatalf("preview before pause = %d %v", status, unopened)
+	}
 	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/pause", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
 		t.Fatalf("pause = %d", status)
 	}
 	if status := publicCall(t, e, "GET", "/v1/public/rooms/me", nil, bearer(token), nil); status != http.StatusUnauthorized {
 		t.Fatalf("preview after pause = %d, want 401", status)
+	}
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/exchange", apptest.AnyMap{"credential": unopened["credential"]}, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("unopened preview credential after pause = %d, want 404", status)
 	}
 	var again apptest.AnyMap
 	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/preview", nil, nil, &again); status != http.StatusCreated {
@@ -102,5 +111,36 @@ func TestARoomNeverPublishedCannotBePreviewed(t *testing.T) {
 	var refused apptest.AnyMap
 	if status := e.Call(t, "POST", "/v1/deal-rooms/"+roomID+"/preview", nil, nil, &refused); status != http.StatusUnprocessableEntity || refused["code"] != "deal_room_not_previewable" {
 		t.Fatalf("preview of a draft = %d %v, want 422 deal_room_not_previewable", status, refused)
+	}
+}
+
+func TestADeactivatedSellersPreviewEndsWithTheirSeat(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	room := openPublishedRoom(t, e)
+	var issued apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/preview", nil, nil, &issued); status != http.StatusCreated {
+		t.Fatalf("preview = %d %v", status, issued)
+	}
+	var session apptest.AnyMap
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/exchange", apptest.AnyMap{"credential": issued["credential"]}, nil, &session); status != http.StatusOK {
+		t.Fatalf("exchange = %d %v", status, session)
+	}
+	token, _ := session["session_token"].(string)
+	if status := publicCall(t, e, "GET", "/v1/public/rooms/me", nil, bearer(token), nil); status != http.StatusOK {
+		t.Fatalf("preview before deactivation = %d", status)
+	}
+
+	// The seller's seat ends; the preview worn as a buyer ends with it.
+	var me apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+		t.Fatalf("me = %d", status)
+	}
+	user, _ := me["user"].(map[string]any)
+	if _, err := e.Pool.Exec(context.Background(), `UPDATE app_user SET status = 'deactivated' WHERE id = $1`, user["id"]); err != nil {
+		t.Fatalf("deactivate the seller: %v", err)
+	}
+	if status := publicCall(t, e, "GET", "/v1/public/rooms/me", nil, bearer(token), nil); status != http.StatusUnauthorized {
+		t.Fatalf("preview after deactivation = %d, want 401", status)
 	}
 }
