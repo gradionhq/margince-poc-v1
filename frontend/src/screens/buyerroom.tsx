@@ -83,7 +83,10 @@ export function BuyerRoomScreen() {
   // Read once, at mount. The credential is gone from the address bar after
   // this, so a re-render must not look for it again.
   const [credential] = useState(credentialFromLocation);
-  const [token, setToken] = useState(readSession);
+  // A link in hand outranks a kept session from the first render: a tab that
+  // still holds room A's session must not show room A for a breath while
+  // room B's link is being exchanged.
+  const [token, setToken] = useState(() => (credential ? null : readSession()));
   const t = useT();
 
   const exchange = useMutation({
@@ -137,7 +140,9 @@ export function BuyerRoomScreen() {
     setToken(null);
   };
 
-  if (credential && exchange.isPending) {
+  // "Opening" until the exchange has answered — not merely while the mutation
+  // is in flight, because the first render happens before the effect fires it.
+  if (credential && !exchange.isSuccess && !exchange.isError) {
     return (
       <BuyerFrame>
         <EmptyState>
@@ -257,6 +262,9 @@ function useBuyerRoom(token: string, onSessionLost: () => void) {
   const query = useQuery({
     queryKey: ["buyer-room", token],
     retry: false,
+    // Re-asked whenever the tab comes back: a revocation or a pause made while
+    // the buyer was away must bind on their return, not on their next click.
+    refetchOnWindowFocus: "always",
     queryFn: async () => {
       const { data, error, response } = await api.GET("/public/rooms/me", {
         ...bearer(token),
@@ -302,7 +310,11 @@ function RoomBody({
     <QueryStates query={room} pendingLines={4}>
       {room.data ? (
         <>
-          <RoomView view={room.data} token={token} />
+          <RoomView
+            view={room.data}
+            token={token}
+            onSessionLost={onSessionLost}
+          />
           <div className="buyer-foot">
             <Button
               variant="ghost"
@@ -327,7 +339,12 @@ const ACCESS_TITLE: Record<string, MessageKey> = {
 function RoomView({
   view,
   token,
-}: Readonly<{ view: BuyerRoomView; token: string }>) {
+  onSessionLost,
+}: Readonly<{
+  view: BuyerRoomView;
+  token: string;
+  onSessionLost: () => void;
+}>) {
   const t = useT();
   const steward = view.steward_name ?? t("buyer.stewardUnknown");
   if (view.access === "paused" || view.access === "expired") {
@@ -377,6 +394,7 @@ function RoomView({
           view.access === "closed" || view.participant.capability === "view"
         }
         closed={view.access === "closed"}
+        onSessionLost={onSessionLost}
       />
     </>
   );
@@ -386,21 +404,36 @@ function BuyerTasks({
   token,
   readOnly,
   closed,
-}: Readonly<{ token: string; readOnly: boolean; closed: boolean }>) {
+  onSessionLost,
+}: Readonly<{
+  token: string;
+  readOnly: boolean;
+  closed: boolean;
+  onSessionLost: () => void;
+}>) {
   const t = useT();
   const tasks = useQuery({
     queryKey: ["buyer-room-tasks", token],
     retry: false,
     queryFn: async () => {
-      const { data, error } = await api.GET("/public/rooms/tasks", {
+      const { data, error, response } = await api.GET("/public/rooms/tasks", {
         ...bearer(token),
       });
       if (error) {
+        if (response.status === 401) {
+          throw new SessionRefusedError();
+        }
         throwProblem(error, t);
       }
       return data;
     },
   });
+  const lost = tasks.error instanceof SessionRefusedError;
+  useEffect(() => {
+    if (lost) {
+      onSessionLost();
+    }
+  }, [lost, onSessionLost]);
   const refusal = closed
     ? t("buyer.tasks.closed")
     : readOnly
@@ -423,6 +456,7 @@ function BuyerTasks({
                 token={token}
                 task={task}
                 refusal={refusal}
+                onSessionLost={onSessionLost}
               />
             ))
           )
@@ -436,17 +470,19 @@ function BuyerTaskRow({
   token,
   task,
   refusal,
+  onSessionLost,
 }: Readonly<{
   token: string;
   task: BuyerRoomTask;
   refusal: string | undefined;
+  onSessionLost: () => void;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
   const toggle = useMutation({
     mutationKey: ["buyer-room-task-toggle"],
     mutationFn: async (input: { taskId: string; done: boolean }) => {
-      const { data, error } = await api.POST(
+      const { data, error, response } = await api.POST(
         "/public/rooms/tasks/{taskId}/complete",
         {
           params: { path: { taskId: input.taskId } },
@@ -455,9 +491,17 @@ function BuyerTaskRow({
         },
       );
       if (error) {
+        if (response.status === 401) {
+          throw new SessionRefusedError();
+        }
         throwProblem(error, t);
       }
       return data;
+    },
+    onError: (error) => {
+      if (error instanceof SessionRefusedError) {
+        onSessionLost();
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["buyer-room-tasks", token] });
