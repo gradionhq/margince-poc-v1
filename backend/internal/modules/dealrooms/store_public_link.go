@@ -59,6 +59,9 @@ func (s *Store) ReissueByEmail(ctx context.Context, email string) ([]IssuedInvit
 	by := actor.ID
 	var out []IssuedInvitation
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		if err := noteLinkRequest(ctx, tx, email, by); err != nil {
+			return err
+		}
 		seats, err := liveSeatsFor(ctx, tx, email)
 		if err != nil {
 			return err
@@ -145,4 +148,42 @@ func reissueFor(ctx context.Context, tx pgx.Tx, seat crmcontracts.DealRoomPartic
 		return IssuedInvitation{}, err
 	}
 	return IssuedInvitation{Participant: current, Credential: raw, ExpiresAt: expiresAt}, nil
+}
+
+// noteLinkRequest stamps every live seat with this address, whether or not a
+// credential is then reissued: the seat that still holds a live link gets no
+// mail, and the seller is the only one who can hand that buyer a link by
+// hand — so the request has to be visible to them. Audited per seat, with no
+// event: a buyer asking for a link is not a change to the room's record.
+func noteLinkRequest(ctx context.Context, tx pgx.Tx, email, by string) error {
+	rows, err := tx.Query(ctx, `
+		UPDATE deal_room_participant p SET link_requested_at = now()
+		  FROM deal_room r
+		 WHERE r.id = p.room_id AND p.email = $1 AND p.revoked_at IS NULL
+		   AND r.archived_at IS NULL AND r.state <> 'archived'
+		 RETURNING p.id, p.room_id`, email)
+	if err != nil {
+		return fmt.Errorf("note a deal room link request: %w", err)
+	}
+	defer rows.Close()
+	type seat struct{ id, roomID ids.UUID }
+	var seats []seat
+	for rows.Next() {
+		var st seat
+		if err := rows.Scan(&st.id, &st.roomID); err != nil {
+			return fmt.Errorf("scan a deal room link request: %w", err)
+		}
+		seats = append(seats, st)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("note a deal room link request: %w", err)
+	}
+	rows.Close()
+	for _, st := range seats {
+		if _, err := storekit.Audit(ctx, tx, "update", participantObject, st.id,
+			nil, map[string]any{fieldRoomID: st.roomID, "link_requested": true, "by": by}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

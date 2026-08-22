@@ -40,6 +40,21 @@ export function groupLabelKey(key: string): MessageKey {
   );
 }
 
+export function useRoomDocuments(roomId: string) {
+  return useQuery({
+    queryKey: ["deal-room-documents", roomId],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/deal-rooms/{id}/documents", {
+        params: { path: { id: roomId } },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+  });
+}
+
 export function DealRoomDocuments({
   room,
   state,
@@ -50,23 +65,12 @@ export function DealRoomDocuments({
   refusal: string | undefined;
 }>) {
   const t = useT();
-  const docs = useQuery({
-    queryKey: ["deal-room-documents", room.id],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/deal-rooms/{id}/documents", {
-        params: { path: { id: room.id } },
-      });
-      if (error) {
-        throwProblem(error);
-      }
-      return data;
-    },
-  });
+  const docs = useRoomDocuments(room.id);
   return (
     <Panel
       title={t("room.docs.title")}
       sub={t("room.docs.sub")}
-      titleAction={state}
+      titleAction={state ?? undefined}
     >
       <QueryStates query={docs} pendingLines={3}>
         {docs.data ? (
@@ -162,14 +166,14 @@ function AddDocument({
   const t = useT();
   const [attachmentId, setAttachmentId] = useState("");
   const [group, setGroup] = useState(DOCUMENT_GROUPS[0].key);
+  // The deal's Files area — uploads and the files its emails carried, hidden
+  // ones excluded — is what a room may share; the server refuses anything else.
   const files = useQuery({
-    queryKey: ["deal-attachments", room.deal_id],
+    queryKey: ["deal-documents", room.deal_id, false],
     enabled: refusal === undefined,
     queryFn: async () => {
-      const { data, error } = await api.GET("/attachments", {
-        params: {
-          query: { entity_type: "deal", entity_id: room.deal_id, limit: 100 },
-        },
+      const { data, error } = await api.GET("/deals/{id}/documents", {
+        params: { path: { id: room.deal_id }, query: { limit: 100 } },
       });
       if (error) {
         throwProblem(error);
@@ -181,9 +185,9 @@ function AddDocument({
   if (refusal !== undefined) {
     return <p className="t-small">{refusal}</p>;
   }
-  const options = (files.data?.data ?? []).map((file) => ({
-    value: file.id,
-    label: file.filename,
+  const options = (files.data?.data ?? []).map((doc) => ({
+    value: doc.attachment.id,
+    label: doc.attachment.title || doc.attachment.filename,
   }));
   return (
     <>

@@ -11771,6 +11771,29 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /deal-rooms/{id}/changes:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: getDealRoomChanges
+      summary: What the buyer would see differently if the room were published now.
+      description: |
+        The draft diffed against the latest release: the title or welcome text
+        changed, documents added, removed, retitled or regrouped, and documents that
+        are no longer eligible (archived, unlinked from the deal, or hidden from it)
+        and would drop out of the next release. A room never published reports every
+        document as added. This is what the Publish button is disabled on when empty.
+      responses:
+        '200':
+          description: The pending changes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomChanges' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /deal-rooms/{id}/releases:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -26596,6 +26619,14 @@ components:
             move: it is what fixes their address, because redirecting a link somebody
             has already signed in with would hand their standing access to whoever the
             new address belongs to.
+        link_requested_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: |
+            When this person last asked for a new link from the public page. The
+            seller sees it beside the row so a buyer whose mail never arrived (no
+            relay configured, or a link still standing) can be handed one by hand.
         revoked_at:
           type: [string, 'null']
           format: date-time
@@ -26668,6 +26699,31 @@ components:
             credential are still recorded, and the caller is expected to deliver the
             link itself rather than being told the invitation failed.
       additionalProperties: false
+
+    DealRoomChanges:
+      type: object
+      required: [has_changes, changes]
+      properties:
+        has_changes: { type: boolean }
+        release_no:
+          type: [integer, 'null']
+          description: The release the draft was compared against; null when the room was never published.
+        changes:
+          type: array
+          items: { $ref: '#/components/schemas/DealRoomChange' }
+
+    DealRoomChange:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          description: >-
+            One of title_changed, welcome_changed, document_added, document_removed,
+            document_retitled, document_regrouped, document_ineligible. A plain string
+            for the reason DealRoomParticipantCapability gives.
+        document_id: { type: [string, 'null'], format: uuid }
+        title: { type: [string, 'null'], description: 'The document title the sentence names: current, or as last published.' }
 
     DealRoomReleaseListResponse:
       type: object

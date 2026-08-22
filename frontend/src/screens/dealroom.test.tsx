@@ -94,58 +94,43 @@ function stubApi(rooms: DealRoom[], mayWrite = true): { calls: Request[] } {
     if (path.endsWith("/me")) {
       return Promise.resolve(jsonResponse(me(mayWrite)));
     }
-    if (path.endsWith("/documents") || path.endsWith("/threads")) {
+    if (path.endsWith("/participants")) {
       return Promise.resolve(jsonResponse({ data: [], page: {} }));
     }
-    if (path.endsWith("/decisions")) {
-      return Promise.resolve(jsonResponse({ data: [] }));
+    if (path.endsWith("/changes")) {
+      return Promise.resolve(
+        jsonResponse({ has_changes: false, release_no: null, changes: [] }),
+      );
     }
     return Promise.resolve(jsonResponse({ data: rooms, page: {} }));
   });
   return { calls };
 }
 
-it("names the room's state on the card", async () => {
+it("names the room's state and the way in on the card", async () => {
   stubApi([room("live")]);
-  render(<DealRoomAside dealId="deal-1" />);
+  render(<DealRoomAside dealId="deal-1" dealName="Acme Expansion" />);
 
   expect(await screen.findByText("Live")).toBeInTheDocument();
-  expect(screen.getByText("Documents")).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Open the Deal Room" }),
+  ).toBeInTheDocument();
 });
 
-it("a finished room says why it takes no more content", async () => {
-  stubApi([room("closed")]);
-  render(<DealRoomAside dealId="deal-1" />);
-
-  // The refusal IS the control's replacement: the add form is gone entirely,
-  // because an input that refuses every submission is worse than no input.
-  expect(
-    (await screen.findAllByText(/finished, so what it shared is now a record/))
-      .length,
-  ).toBeGreaterThan(0);
-  expect(
-    screen.queryByLabelText("File from this deal"),
-  ).not.toBeInTheDocument();
-});
-
-it("renders nothing at all when the deal has no room", async () => {
+it("offers to open a room when the deal has none", async () => {
   stubApi([]);
-  const { container } = render(<DealRoomAside dealId="deal-1" />);
+  render(<DealRoomAside dealId="deal-1" dealName="Acme Expansion" />);
+
+  expect(
+    await screen.findByRole("button", { name: "Open a Deal Room" }),
+  ).toBeInTheDocument();
+});
+
+it("a reader who may not write is offered no way to open a room", async () => {
+  stubApi([], false);
+  const { container } = render(
+    <DealRoomAside dealId="deal-1" dealName="Acme Expansion" />,
+  );
 
   await waitFor(() => expect(container).toBeEmptyDOMElement());
-});
-
-it("a reader who may not write is told so instead of being offered the controls", async () => {
-  // The server refuses a read-only seat's write regardless, but only after the
-  // click. A control that looks live and comes back 403 teaches a reader that
-  // the product is broken rather than that the permission is.
-  stubApi([room("live")], false);
-  render(<DealRoomAside dealId="deal-1" />);
-
-  expect(
-    (await screen.findAllByText(/read this room but not change/i)).length,
-  ).toBeGreaterThan(0);
-  expect(
-    screen.queryByLabelText("File from this deal"),
-  ).not.toBeInTheDocument();
 });
