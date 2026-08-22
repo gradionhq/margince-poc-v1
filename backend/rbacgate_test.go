@@ -70,6 +70,25 @@ import (
 var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiver rationales for the fitness gate, not credentials
 	// Reached only from worker sweeps, approvals effect executors, or a
 	// service that owns the gate above them. Each entry states which.
+	// The Deal Room buyer edge. A buyer holds no seat, and every gate in
+	// platform/auth refuses the buyer principal by kind, so the seat gates are
+	// not what bounds these calls — the SESSION is. ResolveSession turns a
+	// presented token into (participant, room) through one indexed lookup that
+	// joins the participant on (id, room_id), and every other method here takes
+	// that Session and puts its room and participant into the WHERE clause: a
+	// buyer reaches their own row, their own room's latest release and their own
+	// room's tasks, and nothing else. TestPublicHandlersReachOnlyTheSessionScopedStore
+	// and TestSessionScopedStoreNeverConsultsTheSeatGates (dealrooms) hold the
+	// shape; the three anonymous operations are bounded by the credential digest
+	// itself, which is the authentication.
+	"internal/modules/dealrooms:PeekCredential":               "anonymous by design: answers only whether a credential digest is exchangeable, one EXISTS over the invitation joined to its live participant and unarchived room; no row leaves the call",
+	"internal/modules/dealrooms:ExchangeCredential":           "the authentication itself: consumes the credential in one UPDATE whose WHERE is the exchangeable predicate, so the row it writes is the one the presented secret names; the session it opens is attributed to that participant",
+	"internal/modules/dealrooms:ResolveSession":               "the session lookup every buyer request runs: one SELECT keyed on the token digest, joined to the participant on (id, room_id); it is what BINDS the buyer's authority, so there is no earlier gate for it to take",
+	"internal/modules/dealrooms:SignOut":                      "revokes the session row whose id, participant and room the resolved Session names, and nothing else",
+	"internal/modules/dealrooms:ReissueByEmail":               "the self-service link request: refuses every actor but linkRequestPrincipal, finds seats by the address the mail will go to, and hands credentials to the mailer only — the response body never carries them",
+	"internal/modules/dealrooms:BuyerView":                    "reads the caller's own participant row and their room's latest release, both predicated on the Session's (participant, room); the live deal is never read",
+	"internal/modules/dealrooms:BuyerTasks":                   "reads the latest release's task definitions and the live completion of tasks WHERE room_id = the session's room",
+	"internal/modules/dealrooms:CompleteBuyerTask":            "writes the completion columns of one task WHERE id AND room_id = the session's room, only for a task in the latest release of a live room, attributed to the session's participant",
 	"internal/modules/people:LookupPlace":                     "the place cache holds no customer data: a place NAME and the coordinates a public geocoder gave for it — 'stuttgart' → 48.77, 9.18. Nothing in it is about a company, a person or a workspace, and it is installation-global on purpose because a place is a place whoever asks. There is no subject for a grant to be about. The caller that reaches it (the geocode worker) is already gated on organization.read for the company whose address it is resolving",
 	"internal/modules/people:RememberPlace":                   "the write half of the same cache, with the same rationale: what it stores is a public coordinate for a public place name. The lookup that produced it was already authorized as an organization read",
 	"internal/platform/settings:WriteTx":                      "a transaction wrapper only: it opens the workspace-bound transaction and runs the caller's function, and every settings write inside goes through SetRawTx, which takes the entry's own update gate per key — the gate sits where the key is known, one level down",

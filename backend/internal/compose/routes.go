@@ -173,7 +173,9 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// "/v1/" and serve without a session. See extensionEdge.
 	publicEdge := publicPreferences(consent.NewStore(InstallationDB(pool)), newPublicPreferenceLimiters())(
 		publicBooking(activities.NewStore(InstallationDB(pool)), identity.NewService(pool), newPublicBookingLimiters())(
-			extensionEdge(srv, log)(api),
+			publicDealRoom(dealrooms.NewStore(InstallationDB(pool)), newPublicDealRoomLimiters())(
+				extensionEdge(srv, log)(api),
+			),
 		),
 	)
 	// publicPreferencesPrefix is named here twice on purpose: it is where

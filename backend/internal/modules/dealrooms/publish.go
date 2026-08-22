@@ -82,11 +82,17 @@ func publishRoomTx(ctx context.Context, tx pgx.Tx, id ids.DealRoomID, note *stri
 	if err != nil {
 		return crmcontracts.DealRoomRelease{}, err
 	}
+	// The list as it stands is what this release publishes; a task added after
+	// this commit reaches the buyer with the next one.
+	tasks, err := taskRows(ctx, tx, id)
+	if err != nil {
+		return crmcontracts.DealRoomRelease{}, err
+	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO deal_room_release (id, room_id, release_no, snapshot, release_note,
 		                                published_by, source, captured_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		releaseID, id, next, snapshotOf(room), note, publisher, room.Source, by)
+		releaseID, id, next, snapshotOf(room, tasks), note, publisher, room.Source, by)
 	if err != nil {
 		if storekit.IsUniqueViolation(err) {
 			return crmcontracts.DealRoomRelease{}, apperrors.ErrConflict
@@ -175,25 +181,6 @@ func markRoomLive(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom) er
 		return fmt.Errorf("mark deal room live: %w", err)
 	}
 	return nil
-}
-
-// snapshotOf copies every buyer-visible editorial value into the frozen
-// projection. What is NOT here matters as much as what is: no live CRM read
-// reaches the buyer through a release, so a deal renamed after publication does
-// not silently rewrite what the buyer was shown.
-func snapshotOf(room crmcontracts.DealRoom) map[string]any {
-	snap := map[string]any{
-		columnTitle:   room.Title,
-		"deal_id":     room.DealId,
-		"released_at": time.Now().UTC(),
-	}
-	if room.WelcomeMessage != nil {
-		snap["welcome_message"] = *room.WelcomeMessage
-	}
-	if room.StewardUserId != nil {
-		snap["steward_user_id"] = *room.StewardUserId
-	}
-	return snap
 }
 
 // readRelease returns one release. It carries no scope clause of its own: the

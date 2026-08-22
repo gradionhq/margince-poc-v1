@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
-	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
+	BearerAuthScopes      bearerAuthContextKey      = "bearerAuth.Scopes"
+	CookieAuthScopes      cookieAuthContextKey      = "cookieAuth.Scopes"
+	DealRoomSessionScopes dealRoomSessionContextKey = "dealRoomSession.Scopes"
 )
 
 // Defines values for AIFeedbackInputClaimKind.
@@ -12902,6 +12903,100 @@ type BriefSnoozeRequest struct {
 	SnoozedUntil time.Time `json:"snoozed_until"`
 }
 
+// BuyerRoomAccess Whether the session admits the caller to content right now. `live` — the room
+// is open and the list can be worked. `closed` — the deal is done; everything
+// reads, nothing writes. `paused` — the seller has paused access; the link
+// stays valid and nothing is served until it resumes. `expired` — access has
+// lapsed on its own; ask for a new link.
+//
+// A plain string, not an inline enum, for the reason `DealRoomState` and its
+// siblings give: the same four words generated as package-scope constants
+// would collide with the lifecycle's.
+type BuyerRoomAccess = string
+
+// BuyerRoomContent The latest release, and only that. Every field here was copied at publish
+// time; the live deal is never read on this path.
+type BuyerRoomContent struct {
+	ClosedAt   *time.Time `json:"closed_at,omitempty"`
+	ReleaseNo  int        `json:"release_no"`
+	ReleasedAt time.Time  `json:"released_at"`
+
+	// StewardName The named person on the seller's side to contact. Null when the steward's seat is gone.
+	StewardName    *string `json:"steward_name,omitempty"`
+	Title          string  `json:"title"`
+	WelcomeMessage *string `json:"welcome_message,omitempty"`
+}
+
+// BuyerRoomParticipant The caller, as the room knows them. Nothing about anyone else in the room.
+type BuyerRoomParticipant struct {
+	// Capability What a participant may do in the room. Coarse and room-wide on purpose — a
+	// per-document permission matrix is a product nobody asked for.
+	//
+	// `view` reads. `comment` also writes comments and messages. `reviewer` also
+	// confirms a document version, which is the only one that carries weight in a
+	// negotiation, so it is granted deliberately and never by default.
+	//
+	// Typed as a plain string rather than an inline enum: `view`, `comment` and
+	// `reviewer` would generate package-scope Go constants named `View`, `Comment`
+	// and `Reviewer` in the shared contracts package, which collide with — and
+	// silently rename — the constants of any other schema declaring the same value.
+	// The closed set is stated here and held by the writer and the schema CHECK.
+	Capability DealRoomParticipantCapability `json:"capability"`
+	Email      openapi_types.Email           `json:"email"`
+	FullName   string                        `json:"full_name"`
+	Id         openapi_types.UUID            `json:"id"`
+}
+
+// BuyerRoomTask One item on the shared list, as the buyer sees it. No seller-side ids, no provenance.
+type BuyerRoomTask struct {
+	Done   bool       `json:"done"`
+	DoneAt *time.Time `json:"done_at,omitempty"`
+
+	// DoneBy Which side ticked it — `seller` or `buyer` — or null while open.
+	DoneBy   *string            `json:"done_by,omitempty"`
+	Id       openapi_types.UUID `json:"id"`
+	Position int                `json:"position"`
+
+	// Side Which side of the table owes this item: `seller` or `buyer`. One side, never
+	// both — an item two parties own is one nobody chases.
+	//
+	// Typed as a plain string rather than an inline enum for the reason
+	// `DealRoomParticipantCapability` gives: an inline enum would generate
+	// package-scope Go constants named `Seller` and `Buyer` in the shared contracts
+	// package, colliding with any other schema declaring those values. The closed set
+	// is stated here and held by the writer and the schema CHECK.
+	Side  DealRoomTaskSide `json:"side"`
+	Title string           `json:"title"`
+}
+
+// BuyerRoomTaskListResponse defines model for BuyerRoomTaskListResponse.
+type BuyerRoomTaskListResponse struct {
+	Data []BuyerRoomTask `json:"data"`
+}
+
+// BuyerRoomView defines model for BuyerRoomView.
+type BuyerRoomView struct {
+	// Access Whether the session admits the caller to content right now. `live` — the room
+	// is open and the list can be worked. `closed` — the deal is done; everything
+	// reads, nothing writes. `paused` — the seller has paused access; the link
+	// stays valid and nothing is served until it resumes. `expired` — access has
+	// lapsed on its own; ask for a new link.
+	//
+	// A plain string, not an inline enum, for the reason `DealRoomState` and its
+	// siblings give: the same four words generated as package-scope constants
+	// would collide with the lifecycle's.
+	Access BuyerRoomAccess `json:"access"`
+
+	// Participant The caller, as the room knows them. Nothing about anyone else in the room.
+	Participant BuyerRoomParticipant `json:"participant"`
+
+	// Room Omitted while access is `paused` or `expired`, and when nothing has been published yet.
+	Room *BuyerRoomContent `json:"room,omitempty"`
+
+	// StewardName Whom to contact. Present in every access state, because a paused buyer needs it most.
+	StewardName *string `json:"steward_name,omitempty"`
+}
+
 // CancelContractRequest defines model for CancelContractRequest.
 type CancelContractRequest struct {
 	// CancellationEffectiveOn When the agreement ends. Not after `ends_on`, and not before the notice date.
@@ -13807,6 +13902,11 @@ type CompanySiteReadSuggestedChange struct {
 
 // CompanySiteReadSuggestedChangeField defines model for CompanySiteReadSuggestedChange.Field.
 type CompanySiteReadSuggestedChangeField string
+
+// CompleteBuyerRoomTaskRequest defines model for CompleteBuyerRoomTaskRequest.
+type CompleteBuyerRoomTaskRequest struct {
+	Done bool `json:"done"`
+}
 
 // ComposedExtension One enabled extension unit and what it contributes to this binary.
 type ComposedExtension struct {
@@ -15188,6 +15288,12 @@ type DealRoom struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// DealRoomCredentialRequest defines model for DealRoomCredentialRequest.
+type DealRoomCredentialRequest struct {
+	// Credential The one-time credential from the invitation link's fragment.
+	Credential string `json:"credential"`
+}
+
 // DealRoomDeliveryState What happened to the credential we last sent this person — delivery, modelled
 // apart from access. A bounced invitation and a revoked one look identical
 // otherwise, and a seller chasing silence needs to tell them apart.
@@ -15218,6 +15324,11 @@ type DealRoomInvitationIssued struct {
 	// Participant One named person admitted to one room. Not an app_user: a participant consumes
 	// no licence, holds no CRM authority, and their whole reach is this one room.
 	Participant DealRoomParticipant `json:"participant"`
+}
+
+// DealRoomLinkRequest defines model for DealRoomLinkRequest.
+type DealRoomLinkRequest struct {
+	Email openapi_types.Email `json:"email"`
 }
 
 // DealRoomListResponse defines model for DealRoomListResponse.
@@ -15308,6 +15419,12 @@ type DealRoomParticipantListResponse struct {
 	Page PageInfo              `json:"page"`
 }
 
+// DealRoomPeekResponse defines model for DealRoomPeekResponse.
+type DealRoomPeekResponse struct {
+	// Exchangeable True only for a credential that can be exchanged right now. Identical for a paused and a live room.
+	Exchangeable bool `json:"exchangeable"`
+}
+
 // DealRoomRelease An immutable published snapshot. Every buyer-visible editorial value is COPIED
 // in at publish time, so a later edit to the room or the deal cannot change what
 // a buyer was shown. The database refuses updates to this row outright.
@@ -15338,6 +15455,15 @@ type DealRoomRelease struct {
 type DealRoomReleaseListResponse struct {
 	Data []DealRoomRelease `json:"data"`
 	Page PageInfo          `json:"page"`
+}
+
+// DealRoomSessionIssued defines model for DealRoomSessionIssued.
+type DealRoomSessionIssued struct {
+	// ExpiresAt Absolute expiry. The buyer exchanges a fresh link after it.
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// SessionToken Present as `Authorization: Bearer`. Returned once; only its hash is stored.
+	SessionToken string `json:"session_token"`
 }
 
 // DealRoomState Where the room stands. Only `live` serves a buyer; `draft`, `building`, `ready`
@@ -22821,6 +22947,9 @@ type bearerAuthContextKey string
 // cookieAuthContextKey is the context key for cookieAuth security scheme
 type cookieAuthContextKey string
 
+// dealRoomSessionContextKey is the context key for dealRoomSession security scheme
+type dealRoomSessionContextKey string
+
 // ListActivitiesParams defines parameters for ListActivities.
 type ListActivitiesParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -27146,6 +27275,18 @@ type BookPublicMeetingJSONRequestBody BookPublicMeetingJSONBody
 
 // UpdatePreferencesJSONRequestBody defines body for UpdatePreferences for application/json ContentType.
 type UpdatePreferencesJSONRequestBody UpdatePreferencesJSONBody
+
+// ExchangeDealRoomCredentialJSONRequestBody defines body for ExchangeDealRoomCredential for application/json ContentType.
+type ExchangeDealRoomCredentialJSONRequestBody = DealRoomCredentialRequest
+
+// RequestDealRoomLinkJSONRequestBody defines body for RequestDealRoomLink for application/json ContentType.
+type RequestDealRoomLinkJSONRequestBody = DealRoomLinkRequest
+
+// PeekDealRoomCredentialJSONRequestBody defines body for PeekDealRoomCredential for application/json ContentType.
+type PeekDealRoomCredentialJSONRequestBody = DealRoomCredentialRequest
+
+// CompleteBuyerRoomTaskJSONRequestBody defines body for CompleteBuyerRoomTask for application/json ContentType.
+type CompleteBuyerRoomTaskJSONRequestBody = CompleteBuyerRoomTaskRequest
 
 // CreateQuotaJSONRequestBody defines body for CreateQuota for application/json ContentType.
 type CreateQuotaJSONRequestBody = CreateQuotaRequest
@@ -36088,6 +36229,27 @@ type ServerInterface interface {
 	// RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
 	// (POST /public/preferences/{token}/unsubscribe)
 	OneClickUnsubscribe(w http.ResponseWriter, r *http.Request, token string, params OneClickUnsubscribeParams)
+	// Exchange a one-time Deal Room credential for a room session (anonymous).
+	// (POST /public/rooms/exchange)
+	ExchangeDealRoomCredential(w http.ResponseWriter, r *http.Request)
+	// Ask for a fresh Deal Room link by email (anonymous, always 202).
+	// (POST /public/rooms/link-request)
+	RequestDealRoomLink(w http.ResponseWriter, r *http.Request)
+	// The room as its buyer sees it — the latest release, never the live deal.
+	// (GET /public/rooms/me)
+	GetBuyerRoom(w http.ResponseWriter, r *http.Request)
+	// Whether a Deal Room credential can still be exchanged (anonymous).
+	// (POST /public/rooms/peek)
+	PeekDealRoomCredential(w http.ResponseWriter, r *http.Request)
+	// End the room session.
+	// (POST /public/rooms/sign-out)
+	SignOutBuyerRoom(w http.ResponseWriter, r *http.Request)
+	// The shared to-do list as published, with live completion state.
+	// (GET /public/rooms/tasks)
+	ListBuyerRoomTasks(w http.ResponseWriter, r *http.Request)
+	// Tick or un-tick an item on the shared list as the buyer.
+	// (POST /public/rooms/tasks/{taskId}/complete)
+	CompleteBuyerRoomTask(w http.ResponseWriter, r *http.Request, taskId openapi_types.UUID)
 	// List quotas (cursor-paginated).
 	// (GET /quotas)
 	ListQuotas(w http.ResponseWriter, r *http.Request, params ListQuotasParams)
@@ -38473,6 +38635,48 @@ func (_ Unimplemented) UpdatePreferences(w http.ResponseWriter, r *http.Request,
 // RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
 // (POST /public/preferences/{token}/unsubscribe)
 func (_ Unimplemented) OneClickUnsubscribe(w http.ResponseWriter, r *http.Request, token string, params OneClickUnsubscribeParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Exchange a one-time Deal Room credential for a room session (anonymous).
+// (POST /public/rooms/exchange)
+func (_ Unimplemented) ExchangeDealRoomCredential(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Ask for a fresh Deal Room link by email (anonymous, always 202).
+// (POST /public/rooms/link-request)
+func (_ Unimplemented) RequestDealRoomLink(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The room as its buyer sees it — the latest release, never the live deal.
+// (GET /public/rooms/me)
+func (_ Unimplemented) GetBuyerRoom(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Whether a Deal Room credential can still be exchanged (anonymous).
+// (POST /public/rooms/peek)
+func (_ Unimplemented) PeekDealRoomCredential(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// End the room session.
+// (POST /public/rooms/sign-out)
+func (_ Unimplemented) SignOutBuyerRoom(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The shared to-do list as published, with live completion state.
+// (GET /public/rooms/tasks)
+func (_ Unimplemented) ListBuyerRoomTasks(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Tick or un-tick an item on the shared list as the buyer.
+// (POST /public/rooms/tasks/{taskId}/complete)
+func (_ Unimplemented) CompleteBuyerRoomTask(w http.ResponseWriter, r *http.Request, taskId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -54623,6 +54827,140 @@ func (siw *ServerInterfaceWrapper) OneClickUnsubscribe(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// ExchangeDealRoomCredential operation middleware
+func (siw *ServerInterfaceWrapper) ExchangeDealRoomCredential(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExchangeDealRoomCredential(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestDealRoomLink operation middleware
+func (siw *ServerInterfaceWrapper) RequestDealRoomLink(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestDealRoomLink(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBuyerRoom operation middleware
+func (siw *ServerInterfaceWrapper) GetBuyerRoom(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBuyerRoom(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PeekDealRoomCredential operation middleware
+func (siw *ServerInterfaceWrapper) PeekDealRoomCredential(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PeekDealRoomCredential(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SignOutBuyerRoom operation middleware
+func (siw *ServerInterfaceWrapper) SignOutBuyerRoom(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SignOutBuyerRoom(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBuyerRoomTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListBuyerRoomTasks(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBuyerRoomTasks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteBuyerRoomTask operation middleware
+func (siw *ServerInterfaceWrapper) CompleteBuyerRoomTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "taskId" -------------
+	var taskId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "taskId", chi.URLParam(r, "taskId"), &taskId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "taskId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteBuyerRoomTask(w, r, taskId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListQuotas operation middleware
 func (siw *ServerInterfaceWrapper) ListQuotas(w http.ResponseWriter, r *http.Request) {
 
@@ -60505,6 +60843,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/public/preferences/{token}/unsubscribe", wrapper.OneClickUnsubscribe)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/rooms/exchange", wrapper.ExchangeDealRoomCredential)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/rooms/link-request", wrapper.RequestDealRoomLink)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/rooms/me", wrapper.GetBuyerRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/rooms/peek", wrapper.PeekDealRoomCredential)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/rooms/sign-out", wrapper.SignOutBuyerRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/rooms/tasks", wrapper.ListBuyerRoomTasks)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/public/rooms/tasks/{taskId}/complete", wrapper.CompleteBuyerRoomTask)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/quotas", wrapper.ListQuotas)
