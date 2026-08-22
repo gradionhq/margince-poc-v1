@@ -1117,6 +1117,10 @@ function TimelineGroupRow({
           </ul>
         )}
       </div>
+      {/* The newest member's verbs stand for the conversation: Relink on it
+          offers to move the rest of the thread, so a mis-filed conversation
+          is fixed from its summary row without opening it first. */}
+      {newest.actions && <span className="tl-actions">{newest.actions}</span>}
     </li>
   );
 }

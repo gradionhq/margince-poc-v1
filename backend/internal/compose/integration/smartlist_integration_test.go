@@ -17,7 +17,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"maps"
 	"regexp"
 	"testing"
 
@@ -437,16 +436,13 @@ var checkLiteral = regexp.MustCompile(`'([a-z_]+)'`)
 // unit lane can only compare the contract enum to a Go map, and those two are
 // not the ones that disagree.
 //
-// saved_view.resource admits SIX values; the contract declares SEVEN. The extra
-// one is `projects`, which means POST /v1/saved-views with resource=projects
-// passes contract validation, resolves the project segment engine, validates
-// its filter — and then trips the CHECK on INSERT, answering the caller that a
-// value the schema they were handed calls legal is not allowed.
-//
-// Asserted as a NAMED divergence rather than left to a narrower expectation:
-// tracked at #1484, where widening the CHECK versus narrowing the contract is a
-// product call, and the spec's own DDL pin still says six. This fails the day
-// either side moves, which is the day someone should look at it.
+// The two sets must be IDENTICAL in both directions. A value the CHECK stores
+// and the contract does not declare is a row no client can name; a value the
+// contract declares and the CHECK refuses passes contract validation, resolves
+// its segment engine, validates its filter — and then trips the CHECK on
+// INSERT, answering the caller that a value the schema they were handed calls
+// legal is not allowed. `projects` was that second case until the CHECK was
+// widened.
 func TestSavedViewResourceCheckAgainstTheContractEnum(t *testing.T) {
 	e := Setup(t)
 
@@ -480,17 +476,39 @@ func TestSavedViewResourceCheckAgainstTheContractEnum(t *testing.T) {
 			t.Errorf("the CHECK stores resource %q, which the contract does not declare — a row no client can name", name)
 		}
 	}
-	undeclared := map[string]bool{}
 	for name := range declared {
 		if !storable[name] {
-			undeclared[name] = true
+			t.Errorf("the contract declares resource %q, which the CHECK refuses — a legal body that trips the INSERT", name)
 		}
 	}
-	if want := map[string]bool{"projects": true}; !maps.Equal(undeclared, want) {
-		t.Errorf("the contract declares %v that the CHECK refuses, want exactly %v — tracked at "+
-			"#1484, where the contract admits a value the CHECK still refuses. When that is "+
-			"resolved, the additive migration widening the CHECK drops this exception; if it is "+
-			"rejected instead, the contract narrows and this exception drops the other way. Either "+
-			"way the answer is upstream, not here", undeclared, want)
+}
+
+// A view over the projects list is written by the real writer and read back:
+// the filter is judged by the project segment engine and the row clears the
+// resource CHECK.
+func TestSavedViewOverProjectsIsStoredAndReadBack(t *testing.T) {
+	e := Setup(t)
+	store := collections.NewStore(e.DB())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+
+	query := map[string]any{
+		"columns": []any{"name", "key", "phase"},
+		"filter":  map[string]any{"field": "phase", "op": "eq", "value": "delivering"},
+	}
+	created, err := store.CreateSavedView(rep, collections.CreateSavedViewInput{
+		Resource: string(crmcontracts.SavedViewResourceProjects), Name: "In delivery", Query: query,
+	})
+	if err != nil {
+		t.Fatalf("create a saved view over projects: %v", err)
+	}
+	got, err := store.GetSavedView(rep, created.ID)
+	if err != nil {
+		t.Fatalf("read the view back: %v", err)
+	}
+	if got.Resource != string(crmcontracts.SavedViewResourceProjects) {
+		t.Errorf("resource = %q, want projects", got.Resource)
+	}
+	if !jsonEqual(t, query, got.Query) {
+		t.Errorf("reloaded query = %v, want %v", got.Query, query)
 	}
 }

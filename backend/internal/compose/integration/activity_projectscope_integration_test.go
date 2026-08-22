@@ -32,6 +32,8 @@ type scopeFixture struct {
 	person ids.UUID
 	org    ids.UUID
 	erp    ids.ProjectID
+	// other is the second engagement, the one a scope to erp must drop.
+	other ids.ProjectID
 	// bystander is a second contact who appears ONLY in the other
 	// engagement's mail — the hop-2 case: a scoped walk reaches people
 	// through the activities it kept, so a person reachable only through a
@@ -114,7 +116,7 @@ func seedTwoEngagementAccount(t *testing.T, e *Env) scopeFixture {
 	}
 	otherAt := roomFixedNow.AddDate(0, 0, -1)
 	return scopeFixture{
-		person: person, org: org, erp: erp, bystander: bystander, otherAt: otherAt,
+		person: person, org: org, erp: erp, other: migration, bystander: bystander, otherAt: otherAt,
 		onERP:     mail("ERP cutover plan", &erp, roomFixedNow.AddDate(0, 0, -3)),
 		onOther:   mail("Rack decommissioning", &migration, otherAt, bystander),
 		unfiled:   mail("Invoice question", nil, roomFixedNow.AddDate(0, 0, -2)),

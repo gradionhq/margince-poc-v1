@@ -37,7 +37,11 @@ type MeetingBriefReader func(ctx context.Context, activityID ids.UUID) (MeetingB
 // its own words: every sentence is cited or dropped whole. Flattening it to
 // prose here would strip precisely what an agent needs to act on what it read.
 type MeetingBriefResult struct {
-	ActivityID  ids.UUID           `json:"activity_id"`
+	ActivityID ids.UUID `json:"activity_id"`
+	// ProjectID is the body of work the meeting is filed under, when it is
+	// filed under one. The brief scopes itself by it, which is what a caller
+	// narrowing the prep by project needs to know.
+	ProjectID   *ids.UUID          `json:"project_id,omitempty"`
 	GeneratedAt string             `json:"generated_at"`
 	GeneratedBy string             `json:"generated_by"`
 	Sections    []MeetingBriefPart `json:"sections"`

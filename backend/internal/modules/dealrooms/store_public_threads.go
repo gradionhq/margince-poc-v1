@@ -65,6 +65,9 @@ func (s *Store) BuyerThreads(ctx context.Context, sess Session, documentID *ids.
 // live (paused refuses reversibly, the finished states as a record) and the
 // capability admits writing. Returns the room as the transaction bodies want it.
 func liveRoomForBuyerWrite(ctx context.Context, tx pgx.Tx, sess Session, needs string) (crmcontracts.DealRoom, error) {
+	if sess.Preview {
+		return crmcontracts.DealRoom{}, errPreviewSession
+	}
 	if sess.Capability == capabilityView || (needs == capabilityReviewer && sess.Capability != capabilityReviewer) {
 		if needs == capabilityReviewer {
 			return crmcontracts.DealRoom{}, errNotReviewer

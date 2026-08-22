@@ -7,7 +7,13 @@ import { api } from "../api/client";
 import { ifMatch, requireVersion } from "../api/version";
 import { navigate } from "../app/router";
 import { RecordView } from "../design-system/composed";
+import {
+  hasTimelineFilters,
+  useRecordTimeline,
+  useTimelineFilters,
+} from "../design-system/recordtimeline";
 import { SurfaceState, sectionState } from "../design-system/surfacestate";
+import { TimelineFilterBar } from "../design-system/timelinefilterbar";
 import { formatDate } from "../format/format";
 import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
@@ -299,12 +305,20 @@ function useProjectChronology(
     Boolean(activities),
     activities?.data.length ?? 0,
   );
+  const [filters, setFilters] = useTimelineFilters(view.project.id);
+  // The 360's own page seeds the list; older pages and every narrowed read
+  // come from the activity list itself.
+  const timeline = useRecordTimeline("project", view.project.id, {
+    filters,
+    firstPage: activities,
+  });
   const history = useRecordChronology({
     kind: "project",
     recordId: view.project.id,
     filter,
-    activities: activities?.data ?? [],
-    activitiesHaveMore: activities?.page.has_more ?? false,
+    activities: timeline.activities,
+    activitiesHaveMore: timeline.hasNextPage,
+    loadMore: timeline,
   });
   if (overlay) {
     return { timeline: history.entries, timelineNotice: <span /> };
@@ -325,21 +339,29 @@ function useProjectChronology(
   }
   return {
     timeline: history.entries,
-    timelineGroups: groupChronology(
-      history.entries,
-      activities?.page.has_more ?? false,
+    timelineGroups: groupChronology(history.entries, timeline.hasNextPage),
+    timelineHeader: (
+      <>
+        <ChronologyFilter filter={filter} onFilter={setFilter} />
+        {filter !== "changes" && (
+          <TimelineFilterBar value={filters} onChange={setFilters} />
+        )}
+      </>
     ),
-    timelineHeader: <ChronologyFilter filter={filter} onFilter={setFilter} />,
     timelineFooter: <ChronologyFooter filter={filter} chronology={history} />,
     timelineNotice: chronologyNotice(
       "project.timeline.empty",
       {
-        // The 360 is already on screen here, so only the change feed can
-        // still be loading or failed; the activities half is settled, and its
-        // one open question is whether the grant carried the section.
-        loading: history.loading,
-        failed: history.failed,
-        assembled: filter === "changes" ? true : Boolean(activities),
+        // The 360 is already on screen here, so for the unfiltered read only
+        // the change feed can still be loading or failed; a narrowed read is
+        // the list's own and has its own wait.
+        loading: history.loading || timeline.isPending,
+        failed: history.failed || timeline.isError,
+        assembled:
+          filter === "changes" ||
+          (hasTimelineFilters(filters)
+            ? timeline.isSuccess
+            : Boolean(activities)),
         filter,
       },
       history.entries.length,

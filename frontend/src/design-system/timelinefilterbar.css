@@ -1,0 +1,32 @@
+/* TimelineFilterBar — the row of dials above a record's timeline.
+ *
+ * One row that wraps rather than a grid: the bar sits above a list whose
+ * column is narrow on a phone and wide on a desk, and the controls keep their
+ * own width either way. The note under it is a fact about the list, not a
+ * control, so it sits on its own line in caption ink. */
+
+.timeline-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.timeline-filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The search box takes what is left of the line; the kind and the dates are
+ * sized by their own content. */
+.timeline-filters-row .input-icon {
+  flex: 1 1 12rem;
+}
+
+.timeline-filters-range {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}

@@ -615,6 +615,10 @@ func (stubs) PauseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "PauseDealRoom")
 }
 
+func (stubs) PreviewDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PreviewDealRoom")
+}
+
 func (stubs) PublishDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "PublishDealRoom")
 }

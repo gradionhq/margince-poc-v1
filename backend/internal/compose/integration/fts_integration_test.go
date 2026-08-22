@@ -12,8 +12,10 @@ package integration
 // captured as German).
 
 import (
+	"context"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -119,4 +121,84 @@ func hasHit(page search.Page, id ids.UUID) bool {
 		}
 	}
 	return false
+}
+
+// A project hit carries `key · company` as its excerpt, so a reader can tell
+// two accounts' "Phase 2" apart without opening each. A project with no key
+// shows the company alone rather than a dangling separator.
+func TestProjectSearchHitsCarryTheKeyAndTheCompanyAsTheSnippet(t *testing.T) {
+	e := Setup(t)
+	admin := e.Admin()
+	org := e.SeedOrg(t, "Acme Tooling", &e.Rep1)
+	key := "ERP-27"
+	keyed, err := e.Deals.CreateProject(admin, deals.CreateProjectInput{
+		Name: "Cutover rehearsal", Key: &key, OrganizationID: orgIDOf(org), Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create keyed project: %v", err)
+	}
+	keyless, err := e.Deals.CreateProject(admin, deals.CreateProjectInput{
+		Name: "Cutover planning", OrganizationID: orgIDOf(org), Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create keyless project: %v", err)
+	}
+
+	page, err := search.NewStore(e.DB()).Search(admin, search.Input{Query: "Cutover", Types: []string{"project"}})
+	if err != nil {
+		t.Fatalf("search projects: %v", err)
+	}
+	snippets := map[ids.UUID]string{}
+	for _, hit := range page.Hits {
+		snippets[hit.ID] = hit.Snippet
+	}
+	if got := snippets[ids.UUID(keyed.Id)]; got != "ERP-27 · Acme Tooling" {
+		t.Errorf("keyed project snippet = %q, want \"ERP-27 · Acme Tooling\"", got)
+	}
+	if got := snippets[ids.UUID(keyless.Id)]; got != "Acme Tooling" {
+		t.Errorf("keyless project snippet = %q, want the company alone", got)
+	}
+}
+
+// Naming the company behind a project is a read of the organization row. A
+// searcher outside that row's scope — here a capture-private company another
+// rep owns — is shown the key alone, and a searcher with no organization grant
+// at all likewise; the project hit itself still answers.
+func TestProjectSearchSnippetNamesTheCompanyOnlyToACallerWhoMayReadIt(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Acme Tooling", &e.Rep1)
+	key := "ERP-27"
+	project, err := e.Deals.CreateProject(e.Admin(), deals.CreateProjectInput{
+		Name: "Cutover rehearsal", Key: &key, OrganizationID: orgIDOf(org), Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	// Owner-private AFTER the project exists: creating one is a read of the
+	// company, and a private company is out of even the admin's scope.
+	e.MakeCapturePrivate(t, "organization", org, e.Rep1)
+	snippetFor := func(ctx context.Context) string {
+		t.Helper()
+		page, err := search.NewStore(e.DB()).Search(ctx, search.Input{Query: "Cutover", Types: []string{"project"}})
+		if err != nil {
+			t.Fatalf("search projects: %v", err)
+		}
+		for _, hit := range page.Hits {
+			if hit.ID == ids.UUID(project.Id) {
+				return hit.Snippet
+			}
+		}
+		t.Fatal("the project hit is missing, so the snippet assertion proves nothing")
+		return ""
+	}
+
+	if got := snippetFor(e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)); got != "ERP-27 · Acme Tooling" {
+		t.Errorf("owner's snippet = %q, want the company named", got)
+	}
+	if got := snippetFor(e.As(e.Rep3, []ids.UUID{e.Team2}, roomPerms)); got != "ERP-27" {
+		t.Errorf("another rep's snippet = %q, want the key alone — the company is capture-private to Rep1", got)
+	}
+	if got := snippetFor(e.As(e.Rep1, []ids.UUID{e.Team1}, withoutGrant(roomPerms, "organization"))); got != "ERP-27" {
+		t.Errorf("snippet without the organization grant = %q, want the key alone", got)
+	}
 }

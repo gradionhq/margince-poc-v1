@@ -16,6 +16,15 @@ import type { ComponentPropsWithRef } from "react";
 export type ISODate = `${number}-${number}-${number}`;
 
 /**
+ * isISODate is how a string the element reported becomes a `value` this
+ * control accepts again. The element only ever reports `YYYY-MM-DD` or `""`,
+ * so this narrows rather than validates — the same caveat as the type.
+ */
+export function isISODate(raw: string): raw is ISODate {
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw);
+}
+
+/**
  * `value` and `defaultValue` are narrowed from React's
  * `string | number | readonly string[]`; the rest of an input's props pass
  * through. `""` is admitted because a cleared date field is the ordinary empty

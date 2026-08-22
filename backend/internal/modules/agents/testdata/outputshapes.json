@@ -3346,6 +3346,10 @@
               "generated_by": {
                 "type": "string"
               },
+              "project_id": {
+                "type": "string",
+                "format": "uuid"
+              },
               "sections": {
                 "type": "array",
                 "items": {

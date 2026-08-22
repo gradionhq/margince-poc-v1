@@ -64,3 +64,88 @@ export const RECORD_ZONE = "Europe/Berlin";
 export function viewerZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
+
+// The offset (ms) `zone` sits at relative to UTC at the instant `utcMs`
+// names — positive east of UTC, negative west. Derived by re-reading the
+// instant's wall clock through the zone and comparing it back against UTC,
+// the standard technique for converting a zoned wall clock to an instant
+// without a timezone-database library.
+function zoneOffsetMs(utcMs: number, zone: string): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })
+      .formatToParts(new Date(utcMs))
+      .map((part) => [part.type, part.value]),
+  );
+  const asIfUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second),
+  );
+  return asIfUtc - utcMs;
+}
+
+// instantInZone resolves the UTC instant at which `zone`'s wall clock reads
+// the given date and time. Two passes: the zone's offset can itself change
+// within the correction (a DST transition landing exactly at that wall-clock
+// moment) — re-deriving it from the corrected instant resolves that edge.
+// Whole seconds only: Intl.DateTimeFormat never reports fractional seconds,
+// so a sub-second component would desync the wall-clock comparison from the
+// reconstructed one by up to a second.
+function instantInZone(
+  dateOnly: string,
+  zone: string,
+  hour: number,
+  minute: number,
+  second: number,
+): number {
+  const [year, month, day] = dateOnly.split("-").map(Number);
+  const wallClockMs = Date.UTC(year, month - 1, day, hour, minute, second);
+  let utcMs = wallClockMs;
+  for (let pass = 0; pass < 2; pass += 1) {
+    utcMs = wallClockMs - zoneOffsetMs(utcMs, zone);
+  }
+  return utcMs;
+}
+
+/**
+ * A calendar day, picked as a date-only string, read as a day in `zone`.
+ * Minting it as `new Date(dateOnly).toISOString()` reads the string as UTC
+ * midnight, which silently rolls the day back for anyone west of UTC and
+ * forward for evening messages east of it: the picker and the rendered row
+ * would then disagree about which day was meant.
+ *
+ * `startOfDayInZone` is the day's first instant; `daysLater` shifts by whole
+ * calendar days, which is how an EXCLUSIVE range end is spelled from an
+ * inclusive "to" day — the next day's start — without an arithmetic step
+ * across a DST change.
+ */
+export function startOfDayInZone(
+  dateOnly: string,
+  zone: string,
+  daysLater = 0,
+): string {
+  const [year, month, day] = dateOnly.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + daysLater))
+    .toISOString()
+    .slice(0, 10);
+  return new Date(instantInZone(shifted, zone, 0, 0, 0)).toISOString();
+}
+
+/** The day's last instant, 23:59:59.999 on `zone`'s wall clock. */
+export function endOfDayInZone(dateOnly: string, zone: string): string {
+  return new Date(
+    instantInZone(dateOnly, zone, 23, 59, 59) + 999,
+  ).toISOString();
+}

@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 56 |
 | Resources | 8 |
-| Tool catalog | 150.8 KB |
+| Tool catalog | 149.8 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 39380 |
+| Approx. wire tokens | 39130 |
 | Largest tool | `read_project_360` (6.3 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 71.9 KB | 47% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 34.6 KB | 22% | Yes, every step |
-| Input schemas | 32.5 KB | 21% | Yes, every step |
+| Output schemas | 72.0 KB | 48% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 34.8 KB | 23% | Yes, every step |
+| Input schemas | 31.3 KB | 20% | Yes, every step |
 | _Names, annotations, punctuation_ | 11.8 KB | 7% | Partly |
-| **Description + input schema** | **67.1 KB** | **44%** | **the recurring cost** |
+| **Description + input schema** | **66.1 KB** | **44%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -66,7 +66,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.5 KB |
 | [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.7 KB |
-| [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.7 KB |
+| [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.8 KB |
 | [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.2 KB |
 | [`commit_import`](#commit_import) | Commit an import |  |  | 1.8 KB |
 | [`create_record`](#create_record) | Create a record |  |  | 2.6 KB |
@@ -86,7 +86,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`list_tags`](#list_tags) | List tags | yes |  | 1.6 KB |
 | [`log_activity`](#log_activity) | Log an activity |  |  | 2.9 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
-| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.8 KB |
+| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 4.0 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
 | [`preview_import`](#preview_import) | Preview an import |  |  | 2.2 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.0 KB |
@@ -104,9 +104,9 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`relink_thread`](#relink_thread) | Re-associate a whole conversation to a record |  |  | 1.9 KB |
 | [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
-| [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
-| [`run_report`](#run_report) | Run a report | yes |  | 6.0 KB |
-| [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
+| [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.9 KB |
+| [`run_report`](#run_report) | Run a report | yes |  | 4.5 KB |
+| [`search_context`](#search_context) | Search for relevant material | yes |  | 3.1 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
 | [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.3 KB |
 | [`send_email`](#send_email) | Send an email |  |  | 3.0 KB |
@@ -1525,6 +1525,11 @@ Answer "what has been going on with this?" for one person, company, deal, lead, 
       "maximum": 20,
       "minimum": 1,
       "type": "integer"
+    },
+    "project_id": {
+      "description": "Keep only what is filed under this project or under none",
+      "format": "uuid",
+      "type": "string"
     },
     "record_id": {
       "format": "uuid",
@@ -5014,6 +5019,11 @@ Get ready for a specific meeting: given the meeting, the same written brief a pe
       "minimum": 1,
       "type": "integer"
     },
+    "project_id": {
+      "description": "Keep only what is filed under this project or under none",
+      "format": "uuid",
+      "type": "string"
+    },
     "record_id": {
       "format": "uuid",
       "type": "string"
@@ -5057,6 +5067,10 @@ Get ready for a specific meeting: given the meeting, the same written brief a pe
               "type": "string"
             },
             "generated_by": {
+              "type": "string"
+            },
+            "project_id": {
+              "format": "uuid",
               "type": "string"
             },
             "sections": {
@@ -8984,6 +8998,11 @@ Renders its result in [`ui://margince/commitments.html`](#commitments_view), vis
       "maximum": 50,
       "minimum": 1,
       "type": "integer"
+    },
+    "project_id": {
+      "description": "Keep only promises filed under this project or under none",
+      "format": "uuid",
+      "type": "string"
     }
   },
   "type": "object"
@@ -9205,15 +9224,12 @@ Answer a question about totals, counts or breakdowns — pipeline by stage, deal
       "type": "array"
     },
     "report": {
-      "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind, project, project_id; filters: direction, kind, project_id; aggregates: (none); default: count as activities grouped by kind; note: project_id admits exactly the activities filed under that project (an activity_link row naming it); an activity filed nowhere, or under another project, is excluded. deals-by-stage — group_by: currency, partner_org_id, pipeline_id, stage_id, status, win_probability; filters: currency, organization_id, owner_id, partner_sourced, pipeline_id, project_id, stalled, status; aggregates: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id, currency. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, project_id, stage_id; aggregates: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category, currency. open-deals-per-company — group_by: currency, organization_id, owner_id; filters: currency, owner_id, pipeline_id, project_id; aggregates: amount_minor; default: count as open_deals grouped by organization_id. project-commitments — group_by: key, name, organization_id, owner_id, phase, project_id; filters: organization_id, owner_id, phase; aggregates: open_commitments, overdue_commitments; default: sum(overdue_commitments) as overdue_commitments, sum(open_commitments) as open_commitments grouped by project_id, name, key, phase, owner_id; note: rows are ordered most overdue first. projects-by-phase — group_by: organization_id, owner_id, phase; filters: organization_id, owner_id, phase; aggregates: open_deal_value_minor, won_deal_value_minor; default: count as projects, sum(open_deal_value_minor) as open_deal_value_minor, sum(won_deal_value_minor) as won_deal_value_minor grouped by phase; note: deal values are in the installation's base currency; an open deal in another currency counts nothing until it closes. projects-gone-quiet — group_by: key, last_activity_at, name, organization_id, owner_id, phase, project_id, quiet_since; filters: days, organization_id, owner_id, phase; aggregates: (none); default: count as projects grouped by project_id, name, key, phase, owner_id, last_activity_at, quiet_since; note: `days` is a whole number of days of silence, default 30; quiet_since is when the silence began. win-loss — group_by: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; filters: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, project_id, source, status; aggregates: amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by status, currency. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
+      "description": "The prebuilt report to run. Send `report` alone to get its defaults; the three plan arguments accept ONLY the names listed for that report. activities-by-kind — group_by: direction, kind; filters: direction, kind; aggregates: (none); default: count as activities grouped by kind. deals-by-stage — group_by: currency, partner_org_id, pipeline_id, stage_id, status, win_probability; filters: currency, organization_id, owner_id, partner_sourced, pipeline_id, stalled, status; aggregates: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by stage_id, currency. forecast — group_by: currency, forecast_category, owner_id, pipeline_id, stage_id, win_probability; filters: currency, forecast_category, owner_id, pipeline_id, stage_id; aggregates: amount_minor, weighted_amount_minor; default: count as deals, sum(amount_minor) as unweighted_minor, sum(weighted_amount_minor) as weighted_minor grouped by forecast_category, currency. open-deals-per-company — group_by: currency, organization_id, owner_id; filters: currency, owner_id, pipeline_id; aggregates: amount_minor; default: count as open_deals grouped by organization_id. win-loss — group_by: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; filters: currency, organization_id, owner_id, period_month, period_quarter, period_year, pipeline_id, source, status; aggregates: amount_minor; default: count as deals, sum(amount_minor) as amount_minor_sum grouped by status, currency. A `pipeline_id` or `stage_id` used here comes from list_pipelines — no other tool on this surface yields one.",
       "enum": [
         "activities-by-kind",
         "deals-by-stage",
         "forecast",
         "open-deals-per-company",
-        "project-commitments",
-        "projects-by-phase",
-        "projects-gone-quiet",
         "win-loss"
       ],
       "type": "string"
@@ -9360,7 +9376,7 @@ Answer a question about totals, counts or breakdowns — pipeline by stage, deal
 
 **Search for relevant material**
 
-Find the records most relevant to a description, ranked by meaning as well as by wording, each with the excerpt that ranked it. Ranked, never exhaustive: records that also match may be absent, and no count of them exists. You can narrow it to particular record types, but not by field, date or owner, and it does not group or total. Use query_workspace when the question has conditions, a date bound or a related record to reach through, and search_records when you have the exact name or phrase. Read `coverage`: `partial_degraded` means `notes` matters, and `semantic_ranking_degraded_to_lexical` there means the ranking fell back to word overlap. Keep each hit's record_type and id. (Governance: runs immediately; requires passport scope "read".)
+Find the records most relevant to a description, ranked by meaning as well as by wording, each with the excerpt that ranked it. Ranked, never exhaustive: records that also match may be absent, and no count of them exists. You can narrow it to particular record types, but not by field, date or owner, and it does not group or total. It cannot be narrowed to a project either: the index carries no project column, so use catch_me_up_on with project_id for that. Use query_workspace when the question has conditions, a date bound or a related record to reach through, and search_records when you have the exact name or phrase. Read `coverage`: `partial_degraded` means `notes` matters, and `semantic_ranking_degraded_to_lexical` there means the ranking fell back to word overlap. Keep each hit's record_type and id. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 

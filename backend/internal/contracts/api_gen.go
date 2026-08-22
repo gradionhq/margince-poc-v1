@@ -3315,18 +3315,16 @@ func (e CreateContractRequestValueBasis) Valid() bool {
 
 // Defines values for CreateCustomFieldRequestObject.
 const (
-	CreateCustomFieldRequestObjectActivity     CreateCustomFieldRequestObject = "activity"
 	CreateCustomFieldRequestObjectDeal         CreateCustomFieldRequestObject = "deal"
 	CreateCustomFieldRequestObjectLead         CreateCustomFieldRequestObject = "lead"
 	CreateCustomFieldRequestObjectOrganization CreateCustomFieldRequestObject = "organization"
 	CreateCustomFieldRequestObjectPerson       CreateCustomFieldRequestObject = "person"
+	CreateCustomFieldRequestObjectProject      CreateCustomFieldRequestObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the CreateCustomFieldRequestObject enum.
 func (e CreateCustomFieldRequestObject) Valid() bool {
 	switch e {
-	case CreateCustomFieldRequestObjectActivity:
-		return true
 	case CreateCustomFieldRequestObjectDeal:
 		return true
 	case CreateCustomFieldRequestObjectLead:
@@ -3334,6 +3332,8 @@ func (e CreateCustomFieldRequestObject) Valid() bool {
 	case CreateCustomFieldRequestObjectOrganization:
 		return true
 	case CreateCustomFieldRequestObjectPerson:
+		return true
+	case CreateCustomFieldRequestObjectProject:
 		return true
 	default:
 		return false
@@ -3837,18 +3837,16 @@ func (e CreateVoiceBuildRequestReason) Valid() bool {
 
 // Defines values for CustomFieldObject.
 const (
-	CustomFieldObjectActivity     CustomFieldObject = "activity"
 	CustomFieldObjectDeal         CustomFieldObject = "deal"
 	CustomFieldObjectLead         CustomFieldObject = "lead"
 	CustomFieldObjectOrganization CustomFieldObject = "organization"
 	CustomFieldObjectPerson       CustomFieldObject = "person"
+	CustomFieldObjectProject      CustomFieldObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the CustomFieldObject enum.
 func (e CustomFieldObject) Valid() bool {
 	switch e {
-	case CustomFieldObjectActivity:
-		return true
 	case CustomFieldObjectDeal:
 		return true
 	case CustomFieldObjectLead:
@@ -3856,6 +3854,8 @@ func (e CustomFieldObject) Valid() bool {
 	case CustomFieldObjectOrganization:
 		return true
 	case CustomFieldObjectPerson:
+		return true
+	case CustomFieldObjectProject:
 		return true
 	default:
 		return false
@@ -10620,18 +10620,16 @@ func (e BookMeetingJSONBodyLinksEntityType) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsObject.
 const (
-	ListCustomFieldsParamsObjectActivity     ListCustomFieldsParamsObject = "activity"
 	ListCustomFieldsParamsObjectDeal         ListCustomFieldsParamsObject = "deal"
 	ListCustomFieldsParamsObjectLead         ListCustomFieldsParamsObject = "lead"
 	ListCustomFieldsParamsObjectOrganization ListCustomFieldsParamsObject = "organization"
 	ListCustomFieldsParamsObjectPerson       ListCustomFieldsParamsObject = "person"
+	ListCustomFieldsParamsObjectProject      ListCustomFieldsParamsObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsObject enum.
 func (e ListCustomFieldsParamsObject) Valid() bool {
 	switch e {
-	case ListCustomFieldsParamsObjectActivity:
-		return true
 	case ListCustomFieldsParamsObjectDeal:
 		return true
 	case ListCustomFieldsParamsObjectLead:
@@ -10639,6 +10637,8 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 	case ListCustomFieldsParamsObjectOrganization:
 		return true
 	case ListCustomFieldsParamsObjectPerson:
+		return true
+	case ListCustomFieldsParamsObjectProject:
 		return true
 	default:
 		return false
@@ -13107,6 +13107,9 @@ type BuyerRoomView struct {
 
 	// Participant The caller, as the room knows them. Nothing about anyone else in the room.
 	Participant BuyerRoomParticipant `json:"participant"`
+
+	// Preview True when this session is a seller previewing the room as a buyer. Such a session can read and never write.
+	Preview *bool `json:"preview,omitempty"`
 
 	// Room Omitted while access is `paused` or `expired`, and when nothing has been published yet.
 	Room *BuyerRoomContent `json:"room,omitempty"`
@@ -15741,6 +15744,13 @@ type DealRoomParticipantListResponse struct {
 type DealRoomPeekResponse struct {
 	// Exchangeable True only for a credential that can be exchanged right now. Identical for a paused and a live room.
 	Exchangeable bool `json:"exchangeable"`
+}
+
+// DealRoomPreviewIssued defines model for DealRoomPreviewIssued.
+type DealRoomPreviewIssued struct {
+	// Credential The one-time `mdr_` credential. Shown once; the server keeps only its digest.
+	Credential          string    `json:"credential"`
+	CredentialExpiresAt time.Time `json:"credential_expires_at"`
 }
 
 // DealRoomRelease An immutable published snapshot. Every buyer-visible editorial value is COPIED
@@ -23612,6 +23622,12 @@ type ListActivitiesParams struct {
 
 	// ThreadKey One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread.
 	ThreadKey *string `form:"thread_key,omitempty" json:"thread_key,omitempty"`
+
+	// OccurredAfter Only activities that occurred at or after this instant (inclusive). Pairs with `occurred_before` for a date range; either may stand alone.
+	OccurredAfter *time.Time `form:"occurred_after,omitempty" json:"occurred_after,omitempty"`
+
+	// OccurredBefore Only activities that occurred strictly before this instant (exclusive), so a day range is `occurred_after=<day 00:00>&occurred_before=<next day 00:00>`.
+	OccurredBefore *time.Time `form:"occurred_before,omitempty" json:"occurred_before,omitempty"`
 }
 
 // ListActivitiesParamsKind defines parameters for ListActivities.
@@ -24528,6 +24544,9 @@ type ListDealRoomsParams struct {
 	// DealId Only the room belonging to this deal.
 	DealId *openapi_types.UUID `form:"deal_id,omitempty" json:"deal_id,omitempty"`
 	State  *DealRoomState      `form:"state,omitempty" json:"state,omitempty"`
+
+	// ParticipantEmail Only rooms this address may currently enter — a live, non-revoked seat. The admin's path to "which rooms is this departed contact still in".
+	ParticipantEmail *openapi_types.Email `form:"participant_email,omitempty" json:"participant_email,omitempty"`
 }
 
 // CreateDealRoomParams defines parameters for CreateDealRoom.
@@ -36390,6 +36409,9 @@ type ServerInterface interface {
 	// Pause buyer access without ending it.
 	// (POST /deal-rooms/{id}/pause)
 	PauseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
+	// See the room as a buyer would — a real buyer session, minted for the caller.
+	// (POST /deal-rooms/{id}/preview)
+	PreviewDealRoom(w http.ResponseWriter, r *http.Request, id Id)
 	// Publish the working copy as the next release.
 	// (POST /deal-rooms/{id}/publish)
 	PublishDealRoom(w http.ResponseWriter, r *http.Request, id Id)
@@ -38256,6 +38278,12 @@ func (_ Unimplemented) RevokeDealRoomParticipant(w http.ResponseWriter, r *http.
 // Pause buyer access without ending it.
 // (POST /deal-rooms/{id}/pause)
 func (_ Unimplemented) PauseDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// See the room as a buyer would — a real buyer session, minted for the caller.
+// (POST /deal-rooms/{id}/preview)
+func (_ Unimplemented) PreviewDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40387,6 +40415,32 @@ func (siw *ServerInterfaceWrapper) ListActivities(w http.ResponseWriter, r *http
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "thread_key"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "thread_key", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "occurred_after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "occurred_after", r.URL.Query(), &params.OccurredAfter, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "occurred_after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "occurred_after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "occurred_before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "occurred_before", r.URL.Query(), &params.OccurredBefore, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "occurred_before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "occurred_before", Err: err})
 		}
 		return
 	}
@@ -45505,6 +45559,19 @@ func (siw *ServerInterfaceWrapper) ListDealRooms(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// ------------- Optional query parameter "participant_email" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "participant_email", r.URL.Query(), &params.ParticipantEmail, runtime.BindQueryParameterOptions{Type: "string", Format: "email"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "participant_email"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "participant_email", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDealRooms(w, r, params)
 	}))
@@ -46315,6 +46382,38 @@ func (siw *ServerInterfaceWrapper) PauseDealRoom(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PauseDealRoom(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) PreviewDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewDealRoom(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -62030,6 +62129,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deal-rooms/{id}/pause", wrapper.PauseDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/preview", wrapper.PreviewDealRoom)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deal-rooms/{id}/publish", wrapper.PublishDealRoom)

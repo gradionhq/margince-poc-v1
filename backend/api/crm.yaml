@@ -3685,6 +3685,18 @@ paths:
             One provider conversation. The company view's timeline groups by thread client-side over
             the page it holds, so a group cut off by that page completes itself through this rather
             than by widening the page for every account that has no long thread.
+        - name: occurred_after
+          in: query
+          schema: { type: string, format: date-time }
+          description: >-
+            Only activities that occurred at or after this instant (inclusive). Pairs with
+            `occurred_before` for a date range; either may stand alone.
+        - name: occurred_before
+          in: query
+          schema: { type: string, format: date-time }
+          description: >-
+            Only activities that occurred strictly before this instant (exclusive), so a day range
+            is `occurred_after=<day 00:00>&occurred_before=<next day 00:00>`.
       responses:
         '200':
           description: A page of activities (newest first by default).
@@ -9001,7 +9013,7 @@ paths:
         - name: object
           in: query
           required: true
-          schema: { type: string, enum: [person, organization, deal, lead, activity] }
+          schema: { type: string, enum: [person, organization, deal, lead, project] }
           description: Target core object (CUSTOM-FIELDS-PARAM-2).
         - name: status
           in: query
@@ -11116,6 +11128,12 @@ paths:
         - name: state
           in: query
           schema: { $ref: '#/components/schemas/DealRoomState' }
+        - name: participant_email
+          in: query
+          schema: { type: string, format: email }
+          description: >-
+            Only rooms this address may currently enter — a live, non-revoked seat.
+            The admin's path to "which rooms is this departed contact still in".
       responses:
         '200':
           description: A page of Deal Rooms.
@@ -11383,6 +11401,35 @@ paths:
   # access back — so unlike the room's draft text, none of this carries an
   # x-mcp-tool. Reading the roster is agent-readable: an agent summarising a
   # deal's state may say who is in the room.
+  /deal-rooms/{id}/preview:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Deals]
+      operationId: previewDealRoom
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: See the room as a buyer would — a real buyer session, minted for the caller.
+      description: |
+        Issues a one-time credential for a PREVIEW participant: the caller's own
+        seat, as a read-only buyer the real buyers never see. It goes through the
+        exact public edge a buyer uses, so what the rep sees is what the buyer gets
+        — only the latest release, the paused page, the closed page. The credential
+        lives ten minutes and the session one hour; every earlier preview session
+        of this rep is ended first. A preview session is refused by every public
+        write. Refused in `draft` (there is nothing published to see) and in
+        `archived`.
+      responses:
+        '201':
+          description: The one-time credential, returned exactly once.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomPreviewIssued' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /deal-rooms/{id}/participants:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -24054,7 +24101,7 @@ components:
         id: { type: string, format: uuid }
         object:
           type: string
-          enum: [person, organization, deal, lead, activity]
+          enum: [person, organization, deal, lead, project]
           description: The existing core object this field is added to (CUSTOM-FIELDS-PARAM-2).
         label: { type: string, description: Display label; the only thing a rename updates. }
         slug: { type: string, description: Admin-facing key the column_name derives from. }
@@ -24112,7 +24159,7 @@ components:
       properties:
         object:
           type: string
-          enum: [person, organization, deal, lead, activity]
+          enum: [person, organization, deal, lead, project]
         label: { type: string }
         type:
           type: string
@@ -26784,6 +26831,15 @@ components:
         document_id: { type: [string, 'null'], format: uuid }
         title: { type: [string, 'null'], description: 'The document title the sentence names: current, or as last published.' }
 
+    DealRoomPreviewIssued:
+      type: object
+      required: [credential, credential_expires_at]
+      properties:
+        credential:
+          type: string
+          description: The one-time `mdr_` credential. Shown once; the server keeps only its digest.
+        credential_expires_at: { type: string, format: date-time }
+
     DealRoomReleaseListResponse:
       type: object
       required: [data, page]
@@ -27066,6 +27122,9 @@ components:
       properties:
         access: { $ref: '#/components/schemas/BuyerRoomAccess' }
         participant: { $ref: '#/components/schemas/BuyerRoomParticipant' }
+        preview:
+          type: boolean
+          description: True when this session is a seller previewing the room as a buyer. Such a session can read and never write.
         steward_name:
           type: [string, 'null']
           description: Whom to contact. Present in every access state, because a paused buyer needs it most.

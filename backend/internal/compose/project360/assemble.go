@@ -173,9 +173,15 @@ func (a *assembly) activityFacts() (activities.ProjectActivityFacts, error) {
 	return facts, nil
 }
 
-// pageInfo carries a store page onto the wire shape. The cursor is
-// deliberately dropped: a section is a summary, and page two comes from the
-// endpoint that owns the collection.
+// pageInfo carries a store page onto the wire shape, cursor included: page
+// two comes from the endpoint that owns the collection, and that endpoint
+// needs this section's edge to continue from it. A section that said "more"
+// without saying where made the record page fetch page one again and show
+// every row twice.
 func pageInfo(p storekit.Page) crmcontracts.PageInfo {
-	return crmcontracts.PageInfo{HasMore: p.HasMore}
+	info := crmcontracts.PageInfo{HasMore: p.HasMore}
+	if p.NextCursor != "" {
+		info.NextCursor = &p.NextCursor
+	}
+	return info
 }

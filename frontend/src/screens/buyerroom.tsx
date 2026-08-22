@@ -716,6 +716,25 @@ const ACCESS_TITLE: Record<string, MessageKey> = {
   expired: "buyer.expiredTitle",
 };
 
+// Why this reader may not write in the conversation, in the order that
+// binds first: a preview never writes, a closed room takes nothing more, a
+// read-only seat may only read. Undefined when they may.
+function conversationRefusal(
+  view: BuyerRoomView,
+  t: ReturnType<typeof useT>,
+): string | undefined {
+  if (view.preview) {
+    return t("buyer.previewReadOnly");
+  }
+  if (view.access === "closed") {
+    return t("buyer.closed");
+  }
+  if (view.participant.capability === "view") {
+    return t("threads.readOnly");
+  }
+  return undefined;
+}
+
 function RoomView({
   view,
   token,
@@ -729,23 +748,28 @@ function RoomView({
   const steward = view.steward_name ?? t("buyer.stewardUnknown");
   if (view.access === "paused" || view.access === "expired") {
     return (
-      <Panel title={t(ACCESS_TITLE[view.access])}>
-        <PanelBody>
-          <p>
-            {t(
-              view.access === "paused"
-                ? "buyer.pausedBody"
-                : "buyer.expiredBody",
-              { steward },
-            )}
-          </p>
-        </PanelBody>
-        {view.access === "expired" ? (
-          <PanelBody>
-            <LinkRequest />
-          </PanelBody>
+      <>
+        {view.preview ? (
+          <Callout tone="info">{t("buyer.previewBanner")}</Callout>
         ) : null}
-      </Panel>
+        <Panel title={t(ACCESS_TITLE[view.access])}>
+          <PanelBody>
+            <p>
+              {t(
+                view.access === "paused"
+                  ? "buyer.pausedBody"
+                  : "buyer.expiredBody",
+                { steward },
+              )}
+            </p>
+          </PanelBody>
+          {view.access === "expired" ? (
+            <PanelBody>
+              <LinkRequest />
+            </PanelBody>
+          ) : null}
+        </Panel>
+      </>
     );
   }
   if (!view.room) {
@@ -759,6 +783,9 @@ function RoomView({
   }
   return (
     <>
+      {view.preview ? (
+        <Callout tone="info">{t("buyer.previewBanner")}</Callout>
+      ) : null}
       <header className="buyer-header">
         <Eyebrow as="span">{t("buyer.eyebrow")}</Eyebrow>
         <h1>{view.room.title}</h1>
@@ -780,13 +807,7 @@ function RoomView({
         mayWrite={
           view.access === "live" && view.participant.capability !== "view"
         }
-        refusal={
-          view.access === "closed"
-            ? t("buyer.closed")
-            : view.participant.capability === "view"
-              ? t("threads.readOnly")
-              : undefined
-        }
+        refusal={conversationRefusal(view, t)}
       />
     </>
   );

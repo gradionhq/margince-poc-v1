@@ -697,6 +697,19 @@ export const vi = {
   "timeline.group.collapse": "Đóng",
   "timeline.group.openThread": "Xem toàn bộ luồng",
   "timeline.group.mayContinue": "có thể còn tiếp phía trước",
+  "timeline.filters.kind": "Loại hoạt động",
+  "timeline.filters.kind.all": "Mọi loại",
+  "timeline.filters.kind.email": "Email",
+  "timeline.filters.kind.message": "Tin nhắn",
+  "timeline.filters.kind.call": "Cuộc gọi",
+  "timeline.filters.kind.meeting": "Cuộc họp",
+  "timeline.filters.kind.note": "Ghi chú",
+  "timeline.filters.kind.task": "Công việc",
+  "timeline.filters.search": "Tìm trong dòng thời gian này",
+  "timeline.filters.from": "Từ",
+  "timeline.filters.to": "Đến",
+  "timeline.filters.searchOmitsLimited":
+    "Khi tìm kiếm, những cuộc trò chuyện bạn không được mở nội dung sẽ không xuất hiện.",
   "tab.people": "Người",
   "tab.deals": "Deals",
   "tab.tasks": "Công việc",
@@ -811,6 +824,10 @@ export const vi = {
     "Điều người mua đọc đầu tiên. Đến với họ ở lần công bố tiếp theo.",
   "roompage.text.titleLabel": "Tiêu đề phòng",
   "roompage.text.welcomeLabel": "Lời chào",
+  "roompage.viewAsBuyer": "Xem như người mua",
+  "roompage.previewDraft":
+    "Hãy công bố trước — người mua chỉ thấy bản đã công bố.",
+  "roompage.previewArchived": "Phòng đã lưu trữ không có gì để xem trước.",
   "roompage.publish": "Công bố",
   "roompage.publishFinished":
     "Phòng này đã kết thúc và không nhận thêm bản phát hành.",
@@ -887,6 +904,13 @@ export const vi = {
   "access.revokeBody":
     "Phiên của họ kết thúc ngay và liên kết ngừng hoạt động. Bình luận của họ vẫn hiển thị và ghi tên. Không thể khôi phục bằng cách xin liên kết.",
   "access.changeCapabilityTitle": "{name} được làm gì?",
+  "persondealrooms.title": "Deal Room",
+  "persondealrooms.sub": "Các phòng liên hệ này vẫn có thể vào.",
+  "persondealrooms.open": "Mở",
+  "persondealrooms.seatGone": "Địa chỉ này không còn chỗ trong phòng đó.",
+  "persondealrooms.cut":
+    "Chỉ hiện các phòng đầu tiên; liên hệ này còn ở trong các phòng khác.",
+  "persondealrooms.revokeTitle": "Thu hồi quyền vào {room}?",
   "room.state.draft": "Bản nháp",
   "room.state.building": "Đang dựng",
   "room.state.ready": "Sẵn sàng",
@@ -4204,6 +4228,10 @@ export const vi = {
   "buyer.eyebrow": "Phòng giao dịch (Deal Room)",
   "buyer.contact": "Người liên hệ của bạn: {steward}.",
   "buyer.closed": "Phòng này đã đóng; những gì đã chia sẻ giờ là bản ghi.",
+  "buyer.previewBanner":
+    "Bạn đang xem trước phòng này như người mua sẽ thấy. Bạn có thể đọc mọi thứ và không thay đổi gì.",
+  "buyer.previewReadOnly":
+    "Bản xem trước không thể ghi. Đóng tab này để quay lại trang Deal Room.",
   "buyer.closedNote": "Phòng này hiện chỉ đọc.",
   "buyer.stewardUnknown": "người liên hệ của bạn",
   "buyer.signOut": "Đăng xuất",
@@ -5414,10 +5442,6 @@ export const vi = {
   "person.thin.remediation.employer":
     "Hãy thêm nơi họ làm việc, Margince sẽ đọc website công ty đó để tìm vai trò của họ.",
   "person.thin.logFirst": "Ghi nhận tương tác đầu tiên",
-  "person.timeline.all": "Tất cả",
-  "person.timeline.messages": "Tin nhắn",
-  "person.timeline.meetings": "Cuộc họp",
-  "person.timeline.tasks": "Công việc",
   "person.enriched.title": "Những gì Margince đọc được",
   "person.enriched.sub":
     "Mỗi giá trị kèm đoạn văn bản đã đọc ra nó. Bạn sửa một giá trị thì bản sửa được giữ nguyên.",

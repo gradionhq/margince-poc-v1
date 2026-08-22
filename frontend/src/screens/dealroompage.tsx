@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, Pause, Play, Send, Square } from "lucide-react";
+import { ExternalLink, Eye, Pause, Play, Send, Square } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -28,7 +28,7 @@ import {
   STATE_LABELS,
   useDealRoom,
 } from "./dealroom";
-import { DealRoomAccess, useParticipants } from "./dealroomaccess";
+import { buyerLink, DealRoomAccess, useParticipants } from "./dealroomaccess";
 import { DealRoomConversation } from "./dealroomconversation";
 import { DealRoomDocuments, useRoomDocuments } from "./dealroomdocuments";
 import "./dealroompage.css";
@@ -118,6 +118,7 @@ function RoomPage({
         </div>
         <div className="roompage-verbs">
           <Badge>{t(STATE_LABELS[room.state])}</Badge>
+          {mayWrite ? <ViewAsBuyerButton room={room} /> : null}
           {mayWrite ? <LifecycleMenu room={room} /> : null}
           {mayWrite ? <PublishButton room={room} /> : null}
         </div>
@@ -139,6 +140,53 @@ function RoomPage({
         </div>
       </div>
     </div>
+  );
+}
+
+// "View as buyer": a real buyer session, minted for the rep's own hidden
+// preview seat and opened through the public screen — so what the rep sees
+// is what the buyer gets, release and all. The credential rides in the new
+// tab's fragment exactly as a mailed link would, and is never kept here.
+function ViewAsBuyerButton({ room }: Readonly<{ room: DealRoom }>) {
+  const t = useT();
+  const preview = useMutation({
+    mutationFn: async (roomId: string) => {
+      const { data, error } = await api.POST("/deal-rooms/{id}/preview", {
+        params: { path: { id: roomId } },
+      });
+      if (error) {
+        throwProblem(error, t);
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data) {
+        window.open(buyerLink(data.credential), "_blank", "noopener");
+      }
+    },
+  });
+  const reason =
+    room.state === "draft"
+      ? t("roompage.previewDraft")
+      : room.state === "archived"
+        ? t("roompage.previewArchived")
+        : undefined;
+  return (
+    <>
+      <Button
+        reason={reason}
+        pending={preview.isPending}
+        onClick={() => preview.mutate(room.id)}
+      >
+        <ExternalLink aria-hidden />
+        {t("roompage.viewAsBuyer")}
+      </Button>
+      {preview.isError ? (
+        <span className="t-small t-danger">
+          {problemMessageOf(preview.error, t)}
+        </span>
+      ) : null}
+    </>
   );
 }
 

@@ -383,6 +383,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/deal-rooms/{id}/participants/{participantId}/resend":       {Op: "resendDealRoomInvitation", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/deal-rooms/{id}/participants/{participantId}/revoke":       {Op: "revokeDealRoomParticipant", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/deal-rooms/{id}/pause":                                     {Op: "pauseDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/deal-rooms/{id}/preview":                                   {Op: "previewDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/deal-rooms/{id}/publish":                                   {Op: "publishDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/deal-rooms/{id}/resume":                                    {Op: "resumeDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/deal-rooms/{id}/threads":                                   {Op: "openDealRoomThread", Access: "tool", Tool: "create_record", RecordType: "deal_room_thread", Tier: "auto_execute", Scope: "write"},

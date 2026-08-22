@@ -79,6 +79,12 @@ type ListOpenTasksInput struct {
 	// neither; one alone is ignored, exactly as in the timeline list.
 	EntityType *string
 	EntityID   *ids.UUID
+	// WithinProjectID keeps the promises filed under ONE project, plus the
+	// ones filed under none — the timeline list's own rule (ActivityWithinProject),
+	// applied as a co-filter over whatever else narrowed the sweep. Distinct
+	// from naming the project as EntityType/EntityID, which keeps only the
+	// promises filed under it.
+	WithinProjectID *ids.ProjectID
 	// Limit bounds the sweep. A caller passing zero or less gets
 	// openTasksDefaultLimit rather than an unbounded read.
 	Limit int
@@ -176,6 +182,11 @@ func listOpenTasks(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) ([]Ope
 // Out of scope answers ErrNotFound, the same as an id that names nothing —
 // existence-hiding, exactly as reading the record directly would.
 func ensureNarrowingVisible(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) error {
+	if in.WithinProjectID != nil {
+		if err := RequireProjectScope(ctx, tx, *in.WithinProjectID); err != nil {
+			return err
+		}
+	}
 	return ensureNarrowingTargetVisible(ctx, tx, in.EntityType, in.EntityID)
 }
 
@@ -217,6 +228,9 @@ func openTasksFilter(ctx context.Context, in ListOpenTasksInput, arg func(any) i
 	}
 	if in.AssigneeID != nil {
 		where = append(where, sprintf("a.assignee_id = $%d", arg(*in.AssigneeID)))
+	}
+	if in.WithinProjectID != nil {
+		where = append(where, ActivityWithinProject(arg(*in.WithinProjectID)))
 	}
 	if in.EntityType != nil && in.EntityID != nil {
 		column := linkColumn(*in.EntityType)

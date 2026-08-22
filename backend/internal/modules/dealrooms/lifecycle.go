@@ -147,6 +147,14 @@ func (s *Store) moveRoom(ctx context.Context, id ids.DealRoomID, move roomMove) 
 		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, move.payload(current.DealId)); err != nil {
 			return fmt.Errorf("emit deal room %s: %w", move.action, err)
 		}
+		// Leaving live ends the seller's own preview tabs; a buyer's session
+		// is untouched, because a paused or closed room still owes them the
+		// paused page or the record.
+		if move.to != stateLive {
+			if err := endPreviewSessions(ctx, tx, id); err != nil {
+				return err
+			}
+		}
 		out, err = readRoom(ctx, tx, id)
 		return err
 	})

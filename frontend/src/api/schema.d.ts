@@ -7564,6 +7564,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deal-rooms/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * See the room as a buyer would — a real buyer session, minted for the caller.
+         * @description Issues a one-time credential for a PREVIEW participant: the caller's own
+         *     seat, as a read-only buyer the real buyers never see. It goes through the
+         *     exact public edge a buyer uses, so what the rep sees is what the buyer gets
+         *     — only the latest release, the paused page, the closed page. The credential
+         *     lives ten minutes and the session one hour; every earlier preview session
+         *     of this rep is ended first. A preview session is refused by every public
+         *     write. Refused in `draft` (there is nothing published to see) and in
+         *     `archived`.
+         */
+        post: operations["previewDealRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deal-rooms/{id}/participants": {
         parameters: {
             query?: never;
@@ -17649,7 +17679,7 @@ export interface components {
              * @description The existing core object this field is added to (CUSTOM-FIELDS-PARAM-2).
              * @enum {string}
              */
-            object: "person" | "organization" | "deal" | "lead" | "activity";
+            object: "person" | "organization" | "deal" | "lead" | "project";
             /** @description Display label; the only thing a rename updates. */
             label: string;
             /** @description Admin-facing key the column_name derives from. */
@@ -17697,7 +17727,7 @@ export interface components {
          */
         CreateCustomFieldRequest: {
             /** @enum {string} */
-            object: "person" | "organization" | "deal" | "lead" | "activity";
+            object: "person" | "organization" | "deal" | "lead" | "project";
             label: string;
             /** @enum {string} */
             type: "text" | "number" | "date" | "currency" | "picklist" | "boolean";
@@ -20130,6 +20160,12 @@ export interface components {
             /** @description The document title the sentence names: current, or as last published. */
             title?: string | null;
         };
+        DealRoomPreviewIssued: {
+            /** @description The one-time `mdr_` credential. Shown once; the server keeps only its digest. */
+            credential: string;
+            /** Format: date-time */
+            credential_expires_at: string;
+        };
         DealRoomReleaseListResponse: {
             data: components["schemas"]["DealRoomRelease"][];
             page: components["schemas"]["PageInfo"];
@@ -20368,6 +20404,8 @@ export interface components {
         BuyerRoomView: {
             access: components["schemas"]["BuyerRoomAccess"];
             participant: components["schemas"]["BuyerRoomParticipant"];
+            /** @description True when this session is a seller previewing the room as a buyer. Such a session can read and never write. */
+            preview?: boolean;
             /** @description Whom to contact. Present in every access state, because a paused buyer needs it most. */
             steward_name?: string | null;
             /** @description Omitted while access is `paused` or `expired`, and when nothing has been published yet. */
@@ -25355,6 +25393,10 @@ export interface operations {
                 project_id?: string;
                 /** @description One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread. */
                 thread_key?: string;
+                /** @description Only activities that occurred at or after this instant (inclusive). Pairs with `occurred_before` for a date range; either may stand alone. */
+                occurred_after?: string;
+                /** @description Only activities that occurred strictly before this instant (exclusive), so a day range is `occurred_after=<day 00:00>&occurred_before=<next day 00:00>`. */
+                occurred_before?: string;
             };
             header?: never;
             path?: never;
@@ -31590,7 +31632,7 @@ export interface operations {
                  */
                 sort?: components["parameters"]["Sort"];
                 /** @description Target core object (CUSTOM-FIELDS-PARAM-2). */
-                object: "person" | "organization" | "deal" | "lead" | "activity";
+                object: "person" | "organization" | "deal" | "lead" | "project";
                 /** @description Filter to one lifecycle state. Omitted returns both active and retired — this admin list intentionally does not default-exclude retired rows. */
                 status?: "active" | "retired";
             };
@@ -34179,6 +34221,8 @@ export interface operations {
                 /** @description Only the room belonging to this deal. */
                 deal_id?: string;
                 state?: components["schemas"]["DealRoomState"];
+                /** @description Only rooms this address may currently enter — a live, non-revoked seat. The admin's path to "which rooms is this departed contact still in". */
+                participant_email?: string;
             };
             header?: never;
             path?: never;
@@ -34502,6 +34546,33 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    previewDealRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The one-time credential, returned exactly once. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomPreviewIssued"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };
     };
