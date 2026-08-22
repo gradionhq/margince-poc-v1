@@ -47,6 +47,40 @@ func (s *Store) GetProject(ctx context.Context, id ids.ProjectID, archived store
 	return out, err
 }
 
+// ActiveProjectColumns is the caller-side half of GetProjectTx: a caller that
+// opens the transaction itself reads the catalog BEFORE opening it, then
+// threads the answer in — the same order every store-opened entry point keeps,
+// because the catalog read takes a connection of its own. It takes
+// project:read, as people's ActiveOrganizationColumns takes organization:read:
+// which columns a record type carries is a fact about that record type.
+func (s *Store) ActiveProjectColumns(ctx context.Context) (CustomColumns, error) {
+	if err := auth.Require(ctx, projectObject, principal.ActionRead); err != nil {
+		return CustomColumns{}, err
+	}
+	cols, err := s.activeColumnsFor(ctx, projectObject)
+	if err != nil {
+		return CustomColumns{}, err
+	}
+	return CustomColumns{cols: cols}, nil
+}
+
+// GetProjectTx is GetProject inside a caller-opened transaction — the
+// composite record read, whose anchor must be read at the same instant as
+// every section under it. Same gate, same row scope, same field mask.
+func (s *Store) GetProjectTx(ctx context.Context, tx pgx.Tx, id ids.ProjectID, archived storekit.ArchivedFilter, active CustomColumns) (crmcontracts.Project, error) {
+	if err := auth.Require(ctx, projectObject, principal.ActionRead); err != nil {
+		return crmcontracts.Project{}, err
+	}
+	if err := auth.EnsureVisible(ctx, tx, projectObject, id.UUID); err != nil {
+		return crmcontracts.Project{}, err
+	}
+	p, err := readProject(ctx, tx, id, archived, active.cols)
+	if err != nil {
+		return crmcontracts.Project{}, err
+	}
+	return maskProjectForCaller(ctx, tx, p)
+}
+
 // ListProjectsInput is one filtered, sorted, cursor-paginated list read.
 type ListProjectsInput struct {
 	Cursor          *string

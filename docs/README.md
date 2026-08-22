@@ -2,13 +2,25 @@
 
 Documentation for building and operating **Margince** — a governed, multi-tenant CRM (a Go `/v1` API
 backend; the Vite/React web UI ships separately). The docs follow the [Diátaxis](https://diataxis.fr/) split: **tutorials** to learn,
-**how-to** guides for tasks, **reference** for lookup, **explanation** for the *why*.
+**how-to** guides for tasks, **reference** for lookup, **explanation** for the *why*, plus
+**[principles](principles/README.md)** — the handful of statements about this codebase's shape that
+settle a class of arguments before they start.
 
 **New to the backend? Start with [tutorials/getting-started.md](tutorials/getting-started.md), then
 [explanation/backend-onboarding.md](explanation/backend-onboarding.md)** — the orientation hub that
 maps the codebase and links everything below.
 
 ## Map
+
+### Principles — how this codebase decides things
+
+- [principles/README.md](principles/README.md) — the index. Each page carries the statement, the method for checking the tree still holds it, and what it explicitly does not ask for.
+- [one-source-of-truth.md](principles/one-source-of-truth.md) — one place decides each topic, and module boundaries decide where that place may live. Carries the six-probe duplication scan.
+- [the-record-is-the-code.md](principles/the-record-is-the-code.md) — what outranks what when two sources disagree.
+- [every-mutation-leaves-a-trace.md](principles/every-mutation-leaves-a-trace.md) — domain row, audit row and event commit together.
+- [legibility-is-the-product.md](principles/legibility-is-the-product.md) — why the craft bar is a gate rather than taste.
+- [derive-the-obligation.md](principles/derive-the-obligation.md) — how to write a fitness function that actually holds.
+- [nothing-here-is-private.md](principles/nothing-here-is-private.md) — the public reader, and why a working exploit takes the private path.
 
 ### Tutorials — learn by doing
 - [getting-started.md](tutorials/getting-started.md) — clone → running instance with a bootstrapped workspace.

@@ -8,18 +8,18 @@
     "enrich"
   ],
   "totals": {
-    "tools": 53,
+    "tools": 54,
     "resources": 8,
-    "tool_catalog_bytes": 143504,
+    "tool_catalog_bytes": 149919,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 36653,
-    "largest_tool_bytes": 4622,
-    "largest_tool": "run_report",
+    "approx_wire_tokens_total": 38256,
+    "largest_tool_bytes": 6414,
+    "largest_tool": "read_project_360",
     "tool_catalog_composition": {
-      "description_bytes": 34336,
-      "input_schema_bytes": 31442,
-      "output_schema_bytes": 66382,
-      "description_plus_input_schema_bytes": 65778
+      "description_bytes": 34842,
+      "input_schema_bytes": 31612,
+      "output_schema_bytes": 71921,
+      "description_plus_input_schema_bytes": 66454
     }
   },
   "tools": {
@@ -6740,6 +6740,595 @@
         "annotations": {
           "openWorldHint": false,
           "readOnlyHint": true,
+          "title": "Read a project's page"
+        },
+        "description": "Read one project's whole page: company, phase history with time per phase, deals, stakeholders, contracts, documents, open commitments, timeline, filing coverage, totals. Each section is cut at 25 rows and carries a truncated flag; sections_omitted names what your grants withhold. prepare_handoff for the delivery gaps, read_record for the project's stored fields alone. The project_id, and the deal, person and task ids a follow-up acts on. (Governance: runs immediately; requires passport scope \"read\".)",
+        "inputSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "project_id": {
+              "description": "The project to read",
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "project_id"
+          ],
+          "type": "object"
+        },
+        "name": "read_project_360",
+        "outputSchema": {
+          "properties": {
+            "data": {
+              "properties": {
+                "activities": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "activity_id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "direction": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "occurred_at": {
+                            "type": "string"
+                          },
+                          "subject": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "activity_id",
+                          "direction",
+                          "kind",
+                          "occurred_at",
+                          "subject"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "truncated"
+                  ],
+                  "type": "object"
+                },
+                "as_of": {
+                  "type": "string"
+                },
+                "commitments": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "about": {
+                            "items": {
+                              "properties": {
+                                "entity_id": {
+                                  "format": "uuid",
+                                  "type": "string"
+                                },
+                                "entity_type": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "entity_id",
+                                "entity_type"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "assignee_id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "assignee_name": {
+                            "type": "string"
+                          },
+                          "days_overdue": {
+                            "type": "integer"
+                          },
+                          "due_at": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string"
+                          },
+                          "subject": {
+                            "type": "string"
+                          },
+                          "task_id": {
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "about",
+                          "state",
+                          "subject",
+                          "task_id"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "truncated"
+                  ],
+                  "type": "object"
+                },
+                "contracts": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "contract_id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "contract_number": {
+                            "type": "string"
+                          },
+                          "currency": {
+                            "type": "string"
+                          },
+                          "ends_on": {
+                            "type": "string"
+                          },
+                          "starts_on": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "under_contract": {
+                            "type": "boolean"
+                          },
+                          "value_minor": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "contract_id",
+                          "contract_number",
+                          "currency",
+                          "status",
+                          "title",
+                          "under_contract"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "truncated"
+                  ],
+                  "type": "object"
+                },
+                "deals": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "amount_minor": {
+                            "type": "integer"
+                          },
+                          "currency": {
+                            "type": "string"
+                          },
+                          "deal_id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "deal_id",
+                          "name",
+                          "status"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "truncated"
+                  ],
+                  "type": "object"
+                },
+                "documents": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "attachment_id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "string"
+                          },
+                          "doc_state": {
+                            "type": "string"
+                          },
+                          "filename": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "attachment_id",
+                          "category",
+                          "created_at",
+                          "doc_state",
+                          "filename",
+                          "title"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "truncated"
+                  ],
+                  "type": "object"
+                },
+                "filing": {
+                  "properties": {
+                    "attributed": {
+                      "type": "integer"
+                    },
+                    "unattributed_nearby": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "attributed",
+                    "unattributed_nearby"
+                  ],
+                  "type": "object"
+                },
+                "organization": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "organization_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "organization_id"
+                  ],
+                  "type": "object"
+                },
+                "phase_history": {
+                  "properties": {
+                    "phase_durations": {
+                      "items": {
+                        "properties": {
+                          "current": {
+                            "type": "boolean"
+                          },
+                          "phase": {
+                            "type": "string"
+                          },
+                          "seconds": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "current",
+                          "phase",
+                          "seconds"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "transitions": {
+                      "items": {
+                        "properties": {
+                          "changed_at": {
+                            "type": "string"
+                          },
+                          "changed_by": {
+                            "type": "string"
+                          },
+                          "changed_by_name": {
+                            "type": "string"
+                          },
+                          "from_phase": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "to_phase": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "changed_at",
+                          "changed_by",
+                          "changed_by_name",
+                          "from_phase",
+                          "reason",
+                          "to_phase"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "phase_durations",
+                    "transitions"
+                  ],
+                  "type": "object"
+                },
+                "project": {
+                  "properties": {
+                    "closed_reason": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "ended_at": {
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "organization_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "owner_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "phase": {
+                      "type": "string"
+                    },
+                    "project_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "started_at": {
+                      "type": "string"
+                    },
+                    "target_end_date": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "closed_reason",
+                    "description",
+                    "key",
+                    "name",
+                    "phase",
+                    "project_id"
+                  ],
+                  "type": "object"
+                },
+                "rollups": {
+                  "properties": {
+                    "activity_count": {
+                      "type": "integer"
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "last_activity_at": {
+                      "type": "string"
+                    },
+                    "open_commitments": {
+                      "type": "integer"
+                    },
+                    "open_deal_value_minor": {
+                      "type": "integer"
+                    },
+                    "won_deal_value_minor": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "activity_count",
+                    "currency",
+                    "open_commitments",
+                    "open_deal_value_minor",
+                    "won_deal_value_minor"
+                  ],
+                  "type": "object"
+                },
+                "sections_omitted": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "stakeholders": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "person_id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "person_id"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "truncated"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "as_of",
+                "project",
+                "sections_omitted"
+              ],
+              "type": "object"
+            },
+            "evidence": {
+              "items": {
+                "properties": {
+                  "captured_by": {
+                    "type": "string"
+                  },
+                  "record_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "record_type": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "record_id",
+                  "record_type"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "freshness": {
+              "properties": {
+                "authoritative": {
+                  "type": "boolean"
+                },
+                "last_synced_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "authoritative"
+              ],
+              "type": "object"
+            },
+            "schema_version": {
+              "type": "string"
+            },
+            "trace_id": {
+              "type": "string"
+            },
+            "trust": {
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "data",
+            "evidence",
+            "freshness",
+            "schema_version",
+            "trace_id",
+            "trust",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        "title": "Read a project's page"
+      },
+      {
+        "annotations": {
+          "openWorldHint": false,
+          "readOnlyHint": true,
           "title": "Read a record"
         },
         "description": "Read one record's own stored fields — the values a person would see on its detail page — when you already know which record you mean. It returns that record and nothing around it: no timeline, no related people, no deals on the account. Use catch_me_up_on when the goal is what has been happening on the record rather than what it currently says. Keep the version from the result and pass it back as if_version on a later update, so a write is refused rather than silently overwriting a change made in between. (Governance: runs immediately; requires passport scope \"read\".)",
@@ -9429,7 +10018,7 @@
     "ttlMs": 60000
   },
   "documents": {
-    "margince://capabilities": "{\"version\":\"1\",\"governance\":{\"scopes_held\":[\"draft\",\"enrich\",\"read\",\"send\",\"write\"],\"model\":\"A call either executes under this passport's authority or stages an approval a human decides. An agent can never exceed the human who granted the passport, and every call is re-authorised at the moment it runs, so a revoked grant binds mid-session.\",\"host_confirmation\":\"A confirmation your own client shows the user is NOT one of these approvals. A staged call is decided in Margince and returns its outcome here.\"},\"verbs\":{\"offered\":53,\"execute_directly\":[\"account_coverage\",\"apply_tag\",\"at_risk_relationships\",\"catch_me_up_on\",\"check_availability\",\"create_record\",\"create_task\",\"decide_approval\",\"decide_approval_bundle\",\"draft_email\",\"draft_follow_ups_for\",\"intro_path_to\",\"list_approvals\",\"list_channel_providers\",\"list_colleagues\",\"list_pipelines\",\"list_records\",\"list_tags\",\"log_activity\",\"prep_for_meeting\",\"prepare_handoff\",\"preview_import\",\"qualify_lead\",\"query_workspace\",\"read_approval\",\"read_brief\",\"read_import_report\",\"read_import_run\",\"read_record\",\"remove_tag\",\"resolve_entities\",\"review_commitments\",\"run_report\",\"search_context\",\"search_records\",\"update_record\",\"whats_slipping_this_week\",\"who_knows\",\"whoami\"],\"stage_for_approval\":[\"advance_project_phase\",\"archive_record\",\"book_meeting\",\"commit_import\",\"disqualify_lead\",\"enrich\",\"merge_records\",\"promote_lead\",\"send_account_email\",\"send_email\",\"send_message\"],\"decided_per_call\":[\"advance_deal\",\"progress_deal\",\"relink_activity\"],\"decided_per_call_reason\":\"The tier depends on the arguments — the same verb can execute or stage depending on what it is asked to do.\"}}",
+    "margince://capabilities": "{\"version\":\"1\",\"governance\":{\"scopes_held\":[\"draft\",\"enrich\",\"read\",\"send\",\"write\"],\"model\":\"A call either executes under this passport's authority or stages an approval a human decides. An agent can never exceed the human who granted the passport, and every call is re-authorised at the moment it runs, so a revoked grant binds mid-session.\",\"host_confirmation\":\"A confirmation your own client shows the user is NOT one of these approvals. A staged call is decided in Margince and returns its outcome here.\"},\"verbs\":{\"offered\":54,\"execute_directly\":[\"account_coverage\",\"apply_tag\",\"at_risk_relationships\",\"catch_me_up_on\",\"check_availability\",\"create_record\",\"create_task\",\"decide_approval\",\"decide_approval_bundle\",\"draft_email\",\"draft_follow_ups_for\",\"intro_path_to\",\"list_approvals\",\"list_channel_providers\",\"list_colleagues\",\"list_pipelines\",\"list_records\",\"list_tags\",\"log_activity\",\"prep_for_meeting\",\"prepare_handoff\",\"preview_import\",\"qualify_lead\",\"query_workspace\",\"read_approval\",\"read_brief\",\"read_import_report\",\"read_import_run\",\"read_project_360\",\"read_record\",\"remove_tag\",\"resolve_entities\",\"review_commitments\",\"run_report\",\"search_context\",\"search_records\",\"update_record\",\"whats_slipping_this_week\",\"who_knows\",\"whoami\"],\"stage_for_approval\":[\"advance_project_phase\",\"archive_record\",\"book_meeting\",\"commit_import\",\"disqualify_lead\",\"enrich\",\"merge_records\",\"promote_lead\",\"send_account_email\",\"send_email\",\"send_message\"],\"decided_per_call\":[\"advance_deal\",\"progress_deal\",\"relink_activity\"],\"decided_per_call_reason\":\"The tier depends on the arguments — the same verb can execute or stage depending on what it is asked to do.\"}}",
     "margince://schema/query": "{\"version\":\"v1\",\"grammar\":{\"predicates\":\"{\\\"field\\\": \\u003cname below\\u003e, \\\"op\\\": \\u003cop the field admits\\u003e, \\\"value\\\": \\u003coperand\\u003e} — or \\\"values\\\": [...] for \\\"in\\\". Clauses are combined with AND.\",\"semantic_target\":\"\\\"similar_to\\\": \\u003cfree text\\u003e — one similarity clause, ranked by the hybrid retriever.\",\"traversal\":\"\\\"traverse\\\": {\\\"relation\\\": \\u003crelation below\\u003e, \\\"where\\\": [...]} — exactly one hop. A second hop is refused; ask it as its own query.\",\"limit\":\"\\\"limit\\\": 1..200; omit for the default page.\",\"refusal\":\"Anything outside this vocabulary is refused with a typed clarification naming what was not understood. Nothing is coerced, and no plan is narrowed to the part that was recognised.\"},\"targets\":[],\"unavailable\":[]}",
     "margince://schema/record-fields": "{\"version\":\"1\",\"notation\":\"A key with no `?` is REQUIRED by the contract; `?` marks one the body may omit. A name not listed is not a field: it is refused by name, never stored silently.\",\"create_record\":{\"fields\":{\"activity\":\"{assignee_id?: uuid, body?: string, channel_provider?: string, direction?: \\\"inbound\\\"|\\\"outbound\\\", due_at?: rfc3339, duration_seconds?: integer, kind: \\\"email\\\"|\\\"call\\\"|\\\"meeting\\\"|\\\"note\\\"|\\\"task\\\"|\\\"message\\\", links?: [{entity_id: uuid, entity_type: \\\"person\\\"|\\\"organization\\\"|\\\"deal\\\"|\\\"lead\\\"|\\\"project\\\"}], meeting_status?: \\\"booked\\\"|\\\"held\\\"|\\\"no_show\\\"|\\\"canceled\\\", occurred_at?: rfc3339, raw?: object, remind_at?: rfc3339, source?: string, source_id?: string, source_system?: string, subject?: string}\",\"deal\":\"{amount_minor?: integer, currency?: string, expected_close_date?: YYYY-MM-DD, name: string, organization_id?: uuid, owner_id?: uuid, partner_attribution?: \\\"sourced\\\"|\\\"influenced\\\", partner_org_id?: uuid, pipeline_id: uuid, project_id?: uuid, source?: string, stage_id: uuid}\",\"lead\":\"{candidate_org_key?: string, company_name?: string, email?: email, full_name?: string, linkedin_url?: string, owner_id?: uuid, project_id?: uuid, source?: string, source_id?: string, source_system?: string, status?: \\\"new\\\"|\\\"contacted\\\"|\\\"engaged\\\"|\\\"promoted\\\"|\\\"disqualified\\\", title?: string}\",\"organization\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, description?: string, display_name: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, owner_id?: uuid, parent_org_id?: uuid, size_band?: \\\"1-10\\\"|\\\"11-50\\\"|\\\"51-200\\\"|\\\"201-500\\\"|\\\"501-1000\\\"|\\\"1001-5000\\\"|\\\"5000+\\\", source?: string}\",\"person\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, emails?: [{email: email, email_type?: \\\"work\\\"|\\\"personal\\\"|\\\"other\\\", is_primary?: boolean, position?: integer}], first_name?: string, full_name: string, last_name?: string, owner_id?: uuid, phones?: [{is_primary?: boolean, phone: string, phone_type?: \\\"work\\\"|\\\"mobile\\\"|\\\"home\\\"|\\\"other\\\", position?: integer}], social?: object, source?: string, title?: string}\",\"project\":\"{description?: string, key?: string, name: string, organization_id: uuid, owner_id?: uuid, source?: string, started_at?: YYYY-MM-DD, target_end_date?: YYYY-MM-DD}\",\"relationship\":\"{counterparty_org_id?: uuid, deal_id?: uuid, ended_at?: YYYY-MM-DD, is_current_primary?: boolean, kind: \\\"employment\\\"|\\\"deal_stakeholder\\\"|\\\"project_stakeholder\\\"|\\\"partner_of\\\"|\\\"referred_by\\\"|\\\"co_sell_with\\\", organization_id?: uuid, person_id?: uuid, project_id?: uuid, role?: string, source?: string, started_at?: YYYY-MM-DD}\"},\"notes\":[\"A task is record_type=activity with kind=task.\",\"`source` is accepted but overwritten — this surface stamps its own provenance.\",\"A deal's `pipeline_id` and `stage_id` come from list_pipelines — nothing else on this surface yields them, and neither is defaultable.\",\"A person's employer is a relationship, not a field on the person: record_type=relationship with kind=employment, person_id and organization_id. Each kind REQUIRES its own endpoint pair, and a wrong pair is refused by name — employment: person + organization; deal_stakeholder: deal + person; project_stakeholder: project + person; partner_of, referred_by and co_sell_with: organization + counterparty_org_id. An edge is not searchable, so keep the id a relationship write returns.\",\"An activity is not searchable — search_records does not serve it — so keep the id an activity write returns; read_record answers it by that id.\",\"`assignee_id` and `owner_id` take a COLLEAGUE's id — list_colleagues answers those, whoami answers your own. A person id is a contact and is refused.\",\"A recording of a conversation is logged with `source_system: \\\"transcript\\\"` — that value is what has it read for next steps and commitments; any other value stores the text and reads nothing.\",\"Extra keys must be named cf_\\u003cslug\\u003e and are read as custom-field values; any other key is REFUSED by name, so an unknown field is never a silent loss. A cf_ key whose custom field is not ACTIVE in this workspace is the one that is: the write reports success and drops the value, so re-read the record if you are unsure a cf_ value landed.\",\"No custom fields on activity or relationship: those types carry no cf_ values at all, so a cf_ key there is refused rather than stored.\"]},\"update_record\":{\"fields\":{\"activity\":\"{assignee_id?: uuid, body?: string, due_at?: rfc3339, is_done?: boolean, occurred_at?: rfc3339, remind_at?: rfc3339, subject?: string}\",\"deal\":\"{amount_minor?: integer, currency?: string, expected_close_date?: YYYY-MM-DD, forecast_category?: \\\"commit\\\"|\\\"best_case\\\"|\\\"pipeline\\\"|\\\"omitted\\\", fx_rate_date?: YYYY-MM-DD, fx_rate_to_base?: string, lost_reason?: string, name?: string, organization_id?: uuid, owner_id?: uuid, partner_attribution?: \\\"sourced\\\"|\\\"influenced\\\", partner_org_id?: uuid, project_id?: uuid, status?: \\\"open\\\"|\\\"won\\\"|\\\"lost\\\", wait_until?: YYYY-MM-DD}\",\"lead\":\"{candidate_org_key?: string, company_name?: string, email?: email, full_name?: string, owner_id?: uuid, project_id?: uuid, score?: integer, score_override_reason?: string, source?: string, status?: \\\"new\\\"|\\\"contacted\\\"|\\\"engaged\\\", title?: string}\",\"organization\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, description?: string, display_name?: string, domains?: [{domain: string, is_primary?: boolean}], industry?: string, legal_name?: string, lifecycle?: \\\"unknown\\\"|\\\"target\\\"|\\\"prospect\\\"|\\\"opportunity\\\"|\\\"customer\\\"|\\\"former_customer\\\"|\\\"disqualified\\\", linkedin_url?: string, owner_id?: uuid, parent_org_id?: uuid, relationship_types?: [\\\"customer\\\"|\\\"partner\\\"|\\\"supplier\\\"|\\\"investor\\\"|\\\"portfolio_company\\\"|\\\"competitor\\\"|\\\"other\\\"], size_band?: \\\"1-10\\\"|\\\"11-50\\\"|\\\"51-200\\\"|\\\"201-500\\\"|\\\"501-1000\\\"|\\\"1001-5000\\\"|\\\"5000+\\\"}\",\"person\":\"{address?: {city?: string, country?: string, line1?: string, line2?: string, postal_code?: string, region?: string}, first_name?: string, full_name?: string, last_name?: string, owner_id?: uuid, social?: object, title?: string}\",\"project\":\"{description?: string, ended_at?: YYYY-MM-DD, key?: string, name?: string, owner_id?: uuid, started_at?: YYYY-MM-DD, target_end_date?: YYYY-MM-DD}\",\"relationship\":\"{ended_at?: YYYY-MM-DD, is_current_primary?: boolean, role?: string, started_at?: YYYY-MM-DD}\"},\"notes\":[\"A task is record_type=activity with kind=task.\",\"`source` on a lead is the administered lead-source key (see Settings › Data model); a patch corrects it, and the score follows.\",\"A person's employer is NOT a field here: employment is a relationship, created and archived as record_type=relationship — its endpoints are what it IS, so they cannot be patched.\",\"An activity's links are NOT patchable, here or by any tool on this surface: this write changes what an activity says, never who it is about.\",\"`assignee_id` and `owner_id` take a COLLEAGUE's id — list_colleagues answers those, whoami answers your own. A person id is a contact and is refused.\",\"Extra keys must be named cf_\\u003cslug\\u003e and are read as custom-field values; any other key is REFUSED by name, so an unknown field is never a silent loss. A cf_ key whose custom field is not ACTIVE in this workspace is the one that is: the write reports success and drops the value, so re-read the record if you are unsure a cf_ value landed.\",\"No custom fields on activity or relationship: those types carry no cf_ values at all, so a cf_ key there is refused rather than stored.\"]}}",
     "ui://margince/account-brief.html": "(not published here: a ui:// document is fetched from a web origin at boot, so its bytes are a property of the deployment rather than of this build)",

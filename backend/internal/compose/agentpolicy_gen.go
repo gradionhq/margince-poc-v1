@@ -252,6 +252,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/products/{id}":                                              {Op: "getProduct", Access: "tool", Tool: "read_record", RecordType: "product", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/projects":                                                   {Op: "listProjects", Access: "tool", Tool: "list_records", RecordType: "project", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/projects/{id}":                                              {Op: "getProject", Access: "tool", Tool: "read_record", RecordType: "project", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/projects/{id}/360":                                          {Op: "getProject360", Access: "tool", Tool: "read_project_360", RecordType: "project", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/provider-connections":                                       {Op: "listProviderConnections", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/quotas":                                                     {Op: "listQuotas", Access: "tool", Tool: "search_records", RecordType: "quota", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/quotas/{id}":                                                {Op: "getQuota", Access: "tool", Tool: "read_record", RecordType: "quota", Tier: "auto_execute", Scope: "read"},

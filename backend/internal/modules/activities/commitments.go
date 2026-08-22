@@ -113,6 +113,16 @@ func (s *Store) ListOpenTasks(ctx context.Context, in ListOpenTasksInput) ([]Ope
 	return tasks, truncated, err
 }
 
+// ListOpenTasksTx is ListOpenTasks inside a caller-opened transaction — the
+// composite record read, whose commitments must describe the same instant as
+// its other sections. Same gate, same bound; only the transaction is borrowed.
+func (s *Store) ListOpenTasksTx(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) ([]OpenTask, bool, error) {
+	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
+		return nil, false, err
+	}
+	return listOpenTasks(ctx, tx, in)
+}
+
 func listOpenTasks(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) ([]OpenTask, bool, error) {
 	if err := ensureNarrowingVisible(ctx, tx, in); err != nil {
 		return nil, false, err

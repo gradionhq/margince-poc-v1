@@ -675,6 +675,10 @@ func (stubs) GetDealCoverage(w nethttp.ResponseWriter, r *nethttp.Request, id op
 	httperr.NotImplemented(w, r, "GetDealCoverage")
 }
 
+func (stubs) GetDealHealth(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetDealHealth")
+}
+
 func (stubs) GetDealNextBestAction(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetDealNextBestAction")
 }
@@ -1401,6 +1405,10 @@ func (stubs) GetProject(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 
 func (stubs) UpdateProject(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateProjectParams) {
 	httperr.NotImplemented(w, r, "UpdateProject")
+}
+
+func (stubs) GetProject360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetProject360")
 }
 
 func (stubs) AdvanceProjectPhase(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.AdvanceProjectPhaseParams) {

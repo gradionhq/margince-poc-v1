@@ -82,6 +82,17 @@ var prepareHandoffCopy = toolCopy{
 	Retain: "The project_id, and each gap's source field — the gaps are what a follow-up fills in.",
 }
 
+// Deliberately four short lines: the tool listing has a token ceiling
+// (TestTheToolListingLeavesTheRunRoomInTheWindow), and a page that assembles
+// nine sections has nine chances to describe itself at length.
+var readProject360Copy = toolCopy{
+	Purpose: "Read one project's whole page: company, phase history with time per phase, deals, " +
+		"stakeholders, contracts, documents, open commitments, timeline, filing coverage, totals.",
+	Limits:  "Each section is cut at 25 rows and carries a truncated flag; sections_omitted names what your grants withhold.",
+	Instead: "prepare_handoff for the delivery gaps, read_record for the project's stored fields alone.",
+	Retain:  "The project_id, and the deal, person and task ids a follow-up acts on.",
+}
+
 var whoKnowsCopy = toolCopy{
 	Purpose: "Answer \"who here knows this person?\": the colleagues with a relationship to one " +
 		"contact, warmest first, with the interaction counts that ground the warmth.",

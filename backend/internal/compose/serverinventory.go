@@ -110,6 +110,7 @@ type Server struct {
 	channelProvidersHandlers
 	org360Handlers
 	person360Handlers
+	project360Handlers
 	personBriefHandlers
 	meetingBriefHandlers
 	nextActionHandlers

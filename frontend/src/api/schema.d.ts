@@ -2129,6 +2129,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/360": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The whole project page in one round trip — the project, its company, its phase history, its deals, stakeholders, contracts, documents, commitments, timeline and filing coverage.
+         * @description One composite read assembled inside ONE workspace transaction, so the sections describe
+         *     one consistent moment rather than a stack of independently-timed round trips. `as_of`
+         *     stamps that moment; the isolation level is Read Committed, so a write committed mid-read
+         *     may land in a later section — the stamp is what makes that honest rather than hidden.
+         *
+         *     **Authorization is per section.** Reading the project itself is mandatory: a caller who
+         *     cannot see it gets the usual 403/404. Every other section needs its own object grant,
+         *     and a section the caller may not read is *omitted* and named in `sections_omitted` —
+         *     never returned empty, because empty and forbidden are different facts. Counts and
+         *     totals admit only rows the viewer can see.
+         *
+         *     **Nested collections are summaries, not paging surfaces.** Each carries at most 25
+         *     rows with `page.has_more` saying whether it was cut, and `page.next_cursor` is always
+         *     null: page two comes from the endpoint that owns that collection — `GET /deals`,
+         *     `GET /projects/{id}/stakeholders`, `GET /activities`, `GET /attachments` — each with
+         *     its own cursor vocabulary.
+         *
+         *     Agent-readable: every section is assembled from reads an agent already holds through
+         *     `read_record`, `list_records` and `search_records`, so withholding the assembled page
+         *     while granting all of its parts would be a distinction the surface cannot honestly
+         *     explain. It is governed exactly as those reads are — object RBAC and row scope apply
+         *     per section — and it writes nothing.
+         *
+         *     Native system-of-record only: a workspace reading from an incumbent mirror has no
+         *     project to assemble a page for and gets `422 unsupported_in_overlay_mode`.
+         */
+        get: operations["getProject360"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/stakeholders": {
         parameters: {
             query?: never;
@@ -8623,6 +8670,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deals/{id}/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * How the deal stands — four named factors, each with the fact behind it.
+         * @description The deal-health formula (recency × velocity × engagement × commitments) with
+         *     its evidence, so a reader can see what each factor was read from and
+         *     disagree. Computed on read; nothing is stored.
+         */
+        get: operations["getDealHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deals/{id}/coverage": {
         parameters: {
             query?: never;
@@ -13831,6 +13903,33 @@ export interface components {
             /** Format: date-time */
             occurred_at?: string | null;
         };
+        DealHealthReading: {
+            /** Format: uuid */
+            deal_id: string;
+            /** @description The weighted reading, 0..1. */
+            health: number;
+            /** @description Below the at-risk threshold. */
+            at_risk: boolean;
+            /** @description The four parts, in the order they weigh. Each names the fact it was read from. */
+            factors: components["schemas"]["DealHealthFactor"][];
+            /** Format: date-time */
+            computed_at: string;
+        };
+        DealHealthFactor: {
+            /** @description `activity_recency`, `stage_velocity`, `engagement` or `commitments`. */
+            key: string;
+            /** @description The factor, 0..1. */
+            value: number;
+            /** @description Its share of the reading. */
+            weight: number;
+            /** @description The fact behind the number, in one sentence. */
+            reason: string;
+            /**
+             * Format: uuid
+             * @description The activity the factor points at, where one does.
+             */
+            activity_id?: string | null;
+        };
         DealCoverage: {
             /** Format: uuid */
             deal_id: string;
@@ -14761,6 +14860,145 @@ export interface components {
             archived_at?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /**
+         * @description The project page in one payload. Every section except `project` is optional: absent
+         *     means the caller lacks its grant, and `sections_omitted` names it. `documents` rides the
+         *     project grant itself, so it is present whenever the page is.
+         */
+        Project360: {
+            /**
+             * Format: date-time
+             * @description The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+             */
+            as_of: string;
+            project: components["schemas"]["Project"];
+            /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
+            sections_omitted: components["schemas"]["Project360Section"][];
+            organization?: components["schemas"]["Project360Organization"];
+            phase_history?: components["schemas"]["Project360PhaseHistory"];
+            /** @description The deals rolled up to the project, newest first, every status. */
+            deals?: {
+                data: components["schemas"]["Deal"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            /** @description The people seated on the project (`project_stakeholder` edges), each with the name the caller may read. */
+            stakeholders?: {
+                data: components["schemas"]["Project360Stakeholder"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            contracts?: components["schemas"]["ContractListResponse"];
+            /** @description The files attached to the project itself, newest first. */
+            documents?: {
+                data: components["schemas"]["Attachment"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            /** @description The open tasks filed under the project, soonest due first, undated last. */
+            commitments?: {
+                data: components["schemas"]["Project360Commitment"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            activities?: components["schemas"]["ActivityListResponse"];
+            coverage?: components["schemas"]["Project360Coverage"];
+            rollups?: components["schemas"]["Project360Rollups"];
+        };
+        /**
+         * @description One section of the project page, as `sections_omitted` names it.
+         * @enum {string}
+         */
+        Project360Section: "organization" | "phase_history" | "deals" | "stakeholders" | "contracts" | "commitments" | "activities" | "coverage" | "rollups";
+        /** @description The company the project is for — the two fields a page header needs, read under the organization grant and row scope. */
+        Project360Organization: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        /**
+         * @description Every phase transition the project has made, oldest first — the birth row has
+         *     `from_phase` null — and the fold over them: how long the project has spent in each
+         *     phase so far, in the order the phases were first entered. A re-opened project visits a
+         *     phase twice; its seconds are summed.
+         */
+        Project360PhaseHistory: {
+            data: components["schemas"]["Project360PhaseTransition"][];
+            phase_durations: components["schemas"]["Project360PhaseDuration"][];
+        };
+        Project360PhaseTransition: {
+            /** Format: uuid */
+            id: string;
+            /** @description Null on the birth row. */
+            from_phase: string | null;
+            to_phase: string;
+            reason: string | null;
+            /** Format: date-time */
+            changed_at: string;
+            /** @description The principal that moved the phase — its id as stamped; and the seat's display name when the id names an app user. */
+            changed_by: {
+                id: string;
+                display_name: string | null;
+            };
+        };
+        Project360PhaseDuration: {
+            phase: string;
+            /**
+             * Format: int64
+             * @description Time spent in the phase so far, summed over every visit, measured up to `as_of` for the current one.
+             */
+            seconds: number;
+            /** @description True for the phase the project is in at `as_of`. */
+            current: boolean;
+        };
+        Project360Stakeholder: {
+            /** Format: uuid */
+            relationship_id: string;
+            /** Format: uuid */
+            person_id: string;
+            /** @description Null when the caller may not read the person, or the person is archived; the seat is still reported. */
+            person_name: string | null;
+            role: string | null;
+        };
+        Project360Commitment: {
+            /** Format: uuid */
+            activity_id: string;
+            subject: string;
+            /** Format: date-time */
+            due_at: string | null;
+            /** Format: uuid */
+            assignee_id: string | null;
+            assignee_name: string | null;
+            /** @description Dated and already past at `as_of`. */
+            overdue: boolean;
+        };
+        /**
+         * @description How well the project's correspondence is filed, counted over the caller's activity row
+         *     scope. `attributed` is every live activity linked to the project (its whole lifecycle,
+         *     and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
+         *     activity linked to one of the project's deals or stakeholder people that carries no
+         *     project link at all — the filing debt a rep can work down.
+         */
+        Project360Coverage: {
+            attributed: number;
+            unattributed_nearby: number;
+        };
+        /**
+         * @description The header figures. Money is in the installation's base currency at each deal's frozen
+         *     rate, summed over the caller's deal row scope; the counts are over the caller's
+         *     activity row scope. Present only when the caller holds both the deal and the activity
+         *     grant, since a header that showed one half would read as a project with no deals or
+         *     no work.
+         */
+        Project360Rollups: {
+            open_deal_value: components["schemas"]["Money"];
+            won_deal_value: components["schemas"]["Money"];
+            /** @description Open tasks filed under the project, whole lifecycle. */
+            open_commitments: number;
+            /**
+             * Format: date-time
+             * @description The newest activity filed under the project; null when nothing is filed yet.
+             */
+            last_activity_at: string | null;
+            /** @description Every live activity filed under the project. */
+            activity_count: number;
         };
         CreateProjectRequest: {
             name: string;
@@ -16699,6 +16937,11 @@ export interface components {
             data: components["schemas"]["Tag"][];
             page: components["schemas"]["PageInfo"];
         };
+        /**
+         * @description The list a saved view is over. One schema for the record, the create and update bodies and the list filter, so the four cannot drift.
+         * @enum {string}
+         */
+        SavedViewResource: "people" | "organizations" | "deals" | "activities" | "leads" | "partners" | "projects";
         /** @description A per-user saved view (columns, sort, filter state) over one resource. Mirrors the `saved_view` table. V1 is private (owner-only); shared/team views are a fast-follow. */
         SavedView: {
             /** Format: uuid */
@@ -16711,8 +16954,7 @@ export interface components {
              * @enum {string}
              */
             shared_scope: "private" | "team" | "workspace";
-            /** @enum {string} */
-            resource: "people" | "organizations" | "deals" | "activities" | "leads" | "partners" | "projects";
+            resource: components["schemas"]["SavedViewResource"];
             name: string;
             /** @description The saved column choice, sort, and filter state (§13.5 vocabulary); persisted verbatim and restored exactly. */
             query: {
@@ -16731,8 +16973,7 @@ export interface components {
             archived_at?: string | null;
         };
         CreateSavedViewRequest: {
-            /** @enum {string} */
-            resource: "people" | "organizations" | "deals" | "activities" | "leads" | "partners" | "projects";
+            resource: components["schemas"]["SavedViewResource"];
             name: string;
             query: {
                 [key: string]: unknown;
@@ -24472,6 +24713,33 @@ export interface operations {
             };
         };
     };
+    getProject360: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's 360 view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project360"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     listProjectStakeholders: {
         parameters: {
             query?: never;
@@ -28199,7 +28467,7 @@ export interface operations {
     listSavedViews: {
         parameters: {
             query?: {
-                resource?: "people" | "organizations" | "deals" | "activities" | "leads" | "partners" | "projects";
+                resource?: components["schemas"]["SavedViewResource"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
             };
@@ -36391,6 +36659,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DealNextBestAction"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDealHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The health reading. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealHealthReading"];
                 };
             };
             401: components["responses"]["Unauthorized"];

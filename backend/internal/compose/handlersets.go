@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/persondraft"
 	"github.com/gradionhq/margince/backend/internal/compose/personresearch"
 	"github.com/gradionhq/margince/backend/internal/compose/pipelinetrace"
+	"github.com/gradionhq/margince/backend/internal/compose/project360"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
@@ -71,6 +72,7 @@ type (
 	webhooksHandlers       = webhooks.Handlers
 	org360Handlers         = org360.Handlers
 	person360Handlers      = person360.Handlers
+	project360Handlers     = project360.Handlers
 	personBriefHandlers    = personbrief.Handlers
 	personResearchHandlers = personresearch.Handlers
 	meetingBriefHandlers   = meetingbrief.Handlers
@@ -127,4 +129,22 @@ func (s *Server) wirePerson360(pool *pgxpool.Pool) {
 	s.personDraftHandlers = persondraft.NewHandlers(
 		persondraft.NewService(s.person360Svc, nil).
 			WithEnvelope(draftEnvelope(pool, s.log)), s.sorDispatch.isOverlay)
+}
+
+// wireProject360 assembles the project page from the module stores the
+// handler sets already serve — the deals store with its field catalog, the
+// shared people store, the contracts and activities stores — so the page and
+// the per-record endpoints read the same columns under the same gates. It
+// rides the same dispatch the company and person pages do: a workspace on
+// the incumbent mirror refuses all three the same way.
+func (s *Server) wireProject360(pool *pgxpool.Pool) {
+	svc := project360.NewService(
+		pool,
+		deals.NewStore(InstallationDB(pool), DealsInstallation()).WithFieldCatalog(customfields.NewService(pool, nil)),
+		s.peopleStore,
+		contracts.NewStore(InstallationDB(pool)),
+		activities.NewStore(InstallationDB(pool)),
+		time.Now,
+	)
+	s.project360Handlers = project360.NewHandlers(svc, s.sorDispatch.isOverlay)
 }

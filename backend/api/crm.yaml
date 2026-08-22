@@ -3283,6 +3283,51 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /projects/{id}/360:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Projects]
+      operationId: getProject360
+      summary: The whole project page in one round trip — the project, its company, its phase history, its deals, stakeholders, contracts, documents, commitments, timeline and filing coverage.
+      description: |
+        One composite read assembled inside ONE workspace transaction, so the sections describe
+        one consistent moment rather than a stack of independently-timed round trips. `as_of`
+        stamps that moment; the isolation level is Read Committed, so a write committed mid-read
+        may land in a later section — the stamp is what makes that honest rather than hidden.
+
+        **Authorization is per section.** Reading the project itself is mandatory: a caller who
+        cannot see it gets the usual 403/404. Every other section needs its own object grant,
+        and a section the caller may not read is *omitted* and named in `sections_omitted` —
+        never returned empty, because empty and forbidden are different facts. Counts and
+        totals admit only rows the viewer can see.
+
+        **Nested collections are summaries, not paging surfaces.** Each carries at most 25
+        rows with `page.has_more` saying whether it was cut, and `page.next_cursor` is always
+        null: page two comes from the endpoint that owns that collection — `GET /deals`,
+        `GET /projects/{id}/stakeholders`, `GET /activities`, `GET /attachments` — each with
+        its own cursor vocabulary.
+
+        Agent-readable: every section is assembled from reads an agent already holds through
+        `read_record`, `list_records` and `search_records`, so withholding the assembled page
+        while granting all of its parts would be a distinction the surface cannot honestly
+        explain. It is governed exactly as those reads are — object RBAC and row scope apply
+        per section — and it writes nothing.
+
+        Native system-of-record only: a workspace reading from an incumbent mirror has no
+        project to assemble a page for and gets `422 unsupported_in_overlay_mode`.
+      x-mcp-tool: { verb: read_project_360, record_type: project, tier: auto_execute, scope: read }
+      responses:
+        '200':
+          description: The project's 360 view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project360' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /projects/{id}/stakeholders:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -6119,7 +6164,7 @@ paths:
       parameters:
         - name: resource
           in: query
-          schema: { type: string, enum: [people, organizations, deals, activities, leads, partners, projects] }
+          schema: { $ref: '#/components/schemas/SavedViewResource' }
         - $ref: '#/components/parameters/IncludeArchived'
       responses:
         '200':
@@ -13233,6 +13278,27 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /deals/{id}/health:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: getDealHealth
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: How the deal stands — four named factors, each with the fact behind it.
+      description: |
+        The deal-health formula (recency × velocity × engagement × commitments) with
+        its evidence, so a reader can see what each factor was read from and
+        disagree. Computed on read; nothing is stored.
+      responses:
+        '200':
+          description: The health reading.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealHealthReading' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /deals/{id}/coverage:
     get:
       tags: [Deals]
@@ -19980,6 +20046,30 @@ components:
         activity_id: { type: [string, 'null'], format: uuid }
         occurred_at: { type: [string, 'null'], format: date-time }
       additionalProperties: false
+    DealHealthReading:
+      type: object
+      required: [deal_id, health, at_risk, factors, computed_at]
+      properties:
+        deal_id: { type: string, format: uuid }
+        health: { type: number, description: 'The weighted reading, 0..1.' }
+        at_risk: { type: boolean, description: 'Below the at-risk threshold.' }
+        factors:
+          type: array
+          description: The four parts, in the order they weigh. Each names the fact it was read from.
+          items: { $ref: '#/components/schemas/DealHealthFactor' }
+        computed_at: { type: string, format: date-time }
+      additionalProperties: false
+
+    DealHealthFactor:
+      type: object
+      required: [key, value, weight, reason]
+      properties:
+        key: { type: string, description: '`activity_recency`, `stage_velocity`, `engagement` or `commitments`.' }
+        value: { type: number, description: 'The factor, 0..1.' }
+        weight: { type: number, description: Its share of the reading. }
+        reason: { type: string, description: 'The fact behind the number, in one sentence.' }
+        activity_id: { type: [string, 'null'], format: uuid, description: 'The activity the factor points at, where one does.' }
+      additionalProperties: false
     DealCoverage:
       type: object
       required: [deal_id, stakeholders, our_side, risks, sections_omitted]
@@ -20847,6 +20937,173 @@ components:
         archived_at: { type: [string, 'null'], format: date-time }
       additionalProperties: true
       x-extension: true
+
+    Project360:
+      type: object
+      description: |
+        The project page in one payload. Every section except `project` is optional: absent
+        means the caller lacks its grant, and `sections_omitted` names it. `documents` rides the
+        project grant itself, so it is present whenever the page is.
+      required: [as_of, project, sections_omitted]
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          description: The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+        project: { $ref: '#/components/schemas/Project' }
+        sections_omitted:
+          type: array
+          description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+          items: { $ref: '#/components/schemas/Project360Section' }
+        organization:
+          $ref: '#/components/schemas/Project360Organization'
+        phase_history:
+          $ref: '#/components/schemas/Project360PhaseHistory'
+        deals:
+          type: object
+          description: The deals rolled up to the project, newest first, every status.
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Deal' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        stakeholders:
+          type: object
+          description: The people seated on the project (`project_stakeholder` edges), each with the name the caller may read.
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Project360Stakeholder' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        contracts: { $ref: '#/components/schemas/ContractListResponse' }
+        documents:
+          type: object
+          description: The files attached to the project itself, newest first.
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Attachment' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        commitments:
+          type: object
+          description: The open tasks filed under the project, soonest due first, undated last.
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Project360Commitment' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        activities: { $ref: '#/components/schemas/ActivityListResponse' }
+        coverage: { $ref: '#/components/schemas/Project360Coverage' }
+        rollups: { $ref: '#/components/schemas/Project360Rollups' }
+
+    Project360Section:
+      type: string
+      description: One section of the project page, as `sections_omitted` names it.
+      enum: [organization, phase_history, deals, stakeholders, contracts, commitments, activities, coverage, rollups]
+
+    Project360Organization:
+      type: object
+      description: The company the project is for — the two fields a page header needs, read under the organization grant and row scope.
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    Project360PhaseHistory:
+      type: object
+      description: |
+        Every phase transition the project has made, oldest first — the birth row has
+        `from_phase` null — and the fold over them: how long the project has spent in each
+        phase so far, in the order the phases were first entered. A re-opened project visits a
+        phase twice; its seconds are summed.
+      required: [data, phase_durations]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Project360PhaseTransition' } }
+        phase_durations: { type: array, items: { $ref: '#/components/schemas/Project360PhaseDuration' } }
+
+    Project360PhaseTransition:
+      type: object
+      required: [id, from_phase, to_phase, reason, changed_at, changed_by]
+      properties:
+        id: { type: string, format: uuid }
+        from_phase: { type: [string, 'null'], description: Null on the birth row. }
+        to_phase: { type: string }
+        reason: { type: [string, 'null'] }
+        changed_at: { type: string, format: date-time }
+        changed_by:
+          type: object
+          description: The principal that moved the phase — its id as stamped; and the seat's display name when the id names an app user.
+          required: [id, display_name]
+          properties:
+            id: { type: string }
+            display_name: { type: [string, 'null'] }
+
+    Project360PhaseDuration:
+      type: object
+      required: [phase, seconds, current]
+      properties:
+        phase: { type: string }
+        seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Time spent in the phase so far, summed over every visit, measured up to `as_of` for the current one.
+        current:
+          type: boolean
+          description: True for the phase the project is in at `as_of`.
+
+    Project360Stakeholder:
+      type: object
+      required: [relationship_id, person_id, person_name, role]
+      properties:
+        relationship_id: { type: string, format: uuid }
+        person_id: { type: string, format: uuid }
+        person_name:
+          type: [string, 'null']
+          description: Null when the caller may not read the person, or the person is archived; the seat is still reported.
+        role: { type: [string, 'null'] }
+
+    Project360Commitment:
+      type: object
+      required: [activity_id, subject, due_at, assignee_id, assignee_name, overdue]
+      properties:
+        activity_id: { type: string, format: uuid }
+        subject: { type: string }
+        due_at: { type: [string, 'null'], format: date-time }
+        assignee_id: { type: [string, 'null'], format: uuid }
+        assignee_name: { type: [string, 'null'] }
+        overdue: { type: boolean, description: Dated and already past at `as_of`. }
+
+    Project360Coverage:
+      type: object
+      description: |
+        How well the project's correspondence is filed, counted over the caller's activity row
+        scope. `attributed` is every live activity linked to the project (its whole lifecycle,
+        and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
+        activity linked to one of the project's deals or stakeholder people that carries no
+        project link at all — the filing debt a rep can work down.
+      required: [attributed, unattributed_nearby]
+      properties:
+        attributed: { type: integer, minimum: 0 }
+        unattributed_nearby: { type: integer, minimum: 0 }
+
+    Project360Rollups:
+      type: object
+      description: |
+        The header figures. Money is in the installation's base currency at each deal's frozen
+        rate, summed over the caller's deal row scope; the counts are over the caller's
+        activity row scope. Present only when the caller holds both the deal and the activity
+        grant, since a header that showed one half would read as a project with no deals or
+        no work.
+      required: [open_deal_value, won_deal_value, open_commitments, last_activity_at, activity_count]
+      properties:
+        open_deal_value: { $ref: '#/components/schemas/Money' }
+        won_deal_value: { $ref: '#/components/schemas/Money' }
+        open_commitments:
+          type: integer
+          minimum: 0
+          description: Open tasks filed under the project, whole lifecycle.
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          description: The newest activity filed under the project; null when nothing is filed yet.
+        activity_count: { type: integer, minimum: 0, description: Every live activity filed under the project. }
 
     CreateProjectRequest:
       type: object
@@ -22810,6 +23067,11 @@ components:
         data: { type: array, items: { $ref: '#/components/schemas/Tag' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
+    SavedViewResource:
+      type: string
+      description: The list a saved view is over. One schema for the record, the create and update bodies and the list filter, so the four cannot drift.
+      enum: [people, organizations, deals, activities, leads, partners, projects]
+
     SavedView:
       type: object
       description: >-
@@ -22821,7 +23083,7 @@ components:
         id: { type: string, format: uuid }
         owner_id: { type: string, format: uuid }
         shared_scope: { type: string, enum: [private, team, workspace], default: private, description: V1 enforces private. }
-        resource: { type: string, enum: [people, organizations, deals, activities, leads, partners, projects] }
+        resource: { $ref: '#/components/schemas/SavedViewResource' }
         name: { type: string }
         query:
           type: object
@@ -22836,7 +23098,7 @@ components:
       type: object
       required: [resource, name, query]
       properties:
-        resource: { type: string, enum: [people, organizations, deals, activities, leads, partners, projects] }
+        resource: { $ref: '#/components/schemas/SavedViewResource' }
         name: { type: string }
         query: { type: object, additionalProperties: true }
 
