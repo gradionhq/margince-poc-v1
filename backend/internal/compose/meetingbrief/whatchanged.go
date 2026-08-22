@@ -43,7 +43,13 @@ func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, no
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	mePos := arg(actor.UserID)
 	roomPos := arg(room.ID)
-	nowPos := arg(now)
+	// Before the meeting AND before now: a brief read for a meeting already
+	// held must not take a later conversation as "before we spoke".
+	ceiling := now
+	if room.StartsAt.Before(ceiling) {
+		ceiling = room.StartsAt
+	}
+	ceilingPos := arg(ceiling)
 	peoplePos := arg(room.Room)
 	scope, err := auth.ActivityDiscoverClause(ctx, "a", arg)
 	if err != nil {
@@ -51,6 +57,18 @@ func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, no
 	}
 	if scope == "" {
 		scope = scopeAll
+	}
+	// The meeting's project narrows the baseline like every other read the
+	// brief makes: contact on another engagement is not "we last spoke" here.
+	within := scopeAll
+	if room.Project != nil {
+		within = fmt.Sprintf(`(EXISTS (
+			    SELECT 1 FROM activity_link pl
+			    WHERE pl.activity_id = a.id AND pl.project_id = $%d)
+			  OR NOT EXISTS (
+			    SELECT 1 FROM activity_link pf
+			    WHERE pf.activity_id = a.id AND pf.project_id IS NOT NULL))`,
+			arg(room.Project.ID))
 	}
 	var last *time.Time
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
@@ -60,7 +78,7 @@ func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, no
 		 WHERE a.id <> $%d AND a.occurred_at < $%d AND a.archived_at IS NULL
 		   AND EXISTS (SELECT 1 FROM activity_link l
 		                WHERE l.activity_id = a.id AND l.entity_type = 'person' AND l.person_id = ANY($%d))
-		   AND %s`, mePos, roomPos, nowPos, peoplePos, scope), args...).Scan(&last)
+		   AND %s AND %s`, mePos, roomPos, ceilingPos, peoplePos, scope, within), args...).Scan(&last)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return time.Time{}, false, fmt.Errorf("read when the reader last spoke to the room: %w", err)
 	}
@@ -86,7 +104,11 @@ func whatChangedSection(in Input, ranked *rankedClaims) []Sentence {
 		Text:     fmt.Sprintf("You last dealt with this room %s.", daysAgoPhrase(in.Now, since)),
 		Evidence: []Evidence{{EntityType: citeActivity, EntityID: in.ActivityID}},
 	}}
-	after := func(c ClaimIn) bool { return c.OccurredAt != nil && c.OccurredAt.After(since) }
+	// After the baseline and not after now: a claim on a future-dated row
+	// has not happened yet.
+	after := func(c ClaimIn) bool {
+		return c.OccurredAt != nil && c.OccurredAt.After(since) && !c.OccurredAt.After(in.Now)
+	}
 	for _, claim := range ranked.takeAll(after, whatChangedCap) {
 		out = append(out, Sentence{
 			Text:     changedClaimLine(claim),
