@@ -20,6 +20,8 @@ package backendarch
 
 import (
 	"go/ast"
+	"go/parser"
+	"go/token"
 	"regexp"
 	"testing"
 
@@ -139,4 +141,101 @@ func TestEveryReaderServingProfileFieldValuesConsultsTheVerdictLedger(t *testing
 			t.Errorf("%s: %s serves person_profile_field values without consulting ai_feedback — it would show the machine's claim as fact to somebody who already overrode it. Route it through person360's readProfileFields, or ratify it in profileFieldValueReaders with the reason and the cost", src.Path, offender)
 		}
 	}
+}
+
+// The census's own defect test.
+//
+// Every shape it must catch, and every lookalike it must not, parsed from
+// source here rather than planted in the tree — the two shell gates on this
+// branch point at a throwaway directory for the same reason, and a Go parser
+// needs no directory at all.
+//
+// It exists because this census has been wrong twice, in the direction that
+// does not announce itself. It first matched the overlay marker file-wide, so
+// deleting the overlay call from readProfileFields left it GREEN because
+// applyFieldVerdicts was still declared below. Then it anchored on the first
+// column of a projection, so `SELECT ppf.person_id, ppf.value` escaped it —
+// and a star projection escaped it too, naming none of the value words at all.
+// Each was found by a person or a bot, not by the gate, which is the argument
+// for this test.
+func TestTheProfileFieldCensusSeesWhatItClaimsTo(t *testing.T) {
+	for name, tc := range map[string]struct {
+		source string
+		want   []string
+	}{
+		"a value column first in the projection": {
+			source: `func read() string { return "SELECT value, field FROM person_profile_field" }`,
+			want:   []string{"read"},
+		},
+		// The shape that escaped the first widening.
+		"a value column later in the projection": {
+			source: `func read() string { return "SELECT ppf.person_id, ppf.value FROM person_profile_field ppf" }`,
+			want:   []string{"read"},
+		},
+		// And the shape that named none of the words.
+		"a qualified star": {
+			source: `func read() string { return "SELECT ppf.* FROM person_profile_field ppf" }`,
+			want:   []string{"read"},
+		},
+		"a bare star": {
+			source: `func read() string { return "SELECT * FROM person_profile_field" }`,
+			want:   []string{"read"},
+		},
+		"evidence is a value too": {
+			source: `func read() string { return "SELECT evidence_snippet FROM person_profile_field" }`,
+			want:   []string{"read"},
+		},
+		// An existence probe serves nobody: `field` says WHICH assertion a row
+		// is about and appears in the WHERE of every one of them, which is why
+		// it is not a value word.
+		"an existence probe is not a serve": {
+			source: `func probe() string { return "SELECT 1 FROM person_profile_field f WHERE f.field = 'org_name'" }`,
+			want:   nil,
+		},
+		"a delete is not a serve": {
+			source: `func retire() string { return "DELETE FROM person_profile_field WHERE person_id = $1" }`,
+			want:   nil,
+		},
+		// The overlay must be reached by the DECLARATION that reads, not merely
+		// declared somewhere in the file. This is the file-wide hole, pinned.
+		"a reader that consults the ledger passes": {
+			source: `func read() string {
+				applyFieldVerdicts()
+				return "SELECT value FROM person_profile_field"
+			}`,
+			want: nil,
+		},
+		"an overlay declared elsewhere does not answer for the reader": {
+			source: `func read() string { return "SELECT value FROM person_profile_field" }
+func applyFieldVerdicts() {}`,
+			want: []string{"read"},
+		},
+		"another table's value column is not this table's": {
+			source: `func read() string { return "SELECT value FROM ai_feedback" }`,
+			want:   nil,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := unoverlaidValueReaders(parseProbe(t, tc.source))
+			if len(got) != len(tc.want) {
+				t.Fatalf("offenders = %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("offender %d = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// parseProbe compiles one probe declaration into the AST the census reads, so a
+// case states the SQL it means and nothing else.
+func parseProbe(t *testing.T, source string) *ast.File {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "probe.go", "package probe\n\n"+source, 0)
+	if err != nil {
+		t.Fatalf("parsing the probe: %v", err)
+	}
+	return file
 }
