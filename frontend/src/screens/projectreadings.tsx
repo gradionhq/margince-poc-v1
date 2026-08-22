@@ -83,6 +83,17 @@ export function CoverageLine({ view }: Readonly<{ view: Project360 }>) {
   const t = useT();
   const coverage = view.coverage;
   const state = stateOf(view, "coverage", Boolean(coverage), coverage ? 1 : 0);
+  // Withheld is a fact the line states; a section that simply did not come
+  // back has nothing honest to say and draws nothing.
+  if (state === "withheld") {
+    return (
+      <div data-testid="project-coverage-withheld">
+        <SurfaceState state={state} emptyLabel="">
+          {null}
+        </SurfaceState>
+      </div>
+    );
+  }
   if (state !== "ready" || !coverage) {
     return null;
   }

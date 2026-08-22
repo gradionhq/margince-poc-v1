@@ -5956,6 +5956,8 @@ export const de = {
   "deal.projectUnnamed": "Projekt",
   "deal.startDeliveryTitle": "Umsetzung starten",
   "deal.startDelivery": "Umsetzung starten",
+  "deal.startDeliveryAttached":
+    "Dieser Deal hängt an {project}, das Projekt ist aber noch nicht in der Umsetzung. Jetzt wechseln?",
   "deal.startDeliveryBody":
     "Dieser Deal ist gewonnen und nennt kein Projekt. An {project} anhängen und das Projekt in die Umsetzung bringen?",
 } as const satisfies Record<MessageKey, string>;

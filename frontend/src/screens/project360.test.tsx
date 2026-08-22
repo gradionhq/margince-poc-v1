@@ -113,22 +113,37 @@ describe("ProjectScreen", () => {
   it("says a withheld section is hidden rather than drawing it empty", async () => {
     projectsBackend({
       view: project360({
-        sections_omitted: ["contracts", "rollups", "coverage"],
+        sections_omitted: [
+          "contracts",
+          "rollups",
+          "coverage",
+          "organization",
+          "activities",
+        ],
         contracts: undefined,
         rollups: undefined,
         coverage: undefined,
+        organization: undefined,
+        activities: undefined,
       }),
     });
     render(<ProjectScreen id="pr-1" />);
     await screen.findByRole("heading", { name: "CRM rollout" });
     const withheld = screen.getAllByText("Hidden — your role cannot read this");
-    // The contracts card and the rollups plate; the coverage line is
-    // information only and draws nothing when it cannot be stated.
-    expect(withheld).toHaveLength(2);
+    // The contracts card, the rollups plate, the coverage line, the company
+    // in the subtitle and the timeline: five withheld sections, five
+    // sentences, no empty state standing in for any of them.
+    expect(withheld).toHaveLength(5);
     expect(
       screen.queryByText(/No agreement is filed under this project/),
     ).toBeNull();
     expect(screen.queryByTestId("project-coverage")).toBeNull();
+    expect(screen.getByTestId("project-coverage-withheld")).toBeTruthy();
+    expect(screen.getByTestId("project-company-withheld")).toBeTruthy();
+    expect(screen.queryByText("Brandt Automotive")).toBeNull();
+    expect(
+      screen.queryByText(/Nothing is filed under this project yet/),
+    ).toBeNull();
   });
 
   it("closing asks for a reason, holds Confirm until it is given, and posts the move", async () => {

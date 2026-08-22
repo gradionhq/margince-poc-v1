@@ -54,39 +54,42 @@ export function useOpenProjects(): Project[] {
 
 /**
  * The project fields of the deal form: the picker, and the two fields that
- * appear when the reader chooses to start a project here. The company name
- * rides the label so a reader picking from forty projects can tell whose
- * they are picking.
+ * appear when the reader chooses to start a project here. The picker offers
+ * only the projects of the company the SAME form has chosen — the server
+ * refuses a project on another company (422) — and stays disabled until a
+ * company is named; a project picked under one company is cleared when the
+ * company changes.
  */
 export function dealProjectFields(
   t: (key: MessageKey) => string,
   projects: readonly Project[],
-  companyName: (organizationId: string | null | undefined) => string | null,
   // The project this deal already names, kept on the list even when the
   // open-projects page does not reach it (a closed one, say), so the edit
   // form shows the value it has rather than a blank picker whose save would
   // clear it.
   current?: { id: string; label: string },
 ): CreateField[] {
-  const options = projects.map((project) => {
-    const company = companyName(project.organization_id);
-    return {
-      value: project.id,
-      label: company ? `${project.name} — ${company}` : project.name,
-    };
-  });
   return [
     {
       key: "project_id",
       label: "deal.project",
       type: "select",
-      options: [
-        ...(current && !options.some((option) => option.value === current.id)
-          ? [{ value: current.id, label: current.label }]
-          : []),
-        ...options,
-        { value: NEW_PROJECT, label: t("deal.projectNew") },
-      ],
+      optionsFor: (values) => {
+        const company = values.organization_id ?? "";
+        if (!company) {
+          return [];
+        }
+        const options = projects
+          .filter((project) => project.organization_id === company)
+          .map((project) => ({ value: project.id, label: project.name }));
+        return [
+          ...(current && !options.some((option) => option.value === current.id)
+            ? [{ value: current.id, label: current.label }]
+            : []),
+          ...options,
+          { value: NEW_PROJECT, label: t("deal.projectNew") },
+        ];
+      },
     },
     {
       key: "new_project_name",
@@ -173,16 +176,23 @@ export function StartDeliveryPrompt({ deal }: Readonly<{ deal: Deal }>) {
       dealId: string;
       version: number | undefined;
       project: Project;
+      // True once the deal already names the project: the PATCH landed and
+      // only the advance is still owed. Two writes, so a failure between
+      // them is a state the reader can be left in, and the retry must not
+      // attach a second time.
+      attached: boolean;
     }) => {
-      const patched = await api.PATCH("/deals/{id}", {
-        params: {
-          path: { id: input.dealId },
-          ...ifMatch(requireVersion(input.version)),
-        },
-        body: { project_id: input.project.id },
-      });
-      if (patched.error) {
-        throwProblem(patched.error);
+      if (!input.attached) {
+        const patched = await api.PATCH("/deals/{id}", {
+          params: {
+            path: { id: input.dealId },
+            ...ifMatch(requireVersion(input.version)),
+          },
+          body: { project_id: input.project.id },
+        });
+        if (patched.error) {
+          throwProblem(patched.error);
+        }
       }
       // A project already in delivery is not moved again: the advance would
       // be a no-op the server may refuse, and the deal is attached either way.
@@ -207,11 +217,37 @@ export function StartDeliveryPrompt({ deal }: Readonly<{ deal: Deal }>) {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate({ screen: "projects", id: project.id });
     },
+    // Whatever landed before the failure is real: re-read both records so
+    // the offer below says what is still owed rather than what was owed.
+    onError: (_error, input) => {
+      queryClient.invalidateQueries({ queryKey: ["deal", input.dealId] });
+      queryClient.invalidateQueries({
+        queryKey: ["project", input.project.id],
+      });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
   });
-  if (deal.status !== "won" || deal.project_id || candidates.length !== 1) {
+  // A withheld project arrives as null with `masked_fields` naming it, and
+  // is not the same as none; an archived deal takes no writes at all.
+  const masked = (deal.masked_fields ?? []).includes("project_id");
+  if (
+    deal.status !== "won" ||
+    masked ||
+    deal.archived_at ||
+    candidates.length !== 1
+  ) {
     return null;
   }
   const project = candidates[0];
+  // The retry case: the deal already names this project but the advance
+  // failed, so the project is still short of delivery.
+  const attached = deal.project_id === project.id;
+  if (deal.project_id && !attached) {
+    return null;
+  }
+  if (attached && project.phase === "delivering") {
+    return null;
+  }
   return (
     <Callout
       tone="info"
@@ -224,14 +260,21 @@ export function StartDeliveryPrompt({ deal }: Readonly<{ deal: Deal }>) {
           disabled={attach.isPending}
           data-testid="deal-start-delivery"
           onClick={() =>
-            attach.mutate({ dealId: deal.id, version: deal.version, project })
+            attach.mutate({
+              dealId: deal.id,
+              version: deal.version,
+              project,
+              attached,
+            })
           }
         >
           {t("deal.startDelivery")}
         </Button>
       }
     >
-      {t("deal.startDeliveryBody", { project: project.name })}
+      {t(attached ? "deal.startDeliveryAttached" : "deal.startDeliveryBody", {
+        project: project.name,
+      })}
       {attach.isError && (
         <p className="t-caption" role="alert">
           {problemMessageOf(attach.error, t)}

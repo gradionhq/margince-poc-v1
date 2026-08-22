@@ -1668,9 +1668,6 @@ export function DealsScreen({
   const partnerOptions = usePartnerOptions(orgsQuery.data?.data ?? []);
 
   const openProjects = useOpenProjects();
-  const companyName = (organizationId: string | null | undefined) =>
-    (orgsQuery.data?.data ?? []).find((org) => org.id === organizationId)
-      ?.display_name ?? null;
 
   const createDeal = async (values: Record<string, string>) => {
     const pipeline = effectivePipeline;
@@ -1803,7 +1800,7 @@ export function DealsScreen({
         },
         // The body of work this deal is about, chosen or started here: a
         // project begins during the deal, in its initiative phase.
-        ...dealProjectFields(t, openProjects, companyName),
+        ...dealProjectFields(t, openProjects),
         // A deal brought by a partner is attributed at birth, not by editing
         // it afterwards: the win that pays them can come before anybody thinks
         // to revisit the record.
@@ -2668,21 +2665,17 @@ function DealBadges({
           }),
           ...(masked.includes("project_id")
             ? []
-            : dealProjectFields(
-                t,
-                openProjects,
-                (organizationId) =>
-                  orgs.find((org) => org.id === organizationId)?.display_name ??
-                  null,
-                currentProject,
-              )),
+            : dealProjectFields(t, openProjects, currentProject)),
           ...cf.formFields,
         ]}
         record={{ ...dealEditRecord(deal), ...cf.recordSlice(deal) }}
         update={async (values) => {
+          // The company the form SUBMITS, not the one the deal had: a
+          // project started here belongs to the company the save names.
+          const submitted = stringValues(values);
           const projectId = await resolveDealProject(
-            stringValues(values),
-            deal.organization_id ?? null,
+            submitted,
+            submitted.organization_id?.trim() || null,
             t,
           );
           const { data, error } = await api.PATCH("/deals/{id}", {

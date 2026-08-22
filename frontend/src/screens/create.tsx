@@ -117,7 +117,24 @@ export type CreateField = {
    * can never be blocked by a control nobody can see.
    */
   showWhen?: (values: Record<string, string>) => boolean;
+  /**
+   * A select whose choices DEPEND on another answer — the projects a deal may
+   * name are the projects of the company the same form has chosen. Called
+   * with the form's current values; an empty list disables the control, and
+   * a value no longer in the list is cleared the moment the answer it hung
+   * on changes, so a project from the previous company cannot ride along
+   * into a save the server would refuse.
+   */
+  optionsFor?: (values: Record<string, string>) => CreateFieldOption[];
 };
+
+/** A field's choices right now: the dependent list when it has one. */
+export function fieldOptions(
+  field: CreateField,
+  values: Record<string, string>,
+): CreateFieldOption[] {
+  return field.optionsFor ? field.optionsFor(values) : (field.options ?? []);
+}
 
 /**
  * The fields a form actually shows, given what has been filled in so far.
@@ -151,8 +168,13 @@ export function submittedValues(
   const shown = new Set(visibleFields(fields, values).map((f) => f.key));
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(values)) {
-    const declared = fields.some((f) => f.key === key);
-    out[key] = declared && !shown.has(key) ? "" : value;
+    const declared = fields.find((f) => f.key === key);
+    // A dependent choice the new answers no longer offer is withdrawn too.
+    const offered =
+      !declared?.optionsFor ||
+      value === "" ||
+      fieldOptions(declared, values).some((option) => option.value === value);
+    out[key] = (declared && !shown.has(key)) || !offered ? "" : value;
   }
   return out;
 }
@@ -353,6 +375,8 @@ export function fieldControl(
   value: string,
   setValue: (next: string) => void,
   t: (key: MessageKey) => string,
+  // The form's current values, for a field whose choices depend on them.
+  values: Record<string, string> = {},
 ): ReactNode {
   if (field.type === "select") {
     // An optional select leads with a choice that clears it, and it is a choice
@@ -368,7 +392,10 @@ export function fieldControl(
     // better words ("Unassign" on a deal's owner), and one value gets exactly
     // one entry: a second would offer the same choice twice and give the list
     // two options with the same identity.
-    const options = field.options ?? [];
+    const options =
+      "optionsFor" in field
+        ? fieldOptions(field, values)
+        : (field.options ?? []);
     const clearable = options.some((option) => option.value === "");
     const blank: SelectOption[] =
       field.required || clearable
@@ -380,6 +407,13 @@ export function fieldControl(
         value={value}
         onChange={setValue}
         options={[...blank, ...options]}
+        // Nothing to choose from yet: the answer this list depends on has
+        // not been given.
+        disabled={
+          "optionsFor" in field &&
+          Boolean(field.optionsFor) &&
+          options.length === 0
+        }
       />
     );
   }
@@ -688,6 +722,7 @@ export function RecordFormBody({
                 values[field.key] ?? "",
                 (next) => setVisibleValues({ ...values, [field.key]: next }),
                 t,
+                values,
               )
             }
           </Field>

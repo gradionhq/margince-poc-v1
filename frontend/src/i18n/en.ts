@@ -6029,6 +6029,8 @@ export const en = {
   "deal.projectUnnamed": "Project",
   "deal.startDeliveryTitle": "Start delivery",
   "deal.startDelivery": "Start delivery",
+  "deal.startDeliveryAttached":
+    "This deal is attached to {project}, but the project is not in delivery yet. Move it now?",
   "deal.startDeliveryBody":
     "This deal is won and names no project. Attach it to {project} and move the project into delivery?",
 } as const;

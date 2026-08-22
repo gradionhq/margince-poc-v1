@@ -5904,6 +5904,8 @@ export const vi = {
   "deal.projectUnnamed": "Dự án",
   "deal.startDeliveryTitle": "Bắt đầu triển khai",
   "deal.startDelivery": "Bắt đầu triển khai",
+  "deal.startDeliveryAttached":
+    "Thương vụ này đã gắn với {project}, nhưng dự án chưa ở giai đoạn triển khai. Chuyển ngay?",
   "deal.startDeliveryBody":
     "Thương vụ này đã thắng và chưa gắn dự án. Gắn vào {project} và chuyển dự án sang triển khai?",
 } as const satisfies Record<MessageKey, string>;

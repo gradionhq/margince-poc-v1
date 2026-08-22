@@ -7,6 +7,7 @@ import { api } from "../api/client";
 import { ifMatch, requireVersion } from "../api/version";
 import { navigate } from "../app/router";
 import { RecordView } from "../design-system/composed";
+import { SurfaceState, sectionState } from "../design-system/surfacestate";
 import { formatDate } from "../format/format";
 import { RECORD_ZONE } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
@@ -162,13 +163,28 @@ function ProjectSubtitle({ view }: Readonly<{ view: Project360 }>) {
   const t = useT();
   const { locale } = useLocale();
   const project = view.project;
+  const company = view.organization;
+  const companyState = sectionState(
+    view,
+    "organization",
+    Boolean(company),
+    company ? 1 : 0,
+  );
   return (
     <span className="project-subtitle">
-      <EntityRef
-        kind="organization"
-        id={project.organization_id}
-        name={view.organization?.name}
-      />
+      {companyState === "withheld" ? (
+        // The grant refused the company: say so rather than leave the name
+        // out, which would read as a project with no company.
+        <span data-testid="project-company-withheld">
+          {t("state.withheld")}
+        </span>
+      ) : (
+        <EntityRef
+          kind="organization"
+          id={project.organization_id}
+          name={company?.name}
+        />
+      )}
       <span aria-hidden="true">·</span>
       <OwnerName ownerId={project.owner_id} unowned={t("list.unowned")} />
       {project.target_end_date && (
@@ -277,6 +293,12 @@ function useProjectChronology(
   const t = useT();
   const [filter, setFilter] = useChronologyFilter(view.project.id);
   const activities = view.activities;
+  const activitiesState = sectionState(
+    view,
+    "activities",
+    Boolean(activities),
+    activities?.data.length ?? 0,
+  );
   const history = useRecordChronology({
     kind: "project",
     recordId: view.project.id,
@@ -286,6 +308,20 @@ function useProjectChronology(
   });
   if (overlay) {
     return { timeline: history.entries, timelineNotice: <span /> };
+  }
+  // A withheld activities section is not an empty timeline, and the change
+  // feed is a separate grant: Activities and All say withheld, Changes still
+  // reads.
+  if (activitiesState === "withheld" && filter !== "changes") {
+    return {
+      timeline: [],
+      timelineHeader: <ChronologyFilter filter={filter} onFilter={setFilter} />,
+      timelineNotice: (
+        <SurfaceState state="withheld" emptyLabel="">
+          {null}
+        </SurfaceState>
+      ),
+    };
   }
   return {
     timeline: history.entries,

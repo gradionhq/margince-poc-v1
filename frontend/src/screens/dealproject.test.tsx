@@ -92,8 +92,14 @@ type Call = {
 function dealBackend(opts: {
   deals?: Deal[];
   projects?: ReturnType<typeof project>[];
+  // What an advance answers; null for the default success.
+  onAdvance?: () => Response | null;
+  companies?: { id: string; display_name: string }[];
+  // What the deal reads back as once a PATCH has landed.
+  afterPatch?: (row: Deal) => Deal;
 }): Call[] {
   const writes: Call[] = [];
+  let current: Deal = opts.deals?.[0] ?? deal();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
@@ -127,7 +133,16 @@ function dealBackend(opts: {
         if (method === "POST" && pathname.endsWith("/deals")) {
           return jsonResponse(deal({ id: "d-new" }), 201);
         }
-        return jsonResponse(opts.deals?.[0] ?? deal());
+        if (method === "POST" && pathname.endsWith("/advance")) {
+          const answer = opts.onAdvance?.();
+          if (answer) {
+            return answer;
+          }
+        }
+        if (method === "PATCH" && opts.afterPatch) {
+          current = opts.afterPatch(current);
+        }
+        return jsonResponse(current);
       }
       if (pathname.endsWith("/me")) {
         return jsonResponse(meFixture());
@@ -142,7 +157,9 @@ function dealBackend(opts: {
       }
       if (pathname.endsWith("/organizations")) {
         return jsonResponse({
-          data: [{ id: "o-1", display_name: "Brandt Automotive" }],
+          data: opts.companies ?? [
+            { id: "o-1", display_name: "Brandt Automotive" },
+          ],
           page: { next_cursor: null },
         });
       }
@@ -161,7 +178,7 @@ function dealBackend(opts: {
         return found ? jsonResponse(found) : jsonResponse({}, 404);
       }
       if (/\/deals\/[^/]+$/.test(pathname)) {
-        return jsonResponse(opts.deals?.[0] ?? deal());
+        return jsonResponse(current);
       }
       if (pathname.endsWith("/deals")) {
         return jsonResponse({
@@ -182,6 +199,7 @@ describe("the deal form's project picker", () => {
       projects: [
         project({ id: "pr-1", name: "CRM rollout" }),
         project({ id: "pr-closed", name: "Old one", phase: "closed" }),
+        project({ id: "pr-other", name: "Elsewhere", organization_id: "o-2" }),
       ],
     });
     render(<DealsScreen />);
@@ -192,12 +210,11 @@ describe("the deal form's project picker", () => {
       screen.getByLabelText("Company"),
       "Brandt Automotive",
     );
-    // Only open projects are offered, with their company beside them.
+    // Only the chosen company's open projects are offered.
     await user.click(screen.getByLabelText("Project"));
     expect(screen.queryByRole("option", { name: /Old one/ })).toBeNull();
-    await user.click(
-      screen.getByRole("option", { name: "CRM rollout — Brandt Automotive" }),
-    );
+    expect(screen.queryByRole("option", { name: "Elsewhere" })).toBeNull();
+    await user.click(screen.getByRole("option", { name: "CRM rollout" }));
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() =>
@@ -242,6 +259,45 @@ describe("the deal form's project picker", () => {
     expect(writes[1].url.endsWith("/deals")).toBe(true);
     expect(writes[1].body).toMatchObject({ project_id: "pr-born" });
   });
+
+  it("holds the picker until a company is chosen, and drops a pick the new company does not own", async () => {
+    const user = userEvent.setup();
+    dealBackend({
+      projects: [
+        project({ id: "pr-1", name: "CRM rollout" }),
+        project({ id: "pr-other", name: "Elsewhere", organization_id: "o-2" }),
+      ],
+      companies: [
+        { id: "o-1", display_name: "Brandt Automotive" },
+        { id: "o-2", display_name: "Other GmbH" },
+      ],
+    });
+    render(<DealsScreen />);
+    await user.click(await screen.findByTestId("new-record"));
+    const picker = screen.getByLabelText("Project");
+    expect(
+      picker.hasAttribute("disabled") ||
+        picker.getAttribute("aria-disabled") === "true",
+    ).toBe(true);
+
+    await pickOption(
+      user,
+      screen.getByLabelText("Company"),
+      "Brandt Automotive",
+    );
+    await pickOption(user, screen.getByLabelText("Project"), "CRM rollout");
+    expect(screen.getByLabelText("Project").textContent).toContain(
+      "CRM rollout",
+    );
+
+    await pickOption(user, screen.getByLabelText("Company"), "Other GmbH");
+    expect(screen.getByLabelText("Project").textContent).not.toContain(
+      "CRM rollout",
+    );
+    await user.click(screen.getByLabelText("Project"));
+    expect(screen.getByRole("option", { name: "Elsewhere" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "CRM rollout" })).toBeNull();
+  });
 });
 
 describe("the deal page", () => {
@@ -283,6 +339,66 @@ describe("the deal page", () => {
     });
     expect(writes[1].url.endsWith("/projects/pr-1/advance")).toBe(true);
     await waitFor(() => expect(window.location.hash).toBe("#/projects/pr-1"));
+  });
+
+  it("makes no offer when the project is withheld or the deal is archived", async () => {
+    dealBackend({
+      deals: [
+        deal({
+          status: "won",
+          stage_id: "s3",
+          project_id: null,
+          masked_fields: ["project_id"],
+        }),
+      ],
+      projects: [project({ id: "pr-1", name: "CRM rollout" })],
+    });
+    render(<DealScreen id="d1" />);
+    await screen.findByRole("heading", { name: "Fleet retrofit" });
+    expect(screen.queryByTestId("deal-start-delivery")).toBeNull();
+    cleanup();
+
+    dealBackend({
+      deals: [
+        deal({
+          status: "won",
+          stage_id: "s3",
+          project_id: null,
+          archived_at: "2026-07-01T09:00:00Z",
+        }),
+      ],
+      projects: [project({ id: "pr-1", name: "CRM rollout" })],
+    });
+    render(<DealScreen id="d1" />);
+    await screen.findByRole("heading", { name: "Fleet retrofit" });
+    expect(screen.queryByTestId("deal-start-delivery")).toBeNull();
+  });
+
+  it("after a failed advance, re-reads both records and offers only the advance", async () => {
+    const user = userEvent.setup();
+    let advances = 0;
+    const writes = dealBackend({
+      deals: [deal({ status: "won", stage_id: "s3", project_id: null })],
+      projects: [project({ id: "pr-1", name: "CRM rollout", version: 3 })],
+      onAdvance: () => {
+        advances += 1;
+        return advances === 1
+          ? jsonResponse({ title: "version skew", code: "version_skew" }, 409)
+          : null;
+      },
+      afterPatch: (row) => ({ ...row, project_id: "pr-1", version: 8 }),
+    });
+    render(<DealScreen id="d1" />);
+    await user.click(await screen.findByTestId("deal-start-delivery"));
+    // The PATCH landed, the advance did not: the deal re-reads as attached,
+    // and the offer now says only the project is still owed.
+    expect(
+      await screen.findByText(/attached to CRM rollout, but the project/),
+    ).toBeTruthy();
+    await user.click(screen.getByTestId("deal-start-delivery"));
+    await waitFor(() => expect(advances).toBe(2));
+    // One PATCH in total: the retry never attaches a second time.
+    expect(writes.filter((write) => write.method === "PATCH")).toHaveLength(1);
   });
 
   it("makes no offer when the company has two open projects", async () => {

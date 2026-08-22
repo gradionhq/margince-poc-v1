@@ -18,7 +18,7 @@ import {
   formatDuration,
   formatMoneyOrAbsent,
 } from "../format/format";
-import { RECORD_ZONE } from "../format/timezone";
+import { RECORD_ZONE, viewerZone } from "../format/timezone";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { dealRoleLabel } from "./company360";
@@ -429,9 +429,11 @@ function CommitmentRow({
     <PanelRow className="project-row">
       <span>{commitment.subject}</span>
       <span className="project-row-meta">
+        {/* A due date is a personal deadline, read in the reader's own zone
+            exactly as the tasks screen reads it. */}
         {commitment.due_at && (
           <span>
-            {formatDateAbbrev(commitment.due_at, locale, RECORD_ZONE)}
+            {formatDateAbbrev(commitment.due_at, locale, viewerZone())}
           </span>
         )}
         {commitment.overdue && (
