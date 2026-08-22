@@ -31,6 +31,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // LogActivityCommand is one logged activity, whichever door asked for it. The
@@ -131,9 +132,83 @@ type RelinkActivityCommand struct {
 //
 //nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewRelinkActivityCall(records datasource.SystemOfRecordProvider, cmd RelinkActivityCommand) GovernedCall {
-	return bind[RelinkActivityCommand](&relinkActivityResolver{
-		activity: anchoredRecord{records: records, entityType: datasource.EntityActivity},
-	}, cmd)
+	return relinkActivityCall{
+		GovernedCall: bind[RelinkActivityCommand](&relinkActivityResolver{
+			activity: anchoredRecord{records: records, entityType: datasource.EntityActivity},
+		}, cmd),
+		cmd: cmd,
+	}
+}
+
+// relinkActivityCall is the bound re-association plus the one question this
+// operation's tier turns on: WHICH KIND of record it files the activity under.
+//
+// Every destination but one is an ordinary association a member can undo by
+// relinking again. Filing under a PROJECT is not: it classifies the activity as
+// commercial correspondence, and that classification is write-once in the
+// database and monotonic in the product — relinking away does not lift it, and
+// removing it takes a named person giving a written reason through the
+// controller's release path. An agent that could do that unattended could put a
+// six-year retention floor across a mailbox with nothing to undo it, which is a
+// denial of the subject's Art. 17 right that the controller cannot reverse.
+type relinkActivityCall struct {
+	GovernedCall
+	cmd RelinkActivityCommand
+}
+
+// tierInput shows the gate the destination type. Nothing here reads a record:
+// the risk is a property of the KIND of destination, which the arguments
+// already state, so the tier is answered without a second read and without a
+// version to bind — the classification does not turn on the activity's state.
+//
+// The error is structurally always nil and the signature keeps it anyway: this
+// implements dynamicTierCall, whose other implementation resolves a tier from
+// records it must read. Narrowing it here would put the seam's two sides on
+// different shapes for the sake of one call that happens not to need it.
+func (c relinkActivityCall) tierInput(context.Context, json.RawMessage) (mcp.TierResolverInput, error) { //nolint:unparam // the shape is dynamicTierCall's, not this call's
+	return mcp.TierResolverInput{Args: relinkTierArgsFor(c.cmd.EntityType)}, nil
+}
+
+// relinkTierArgs is the shape relinkActivityTier reads. It carries the
+// destination type alone, because that is the whole of what decides the tier.
+type relinkTierArgs struct {
+	EntityType string `json:"entity_type"`
+}
+
+// relinkTierArgsFor encodes the destination type for the resolver.
+//
+// Marshalling one string field cannot fail, and the unreachable branch is
+// spelled anyway rather than discarded: it returns nil, which the resolver
+// cannot parse and therefore reads as the approval-requiring case. That is the
+// same answer an error would have to produce, so the fallback is the safe one
+// by construction rather than by a caller remembering to check.
+func relinkTierArgsFor(entityType string) json.RawMessage {
+	encoded, err := json.Marshal(relinkTierArgs{EntityType: entityType})
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
+// relinkActivityTier raises a relink onto a PROJECT to confirm-first and leaves
+// every other destination auto-executing.
+//
+// The resolver may only ever RAISE, and it fails TOWARD the approval gate: an
+// absent, malformed or unreadable destination resolves 🟡 rather than 🟢, so a
+// shape this does not recognise costs a human's attention instead of an
+// irreversible retention floor nobody chose.
+func relinkActivityTier(in mcp.TierResolverInput) mcp.RiskTier {
+	var args relinkTierArgs
+	if err := json.Unmarshal(in.Args, &args); err != nil {
+		return mcp.TierConfirmationRequired
+	}
+	if args.EntityType == string(datasource.EntityProject) {
+		return mcp.TierConfirmationRequired
+	}
+	if !relinkTargets[args.EntityType] {
+		return mcp.TierConfirmationRequired
+	}
+	return mcp.TierAutoExecute
 }
 
 type relinkActivityResolver struct {

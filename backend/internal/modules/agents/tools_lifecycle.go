@@ -86,9 +86,14 @@ type relinkActivity struct {
 func (t relinkActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "relink_activity", Title: "Re-associate an activity to a record", Version: toolVersionV1,
-		Description:   relinkActivityCopy.render(),
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "relinkActivity",
+		Description: relinkActivityCopy.render(),
+		// Dynamic because filing under a PROJECT classifies the activity as
+		// commercial correspondence — write-once and monotonic — while every
+		// other destination is an association a member can undo. See
+		// relinkActivityTier.
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierDynamic,
+		TierResolver: relinkActivityTier,
+		OpenAPIOp:    "relinkActivity",
 		InputSchema: schema(`{"type":"object","required":["activity_id","entity_type","entity_id"],"properties":{
 			"activity_id":{"type":"string","format":"uuid","description":"The captured activity to re-associate"},
 			"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},

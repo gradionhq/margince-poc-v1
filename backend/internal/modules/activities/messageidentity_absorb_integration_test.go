@@ -353,6 +353,50 @@ func TestAbsorbGivesTheSurvivorTheEchosProjectLinkWhenItHasNone(t *testing.T) {
 	}
 }
 
+// The copied project link CLASSIFIES the survivor, in the transaction that
+// copies it (D5). The survivor is a different activity from the echo, and until
+// the absorb runs it carries no classification at all — so a copy that files
+// without stamping leaves a Handelsbrief the next erasure destroys.
+//
+// The absorb runs inside a savepoint the reconcile rolls back on any fault, so
+// a broken stamp here does not surface as an error: the whole fold silently
+// does not happen. That is exactly how the first version of this shipped a
+// statement Postgres refuses, and why the assertion is on the CLASS rather than
+// on the absence of an error.
+func TestAbsorbStampsTheProjectLinkItCopies(t *testing.T) {
+	e := setupSend(t)
+	survivor := e.seedSentEmail(t, mintedIdentity)
+	echo := e.seedCapturedEcho(t)
+	theirs := e.seedProject(t, "Migration")
+	e.link(t, echo, "project", theirs)
+
+	e.reconcileAbsorbing(t, survivor)
+
+	var class, name *string
+	var evidence int
+	if err := e.owner.QueryRow(context.Background(), `
+		SELECT a.retention_class,
+		       (SELECT count(*) FROM activity_retention_evidence r
+		         WHERE r.activity_id = a.id AND r.basis = 'project_linked'),
+		       (SELECT max(r.project_name) FROM activity_retention_evidence r
+		         WHERE r.activity_id = a.id AND r.basis = 'project_linked')
+		  FROM activity a WHERE a.id = $1`, survivor).Scan(&class, &evidence, &name); err != nil {
+		t.Fatalf("reading the survivor's stamp: %v", err)
+	}
+	if class == nil {
+		t.Fatal("the absorb filed the survivor under a project and left it unclassified — an unstamped Handelsbrief is one the next erasure destroys")
+	}
+	if *class != "commercial_correspondence" {
+		t.Errorf("retention_class = %q, want commercial_correspondence", *class)
+	}
+	if evidence != 1 {
+		t.Errorf("project_linked evidence rows = %d, want 1", evidence)
+	}
+	if name == nil || *name != "Migration" {
+		t.Errorf("evidence project_name = %v, want the name frozen when the link landed, not at erasure time", name)
+	}
+}
+
 // WHO the absorb may fold in is not "whoever holds the identity". The identity
 // is parsed out of a remote provider's response, so a hostile or corrupted
 // answer would otherwise get to nominate any Gmail-captured row in the

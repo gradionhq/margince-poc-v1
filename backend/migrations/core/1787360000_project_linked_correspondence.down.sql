@@ -19,6 +19,40 @@
 -- exists, which is the correct outcome for exactly that reason.
 SET LOCAL lock_timeout = '3s';
 
+-- The freeze goes back to naming only the deal pair, which is correct once the
+-- project columns are gone: a trigger referencing a dropped column fails every
+-- write to the table.
+CREATE OR REPLACE FUNCTION activity_retention_evidence_is_frozen() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF EXISTS (SELECT 1 FROM activity a WHERE a.id = OLD.activity_id) THEN
+      RAISE EXCEPTION 'retention evidence % is frozen and is removed only with the activity it substantiates', OLD.id
+        USING ERRCODE = 'check_violation',
+              CONSTRAINT = 'activity_retention_evidence_frozen';
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF NEW.activity_id     IS DISTINCT FROM OLD.activity_id
+     OR NEW.basis        IS DISTINCT FROM OLD.basis
+     OR NEW.qualified_at IS DISTINCT FROM OLD.qualified_at
+     OR NEW.deal_name    IS DISTINCT FROM OLD.deal_name
+     OR NEW.decided_by_name IS DISTINCT FROM OLD.decided_by_name
+     OR NEW.reason       IS DISTINCT FROM OLD.reason
+     OR NEW.created_at   IS DISTINCT FROM OLD.created_at
+     OR (NEW.deal_id IS NOT NULL AND NEW.deal_id IS DISTINCT FROM OLD.deal_id)
+     OR (NEW.decided_by IS NOT NULL AND NEW.decided_by IS DISTINCT FROM OLD.decided_by) THEN
+    RAISE EXCEPTION 'retention evidence % is frozen at the moment it qualified and may not be rewritten', OLD.id
+      USING ERRCODE = 'check_violation',
+            CONSTRAINT = 'activity_retention_evidence_frozen';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
 DROP INDEX uq_activity_retention_evidence;
 CREATE UNIQUE INDEX uq_activity_retention_evidence
     ON activity_retention_evidence

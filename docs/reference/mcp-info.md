@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 52 |
 | Resources | 8 |
-| Tool catalog | 139.0 KB |
+| Tool catalog | 138.3 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 36360 |
+| Approx. wire tokens | 36188 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,7 +28,7 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 63.9 KB | 45% | **No** — a result's shape, never listed to a model |
+| Output schemas | 63.2 KB | 45% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 34.2 KB | 24% | Yes, every step |
 | Input schemas | 30.1 KB | 21% | Yes, every step |
 | _Names, annotations, punctuation_ | 10.9 KB | 7% | Partly |
@@ -85,7 +85,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`list_tags`](#list_tags) | List tags | yes |  | 1.6 KB |
 | [`log_activity`](#log_activity) | Log an activity |  |  | 3.2 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
-| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.8 KB |
+| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.0 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
 | [`preview_import`](#preview_import) | Preview an import |  |  | 2.3 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
@@ -97,7 +97,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`read_import_report`](#read_import_report) | Read an import report | yes |  | 2.5 KB |
 | [`read_import_run`](#read_import_run) | Read an import run | yes |  | 1.4 KB |
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
-| [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.3 KB |
+| [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.4 KB |
 | [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
@@ -4814,7 +4814,7 @@ Collapse two records for the same real person or company into one, moving the so
 
 **Prepare for a meeting**
 
-Get ready for a specific meeting: given the meeting, the same written brief a person reads; given any other record, the assembled picture a catch-up gives, plus the open items pulled out as the things to raise. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Given a meeting it works out which record that meeting is about and names the others alongside. Use catch_me_up_on when there is no meeting and the question is simply what has been happening, and check_availability when the goal is finding a time rather than preparing for one. The focus list names the open items by record_id; those are what to act on after the meeting. prepared_for names the record the prep was built around. occurred_at is when an item happened, in UTC — prefer it over a date the prose recalls. (Governance: runs immediately; requires passport scope "read".)
+Get ready for a specific meeting: the same assembled picture as a catch-up, plus the open items pulled out as the things to raise. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Given a meeting it works out which record that meeting is about and names the others alongside. Use catch_me_up_on when there is no meeting and the question is simply what has been happening, and check_availability when the goal is finding a time rather than preparing for one. The focus list names the open items by record_id; those are what to act on after the meeting. prepared_for names the record the prep was built around. occurred_at is when an item happened, in UTC — prefer it over a date the prose recalls. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -4860,79 +4860,6 @@ Get ready for a specific meeting: given the meeting, the same written brief a pe
   "properties": {
     "data": {
       "properties": {
-        "brief": {
-          "properties": {
-            "activity_id": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "generated_at": {
-              "type": "string"
-            },
-            "generated_by": {
-              "type": "string"
-            },
-            "sections": {
-              "items": {
-                "properties": {
-                  "kind": {
-                    "type": "string"
-                  },
-                  "sentences": {
-                    "items": {
-                      "properties": {
-                        "evidence": {
-                          "items": {
-                            "properties": {
-                              "record_id": {
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "record_type": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "record_id",
-                              "record_type"
-                            ],
-                            "type": "object"
-                          },
-                          "type": "array"
-                        },
-                        "nature": {
-                          "type": "string"
-                        },
-                        "text": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "evidence",
-                        "text"
-                      ],
-                      "type": "object"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "sentences"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            }
-          },
-          "required": [
-            "activity_id",
-            "generated_at",
-            "generated_by",
-            "sections"
-          ],
-          "type": "object"
-        },
         "briefing": {
           "properties": {
             "anchor": {
@@ -7316,7 +7243,7 @@ Read one record's own stored fields — the values a person would see on its det
 
 **Re-associate an activity to a record**
 
-Fix what an already-recorded activity is about, when a captured mail or meeting landed on the wrong record or on none. It changes only the association. The activity's own content — subject, body, when it happened — is untouched, and by default the new link is ADDED alongside any existing one rather than replacing it. Use log_activity when the event is not recorded at all yet; this tool moves an existing one. Set replace_existing_of_type when you mean to move the activity rather than associate it with one more record. (Governance: runs immediately; requires passport scope "write".)
+Fix what an already-recorded activity is about, when a captured mail or meeting landed on the wrong record or on none. It changes only the association. The activity's own content — subject, body, when it happened — is untouched, and by default the new link is ADDED alongside any existing one rather than replacing it. Use log_activity when the event is not recorded at all yet; this tool moves an existing one. Set replace_existing_of_type when you mean to move the activity rather than associate it with one more record. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 

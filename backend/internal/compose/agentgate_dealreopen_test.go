@@ -159,6 +159,89 @@ var wellFormedDynamicCalls = map[string]func(t *testing.T, stage ids.UUID) (*htt
 		t.Helper()
 		return requestForDeal(t, ids.NewV7()), []byte(`{"to_stage_id":"` + stage.String() + `"}`)
 	},
+	// A relink's tier turns on the DESTINATION type, not on any record, so the
+	// well-formed call is an ordinary move onto a person — the auto-executing
+	// side. The project side is what the pair below proves separately.
+	"relinkActivity": func(t *testing.T, _ ids.UUID) (*http.Request, []byte) {
+		t.Helper()
+		return requestForRelink(t, ids.NewV7()),
+			[]byte(`{"entity_type":"person","entity_id":"` + ids.NewV7().String() + `"}`)
+	},
+}
+
+// requestForRelink builds a request whose chi route context carries the id the
+// real router would have parsed out of /v1/activities/{id}/relink.
+func requestForRelink(t *testing.T, activity ids.UUID) *http.Request {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, "/v1/activities/"+activity.String()+"/relink", http.NoBody)
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("id", activity.String())
+	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, routeCtx))
+}
+
+// Filing an activity under a PROJECT reaches a human; every other destination
+// does not. This is the pair that proves the raise actually happens on the REST
+// door — the walk above only proves the route can answer its tier at all, and a
+// resolver that answered "auto-execute" for everything would satisfy it.
+//
+// It matters because the raise is the whole protection: filing under a project
+// classifies the correspondence as a Handelsbrief, which is write-once in the
+// database and is not lifted by relinking away. An agent that could do that
+// unattended could put a six-year retention floor across a mailbox with nothing
+// in the product to undo it.
+func TestRelinkingOntoAProjectReachesAHumanAndOtherDestinationsDoNot(t *testing.T) {
+	stage := ids.NewV7()
+	deps := restCommandDeps{
+		stages:  reopenStages{semantics: map[ids.UUID]string{stage: "open"}},
+		records: versionedDeal{stageID: stage, version: 3},
+	}
+	reg := agents.NewRegistry(nil, auth.NewGate(fullSeat{}))
+	agents.RegisterCoreTools(reg, deps.records, deps.stages, nil, nil)
+	// Nil dependencies are enough: resolving a tier reads the arguments and
+	// invokes no handler.
+	agents.RegisterLifecycleTools(reg, deps.records, nil, nil, nil)
+
+	pol, described := agentPolicies["POST /v1/activities/{id}/relink"]
+	if !described {
+		t.Fatal("the relink route carries no agent policy; the gate would not govern it at all")
+	}
+	spec, _, ok := operationSpec(pol, reg)
+	if !ok {
+		t.Fatal("the gate resolves no spec for the relink route")
+	}
+
+	for _, c := range []struct {
+		destination string
+		want        mcp.RiskTier
+		why         string
+	}{
+		{
+			"project", mcp.TierConfirmationRequired,
+			"filing under a project writes an irreversible six-year retention floor",
+		},
+		{
+			"person", mcp.TierAutoExecute,
+			"an ordinary association a member can undo by relinking again",
+		},
+		{
+			"deal", mcp.TierAutoExecute,
+			"the deal's own stamp is governed at the deal move, not here",
+		},
+		{
+			"not_a_record_type", mcp.TierConfirmationRequired,
+			"an unrecognised destination fails toward the approval gate, never away from it",
+		},
+	} {
+		body := []byte(`{"entity_type":"` + c.destination + `","entity_id":"` + ids.NewV7().String() + `"}`)
+		in, err := tierInput(context.Background(), spec, pol, deps, requestForRelink(t, ids.NewV7()), body)()
+		if err != nil {
+			t.Errorf("relink onto %s: the door could not answer its tier: %v", c.destination, err)
+			continue
+		}
+		if got := spec.TierResolver(in); got != c.want {
+			t.Errorf("relink onto %s resolved tier %v, want %v — %s", c.destination, got, c.want, c.why)
+		}
+	}
 }
 
 // Every dynamic-tier route must have a command that can ANSWER its tier
@@ -177,6 +260,11 @@ func TestEveryDynamicTierRouteHasACommandThatAnswersItsTier(t *testing.T) {
 	}
 	reg := agents.NewRegistry(nil, auth.NewGate(fullSeat{}))
 	agents.RegisterCoreTools(reg, deps.records, deps.stages, nil, nil)
+	// relink_activity is a lifecycle tool, and it is dynamic — the walk below
+	// derives the routes to check from the policy table, so a registry missing
+	// this set would report the route as unresolvable rather than skip it.
+	// Nil dependencies are enough: resolving a tier invokes no handler.
+	agents.RegisterLifecycleTools(reg, deps.records, nil, nil, nil)
 
 	checked := 0
 	for route, pol := range agentPolicies {

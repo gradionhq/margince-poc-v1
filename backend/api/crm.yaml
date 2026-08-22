@@ -3825,7 +3825,7 @@ paths:
         entity_id)` constraint). The activity's original `source`/`captured_by` provenance is **preserved**
         (the relink is a `human:*` or `agent:*` association event, not a re-capture). Writes one `audit_log`
         row (`activity_relink`). 🟢 — it is an internal association, not an outbound action.
-      x-mcp-tool: { verb: relink_activity, record_type: activity, tier: auto_execute, scope: write }
+      x-mcp-tool: { verb: relink_activity, record_type: activity, tier: dynamic, tier_resolver: destination_record_type, confirmation_required_when: 'entity_type is project — filing under a project classifies the activity as commercial correspondence, which is write-once and cannot be undone by relinking away', scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
