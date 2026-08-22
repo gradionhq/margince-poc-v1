@@ -23,22 +23,40 @@ import (
 )
 
 // BuyerThreads lists the conversation. Empty while the room serves no content.
+//
+// A thread on a document is shown only while the latest release NAMES that
+// document: a thread the seller opened on a file they have not yet published
+// would otherwise hand the buyer the file's existence and the seller's words
+// about it. Room-level threads are always shown.
 func (s *Store) BuyerThreads(ctx context.Context, sess Session, documentID *ids.UUID) ([]crmcontracts.DealRoomThread, error) {
 	if sess.ID == ids.Nil {
 		return nil, apperrors.ErrPermissionDenied
 	}
 	var out []crmcontracts.DealRoomThread
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		st, err := readStanding(ctx, tx, sess.RoomID)
+		docs, err := publishedDocuments(ctx, tx, sess.RoomID, time.Now())
 		if err != nil {
 			return err
 		}
-		if !servesContent(st.access(time.Now())) {
+		published := map[openapi_types.UUID]bool{}
+		for _, d := range docs {
+			published[d.ID] = true
+		}
+		if documentID != nil && !published[openapi_types.UUID(*documentID)] {
 			out = []crmcontracts.DealRoomThread{}
 			return nil
 		}
-		out, err = threadRows(ctx, tx, sess.RoomID, documentID)
-		return err
+		all, err := threadRows(ctx, tx, sess.RoomID, documentID)
+		if err != nil {
+			return err
+		}
+		out = make([]crmcontracts.DealRoomThread, 0, len(all))
+		for _, th := range all {
+			if th.DocumentId == nil || published[*th.DocumentId] {
+				out = append(out, th)
+			}
+		}
+		return nil
 	})
 	return out, err
 }

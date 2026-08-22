@@ -468,6 +468,19 @@ func TestTheConversationFlowsBothWaysAndAConfirmationWaitsForOpenChanges(t *test
 		t.Fatalf("decisions = %v", list)
 	}
 
+	// A thread on a document the seller has not published stays the seller's.
+	hidden := uploadDealFile(t, e, dealID, "pricing_internal.xlsx", []byte("secret"))
+	var hiddenDoc apptest.AnyMap
+	e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/documents", apptest.AnyMap{"attachment_id": hidden, "group_key": "commercial", "source": "ui"}, nil, &hiddenDoc)
+	e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/threads", apptest.AnyMap{"document_id": hiddenDoc["id"], "body": "internal note on pricing", "source": "ui"}, nil, nil)
+	var visible apptest.AnyMap
+	publicCall(t, e, "GET", "/v1/public/rooms/threads", nil, bearer(laura), &visible)
+	for _, th := range visible["data"].([]any) {
+		if m, _ := th.(map[string]any); m["document_id"] == hiddenDoc["id"] {
+			t.Fatalf("a thread on an unpublished document reached the buyer: %v", m)
+		}
+	}
+
 	// Paused: the conversation reads, but nobody on the buyer's side writes.
 	e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/pause", apptest.AnyMap{}, nil, nil)
 	if status := publicCall(t, e, "POST", "/v1/public/rooms/threads", apptest.AnyMap{"body": "hello?"}, bearer(laura), nil); status != http.StatusUnprocessableEntity {
