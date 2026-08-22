@@ -40,6 +40,7 @@ const (
 	recordTypeDataSubjectRequest  agentRecordType = "data_subject_request"
 	recordTypeDeal                agentRecordType = "deal"
 	recordTypeDealRoom            agentRecordType = "deal_room"
+	recordTypeDealRoomDocument    agentRecordType = "deal_room_document"
 	recordTypeDealRoomParticipant agentRecordType = "deal_room_participant"
 	recordTypeDealRoomRelease     agentRecordType = "deal_room_release"
 	recordTypeDealRoomTask        agentRecordType = "deal_room_task"
@@ -109,6 +110,7 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/connectors/{provider}/backfill":                          {Op: "cancelConnectorBackfill", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/contracts/{id}":                                          {Op: "archiveContract", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/deal-rooms/{id}":                                         {Op: "archiveDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"DELETE /v1/deal-rooms/{id}/documents/{documentId}":                  {Op: "removeDealRoomDocument", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/deal-rooms/{id}/tasks/{taskId}":                          {Op: "archiveDealRoomTask", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/deals/{id}":                                              {Op: "archiveDeal", Access: "tool", Tool: "archive_record", RecordType: "deal", Tier: "confirmation_required", Scope: "write"},
 	"DELETE /v1/lead-disqualify-reasons/{id}":                            {Op: "deleteLeadDisqualifyReason", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
@@ -189,6 +191,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/data-subject-requests":                                      {Op: "listDataSubjectRequests", Access: "tool", Tool: "search_records", RecordType: "data_subject_request", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/deal-rooms":                                                 {Op: "listDealRooms", Access: "tool", Tool: "search_records", RecordType: "deal_room", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/deal-rooms/{id}":                                            {Op: "getDealRoom", Access: "tool", Tool: "read_record", RecordType: "deal_room", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/deal-rooms/{id}/documents":                                  {Op: "listDealRoomDocuments", Access: "tool", Tool: "search_records", RecordType: "deal_room_document", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/deal-rooms/{id}/participants":                               {Op: "listDealRoomParticipants", Access: "tool", Tool: "search_records", RecordType: "deal_room_participant", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/deal-rooms/{id}/releases":                                   {Op: "listDealRoomReleases", Access: "tool", Tool: "search_records", RecordType: "deal_room_release", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/deal-rooms/{id}/tasks":                                      {Op: "listDealRoomTasks", Access: "tool", Tool: "search_records", RecordType: "deal_room_task", Tier: "auto_execute", Scope: "read"},
@@ -283,6 +286,7 @@ var agentPolicies = map[string]agentPolicy{
 	"PATCH /v1/custom-fields/{id}/options":                               {Op: "updateCustomFieldOptions", Access: "tool", Tool: "update_record", RecordType: "custom_field", Tier: "confirmation_required", Scope: "write"},
 	"PATCH /v1/data-subject-requests/{id}":                               {Op: "updateDataSubjectRequest", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/deal-rooms/{id}":                                          {Op: "updateDealRoom", Access: "tool", Tool: "update_record", RecordType: "deal_room", Tier: "auto_execute", Scope: "write"},
+	"PATCH /v1/deal-rooms/{id}/documents/{documentId}":                   {Op: "updateDealRoomDocument", Access: "tool", Tool: "update_record", RecordType: "deal_room_document", Tier: "auto_execute", Scope: "write"},
 	"PATCH /v1/deal-rooms/{id}/participants/{participantId}":             {Op: "updateDealRoomParticipant", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/deal-rooms/{id}/tasks/{taskId}":                           {Op: "updateDealRoomTask", Access: "tool", Tool: "update_record", RecordType: "deal_room_task", Tier: "auto_execute", Scope: "write"},
 	"PATCH /v1/deals/{id}":                                               {Op: "updateDeal", Access: "tool", Tool: "update_record", RecordType: "deal", Tier: "auto_execute", Scope: "write"},
@@ -369,6 +373,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/data-subject-requests":                                     {Op: "createDataSubjectRequest", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/deal-rooms":                                                {Op: "createDealRoom", Access: "tool", Tool: "create_record", RecordType: "deal_room", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/deal-rooms/{id}/close":                                     {Op: "closeDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/deal-rooms/{id}/documents":                                 {Op: "addDealRoomDocument", Access: "tool", Tool: "create_record", RecordType: "deal_room_document", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/deal-rooms/{id}/participants":                              {Op: "inviteDealRoomParticipant", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/deal-rooms/{id}/participants/{participantId}/resend":       {Op: "resendDealRoomInvitation", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/deal-rooms/{id}/participants/{participantId}/revoke":       {Op: "revokeDealRoomParticipant", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

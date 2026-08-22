@@ -3011,6 +3011,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/rooms/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The documents as published, grouped.
+         * @description The manifest frozen in the latest release. A document the seller added or
+         *     removed since is not reflected until they publish again. Empty while the
+         *     room is paused or expired.
+         */
+        get: operations["listBuyerRoomDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/rooms/documents/{documentId}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * The bytes of one published document.
+         * @description Served only for a document named in the latest release of the session's room,
+         *     and only while the room serves content. The file is the exact version that
+         *     release froze.
+         */
+        get: operations["downloadBuyerRoomDocument"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/rooms/sign-out": {
         parameters: {
             query?: never;
@@ -7540,6 +7586,68 @@ export interface paths {
          *     attribution, so a reopened item names nobody until it is done again.
          */
         patch: operations["updateDealRoomTask"];
+        trace?: never;
+    };
+    "/deal-rooms/{id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the documents a room puts in front of its buyer.
+         * @description Each entry points at an attachment already filed on the room's deal; the room
+         *     holds no bytes of its own. Grouped by one of four fixed groups and ordered
+         *     within each.
+         */
+        get: operations["listDealRoomDocuments"];
+        put?: never;
+        /**
+         * Put an attachment of the deal in front of the buyer.
+         * @description The attachment must be filed on THIS room's deal (`entity_type: deal`, the
+         *     room's `deal_id`); any other id is 404. The attachment row is the exact
+         *     version the buyer will be shown. Editorial: the buyer sees it at the next
+         *     publish. Refused once the room can no longer reach a buyer.
+         */
+        post: operations["addDealRoomDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/documents/{documentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Take a document out of the room.
+         * @description Marks the entry removed; the attachment itself is untouched. The buyer stops
+         *     seeing it at the next publish — a release already published keeps naming it,
+         *     because that release is what they were shown.
+         */
+        delete: operations["removeDealRoomDocument"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename, regroup or reorder a room document.
+         * @description Editorial, like adding one — the buyer sees the change at the next publish.
+         */
+        patch: operations["updateDealRoomDocument"];
         trace?: never;
     };
     "/deal-rooms/{id}/releases": {
@@ -17157,7 +17265,7 @@ export interface components {
              * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
              * @enum {string}
              */
-            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_participant" | "deal_room_release" | "deal_room_task" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_document" | "deal_room_participant" | "deal_room_release" | "deal_room_task" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
             /**
              * @description The autonomy tier, identical on REST and MCP (ADR-0055).
              * @enum {string}
@@ -19301,6 +19409,88 @@ export interface components {
             archived_at?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /**
+         * @description One of four fixed groups, as a machine key: `commercial`, `legal`,
+         *     `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
+         *     key never carries a display string. Not configurable, not AI-assigned — the
+         *     person adding the document picks. A plain string rather than an inline enum
+         *     for the reason `DealRoomTaskSide` gives.
+         */
+        DealRoomDocumentGroup: string;
+        /**
+         * @description One document a room puts in front of its buyer: a pointer at an attachment
+         *     filed on the deal, with a buyer-facing title, a group and an order. The
+         *     attachment row is the exact version shown.
+         */
+        DealRoomDocument: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            /** Format: uuid */
+            attachment_id: string;
+            group_key: components["schemas"]["DealRoomDocumentGroup"];
+            title: string;
+            position: number;
+            /** @description The attachment's stored filename, for the seller's reference. */
+            readonly filename: string;
+            readonly content_type?: string | null;
+            /** Format: int64 */
+            readonly byte_size?: number | null;
+            /** Format: date-time */
+            archived_at?: string | null;
+            source: string;
+            readonly captured_by?: string;
+            version: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        DealRoomDocumentListResponse: {
+            data: components["schemas"]["DealRoomDocument"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        AddDealRoomDocumentRequest: {
+            /**
+             * Format: uuid
+             * @description An attachment filed on this room's deal.
+             */
+            attachment_id: string;
+            group_key: components["schemas"]["DealRoomDocumentGroup"];
+            /** @description The buyer-facing name. Defaults to the attachment's filename. */
+            title?: string;
+            /** @description Order within the group. Defaults to 0. */
+            position?: number;
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Any subset; omit a field to leave it unchanged. */
+        UpdateDealRoomDocumentRequest: {
+            group_key?: components["schemas"]["DealRoomDocumentGroup"];
+            title?: string;
+            position?: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description One published document as the buyer sees it. No seller-side ids beyond its own. */
+        BuyerRoomDocument: {
+            /** Format: uuid */
+            id: string;
+            group_key: components["schemas"]["DealRoomDocumentGroup"];
+            title: string;
+            position: number;
+            filename: string;
+            content_type?: string | null;
+            /** Format: int64 */
+            byte_size?: number | null;
+        };
+        BuyerRoomDocumentListResponse: {
+            data: components["schemas"]["BuyerRoomDocument"][];
         };
         DealRoomTaskListResponse: {
             data: components["schemas"]["DealRoomTask"][];
@@ -25571,6 +25761,69 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listBuyerRoomDocuments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The published documents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuyerRoomDocumentListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    downloadBuyerRoomDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file bytes; Content-Disposition names the file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             /** @description Rate-limited. */
             429: {
                 headers: {
@@ -33468,6 +33721,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DealRoomTask"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listDealRoomDocuments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The room's documents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomDocumentListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    addDealRoomDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddDealRoomDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description The added document. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomDocument"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    removeDealRoomDocument: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The removed document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomDocument"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateDealRoomDocument: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                documentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDealRoomDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomDocument"];
                 };
             };
             401: components["responses"]["Unauthorized"];

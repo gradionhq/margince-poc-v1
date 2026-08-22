@@ -555,6 +555,22 @@ func (stubs) CloseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "CloseDealRoom")
 }
 
+func (stubs) ListDealRoomDocuments(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ListDealRoomDocuments")
+}
+
+func (stubs) AddDealRoomDocument(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "AddDealRoomDocument")
+}
+
+func (stubs) RemoveDealRoomDocument(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, documentId openapi_types.UUID, params crmcontracts.RemoveDealRoomDocumentParams) {
+	httperr.NotImplemented(w, r, "RemoveDealRoomDocument")
+}
+
+func (stubs) UpdateDealRoomDocument(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, documentId openapi_types.UUID, params crmcontracts.UpdateDealRoomDocumentParams) {
+	httperr.NotImplemented(w, r, "UpdateDealRoomDocument")
+}
+
 func (stubs) SetDealRoomExpiry(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SetDealRoomExpiryParams) {
 	httperr.NotImplemented(w, r, "SetDealRoomExpiry")
 }
@@ -1413,6 +1429,14 @@ func (stubs) UpdatePreferences(w nethttp.ResponseWriter, r *nethttp.Request, tok
 
 func (stubs) OneClickUnsubscribe(w nethttp.ResponseWriter, r *nethttp.Request, token string, params crmcontracts.OneClickUnsubscribeParams) {
 	httperr.NotImplemented(w, r, "OneClickUnsubscribe")
+}
+
+func (stubs) ListBuyerRoomDocuments(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListBuyerRoomDocuments")
+}
+
+func (stubs) DownloadBuyerRoomDocument(w nethttp.ResponseWriter, r *nethttp.Request, documentId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "DownloadBuyerRoomDocument")
 }
 
 func (stubs) ExchangeDealRoomCredential(w nethttp.ResponseWriter, r *nethttp.Request) {

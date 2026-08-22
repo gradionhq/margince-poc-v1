@@ -11771,6 +11771,27 @@ type AddConsumerMailDomainRequest struct {
 // AddConsumerMailDomainRequestKind defines model for AddConsumerMailDomainRequest.Kind.
 type AddConsumerMailDomainRequestKind string
 
+// AddDealRoomDocumentRequest defines model for AddDealRoomDocumentRequest.
+type AddDealRoomDocumentRequest struct {
+	// AttachmentId An attachment filed on this room's deal.
+	AttachmentId openapi_types.UUID `json:"attachment_id"`
+
+	// GroupKey One of four fixed groups, as a machine key: `commercial`, `legal`,
+	// `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
+	// key never carries a display string. Not configurable, not AI-assigned — the
+	// person adding the document picks. A plain string rather than an inline enum
+	// for the reason `DealRoomTaskSide` gives.
+	GroupKey DealRoomDocumentGroup `json:"group_key"`
+
+	// Position Order within the group. Defaults to 0.
+	Position *int   `json:"position,omitempty"`
+	Source   string `json:"source"`
+
+	// Title The buyer-facing name. Defaults to the attachment's filename.
+	Title                *string                `json:"title,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
 // AddListMemberRequest defines model for AddListMemberRequest.
 type AddListMemberRequest struct {
 	EntityId   openapi_types.UUID             `json:"entity_id"`
@@ -12925,6 +12946,28 @@ type BuyerRoomContent struct {
 	StewardName    *string `json:"steward_name,omitempty"`
 	Title          string  `json:"title"`
 	WelcomeMessage *string `json:"welcome_message,omitempty"`
+}
+
+// BuyerRoomDocument One published document as the buyer sees it. No seller-side ids beyond its own.
+type BuyerRoomDocument struct {
+	ByteSize    *int64  `json:"byte_size,omitempty"`
+	ContentType *string `json:"content_type,omitempty"`
+	Filename    string  `json:"filename"`
+
+	// GroupKey One of four fixed groups, as a machine key: `commercial`, `legal`,
+	// `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
+	// key never carries a display string. Not configurable, not AI-assigned — the
+	// person adding the document picks. A plain string rather than an inline enum
+	// for the reason `DealRoomTaskSide` gives.
+	GroupKey DealRoomDocumentGroup `json:"group_key"`
+	Id       openapi_types.UUID    `json:"id"`
+	Position int                   `json:"position"`
+	Title    string                `json:"title"`
+}
+
+// BuyerRoomDocumentListResponse defines model for BuyerRoomDocumentListResponse.
+type BuyerRoomDocumentListResponse struct {
+	Data []BuyerRoomDocument `json:"data"`
 }
 
 // BuyerRoomParticipant The caller, as the room knows them. Nothing about anyone else in the room.
@@ -15304,6 +15347,55 @@ type DealRoomCredentialRequest struct {
 // they are in. `superseded` was retired by a later resend. `none` means no
 // credential currently stands, which is what a revoked participant shows.
 type DealRoomDeliveryState string
+
+// DealRoomDocument One document a room puts in front of its buyer: a pointer at an attachment
+// filed on the deal, with a buyer-facing title, a group and an order. The
+// attachment row is the exact version shown.
+type DealRoomDocument struct {
+	ArchivedAt   *time.Time         `json:"archived_at,omitempty"`
+	AttachmentId openapi_types.UUID `json:"attachment_id"`
+	ByteSize     *int64             `json:"byte_size,omitempty"`
+	CapturedBy   *string            `json:"captured_by,omitempty"`
+	ContentType  *string            `json:"content_type,omitempty"`
+	CreatedAt    time.Time          `json:"created_at"`
+
+	// Filename The attachment's stored filename, for the seller's reference.
+	Filename *string `json:"filename,omitempty"`
+
+	// GroupKey One of four fixed groups, as a machine key: `commercial`, `legal`,
+	// `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
+	// key never carries a display string. Not configurable, not AI-assigned — the
+	// person adding the document picks. A plain string rather than an inline enum
+	// for the reason `DealRoomTaskSide` gives.
+	GroupKey  DealRoomDocumentGroup `json:"group_key"`
+	Id        openapi_types.UUID    `json:"id"`
+	Position  int                   `json:"position"`
+	RoomId    openapi_types.UUID    `json:"room_id"`
+	Source    string                `json:"source"`
+	Title     string                `json:"title"`
+	UpdatedAt time.Time             `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version              *RowVersion            `json:"version,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// DealRoomDocumentGroup One of four fixed groups, as a machine key: `commercial`, `legal`,
+// `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
+// key never carries a display string. Not configurable, not AI-assigned — the
+// person adding the document picks. A plain string rather than an inline enum
+// for the reason `DealRoomTaskSide` gives.
+type DealRoomDocumentGroup = string
+
+// DealRoomDocumentListResponse defines model for DealRoomDocumentListResponse.
+type DealRoomDocumentListResponse struct {
+	Data []DealRoomDocument `json:"data"`
+	Page PageInfo           `json:"page"`
+}
 
 // DealRoomInvitationIssued A participant and the credential just minted for them.
 //
@@ -22085,6 +22177,19 @@ type UpdateDealRequestPartnerAttribution string
 // UpdateDealRequestStatus defines model for UpdateDealRequest.Status.
 type UpdateDealRequestStatus string
 
+// UpdateDealRoomDocumentRequest Any subset; omit a field to leave it unchanged.
+type UpdateDealRoomDocumentRequest struct {
+	// GroupKey One of four fixed groups, as a machine key: `commercial`, `legal`,
+	// `security_privacy`, `delivery_operations`. Labels are the client's i18n; the
+	// key never carries a display string. Not configurable, not AI-assigned — the
+	// person adding the document picks. A plain string rather than an inline enum
+	// for the reason `DealRoomTaskSide` gives.
+	GroupKey             *DealRoomDocumentGroup `json:"group_key,omitempty"`
+	Position             *int                   `json:"position,omitempty"`
+	Title                *string                `json:"title,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
 // UpdateDealRoomParticipantRequest Any subset; omit a field to leave it unchanged.
 type UpdateDealRoomParticipantRequest struct {
 	// Capability What a participant may do in the room. Coarse and room-wide on purpose — a
@@ -23905,6 +24010,26 @@ type ArchiveDealRoomParams struct {
 
 // UpdateDealRoomParams defines parameters for UpdateDealRoom.
 type UpdateDealRoomParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// RemoveDealRoomDocumentParams defines parameters for RemoveDealRoomDocument.
+type RemoveDealRoomDocumentParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpdateDealRoomDocumentParams defines parameters for UpdateDealRoomDocument.
+type UpdateDealRoomDocumentParams struct {
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -27036,6 +27161,12 @@ type CreateDealRoomJSONRequestBody = CreateDealRoomRequest
 // UpdateDealRoomJSONRequestBody defines body for UpdateDealRoom for application/json ContentType.
 type UpdateDealRoomJSONRequestBody = UpdateDealRoomRequest
 
+// AddDealRoomDocumentJSONRequestBody defines body for AddDealRoomDocument for application/json ContentType.
+type AddDealRoomDocumentJSONRequestBody = AddDealRoomDocumentRequest
+
+// UpdateDealRoomDocumentJSONRequestBody defines body for UpdateDealRoomDocument for application/json ContentType.
+type UpdateDealRoomDocumentJSONRequestBody = UpdateDealRoomDocumentRequest
+
 // SetDealRoomExpiryJSONRequestBody defines body for SetDealRoomExpiry for application/json ContentType.
 type SetDealRoomExpiryJSONRequestBody = SetDealRoomExpiryRequest
 
@@ -27398,6 +27529,128 @@ type CreateWebhookSubscriptionJSONRequestBody = CreateWebhookSubscriptionRequest
 
 // UpdateWebhookSubscriptionJSONRequestBody defines body for UpdateWebhookSubscription for application/json ContentType.
 type UpdateWebhookSubscriptionJSONRequestBody = UpdateWebhookSubscriptionRequest
+
+// Getter for additional properties for AddDealRoomDocumentRequest. Returns the specified
+// element and whether it was found
+func (a AddDealRoomDocumentRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for AddDealRoomDocumentRequest
+func (a *AddDealRoomDocumentRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for AddDealRoomDocumentRequest to handle AdditionalProperties
+func (a *AddDealRoomDocumentRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["attachment_id"]; found {
+		err = json.Unmarshal(raw, &a.AttachmentId)
+		if err != nil {
+			return fmt.Errorf("error reading 'attachment_id': %w", err)
+		}
+		delete(object, "attachment_id")
+	}
+
+	if raw, found := object["group_key"]; found {
+		err = json.Unmarshal(raw, &a.GroupKey)
+		if err != nil {
+			return fmt.Errorf("error reading 'group_key': %w", err)
+		}
+		delete(object, "group_key")
+	}
+
+	if raw, found := object["position"]; found {
+		err = json.Unmarshal(raw, &a.Position)
+		if err != nil {
+			return fmt.Errorf("error reading 'position': %w", err)
+		}
+		delete(object, "position")
+	}
+
+	if raw, found := object["source"]; found {
+		err = json.Unmarshal(raw, &a.Source)
+		if err != nil {
+			return fmt.Errorf("error reading 'source': %w", err)
+		}
+		delete(object, "source")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for AddDealRoomDocumentRequest to handle AdditionalProperties
+func (a AddDealRoomDocumentRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["attachment_id"], err = json.Marshal(a.AttachmentId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'attachment_id': %w", err)
+	}
+
+	object["group_key"], err = json.Marshal(a.GroupKey)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'group_key': %w", err)
+	}
+
+	if a.Position != nil {
+		object["position"], err = json.Marshal(a.Position)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'position': %w", err)
+		}
+	}
+
+	object["source"], err = json.Marshal(a.Source)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	if a.Title != nil {
+		object["title"], err = json.Marshal(a.Title)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'title': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // Getter for additional properties for Address. Returns the specified
 // element and whether it was found
@@ -29937,6 +30190,262 @@ func (a DealRoom) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'welcome_message': %w", err)
 		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for DealRoomDocument. Returns the specified
+// element and whether it was found
+func (a DealRoomDocument) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for DealRoomDocument
+func (a *DealRoomDocument) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for DealRoomDocument to handle AdditionalProperties
+func (a *DealRoomDocument) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["archived_at"]; found {
+		err = json.Unmarshal(raw, &a.ArchivedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'archived_at': %w", err)
+		}
+		delete(object, "archived_at")
+	}
+
+	if raw, found := object["attachment_id"]; found {
+		err = json.Unmarshal(raw, &a.AttachmentId)
+		if err != nil {
+			return fmt.Errorf("error reading 'attachment_id': %w", err)
+		}
+		delete(object, "attachment_id")
+	}
+
+	if raw, found := object["byte_size"]; found {
+		err = json.Unmarshal(raw, &a.ByteSize)
+		if err != nil {
+			return fmt.Errorf("error reading 'byte_size': %w", err)
+		}
+		delete(object, "byte_size")
+	}
+
+	if raw, found := object["captured_by"]; found {
+		err = json.Unmarshal(raw, &a.CapturedBy)
+		if err != nil {
+			return fmt.Errorf("error reading 'captured_by': %w", err)
+		}
+		delete(object, "captured_by")
+	}
+
+	if raw, found := object["content_type"]; found {
+		err = json.Unmarshal(raw, &a.ContentType)
+		if err != nil {
+			return fmt.Errorf("error reading 'content_type': %w", err)
+		}
+		delete(object, "content_type")
+	}
+
+	if raw, found := object["created_at"]; found {
+		err = json.Unmarshal(raw, &a.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'created_at': %w", err)
+		}
+		delete(object, "created_at")
+	}
+
+	if raw, found := object["filename"]; found {
+		err = json.Unmarshal(raw, &a.Filename)
+		if err != nil {
+			return fmt.Errorf("error reading 'filename': %w", err)
+		}
+		delete(object, "filename")
+	}
+
+	if raw, found := object["group_key"]; found {
+		err = json.Unmarshal(raw, &a.GroupKey)
+		if err != nil {
+			return fmt.Errorf("error reading 'group_key': %w", err)
+		}
+		delete(object, "group_key")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if raw, found := object["position"]; found {
+		err = json.Unmarshal(raw, &a.Position)
+		if err != nil {
+			return fmt.Errorf("error reading 'position': %w", err)
+		}
+		delete(object, "position")
+	}
+
+	if raw, found := object["room_id"]; found {
+		err = json.Unmarshal(raw, &a.RoomId)
+		if err != nil {
+			return fmt.Errorf("error reading 'room_id': %w", err)
+		}
+		delete(object, "room_id")
+	}
+
+	if raw, found := object["source"]; found {
+		err = json.Unmarshal(raw, &a.Source)
+		if err != nil {
+			return fmt.Errorf("error reading 'source': %w", err)
+		}
+		delete(object, "source")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["updated_at"]; found {
+		err = json.Unmarshal(raw, &a.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'updated_at': %w", err)
+		}
+		delete(object, "updated_at")
+	}
+
+	if raw, found := object["version"]; found {
+		err = json.Unmarshal(raw, &a.Version)
+		if err != nil {
+			return fmt.Errorf("error reading 'version': %w", err)
+		}
+		delete(object, "version")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for DealRoomDocument to handle AdditionalProperties
+func (a DealRoomDocument) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.ArchivedAt != nil {
+		object["archived_at"], err = json.Marshal(a.ArchivedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'archived_at': %w", err)
+		}
+	}
+
+	object["attachment_id"], err = json.Marshal(a.AttachmentId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'attachment_id': %w", err)
+	}
+
+	if a.ByteSize != nil {
+		object["byte_size"], err = json.Marshal(a.ByteSize)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'byte_size': %w", err)
+		}
+	}
+
+	if a.CapturedBy != nil {
+		object["captured_by"], err = json.Marshal(a.CapturedBy)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'captured_by': %w", err)
+		}
+	}
+
+	if a.ContentType != nil {
+		object["content_type"], err = json.Marshal(a.ContentType)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'content_type': %w", err)
+		}
+	}
+
+	object["created_at"], err = json.Marshal(a.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
+	}
+
+	object["filename"], err = json.Marshal(a.Filename)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'filename': %w", err)
+	}
+
+	object["group_key"], err = json.Marshal(a.GroupKey)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'group_key': %w", err)
+	}
+
+	object["id"], err = json.Marshal(a.Id)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'id': %w", err)
+	}
+
+	object["position"], err = json.Marshal(a.Position)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'position': %w", err)
+	}
+
+	object["room_id"], err = json.Marshal(a.RoomId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'room_id': %w", err)
+	}
+
+	object["source"], err = json.Marshal(a.Source)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["updated_at"], err = json.Marshal(a.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'updated_at': %w", err)
+	}
+
+	object["version"], err = json.Marshal(a.Version)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'version': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -33641,6 +34150,104 @@ func (a UpdateDealRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// Getter for additional properties for UpdateDealRoomDocumentRequest. Returns the specified
+// element and whether it was found
+func (a UpdateDealRoomDocumentRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for UpdateDealRoomDocumentRequest
+func (a *UpdateDealRoomDocumentRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for UpdateDealRoomDocumentRequest to handle AdditionalProperties
+func (a *UpdateDealRoomDocumentRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["group_key"]; found {
+		err = json.Unmarshal(raw, &a.GroupKey)
+		if err != nil {
+			return fmt.Errorf("error reading 'group_key': %w", err)
+		}
+		delete(object, "group_key")
+	}
+
+	if raw, found := object["position"]; found {
+		err = json.Unmarshal(raw, &a.Position)
+		if err != nil {
+			return fmt.Errorf("error reading 'position': %w", err)
+		}
+		delete(object, "position")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for UpdateDealRoomDocumentRequest to handle AdditionalProperties
+func (a UpdateDealRoomDocumentRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.GroupKey != nil {
+		object["group_key"], err = json.Marshal(a.GroupKey)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'group_key': %w", err)
+		}
+	}
+
+	if a.Position != nil {
+		object["position"], err = json.Marshal(a.Position)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'position': %w", err)
+		}
+	}
+
+	if a.Title != nil {
+		object["title"], err = json.Marshal(a.Title)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'title': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
 // Getter for additional properties for UpdateDealRoomParticipantRequest. Returns the specified
 // element and whether it was found
 func (a UpdateDealRoomParticipantRequest) Get(fieldName string) (value interface{}, found bool) {
@@ -35584,6 +36191,18 @@ type ServerInterface interface {
 	// Freeze the room's content, keeping buyer access.
 	// (POST /deal-rooms/{id}/close)
 	CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
+	// List the documents a room puts in front of its buyer.
+	// (GET /deal-rooms/{id}/documents)
+	ListDealRoomDocuments(w http.ResponseWriter, r *http.Request, id Id)
+	// Put an attachment of the deal in front of the buyer.
+	// (POST /deal-rooms/{id}/documents)
+	AddDealRoomDocument(w http.ResponseWriter, r *http.Request, id Id)
+	// Take a document out of the room.
+	// (DELETE /deal-rooms/{id}/documents/{documentId})
+	RemoveDealRoomDocument(w http.ResponseWriter, r *http.Request, id Id, documentId openapi_types.UUID, params RemoveDealRoomDocumentParams)
+	// Rename, regroup or reorder a room document.
+	// (PATCH /deal-rooms/{id}/documents/{documentId})
+	UpdateDealRoomDocument(w http.ResponseWriter, r *http.Request, id Id, documentId openapi_types.UUID, params UpdateDealRoomDocumentParams)
 	// Set or clear when buyer access lapses.
 	// (PUT /deal-rooms/{id}/expiry)
 	SetDealRoomExpiry(w http.ResponseWriter, r *http.Request, id Id, params SetDealRoomExpiryParams)
@@ -36229,6 +36848,12 @@ type ServerInterface interface {
 	// RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
 	// (POST /public/preferences/{token}/unsubscribe)
 	OneClickUnsubscribe(w http.ResponseWriter, r *http.Request, token string, params OneClickUnsubscribeParams)
+	// The documents as published, grouped.
+	// (GET /public/rooms/documents)
+	ListBuyerRoomDocuments(w http.ResponseWriter, r *http.Request)
+	// The bytes of one published document.
+	// (GET /public/rooms/documents/{documentId}/file)
+	DownloadBuyerRoomDocument(w http.ResponseWriter, r *http.Request, documentId openapi_types.UUID)
 	// Exchange a one-time Deal Room credential for a room session (anonymous).
 	// (POST /public/rooms/exchange)
 	ExchangeDealRoomCredential(w http.ResponseWriter, r *http.Request)
@@ -37345,6 +37970,30 @@ func (_ Unimplemented) UpdateDealRoom(w http.ResponseWriter, r *http.Request, id
 // Freeze the room's content, keeping buyer access.
 // (POST /deal-rooms/{id}/close)
 func (_ Unimplemented) CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the documents a room puts in front of its buyer.
+// (GET /deal-rooms/{id}/documents)
+func (_ Unimplemented) ListDealRoomDocuments(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Put an attachment of the deal in front of the buyer.
+// (POST /deal-rooms/{id}/documents)
+func (_ Unimplemented) AddDealRoomDocument(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Take a document out of the room.
+// (DELETE /deal-rooms/{id}/documents/{documentId})
+func (_ Unimplemented) RemoveDealRoomDocument(w http.ResponseWriter, r *http.Request, id Id, documentId openapi_types.UUID, params RemoveDealRoomDocumentParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rename, regroup or reorder a room document.
+// (PATCH /deal-rooms/{id}/documents/{documentId})
+func (_ Unimplemented) UpdateDealRoomDocument(w http.ResponseWriter, r *http.Request, id Id, documentId openapi_types.UUID, params UpdateDealRoomDocumentParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -38635,6 +39284,18 @@ func (_ Unimplemented) UpdatePreferences(w http.ResponseWriter, r *http.Request,
 // RFC 8058 one-click unsubscribe (anonymous, token-authed, POST-only).
 // (POST /public/preferences/{token}/unsubscribe)
 func (_ Unimplemented) OneClickUnsubscribe(w http.ResponseWriter, r *http.Request, token string, params OneClickUnsubscribeParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The documents as published, grouped.
+// (GET /public/rooms/documents)
+func (_ Unimplemented) ListBuyerRoomDocuments(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The bytes of one published document.
+// (GET /public/rooms/documents/{documentId}/file)
+func (_ Unimplemented) DownloadBuyerRoomDocument(w http.ResponseWriter, r *http.Request, documentId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -44686,6 +45347,208 @@ func (siw *ServerInterfaceWrapper) CloseDealRoom(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CloseDealRoom(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDealRoomDocuments operation middleware
+func (siw *ServerInterfaceWrapper) ListDealRoomDocuments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDealRoomDocuments(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddDealRoomDocument operation middleware
+func (siw *ServerInterfaceWrapper) AddDealRoomDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddDealRoomDocument(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveDealRoomDocument operation middleware
+func (siw *ServerInterfaceWrapper) RemoveDealRoomDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "documentId" -------------
+	var documentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "documentId", chi.URLParam(r, "documentId"), &documentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "documentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RemoveDealRoomDocumentParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveDealRoomDocument(w, r, id, documentId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateDealRoomDocument operation middleware
+func (siw *ServerInterfaceWrapper) UpdateDealRoomDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "documentId" -------------
+	var documentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "documentId", chi.URLParam(r, "documentId"), &documentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "documentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateDealRoomDocumentParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateDealRoomDocument(w, r, id, documentId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -54827,6 +55690,58 @@ func (siw *ServerInterfaceWrapper) OneClickUnsubscribe(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// ListBuyerRoomDocuments operation middleware
+func (siw *ServerInterfaceWrapper) ListBuyerRoomDocuments(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBuyerRoomDocuments(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DownloadBuyerRoomDocument operation middleware
+func (siw *ServerInterfaceWrapper) DownloadBuyerRoomDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "documentId" -------------
+	var documentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "documentId", chi.URLParam(r, "documentId"), &documentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "documentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, DealRoomSessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadBuyerRoomDocument(w, r, documentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ExchangeDealRoomCredential operation middleware
 func (siw *ServerInterfaceWrapper) ExchangeDealRoomCredential(w http.ResponseWriter, r *http.Request) {
 
@@ -60200,6 +61115,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/deal-rooms/{id}/close", wrapper.CloseDealRoom)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deal-rooms/{id}/documents", wrapper.ListDealRoomDocuments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/documents", wrapper.AddDealRoomDocument)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/deal-rooms/{id}/documents/{documentId}", wrapper.RemoveDealRoomDocument)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/deal-rooms/{id}/documents/{documentId}", wrapper.UpdateDealRoomDocument)
+	})
+	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/deal-rooms/{id}/expiry", wrapper.SetDealRoomExpiry)
 	})
 	r.Group(func(r chi.Router) {
@@ -60843,6 +61770,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/public/preferences/{token}/unsubscribe", wrapper.OneClickUnsubscribe)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/rooms/documents", wrapper.ListBuyerRoomDocuments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/public/rooms/documents/{documentId}/file", wrapper.DownloadBuyerRoomDocument)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/public/rooms/exchange", wrapper.ExchangeDealRoomCredential)

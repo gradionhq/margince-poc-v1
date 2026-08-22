@@ -12,12 +12,17 @@ package integration
 // every dead credential reads alike, and a room session holds no CRM authority.
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 )
 
 // buyerRoom is the seller-side setup every scenario starts from: a live room
@@ -246,5 +251,123 @@ func TestEveryDeadCredentialReadsAlikeAndARoomSessionHoldsNoCRMAuthority(t *test
 	}
 	if status := publicCall(t, e, "GET", "/v1/public/rooms/me", nil, bearer(token), nil); status != http.StatusUnauthorized {
 		t.Fatalf("me after sign-out = %d, want 401", status)
+	}
+}
+
+// uploadDealFile files a document on the deal over the real upload route, the
+// way a rep does, and returns the attachment id.
+func uploadDealFile(t *testing.T, e *apptest.AppEnv, dealID, filename string, data []byte) string {
+	t.Helper()
+	body, ctype := multipartAttachment(t, "deal", dealID, filename, data)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, e.TS.URL+"/v1/attachments", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", ctype)
+	resp, err := e.Client.Do(req) //nolint:bodyclose // closed by apptest.CloseBody below
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer apptest.CloseBody(t, resp)
+	var att apptest.AnyMap
+	if err := json.NewDecoder(resp.Body).Decode(&att); err != nil || resp.StatusCode != http.StatusCreated {
+		t.Fatalf("upload = %d (%v) %v", resp.StatusCode, err, att)
+	}
+	id, _ := att["id"].(string)
+	return id
+}
+
+func TestABuyerReadsAndDownloadsOnlyWhatTheReleaseNames(t *testing.T) {
+	e := apptest.SetupAppWithOptions(t, compose.WithBlobstore(blobstore.NewMemory()))
+	e.BootstrapWorkspace(t)
+	room := openPublishedRoom(t, e)
+	var roomRow apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/deal-rooms/"+room.roomID, nil, nil, &roomRow); status != http.StatusOK {
+		t.Fatalf("room = %d", status)
+	}
+	dealID, _ := roomRow["deal_id"].(string)
+
+	// A file on the deal goes into the room under a fixed group; one on some
+	// other record is refused as absent.
+	attachmentID := uploadDealFile(t, e, dealID, "DPA_v7.pdf", []byte("%PDF-DPA"))
+	var doc apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/documents", apptest.AnyMap{
+		"attachment_id": attachmentID, "group_key": "legal", "title": "Data processing agreement", "source": "ui",
+	}, nil, &doc); status != http.StatusCreated {
+		t.Fatalf("add document = %d %v", status, doc)
+	}
+	docID, _ := doc["id"].(string)
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/documents", apptest.AnyMap{
+		"attachment_id": attachmentID, "group_key": "marketing", "source": "ui",
+	}, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown group = %d, want 422", status)
+	}
+
+	var session apptest.AnyMap
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/exchange", apptest.AnyMap{"credential": room.credential}, nil, &session); status != http.StatusOK {
+		t.Fatalf("exchange = %d", status)
+	}
+	token, _ := session["session_token"].(string)
+
+	// Not yet published: the buyer sees nothing, and the file is not served.
+	var before apptest.AnyMap
+	if status := publicCall(t, e, "GET", "/v1/public/rooms/documents", nil, bearer(token), &before); status != http.StatusOK {
+		t.Fatalf("documents = %d", status)
+	}
+	if list, _ := before["data"].([]any); len(list) != 0 {
+		t.Fatalf("an unpublished document reached the buyer: %v", list)
+	}
+	if status := publicCall(t, e, "GET", "/v1/public/rooms/documents/"+docID+"/file", nil, bearer(token), nil); status != http.StatusNotFound {
+		t.Fatalf("unpublished download = %d, want 404", status)
+	}
+
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/publish", apptest.AnyMap{}, nil, nil); status != http.StatusCreated {
+		t.Fatalf("publish = %d", status)
+	}
+	var after apptest.AnyMap
+	if status := publicCall(t, e, "GET", "/v1/public/rooms/documents", nil, bearer(token), &after); status != http.StatusOK {
+		t.Fatalf("documents = %d", status)
+	}
+	list, _ := after["data"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("published documents = %v, want one", list)
+	}
+	first, _ := list[0].(map[string]any)
+	if first["title"] != "Data processing agreement" || first["group_key"] != "legal" || first["filename"] != "DPA_v7.pdf" {
+		t.Fatalf("document = %v", first)
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, e.TS.URL+"/v1/public/rooms/documents/"+docID+"/file", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := e.TS.Client().Do(req) //nolint:bodyclose // closed by apptest.CloseBody below
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer apptest.CloseBody(t, resp)
+	bytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(bytes) != "%PDF-DPA" || !strings.Contains(resp.Header.Get("Content-Disposition"), "DPA_v7.pdf") {
+		t.Fatalf("download = %d %q %q", resp.StatusCode, bytes, resp.Header.Get("Content-Disposition"))
+	}
+
+	// Removed after publish: the release still names it, so the buyer still
+	// reads it until the next publish — and then it is gone.
+	if status := e.Call(t, "DELETE", "/v1/deal-rooms/"+room.roomID+"/documents/"+docID, nil, map[string]string{"If-Match": fmt.Sprint(doc["version"])}, nil); status != http.StatusOK {
+		t.Fatalf("remove = %d", status)
+	}
+	var still apptest.AnyMap
+	publicCall(t, e, "GET", "/v1/public/rooms/documents", nil, bearer(token), &still)
+	if list, _ := still["data"].([]any); len(list) != 1 {
+		t.Fatalf("a removal reached the buyer before a publish: %v", list)
+	}
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/publish", apptest.AnyMap{}, nil, nil); status != http.StatusCreated {
+		t.Fatalf("republish = %d", status)
+	}
+	var gone apptest.AnyMap
+	publicCall(t, e, "GET", "/v1/public/rooms/documents", nil, bearer(token), &gone)
+	if list, _ := gone["data"].([]any); len(list) != 0 {
+		t.Fatalf("a removed document survived the republish: %v", list)
 	}
 }

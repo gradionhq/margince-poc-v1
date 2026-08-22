@@ -34,6 +34,7 @@ import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryStates, throwProblem } from "./common";
+import { DealRoomDocuments } from "./dealroomdocuments";
 
 type DealRoom = components["schemas"]["DealRoom"];
 type DealRoomTask = components["schemas"]["DealRoomTask"];
@@ -72,6 +73,8 @@ const STATE_LABELS: Record<DealRoomState, MessageKey> = {
  * and a card that only ever says "none" is furniture.
  */
 export function DealRoomAside({ dealId }: Readonly<{ dealId: string }>) {
+  const t = useT();
+  const mayWrite = useCanWrite("deal_room", "update");
   const roomQuery = useDealRoom(dealId);
 
   const room = roomQuery.data?.data?.[0];
@@ -80,7 +83,15 @@ export function DealRoomAside({ dealId }: Readonly<{ dealId: string }>) {
   }
   return (
     <QueryStates query={roomQuery} pendingLines={4}>
-      {room ? <DealRoomTasks room={room} /> : null}
+      {room ? (
+        <>
+          <DealRoomTasks room={room} />
+          <DealRoomDocuments
+            room={room}
+            refusal={refusalFor(FINISHED_STATES.has(room.state), mayWrite, t)}
+          />
+        </>
+      ) : null}
     </QueryStates>
   );
 }

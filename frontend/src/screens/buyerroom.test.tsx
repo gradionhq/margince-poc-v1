@@ -66,6 +66,19 @@ function stubRoom(
       if (key === "GET /public/rooms/me") {
         return jsonResponse(LIVE);
       }
+      if (key === "GET /public/rooms/documents") {
+        return jsonResponse({
+          data: [
+            {
+              id: "d-1",
+              group_key: "legal",
+              title: "Data processing agreement",
+              position: 0,
+              filename: "DPA_v7.pdf",
+            },
+          ],
+        });
+      }
       if (key === "GET /public/rooms/tasks") {
         return jsonResponse({ data: [TASK] });
       }
@@ -131,6 +144,8 @@ describe("BuyerRoomScreen", () => {
     await screen.findByRole("heading", { name: "Acme rollout" });
     expect(screen.getByText("Welcome, Laura.")).toBeInTheDocument();
     await screen.findByText("Sign the DPA");
+    await screen.findByText("Data processing agreement");
+    expect(screen.getByText("Legal")).toBeInTheDocument();
 
     expect(globalThis.location.hash).toBe("#/room");
     const exchange = sent.find((s) => s.key === "POST /public/rooms/exchange");

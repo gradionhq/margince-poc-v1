@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
@@ -23,6 +24,16 @@ type Handlers struct {
 	inviteMailer mailer.Mailer
 	// publicBaseURL is the origin a buyer link is built on.
 	publicBaseURL string
+	// documents opens the bytes behind a published document. Nil means the
+	// installation has no object store, and a buyer's download says so
+	// rather than pretending the file is absent.
+	documents blobstore.Store
+}
+
+// WithDocumentStore binds the object store a buyer's download reads from.
+func (h Handlers) WithDocumentStore(store blobstore.Store) Handlers {
+	h.documents = store
+	return h
 }
 
 // NewHandlers builds the Deal Room handler set.

@@ -1,0 +1,17 @@
+/* The document rows of a Deal Room, seller and buyer alike: the name and its
+   group on the left, the one action on the right. Tokens only. */
+
+.room-doc {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.room-doc p {
+  margin: 0;
+}
+
+.buyer-docs-group {
+  margin: var(--space-2) 0 0;
+}
