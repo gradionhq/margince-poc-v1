@@ -303,14 +303,15 @@ function PersonAside({
   if (!view) {
     return undefined;
   }
-  const email =
-    view.person.emails?.find((e) => e.is_primary)?.email ??
-    view.person.emails?.[0]?.email;
+  // Every address the contact has: a seat may have been invited on a
+  // secondary one, and a card that checked only the primary would tell an
+  // admin the contact is out of every room when they are not.
+  const emails = (view.person.emails ?? []).map((e) => e.email);
   return (
     <>
       <RelationshipPulse view={view} />
       <WhoKnowsThem view={view} />
-      {email ? <PersonDealRooms email={email} /> : null}
+      {emails.length > 0 ? <PersonDealRooms emails={emails} /> : null}
     </>
   );
 }
