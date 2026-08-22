@@ -5808,6 +5808,7 @@ const (
 	Organization360SectionsOmittedNextSteps        Organization360SectionsOmitted = "next_steps"
 	Organization360SectionsOmittedPendingApprovals Organization360SectionsOmitted = "pending_approvals"
 	Organization360SectionsOmittedPeople           Organization360SectionsOmitted = "people"
+	Organization360SectionsOmittedProjects         Organization360SectionsOmitted = "projects"
 	Organization360SectionsOmittedSinceLastVisit   Organization360SectionsOmitted = "since_last_visit"
 	Organization360SectionsOmittedStateStrip       Organization360SectionsOmitted = "state_strip"
 	Organization360SectionsOmittedStrength         Organization360SectionsOmitted = "strength"
@@ -5835,6 +5836,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedPendingApprovals:
 		return true
 	case Organization360SectionsOmittedPeople:
+		return true
+	case Organization360SectionsOmittedProjects:
 		return true
 	case Organization360SectionsOmittedSinceLastVisit:
 		return true
@@ -5905,6 +5908,30 @@ func (e Organization360DealStatus) Valid() bool {
 	case Organization360DealStatusOpen:
 		return true
 	case Organization360DealStatusWon:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360ProjectPhase.
+const (
+	Organization360ProjectPhaseClosed     Organization360ProjectPhase = "closed"
+	Organization360ProjectPhaseDelivering Organization360ProjectPhase = "delivering"
+	Organization360ProjectPhaseInitiative Organization360ProjectPhase = "initiative"
+	Organization360ProjectPhasePursuing   Organization360ProjectPhase = "pursuing"
+)
+
+// Valid indicates whether the value is a known member of the Organization360ProjectPhase enum.
+func (e Organization360ProjectPhase) Valid() bool {
+	switch e {
+	case Organization360ProjectPhaseClosed:
+		return true
+	case Organization360ProjectPhaseDelivering:
+		return true
+	case Organization360ProjectPhaseInitiative:
+		return true
+	case Organization360ProjectPhasePursuing:
 		return true
 	default:
 		return false
@@ -6880,6 +6907,7 @@ const (
 	Person360SectionsOmittedNextMeeting         Person360SectionsOmitted = "next_meeting"
 	Person360SectionsOmittedNextSteps           Person360SectionsOmitted = "next_steps"
 	Person360SectionsOmittedProfileFields       Person360SectionsOmitted = "profile_fields"
+	Person360SectionsOmittedProjects            Person360SectionsOmitted = "projects"
 	Person360SectionsOmittedProviderProfile     Person360SectionsOmitted = "provider_profile"
 	Person360SectionsOmittedRelationshipChanges Person360SectionsOmitted = "relationship_changes"
 	Person360SectionsOmittedSinceLastVisit      Person360SectionsOmitted = "since_last_visit"
@@ -6914,6 +6942,8 @@ func (e Person360SectionsOmitted) Valid() bool {
 	case Person360SectionsOmittedNextSteps:
 		return true
 	case Person360SectionsOmittedProfileFields:
+		return true
+	case Person360SectionsOmittedProjects:
 		return true
 	case Person360SectionsOmittedProviderProfile:
 		return true
@@ -11217,22 +11247,22 @@ func (e ListPeopleParamsCapturedByKind) Valid() bool {
 
 // Defines values for ListProjectsParamsPhase.
 const (
-	ListProjectsParamsPhaseClosed     ListProjectsParamsPhase = "closed"
-	ListProjectsParamsPhaseDelivering ListProjectsParamsPhase = "delivering"
-	ListProjectsParamsPhaseInitiative ListProjectsParamsPhase = "initiative"
-	ListProjectsParamsPhasePursuing   ListProjectsParamsPhase = "pursuing"
+	Closed     ListProjectsParamsPhase = "closed"
+	Delivering ListProjectsParamsPhase = "delivering"
+	Initiative ListProjectsParamsPhase = "initiative"
+	Pursuing   ListProjectsParamsPhase = "pursuing"
 )
 
 // Valid indicates whether the value is a known member of the ListProjectsParamsPhase enum.
 func (e ListProjectsParamsPhase) Valid() bool {
 	switch e {
-	case ListProjectsParamsPhaseClosed:
+	case Closed:
 		return true
-	case ListProjectsParamsPhaseDelivering:
+	case Delivering:
 		return true
-	case ListProjectsParamsPhaseInitiative:
+	case Initiative:
 		return true
-	case ListProjectsParamsPhasePursuing:
+	case Pursuing:
 		return true
 	default:
 		return false
@@ -18020,6 +18050,9 @@ type Organization360 struct {
 		Page PageInfo                 `json:"page"`
 	} `json:"people,omitempty"`
 
+	// Projects The company's unarchived projects, work in motion first (delivering, pursuing, initiative, then closed), under the caller's project row scope. Absent when the caller has no project grant, named in `sections_omitted` as `projects`.
+	Projects *[]Organization360Project `json:"projects,omitempty"`
+
 	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
 	SectionsOmitted []Organization360SectionsOmitted `json:"sections_omitted"`
 
@@ -18255,6 +18288,26 @@ type Organization360NextStep struct {
 	Overdue        bool                `json:"overdue"`
 	Subject        string              `json:"subject"`
 }
+
+// Organization360Project One body of work on the record page: enough to name it, say where it stands and who holds it. The full row is `GET /projects/{id}`. Shared by the company page and the person page, so a project reads the same on both.
+type Organization360Project struct {
+	// Key The subject-line handle, when the project has one.
+	Key            *string             `json:"key,omitempty"`
+	LastActivityAt *time.Time          `json:"last_activity_at,omitempty"`
+	Name           string              `json:"name"`
+	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
+
+	// OwnerName The owner's display name; null when the project has no owner or the owner is no longer an active member.
+	OwnerName *string `json:"owner_name,omitempty"`
+
+	// Phase Where a project stands on the record page; the same ladder the project's own `phase` walks.
+	Phase         Organization360ProjectPhase `json:"phase"`
+	ProjectId     openapi_types.UUID          `json:"project_id"`
+	TargetEndDate *openapi_types.Date         `json:"target_end_date,omitempty"`
+}
+
+// Organization360ProjectPhase Where a project stands on the record page; the same ladder the project's own `phase` walks.
+type Organization360ProjectPhase string
 
 // Organization360Route One colleague who has actually exchanged messages with this contact.
 type Organization360Route struct {
@@ -19589,6 +19642,9 @@ type Person360 struct {
 
 	// ProfileFields The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
 	ProfileFields *[]PersonProfileField `json:"profile_fields,omitempty"`
+
+	// Projects The unarchived projects this person is part of: the ones they hold a live stakeholder seat on, plus every project of the company they currently work for, one row per project, work in motion first. Absent when the caller has no project grant, named in `sections_omitted` as `projects`.
+	Projects *[]Organization360Project `json:"projects,omitempty"`
 
 	// ProviderProfile The purchased person-data snapshot (PO-EXT-9): what a connected provider returned about this person, kept beside the canonical record and never silently folded into it. Absent when the caller lacks the person grant, named in `sections_omitted` as `provider_profile`.
 	ProviderProfile *PersonProviderProfile `json:"provider_profile,omitempty"`
@@ -25440,6 +25496,9 @@ type DraftAccountEmailJSONBody struct {
 
 	// PersonId Who the draft is addressed to. Required: a draft with no recipient has no relationship to ground itself in, and the one thing this endpoint adds over an empty compose box is that it knows who it is writing to. Must be a contact the caller can see on this account.
 	PersonId openapi_types.UUID `json:"person_id"`
+
+	// ProjectId Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
 }
 
 // UpdateOrganizationFactParams defines parameters for UpdateOrganizationFact.
@@ -25900,6 +25959,9 @@ type IssueDoubleOptInJSONBody struct {
 type DraftPersonEmailJSONBody struct {
 	// Intent Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence.
 	Intent *string `json:"intent,omitempty"`
+
+	// ProjectId Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
 }
 
 // CreatePersonEnrichmentRunParams defines parameters for CreatePersonEnrichmentRun.

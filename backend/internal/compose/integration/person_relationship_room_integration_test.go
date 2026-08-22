@@ -65,13 +65,28 @@ var roomPerms = principal.Permissions{
 		"relationship":          {Read: true},
 		"activity":              {Create: true, Read: true, Update: true},
 		"deal":                  {Read: true},
+		"project":               {Read: true},
 		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }
 
+// withoutGrant is perms minus one object's grant, as a DEEP copy: a plain
+// struct copy shares the Objects map, and deleting from it would strip the
+// grant from every test that reads roomPerms after this one.
+func withoutGrant(perms principal.Permissions, object string) principal.Permissions {
+	objects := make(map[string]principal.ObjectGrant, len(perms.Objects))
+	for name, grant := range perms.Objects {
+		if name != object {
+			objects[name] = grant
+		}
+	}
+	perms.Objects = objects
+	return perms
+}
+
 func personRoomService(e *Env) *person360.Service {
-	return person360.NewService(e.Pool, e.People, consent.NewStore(e.DB()),
+	return person360.NewService(e.Pool, e.People, e.Deals, consent.NewStore(e.DB()),
 		ai.NewFeedbackStore(e.DB()), func() time.Time { return roomFixedNow })
 }
 

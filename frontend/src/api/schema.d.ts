@@ -12690,6 +12690,28 @@ export interface components {
             /** @description No linked activity inside the 60-day stall window. */
             stalled: boolean;
         };
+        /**
+         * @description Where a project stands on the record page; the same ladder the project's own `phase` walks.
+         * @enum {string}
+         */
+        Organization360ProjectPhase: "initiative" | "pursuing" | "delivering" | "closed";
+        /** @description One body of work on the record page: enough to name it, say where it stands and who holds it. The full row is `GET /projects/{id}`. Shared by the company page and the person page, so a project reads the same on both. */
+        Organization360Project: {
+            /** Format: uuid */
+            project_id: string;
+            name: string;
+            /** @description The subject-line handle, when the project has one. */
+            key?: string | null;
+            phase: components["schemas"]["Organization360ProjectPhase"];
+            /** Format: date-time */
+            last_activity_at?: string | null;
+            /** Format: date */
+            target_end_date?: string | null;
+            /** Format: uuid */
+            owner_id?: string | null;
+            /** @description The owner's display name; null when the project has no owner or the owner is no longer an active member. */
+            owner_name?: string | null;
+        };
         /** @description The account's open deals plus the two lifetime figures the header needs. */
         Organization360Deals: {
             data: components["schemas"]["Organization360Deal"][];
@@ -12889,12 +12911,14 @@ export interface components {
             next_meeting?: components["schemas"]["Organization360NextMeeting"];
             health?: components["schemas"]["Organization360Health"];
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health" | "next_meeting")[];
+            sections_omitted: ("people" | "deals" | "projects" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health" | "next_meeting")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];
             };
             deals?: components["schemas"]["Organization360Deals"];
+            /** @description The company's unarchived projects, work in motion first (delivering, pursuing, initiative, then closed), under the caller's project row scope. Absent when the caller has no project grant, named in `sections_omitted` as `projects`. */
+            projects?: components["schemas"]["Organization360Project"][];
             strength?: components["schemas"]["OrganizationStrength"];
             activities?: components["schemas"]["ActivityListResponse"];
             tags?: components["schemas"]["Tag"][];
@@ -13079,8 +13103,10 @@ export interface components {
              */
             last_outbound_at?: string | null;
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments" | "commercial" | "next_meeting" | "claims" | "conversation_memory" | "provider_profile")[];
+            sections_omitted: ("employments" | "deal_roles" | "projects" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments" | "commercial" | "next_meeting" | "claims" | "conversation_memory" | "provider_profile")[];
             strength?: components["schemas"]["RelationshipStrength"];
+            /** @description The unarchived projects this person is part of: the ones they hold a live stakeholder seat on, plus every project of the company they currently work for, one row per project, work in motion first. Absent when the caller has no project grant, named in `sections_omitted` as `projects`. */
+            projects?: components["schemas"]["Organization360Project"][];
             /** @description The purchased person-data snapshot (PO-EXT-9): what a connected provider returned about this person, kept beside the canonical record and never silently folded into it. Absent when the caller lacks the person grant, named in `sections_omitted` as `provider_profile`. */
             provider_profile?: components["schemas"]["PersonProviderProfile"];
             /** @description What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold. */
@@ -21870,6 +21896,11 @@ export interface operations {
                 "application/json": {
                     /** @description Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence. */
                     intent?: string | null;
+                    /**
+                     * Format: uuid
+                     * @description Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+                     */
+                    project_id?: string | null;
                 };
             };
         };
@@ -23185,6 +23216,11 @@ export interface operations {
                      * @description Which open deal the message is about. Absent draws on the account as a whole.
                      */
                     deal_id?: string | null;
+                    /**
+                     * Format: uuid
+                     * @description Which body of work the message is about. When set, the draft is grounded in the 360 scoped to that project — correspondence filed under another project drops out — and the project's name, key, phase and target end date are facts the draft may use. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+                     */
+                    project_id?: string | null;
                     /** @description Optional steering in the caller's own words ("shorter", "warmer", "ask for Tuesday"). The one input that is NOT untrusted — the caller typed it — and so the only one outside the fence. */
                     intent?: string | null;
                 };

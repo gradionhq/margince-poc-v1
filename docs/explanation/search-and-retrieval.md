@@ -279,7 +279,8 @@ the `catch_me_up_on` / `prep_for_meeting` intent tools consume through the same
 The walk is **fixed-depth by construction**, two joins rather than a traversal
 that can wander: anchor profile → the anchor's linked activities (hop 1, split
 into `recent_touches` and `open_tasks`) → those activities' *other* link targets
-(hop 2, emitted as `related_people` / `related_organizations` / `related_deals`).
+(hop 2, emitted as `related_people` / `related_organizations` / `related_deals` /
+`related_projects`).
 Every leg reads at most 50 rows before ranking trims to `max_items` (default 5,
 capped at 25), so an anchor with thousands of links costs about what one with
 fifty costs. Anchors are the four non-activity searchable types the contract's

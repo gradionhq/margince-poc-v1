@@ -32,7 +32,7 @@ import (
 )
 
 func meetingBriefService(e *Env) *meetingbrief.Service {
-	view := person360.NewService(e.Pool, e.People, consent.NewStore(e.DB()),
+	view := person360.NewService(e.Pool, e.People, e.Deals, consent.NewStore(e.DB()),
 		ai.NewFeedbackStore(e.DB()), func() time.Time { return roomFixedNow })
 	return meetingbrief.NewService(e.Pool, view, e.People, func() time.Time { return roomFixedNow })
 }
@@ -181,19 +181,6 @@ func seatInRoom(t *testing.T, owner *pgx.Conn, ws, activity, person ids.UUID) {
 	}
 }
 
-// roomPermsWithProject is the bounded rep plus the project grant. A brief that
-// names an engagement is TWO reads, and the project half needs its own object
-// grant — roomPerms deliberately carries none, which is what
-// TestMeetingBriefWithholdsTheEngagementFromACallerWithNoProjectGrant proves.
-func roomPermsWithProject() principal.Permissions {
-	perms := roomPerms
-	perms.Objects = map[string]principal.ObjectGrant{"project": {Read: true}}
-	for object, grant := range roomPerms.Objects {
-		perms.Objects[object] = grant
-	}
-	return perms
-}
-
 // The brief's project lines are rendered from a lateral join and a correlated
 // sub-select, and both reference an alias declared elsewhere in the same FROM
 // clause. Unit tests over the section writers cannot see any of that: they are
@@ -215,7 +202,7 @@ func TestMeetingBriefNamesTheEngagementItIsFiledUnder(t *testing.T) {
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id)
 		VALUES ($1, 'project', $2)`, meeting, project)
 
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	brief, err := meetingBriefService(e).Get(rep, meeting)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -274,7 +261,7 @@ func TestMeetingBriefCountsNoLastTouchFromAnotherEngagement(t *testing.T) {
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id)
 		VALUES ($1, 'project', $2)`, other, migration)
 
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	brief, err := meetingBriefService(e).Get(rep, meeting)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -334,12 +321,11 @@ func TestMeetingBriefWithholdsTheEngagementFromACallerWithNoProjectGrant(t *test
 	// The admit case first. Three security tests in this repo once passed
 	// against an authority that refused everyone, so a refusal test proves
 	// nothing until the same fixture is shown to admit.
-	if !strings.Contains(read(roomPermsWithProject()), "ERP rollout") {
+	if !strings.Contains(read(roomPerms), "ERP rollout") {
 		t.Fatal("a caller WITH the project grant cannot see the engagement, so the refusal below proves nothing")
 	}
 
-	// roomPerms itself carries no project grant.
-	if prose := read(roomPerms); strings.Contains(prose, "ERP") {
+	if prose := read(withoutGrant(roomPerms, "project")); strings.Contains(prose, "ERP") {
 		t.Errorf("the brief disclosed the engagement to a caller with no project grant: %q", prose)
 	}
 }
@@ -369,7 +355,7 @@ func TestMeetingBriefRecallsWhenThisRoomLastMet(t *testing.T) {
 	LinkActivity(t, owner, meeting, "person", ours)
 	seatInRoom(t, owner, e.WS, meeting, ours)
 
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	brief, err := meetingBriefService(e).Get(rep, meeting)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -427,7 +413,7 @@ func TestMeetingBriefRecallsNoMeetingFromAnotherEngagement(t *testing.T) {
 	meeting := newMeeting("Cutover review", -24*time.Hour)
 	fileUnder(meeting, erp)
 
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	brief, err := meetingBriefService(e).Get(rep, meeting)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -492,7 +478,7 @@ func TestMeetingBriefRecallsNoSubjectItMayNotRead(t *testing.T) {
 	LinkActivity(t, owner, meeting, "person", ours)
 	seatInRoom(t, owner, e.WS, meeting, ours)
 
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPermsWithProject())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	brief, err := meetingBriefService(e).Get(rep, meeting)
 	if err != nil {
 		t.Fatalf("Get: %v", err)

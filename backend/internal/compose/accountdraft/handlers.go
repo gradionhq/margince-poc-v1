@@ -85,6 +85,15 @@ func requestFrom(body crmcontracts.DraftAccountEmailJSONRequestBody) (Request, e
 		}
 		req.DealID = body.DealId.String()
 	}
+	if body.ProjectId != nil {
+		// Same rule as deal_id: null is "no project", a present-but-zero id is
+		// a client bug and is named as one.
+		if err := httperr.RequireBodyID("project_id", ids.UUID(*body.ProjectId)); err != nil {
+			return Request{}, err
+		}
+		project := ids.From[ids.ProjectKind](ids.UUID(*body.ProjectId))
+		req.ProjectID = &project
+	}
 	if body.Intent != nil {
 		req.Intent = *body.Intent
 	}

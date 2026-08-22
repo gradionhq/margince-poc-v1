@@ -46,7 +46,7 @@ func (refusingCatalog) ActiveColumns(context.Context, string) ([]fieldcatalog.Co
 func refusingCatalogService() *Service {
 	store := people.NewStore(database.BindTo(nil, ids.From[ids.WorkspaceKind](ids.NewV7()))).
 		WithFieldCatalog(refusingCatalog{})
-	return NewService(nil, store, nil, nil, func() time.Time { return time.Unix(0, 0).UTC() })
+	return NewService(nil, store, nil, nil, nil, func() time.Time { return time.Unix(0, 0).UTC() })
 }
 
 // as binds a principal holding exactly the grants named.

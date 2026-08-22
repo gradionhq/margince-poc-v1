@@ -20,6 +20,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/convstate"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/textlang"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
@@ -47,6 +48,10 @@ type Input struct {
 	Recipient RecipientIn `json:"recipient"`
 	// Deal is the opportunity the message is about, when the caller named one.
 	Deal *DealIn `json:"deal,omitempty"`
+	// Project is the body of work the message is about, when the caller named
+	// one. The view it is folded from is already scoped to it, so Recent and
+	// Commitment below describe this project's correspondence, not another's.
+	Project *ProjectIn `json:"project,omitempty"`
 	// Commitment is the soonest thing one side said they would do. It outranks
 	// the conversation below it: a promise is a reason to write, where a
 	// message is only context for one.
@@ -113,6 +118,23 @@ func (d DealIn) MarshalJSON() ([]byte, error) {
 		wire
 		Amount string `json:"amount,omitempty"`
 	}{wire: wire(d), Amount: amount})
+}
+
+// ProjectIn is the body of work the message is about.
+type ProjectIn struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Key is the handle a human writes in a subject line, when the project
+	// has one.
+	Key   string `json:"key,omitempty"`
+	Phase string `json:"phase"`
+	// TargetEnd is the date the work is meant to finish, YYYY-MM-DD, empty
+	// when nobody set one.
+	TargetEnd string `json:"target_end,omitempty"`
+	// OpenCommitments counts the open tasks in this project's scope — the
+	// same rows Commitment's head is taken from — so the draft can say "two
+	// things are still open" without naming ones it was not shown.
+	OpenCommitments int `json:"open_commitments"`
 }
 
 // TaskIn is one open commitment.
@@ -192,8 +214,57 @@ func FromView(
 		}
 		in.Deal = &deal
 	}
+	if req.ProjectID != nil {
+		project, projectErr := findProject(view, *req.ProjectID)
+		if projectErr != nil {
+			return Input{}, projectErr
+		}
+		in.Project = &project
+	}
 	return in, nil
 }
+
+// findProject folds the named project off the view's own projects section.
+// The scoped read has already refused a project the caller cannot see; what
+// is left to refuse here is a project the caller CAN see that is not this
+// account's, which a draft about this account may not be grounded in.
+func findProject(view crmcontracts.Organization360, projectID ids.ProjectID) (ProjectIn, error) {
+	if view.Projects == nil {
+		return ProjectIn{}, fieldError("project_id", "the account's projects are not readable by you")
+	}
+	for _, project := range *view.Projects {
+		if ids.UUID(project.ProjectId) != projectID.UUID {
+			continue
+		}
+		return projectFact(project, view), nil
+	}
+	return ProjectIn{}, fieldError("project_id", "that project is not on this account, or you cannot see it")
+}
+
+// projectFact is the one project as the draft reads it. The open-commitment
+// count comes from the SCOPED next-steps section, which is this project's
+// open tasks and the unfiled ones — never another project's.
+func projectFact(project crmcontracts.Organization360Project, view crmcontracts.Organization360) ProjectIn {
+	out := ProjectIn{
+		ID:    project.ProjectId.String(),
+		Name:  project.Name,
+		Phase: string(project.Phase),
+	}
+	if project.Key != nil {
+		out.Key = *project.Key
+	}
+	if project.TargetEndDate != nil {
+		out.TargetEnd = project.TargetEndDate.Format(isoDate)
+	}
+	if view.NextSteps != nil {
+		out.OpenCommitments = len(view.NextSteps.Data)
+	}
+	return out
+}
+
+// isoDate is how a date fact is written to the model: the calendar date alone,
+// because a project's target end has no time of day.
+const isoDate = "2006-01-02"
 
 func recipientOf(contact crmcontracts.Organization360Contact) RecipientIn {
 	out := RecipientIn{
