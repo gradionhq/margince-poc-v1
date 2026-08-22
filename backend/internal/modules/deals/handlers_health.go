@@ -45,14 +45,22 @@ func healthReading(h DealHealth, now time.Time) crmcontracts.DealHealthReading {
 		AtRisk:     h.AtRisk,
 		ComputedAt: now,
 		Factors: []crmcontracts.DealHealthFactor{
-			{Key: "activity_recency", Value: round2(h.Factors.ActivityRecency), Weight: round2(h.Weights.ActivityRecency),
-				Reason: recencyReason(ev.LastActivityAt, ev.Stalled, now), ActivityId: recent},
-			{Key: "stage_velocity", Value: round2(h.Factors.StageVelocity), Weight: round2(h.Weights.StageVelocity),
-				Reason: fmt.Sprintf("%d days in this stage; won deals spent about %d.", int(ev.DaysInStage), int(ev.ExpectedDaysInStage))},
-			{Key: "engagement", Value: round2(h.Factors.Engagement), Weight: round2(h.Weights.Engagement),
-				Reason: engagementReason(len(ev.EngagedStakeholderIDs))},
-			{Key: "commitments", Value: round2(h.Factors.Commitments), Weight: round2(h.Weights.Commitments),
-				Reason: commitmentsReason(len(ev.OverdueTaskIDs))},
+			{
+				Key: "activity_recency", Value: round2(h.Factors.ActivityRecency), Weight: round2(h.Weights.ActivityRecency),
+				Reason: recencyReason(ev.LastActivityAt, ev.Stalled, now), ActivityId: recent,
+			},
+			{
+				Key: "stage_velocity", Value: round2(h.Factors.StageVelocity), Weight: round2(h.Weights.StageVelocity),
+				Reason: fmt.Sprintf("%d days in this stage; won deals spent about %d.", int(ev.DaysInStage), int(ev.ExpectedDaysInStage)),
+			},
+			{
+				Key: "engagement", Value: round2(h.Factors.Engagement), Weight: round2(h.Weights.Engagement),
+				Reason: engagementReason(len(ev.EngagedStakeholderIDs)),
+			},
+			{
+				Key: "commitments", Value: round2(h.Factors.Commitments), Weight: round2(h.Weights.Commitments),
+				Reason: commitmentsReason(len(ev.OverdueTaskIDs)),
+			},
 		},
 	}
 }
