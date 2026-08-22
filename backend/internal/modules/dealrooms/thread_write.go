@@ -124,7 +124,8 @@ func openThreadTx(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, in
 		map[string]any{fieldRoomID: roomID.UUID, "document_id": in.DocumentID, "required_change": in.RequiredChange}); err != nil {
 		return crmcontracts.DealRoomThread{}, fmt.Errorf("audit deal room thread: %w", err)
 	}
-	if err := postCommentTx(ctx, tx, room, threadID, in.DocumentID, in.Body, in.Source, by, true, in.RequiredChange); err != nil {
+	first := commentPlacement{threadID: threadID, documentID: in.DocumentID, opensThread: true, requiredChange: in.RequiredChange}
+	if err := postCommentTx(ctx, tx, room, first, in.Body, in.Source, by); err != nil {
 		return crmcontracts.DealRoomThread{}, err
 	}
 	return readThread(ctx, tx, roomID, threadID)
@@ -146,9 +147,19 @@ func currentVersionOf(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, doc
 	return attachmentID, nil
 }
 
+// commentPlacement says where a comment lands: which thread, on which
+// document, and whether it is the thread's first word (which carries the
+// thread's required-change flag into the event).
+type commentPlacement struct {
+	threadID       ids.UUID
+	documentID     *ids.UUID
+	opensThread    bool
+	requiredChange bool
+}
+
 // postCommentTx inserts one comment and announces it. The caller has settled
 // that the thread is open and the room live.
-func postCommentTx(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, threadID ids.UUID, documentID *ids.UUID, body, source string, by threadAuthor, opens, requiredChange bool) error {
+func postCommentTx(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, at commentPlacement, body, source string, by threadAuthor) error {
 	capturedBy, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return err
@@ -157,27 +168,27 @@ func postCommentTx(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, t
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO deal_room_comment (id, room_id, thread_id, body, author_participant_id, author_user_id, source, captured_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		commentID, ids.UUID(room.Id), threadID, body, by.participantID, by.userID, source, capturedBy); err != nil {
+		commentID, ids.UUID(room.Id), at.threadID, body, by.participantID, by.userID, source, capturedBy); err != nil {
 		return fmt.Errorf("insert deal room comment: %w", err)
 	}
 	auditID, err := storekit.Audit(ctx, tx, "create", commentObject, commentID, nil,
-		map[string]any{fieldRoomID: ids.UUID(room.Id), "thread_id": threadID, "side": by.side()})
+		map[string]any{fieldRoomID: ids.UUID(room.Id), "thread_id": at.threadID, "side": by.side()})
 	if err != nil {
 		return fmt.Errorf("audit deal room comment: %w", err)
 	}
 	var docID *openapi_types.UUID
-	if documentID != nil {
-		u := openapi_types.UUID(*documentID)
+	if at.documentID != nil {
+		u := openapi_types.UUID(*at.documentID)
 		docID = &u
 	}
 	posted := crmcontracts.PublicEventDealRoomCommentPosted{
 		DealId:         room.DealId,
-		ThreadId:       openapi_types.UUID(threadID),
+		ThreadId:       openapi_types.UUID(at.threadID),
 		CommentId:      openapi_types.UUID(commentID),
 		DocumentId:     docID,
 		Side:           by.side(),
-		OpensThread:    opens,
-		RequiredChange: &requiredChange,
+		OpensThread:    at.opensThread,
+		RequiredChange: &at.requiredChange,
 	}
 	if err := storekit.EmitEvent(ctx, tx, auditID, ids.UUID(room.Id), posted); err != nil {
 		return fmt.Errorf("emit deal_room.comment_posted: %w", err)
@@ -211,7 +222,7 @@ func replyTx(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, threadI
 		u := ids.UUID(*current.DocumentId)
 		documentID = &u
 	}
-	if err := postCommentTx(ctx, tx, room, threadID, documentID, body, source, by, false, false); err != nil {
+	if err := postCommentTx(ctx, tx, room, commentPlacement{threadID: threadID, documentID: documentID}, body, source, by); err != nil {
 		return crmcontracts.DealRoomThread{}, err
 	}
 	return readThread(ctx, tx, roomID, threadID)

@@ -11,7 +11,7 @@ export interface components {
          * @description The closed set of domain event types a webhook subscription may select — every subscribable event across the deal, offer, pipeline/stage, person/organization, lead, activities, consent/privacy, signals, ai voice, identity, and overlay families. A subscription's event-type filter is validated against this set; an unlisted type cannot be subscribed to.
          * @enum {string}
          */
-        SubscribableEventType: "deal.created" | "deal.owner_changed" | "deal.stage_changed" | "deal.archived" | "deal.updated" | "deal.restored" | "project.created" | "project.updated" | "project.phase_changed" | "project.archived" | "commission.accrued" | "commission.decided" | "contract.created" | "contract.updated" | "contract.status_changed" | "contract.archived" | "deal_room.opened" | "deal_room.updated" | "deal_room.published" | "deal_room.paused" | "deal_room.resumed" | "deal_room.closed" | "deal_room.archived" | "deal_room.participant_invited" | "deal_room.participant_revoked" | "deal_room.participant_credential_reissued" | "deal_room.task_completion_changed" | "offer.created" | "offer.sent" | "offer.accepted" | "offer.rejected" | "offer.superseded" | "pipeline.created" | "pipeline.updated" | "pipeline.archived" | "stage.created" | "stage.updated" | "stage.archived" | "person.created" | "person.archived" | "person.merged" | "person.updated" | "person.restored" | "conversation_claim.captured" | "conversation_claim.changed" | "organization.created" | "organization.archived" | "organization.merged" | "organization.updated" | "lead.created" | "lead.disqualified" | "lead.promoted" | "lead.demoted" | "lead.merged" | "lead.sla_breached" | "lead.updated" | "activity.captured" | "activity.archived" | "activity.updated" | "engagement.reply" | "consent.changed" | "email_signature.changed" | "linkedin_account.changed" | "linkedin_network.imported" | "linkedin_match.decided" | "retention.applied" | "retention.restricted" | "signal.detected" | "signal.resolved" | "voice.profile_created" | "voice.profile_updated" | "voice.profile_archived" | "voice.corpus_changed" | "voice.build_changed" | "voice.version_changed" | "voice.draft_outcome_recorded" | "user.invited" | "user.password_link_issued" | "user.deactivated" | "user.reactivated" | "role.changed" | "team.changed" | "passport.revoked" | "onboarding.state_changed" | "mirror.conflict" | "mirror.budget_degraded" | "mirror.deleted" | "mirror.write_rejected" | "incumbent.connected" | "incumbent.disconnected" | "approval.requested" | "approval.decided" | "coldstart.read_back_proposed" | "coldstart.accepted" | "coldstart.rejected" | "audit.appended";
+        SubscribableEventType: "deal.created" | "deal.owner_changed" | "deal.stage_changed" | "deal.archived" | "deal.updated" | "deal.restored" | "project.created" | "project.updated" | "project.phase_changed" | "project.archived" | "commission.accrued" | "commission.decided" | "contract.created" | "contract.updated" | "contract.status_changed" | "contract.archived" | "deal_room.opened" | "deal_room.updated" | "deal_room.published" | "deal_room.paused" | "deal_room.resumed" | "deal_room.closed" | "deal_room.archived" | "deal_room.participant_invited" | "deal_room.participant_revoked" | "deal_room.participant_credential_reissued" | "deal_room.task_completion_changed" | "deal_room.comment_posted" | "deal_room.thread_resolved" | "deal_room.decision_recorded" | "offer.created" | "offer.sent" | "offer.accepted" | "offer.rejected" | "offer.superseded" | "pipeline.created" | "pipeline.updated" | "pipeline.archived" | "stage.created" | "stage.updated" | "stage.archived" | "person.created" | "person.archived" | "person.merged" | "person.updated" | "person.restored" | "conversation_claim.captured" | "conversation_claim.changed" | "organization.created" | "organization.archived" | "organization.merged" | "organization.updated" | "lead.created" | "lead.disqualified" | "lead.promoted" | "lead.demoted" | "lead.merged" | "lead.sla_breached" | "lead.updated" | "activity.captured" | "activity.archived" | "activity.updated" | "engagement.reply" | "consent.changed" | "email_signature.changed" | "linkedin_account.changed" | "linkedin_network.imported" | "linkedin_match.decided" | "retention.applied" | "retention.restricted" | "signal.detected" | "signal.resolved" | "voice.profile_created" | "voice.profile_updated" | "voice.profile_archived" | "voice.corpus_changed" | "voice.build_changed" | "voice.version_changed" | "voice.draft_outcome_recorded" | "user.invited" | "user.password_link_issued" | "user.deactivated" | "user.reactivated" | "role.changed" | "team.changed" | "passport.revoked" | "onboarding.state_changed" | "mirror.conflict" | "mirror.budget_degraded" | "mirror.deleted" | "mirror.write_rejected" | "incumbent.connected" | "incumbent.disconnected" | "approval.requested" | "approval.decided" | "coldstart.read_back_proposed" | "coldstart.accepted" | "coldstart.rejected" | "audit.appended";
         /** @description Who or what caused the event, as exposed publicly. */
         PublicEventActor: {
             /** @description Actor kind (e.g. human, agent, connector). */
@@ -212,6 +212,60 @@ export interface components {
         PublicEventDealRoomArchived: {
             /** Format: uuid */
             deal_id: string;
+        };
+        /**
+         * @description Payload for deal_room.comment_posted — somebody on either side said
+         *     something in a room thread, on a document or on the room as a whole. The
+         *     comment's text is deliberately absent: a subscriber reads it through the
+         *     room, under the room's own authority, not off the bus.
+         */
+        PublicEventDealRoomCommentPosted: {
+            /** Format: uuid */
+            deal_id: string;
+            /** Format: uuid */
+            thread_id: string;
+            /** Format: uuid */
+            comment_id: string;
+            /**
+             * Format: uuid
+             * @description The room document the thread is about; null for a room-level exchange.
+             */
+            document_id?: string | null;
+            /** @description Who spoke — `seller` or `buyer`. */
+            side: string;
+            /** @description True when this comment is the thread's first — a new question, not a reply. */
+            opens_thread: boolean;
+            /** @description True when the thread, as opened, blocks confirming the document until resolved. */
+            required_change?: boolean;
+        };
+        /** @description Payload for deal_room.thread_resolved — a thread was closed by the seller's side. */
+        PublicEventDealRoomThreadResolved: {
+            /** Format: uuid */
+            deal_id: string;
+            /** Format: uuid */
+            thread_id: string;
+            /** Format: uuid */
+            document_id?: string | null;
+        };
+        /**
+         * @description Payload for deal_room.decision_recorded — a buyer asked for changes to a
+         *     document version, or confirmed it. A confirmation is a working decision
+         *     inside the room and explicitly not a legal signature.
+         */
+        PublicEventDealRoomDecisionRecorded: {
+            /** Format: uuid */
+            deal_id: string;
+            /** Format: uuid */
+            decision_id: string;
+            /** Format: uuid */
+            document_id: string;
+            /**
+             * Format: uuid
+             * @description The exact version decided on.
+             */
+            attachment_id: string;
+            /** @description `request_changes` or `confirm_version`. */
+            kind: string;
         };
         /**
          * @description Payload for deal_room.task_completion_changed — an item on the shared to-do
@@ -1344,7 +1398,7 @@ type ReadonlyArray<T> = [
 ] extends [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
-export const subscribableEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SubscribableEventType"]> = ["deal.created", "deal.owner_changed", "deal.stage_changed", "deal.archived", "deal.updated", "deal.restored", "project.created", "project.updated", "project.phase_changed", "project.archived", "commission.accrued", "commission.decided", "contract.created", "contract.updated", "contract.status_changed", "contract.archived", "deal_room.opened", "deal_room.updated", "deal_room.published", "deal_room.paused", "deal_room.resumed", "deal_room.closed", "deal_room.archived", "deal_room.participant_invited", "deal_room.participant_revoked", "deal_room.participant_credential_reissued", "deal_room.task_completion_changed", "offer.created", "offer.sent", "offer.accepted", "offer.rejected", "offer.superseded", "pipeline.created", "pipeline.updated", "pipeline.archived", "stage.created", "stage.updated", "stage.archived", "person.created", "person.archived", "person.merged", "person.updated", "person.restored", "conversation_claim.captured", "conversation_claim.changed", "organization.created", "organization.archived", "organization.merged", "organization.updated", "lead.created", "lead.disqualified", "lead.promoted", "lead.demoted", "lead.merged", "lead.sla_breached", "lead.updated", "activity.captured", "activity.archived", "activity.updated", "engagement.reply", "consent.changed", "email_signature.changed", "linkedin_account.changed", "linkedin_network.imported", "linkedin_match.decided", "retention.applied", "retention.restricted", "signal.detected", "signal.resolved", "voice.profile_created", "voice.profile_updated", "voice.profile_archived", "voice.corpus_changed", "voice.build_changed", "voice.version_changed", "voice.draft_outcome_recorded", "user.invited", "user.password_link_issued", "user.deactivated", "user.reactivated", "role.changed", "team.changed", "passport.revoked", "onboarding.state_changed", "mirror.conflict", "mirror.budget_degraded", "mirror.deleted", "mirror.write_rejected", "incumbent.connected", "incumbent.disconnected", "approval.requested", "approval.decided", "coldstart.read_back_proposed", "coldstart.accepted", "coldstart.rejected", "audit.appended"];
+export const subscribableEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SubscribableEventType"]> = ["deal.created", "deal.owner_changed", "deal.stage_changed", "deal.archived", "deal.updated", "deal.restored", "project.created", "project.updated", "project.phase_changed", "project.archived", "commission.accrued", "commission.decided", "contract.created", "contract.updated", "contract.status_changed", "contract.archived", "deal_room.opened", "deal_room.updated", "deal_room.published", "deal_room.paused", "deal_room.resumed", "deal_room.closed", "deal_room.archived", "deal_room.participant_invited", "deal_room.participant_revoked", "deal_room.participant_credential_reissued", "deal_room.task_completion_changed", "deal_room.comment_posted", "deal_room.thread_resolved", "deal_room.decision_recorded", "offer.created", "offer.sent", "offer.accepted", "offer.rejected", "offer.superseded", "pipeline.created", "pipeline.updated", "pipeline.archived", "stage.created", "stage.updated", "stage.archived", "person.created", "person.archived", "person.merged", "person.updated", "person.restored", "conversation_claim.captured", "conversation_claim.changed", "organization.created", "organization.archived", "organization.merged", "organization.updated", "lead.created", "lead.disqualified", "lead.promoted", "lead.demoted", "lead.merged", "lead.sla_breached", "lead.updated", "activity.captured", "activity.archived", "activity.updated", "engagement.reply", "consent.changed", "email_signature.changed", "linkedin_account.changed", "linkedin_network.imported", "linkedin_match.decided", "retention.applied", "retention.restricted", "signal.detected", "signal.resolved", "voice.profile_created", "voice.profile_updated", "voice.profile_archived", "voice.corpus_changed", "voice.build_changed", "voice.version_changed", "voice.draft_outcome_recorded", "user.invited", "user.password_link_issued", "user.deactivated", "user.reactivated", "role.changed", "team.changed", "passport.revoked", "onboarding.state_changed", "mirror.conflict", "mirror.budget_degraded", "mirror.deleted", "mirror.write_rejected", "incumbent.connected", "incumbent.disconnected", "approval.requested", "approval.decided", "coldstart.read_back_proposed", "coldstart.accepted", "coldstart.rejected", "audit.appended"];
 export const publicEventActivityChangedFieldsAudienceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["PublicEventActivityChangedFields"]["audience"]> = ["workspace", "participants", "selected"];
 export const publicEventRetentionRestrictedActionValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["PublicEventRetentionRestricted"]["action"]> = ["restrict", "release", "pin"];
 export const publicEventTeamChangedChangeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["PublicEventTeamChanged"]["change"]> = ["created", "renamed", "archived", "restored", "member_added", "member_removed"];
