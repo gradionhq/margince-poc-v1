@@ -3820,6 +3820,33 @@ func (e CreateStageRequestSemantic) Valid() bool {
 	}
 }
 
+// Defines values for CreateTaskRequestLinksEntityType.
+const (
+	CreateTaskRequestLinksEntityTypeDeal         CreateTaskRequestLinksEntityType = "deal"
+	CreateTaskRequestLinksEntityTypeLead         CreateTaskRequestLinksEntityType = "lead"
+	CreateTaskRequestLinksEntityTypeOrganization CreateTaskRequestLinksEntityType = "organization"
+	CreateTaskRequestLinksEntityTypePerson       CreateTaskRequestLinksEntityType = "person"
+	CreateTaskRequestLinksEntityTypeProject      CreateTaskRequestLinksEntityType = "project"
+)
+
+// Valid indicates whether the value is a known member of the CreateTaskRequestLinksEntityType enum.
+func (e CreateTaskRequestLinksEntityType) Valid() bool {
+	switch e {
+	case CreateTaskRequestLinksEntityTypeDeal:
+		return true
+	case CreateTaskRequestLinksEntityTypeLead:
+		return true
+	case CreateTaskRequestLinksEntityTypeOrganization:
+		return true
+	case CreateTaskRequestLinksEntityTypePerson:
+		return true
+	case CreateTaskRequestLinksEntityTypeProject:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateVoiceBuildRequestReason.
 const (
 	CreateVoiceBuildRequestReasonManual     CreateVoiceBuildRequestReason = "manual"
@@ -14982,6 +15009,31 @@ type CreateTagRequest struct {
 	Color *string `json:"color,omitempty"`
 	Name  string  `json:"name"`
 }
+
+// CreateTaskRequest What a task needs. Stored as an activity of kind `task`.
+type CreateTaskRequest struct {
+	// AssigneeId Who owes it. Defaults to the caller.
+	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
+
+	// Body Detail, if one line is not enough.
+	Body *string `json:"body,omitempty"`
+
+	// DueAt When it is due. Optional — a task without a date is still a task.
+	DueAt *time.Time `json:"due_at,omitempty"`
+
+	// Links The records the task is about. Omit it and the task appears on no timeline.
+	Links *[]struct {
+		EntityId   openapi_types.UUID               `json:"entity_id"`
+		EntityType CreateTaskRequestLinksEntityType `json:"entity_type"`
+	} `json:"links,omitempty"`
+	Source string `json:"source"`
+
+	// Subject What has to be done, as one line.
+	Subject string `json:"subject"`
+}
+
+// CreateTaskRequestLinksEntityType defines model for CreateTaskRequest.Links.EntityType.
+type CreateTaskRequestLinksEntityType string
 
 // CreateTeamRequest defines model for CreateTeamRequest.
 type CreateTeamRequest struct {
@@ -26739,6 +26791,25 @@ type ListTagsParams struct {
 	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
+// CreateTaskParams defines parameters for CreateTask.
+type CreateTaskParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ListTeamsParams defines parameters for ListTeams.
 type ListTeamsParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -27608,6 +27679,9 @@ type RemoveTagJSONRequestBody = ApplyTagRequest
 
 // ApplyTagJSONRequestBody defines body for ApplyTag for application/json ContentType.
 type ApplyTagJSONRequestBody = ApplyTagRequest
+
+// CreateTaskJSONRequestBody defines body for CreateTask for application/json ContentType.
+type CreateTaskJSONRequestBody = CreateTaskRequest
 
 // CreateTeamJSONRequestBody defines body for CreateTeam for application/json ContentType.
 type CreateTeamJSONRequestBody = CreateTeamRequest
@@ -37188,6 +37262,9 @@ type ServerInterface interface {
 	// Apply a tag to an entity (person/org/deal/lead).
 	// (POST /tags/{id}/apply)
 	ApplyTag(w http.ResponseWriter, r *http.Request, id Id)
+	// Create a task — a commitment with an owner, on the records it is about.
+	// (POST /tasks)
+	CreateTask(w http.ResponseWriter, r *http.Request, params CreateTaskParams)
 	// List workspace teams — cursor-paginated. Read-only.
 	// (GET /teams)
 	ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams)
@@ -39861,6 +39938,12 @@ func (_ Unimplemented) RemoveTag(w http.ResponseWriter, r *http.Request, id Id) 
 // Apply a tag to an entity (person/org/deal/lead).
 // (POST /tags/{id}/apply)
 func (_ Unimplemented) ApplyTag(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a task — a commitment with an owner, on the records it is about.
+// (POST /tasks)
+func (_ Unimplemented) CreateTask(w http.ResponseWriter, r *http.Request, params CreateTaskParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -58994,6 +59077,55 @@ func (siw *ServerInterfaceWrapper) ApplyTag(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// CreateTask operation middleware
+func (siw *ServerInterfaceWrapper) CreateTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTaskParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTask(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTeams operation middleware
 func (siw *ServerInterfaceWrapper) ListTeams(w http.ResponseWriter, r *http.Request) {
 
@@ -62520,6 +62652,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/tags/{id}/apply", wrapper.ApplyTag)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/tasks", wrapper.CreateTask)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams", wrapper.ListTeams)

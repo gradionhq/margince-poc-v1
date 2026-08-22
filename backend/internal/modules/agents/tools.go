@@ -66,6 +66,7 @@ func RegisterCoreTools(r *Registry, p datasource.SystemOfRecordProvider, stages 
 	r.Register(createRecord{p: p})
 	r.Register(updateRecord{p: p, ownership: ownership, staging: r.approvals})
 	r.Register(logActivity{p: p})
+	r.Register(createTask{p: p})
 	r.Register(advanceDeal{p: p, stages: stages})
 	r.Register(progressDeal{p: p, stages: stages})
 	r.Register(qualifyLead{p: p})
@@ -360,7 +361,7 @@ func (t logActivity) Spec() mcp.ToolSpec {
 		// — the refusal that actually binds is the server's.
 		InputSchema: schema(`{"type":"object","required":["kind"],"properties":{
 			"kind":{"type":"string","enum":` + activityKindEnum + `},
-			"channel_provider":{"type":"string","description":"Which messaging transport carried this — required when kind is \"message\", and not allowed otherwise. Name a provider this installation has registered; list_channel_providers reports them."},
+			"channel_provider":{"type":"string","description":"Required when kind is \"message\", else refused; a provider list_channel_providers names."},
 			"subject":{"type":"string"},"body":{"type":"string"},
 			"occurred_at":{"type":"string","format":"date-time"` + timestampNote + `},
 			"direction":{"type":"string","enum":["inbound","outbound"]},
@@ -368,7 +369,7 @@ func (t logActivity) Spec() mcp.ToolSpec {
 			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
 				"entity_type":{"type":"string","enum":` + activityLinkEntityTypeEnum + `},
 				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false},
-				"description":"What the activity is about. Omit it and the activity is stored unattached to any record — it will not appear on a person's, company's or deal's timeline."},
+				"description":"What it is about; unlinked, it appears on no timeline."},
 			"source_system":{"type":"string"},"source_id":{"type":"string"}},
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[wireRecord](),

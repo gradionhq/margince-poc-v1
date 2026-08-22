@@ -21,7 +21,10 @@ import (
 
 // fieldKind names the activity kind in the write shape's audit and outbox
 // payloads (the one spelling of the payload key).
-const fieldKind = "kind"
+const (
+	fieldKind    = "kind"
+	fieldSubject = "subject"
+)
 
 // activityCapturedPayload builds the activity.captured event for the
 // direct-log path (this package's only emit site of the event's two) — it
@@ -184,7 +187,7 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 		return crmcontracts.Activity{}, false, err
 	}
 
-	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, map[string]any{fieldKind: in.Kind, "subject": in.Subject})
+	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, map[string]any{fieldKind: in.Kind, fieldSubject: in.Subject})
 	if err != nil {
 		return crmcontracts.Activity{}, false, err
 	}

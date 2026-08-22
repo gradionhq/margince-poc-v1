@@ -3499,6 +3499,36 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   # ---------------------------- /activities ---------------------------------
+  /tasks:
+    post:
+      tags: [Activities]
+      operationId: createTask
+      summary: Create a task — a commitment with an owner, on the records it is about.
+      description: |
+        A task is an activity of kind `task`, and this is the one door that says so:
+        `POST /activities` with `kind: task` stores the same row, but a caller
+        (an agent above all) should not have to know that a to-do is a species of
+        timeline entry. Takes what a task needs and nothing a meeting does.
+      x-mcp-tool: { verb: create_task, record_type: activity, tier: auto_execute, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaskRequest' }
+      responses:
+        '201':
+          description: The task, as an activity.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
   /activities:
     get:
       tags: [Activities]
@@ -21021,6 +21051,26 @@ components:
                 a transport that sends text-with-files as a caption bounds it far below a
                 text-only message. Zero means no extra bound.
 
+    CreateTaskRequest:
+      type: object
+      description: What a task needs. Stored as an activity of kind `task`.
+      required: [subject, source]
+      properties:
+        subject: { type: string, minLength: 1, description: 'What has to be done, as one line.' }
+        body: { type: [string, 'null'], description: 'Detail, if one line is not enough.' }
+        due_at: { type: [string, 'null'], format: date-time, description: 'When it is due. Optional — a task without a date is still a task.' }
+        assignee_id: { type: [string, 'null'], format: uuid, description: 'Who owes it. Defaults to the caller.' }
+        links:
+          type: array
+          description: The records the task is about. Omit it and the task appears on no timeline.
+          items:
+            type: object
+            required: [entity_type, entity_id]
+            properties:
+              entity_type: { type: string, enum: [person, organization, deal, lead, project] }
+              entity_id: { type: string, format: uuid }
+        source: { type: string }
+      additionalProperties: false
     CreateActivityRequest:
       type: object
       required: [kind, source]

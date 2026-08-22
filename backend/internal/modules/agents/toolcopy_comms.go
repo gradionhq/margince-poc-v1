@@ -48,12 +48,11 @@ var sendEmailCopy = toolCopy{
 var sendAccountEmailCopy = toolCopy{
 	Purpose: "Put a mail on the wire to a real recipient, from this workspace, starting a new " +
 		"conversation rather than answering one, and file it on the records it is about.",
-	Limits: "It sends EXACTLY the subject and body it is given and composes nothing. It needs at " +
-		"least one link naming the records the conversation belongs to and is refused without " +
-		"one. Every recipient must have granted the consent purpose the call names, and a person " +
-		"approves the send before it leaves — a message leaving the workspace cannot be recalled.",
-	Instead: "Use send_email when the message answers a conversation already recorded here: that " +
-		"keeps the reply on its own thread, where this starts a separate one beside it.",
+	Limits: "Sends EXACTLY the subject and body given; composes nothing. Needs at least one link " +
+		"naming the records it belongs to. Every recipient must have granted the named consent " +
+		"purpose, and a person approves the send first — a sent mail cannot be recalled.",
+	Instead: "Use send_email to answer a conversation already recorded here; this starts a " +
+		"separate thread beside it.",
 	Retain: "Keep the staged approval id and re-send the identical text and links: the approval " +
 		"is bound to that exact message. The activity_id that comes back is the new conversation.",
 }
@@ -83,11 +82,9 @@ var checkAvailabilityCopy = toolCopy{
 var bookMeetingCopy = toolCopy{
 	Purpose: "Hold a slot in the host's calendar and record the meeting against the records it " +
 		"is about.",
-	Limits: "It requires at least one link saying what the meeting is about and is refused " +
-		"without one. The slot is taken and the meeting becomes a real commitment, so a person " +
-		"approves it before it is booked. It takes no attendee list: who is invited, and whether " +
-		"an invitation is delivered at all, is the deployment's calendar connection rather than " +
-		"this call. Check the slot is free first — this tool does not.",
+	Limits: "Needs at least one link saying what it is about. The slot is taken and the meeting " +
+		"is a real commitment, so a person approves it first. No attendee list: who is invited is " +
+		"the calendar connection's business. Check the slot is free first — this tool does not.",
 	Instead: "Use check_availability to find the time, and log_activity to record a meeting that " +
 		"already happened.",
 	Retain: "Keep the staged approval id and re-send the identical start, end and links: the " +
