@@ -770,6 +770,7 @@ export const de = {
   "signal.kind.new_opportunity": "Neue Chance",
   "signal.kind.commitment_made": "Etwas wurde zugesagt",
   "signal.kind.ghosted_thread": "Keine Antwort",
+  "signal.kind.project_gone_quiet": "Projekt ist still geworden",
   "co.routeIn.open": "Zugang",
   "co.routeIn.title": "Wer hier mit {name} spricht",
   "co.routeIn.none": "Bisher hat hier niemand geschrieben.",
@@ -1290,6 +1291,7 @@ export const de = {
   "co.connections.group.intro_path": "der warme Einstieg",
   "co.signals.title": "Signale",
   "co.signals.empty": "Kein offenes Signal zu diesem Account.",
+  "co.signals.openProject": "Projekt öffnen",
   "chronology.label": "Was im Verlauf angezeigt wird",
   "chronology.activities": "Aktivitäten",
   "chronology.changes": "Änderungen",
@@ -1946,6 +1948,13 @@ export const de = {
   "home.digestDedupe": "Dubletten zu prüfen",
   "home.digestClassify":
     "Über Nacht einsortiert: {commitments} Zusagen · {meetings} Termine · {noise} Rauschen",
+  "home.digestProjects": "Projekte",
+  "home.digestPhaseChanges": "Phasenwechsel",
+  "home.digestNewCommitments": "Neue Zusagen",
+  "home.digestGoneQuiet": "Still geworden",
+  "home.digestPhaseChange": "{from} → {to}",
+  "home.digestCommitmentCount": "{count} neue offene Zusagen",
+  "home.digestQuietDays": "seit {days} Tagen still",
 
   "enrich.title": "Von der Website lesen",
   "enrich.sub":
@@ -3977,6 +3986,9 @@ export const de = {
   "ob.payoff.seats":
     "Es fehlen nur noch deine Kollegen. Sitze sind kostenpflichtig, deshalb legst du sie unter Einstellungen → Nutzer selbst an.",
   "ob.payoff.understood": "Verstanden",
+  "ob.payoff.projects":
+    "Wird aus einem Deal Arbeit, leg dafür ein Projekt an: Ein Projekt beginnt während des Deals und bleibt nach dem Gewinn bestehen, damit die Lieferung ihre eigene Chronik behält.",
+  "ob.payoff.projectsLink": "Projekte ansehen",
 
   // --- die Übergabe in die App ------------------------------------------
   "ob.enter.cta": "Margince öffnen",
@@ -4323,6 +4335,9 @@ export const de = {
   "dealbrief.activity": "Zuletzt und als Nächstes",
   "dealbrief.open": "Noch offen",
   "dealbrief.room": "Deal Room",
+  "dealmeeting.title": "Nächstes Meeting",
+  "dealmeeting.untitled": "Meeting",
+  "dealmeeting.openBrief": "Briefing öffnen",
   "nba.title": "Nächster Schritt",
   "nba.sub": "Eine Sache, die auf diesem Deal zu tun ist — und warum.",
   "nba.createTask": "Aufgabe anlegen",
@@ -5810,6 +5825,7 @@ export const de = {
   "person.meeting.assembledNow":
     "Soeben aus den aktuellen Daten zusammengestellt",
   "person.meeting.header": "Auf einen Blick",
+  "person.meeting.what_changed": "Seit dem letzten Kontakt",
   "person.meeting.goal": "Ziel dieses Meetings",
   "person.meeting.attendees": "Teilnehmende",
   "person.meeting.commitments": "Offene Zusagen",

@@ -25,6 +25,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "room.card.title",
   "persondealrooms.title",
   "dealbrief.room",
+  "dealmeeting.untitled",
   "room.create.defaultTitle",
   // Pure punctuation layouts: every word in them is a placeholder, so there is
   // nothing to translate and a "translation" could only reorder the slots.
@@ -34,6 +35,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "today.route.headline",
   // Two phase names and an arrow: the same shape.
   "project.history.moved",
+  "home.digestPhaseChange",
   // An em dash standing in for a figure nobody can compute yet. A glyph, not a
   // word — the sentence explaining it is the detail line beside it.
   "co.strip.financeUnknown",

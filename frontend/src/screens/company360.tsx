@@ -105,6 +105,7 @@ const SIGNAL_KIND_LABELS: Record<string, MessageKey> = {
   new_opportunity: "signal.kind.new_opportunity",
   commitment_made: "signal.kind.commitment_made",
   ghosted_thread: "signal.kind.ghosted_thread",
+  project_gone_quiet: "signal.kind.project_gone_quiet",
 };
 
 // The strip's signal kind is an open string on the wire, on purpose: the strip

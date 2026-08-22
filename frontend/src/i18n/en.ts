@@ -811,6 +811,7 @@ export const en = {
   "signal.kind.new_opportunity": "New opportunity",
   "signal.kind.commitment_made": "Something was promised",
   "signal.kind.ghosted_thread": "No answer",
+  "signal.kind.project_gone_quiet": "Project gone quiet",
   "co.routeIn.open": "Route in",
   "co.routeIn.title": "Who here talks to {name}",
   "co.routeIn.none": "Nobody here has written to them yet.",
@@ -1325,6 +1326,7 @@ export const en = {
   "co.connections.group.our_side": "who here is connected",
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
+  "co.signals.openProject": "Open the project",
   "chronology.label": "What to show in the timeline",
   "chronology.activities": "Activities",
   "chronology.changes": "Changes",
@@ -1973,6 +1975,13 @@ export const en = {
   "home.digestDedupe": "Duplicates to review",
   "home.digestClassify":
     "Classified overnight: {commitments} commitments · {meetings} meetings · {noise} noise",
+  "home.digestProjects": "Projects",
+  "home.digestPhaseChanges": "Phase moves",
+  "home.digestNewCommitments": "New commitments",
+  "home.digestGoneQuiet": "Gone quiet",
+  "home.digestPhaseChange": "{from} → {to}",
+  "home.digestCommitmentCount": "{count} new open commitments",
+  "home.digestQuietDays": "quiet for {days} days",
 
   "enrich.title": "Read from the website",
   "enrich.sub":
@@ -4008,6 +4017,9 @@ export const en = {
   "ob.payoff.seats":
     "The one thing left is your colleagues. Seats are billed, so you create them in Settings → People.",
   "ob.payoff.understood": "Understood",
+  "ob.payoff.projects":
+    "When a deal turns into work, open a project for it: a project starts during the deal and outlives close-won, so delivery keeps its own timeline.",
+  "ob.payoff.projectsLink": "See projects",
 
   // --- the handoff into the app -----------------------------------------
   "ob.enter.cta": "Enter Margince",
@@ -4376,6 +4388,9 @@ export const en = {
   "dealbrief.activity": "Last and next",
   "dealbrief.open": "Still owed",
   "dealbrief.room": "Deal Room",
+  "dealmeeting.title": "Next meeting",
+  "dealmeeting.untitled": "Meeting",
+  "dealmeeting.openBrief": "Open the brief",
   "nba.title": "Next move",
   "nba.sub": "One thing to do on this deal, and why.",
   "nba.createTask": "Add this task",
@@ -5856,6 +5871,7 @@ export const en = {
   "person.meeting.loading": "Assembling the brief…",
   "person.meeting.assembledNow": "Assembled just now, from the latest data",
   "person.meeting.header": "At a glance",
+  "person.meeting.what_changed": "Since you last spoke",
   "person.meeting.goal": "Goal for this meeting",
   "person.meeting.attendees": "Attendees",
   "person.meeting.commitments": "Open commitments",

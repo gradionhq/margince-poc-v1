@@ -171,6 +171,7 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID, reques
 	var scope *ids.ProjectID
 	var perAttendee map[ids.UUID][]crmcontracts.ConversationClaim
 	var earlier []priorMeeting
+	var lastSpoke *time.Time
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		// The requested project is gated BEFORE the meeting is read, because
 		// the meeting read already narrows by it (the attendees' last-touch
@@ -195,6 +196,13 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID, reques
 			return err
 		}
 		earlier, err = s.readPriorMeetings(ctx, tx, loaded, scope, s.now().UTC())
+		if err != nil {
+			return err
+		}
+		spoke, ever, err := s.readLastSpoke(ctx, tx, loaded, scope, s.now().UTC())
+		if ever {
+			lastSpoke = &spoke
+		}
 		return err
 	})
 	if err != nil {
@@ -203,6 +211,7 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID, reques
 
 	in := FromMeeting(room, perAttendee, s.now().UTC())
 	in.PriorMeetings = foldPriorMeetings(earlier)
+	in.LastSpokeAt = lastSpoke
 	if len(room.Attendees) == 0 {
 		// Nobody in the room this caller may see. The header still stands, and
 		// assembling a 360 for a person nobody named would be a read of a

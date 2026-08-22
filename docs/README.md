@@ -25,6 +25,7 @@ maps the codebase and links everything below.
 ### Tutorials — learn by doing
 - [getting-started.md](tutorials/getting-started.md) — clone → running instance with a bootstrapped workspace.
 - [run-a-partner-program.md](tutorials/run-a-partner-program.md) — what partner programs are and what you can do with them, then one deal from the introduction to the money it earns; no code.
+- [run-your-first-project.md](tutorials/run-your-first-project.md) — for the rep or delivery lead who works accounts in the app: one ERP rollout followed from the deal through delivery to close, with the key that files email and the AI scoped to the project; no code.
 
 ### How-to — accomplish a task
 - [add-an-endpoint.md](how-to/add-an-endpoint.md) — add or change an API operation (contract → gen → handler).
@@ -50,6 +51,8 @@ maps the codebase and links everything below.
 - [add-an-extension.md](how-to/add-an-extension.md) — ship a stable-tier extension unit (a jurisdiction pack) under `extensions/`, composed and verified.
 - [work-your-pipeline.md](how-to/work-your-pipeline.md) — sell with Margince: move a deal, close it (and what winning one requires), stalled deals, saved views, bulk actions, and how to read the pipeline numbers; no code.
 - [set-up-a-partner-program.md](how-to/set-up-a-partner-program.md) — the partner reference: what every field and every value means, and how to work the pipeline; no code. Learning it for the first time? [tutorials/run-a-partner-program.md](tutorials/run-a-partner-program.md) walks one deal end to end.
+- [set-up-projects.md](how-to/set-up-projects.md) — who can create, edit, archive and share a project; key conventions; when to create one (deal creation vs close-won); the fixed phase and stakeholder vocabularies; no code.
+- [run-a-project.md](how-to/run-a-project.md) — the project page section by section, phase moves, and every rule by which an email finds its project — including what filing does to retention; no code.
 - [build-the-desktop-app.md](how-to/build-the-desktop-app.md) — build the self-contained folder that runs the whole stack with no Docker, on macOS (`make desktop`) or Windows (`make desktop-win`), then run, configure and update an installation.
 
 ### Reference — look it up

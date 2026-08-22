@@ -28,6 +28,7 @@ import {
   projectFields,
 } from "./projects.form";
 import { lastActivityColumn, ownerColumn } from "./recordlist";
+import { SaveViewAction, useSavedViews, useSavedViewTabs } from "./savedviews";
 import "./projects.css";
 
 // The projects list: every body of work the reader may see, newest activity
@@ -47,7 +48,11 @@ async function fetchProjectsPage(
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
         limit: listFetchLimit(query.perPage),
-        ...projectFilters(query.filters),
+        // Passed through whole rather than narrowed to a typed subset: the
+        // list endpoint answers a field outside its allow-list with a 422 the
+        // table renders, and a saved view the server refuses is better shown
+        // refused than silently shown as an active tab over an unfiltered list.
+        ...query.filters,
       },
     },
   });
@@ -60,24 +65,6 @@ async function fetchProjectsPage(
       next_cursor: data.page.next_cursor ?? null,
       has_more: data.page.has_more,
     },
-  };
-}
-
-// The list's filters as the typed query the contract admits. `phase` is a
-// closed enum on the wire, so the free string the chip holds is narrowed
-// rather than asserted; an unknown value sends no phase filter at all.
-function projectFilters(filters: Record<string, string>): {
-  phase?: ProjectPhase;
-  owner_id?: string;
-  organization_id?: string;
-} {
-  const phase = filters.phase;
-  return {
-    phase: (PROJECT_PHASES as readonly string[]).includes(phase)
-      ? (phase as ProjectPhase)
-      : undefined,
-    owner_id: filters.owner_id || undefined,
-    organization_id: filters.organization_id || undefined,
   };
 }
 
@@ -171,6 +158,8 @@ export function ProjectsScreen() {
   const me = useMe();
   const overlay = useSorMode() === "overlay";
   const companies = useCompanyOptions();
+  const views = useSavedViews("projects");
+  const savedViews = useSavedViewTabs("projects");
   const state = useListQuery<Project>({
     key: "projects",
     initialSort: "-last_activity_at",
@@ -186,10 +175,15 @@ export function ProjectsScreen() {
   // The first-run plate: nothing exists yet, and nothing is narrowing the
   // list. A filtered-empty list is the table's own case — it already knows to
   // offer the way back — and a list that is empty because a reader typed a
-  // search must not be told the product has no projects.
+  // search must not be told the product has no projects. A saved view is
+  // reachable only from the table's rail, so the plate waits for the views
+  // read to confirm there is none; an unanswered or failed read keeps the
+  // table, where SaveViewAction says what went wrong.
   const firstRun =
     !state.isPending &&
     !state.isError &&
+    views.isSuccess &&
+    savedViews.length === 0 &&
     state.rows.length === 0 &&
     state.query.q === "" &&
     !state.query.includeArchived &&
@@ -249,8 +243,10 @@ export function ProjectsScreen() {
           ownerColumn<Project>(t),
           lastActivityColumn<Project>(t, locale),
         ]}
+        tools={<SaveViewAction resource="projects" query={state.query} />}
         rowKey={(project) => project.id}
         rowRoute={(project) => ({ screen: "projects", id: project.id })}
+        dataViews={savedViews}
         chips={[
           {
             key: "phase",

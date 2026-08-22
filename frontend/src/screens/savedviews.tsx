@@ -35,7 +35,7 @@ type SavedView = components["schemas"]["SavedView"];
  * is written down once, where the two meet (the filters screen's `VIEW_OF`), and
  * nowhere else.
  */
-export type ViewResource = "people" | "organizations" | "deals";
+export type ViewResource = "people" | "organizations" | "deals" | "projects";
 
 /**
  * The list state a view restores.

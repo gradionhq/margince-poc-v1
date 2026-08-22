@@ -758,6 +758,7 @@ export const vi = {
   "signal.kind.new_opportunity": "Cơ hội mới",
   "signal.kind.commitment_made": "Đã có lời hứa",
   "signal.kind.ghosted_thread": "Không hồi đáp",
+  "signal.kind.project_gone_quiet": "Dự án đã im ắng",
   "co.routeIn.open": "Đường tiếp cận",
   "co.routeIn.title": "Ai bên mình trao đổi với {name}",
   "co.routeIn.none": "Chưa ai bên mình viết cho họ.",
@@ -1281,6 +1282,7 @@ export const vi = {
   "co.connections.group.our_side": "ai bên mình có kết nối",
   "co.signals.title": "Tín hiệu",
   "co.signals.empty": "Không có tín hiệu nào đang mở trên tài khoản này.",
+  "co.signals.openProject": "Mở dự án",
   "chronology.label": "Hiện gì trên timeline",
   "chronology.activities": "Hoạt động",
   "chronology.changes": "Thay đổi",
@@ -1928,6 +1930,13 @@ export const vi = {
   "home.digestDedupe": "Trùng lặp cần rà",
   "home.digestClassify":
     "Phân loại qua đêm: {commitments} cam kết · {meetings} cuộc họp · {noise} nhiễu",
+  "home.digestProjects": "Dự án",
+  "home.digestPhaseChanges": "Chuyển giai đoạn",
+  "home.digestNewCommitments": "Cam kết mới",
+  "home.digestGoneQuiet": "Đã im ắng",
+  "home.digestPhaseChange": "{from} → {to}",
+  "home.digestCommitmentCount": "{count} cam kết mới còn mở",
+  "home.digestQuietDays": "im ắng {days} ngày",
 
   "enrich.title": "Đọc từ website",
   "enrich.sub":
@@ -3938,6 +3947,9 @@ export const vi = {
   "ob.payoff.seats":
     "Việc còn lại là các đồng nghiệp của bạn. Mỗi suất người dùng đều tính phí, nên bạn tạo họ trong Cài đặt → Người dùng.",
   "ob.payoff.understood": "Đã rõ",
+  "ob.payoff.projects":
+    "Khi một thương vụ trở thành công việc, hãy mở một dự án cho nó: dự án bắt đầu ngay trong thương vụ và tiếp tục sau khi chốt thắng, để việc triển khai có dòng thời gian riêng.",
+  "ob.payoff.projectsLink": "Xem dự án",
 
   // --- the handoff into the app -----------------------------------------
   "ob.enter.cta": "Vào Margince",
@@ -4284,6 +4296,9 @@ export const vi = {
   "dealbrief.activity": "Gần nhất và tiếp theo",
   "dealbrief.open": "Còn nợ",
   "dealbrief.room": "Deal Room",
+  "dealmeeting.title": "Cuộc họp tiếp theo",
+  "dealmeeting.untitled": "Cuộc họp",
+  "dealmeeting.openBrief": "Mở bản tóm tắt",
   "nba.title": "Bước tiếp theo",
   "nba.sub": "Một việc cần làm trên giao dịch này, và lý do.",
   "nba.createTask": "Thêm việc này",
@@ -5751,6 +5766,7 @@ export const vi = {
   "person.meeting.loading": "Đang tổng hợp bản tóm tắt…",
   "person.meeting.assembledNow": "Vừa được tổng hợp từ dữ liệu mới nhất",
   "person.meeting.header": "Tổng quan",
+  "person.meeting.what_changed": "Kể từ lần trao đổi gần nhất",
   "person.meeting.goal": "Mục tiêu cuộc họp",
   "person.meeting.attendees": "Người tham dự",
   "person.meeting.commitments": "Cam kết còn mở",

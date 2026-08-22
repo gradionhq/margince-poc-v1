@@ -72,6 +72,7 @@ func TestSectionsAreWrittenInTheSpecsFixedOrder(t *testing.T) {
 	want := []crmcontracts.MeetingBriefSectionKind{
 		crmcontracts.MeetingBriefSectionKindHeader,
 		crmcontracts.MeetingBriefSectionKindGoal,
+		crmcontracts.MeetingBriefSectionKindWhatChanged,
 		crmcontracts.MeetingBriefSectionKindAttendees,
 		crmcontracts.MeetingBriefSectionKindCommitments,
 		crmcontracts.MeetingBriefSectionKindDealState,
@@ -81,7 +82,7 @@ func TestSectionsAreWrittenInTheSpecsFixedOrder(t *testing.T) {
 	}
 	got := Deterministic(fullInput())
 	if len(got) != len(want) {
-		t.Fatalf("got %d sections, want the eight of ADR-0097 D5", len(got))
+		t.Fatalf("got %d sections, want the eight of ADR-0097 D5 plus what_changed", len(got))
 	}
 	for i, kind := range want {
 		if got[i].Kind != kind {
@@ -121,13 +122,41 @@ func TestRisksIsAbsentWhenNothingInTheRecordIsWrong(t *testing.T) {
 	}
 }
 
-func TestAnOverdueCommitmentOfOursBecomesARiskLabelledAsAnAssessment(t *testing.T) {
-	risks := sectionOf(t, Deterministic(fullInput()), crmcontracts.MeetingBriefSectionKindRisks)
-	if len(risks.Sentences) != 1 {
-		t.Fatalf("got %d risks, want the one overdue promise", len(risks.Sentences))
+// One claim, one home. The sharpest overdue promise of ours IS the goal,
+// dated; it is not said again as a risk. A second overdue promise, which the
+// goal did not take, is the risk — labelled as the assessment it is.
+func TestAnOverduePromiseIsTheGoalOnceAndTheNextOneIsARisk(t *testing.T) {
+	in := fullInput()
+	in.Commitments = append(in.Commitments, ClaimIn{
+		PersonName: "Ana Roth", Kind: kindCommitmentOurs, Body: "share the reference call",
+		Status: statusOpen, SourceID: activityID, DueAt: ptr(at(9)),
+	})
+	sections := Deterministic(in)
+	goal := sectionOf(t, sections, crmcontracts.MeetingBriefSectionKindGoal)
+	if len(goal.Sentences) != 1 || !strings.Contains(goal.Sentences[0].Text, "overdue since 8 Aug: send the security pack") {
+		t.Fatalf("goal = %+v, want the older overdue promise, dated", goal.Sentences)
+	}
+	risks := sectionOf(t, sections, crmcontracts.MeetingBriefSectionKindRisks)
+	if len(risks.Sentences) != 1 || !strings.Contains(risks.Sentences[0].Text, "share the reference call") {
+		t.Fatalf("risks = %+v, want only the promise the goal did not take", risks.Sentences)
 	}
 	if risks.Sentences[0].Nature != natureAssessment {
 		t.Errorf("a risk read out of a record is nature %q, want %q", risks.Sentences[0].Nature, natureAssessment)
+	}
+	for _, section := range sections {
+		// The ledger lists every promise by design; no READING repeats the goal.
+		if section.Kind == crmcontracts.MeetingBriefSectionKindCommitments {
+			continue
+		}
+		for _, line := range section.Sentences {
+			if section.Kind != crmcontracts.MeetingBriefSectionKindGoal && strings.Contains(line.Text, "send the security pack") {
+				t.Errorf("%s repeats the goal's promise: %q", section.Kind, line.Text)
+			}
+		}
+	}
+	ledger := sectionOf(t, sections, crmcontracts.MeetingBriefSectionKindCommitments)
+	if len(ledger.Sentences) != 2 {
+		t.Fatalf("the ledger lists %d promises, want both — it is complete even when the goal names one", len(ledger.Sentences))
 	}
 }
 
@@ -152,8 +181,9 @@ func TestAFirstTimeAttendeeIsFlaggedInTheProse(t *testing.T) {
 // The goal leads with the ask the RECORD supports. With an open question on the
 // table, answering it is the ask; a goal invented from nothing would be the
 // external-context filler the spec's first hard rule forbids.
-func TestTheGoalIsTheOpenQuestionWhenThereIsOne(t *testing.T) {
+func TestTheGoalIsTheOpenQuestionWhenNothingOfOursIsOverdue(t *testing.T) {
 	in := fullInput()
+	in.Commitments[0].DueAt = ptr(at(18))
 	in.Commitments = append(in.Commitments, ClaimIn{
 		PersonName: "Ana Roth", Kind: kindOpenQuestion, Body: "who signs the DPA",
 		Status: statusOpen, SourceID: activityID,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { entityTimelineKeys, taskWriteKeys } from "./activitykeys";
+import { dealWinKeys, entityTimelineKeys, taskWriteKeys } from "./activitykeys";
 
 // The company, contact and project pages draw the timeline's first page from
 // their composite 360 read and fetch nothing under the per-record activities
@@ -36,5 +36,20 @@ describe("which reads a timeline write has to invalidate", () => {
       ["organization360", "o1"],
       ["tasks"],
     ]);
+  });
+
+  it("a won deal reaches the project list, the project's page and the company page that embeds it", () => {
+    expect(dealWinKeys({ project_id: "j1", organization_id: "o1" })).toEqual([
+      ["projects"],
+      ["project", "j1"],
+      ["organization360", "o1"],
+    ]);
+  });
+
+  it("a won deal naming no project still refreshes the project list and nothing it cannot name", () => {
+    expect(dealWinKeys({ project_id: null, organization_id: null })).toEqual([
+      ["projects"],
+    ]);
+    expect(dealWinKeys(undefined)).toEqual([["projects"]]);
   });
 });

@@ -26,11 +26,13 @@ import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import { errorClassKey, isUnhealthy } from "./connector-status";
+import { EntityRef } from "./entityref";
 import {
   ApprovalRow,
   useApprovalTokenSink,
   usePendingApprovals,
 } from "./inbox";
+import { isProjectPhase, PHASE_LABEL } from "./projects.form";
 import "./home.css";
 
 // Home / Morning Brief (B-EP09.12b on the E05 spine): the persisted /brief
@@ -111,6 +113,94 @@ function DigestStat({
   );
 }
 
+type DigestProjects = NonNullable<
+  components["schemas"]["MorningDigest"]["projects"]
+>;
+
+// A rung of the project ladder in the reader's words. The digest carries the
+// phase as open wire text, so a rung added upstream renders as its own word
+// rather than failing the index.
+function phaseWord(phase: string, t: (key: MessageKey) => string): string {
+  return isProjectPhase(phase) ? t(PHASE_LABEL[phase]) : phase;
+}
+
+// What moved on the projects overnight: every project named is a link to its
+// page, because the section exists to send the reader there. A list that is
+// empty renders nothing — the heading alone would claim news it has none of.
+function DigestProjectsSection({
+  projects,
+}: Readonly<{ projects: DigestProjects }>) {
+  const t = useT();
+  const { phase_changes, new_commitments, gone_quiet } = projects;
+  if (
+    phase_changes.length === 0 &&
+    new_commitments.length === 0 &&
+    gone_quiet.length === 0
+  ) {
+    return null;
+  }
+  // The birth row of a project created overnight carries no from_phase; a
+  // move between rungs is the news, so only those are listed.
+  const moves = phase_changes.filter((change) => change.from_phase != null);
+  return (
+    <div className="digest-projects" data-testid="digest-projects">
+      <span className="digest-projects-title t-caption">
+        {t("home.digestProjects")}
+      </span>
+      {moves.length > 0 && (
+        <ul
+          className="digest-project-list"
+          aria-label={t("home.digestPhaseChanges")}
+        >
+          {moves.map((change) => (
+            <li key={`${change.project_id}-${change.occurred_at}`}>
+              <EntityRef kind="project" id={change.project_id} />{" "}
+              <span className="t-caption">
+                {t("home.digestPhaseChange", {
+                  from: phaseWord(change.from_phase ?? "", t),
+                  to: phaseWord(change.to_phase, t),
+                })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {new_commitments.length > 0 && (
+        <ul
+          className="digest-project-list"
+          aria-label={t("home.digestNewCommitments")}
+        >
+          {new_commitments.map((item) => (
+            <li key={item.project_id}>
+              <EntityRef kind="project" id={item.project_id} />{" "}
+              <span className="t-caption">
+                {t("home.digestCommitmentCount", {
+                  count: item.new_open_commitments,
+                })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {gone_quiet.length > 0 && (
+        <ul
+          className="digest-project-list"
+          aria-label={t("home.digestGoneQuiet")}
+        >
+          {gone_quiet.map((item) => (
+            <li key={item.project_id}>
+              <EntityRef kind="project" id={item.project_id} />{" "}
+              <span className="t-caption">
+                {t("home.digestQuietDays", { days: item.days_quiet })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function DigestSection() {
   const t = useT();
   const { locale } = useLocale();
@@ -121,7 +211,7 @@ function DigestSection() {
         if (digest === null) {
           return null;
         }
-        const { capture, review, connectors } = digest;
+        const { capture, review, connectors, projects } = digest;
         const unhealthyConnectors = connectors.filter(
           (c) => c.status != null && isUnhealthy(c.status),
         );
@@ -173,6 +263,7 @@ function DigestSection() {
                   noise: review.classify?.noise ?? 0,
                 })}
               </p>
+              {projects && <DigestProjectsSection projects={projects} />}
               {unhealthyConnectors.length > 0 && (
                 <button
                   type="button"

@@ -26,6 +26,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// sqlUnnarrowed is the clause an unbounded reader's scope renders to where a
+// predicate is syntactically required: every row passes.
+const sqlUnnarrowed = "TRUE"
+
 // reportRowLimit bounds any report; aggregates past this are a data
 // export, not a report.
 const reportRowLimit = 1000
@@ -37,6 +41,9 @@ func (e *reportEngine) fetchRows(ctx context.Context, report string, spec report
 	var rows []map[string]any
 	var excluded *int
 	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+		if err := requireFilterScopes(ctx, tx, spec, req.Filters); err != nil {
+			return err
+		}
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		where, err := buildReportWhere(ctx, spec, req, arg)
@@ -59,7 +66,7 @@ func (e *reportEngine) fetchRows(ctx context.Context, report string, spec report
 			excluded = &n
 			where = append(where, maskClauses...)
 		}
-		sql, args, err := bindInstallationZone(ctx, tx, reportSQL(spec, selects, where, groupBy), args)
+		sql, args, err := bindReportTokens(ctx, tx, reportSQL(spec, selects, where, groupBy), args)
 		if err != nil {
 			return err
 		}
@@ -90,6 +97,14 @@ func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, a
 	}
 	sort.Strings(filterKeys)
 	for _, key := range filterKeys {
+		if threshold, ok := spec.thresholds[key]; ok {
+			n, err := thresholdValue(key, req.Filters[key])
+			if err != nil {
+				return nil, err
+			}
+			where = append(where, threshold.clause(arg(n)))
+			continue
+		}
 		expr, ok := spec.filters[key]
 		if !ok {
 			return nil, &FieldNotAllowedError{Field: key, Slot: slotFilters, Allowed: allowedReportNames(spec.filters)}
@@ -139,6 +154,15 @@ func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, a
 // only honest aggregate answer: there is no per-row place to write "withheld",
 // and folding those deals under a null key would still say that SOME partner
 // brought them.
+//
+// This is the ROW-SCOPE obligation only. A reference that also takes the
+// referenced table's OBJECT grant before it may be named at all (the project
+// an activity is filed under) declares that in spec.grants, and the
+// vocabulary gate (reportgrants.go) refuses the plan by name; a row scope
+// clause that renders empty means an unbounded reader of the table and
+// nothing about the grant, which is why the two are asked separately.
+// TestGroupingByPartnerDoesNotNameAPartnerTheCallerCannotOpen pins the
+// partner dimension to the row scope alone.
 func referenceScopeClauses(ctx context.Context, spec reportSpec, arg func(any) int) ([]string, error) {
 	if len(spec.referenceScopes) == 0 {
 		return nil, nil
@@ -173,7 +197,11 @@ func reportSQL(spec reportSpec, selects, where, groupBy []string) string {
 		for i := range groupBy {
 			positions[i] = fmt.Sprint(i + 1)
 		}
-		sql += " GROUP BY " + strings.Join(positions, ", ") + " ORDER BY " + strings.Join(positions, ", ")
+		order := strings.Join(positions, ", ")
+		if spec.orderBy != "" {
+			order = spec.orderBy + ", " + order
+		}
+		sql += " GROUP BY " + strings.Join(positions, ", ") + " ORDER BY " + order
 	}
 	sql += fmt.Sprintf(" LIMIT %d", reportRowLimit)
 	return sql
@@ -223,27 +251,82 @@ func quoteIdent(name string) string {
 
 var identShape = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
 
-// bindInstallationZone substitutes reportZoneToken for a real bind position,
-// appending the installation's zone to THIS statement's arguments.
+// Tokens a spec expression carries in place of a bind position it cannot
+// name: the catalog is a static map of expressions, so a value resolved per
+// request — the installation's zone or base currency, the caller's scope over
+// a table a subquery reads — is written as a token and bound once the
+// statement is assembled. None is valid SQL, so a statement that reaches
+// Postgres with one unsubstituted fails loudly rather than quietly reporting
+// in the wrong zone, the wrong currency, or past the caller's scope.
+const (
+	// reportZoneToken stands in for the installation timezone's bind position.
+	reportZoneToken = "<<installation-timezone>>"
+	// reportBaseCurrencyToken stands in for the installation base currency's
+	// bind position.
+	reportBaseCurrencyToken = "<<installation-base-currency>>"
+	// reportDealScopeToken stands in for the caller's deal row-scope clause
+	// over a deal subquery aliased d — what keeps a per-project money total
+	// from disclosing a deal the same caller's deal list would withhold.
+	reportDealScopeToken = "<<deal-scope:d>>" //nolint:gosec // an SQL placeholder the engine substitutes, not a credential
+	// reportActivityScopeToken stands in for the caller's activity content
+	// clause over an activity subquery aliased a, for the same reason.
+	reportActivityScopeToken = "<<activity-scope:a>>"
+)
+
+// bindReportTokens substitutes every token the assembled statement carries
+// for a real bind position, appending the resolved values to THIS statement's
+// arguments.
 //
 // It takes and returns the argument slice rather than sharing one, because a
 // caller may assemble several statements from one plan and only some of them
-// mention the zone: Postgres rejects a parameter the statement never
+// mention a token: Postgres rejects a parameter the statement never
 // references, so a shared slice would break the queries that do not use it.
 //
-// The zone is resolved only when the assembled statement actually asks for it,
-// so a report that never buckets by date neither reads the setting nor takes
+// Each value is resolved only when the statement actually asks for it, so a
+// report that never buckets by date neither reads the zone setting nor takes
 // its gate.
-func bindInstallationZone(
+func bindReportTokens(
 	ctx context.Context, tx pgx.Tx, sql string, args []any,
 ) (string, []any, error) {
-	if !strings.Contains(sql, reportZoneToken) {
-		return sql, args, nil
+	args = slices.Clone(args)
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	bindValue := func(token string, resolve func() (string, error)) error {
+		if !strings.Contains(sql, token) {
+			return nil
+		}
+		value, err := resolve()
+		if err != nil {
+			return err
+		}
+		sql = strings.ReplaceAll(sql, token, fmt.Sprintf("$%d", arg(value)))
+		return nil
 	}
-	zone, err := identity.TimezoneOf(ctx, tx)
-	if err != nil {
+	if err := bindValue(reportZoneToken, func() (string, error) { return identity.TimezoneOf(ctx, tx) }); err != nil {
 		return "", nil, err
 	}
-	args = append(append([]any(nil), args...), zone)
-	return strings.ReplaceAll(sql, reportZoneToken, fmt.Sprintf("$%d", len(args))), args, nil
+	if err := bindValue(reportBaseCurrencyToken, func() (string, error) { return identity.BaseCurrencyOf(ctx, tx) }); err != nil {
+		return "", nil, err
+	}
+	bindScope := func(token string, resolve func() (string, error)) error {
+		if !strings.Contains(sql, token) {
+			return nil
+		}
+		clause, err := resolve()
+		if err != nil {
+			return err
+		}
+		if clause == "" {
+			// An unbounded reader of that table: nothing to narrow.
+			clause = sqlUnnarrowed
+		}
+		sql = strings.ReplaceAll(sql, token, clause)
+		return nil
+	}
+	if err := bindScope(reportDealScopeToken, func() (string, error) { return auth.ScopeClauseFor(ctx, tableDeal, "d", arg) }); err != nil {
+		return "", nil, err
+	}
+	if err := bindScope(reportActivityScopeToken, func() (string, error) { return auth.ActivityContentClause(ctx, "a", arg) }); err != nil {
+		return "", nil, err
+	}
+	return sql, args, nil
 }

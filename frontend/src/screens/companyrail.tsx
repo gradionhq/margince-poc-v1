@@ -451,6 +451,18 @@ function SignalsSection({ orgId }: Readonly<{ orgId: string }>) {
                 {signalKindLabel(signal.kind, t)}
               </span>
               <span className="co-signal-summary">{signal.summary}</span>
+              {/* A signal ABOUT one of the account's projects sends the
+                  reader to that project: the summary names it, the link
+                  opens it. An account- or person-subject signal already
+                  sits on the page it is about. */}
+              {signal.entity_type === "project" && signal.entity_id && (
+                <a
+                  className="co-rowlink co-signal-link"
+                  href={routeHash({ screen: "projects", id: signal.entity_id })}
+                >
+                  {t("co.signals.openProject")}
+                </a>
+              )}
             </span>
             <span className="co-row-meta">
               {formatDate(signal.detected_at, locale, RECORD_ZONE)}

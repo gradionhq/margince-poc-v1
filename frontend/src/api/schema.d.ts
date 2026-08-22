@@ -10853,6 +10853,56 @@ export interface components {
                 last_synced_at?: string | null;
                 last_sync_error_class?: string | null;
             }[];
+            /**
+             * @description What moved on the bodies of work in the window, and which have gone quiet. Absent
+             *     from a digest built without the section; each list is empty when nothing happened.
+             *     Workspace-level like the counts above: a project is read by every seat holding the
+             *     grant.
+             */
+            projects?: {
+                /** @description The ladder moves recorded in the window (from `project_phase_history`), newest first. */
+                phase_changes: {
+                    /** Format: uuid */
+                    project_id: string;
+                    name: string;
+                    key?: string | null;
+                    /** @description A rung of the project ladder (initiative, pursuing, delivering, closed); null for the birth row. */
+                    from_phase?: string | null;
+                    /** @description A rung of the project ladder. */
+                    to_phase: string;
+                    /** Format: date-time */
+                    occurred_at: string;
+                }[];
+                /** @description The projects that gained still-open tasks in the window, most first. */
+                new_commitments: {
+                    /** Format: uuid */
+                    project_id: string;
+                    name: string;
+                    key?: string | null;
+                    new_open_commitments: number;
+                }[];
+                /**
+                 * @description The projects being pursued or delivered that nothing has been filed against for
+                 *     30 days — the `projects-gone-quiet` report's rule, the same one the
+                 *     `project_gone_quiet` signal is raised on — quietest first.
+                 */
+                gone_quiet: {
+                    /** Format: uuid */
+                    project_id: string;
+                    name: string;
+                    key?: string | null;
+                    /** @description A rung of the project ladder: pursuing or delivering, the two the quiet rule watches. */
+                    phase: string;
+                    /**
+                     * Format: date-time
+                     * @description When the silence began: the last filed activity, or the project's creation when nothing was ever filed.
+                     */
+                    quiet_since: string;
+                    days_quiet: number;
+                    /** Format: uuid */
+                    owner_id?: string | null;
+                }[];
+            };
         };
         /** @description One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8). */
         DedupeCandidate: {
@@ -13602,16 +13652,20 @@ export interface components {
             /** @description The sections that had something to say, in ADR-0097 D5's fixed order. A section with no surviving sentence is absent, never present-and-empty: `risks` in particular is specified as omitted when empty, and the same rule reads honestly for every other. */
             sections: components["schemas"]["MeetingBriefSection"][];
         };
-        /** @description One of the eight fixed sections, with its cited sentences. */
+        /** @description One of the nine fixed sections, with its cited sentences. */
         MeetingBriefSection: {
             /**
-             * @description The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
-             *     than a free-text heading, so a surface can label, order and collapse them and no
-             *     writer can invent a ninth.
+             * @description The eight of ADR-0097 D5 plus `what_changed`, in the order a reader reads them. A
+             *     closed enum rather than a free-text heading, so a surface can label, order and
+             *     collapse them and no writer can invent a tenth.
              *
              *     `header` — meeting, time, company, deal and how long since the last touch (deterministic).
              *     `goal` — the single next-step target; it leads because burying the ask is the
              *     canonical prep failure.
+             *     `what_changed` — what happened after the READER last dealt with this deal's people:
+             *     promises made, objections raised, decisions taken, conversations held, files that
+             *     changed hands. Its first line names the baseline; when the reader has never dealt
+             *     with them it says so ("first contact") rather than "nothing changed".
              *     `attendees` — who is in the room, with the first-timers flagged.
              *     `commitments` — what was promised, ours and theirs, each with its source and status.
              *     `deal_state` — where the deal stands: last conversation, objections, open questions.
@@ -13620,7 +13674,7 @@ export interface components {
              *     `company_context` — background, collapsed and last.
              * @enum {string}
              */
-            kind: "header" | "goal" | "attendees" | "commitments" | "deal_state" | "risks" | "talking_points" | "company_context";
+            kind: "header" | "goal" | "what_changed" | "attendees" | "commitments" | "deal_state" | "risks" | "talking_points" | "company_context";
             /** @description The section's lines, each citing the records it was written from. A sentence whose citations do not resolve is dropped whole rather than shown uncited. */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
         };
@@ -16718,14 +16772,18 @@ export interface components {
             /** Format: uuid */
             id: string;
             /**
-             * @description The first six are what a human files by hand. The last four are what the producers
+             * @description The first six are what a human files by hand. The rest are what the producers
              *     raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
              *     out of a settled conversation by the `signal_extract` site, each citing the message
              *     it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
-             *     interaction is ours, nobody answered it, and the account is one worth chasing.
+             *     interaction is ours, nobody answered it, and the account is one worth chasing;
+             *     `project_gone_quiet` is the same kind of comparison on a project — it is being
+             *     pursued or delivered and nothing has been filed against it for 30 days (the
+             *     `projects-gone-quiet` report's own rule). Its subject is the project
+             *     (`entity_type: project`), attributed to the project's company.
              * @enum {string}
              */
-            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other" | "contract_ended" | "new_opportunity" | "commitment_made" | "ghosted_thread";
+            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other" | "contract_ended" | "new_opportunity" | "commitment_made" | "ghosted_thread" | "project_gone_quiet";
             /**
              * @description Where the raw signal came from.
              * @default derived
@@ -16738,7 +16796,7 @@ export interface components {
              * @description The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
              * @enum {string|null}
              */
-            entity_type?: "deal" | "organization" | "person" | null;
+            entity_type?: "deal" | "organization" | "person" | "project" | null;
             /** Format: uuid */
             entity_id?: string | null;
             /**
@@ -16802,7 +16860,7 @@ export interface components {
              * @description Subject record, both entity fields together or neither: with a subject the signal enters `resolved`; without one it enters `unresolved` (a raw item needing a raw_ref for POST /signals/{id}/resolve).
              * @enum {string|null}
              */
-            entity_type?: "deal" | "organization" | "person" | null;
+            entity_type?: "deal" | "organization" | "person" | "project" | null;
             /** Format: uuid */
             entity_id?: string | null;
             /**

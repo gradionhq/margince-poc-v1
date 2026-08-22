@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -36,6 +37,7 @@ const (
 	colPartnerOrgID   = "t.partner_org_id"
 	colCurrency       = "t.currency"
 	colStatus         = "t.status"
+	colProjectID      = "t.project_id"
 	whereArchivedNull = "t.archived_at IS NULL"
 
 	// joinStageForWinProbability is the one join a spec adds when it needs the
@@ -77,6 +79,7 @@ const (
 	fieldPipelineID     = "pipeline_id"
 	fieldOwnerID        = "owner_id"
 	fieldAmountMinor    = "amount_minor"
+	fieldProjectID      = "project_id"
 
 	// The aggregate-function vocabulary aggregateSelect switches on. Named for
 	// the same reason as the field names above: it is a CLOSED set that several
@@ -159,6 +162,27 @@ type reportSpec struct {
 	// silently included those deals under a null key would still disclose that
 	// somebody's partner brought them.
 	referenceScopes map[string]string
+	// thresholds are the filters that compare the row against a NUMBER the
+	// caller sends rather than a column it must equal (reportthreshold.go).
+	// Each has a default, so the report answers with no plan at all, and the
+	// catalog lists them with the filters.
+	thresholds map[string]reportThreshold
+	// filterScopes names the filters whose value is the id of a ROW-SCOPED
+	// record, mapped to that record's table: the engine runs the record's read
+	// gate before the filter binds, so a report cannot be used to learn
+	// whether a record the caller may not open exists (reportthreshold.go).
+	filterScopes map[string]string
+	// orderBy replaces the dimension-position ordering when a report has a
+	// reading order of its own — overdue work first — spelled over the
+	// aggregate expressions, never the caller's aliases.
+	orderBy string
+	// notes is what the catalog tells a caller beyond the vocabularies: what a
+	// filter MEANS when the name alone does not say.
+	notes string
+	// grants names the dimensions and measures that read a record type other
+	// than the report's own, mapped to that type: the caller owes its read
+	// grant before the name is served (reportgrants.go).
+	grants map[string]string
 }
 
 // forecastCategoryExpr is the forecast's effective-category dimension
@@ -171,9 +195,9 @@ type reportSpec struct {
 // "Today" buckets in the installation's reporting zone (data-semantics §2 r4).
 //
 // The zone arrives as a BIND parameter, written here as reportZoneToken and
-// substituted for a real $n once the statement is assembled — the catalog is a
-// static map of expressions, so it has no bind position to name at the point
-// it is written. Postgres still does the date arithmetic, which is what keeps
+// substituted for a real $n once the statement is assembled (reportsql.go
+// bindReportTokens) — the catalog is a static map of expressions, so it has
+// no bind position to name at the point it is written. Postgres still does the date arithmetic, which is what keeps
 // the DST rules and the day boundary where they were when the zone was a
 // column on a joined row.
 const forecastCategoryExpr = `(CASE WHEN t.forecast_category IN ('commit','best_case')
@@ -181,12 +205,6 @@ const forecastCategoryExpr = `(CASE WHEN t.forecast_category IN ('commit','best_
 			OR t.expected_close_date < (timezone(` + reportZoneToken + `, now()))::date
 			OR t.close_date_provisional)
 	THEN 'slipped' ELSE t.forecast_category END)`
-
-// reportZoneToken stands in for the installation timezone's bind position
-// until fetchRows knows it. It is deliberately not valid SQL, so a statement
-// that reaches Postgres with the token unsubstituted fails loudly rather than
-// quietly reporting in the wrong zone.
-const reportZoneToken = "<<installation-timezone>>"
 
 // fromClause renders the base table (aliased t) plus the spec's fixed
 // lookup joins — the one spelling shared by the aggregate plan and the
@@ -232,13 +250,19 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 		return reportOutcome{}, err
 	}
 
+	req.Filters = withThresholdDefaults(spec, req.Filters)
 	groupBy := req.GroupBy
 	if len(groupBy) == 0 {
 		groupBy = spec.defaultBy
 	}
 	aggregates := req.Aggregates
 	if len(aggregates) == 0 {
-		aggregates = spec.defaultAggs
+		aggregates = grantedDefaultAggregates(ctx, spec)
+	}
+	// What the caller asked for by name is refused by name; what they did not
+	// ask for was narrowed above.
+	if err := requireVocabularyGrants(ctx, spec, slices.Concat(req.GroupBy, aggregateFields(req.Aggregates))); err != nil {
+		return reportOutcome{}, err
 	}
 
 	columns, selects, err := buildSelectList(spec, groupBy, aggregates)
@@ -246,7 +270,7 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 		return reportOutcome{}, err
 	}
 
-	rows, excluded, err := e.fetchRows(ctx, report, spec, req, groupBy, selects, columns)
+	rows, excluded, err := e.fetchRows(ctx, report, grantedSpec(ctx, spec), req, groupBy, selects, columns)
 	if err != nil {
 		return reportOutcome{}, err
 	}
