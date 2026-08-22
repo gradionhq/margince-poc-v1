@@ -16885,28 +16885,26 @@ export interface components {
             recent: components["schemas"]["AiActivityItem"][];
         };
         /**
-         * @description One kind of AI work. Named as its own schema because the item that reports a kind
-         *     and the query that asks for kinds must be ONE list — two copies of a vocabulary
-         *     are two vocabularies as soon as somebody edits one.
+         * @description What kind of AI work an occurrence is. Every AI task this build can run reports here,
+         *     because a task that reports nothing is AI work the product performed and then denied.
+         *     What a reader is SHOWN is a separate decision and belongs to the client: a complete
+         *     record is the server's obligation, an edited one is the interface's.
+         *
+         *     Three names come from a durable carrier that owns its own occurrence and can say
+         *     queued and running: the two scheduled kinds match a name in runner.Catalog(), and
+         *     `document_extract` is a reading of an attached document a human asked for. Every other
+         *     name is an api/ai-tasks.yaml task announced by the router on the task's own behalf —
+         *     settled when it appears, because the router learns of a call once the call is over.
+         *
+         *     Its own schema because the item that reports a kind and the query that asks for kinds
+         *     must be ONE list — two copies of a vocabulary are two vocabularies as soon as somebody
+         *     edits one.
          * @enum {string}
          */
         AiActivityKind: "morning_brief" | "overnight_at_risk_sweep" | "document_extract" | "brief_ranking" | "capture_classify" | "capture_counterparty_verdict" | "cert_judge" | "cold_start" | "deal_health" | "draft_reply" | "enrich" | "growth_fit" | "nl_search" | "offer_draft" | "rate_extract" | "signal_extract" | "site_extract" | "site_fact_extract" | "site_triage" | "summarize" | "transcript" | "transcript_propose" | "voice_build";
         AiActivityItem: {
             /** Format: uuid */
             id: string;
-            /**
-             * @description What kind of AI work this occurrence is. Every AI task this build can run reports
-             *     here, because a task that reports nothing is AI work the product performed and then
-             *     denied. What a reader is SHOWN is a separate decision and belongs to the client: a
-             *     complete record is the server's obligation, an edited one is the interface's.
-             *
-             *     Three names come from a durable carrier that owns its own occurrence and can say
-             *     queued and running: the two scheduled kinds match a name in runner.Catalog(), and
-             *     `document_extract` is a reading of an attached document a human asked for. Every
-             *     other name is an api/ai-tasks.yaml task announced by the router on the task's own
-             *     behalf — settled when it appears, because the router learns of a call once the call
-             *     is over.
-             */
             kind: components["schemas"]["AiActivityKind"];
             /**
              * @description `done` is a clean finish; `degraded` kept partial state and MUST NOT read as done.

@@ -23159,30 +23159,32 @@ components:
          offer_draft, rate_extract, signal_extract, site_extract, site_fact_extract,
          site_triage, summarize, transcript, transcript_propose, voice_build]
       description: |
-        One kind of AI work. Named as its own schema because the item that reports a kind
-        and the query that asks for kinds must be ONE list — two copies of a vocabulary
-        are two vocabularies as soon as somebody edits one.
+        What kind of AI work an occurrence is. Every AI task this build can run reports here,
+        because a task that reports nothing is AI work the product performed and then denied.
+        What a reader is SHOWN is a separate decision and belongs to the client: a complete
+        record is the server's obligation, an edited one is the interface's.
+
+        Three names come from a durable carrier that owns its own occurrence and can say
+        queued and running: the two scheduled kinds match a name in runner.Catalog(), and
+        `document_extract` is a reading of an attached document a human asked for. Every other
+        name is an api/ai-tasks.yaml task announced by the router on the task's own behalf —
+        settled when it appears, because the router learns of a call once the call is over.
+
+        Its own schema because the item that reports a kind and the query that asks for kinds
+        must be ONE list — two copies of a vocabulary are two vocabularies as soon as somebody
+        edits one.
     AiActivityItem:
       type: object
       additionalProperties: false
       required: [id, kind, state, started_at]
       properties:
         id: { type: string, format: uuid }
-        kind:
-          allOf:
-            - $ref: '#/components/schemas/AiActivityKind'
-          description: |
-            What kind of AI work this occurrence is. Every AI task this build can run reports
-            here, because a task that reports nothing is AI work the product performed and then
-            denied. What a reader is SHOWN is a separate decision and belongs to the client: a
-            complete record is the server's obligation, an edited one is the interface's.
-
-            Three names come from a durable carrier that owns its own occurrence and can say
-            queued and running: the two scheduled kinds match a name in runner.Catalog(), and
-            `document_extract` is a reading of an attached document a human asked for. Every
-            other name is an api/ai-tasks.yaml task announced by the router on the task's own
-            behalf — settled when it appears, because the router learns of a call once the call
-            is over.
+        # A bare $ref, never allOf-with-a-sibling-description: wrapping it hides the
+        # underlying `type` from the contract-breaking checker, which reads the
+        # property as having gone from `string` to `any` and calls it breaking.
+        # The description belongs on the shared schema anyway — it describes the
+        # vocabulary, not this one use of it.
+        kind: { $ref: '#/components/schemas/AiActivityKind' }
         state:
           type: string
           enum: [queued, running, stalled, done, degraded, failed]

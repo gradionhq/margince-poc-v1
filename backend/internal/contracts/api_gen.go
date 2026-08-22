@@ -11075,22 +11075,22 @@ func (e ListOrganizationDocumentsParamsCategory) Valid() bool {
 
 // Defines values for ListOrganizationDocumentsParamsDocState.
 const (
-	ListOrganizationDocumentsParamsDocStateCurrent    ListOrganizationDocumentsParamsDocState = "current"
-	ListOrganizationDocumentsParamsDocStateDraft      ListOrganizationDocumentsParamsDocState = "draft"
-	ListOrganizationDocumentsParamsDocStateFinal      ListOrganizationDocumentsParamsDocState = "final"
-	ListOrganizationDocumentsParamsDocStateSuperseded ListOrganizationDocumentsParamsDocState = "superseded"
+	Current    ListOrganizationDocumentsParamsDocState = "current"
+	Draft      ListOrganizationDocumentsParamsDocState = "draft"
+	Final      ListOrganizationDocumentsParamsDocState = "final"
+	Superseded ListOrganizationDocumentsParamsDocState = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the ListOrganizationDocumentsParamsDocState enum.
 func (e ListOrganizationDocumentsParamsDocState) Valid() bool {
 	switch e {
-	case ListOrganizationDocumentsParamsDocStateCurrent:
+	case Current:
 		return true
-	case ListOrganizationDocumentsParamsDocStateDraft:
+	case Draft:
 		return true
-	case ListOrganizationDocumentsParamsDocStateFinal:
+	case Final:
 		return true
-	case ListOrganizationDocumentsParamsDocStateSuperseded:
+	case Superseded:
 		return true
 	default:
 		return false
@@ -11875,17 +11875,20 @@ type AiActivityItem struct {
 	FinishedAt    *time.Time         `json:"finished_at,omitempty"`
 	Id            openapi_types.UUID `json:"id"`
 
-	// Kind What kind of AI work this occurrence is. Every AI task this build can run reports
-	// here, because a task that reports nothing is AI work the product performed and then
-	// denied. What a reader is SHOWN is a separate decision and belongs to the client: a
-	// complete record is the server's obligation, an edited one is the interface's.
+	// Kind What kind of AI work an occurrence is. Every AI task this build can run reports here,
+	// because a task that reports nothing is AI work the product performed and then denied.
+	// What a reader is SHOWN is a separate decision and belongs to the client: a complete
+	// record is the server's obligation, an edited one is the interface's.
 	//
 	// Three names come from a durable carrier that owns its own occurrence and can say
 	// queued and running: the two scheduled kinds match a name in runner.Catalog(), and
-	// `document_extract` is a reading of an attached document a human asked for. Every
-	// other name is an api/ai-tasks.yaml task announced by the router on the task's own
-	// behalf — settled when it appears, because the router learns of a call once the call
-	// is over.
+	// `document_extract` is a reading of an attached document a human asked for. Every other
+	// name is an api/ai-tasks.yaml task announced by the router on the task's own behalf —
+	// settled when it appears, because the router learns of a call once the call is over.
+	//
+	// Its own schema because the item that reports a kind and the query that asks for kinds
+	// must be ONE list — two copies of a vocabulary are two vocabularies as soon as somebody
+	// edits one.
 	Kind AiActivityKind `json:"kind"`
 
 	// StartedAt When the current attempt became current — its claim, or its enqueue while queued.
@@ -11915,9 +11918,20 @@ type AiActivityItem struct {
 // a row cannot be left stalled by a writer that forgot, because no writer writes it.
 type AiActivityItemState string
 
-// AiActivityKind One kind of AI work. Named as its own schema because the item that reports a kind
-// and the query that asks for kinds must be ONE list — two copies of a vocabulary
-// are two vocabularies as soon as somebody edits one.
+// AiActivityKind What kind of AI work an occurrence is. Every AI task this build can run reports here,
+// because a task that reports nothing is AI work the product performed and then denied.
+// What a reader is SHOWN is a separate decision and belongs to the client: a complete
+// record is the server's obligation, an edited one is the interface's.
+//
+// Three names come from a durable carrier that owns its own occurrence and can say
+// queued and running: the two scheduled kinds match a name in runner.Catalog(), and
+// `document_extract` is a reading of an attached document a human asked for. Every other
+// name is an api/ai-tasks.yaml task announced by the router on the task's own behalf —
+// settled when it appears, because the router learns of a call once the call is over.
+//
+// Its own schema because the item that reports a kind and the query that asks for kinds
+// must be ONE list — two copies of a vocabulary are two vocabularies as soon as somebody
+// edits one.
 type AiActivityKind string
 
 // AiCall defines model for AiCall.
