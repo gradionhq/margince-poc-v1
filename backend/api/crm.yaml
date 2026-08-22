@@ -11048,6 +11048,121 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /deal-rooms/{id}/tasks:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Deals]
+      operationId: listDealRoomTasks
+      summary: List a room's shared to-do list, in the order both sides see it.
+      description: |
+        The work outstanding between seller and buyer, each item owned by one side.
+        There are no due dates: an item is done or it is not.
+      x-mcp-tool: { verb: search_records, record_type: deal_room_task, tier: auto_execute, scope: read }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of to-dos.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomTaskListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [Deals]
+      operationId: createDealRoomTask
+      summary: Add an item to the shared to-do list.
+      description: |
+        Adding an item changes what the buyer is asked to do, so it is editorial: it
+        reaches them at the next publish, not immediately. Refused once the room can no
+        longer reach a buyer at all — closed, expired or archived.
+      x-mcp-tool: { verb: create_record, record_type: deal_room_task, tier: auto_execute, scope: write }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateDealRoomTaskRequest' }
+      responses:
+        '201':
+          description: The added to-do.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomTask' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /deal-rooms/{id}/tasks/{taskId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: taskId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Deals]
+      operationId: updateDealRoomTask
+      summary: Reword, reassign, reorder or tick off a to-do.
+      description: |
+        Two kinds of change go through here, and they are frozen differently.
+
+        DEFINITION — title, side and position — is editorial, exactly like adding an
+        item: the buyer sees it at the next publish, and it is refused once the room is
+        closed, expired or archived.
+
+        COMPLETION — `done` — is live collaboration state. Both sides tick items off
+        without republishing, so this is never frozen by a publish. It IS refused in a
+        room that can no longer reach a buyer, because a closed room's to-do list is a
+        record of what happened rather than a list anyone is still working.
+
+        Ticking an item stamps who did it. Un-ticking clears both the time and the
+        attribution, so a reopened item names nobody until it is done again.
+      x-mcp-tool: { verb: update_record, record_type: deal_room_task, tier: auto_execute, scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateDealRoomTaskRequest' }
+      responses:
+        '200':
+          description: The updated to-do.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomTask' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Deals]
+      operationId: archiveDealRoomTask
+      summary: Take an item off the shared to-do list.
+      description: |
+        Archives the item rather than deleting it, so a completed item stays attributed
+        to whoever did it. Removal is editorial: the buyer stops seeing it at the next
+        publish.
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The archived to-do.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomTask' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /deal-rooms/{id}/releases:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -23132,6 +23247,7 @@ components:
             - deal_room
             - deal_room_participant
             - deal_room_release
+            - deal_room_task
             - import_run
             - lead
             - list
@@ -25359,6 +25475,85 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/DealRoomRelease' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    DealRoomTaskSide:
+      description: |
+        Which side of the table owes this item: `seller` or `buyer`. One side, never
+        both — an item two parties own is one nobody chases.
+
+        Typed as a plain string rather than an inline enum for the reason
+        `DealRoomParticipantCapability` gives: an inline enum would generate
+        package-scope Go constants named `Seller` and `Buyer` in the shared contracts
+        package, colliding with any other schema declaring those values. The closed set
+        is stated here and held by the writer and the schema CHECK.
+      type: string
+
+    DealRoomTask:
+      type: object
+      description: |
+        One item on the shared to-do list. Deliberately carries no due date: the list
+        says what is outstanding and who owes it, and adding deadlines turns a shared
+        working list into a chase.
+      required: [id, room_id, side, title, position, done, source, version, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        room_id: { type: string, format: uuid }
+        side: { $ref: '#/components/schemas/DealRoomTaskSide' }
+        title: { type: string }
+        position: { type: integer, description: 'The order both sides see, ascending.' }
+        done: { type: boolean, description: Whether the item has been ticked off. }
+        done_at: { type: [string, 'null'], format: date-time }
+        done_by_participant_id:
+          type: [string, 'null']
+          format: uuid
+          description: Set when a buyer ticked it off. Exactly one of the two done_by fields is set on a done item.
+        done_by_user_id:
+          type: [string, 'null']
+          format: uuid
+          description: Set when someone on the seller's side ticked it off.
+        source: { type: string }
+        captured_by: { type: string, readOnly: true, description: Server-stamped from the authenticated principal; never client-supplied. }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: true
+      x-extension: true
+
+    DealRoomTaskListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/DealRoomTask' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    CreateDealRoomTaskRequest:
+      type: object
+      required: [side, title, source]
+      properties:
+        side: { $ref: '#/components/schemas/DealRoomTaskSide' }
+        title: { type: string, minLength: 1 }
+        position:
+          type: integer
+          description: Where the item sits in the list. Defaults to 0, which puts it first.
+        source: { type: string }
+      additionalProperties: true
+      x-extension: true
+
+    UpdateDealRoomTaskRequest:
+      type: object
+      description: Any subset; omit a field to leave it unchanged.
+      properties:
+        side: { $ref: '#/components/schemas/DealRoomTaskSide' }
+        title: { type: string, minLength: 1 }
+        position: { type: integer }
+        done:
+          type: boolean
+          description: |
+            Tick or un-tick the item. Ticking stamps who did it from the authenticated
+            principal; un-ticking clears both the time and the attribution.
+      additionalProperties: true
+      x-extension: true
 
     OfferTemplate:
       type: object

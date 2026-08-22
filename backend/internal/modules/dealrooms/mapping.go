@@ -22,7 +22,7 @@ import (
 // store should never have to re-check.
 func createInput(req crmcontracts.CreateDealRoomRequest) (CreateRoomInput, error) {
 	if req.Title == "" {
-		return CreateRoomInput{}, &fieldError{field: columnTitle, code: "required", msg: "title is required"}
+		return CreateRoomInput{}, &fieldError{field: columnTitle, code: codeRequired, msg: "title is required"}
 	}
 	if err := provenance.Refuse("source", req.Source); err != nil {
 		return CreateRoomInput{}, err
@@ -127,7 +127,7 @@ const nameLimit = 255
 
 func refuseOverlongName(name string) error {
 	if strings.TrimSpace(name) == "" {
-		return &fieldError{field: "full_name", code: "required", msg: "full_name is required"}
+		return &fieldError{field: "full_name", code: codeRequired, msg: "full_name is required"}
 	}
 	if len([]rune(name)) > nameLimit {
 		return &fieldError{

@@ -115,6 +115,11 @@ func TestAnAgentMayNotMoveWhatABuyerCanReach(t *testing.T) {
 				UpdateParticipantInput{Email: &corrected})
 			return err
 		}},
+		{"take an item off the shared to-do list", func() error {
+			_, err := store.ArchiveTask(ctx, roomID,
+				ids.From[ids.DealRoomTaskKind](ids.NewV7()), nil)
+			return err
+		}},
 	} {
 		t.Run(tc.act, func(t *testing.T) {
 			err := tc.call()
@@ -149,5 +154,31 @@ func TestAnAgentMayStillShapeADraft(t *testing.T) {
 
 	if errors.Is(admitted, apperrors.ErrPermissionDenied) {
 		t.Error("an agent was refused a draft edit; shaping unpublished text is auto-execute by design")
+	}
+}
+
+func TestAnAgentMayStillShapeTheSharedToDoList(t *testing.T) {
+	// The same discriminating half for the to-do list. Adding and rewording items
+	// is draft-shaping — nothing reaches a buyer until a human publishes — so an
+	// agent is admitted here, and only REMOVING an item is human-only.
+	//
+	// Reaching the nil store panics, which is the pass condition: it says the
+	// agent got past every authority gate.
+	store := &Store{}
+	ctx := principal.WithActor(context.Background(), fullyEmpoweredAgent())
+
+	admitted := func() (got error) {
+		defer func() {
+			if r := recover(); r != nil {
+				got = nil // reached the store: admitted, which is the point
+			}
+		}()
+		_, err := store.CreateTask(ctx, ids.From[ids.DealRoomKind](ids.NewV7()),
+			CreateTaskInput{Side: sideBuyer, Title: "Return the redline", Source: "agent"})
+		return err
+	}()
+
+	if errors.Is(admitted, apperrors.ErrPermissionDenied) {
+		t.Error("an agent was refused a to-do it may draft; only removing an item is human-only")
 	}
 }

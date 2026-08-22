@@ -595,6 +595,22 @@ func (stubs) ResumeDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 	httperr.NotImplemented(w, r, "ResumeDealRoom")
 }
 
+func (stubs) ListDealRoomTasks(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealRoomTasksParams) {
+	httperr.NotImplemented(w, r, "ListDealRoomTasks")
+}
+
+func (stubs) CreateDealRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "CreateDealRoomTask")
+}
+
+func (stubs) ArchiveDealRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, taskId openapi_types.UUID, params crmcontracts.ArchiveDealRoomTaskParams) {
+	httperr.NotImplemented(w, r, "ArchiveDealRoomTask")
+}
+
+func (stubs) UpdateDealRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, taskId openapi_types.UUID, params crmcontracts.UpdateDealRoomTaskParams) {
+	httperr.NotImplemented(w, r, "UpdateDealRoomTask")
+}
+
 func (stubs) ListDeals(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListDealsParams) {
 	httperr.NotImplemented(w, r, "ListDeals")
 }

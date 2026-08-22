@@ -362,3 +362,63 @@ func TestAResidueStagedUnderAnIdempotencyKeyIsRedeemableByItsRetry(t *testing.T)
 			retryHash, staging.last.DiffHash)
 	}
 }
+
+// ownedOnlyFor answers the ownership probe for exactly ONE record id and
+// nothing else, which is what makes the test below able to fail.
+//
+// allHumanOwned above ignores the id entirely, so a probe asked about the WRONG
+// record would still report a conflict and the test would pass while the gate
+// was broken. The defect this guards against is precisely an id mismatch, so
+// the double has to be the thing that can tell two ids apart.
+type ownedOnlyFor struct{ id ids.UUID }
+
+func (o ownedOnlyFor) HumanOwnedConflicts(_ context.Context, _ string, target ids.UUID, patch json.RawMessage) ([]string, error) {
+	if target != o.id {
+		return nil, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(patch, &fields); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// A sub-resource patch asks the ownership probe about the record it WRITES.
+//
+// On /deal-rooms/{id}/tasks/{taskId} the route's own {id} is the ROOM, so a
+// probe reading {id} asks "who typed this field on task ⟨room-id⟩" — a question
+// no audit row answers. It misses, the split sees no conflict, and an agent
+// overwrite of a human-typed to-do auto-executes instead of staging. The §2.1
+// protection would be off while the route still looked governed.
+func TestASubResourcePatchProbesTheRecordItWrites(t *testing.T) {
+	roomID, taskID := ids.NewV7(), ids.NewV7()
+	staging := &capturingApprovals{}
+	pol := agentPolicy{
+		Op: opUpdateDealRoomTask, Access: accessTool,
+		Tool: "update_record", RecordType: recordTypeDealRoomTask,
+	}
+	body := []byte(`{"title":"wording a human typed"}`)
+	req := operandRequest(http.MethodPatch, "/v1/deal-rooms", roomID.String(), "taskId", taskID.String(), body)
+	rec := httptest.NewRecorder()
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("the handler ran — the title is human-owned, so the write must stage, not apply")
+	})
+
+	admitAgentCall(rec, req, next, admissionOutcome{
+		staging: staging, ownership: ownedOnlyFor{id: taskID},
+		commands: restCommandDeps{records: seamRecord{}}, pol: pol, body: body,
+	})
+
+	if staging.last.TargetID != taskID {
+		t.Fatalf("staged target id = %s, want the task %s — an approval binding to the room names a "+
+			"different record than the one the released call goes on to write", staging.last.TargetID, taskID)
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d (approval_required) — an agent silently overwriting a human-typed "+
+			"to-do is the §2.1 protection this test exists to hold", rec.Code, http.StatusForbidden)
+	}
+}
