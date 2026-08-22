@@ -135,6 +135,29 @@ func TestAnUnknownStatedLocaleFallsThroughRatherThanDefaulting(t *testing.T) {
 	}
 }
 
+// The dataset marks EVERY Korean company `en`, because that is what their
+// websites and contracts are in. Taking that literally for correspondence
+// writes English to Seoul and turns 착수 회의 back into Kickoff — the exact bug
+// this connector was fixed for.
+//
+// This test carries the dataset's REAL value (`en` for tipa.or.kr, verified in
+// company-locale.json) rather than a convenient one, because the earlier
+// Korean test left Locale empty and so never exercised the seeded path at all.
+func TestAKoreanDomainStaysKoreanEvenThoughItsPaperIsEnglish(t *testing.T) {
+	for _, domain := range []string{"tipa.or.kr", "condt.co.kr", "mv21.kr"} {
+		account := testAccount(domain, "중소기업기술정보진흥원")
+		account.Locale = "en" // what company-locale.json actually says
+		if got := localeFor(account); got != localeKO {
+			t.Errorf("localeFor(%q stated en) = %q, want ko — the dataset's `en` is about PAPER", domain, got)
+		}
+		for _, msg := range generate(testMailbox(), account) {
+			if strings.Contains(msg.Subject, "Kickoff") || strings.Contains(msg.Body, "Best regards") {
+				t.Errorf("%s got English correspondence: %s / %s", domain, msg.Subject, msg.Body)
+			}
+		}
+	}
+}
+
 func TestLocaleOfReadsTheDomainSuffix(t *testing.T) {
 	for domain, want := range map[string]docLocale{
 		"tipa.or.kr":       localeKO,

@@ -53,12 +53,29 @@ const (
 	localeEN docLocale = "en"
 )
 
-// localeFor answers an account's correspondence language.
+// localeFor answers an account's CORRESPONDENCE language, which is not always
+// the language of its paper.
 //
-// The account's stated Locale first — that is the dataset's hand-checked
-// answer. The suffix only decides for an account that carries none, which
-// means an installation seeded by something other than the demo dataset.
+// The dataset's stated locale wins, with one exception that the dataset itself
+// forces: it marks every Korean company `en`, because that is what their
+// websites and therefore their contracts are in. Taking that literally here
+// would write English to Seoul — and re-break the exact bug this connector was
+// fixed for, since `착수 회의` would go back to `Kickoff`. So a `.kr` domain
+// reads as Korean whatever the dataset says about its paper.
+//
+// The exception is narrow on purpose. It applies only where the domain PROVES
+// the country, never where it merely suggests one: `.kr` is a country-code TLD
+// that a non-Korean company does not hold, whereas a `.com` proves nothing and
+// is left to the dataset, which is the whole reason the dataset is consulted.
+//
+// Everything else takes the dataset's answer, and an account carrying none
+// falls back to the suffix — an installation seeded by something other than
+// this dataset.
 func localeFor(account Account) docLocale {
+	// Korean correspondence is decided by the domain, not by the paper locale.
+	if localeOf(account.Domain) == localeKO {
+		return localeKO
+	}
 	switch docLocale(strings.ToLower(strings.TrimSpace(account.Locale))) {
 	case localeDE:
 		return localeDE

@@ -96,15 +96,25 @@ func seedCommsConnections(dsn string, cfg demoConfig, mode runMode) (int, error)
 			return created, fmt.Errorf("encoding the mailbox credential for %s: %w", user.Email, err)
 		}
 
-		// DO UPDATE on the auth column, not DO NOTHING. A re-seed after the
-		// dataset's locales change must reach the connector; leaving the old
-		// bundle in place would keep writing German to a company the dataset
-		// has since corrected, and nothing would report it.
+		// DO UPDATE, not DO NOTHING. A re-seed after the dataset's locales
+		// change has to reach the connector; leaving the old bundle in place
+		// would keep writing German to a company the dataset has since
+		// corrected, and nothing would report it.
+		//
+		// credential_ref is CLEARED with it, and that is the load-bearing half.
+		// BackfillCredentials runs on every boot: it seals the auth bytes into
+		// the vault, records a ref and NULLs the column, and Registry's
+		// resolveCredential then prefers the ref unconditionally. So a demo
+		// whose backfill had already run would take a new auth payload into a
+		// column nothing reads — silently, because there is no error in
+		// writing to it. Clearing the ref returns the row to the un-backfilled
+		// state, and the next boot re-seals it from the payload written here.
 		tag, err := conn.Exec(ctx, `
 			INSERT INTO capture_connection
 			       (provider, user_id, scopes, status, account_label, auth, share_acknowledged_at)
 			VALUES ('offline_demo', $1::uuid, '{read}', 'connected', $2, $3::bytea, now())
-			ON CONFLICT (user_id, provider) DO UPDATE SET auth = EXCLUDED.auth`,
+			ON CONFLICT (user_id, provider) DO UPDATE
+			   SET auth = EXCLUDED.auth, credential_ref = NULL`,
 			userID, user.Email, auth)
 		if err != nil {
 			return created, fmt.Errorf("provisioning the mailbox for %s: %w", user.Email, err)
