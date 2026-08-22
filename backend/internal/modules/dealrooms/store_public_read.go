@@ -21,9 +21,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// fieldDone names the completion in a buyer's audit image.
-const fieldDone = "done"
-
 // The four access states the buyer edge reports. Distinct from the room's
 // nine lifecycle states on purpose: a buyer is told what they can do, not
 // where the seller's workflow stands.
