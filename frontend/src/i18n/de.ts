@@ -2183,6 +2183,9 @@ export const de = {
   "compose.relinkReplaceHint":
     "Ersetzt die bestehende Verknüpfung desselben Typs, statt eine weitere hinzuzufügen.",
   "compose.relinkConfirm": "Neu verknüpfen",
+  "compose.relinkThread": "Auch den Rest dieser Konversation verschieben",
+  "compose.relinkThreadHint":
+    "Jede Nachricht dieses Threads, die Sie bearbeiten dürfen, wird in einem Schritt mit verschoben.",
   "compose.emptyRecipients": "Fügen Sie mindestens einen Empfänger hinzu.",
   "compose.removeRecipient": "{recipient} entfernen",
   "compose.actionFailed":

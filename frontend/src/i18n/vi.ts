@@ -2160,6 +2160,9 @@ export const vi = {
   "compose.relinkReplaceHint":
     "Thay liên kết cùng loại đang có thay vì thêm một liên kết nữa.",
   "compose.relinkConfirm": "Liên kết lại",
+  "compose.relinkThread": "Chuyển cả phần còn lại của cuộc trò chuyện này",
+  "compose.relinkThreadHint":
+    "Mọi tin nhắn trong chuỗi này mà bạn được phép sửa sẽ được chuyển cùng, trong một bước.",
   "compose.emptyRecipients": "Hãy thêm ít nhất một người nhận.",
   "compose.removeRecipient": "Gỡ {recipient}",
   "compose.actionFailed": "Yêu cầu thất bại. Hãy thử lại.",

@@ -217,6 +217,14 @@ func (inertLifecycle) RelinkActivity(context.Context, ids.UUID, string, ids.UUID
 	return nil, nil
 }
 
+func (inertLifecycle) RelinkThread(context.Context, string, string, ids.UUID, bool) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (inertLifecycle) RelinkActivities(context.Context, []ids.UUID, string, ids.UUID, bool) (json.RawMessage, error) {
+	return nil, nil
+}
+
 func (inertLifecycle) DisqualifyLead(context.Context, ids.UUID) (json.RawMessage, error) {
 	return nil, nil
 }

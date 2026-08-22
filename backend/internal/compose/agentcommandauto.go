@@ -83,6 +83,40 @@ func relinkActivityCommand(_ agentPolicy, deps restCommandDeps, r *http.Request,
 	}), nil
 }
 
+// relinkThreadCommand decodes POST /v1/activities/relink-thread and
+// relinkActivitiesCommand POST /v1/activities/relink-bulk: the batch forms of
+// the relink, carrying the same destination for the same two questions.
+//
+//nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
+func relinkThreadCommand(_ agentPolicy, deps restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
+	in, err := commandBody[struct {
+		ThreadKey  string   `json:"thread_key"`
+		EntityType string   `json:"entity_type"`
+		EntityID   ids.UUID `json:"entity_id"`
+	}](body)
+	if err != nil {
+		return nil, err
+	}
+	return agents.NewRelinkThreadCall(deps.records, agents.RelinkThreadCommand{
+		ThreadKey: in.ThreadKey, EntityType: in.EntityType, EntityID: in.EntityID,
+	}), nil
+}
+
+//nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
+func relinkActivitiesCommand(_ agentPolicy, deps restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
+	in, err := commandBody[struct {
+		ActivityIDs []ids.UUID `json:"activity_ids"`
+		EntityType  string     `json:"entity_type"`
+		EntityID    ids.UUID   `json:"entity_id"`
+	}](body)
+	if err != nil {
+		return nil, err
+	}
+	return agents.NewRelinkActivitiesCall(deps.records, agents.RelinkActivitiesCommand{
+		ActivityIDs: in.ActivityIDs, EntityType: in.EntityType, EntityID: in.EntityID,
+	}), nil
+}
+
 // runReportCommand decodes POST /v1/reports/{report}. The report key is a PATH
 // parameter, and not the route's own {id} — so it goes through pathOperand
 // (agentcommandoperand.go), which answers 422 naming the parameter rather than

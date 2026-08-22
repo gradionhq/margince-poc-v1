@@ -266,6 +266,71 @@ describe("RelinkModal", () => {
     });
   });
 
+  it("moves the whole conversation through relinkThread when asked", async () => {
+    const onClose = vi.fn();
+    const sent = stubRoutes({
+      "GET /search": () =>
+        jsonResponse({
+          data: [{ type: "project", id: "pr-4", title: "ERP rollout" }],
+          page: { has_more: false },
+        }),
+      "POST /activities/relink-thread": () => jsonResponse({ relinked: 3 }),
+    });
+    render(
+      <RelinkModal
+        activityId="act-1"
+        threadKey="thread:abc"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={onClose}
+      />,
+    );
+
+    await userEvent.type(screen.getByRole("searchbox"), "ERP");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "ERP rollout" }),
+    );
+    await userEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Also move the rest of this conversation",
+      }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Relink" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const thread = sent.find((r) => r.key === "POST /activities/relink-thread");
+    expect(thread?.body).toEqual({
+      thread_key: "thread:abc",
+      entity_type: "project",
+      entity_id: "pr-4",
+      replace_existing_of_type: false,
+    });
+    expect(thread?.headers.get("Idempotency-Key")).toBeTruthy();
+    // The single-activity route is not called on the way.
+    expect(sent.find((r) => r.key === "POST /activities/act-1/relink")).toBe(
+      undefined,
+    );
+  });
+
+  it("offers the conversation toggle only when the activity has a thread", () => {
+    stubRoutes({});
+    render(
+      <RelinkModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByRole("checkbox", {
+        name: "Also move the rest of this conversation",
+      }),
+    ).toBeNull();
+  });
+
   it("drops activity results — relink has no activity target", async () => {
     stubRoutes({
       "GET /search": () =>

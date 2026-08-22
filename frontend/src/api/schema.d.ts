@@ -2577,6 +2577,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/activities/relink-thread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-associate every activity of one conversation thread to a chosen record, in one transaction.
+         * @description The thread twin of `relinkActivity`: the same association applied to every non-archived
+         *     activity carrying `thread_key` that the caller may write. A mis-filed conversation is
+         *     usually mis-filed whole, and one call here is the remedy rather than one call per message.
+         *     Each moved activity gets its own `audit_log` row (`activity_relink`) and its own
+         *     `activity.updated` event, exactly as the single relink writes them; filing under a project
+         *     stamps each one as commercial correspondence the same way. An activity in the thread the
+         *     caller cannot write is left where it is and is not counted — the response says how many
+         *     moved. An activity already carrying the link is not counted either (the single
+         *     relink's idempotency, per row). All rows commit together or none do.
+         */
+        post: operations["relinkThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activities/relink-bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-associate a named set of activities to a chosen record, in one transaction.
+         * @description The explicit-id twin of `relinkThread`, for a selection that is not one conversation. The
+         *     caller names up to 500 activities; each is relinked exactly as `relinkActivity` would
+         *     relink it, with its own `audit_log` row and `activity.updated` event. Unlike the thread
+         *     form, every named id must be one the caller can see and write: an id outside the caller's
+         *     sight answers `404` and one they may read but not write answers `403`, and in either case
+         *     NOTHING moves — the whole set is one transaction. An activity already carrying the link is
+         *     left as it is and not counted.
+         */
+        post: operations["relinkActivities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activities/{id}/transcript-proposals": {
         parameters: {
             query?: never;
@@ -15016,6 +15070,52 @@ export interface components {
             entity_id: string;
         };
         /**
+         * @description The destination for every writable, non-archived activity of one conversation thread.
+         *     `entity_type`/`entity_id`/`replace_existing_of_type` mean exactly what they mean on
+         *     `relinkActivity`.
+         */
+        RelinkThreadRequest: {
+            /** @description The conversation key the activities carry (`Activity.thread_key`, also the `thread_key` list filter). */
+            thread_key: string;
+            entity_type: components["schemas"]["RelinkDestinationType"];
+            /** Format: uuid */
+            entity_id: string;
+            /**
+             * @description When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+             * @default false
+             */
+            replace_existing_of_type: boolean;
+        };
+        /**
+         * @description The destination for a named set of activities. Every id must be one the caller can see and
+         *     write, or the whole request is refused and nothing moves.
+         */
+        RelinkActivitiesRequest: {
+            activity_ids: string[];
+            entity_type: components["schemas"]["RelinkDestinationType"];
+            /** Format: uuid */
+            entity_id: string;
+            /**
+             * @description When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+             * @default false
+             */
+            replace_existing_of_type: boolean;
+        };
+        /**
+         * @description A count and nothing else. The moved ids are deliberately not echoed: a replay of the same
+         *     Idempotency-Key, or an approval inbox showing the staged call, would otherwise hand back
+         *     rows the reader may since have lost sight of.
+         */
+        RelinkBatchResult: {
+            /** @description Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted. */
+            relinked: number;
+        };
+        /**
+         * @description The record kinds an activity may be filed under.
+         * @enum {string}
+         */
+        RelinkDestinationType: "person" | "organization" | "deal" | "lead" | "project";
+        /**
          * @description One record an activity is filed under, as a caller supplies it. The read shape
          *     (ActivityLink) carries the ids the server assigned; this carries only the target.
          */
@@ -25367,6 +25467,98 @@ export interface operations {
                     "application/json": components["schemas"]["Activity"];
                 };
             };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    relinkThread: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelinkThreadRequest"];
+            };
+        };
+        responses: {
+            /** @description How many activities moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelinkBatchResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    relinkActivities: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelinkActivitiesRequest"];
+            };
+        };
+        responses: {
+            /** @description How many activities moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelinkBatchResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };

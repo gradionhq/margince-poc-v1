@@ -33,3 +33,14 @@ func TestAnOmittedRelinkTargetIsNamed(t *testing.T) {
 	})
 	faulttest.AssertNamesOmittedID(t, err, "entity_id")
 }
+
+// The batch doors share the single relink's admission, so an omitted
+// destination is named the same way on each — proven per door, because a
+// shared helper is a claim and a probe is the proof.
+func TestAnOmittedBatchRelinkTargetIsNamed(t *testing.T) {
+	in := RelinkActivityInput{EntityType: "person"}
+	_, err := NewStore(nil).RelinkThread(context.Background(), "thread:x", in)
+	faulttest.AssertNamesOmittedID(t, err, "entity_id")
+	_, err = NewStore(nil).RelinkActivities(context.Background(), []ids.UUID{ids.NewV7()}, in)
+	faulttest.AssertNamesOmittedID(t, err, "entity_id")
+}
