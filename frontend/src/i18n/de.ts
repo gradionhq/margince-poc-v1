@@ -1151,6 +1151,7 @@ export const de = {
   "approval.kind.site_lead": "Person von der Website aufnehmen",
   "approval.kind.capture_counterparty": "Person aus deiner Mail aufnehmen",
   "approval.kind.org_name_promotion": "Account umbenennen",
+  "approval.kind.project_attribution": "Unter einem Projekt ablegen",
   "approval.kind.lifecycle_change": "Account-Phase",
   "approval.kind.transcript_proposal":
     "Nächsten Schritt aus einem Transkript übernehmen",
@@ -6056,7 +6057,7 @@ export const de = {
   "project.rollups.never": "noch nichts",
   "project.rollups.activityCount": "Aktivitäten",
   "project.coverage":
-    "{attributed} zugeordnet · {nearby} bei Personen und Deals dieses Projekts nicht zugeordnet",
+    "{attributed} zugeordnet · {awaiting} warten auf Entscheidung · {nearby} bei Personen und Deals dieses Projekts nicht zugeordnet",
   "project.history.title": "Phasenverlauf",
   "project.history.empty": "Noch kein Phasenwechsel erfasst.",
   "project.history.current": "aktuell",

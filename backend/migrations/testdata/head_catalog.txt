@@ -1996,6 +1996,8 @@ public.idx_person_updated_keyset CREATE INDEX idx_person_updated_keyset ON publi
 public.idx_pph_project CREATE INDEX idx_pph_project ON public.project_phase_history USING btree (project_id, occurred_at DESC)
 public.idx_product_active CREATE INDEX idx_product_active ON public.product USING btree (active) WHERE (archived_at IS NULL)
 public.idx_project_last_activity_keyset CREATE INDEX idx_project_last_activity_keyset ON public.project USING btree (last_activity_at DESC NULLS LAST, created_at DESC, id DESC) WHERE (archived_at IS NULL)
+public.idx_project_link_candidate_project CREATE INDEX idx_project_link_candidate_project ON public.project_link_candidate USING btree (project_id) WHERE (status = 'pending'::text)
+public.idx_project_link_candidate_proposal CREATE INDEX idx_project_link_candidate_proposal ON public.project_link_candidate USING btree (proposal_id) WHERE (proposal_id IS NOT NULL)
 public.idx_project_name_trgm CREATE INDEX idx_project_name_trgm ON public.project USING gin (f_unaccent(lower(name)) gin_trgm_ops)
 public.idx_project_org CREATE INDEX idx_project_org ON public.project USING btree (organization_id) WHERE (archived_at IS NULL)
 public.idx_project_org_open CREATE INDEX idx_project_org_open ON public.project USING btree (organization_id) WHERE ((phase <> 'closed'::text) AND (archived_at IS NULL))
@@ -3276,6 +3278,32 @@ public.project.updated_at timestamp with time zone NOT NULL gen=- def=now()
 public.project.uq_project_ws_id UNIQUE (id)
 public.project.version bigint NOT NULL gen=- def=1
 public.project.visibility text NOT NULL gen=- def='workspace'::text
+public.project_link_candidate acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
+public.project_link_candidate.activity_id uuid NOT NULL gen=- def=-
+public.project_link_candidate.confidence numeric(5,4) NOT NULL gen=- def=-
+public.project_link_candidate.created_at timestamp with time zone NOT NULL gen=- def=now()
+public.project_link_candidate.decided_at timestamp with time zone gen=- def=-
+public.project_link_candidate.evidence_end integer gen=- def=-
+public.project_link_candidate.evidence_field text gen=- def=-
+public.project_link_candidate.evidence_start integer gen=- def=-
+public.project_link_candidate.id uuid NOT NULL gen=- def=uuidv7()
+public.project_link_candidate.method text NOT NULL gen=- def=-
+public.project_link_candidate.project_id uuid NOT NULL gen=- def=-
+public.project_link_candidate.project_link_candidate_activity_id_fkey FOREIGN KEY (activity_id) REFERENCES activity(id) ON DELETE CASCADE
+public.project_link_candidate.project_link_candidate_confidence_check CHECK (((confidence >= (0)::numeric) AND (confidence <= (1)::numeric)))
+public.project_link_candidate.project_link_candidate_decided CHECK ((((status = 'pending'::text) AND (decided_at IS NULL)) OR ((status <> 'pending'::text) AND (decided_at IS NOT NULL))))
+public.project_link_candidate.project_link_candidate_evidence_shape CHECK ((((evidence_field IS NULL) AND (evidence_start IS NULL) AND (evidence_end IS NULL)) OR ((evidence_field = ANY (ARRAY['subject'::text, 'body'::text])) AND (evidence_start IS NOT NULL) AND (evidence_end IS NOT NULL) AND (evidence_start >= 0) AND (evidence_end > evidence_start))))
+public.project_link_candidate.project_link_candidate_method_check CHECK ((method = ANY (ARRAY['sole_live_project'::text, 'ranked_similarity'::text])))
+public.project_link_candidate.project_link_candidate_pkey PRIMARY KEY (id)
+public.project_link_candidate.project_link_candidate_project_id_fkey FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
+public.project_link_candidate.project_link_candidate_proposal_id_fkey FOREIGN KEY (proposal_id) REFERENCES approval(id) ON DELETE SET NULL
+public.project_link_candidate.project_link_candidate_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'rejected'::text, 'expired'::text])))
+public.project_link_candidate.project_link_candidate_touch CREATE TRIGGER project_link_candidate_touch BEFORE UPDATE ON public.project_link_candidate FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version()
+public.project_link_candidate.proposal_id uuid gen=- def=-
+public.project_link_candidate.status text NOT NULL gen=- def='pending'::text
+public.project_link_candidate.updated_at timestamp with time zone NOT NULL gen=- def=now()
+public.project_link_candidate.version bigint NOT NULL gen=- def=1
+public.project_link_candidate_pkey CREATE UNIQUE INDEX project_link_candidate_pkey ON public.project_link_candidate USING btree (id)
 public.project_phase_history acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
 public.project_phase_history.changed_by text NOT NULL gen=- def=-
 public.project_phase_history.from_phase text gen=- def=-
@@ -4017,6 +4045,7 @@ public.uq_preference_token_person CREATE UNIQUE INDEX uq_preference_token_person
 public.uq_product_sku CREATE UNIQUE INDEX uq_product_sku ON public.product USING btree (sku) WHERE ((sku IS NOT NULL) AND (archived_at IS NULL))
 public.uq_product_ws_id CREATE UNIQUE INDEX uq_product_ws_id ON public.product USING btree (id)
 public.uq_project_key CREATE UNIQUE INDEX uq_project_key ON public.project USING btree (lower(key)) WHERE ((key IS NOT NULL) AND (archived_at IS NULL))
+public.uq_project_link_candidate_pending CREATE UNIQUE INDEX uq_project_link_candidate_pending ON public.project_link_candidate USING btree (activity_id) WHERE (status = 'pending'::text)
 public.uq_project_ws_id CREATE UNIQUE INDEX uq_project_ws_id ON public.project USING btree (id)
 public.uq_rel_current_primary_employer CREATE UNIQUE INDEX uq_rel_current_primary_employer ON public.relationship USING btree (person_id) WHERE ((kind = 'employment'::text) AND is_current_primary AND (archived_at IS NULL))
 public.uq_rel_deal_person_role CREATE UNIQUE INDEX uq_rel_deal_person_role ON public.relationship USING btree (deal_id, person_id, role) WHERE ((kind = 'deal_stakeholder'::text) AND (archived_at IS NULL))

@@ -15002,11 +15002,14 @@ export interface components {
          *     scope. `attributed` is every live activity linked to the project (its whole lifecycle,
          *     and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
          *     activity linked to one of the project's deals or stakeholder people that carries no
-         *     project link at all — the filing debt a rep can work down.
+         *     project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+         *     live activity the attribution ladder proposed for this project and nobody has answered
+         *     yet: a `project_attribution` approval standing in an inbox, not a link.
          */
         Project360Coverage: {
             attributed: number;
             unattributed_nearby: number;
+            awaiting_decision: number;
         };
         /**
          * @description The header figures. Money is in the installation's base currency at each deal's frozen

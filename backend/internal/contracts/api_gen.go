@@ -20588,7 +20588,9 @@ type Project360 struct {
 	// scope. `attributed` is every live activity linked to the project (its whole lifecycle,
 	// and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
 	// activity linked to one of the project's deals or stakeholder people that carries no
-	// project link at all — the filing debt a rep can work down.
+	// project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+	// live activity the attribution ladder proposed for this project and nobody has answered
+	// yet: a `project_attribution` approval standing in an inbox, not a link.
 	Coverage *Project360Coverage `json:"coverage,omitempty"`
 
 	// Deals The deals rolled up to the project, newest first, every status.
@@ -20648,9 +20650,12 @@ type Project360Commitment struct {
 // scope. `attributed` is every live activity linked to the project (its whole lifecycle,
 // and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
 // activity linked to one of the project's deals or stakeholder people that carries no
-// project link at all — the filing debt a rep can work down.
+// project link at all — the filing debt a rep can work down. `awaiting_decision` is every
+// live activity the attribution ladder proposed for this project and nobody has answered
+// yet: a `project_attribution` approval standing in an inbox, not a link.
 type Project360Coverage struct {
 	Attributed         int `json:"attributed"`
+	AwaitingDecision   int `json:"awaiting_decision"`
 	UnattributedNearby int `json:"unattributed_nearby"`
 }
 

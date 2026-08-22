@@ -1188,6 +1188,7 @@ export const en = {
   "approval.kind.site_lead": "Add a person found on the site",
   "approval.kind.capture_counterparty": "Add someone from your mail",
   "approval.kind.org_name_promotion": "Rename an account",
+  "approval.kind.project_attribution": "File under a project",
   "approval.kind.lifecycle_change": "Account stage",
   "approval.kind.transcript_proposal": "Add a next step from a transcript",
   "approval.kind.fx_rate_proposal": "Refresh exchange rates",
@@ -6124,7 +6125,7 @@ export const en = {
   "project.rollups.never": "nothing yet",
   "project.rollups.activityCount": "Activities",
   "project.coverage":
-    "{attributed} attributed · {nearby} on this project's people and deals not attributed",
+    "{attributed} attributed · {awaiting} awaiting a decision · {nearby} on this project's people and deals not attributed",
   "project.history.title": "Phase history",
   "project.history.empty": "No phase change recorded yet.",
   "project.history.current": "current",
