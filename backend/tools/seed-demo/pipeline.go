@@ -255,6 +255,21 @@ func seedDeals(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int,
 		if owner, ok := refs.usersByRef[deal.Owner]; ok {
 			body["owner_id"] = owner
 		}
+		// Attributed at BIRTH rather than patched afterwards: the commission
+		// ledger accrues off the deal's won event, and a deal that was already
+		// won before the attribution landed would never produce one.
+		if deal.Partner != "" {
+			partnerID, ok := refs.orgsByDom[strings.ToLower(deal.Partner)]
+			if !ok {
+				return created, fmt.Errorf(
+					"deal %s is attributed to partner %q, which is not seeded",
+					deal.Ref, deal.Partner)
+			}
+			body["partner_org_id"] = partnerID
+			if deal.PartnerAttribution != "" {
+				body["partner_attribution"] = deal.PartnerAttribution
+			}
+		}
 		// A deal is born open, so a close date already past is refused. A
 		// closed deal gets no date here; its close is the event that matters.
 		if deal.CloseInDays > 0 {

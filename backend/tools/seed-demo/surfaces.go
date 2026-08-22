@@ -32,6 +32,11 @@ func seedSurfaces(c *client, seats *sessions, cfg demoConfig, refs pipelineRefs,
 		{"tags", func() (int, error) { return seedTags(c, refs, plan, mode) }},
 		{"lists", func() (int, error) { return seedLists(c, refs, mode) }},
 		{"projects", func() (int, error) { return seedProjects(c, refs, plan, mode) }},
+		// After projects, and reading them back rather than taking their ids
+		// from the step above: a re-run creates no project, so a pass that
+		// staffed only what it had just created would leave every earlier
+		// project empty forever.
+		{"project stakeholders", func() (int, error) { return seedProjectStakeholders(c, mode) }},
 		{"quotas", func() (int, error) { return seedQuotas(c, cfg, refs, mode) }},
 	} {
 		n, err := step.run()

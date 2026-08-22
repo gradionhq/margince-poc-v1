@@ -138,6 +138,14 @@ type demoDeal struct {
 	Owner       string `json:"owner"`
 	CloseInDays int    `json:"close_in_days"`
 	LostReason  string `json:"lost_reason"`
+	// Partner is the DOMAIN of the partner this deal is attributed to, and
+	// PartnerAttribution is what they did: `sourced` (brought it) or
+	// `influenced` (helped). Only `sourced` accrues a commission, and only
+	// when the deal is WON — so a dataset that attributes none of its won
+	// deals leaves commission_entry empty and the partner program's story
+	// stops at "attributed" without ever reaching "earned".
+	Partner            string `json:"partner"`
+	PartnerAttribution string `json:"partner_attribution"`
 }
 
 type demoLead struct {
