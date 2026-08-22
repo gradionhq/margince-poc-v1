@@ -11,7 +11,9 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -139,7 +141,7 @@ func (t prepForMeeting) Spec() mcp.ToolSpec {
 		Name: "prep_for_meeting", Title: "Prepare for a meeting", Version: toolVersionV1,
 		Description:   prepForMeetingCopy.render(),
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp:    "getPerson/getOrganization/getDeal + listActivities",
+		OpenAPIOp:    "getMeetingBrief | getPerson/getOrganization/getDeal + listActivities",
 		InputSchema:  schema(anchorSchema),
 		OutputSchema: schemaFor[PrepForMeetingResult](),
 	}
@@ -172,55 +174,66 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	result := PrepForMeetingResult{
 		Briefing: assembledContext(ctx, assembled), MeetingFocus: focusItems,
 	}
-	if written, ok := t.writtenBrief(ctx, args); ok {
+	// The focus list keeps naming open TASKS from the walk. The brief's
+	// commitments cite the conversation a promise was extracted from, not the
+	// promise itself, so re-sourcing the list from them would publish a
+	// message id under a field whose contract says "what to act on" — and two
+	// promises made in one email would collide on it.
+	written, hasBrief, err := t.writtenBrief(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	if hasBrief {
+		noteBriefEvidence(ctx, written)
 		result.Brief = &written
-		result.MeetingFocus = briefCommitments(written, focusItems)
 	}
 	return json.Marshal(result)
 }
 
-// writtenBrief is the eight-section brief, when this anchor has one.
+// noteBriefEvidence charges the brief's own citations against the read bound
+// and puts them in the envelope.
 //
-// Only an ACTIVITY anchor can: the other three name a record, not a room, and
-// there is no brief to assemble for them. A refusal is not one either — the
-// reader assembles under the caller's own scope, so a meeting they may not
-// read answers not-found, and the assembled picture they CAN have still
-// stands rather than the whole call failing on the richer half.
-func (t prepForMeeting) writtenBrief(ctx context.Context, args anchorArgs) (MeetingBriefResult, bool) {
-	if t.brief == nil || args.RecordType != string(datasource.EntityActivity) {
-		return MeetingBriefResult{}, false
-	}
-	written, err := t.brief(ctx, args.RecordID)
-	if err != nil {
-		return MeetingBriefResult{}, false
-	}
-	return written, true
-}
-
-// briefCommitments re-sources the focus list from the brief's own commitments
-// section when there is one.
-//
-// The tool's copy promises the focus list names "what to act on after the
-// meeting", and the prose above it now comes from the brief. Leaving the list
-// keyed on the context walk's open_tasks would let the two halves of one
-// answer disagree about what is outstanding. It falls back to the walk when
-// the brief has no commitments to name, because an empty list would report
-// nothing outstanding rather than nothing written.
-func briefCommitments(written MeetingBriefResult, fallback []MeetingFocusItem) []MeetingFocusItem {
+// Naming a record to an agent is handing that record over, which is why
+// noteEvidence charges rather than only recording. The brief names attendees,
+// the meetings this room held before, and the conversations promises were
+// extracted from — records the context walk beside it never touched. Left
+// uncharged, the richest read on this surface would also be the cheapest, and
+// its sources would be absent from the envelope that is supposed to say where
+// an answer came from.
+func noteBriefEvidence(ctx context.Context, written MeetingBriefResult) {
+	noteEvidence(ctx, datasource.EntityActivity, written.ActivityID)
 	for _, section := range written.Sections {
-		if section.Kind != "commitments" || len(section.Sentences) == 0 {
-			continue
-		}
-		out := make([]MeetingFocusItem, 0, len(section.Sentences))
 		for _, sentence := range section.Sentences {
 			for _, cited := range sentence.Evidence {
-				out = append(out, MeetingFocusItem{RecordID: cited.RecordID, Summary: sentence.Text})
-				break
+				noteEvidence(ctx, datasource.EntityType(cited.RecordType), cited.RecordID)
 			}
 		}
-		if len(out) > 0 {
-			return out
-		}
 	}
-	return fallback
+}
+
+// writtenBrief is the eight-section brief, when this anchor has one.
+//
+// Only an ACTIVITY anchor can have one: the other three name a record rather
+// than a room. A nil reader is a legal wiring — a role composed without the
+// seam answers the assembled picture, which is what this tool always answered.
+//
+// NOT-FOUND is the one error that falls back rather than failing. It is what
+// the service returns for an activity that is not a booked meeting, and for a
+// meeting outside this caller's own scope: both are "there is no brief for you
+// here", and the assembled picture the caller CAN have still stands. Every
+// other error is returned — a permission failure or a database fault reported
+// as a brief-less answer would look exactly like an ordinary meeting-less
+// record, and the caller would act on a picture it was never told was partial.
+func (t prepForMeeting) writtenBrief(ctx context.Context, args anchorArgs) (MeetingBriefResult, bool, error) {
+	if t.brief == nil || args.RecordType != string(datasource.EntityActivity) {
+		return MeetingBriefResult{}, false, nil
+	}
+	written, err := t.brief(ctx, args.RecordID)
+	switch {
+	case errors.Is(err, apperrors.ErrNotFound):
+		return MeetingBriefResult{}, false, nil
+	case err != nil:
+		return MeetingBriefResult{}, false, err
+	}
+	return written, true, nil
 }
