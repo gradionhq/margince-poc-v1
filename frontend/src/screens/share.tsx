@@ -144,6 +144,7 @@ const RECORD_TYPES: readonly RecordType[] = [
   "organization",
   "deal",
   "lead",
+  "project",
 ];
 
 function isRecordType(value: string): value is RecordType {

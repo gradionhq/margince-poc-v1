@@ -1419,6 +1419,18 @@ function useAdvanceDeal(toast: Toast) {
       }
       queryClient.invalidateQueries({ queryKey: ["deals"] });
       queryClient.invalidateQueries({ queryKey: ["deal", input.dealId] });
+      // A win moves the deal's project into delivery in the same server
+      // write, so the project page and list are stale the moment this
+      // returns. Without this a reader who follows the project chip within
+      // the 30s stale window reads a won deal on a project still being
+      // pursued — the contradiction the server's one-transaction move exists
+      // to prevent.
+      if (deal?.project_id) {
+        queryClient.invalidateQueries({
+          queryKey: ["project", deal.project_id],
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
       toast.show(t("deals.advanced", { stage: input.toStage.name }));
     },
   });

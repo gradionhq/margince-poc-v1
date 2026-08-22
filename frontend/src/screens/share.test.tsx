@@ -547,4 +547,14 @@ describe("ShareScreen", () => {
     ).toBeTruthy();
     expect(screen.queryByText("[object Object]")).toBeNull();
   });
+
+  it("a project is a shareable record: the share form mounts rather than the unknown-kind plate", async () => {
+    installBaseFetch();
+    render(<ShareScreen recordType="project" recordId="pr-1" />);
+
+    expect(await screen.findByTestId("share-acl-list")).toBeTruthy();
+    expect(
+      screen.queryByText("This isn't a record that can be shared."),
+    ).toBeNull();
+  });
 });
