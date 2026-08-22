@@ -61,8 +61,8 @@ var updateRecordCopy = toolCopy{
 		"amount, an expected close date.",
 	Limits: "Only the fields you send change, and only the fields the record type stores (a " +
 		"person's email addresses are not among them). A field a HUMAN last set is not " +
-		"overwritten: that part is staged for a person and named in the result, so a staged " +
-		"answer means the write has not happened. It names the record by id; when a name matches " +
+		"overwritten: that part is staged for a person and named in the result, and that part " +
+		"of the write has not happened. It names the record by id; when a name matches " +
 		"two records, a person picks. owner_id is NOT neutral — ownership decides visibility, so " +
 		"reassigning moves the record onto someone else's book and can take it off the owner's.",
 	Instead: "Use advance_deal or progress_deal to move a deal between stages, and relink_activity " +

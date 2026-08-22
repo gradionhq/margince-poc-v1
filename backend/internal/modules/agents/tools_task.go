@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -33,6 +34,10 @@ type taskFields struct {
 	DueAt      *string         `json:"due_at,omitempty"`
 	AssigneeID *string         `json:"assignee_id,omitempty"`
 	Links      json.RawMessage `json:"links,omitempty"`
+	// Source is the REST door's provenance field. The tool stamps its own and
+	// never reads this, but the compose decoder folds a REST body through the
+	// same function, and a required field must not read as an unknown one.
+	Source *string `json:"source,omitempty"`
 }
 
 func (t createTask) Spec() mcp.ToolSpec {
@@ -80,10 +85,11 @@ func TaskAsActivity(in json.RawMessage) (json.RawMessage, error) {
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	if args.Subject == "" {
+	subject := strings.TrimSpace(args.Subject)
+	if subject == "" {
 		return nil, &BadArgsError{Cause: fmt.Errorf("subject is required: a task has to say what is to be done")}
 	}
-	body := map[string]any{"kind": "task", "subject": args.Subject}
+	body := map[string]any{"kind": "task", "subject": subject}
 	if args.Body != nil {
 		body["body"] = *args.Body
 	}
@@ -95,6 +101,9 @@ func TaskAsActivity(in json.RawMessage) (json.RawMessage, error) {
 	}
 	if len(args.Links) > 0 {
 		body["links"] = args.Links
+	}
+	if args.Source != nil {
+		body["source"] = *args.Source
 	}
 	out, err := json.Marshal(body)
 	if err != nil {
