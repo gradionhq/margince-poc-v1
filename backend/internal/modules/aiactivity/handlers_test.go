@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -193,5 +194,53 @@ func TestAnEmptyFilterIsRefusedRatherThanServedEmpty(t *testing.T) {
 	}
 	if reader.called {
 		t.Fatal("the store was reached for a filter that can match nothing")
+	}
+}
+
+// A kind this contract has no word for is REFUSED, not answered empty. It is
+// the same defect as the empty list through a different door: the filter can
+// only ever match nothing, and "nothing" is the true answer for an AI at rest.
+//
+// The generated binder is what makes this reachable — AiActivityKind is a string
+// type and BindQueryParameterWithOptions binds anything into it, so nothing
+// upstream of the handler checks the enum.
+func TestAnUnknownKindIsRefusedRatherThanServedEmpty(t *testing.T) {
+	reader := &stubReader{}
+	rec := httptest.NewRecorder()
+	typo := []crmcontracts.AiActivityKind{
+		crmcontracts.AiActivityKindMorningBrief,
+		crmcontracts.AiActivityKind("summarise"),
+	}
+	NewHandlers(reader, clock()).GetMyAiActivity(rec, request(asHuman(ids.NewV7())),
+		crmcontracts.GetMyAiActivityParams{Kinds: &typo})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 (body %s)", rec.Code, rec.Body.String())
+	}
+	if reader.called {
+		t.Fatal("the store was reached for a filter naming a kind the contract has no word for")
+	}
+	// The refusal has to name WHICH dial is wrong, or a client cannot act on it.
+	if !strings.Contains(rec.Body.String(), "kinds") {
+		t.Errorf("the refusal does not name the kinds parameter: %s", rec.Body.String())
+	}
+}
+
+// A valid kind next to an invalid one does not rescue the request: a filter is
+// refused as a whole, because serving the valid half would quietly answer a
+// narrower question than the one asked.
+func TestOneBadKindRefusesTheWholeFilter(t *testing.T) {
+	reader := &stubReader{}
+	rec := httptest.NewRecorder()
+	mixed := []crmcontracts.AiActivityKind{
+		crmcontracts.AiActivityKind("not_a_kind"),
+		crmcontracts.AiActivityKindDocumentExtract,
+	}
+	NewHandlers(reader, clock()).GetMyAiActivity(rec, request(asHuman(ids.NewV7())),
+		crmcontracts.GetMyAiActivityParams{Kinds: &mixed})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
+	}
+	if reader.called {
+		t.Fatal("the store was reached with the surviving half of a refused filter")
 	}
 }

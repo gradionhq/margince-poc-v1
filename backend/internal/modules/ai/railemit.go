@@ -55,6 +55,26 @@ func (m *CallMeter) announceRailBestEffort(ctx context.Context, tx pgx.Tx, termi
 	if !RouterReports(terminal.Task) {
 		return
 	}
+	// Serialize the occurrence's writers before anything reads its attempt.
+	//
+	// railAttempt COUNTS, and at READ COMMITTED two concurrent transactions for
+	// one (correlation, task) cannot see each other's uncommitted ai_call row —
+	// so both count the same value, both announce the same attempt, and the
+	// projection's guard refuses the second as a redelivery of the first. One of
+	// the two outcomes is then lost with nothing logged, and it is the LATER one
+	// that loses, so a failure can outlive the retry that fixed it.
+	//
+	// Not hypothetical: site_fact_extract is the deep read's page-PARALLEL fact
+	// lane by design, so one read fires many of these at once under one
+	// correlation id.
+	//
+	// The lock is taken on the OUTER transaction rather than inside the savepoint
+	// below, so it cannot be released by a rollback that happens between the
+	// count and the write.
+	if err := storekit.LockWriteIdentity(ctx, tx, "ai_task_run", unitOfWorkKey(terminal)); err != nil {
+		m.log.ErrorContext(ctx, "ai: locking the rail occurrence failed — the call is traced but absent from the AI-activity rail", "task", string(terminal.Task), "err", err)
+		return
+	}
 	nested, err := tx.Begin(ctx)
 	if err != nil {
 		m.log.ErrorContext(ctx, "ai: opening the rail announcement savepoint failed — the call is traced but absent from the AI-activity rail", "task", string(terminal.Task), "err", err)

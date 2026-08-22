@@ -34834,10 +34834,13 @@ export interface operations {
             query?: {
                 /**
                  * @description Restrict both arrays to these kinds of AI work, applied BEFORE the bounds.
-                 *     Omitted means every kind. An empty list is a 422 rather than an empty feed:
-                 *     a client asking for nothing is a client that lost its list, and answering it
-                 *     with "the AI did nothing" is the one reply that cannot be distinguished from
-                 *     the truth.
+                 *     Omitted means every kind.
+                 *
+                 *     An empty list is a 422, and so is a name this enum does not carry. Both come
+                 *     back as an empty feed, and an empty feed is the TRUE answer for an AI at rest —
+                 *     so serving either would report "the AI did nothing" about a question the server
+                 *     never actually asked. A client that lost its list and a client that typed the
+                 *     vocabulary by hand both get told, rather than reassured.
                  */
                 kinds?: components["schemas"]["AiActivityKind"][];
             };
@@ -34857,6 +34860,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listOrganizationContracts: {

@@ -12804,12 +12804,20 @@ paths:
           required: false
           description: |
             Restrict both arrays to these kinds of AI work, applied BEFORE the bounds.
-            Omitted means every kind. An empty list is a 422 rather than an empty feed:
-            a client asking for nothing is a client that lost its list, and answering it
-            with "the AI did nothing" is the one reply that cannot be distinguished from
-            the truth.
+            Omitted means every kind.
+
+            An empty list is a 422, and so is a name this enum does not carry. Both come
+            back as an empty feed, and an empty feed is the TRUE answer for an AI at rest —
+            so serving either would report "the AI did nothing" about a question the server
+            never actually asked. A client that lost its list and a client that typed the
+            vocabulary by hand both get told, rather than reassured.
           schema:
             type: array
+            # minItems: 1 — an empty list is a 422, so the schema must say so
+            # rather than admitting a value the handler then refuses. A contract
+            # that permits what the server rejects sends a generated client
+            # straight into an error it had no way to see coming.
+            minItems: 1
             maxItems: 40
             items: { $ref: '#/components/schemas/AiActivityKind' }
           # explode: true — one `kinds=` per value, which is what the SPA's
@@ -12827,6 +12835,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AiActivity' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   /organizations/{id}/contracts:
     get:

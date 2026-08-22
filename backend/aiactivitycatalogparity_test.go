@@ -21,16 +21,21 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 )
 
 // documentReadingKind is the one kind that is not a scheduled spec: a human
-// asking for an attached document to be read. Named here rather than derived
-// because the emitter is a plain constant in another module, and this gate's
-// job is to notice when the two sets stop agreeing.
-const documentReadingKind = "document_extract"
+// asking for an attached document to be read.
+//
+// Read from the EMITTER's own exported constant rather than restated, so a
+// carrier that renames its kind fails here instead of leaving this gate
+// vouching for a name nothing writes. Its ai_task and its display kind are one
+// string for this carrier — the reading IS the task — which is why one constant
+// answers both.
+const documentReadingKind = activities.ExtractionAITask
 
 func TestEveryKindSomethingProducesIsOneTheContractCanExpress(t *testing.T) {
 	declared := crmYAMLNamedEnum(t, "AiActivityKind")

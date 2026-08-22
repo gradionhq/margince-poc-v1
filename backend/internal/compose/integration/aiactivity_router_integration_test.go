@@ -354,3 +354,91 @@ func (f *routerFixture) midnightOf(t *testing.T) time.Time {
 	}
 	return midnight
 }
+
+// Concurrent calls of one task under one correlation id ALL survive.
+//
+// railAttempt COUNTS, and at READ COMMITTED a transaction cannot see another's
+// uncommitted ai_call row — so two that overlap count the same value, announce
+// the same attempt, and the projection's guard refuses the second as a
+// redelivery of the first. The LATER outcome is the one lost, so a failure can
+// outlive the retry that already fixed it, with nothing logged anywhere.
+//
+// site_fact_extract is the subject on purpose: the deep read's fact lane is
+// page-PARALLEL by design, so one read fires many of these at once under one
+// correlation id. This is the shape production already has.
+//
+// It takes a CROWD, and that is the honest part. A two-goroutine version of this
+// test passed with the lock removed, three runs out of three — two transactions
+// racing from a channel close rarely overlap inside the count, so it vouched for
+// a guard it never exercised. The width here is what makes the window real:
+// every worker's attempt must be distinct, and a single collision among them is
+// one lost outcome.
+const racingCalls = 16
+
+func TestConcurrentCallsOfOneTaskAllReachTheProjection(t *testing.T) {
+	f := newRouterFixture(t)
+
+	start := make(chan struct{})
+	errs := make(chan error, racingCalls)
+	for i := range racingCalls {
+		// A meter EACH: one meter reused would still take its own connection
+		// per call, but a separate one keeps the test honest about there being
+		// no shared Go-side state doing the serializing.
+		meter := ai.NewCallMeter(f.env.DB()).WithLogger(testLogger(t))
+		go func() {
+			<-start
+			errs <- meter.Record(f.ctx, []ai.Call{{
+				LogicalCallID: ids.NewV7(), Attempt: 1, IsTerminal: true, Kind: "completion",
+				CorrelationID: &f.corr, Task: ai.TaskSiteFactExtract, Tier: ai.TierCheapCloud,
+				Provider: "anthropic", ModelID: "claude-cheap", ServedIdentitySource: "response",
+				// The last one to land wins the row, so every worker carries a
+				// distinguishable outcome rather than all of them agreeing.
+				RequestFingerprint: "fp", ErrorSentinel: racingSentinel(i),
+			}})
+		}()
+	}
+	close(start)
+	for range racingCalls {
+		if err := <-errs; err != nil {
+			t.Fatalf("a racing record failed: %v", err)
+		}
+	}
+
+	// Every announcement reached the bus — that half never depended on the lock.
+	staged := f.env.WsCount(t,
+		`SELECT count(*) FROM event_outbox
+		  WHERE envelope->>'type' = 'ai_task.state_changed'
+		    AND envelope->'payload'->>'source' = 'ai_router'`)
+	if staged != racingCalls {
+		t.Fatalf("the router staged %d announcements for %d calls, want all of them", staged, racingCalls)
+	}
+
+	// The attempts must be DISTINCT. This is the assertion the lock is for: two
+	// that agree are two announcements the projection can only keep one of.
+	distinct := f.env.WsCount(t,
+		`SELECT count(DISTINCT (envelope->'payload'->>'attempt')) FROM event_outbox
+		  WHERE envelope->>'type' = 'ai_task.state_changed'
+		    AND envelope->'payload'->>'source' = 'ai_router'`)
+	if distinct != racingCalls {
+		t.Errorf("%d of %d concurrent calls announced a distinct attempt — the rest collided, "+
+			"and the projection keeps only one outcome per (attempt, rank)", distinct, racingCalls)
+	}
+
+	// And the projection agrees: one occurrence, at the highest attempt.
+	f.drain(t)
+	if n := f.env.WsCount(t, `SELECT count(*) FROM ai_task_run WHERE source = 'ai_router'`); n != 1 {
+		t.Errorf("ai_router occurrences = %d, want 1 — they are one piece of work", n)
+	}
+	if got := f.row(t, ai.TaskSiteFactExtract); got.Attempt != racingCalls {
+		t.Errorf("attempt = %d, want %d — an outcome was refused as a redelivery and lost", got.Attempt, racingCalls)
+	}
+}
+
+// racingSentinel gives each worker its own terminal outcome, so a collision
+// cannot hide behind two workers that happened to say the same thing.
+func racingSentinel(i int) string {
+	if i%2 == 0 {
+		return ""
+	}
+	return "provider_unavailable"
+}

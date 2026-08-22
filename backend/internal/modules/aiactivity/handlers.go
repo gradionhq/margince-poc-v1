@@ -59,10 +59,9 @@ func (h Handlers) GetMyAiActivity(w http.ResponseWriter, r *http.Request, params
 		httperr.Unauthorized(w, r, "reading your AI activity needs an authenticated caller")
 		return
 	}
-	kinds, ok := requestedKinds(params)
-	if !ok {
-		httperr.Write(w, r, httperr.Validation("kinds", "empty_filter",
-			"name at least one kind of AI work, or omit kinds entirely to receive every kind"))
+	kinds, refusal := requestedKinds(params)
+	if refusal != nil {
+		httperr.Write(w, r, refusal)
 		return
 	}
 	now := h.now()
@@ -79,25 +78,38 @@ func (h Handlers) GetMyAiActivity(w http.ResponseWriter, r *http.Request, params
 }
 
 // requestedKinds is the caller's filter as the store takes it: nil for every
-// kind, a populated slice for the kinds a client draws.
+// kind, a populated slice for the kinds a client draws, or a refusal.
 //
-// An empty list is REFUSED rather than served, and the distinction is the whole
-// reason this returns two values. `?kinds=` is what a client sends when the
-// list it meant to send went missing, and an empty feed is the true answer for
-// an AI at rest — so serving it would report "nothing happened" about a
-// question the server never actually asked.
-func requestedKinds(params crmcontracts.GetMyAiActivityParams) (kinds []string, ok bool) {
+// Two filters are REFUSED rather than served, and they are the same defect
+// reached through different doors: an empty list, and a list naming a kind this
+// contract has no word for. Both make the feed come back empty, and an empty
+// feed is the TRUE answer for an AI at rest — so serving either one reports
+// "nothing happened" about a question the server never actually asked. `?kinds=`
+// is what a client sends when its list went missing; `?kinds=summarise` is what
+// it sends when somebody typed the vocabulary by hand.
+//
+// The membership test is the CONTRACT's own generated Valid(), never a list
+// restated here: the generated binder does not check the enum (AiActivityKind
+// is a string type, and BindQueryParameterWithOptions binds anything into it),
+// so this is the only place the vocabulary is enforced — and a second copy of
+// it would be a second vocabulary the moment somebody edited one.
+func requestedKinds(params crmcontracts.GetMyAiActivityParams) (kinds []string, refusal error) {
 	if params.Kinds == nil {
-		return nil, true
+		return nil, nil
 	}
 	if len(*params.Kinds) == 0 {
-		return nil, false
+		return nil, httperr.Validation("kinds", "empty_filter",
+			"name at least one kind of AI work, or omit kinds entirely to receive every kind")
 	}
 	out := make([]string, 0, len(*params.Kinds))
 	for _, kind := range *params.Kinds {
+		if !kind.Valid() {
+			return nil, httperr.Validation("kinds", "unknown_kind",
+				"this server has no kind of AI work by that name, so the filter could only ever come back empty")
+		}
 		out = append(out, string(kind))
 	}
-	return out, true
+	return out, nil
 }
 
 // startOfDay is midnight in the clock's own location, which is what "today"
