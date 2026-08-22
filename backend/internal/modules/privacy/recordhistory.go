@@ -41,18 +41,25 @@ const (
 // CHECK already closes the set at the DB level) falls back to the raw
 // string, never an error: an unrenderable phrase is still honest history.
 var recordHistoryVerbs = map[string]string{ // #nosec G101 -- audit verbs and the English phrases they render as; "password_link_issued" names an action, and no value here is a secret
-	"create":           "created",
-	"update":           "updated",
-	actionArchive:      "archived",
-	"merge":            "merged",
-	"promote":          "promoted",
-	"restore":          "restored",
-	"export":           "exported",
-	"erase":            "erased",
-	"login":            "logged in",
-	"assign":           "assigned",
-	"advance_stage":    "advanced the stage of",
-	"advance_phase":    "advanced the phase of",
+	"create":        "created",
+	"update":        "updated",
+	actionArchive:   "archived",
+	"merge":         "merged",
+	"promote":       "promoted",
+	"restore":       "restored",
+	"export":        "exported",
+	"erase":         "erased",
+	"login":         "logged in",
+	"assign":        "assigned",
+	"advance_stage": "advanced the stage of",
+	"advance_phase": "advanced the phase of",
+	// The Deal Room lifecycle. "closed" rather than "ended", because closing a
+	// room keeps the buyer reading it — the phrase should not suggest access
+	// went away with the content freeze.
+	"publish":          "published",
+	"pause":            "paused",
+	"resume":           "resumed",
+	"close":            "closed",
 	"approve":          "approved",
 	"accrue":           "accrued commission on",
 	"pay":              "paid",

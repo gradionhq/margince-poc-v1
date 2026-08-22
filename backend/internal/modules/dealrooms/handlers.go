@@ -135,7 +135,8 @@ func (h Handlers) CloseDealRoom(w http.ResponseWriter, r *http.Request, id crmco
 // writeMove runs one lifecycle transition and writes its room. The three moves
 // differ only in which store method they call, so they share this.
 func (h Handlers) writeMove(w http.ResponseWriter, r *http.Request,
-	move func(ctx context.Context, id ids.DealRoomID) (crmcontracts.DealRoom, error), id crmcontracts.Id) {
+	move func(ctx context.Context, id ids.DealRoomID) (crmcontracts.DealRoom, error), id crmcontracts.Id,
+) {
 	room, err := move(r.Context(), pathID(id))
 	if err != nil {
 		httperr.Write(w, r, err)

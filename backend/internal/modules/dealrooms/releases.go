@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -118,9 +117,4 @@ func scanRelease(row rowScanner) (crmcontracts.DealRoomRelease, error) {
 		out.PublishedBy = &u
 	}
 	return out, nil
-}
-
-// releaseKey is the keyset sort key for a page of releases.
-func releaseKey(r crmcontracts.DealRoomRelease) (time.Time, ids.UUID) {
-	return r.CreatedAt, ids.UUID(r.Id)
 }

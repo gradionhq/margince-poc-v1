@@ -167,6 +167,14 @@ var auditActionGrant = map[string]principal.Action{
 	// commissions.Store.Accrue actually requires; paying moves an existing
 	// entry's state, which is the update grant Decide requires. The rule
 	// recorded on the row has to be the grant the write really took.
+	// The Deal Room lifecycle. All four move an existing room's state and all
+	// four take deal_room.update at the store, so update is the grant that
+	// actually admitted the call — not delete for close, which ends no row, and
+	// not create for publish, which makes a release but is gated on the room.
+	"publish":        principal.ActionUpdate,
+	"pause":          principal.ActionUpdate,
+	"resume":         principal.ActionUpdate,
+	"close":          principal.ActionUpdate,
 	"accrue":         principal.ActionCreate,
 	"pay":            principal.ActionUpdate,
 	"record_unshare": principal.ActionUpdate,

@@ -20,6 +20,11 @@ const roomObject = "deal_room"
 // row-scope clause names.
 const dealTable = "deal"
 
+// columnTitle is the room's headline, named once because the mapping refuses an
+// empty one, the audit image records it and the release snapshot freezes it —
+// three writers that must agree on the spelling.
+const columnTitle = "title"
+
 // Store owns this module's tables; every write rides the storekit audit+outbox
 // shape in one transaction.
 type Store struct {

@@ -162,7 +162,7 @@ var replayableOperations = map[string]replayTarget{
 	"PATCH /v1/deals/{id}":            {object: tableDeal, table: tableDeal, idPath: "id"},
 	"POST /v1/deals/{id}/advance":     {object: tableDeal, table: tableDeal, idPath: "id"},
 	"POST /v1/contracts":              {object: "contract", moduleProbe: probeContract, idPath: "id", rowNote: "a contract carries no owner column; visibility is inherited from its deal or organization, so the contracts store owns the probe"},
-	"POST /v1/deal-rooms":             {object: "deal_room", moduleProbe: probeDealRoom, idPath: "id", rowNote: "a Deal Room carries no owner column; its visibility is its parent deal's, so the dealrooms store owns the probe"},
+	"POST /v1/deal-rooms":             {object: probeDealRoom, moduleProbe: probeDealRoom, idPath: "id", rowNote: "a Deal Room carries no owner column; its visibility is its parent deal's, so the dealrooms store owns the probe"},
 	"POST /v1/projects":               {object: tableProject, table: tableProject, idPath: "id"},
 	"PATCH /v1/projects/{id}":         {object: tableProject, table: tableProject, idPath: "id"},
 	"POST /v1/projects/{id}/advance":  {object: tableProject, table: tableProject, idPath: "id"},

@@ -20,7 +20,7 @@ import (
 // store should never have to re-check.
 func createInput(req crmcontracts.CreateDealRoomRequest) (CreateRoomInput, error) {
 	if req.Title == "" {
-		return CreateRoomInput{}, &fieldError{field: "title", code: "required", msg: "title is required"}
+		return CreateRoomInput{}, &fieldError{field: columnTitle, code: "required", msg: "title is required"}
 	}
 	if err := provenance.Refuse("source", req.Source); err != nil {
 		return CreateRoomInput{}, err

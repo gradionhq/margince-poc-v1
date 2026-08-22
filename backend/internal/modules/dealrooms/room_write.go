@@ -69,9 +69,13 @@ func createRoomTx(ctx context.Context, tx pgx.Tx, in CreateRoomInput, by string)
 		return crmcontracts.DealRoom{}, err
 	}
 
-	steward, err := resolveSteward(ctx, tx, in)
+	steward, hasSteward, err := resolveSteward(ctx, tx, in)
 	if err != nil {
 		return crmcontracts.DealRoom{}, err
+	}
+	var stewardArg *ids.UserID
+	if hasSteward {
+		stewardArg = &steward
 	}
 
 	id := ids.New[ids.DealRoomKind]()
@@ -79,7 +83,7 @@ func createRoomTx(ctx context.Context, tx pgx.Tx, in CreateRoomInput, by string)
 		`INSERT INTO deal_room (id, deal_id, title, welcome_message, steward_user_id,
 		                        expires_at, source, captured_by)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		id, in.DealID, in.Title, in.WelcomeMessage, steward, in.ExpiresAt, in.Source, by)
+		id, in.DealID, in.Title, in.WelcomeMessage, stewardArg, in.ExpiresAt, in.Source, by)
 	if err != nil {
 		if storekit.IsUniqueViolation(err) {
 			return crmcontracts.DealRoom{}, errRoomAlreadyOpen
@@ -91,7 +95,7 @@ func createRoomTx(ctx context.Context, tx pgx.Tx, in CreateRoomInput, by string)
 	}
 
 	auditID, err := storekit.Audit(ctx, tx, "create", roomObject, id.UUID, nil,
-		map[string]any{"deal_id": in.DealID.UUID, "title": in.Title, "state": stateDraft})
+		map[string]any{"deal_id": in.DealID.UUID, columnTitle: in.Title, "state": stateDraft})
 	if err != nil {
 		return crmcontracts.DealRoom{}, fmt.Errorf("audit deal room create: %w", err)
 	}
@@ -99,7 +103,7 @@ func createRoomTx(ctx context.Context, tx pgx.Tx, in CreateRoomInput, by string)
 		DealId: openapi_types.UUID(in.DealID.UUID),
 		Title:  in.Title,
 	}
-	if steward != nil {
+	if hasSteward {
 		u := openapi_types.UUID(steward.UUID)
 		opened.StewardUserId = &u
 	}
@@ -115,32 +119,37 @@ func createRoomTx(ctx context.Context, tx pgx.Tx, in CreateRoomInput, by string)
 // An explicitly named steward is checked for existence rather than trusted —
 // an unknown id would otherwise land as a foreign-key violation reported as
 // "deal not found", which sends the caller looking in the wrong place.
-func resolveSteward(ctx context.Context, tx pgx.Tx, in CreateRoomInput) (*ids.UserID, error) {
+//
+// The second return says whether a steward was found at all, so an unowned deal
+// reads as "no steward" rather than as a nil that a caller might take for a
+// failure. The room is still created: a room without a steward is a real state
+// the schema admits (the column is nullable and a deleted user nulls it), and
+// it is repaired by transferring one rather than by refusing to open the room.
+func resolveSteward(ctx context.Context, tx pgx.Tx, in CreateRoomInput) (ids.UserID, bool, error) {
 	if in.StewardUserID != nil {
 		var exists bool
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM app_user WHERE id = $1 AND archived_at IS NULL)`,
 			in.StewardUserID).Scan(&exists); err != nil {
-			return nil, fmt.Errorf("check steward: %w", err)
+			return ids.UserID{}, false, fmt.Errorf("check steward: %w", err)
 		}
 		if !exists {
-			return nil, errStewardUnknown
+			return ids.UserID{}, false, errStewardUnknown
 		}
-		return in.StewardUserID, nil
+		return *in.StewardUserID, true, nil
 	}
 
 	var owner *ids.UUID
 	if err := tx.QueryRow(ctx, `SELECT owner_id FROM deal WHERE id = $1`, in.DealID).Scan(&owner); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, apperrors.ErrNotFound
+			return ids.UserID{}, false, apperrors.ErrNotFound
 		}
-		return nil, fmt.Errorf("read deal owner for steward: %w", err)
+		return ids.UserID{}, false, fmt.Errorf("read deal owner for steward: %w", err)
 	}
 	if owner == nil {
-		return nil, nil
+		return ids.UserID{}, false, nil
 	}
-	u := ids.From[ids.UserKind](*owner)
-	return &u, nil
+	return ids.From[ids.UserKind](*owner), true, nil
 }
 
 // UpdateRoom edits a room's working copy. It never changes what a buyer is
@@ -186,7 +195,7 @@ func (s *Store) UpdateRoom(ctx context.Context, id ids.DealRoomID, in UpdateRoom
 func buildRoomPatch(current crmcontracts.DealRoom, in UpdateRoomInput) *storekit.Patch {
 	p := storekit.NewPatch()
 	if in.Title != nil {
-		p.Set("title", current.Title, *in.Title)
+		p.Set(columnTitle, current.Title, *in.Title)
 	}
 	if in.WelcomeMessage != nil {
 		p.Set("welcome_message", current.WelcomeMessage, *in.WelcomeMessage)

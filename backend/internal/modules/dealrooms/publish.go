@@ -180,7 +180,7 @@ func markRoomLive(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, re
 // not silently rewrite what the buyer was shown.
 func snapshotOf(room crmcontracts.DealRoom) map[string]any {
 	snap := map[string]any{
-		"title":       room.Title,
+		columnTitle:   room.Title,
 		"deal_id":     room.DealId,
 		"released_at": time.Now().UTC(),
 	}
