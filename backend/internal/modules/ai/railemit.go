@@ -150,14 +150,20 @@ func unitOfWorkKey(c Call) string {
 // It is bounded by the calls of a single request or job pass, which is what
 // makes counting affordable here and would not be if the key were coarser.
 func railAttempt(ctx context.Context, tx pgx.Tx, c Call) (attempt int, finished time.Time, err error) {
-	corr := c.CorrelationID
+	// A correlation id that is absent and one that is the zero value mean the
+	// same thing here — nothing groups this call — and storekit's own spelling
+	// is what collapses them, rather than a second helper saying it again.
+	var corr *ids.UUID
+	if c.CorrelationID != nil {
+		corr = storekit.UUIDOrNil(*c.CorrelationID)
+	}
 	row := tx.QueryRow(ctx, `
 		SELECT count(*), now()
 		  FROM ai_call
 		 WHERE is_terminal
 		   AND task = $1
 		   AND ($2::uuid IS NULL AND logical_call_id = $3 OR correlation_id = $2::uuid)`,
-		string(c.Task), uuidOrNil(corr), c.LogicalCallID)
+		string(c.Task), corr, c.LogicalCallID)
 	if err := row.Scan(&attempt, &finished); err != nil {
 		return 0, time.Time{}, fmt.Errorf("ai: counting rail attempts: %w", err)
 	}
@@ -196,13 +202,4 @@ func railDegradeReason(c Call) *string {
 	}
 	reason := c.ErrorSentinel
 	return &reason
-}
-
-// uuidOrNil renders an optional id for a SQL argument that distinguishes absent
-// from zero.
-func uuidOrNil(id *ids.UUID) any {
-	if id == nil || id.IsZero() {
-		return nil
-	}
-	return *id
 }
