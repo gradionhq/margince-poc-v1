@@ -74,9 +74,10 @@ func (s *Store) ListProjectsForOrganizationTx(ctx context.Context, tx pgx.Tx, or
 // the ones they hold a live stakeholder seat on, plus every project of the
 // company they currently work for. One row per project, work in motion first.
 //
-// The seat edges are bounded by the edge read scope and the projects by the
-// project row scope, because they answer different questions: the edge bound
-// asks which seats this caller may learn of, the row scope which projects.
+// Both edges — the seat and the employment — are bounded by the edge read
+// scope and the projects by the project row scope, because they answer
+// different questions: the edge bound asks which ties this caller may learn
+// of, the row scope which projects.
 func (s *Store) ListProjectsForPersonTx(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]ProjectCard, error) {
 	if err := auth.Require(ctx, projectObject, principal.ActionRead); err != nil {
 		return nil, err
@@ -89,6 +90,13 @@ func (s *Store) ListProjectsForPersonTx(ctx context.Context, tx pgx.Tx, personID
 		return nil, err
 	}
 	seatBound, err := edgeBound(ctx, "r", arg)
+	if err != nil {
+		return nil, err
+	}
+	// The employment arm is an edge too, and it is bounded the same way: a
+	// caller whose relationship scope excludes the employer's company may
+	// not learn that company's projects through the person who works there.
+	employmentBound, err := edgeBound(ctx, "e", arg)
 	if err != nil {
 		return nil, err
 	}
@@ -106,9 +114,10 @@ func (s *Store) ListProjectsForPersonTx(ctx context.Context, tx pgx.Tx, personID
 		            SELECT 1 FROM relationship e
 		             WHERE e.kind = 'employment' AND e.person_id = $%[1]d
 		               AND e.organization_id = p.organization_id AND e.is_current_primary
-		               AND e.archived_at IS NULL AND e.ended_at IS NULL))
+		               AND e.archived_at IS NULL AND e.ended_at IS NULL
+		               AND (%[4]s)))
 		 `+projectCardOrder+`
-		 LIMIT %[4]d`, personPos, scope, seatBound, projectSurfaceCap), args...)
+		 LIMIT %[5]d`, personPos, scope, seatBound, employmentBound, projectSurfaceCap), args...)
 	if err != nil {
 		return nil, err
 	}

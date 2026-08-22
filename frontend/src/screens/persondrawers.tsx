@@ -621,6 +621,9 @@ export function PersonComposer({
   if (wroteFor !== personId) {
     setWroteFor(personId);
     clearMessage();
+    // The project belongs to the recipient too: a project chosen for A would
+    // otherwise ride along as a link on B's mail.
+    setProjectId("");
     // The transport belongs to the recipient too. Left alone, a composer
     // switched from a contact reachable on Dispact to one reachable only by
     // mail would keep a channel selected and send nowhere.
@@ -633,12 +636,15 @@ export function PersonComposer({
   // before they can ignore it. The company composer has always worked this way.
   const draft = useMutation({
     mutationKey: ["email-draft", personId],
-    mutationFn: async () => {
+    // The project is the mutation's variable rather than a closure read, so
+    // a stale closure cannot ground the draft in a project the picker no
+    // longer shows (mutation-variable-coverage.test.ts).
+    mutationFn: async (project: string) => {
       const { data, error } = await api.POST("/people/{id}/draft-email", {
         params: { path: { id: personId } },
         body: {
           ...(intent.trim() ? { intent: intent.trim() } : {}),
-          ...(projectId ? { project_id: projectId } : {}),
+          ...(project ? { project_id: project } : {}),
         },
       });
       if (error) {
@@ -672,7 +678,9 @@ export function PersonComposer({
   // carries the person as its link.
   const send = useMutation({
     mutationKey: ["email", personId],
-    mutationFn: async () => {
+    // Same rule as the draft: the project the mail files under is passed in,
+    // never read off the closure.
+    mutationFn: async (project: string) => {
       // A channel reply is a different operation against a different shape —
       // see sendChannelReply.
       if (isChannel && transport?.anchorId) {
@@ -691,7 +699,7 @@ export function PersonComposer({
           // the rep would learn that from a 422 about a line they cannot see.
           bcc: addressList(bcc),
           consent_purpose: purpose,
-          links: composerLinks(personId, projectId),
+          links: composerLinks(personId, project),
           ...scheduleFields(sendAt),
         },
       });
@@ -783,7 +791,7 @@ export function PersonComposer({
               onIntentChange={setIntent}
               draftPending={draft.isPending}
               draftError={draft.isError ? draft.error : null}
-              onDraft={() => draft.mutate()}
+              onDraft={() => draft.mutate(projectId)}
             />
           </>
         )}
@@ -853,7 +861,7 @@ export function PersonComposer({
         <Button
           variant="primary"
           disabled={!sendable || send.isPending}
-          onClick={() => send.mutate()}
+          onClick={() => send.mutate(projectId)}
         >
           <Send size={15} aria-hidden="true" />
           {sendPhase(send, t)}

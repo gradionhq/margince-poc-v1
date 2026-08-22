@@ -14,6 +14,7 @@ package integration
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -369,13 +370,56 @@ func TestLoggingAnActivityWithAPersonAndAProjectLinkWritesBothAndTheEvidence(t *
 	}
 	activityID := ids.UUID(logged.Id)
 
-	personLinks := e.WsCount(t, `SELECT count(*) FROM activity_link WHERE activity_id = $1 AND person_id = $2`, activityID, f.person)
-	projectLinks := e.WsCount(t, `SELECT count(*) FROM activity_link WHERE activity_id = $1 AND project_id = $2`, activityID, f.erp.UUID)
+	personLinks := countLinks(t, e, activityID, "person_id", f.person)
+	projectLinks := countLinks(t, e, activityID, "project_id", f.erp.UUID)
 	if personLinks != 1 || projectLinks != 1 {
 		t.Errorf("links: person = %d, project = %d, want one of each", personLinks, projectLinks)
 	}
 	stamp := readProjectStamp(t, e, activityID)
 	if stamp.evidence != 1 || stamp.class == nil || *stamp.class != "commercial_correspondence" {
 		t.Errorf("evidence rows = %d, class = %v; want one project_linked row and commercial_correspondence", stamp.evidence, stamp.class)
+	}
+}
+
+// countLinks counts the activity's links on one target column; the column is
+// a compile-time literal and the placeholders are derived from the args.
+func countLinks(t *testing.T, e *Env, activityID ids.UUID, column string, target ids.UUID) int {
+	t.Helper()
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	query := fmt.Sprintf(`SELECT count(*) FROM activity_link WHERE activity_id = $%d AND %s = $%d`,
+		arg(activityID), column, arg(target))
+	return e.WsCount(t, query, args...)
+}
+
+// The employment route is an EDGE read, bounded like the seat route: a rep
+// whose relationship scope excludes the employer's company may not learn that
+// company's projects through the person who works there. The admit case runs
+// first, so the refusal below cannot pass against a read that admits nobody.
+func TestPerson360WithholdsTheEmployersProjectWhenTheEmploymentEdgeIsOutOfScope(t *testing.T) {
+	e := Setup(t)
+	f := seedTwoEngagementAccount(t, e)
+	employAtAccount(t, e, f)
+	svc := personRoomService(e)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+
+	admitted, err := svc.Assemble(rep, PersonIDOf(f.person))
+	if err != nil {
+		t.Fatalf("assemble with the employer in scope: %v", err)
+	}
+	if admitted.Projects == nil || len(*admitted.Projects) != 2 {
+		t.Fatalf("a rep with the employer in scope lists %v, want both projects — the refusal below would prove nothing", admitted.Projects)
+	}
+
+	e.MakeCapturePrivate(t, "organization", f.org, e.Rep3)
+	withheld, err := svc.Assemble(rep, PersonIDOf(f.person))
+	if err != nil {
+		t.Fatalf("assemble with the employer out of scope: %v", err)
+	}
+	if withheld.Projects == nil {
+		t.Fatalf("the projects section was withheld outright; sections_omitted = %v", withheld.SectionsOmitted)
+	}
+	if len(*withheld.Projects) != 0 {
+		t.Errorf("the employer's projects reached a rep whose relationship scope excludes the employment edge: %v", *withheld.Projects)
 	}
 }

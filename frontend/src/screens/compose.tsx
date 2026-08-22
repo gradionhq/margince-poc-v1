@@ -371,6 +371,7 @@ function useAccountGrounding(
     setDealId: reground(setDealId),
     projectId,
     setProjectId: reground(setProjectId),
+    grounding: { recipientId, dealId, projectId } satisfies Grounding,
     reasoning,
     setReasoning,
   };
@@ -397,9 +398,20 @@ function useAccountGrounding(
 // `chosen` is null on a reply, whose links are the thread's own business: the
 // rep picked nothing, and the recipient is already a participant on the
 // activity being answered.
+// Grounding is the three choices a rep made on the account-started path. It
+// travels as the mutation VARIABLE of both the draft and the send, never out
+// of the mutationFn's closure: the click handler belongs to the committed
+// render, so a selection it passes cannot be older than the picker that shows
+// it (see mutation-variable-coverage.test.ts for the stale-closure window).
+export type Grounding = {
+  recipientId: string;
+  dealId: string;
+  projectId: string;
+};
+
 function composedLinks(
   anchor: { entityType: RelinkKind; entityId: string },
-  chosen: { recipientId: string; dealId: string; projectId: string } | null,
+  chosen: Grounding | null,
 ): { entity_type: RelinkKind; entity_id: string }[] {
   const links: { entity_type: RelinkKind; entity_id: string }[] = [
     { entity_type: anchor.entityType, entity_id: anchor.entityId },
@@ -1176,7 +1188,6 @@ function useDraftMutation({
   entityType,
   entityId,
   intent,
-  account,
   onUnavailable,
   onDrafted,
   resetUnavailable,
@@ -1186,7 +1197,6 @@ function useDraftMutation({
   entityType: RelinkKind;
   entityId: string;
   intent: string;
-  account: ReturnType<typeof useAccountGrounding>;
   onUnavailable: () => void;
   onDrafted: (result: Extract<DraftResult, { available: true }>) => void;
   resetUnavailable: () => void;
@@ -1194,7 +1204,7 @@ function useDraftMutation({
 }>) {
   return useMutation({
     mutationKey: ["email-draft", entityId],
-    mutationFn: async (): Promise<DraftResult> => {
+    mutationFn: async (grounding: Grounding): Promise<DraftResult> => {
       resetUnavailable();
       // A reply answers the message it is anchored to; an account-started
       // message has none, so it is grounded in the account itself and needs
@@ -1205,9 +1215,7 @@ function useDraftMutation({
       return draftFromAccount({
         entityType,
         entityId,
-        recipientId: account.recipientId,
-        dealId: account.dealId,
-        projectId: account.projectId,
+        ...grounding,
         intent,
         t,
       });
@@ -1321,7 +1329,6 @@ export function ComposeModal({
     entityType,
     entityId,
     intent,
-    account,
     onUnavailable: () => setDraftUnavailable(true),
     onDrafted: (result) =>
       fillFromDraft(result, {
@@ -1389,7 +1396,9 @@ export function ComposeModal({
 
   const send = useMutation({
     mutationKey: ["email", entityId],
-    mutationFn: async () => {
+    // The grounding is the variable, not a closure read: a stale closure
+    // could file the mail under a project the picker no longer shows.
+    mutationFn: async (grounding: Grounding | null) => {
       setSendUnavailable(false);
       // No X-Approval-Token, no Idempotency-Key on either path: the human's
       // own click IS the approval on the REST path (ADR-0055).
@@ -1407,16 +1416,7 @@ export function ComposeModal({
         isChannelReply,
         mail,
         channelBody: { body, consent_purpose: purpose },
-        links: composedLinks(
-          { entityType, entityId },
-          groundable
-            ? {
-                recipientId: account.recipientId,
-                dealId: account.dealId,
-                projectId: account.projectId,
-              }
-            : null,
-        ),
+        links: composedLinks({ entityType, entityId }, grounding),
       });
       if (response.status === 501) return { sent: false as const };
       // Only a real 202 is a send. openapi-fetch returns a falsy `error` for a
@@ -1474,7 +1474,7 @@ export function ComposeModal({
   // picker directly above it, rather than running and coming back with a
   // refusal about a field already on screen.
   const draftControl = {
-    run: () => draft.mutate(),
+    run: () => draft.mutate(account.grounding),
     pending: draft.isPending,
     disabled:
       draft.isPending ||
@@ -1544,7 +1544,7 @@ export function ComposeModal({
       placement={groundable ? "right" : "center"}
       confirmLabel={t(scheduling ? "compose.schedule" : "compose.send")}
       confirmDisabled={!canSend || rejectionInFlight}
-      onConfirm={() => send.mutate()}
+      onConfirm={() => send.mutate(groundable ? account.grounding : null)}
       pending={send.isPending}
       error={sendError}
     >
