@@ -145,6 +145,24 @@ func (h Handlers) writeMove(w http.ResponseWriter, r *http.Request,
 	httperr.WriteJSON(w, http.StatusOK, room)
 }
 
+// SetDealRoomExpiry moves or clears when buyer access lapses.
+func (h Handlers) SetDealRoomExpiry(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.SetDealRoomExpiryParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	var req crmcontracts.SetDealRoomExpiryRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	room, err := h.store.SetExpiry(r.Context(), pathID(id), req.ExpiresAt, ifVersion)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, room)
+}
+
 // ListDealRoomReleases pages what this room has shown a buyer over its life.
 func (h Handlers) ListDealRoomReleases(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, params crmcontracts.ListDealRoomReleasesParams) {
 	releases, page, err := h.store.ListReleases(r.Context(), pathID(id), limitArg(params.Limit), cursorArg(params.Cursor))

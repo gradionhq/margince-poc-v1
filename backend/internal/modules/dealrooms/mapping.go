@@ -51,9 +51,6 @@ func updateInput(req crmcontracts.UpdateDealRoomRequest, ifVersion *int64) Updat
 	if req.WelcomeMessage != nil {
 		in.WelcomeMessage = &req.WelcomeMessage
 	}
-	if req.ExpiresAt != nil {
-		in.ExpiresAt = &req.ExpiresAt
-	}
 	if req.StewardUserId != nil {
 		u := ids.From[ids.UserKind](ids.UUID(*req.StewardUserId))
 		p := &u

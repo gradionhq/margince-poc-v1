@@ -11,11 +11,20 @@
 -- so borrowing any of them would make an access change read as a data-lifecycle
 -- one in every audit query that groups by action.
 --
--- Two-step, because audit_log is the largest table in the schema: ADD ... NOT
--- VALID takes a brief lock and does not scan, then VALIDATE scans without
--- blocking concurrent writes. Adding a validated CHECK in one statement would
--- hold an ACCESS EXCLUSIVE lock for the length of a full-table scan, which on a
--- busy installation stalls every mutation in the product.
+-- ADD ... NOT VALID then VALIDATE, rather than one validated ADD.
+--
+-- Stated honestly, because the usual reason does NOT apply here: the runner
+-- wraps each migration file in a single transaction (dbmigrate.go), so the locks
+-- this takes are held until the file commits either way, and the two-step buys
+-- no concurrency it would buy in a hand-run psql session. What it does buy is a
+-- shorter ACCESS EXCLUSIVE hold: NOT VALID takes that lock without scanning, and
+-- VALIDATE downgrades to SHARE UPDATE EXCLUSIVE for the scan, so readers and
+-- writers of audit_log are blocked for a moment rather than for a full pass over
+-- the largest table in the schema.
+--
+-- The transaction is also what makes this safe to interrupt: a failure at any
+-- statement rolls the whole file back, so audit_log can never be left with no
+-- action constraint at all.
 SET LOCAL lock_timeout = '3s';
 
 ALTER TABLE audit_log ADD CONSTRAINT audit_log_action_check_v2

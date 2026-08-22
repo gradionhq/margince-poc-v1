@@ -21082,6 +21082,14 @@ type SetBlockedDomainRequest struct {
 // SetBlockedDomainRequestAdmission defines model for SetBlockedDomainRequest.Admission.
 type SetBlockedDomainRequestAdmission string
 
+// SetDealRoomExpiryRequest defines model for SetDealRoomExpiryRequest.
+type SetDealRoomExpiryRequest struct {
+	// ExpiresAt When buyer access lapses. Null removes the bound entirely, which is why
+	// the field is required rather than optional — clearing an expiry must be
+	// something a caller asked for, never something an omitted key did.
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
 // SetFxRateRequest defines model for SetFxRateRequest.
 type SetFxRateRequest struct {
 	// EffectiveDate Defaults to today; must not be in the past (append-forward).
@@ -21630,8 +21638,11 @@ type UpdateDealRequestStatus string
 
 // UpdateDealRoomRequest Any subset; omit a field to leave it unchanged. Edits the working copy — a live
 // room keeps serving its last release until someone publishes.
+//
+// `expires_at` is deliberately NOT here: moving the moment a buyer loses access
+// is a change to what an outside party can reach, so it has its own human-only
+// operation rather than riding an auto-execute patch.
 type UpdateDealRoomRequest struct {
-	ExpiresAt            *time.Time             `json:"expires_at,omitempty"`
 	StewardUserId        *openapi_types.UUID    `json:"steward_user_id,omitempty"`
 	Title                *string                `json:"title,omitempty"`
 	WelcomeMessage       *string                `json:"welcome_message,omitempty"`
@@ -23399,6 +23410,16 @@ type ArchiveDealRoomParams struct {
 
 // UpdateDealRoomParams defines parameters for UpdateDealRoom.
 type UpdateDealRoomParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// SetDealRoomExpiryParams defines parameters for SetDealRoomExpiry.
+type SetDealRoomExpiryParams struct {
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -26464,6 +26485,9 @@ type CreateDealRoomJSONRequestBody = CreateDealRoomRequest
 
 // UpdateDealRoomJSONRequestBody defines body for UpdateDealRoom for application/json ContentType.
 type UpdateDealRoomJSONRequestBody = UpdateDealRoomRequest
+
+// SetDealRoomExpiryJSONRequestBody defines body for SetDealRoomExpiry for application/json ContentType.
+type SetDealRoomExpiryJSONRequestBody = SetDealRoomExpiryRequest
 
 // PublishDealRoomJSONRequestBody defines body for PublishDealRoom for application/json ContentType.
 type PublishDealRoomJSONRequestBody = PublishDealRoomRequest
@@ -32338,14 +32362,6 @@ func (a *UpdateDealRoomRequest) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	if raw, found := object["expires_at"]; found {
-		err = json.Unmarshal(raw, &a.ExpiresAt)
-		if err != nil {
-			return fmt.Errorf("error reading 'expires_at': %w", err)
-		}
-		delete(object, "expires_at")
-	}
-
 	if raw, found := object["steward_user_id"]; found {
 		err = json.Unmarshal(raw, &a.StewardUserId)
 		if err != nil {
@@ -32388,13 +32404,6 @@ func (a *UpdateDealRoomRequest) UnmarshalJSON(b []byte) error {
 func (a UpdateDealRoomRequest) MarshalJSON() ([]byte, error) {
 	var err error
 	object := make(map[string]json.RawMessage)
-
-	if a.ExpiresAt != nil {
-		object["expires_at"], err = json.Marshal(a.ExpiresAt)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'expires_at': %w", err)
-		}
-	}
 
 	if a.StewardUserId != nil {
 		object["steward_user_id"], err = json.Marshal(a.StewardUserId)
@@ -34060,6 +34069,9 @@ type ServerInterface interface {
 	// Freeze the room's content, keeping buyer access.
 	// (POST /deal-rooms/{id}/close)
 	CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
+	// Set or clear when buyer access lapses.
+	// (PUT /deal-rooms/{id}/expiry)
+	SetDealRoomExpiry(w http.ResponseWriter, r *http.Request, id Id, params SetDealRoomExpiryParams)
 	// Pause buyer access without ending it.
 	// (POST /deal-rooms/{id}/pause)
 	PauseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
@@ -35770,6 +35782,12 @@ func (_ Unimplemented) UpdateDealRoom(w http.ResponseWriter, r *http.Request, id
 // Freeze the room's content, keeping buyer access.
 // (POST /deal-rooms/{id}/close)
 func (_ Unimplemented) CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set or clear when buyer access lapses.
+// (PUT /deal-rooms/{id}/expiry)
+func (_ Unimplemented) SetDealRoomExpiry(w http.ResponseWriter, r *http.Request, id Id, params SetDealRoomExpiryParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -43009,6 +43027,64 @@ func (siw *ServerInterfaceWrapper) CloseDealRoom(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CloseDealRoom(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetDealRoomExpiry operation middleware
+func (siw *ServerInterfaceWrapper) SetDealRoomExpiry(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetDealRoomExpiryParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetDealRoomExpiry(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -57866,6 +57942,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deal-rooms/{id}/close", wrapper.CloseDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/deal-rooms/{id}/expiry", wrapper.SetDealRoomExpiry)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/deal-rooms/{id}/pause", wrapper.PauseDealRoom)

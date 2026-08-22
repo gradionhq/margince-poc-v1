@@ -43,6 +43,17 @@ func notPublishable(current string) error {
 	}
 }
 
+// notEditable refuses an edit to a room that can no longer publish. The draft
+// would be unreachable rather than merely unpublished, which a caller cannot see
+// from the outside.
+func notEditable(current string) error {
+	return &stateError{
+		code:    "deal_room_not_editable",
+		current: current,
+		wanted:  "this room is finished and its text can no longer reach a buyer: open a new Deal Room on the deal",
+	}
+}
+
 func notPausable(current string) error {
 	return &stateError{
 		code:    "deal_room_not_pausable",

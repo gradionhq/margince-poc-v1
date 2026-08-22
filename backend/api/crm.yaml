@@ -2684,7 +2684,7 @@ paths:
           schema: { type: string, enum: [hosting, consulting, strategic] }
         - name: cert_status
           in: query
-          schema: { type: string, enum: [applied, certified] }
+          schema: { type: string, enum: [applied, certified, suspended] }
       x-mcp-tool: { verb: search_records, record_type: partner, tier: auto_execute, scope: read }
       responses:
         '200':
@@ -10837,6 +10837,42 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /deal-rooms/{id}/expiry:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Deals]
+      operationId: setDealRoomExpiry
+      summary: Set or clear when buyer access lapses.
+      description: |
+        HUMAN-ONLY, for the same reason publish is: this moves the moment an outside
+        party stops being able to read the deal's material, and extending it is a
+        decision somebody has to own. An agent may draft a room's text; it may not
+        widen the window in which a buyer can read it.
+
+        Null clears the bound, leaving access open until the room is closed or
+        archived. A past instant is accepted and takes effect immediately — that is
+        how access is cut short without ending the room.
+      x-agent-access: human-only
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetDealRoomExpiryRequest' }
+      responses:
+        '200':
+          description: The Deal Room with its new expiry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoom' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   /deal-rooms/{id}/releases:
     parameters:
@@ -23989,7 +24025,7 @@ components:
       properties:
         organization_id: { type: string, format: uuid, description: The org this partner record extends (PK = FK). }
         partner_role: { type: string, enum: [hosting, consulting, strategic], description: Functional role (A44/ADR-0034); implementation + dev are Gradion's turf. }
-        cert_status: { type: string, enum: [applied, certified] }   # data-model §4.3 CHECK
+        cert_status: { type: string, enum: [applied, certified, suspended] }   # data-model §4.3 CHECK
         margin_tier: { type: [string, 'null'], enum: [null, tier1_15, tier2_20, tier3_25], description: Scenario-C margin tier (business/14-partner-program.md; data-model §4.3 CHECK). }
         gate_metrics: { type: [object, 'null'], additionalProperties: true, description: 'Program gate metrics (certified seats, CSAT, ...).' }
         relationship_stage: { type: string, enum: [research, identified, contacted, in_conversation, fit_confirmed, agreement_pending, active, active_referring, dormant, no_fit], default: research }
@@ -24011,7 +24047,7 @@ components:
       required: [partner_role]
       properties:
         partner_role: { type: string, enum: [hosting, consulting, strategic] }
-        cert_status: { type: string, enum: [applied, certified] }   # data-model §4.3 CHECK
+        cert_status: { type: string, enum: [applied, certified, suspended] }   # data-model §4.3 CHECK
         margin_tier: { type: [string, 'null'], enum: [null, tier1_15, tier2_20, tier3_25] }
         gate_metrics: { type: [object, 'null'], additionalProperties: true }
         relationship_stage: { type: string, enum: [research, identified, contacted, in_conversation, fit_confirmed, agreement_pending, active, active_referring, dormant, no_fit] }
@@ -24932,13 +24968,29 @@ components:
       description: |
         Any subset; omit a field to leave it unchanged. Edits the working copy — a live
         room keeps serving its last release until someone publishes.
+
+        `expires_at` is deliberately NOT here: moving the moment a buyer loses access
+        is a change to what an outside party can reach, so it has its own human-only
+        operation rather than riding an auto-execute patch.
       properties:
         title: { type: string, minLength: 1 }
         welcome_message: { type: [string, 'null'] }
         steward_user_id: { type: [string, 'null'], format: uuid }
-        expires_at: { type: [string, 'null'], format: date-time }
       additionalProperties: true
       x-extension: true
+
+    SetDealRoomExpiryRequest:
+      type: object
+      required: [expires_at]
+      properties:
+        expires_at:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            When buyer access lapses. Null removes the bound entirely, which is why
+            the field is required rather than optional — clearing an expiry must be
+            something a caller asked for, never something an omitted key did.
+      additionalProperties: false
 
     PublishDealRoomRequest:
       type: object

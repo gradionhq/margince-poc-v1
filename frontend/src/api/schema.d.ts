@@ -7138,6 +7138,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deal-rooms/{id}/expiry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or clear when buyer access lapses.
+         * @description HUMAN-ONLY, for the same reason publish is: this moves the moment an outside
+         *     party stops being able to read the deal's material, and extending it is a
+         *     decision somebody has to own. An agent may draft a room's text; it may not
+         *     widen the window in which a buyer can read it.
+         *
+         *     Null clears the bound, leaving access open until the room is closed or
+         *     archived. A past instant is accepted and takes effect immediately — that is
+         *     how access is cut short without ending the room.
+         */
+        put: operations["setDealRoomExpiry"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deal-rooms/{id}/releases": {
         parameters: {
             query?: never;
@@ -18629,16 +18659,27 @@ export interface components {
         /**
          * @description Any subset; omit a field to leave it unchanged. Edits the working copy — a live
          *     room keeps serving its last release until someone publishes.
+         *
+         *     `expires_at` is deliberately NOT here: moving the moment a buyer loses access
+         *     is a change to what an outside party can reach, so it has its own human-only
+         *     operation rather than riding an auto-execute patch.
          */
         UpdateDealRoomRequest: {
             title?: string;
             welcome_message?: string | null;
             /** Format: uuid */
             steward_user_id?: string | null;
-            /** Format: date-time */
-            expires_at?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        SetDealRoomExpiryRequest: {
+            /**
+             * Format: date-time
+             * @description When buyer access lapses. Null removes the bound entirely, which is why
+             *     the field is required rather than optional — clearing an expiry must be
+             *     something a caller asked for, never something an omitted key did.
+             */
+            expires_at: string | null;
         };
         PublishDealRoomRequest: {
             /** @description Why this release exists, for the seller's own record. Not shown to the buyer. */
@@ -32170,6 +32211,47 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    setDealRoomExpiry: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDealRoomExpiryRequest"];
+            };
+        };
+        responses: {
+            /** @description The Deal Room with its new expiry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoom"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listDealRoomReleases: {

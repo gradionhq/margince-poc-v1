@@ -38,7 +38,6 @@ type UpdateRoomInput struct {
 	Title          *string
 	WelcomeMessage **string
 	StewardUserID  **ids.UserID
-	ExpiresAt      **time.Time
 	IfVersion      *int64
 }
 
@@ -167,6 +166,13 @@ func (s *Store) UpdateRoom(ctx context.Context, id ids.DealRoomID, in UpdateRoom
 		if err := ensureDealWritable(ctx, tx, current); err != nil {
 			return err
 		}
+		// A finished room takes no further edits. The text could never reach a
+		// buyer anyway — publishable() refuses these three states — so allowing
+		// the write would only leave a draft that silently goes nowhere, which
+		// reads to the rep as though it had been saved for later publication.
+		if !publishable(string(current.State)) {
+			return notEditable(string(current.State))
+		}
 		p := buildRoomPatch(current, in)
 		if p.Empty() {
 			out = current
@@ -203,10 +209,54 @@ func buildRoomPatch(current crmcontracts.DealRoom, in UpdateRoomInput) *storekit
 	if in.StewardUserID != nil {
 		p.Set("steward_user_id", current.StewardUserId, *in.StewardUserID)
 	}
-	if in.ExpiresAt != nil {
-		p.Set("expires_at", current.ExpiresAt, *in.ExpiresAt)
-	}
 	return p
+}
+
+// SetExpiry moves — or removes — the moment a buyer loses access.
+//
+// Human-only, and separated from UpdateRoom for exactly that reason: editing a
+// room's text is an auto-execute act an agent may perform, while widening the
+// window in which an outside party can read the deal's material is not. Three
+// places said so in prose before anything enforced it.
+//
+// A nil expiry removes the bound. A past instant is accepted and binds at once,
+// which is how access is cut short without ending the room.
+func (s *Store) SetExpiry(ctx context.Context, id ids.DealRoomID, expiresAt *time.Time, ifVersion *int64) (crmcontracts.DealRoom, error) {
+	if err := auth.Require(ctx, roomObject, principal.ActionUpdate); err != nil {
+		return crmcontracts.DealRoom{}, err
+	}
+	if err := auth.RequireHuman(ctx); err != nil {
+		return crmcontracts.DealRoom{}, err
+	}
+	var out crmcontracts.DealRoom
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		current, err := readRoom(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if err := ensureDealWritable(ctx, tx, current); err != nil {
+			return err
+		}
+		p := storekit.NewPatch()
+		p.Set("expires_at", current.ExpiresAt, expiresAt)
+		if err := p.ApplyGuarded(ctx, tx, roomObject, id.UUID, ifVersion); err != nil {
+			return fmt.Errorf("set deal room expiry: %w", err)
+		}
+		auditID, err := storekit.Audit(ctx, tx, "update", roomObject, id.UUID, p.Before(), p.After())
+		if err != nil {
+			return fmt.Errorf("audit deal room expiry: %w", err)
+		}
+		updated := crmcontracts.PublicEventDealRoomUpdated{
+			DealId:        current.DealId,
+			ChangedFields: changedFields(p),
+		}
+		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, updated); err != nil {
+			return fmt.Errorf("emit deal_room.updated: %w", err)
+		}
+		out, err = readRoom(ctx, tx, id)
+		return err
+	})
+	return out, err
 }
 
 // changedFields names the editorial columns this patch moved, sorted so a

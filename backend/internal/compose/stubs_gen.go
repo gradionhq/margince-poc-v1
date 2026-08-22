@@ -555,6 +555,10 @@ func (stubs) CloseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "CloseDealRoom")
 }
 
+func (stubs) SetDealRoomExpiry(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SetDealRoomExpiryParams) {
+	httperr.NotImplemented(w, r, "SetDealRoomExpiry")
+}
+
 func (stubs) PauseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "PauseDealRoom")
 }
