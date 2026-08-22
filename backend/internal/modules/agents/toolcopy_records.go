@@ -59,15 +59,12 @@ var createRecordCopy = toolCopy{
 var updateRecordCopy = toolCopy{
 	Purpose: "Change stored field values on a record that already exists — a corrected title, an " +
 		"amount, an expected close date.",
-	Limits: "Only the fields you send change, and only the fields the record type stores: a " +
-		"person's email addresses, for one, are not among them. A field whose current value a " +
-		"HUMAN last set is not overwritten — that part of the call is staged for a person to " +
-		"decide and named in the result, so treat a staged answer as the write not having " +
-		"happened yet. It names the record by id: when a name matches two records, which of them " +
-		"was meant is a question for a person and not a choice to make quietly. There is no " +
-		"sharing verb here, but owner_id is NOT a neutral field — who owns a record is what " +
-		"decides who can see it, so reassigning it moves the record onto someone else's book and " +
-		"can take it off the current owner's.",
+	Limits: "Only the fields you send change, and only the fields the record type stores (a " +
+		"person's email addresses are not among them). A field a HUMAN last set is not " +
+		"overwritten: that part is staged for a person and named in the result, so a staged " +
+		"answer means the write has not happened. It names the record by id; when a name matches " +
+		"two records, a person picks. owner_id is NOT neutral — ownership decides visibility, so " +
+		"reassigning moves the record onto someone else's book and can take it off the owner's.",
 	Instead: "Use advance_deal or progress_deal to move a deal between stages, and relink_activity " +
 		"to change what an activity is about; neither is a field edit.",
 	Retain: "Send if_version with the version you read, and keep the staged approval id from the " +
@@ -77,13 +74,18 @@ var updateRecordCopy = toolCopy{
 var logActivityCopy = toolCopy{
 	Purpose: "Record something that happened — a call, a meeting, a note, a message — on the " +
 		"timeline of the records it was about.",
-	Limits: "It writes history, and changes nothing else: logging a call does not move a deal, " +
-		"update a field or notify anyone. An activity logged without links is stored attached to " +
-		"nothing and appears on no timeline.",
-	Instead: "Use progress_deal when the same event also moves a deal forward, so the move and " +
-		"the note are one act rather than two.",
-	Retain: "The activity id comes back in the result; keep it — draft_email, send_email and " +
-		"send_message all identify a conversation by it.",
+	Limits: "It writes history and changes nothing else: no deal moves, no field updates, nobody " +
+		"is notified. Unlinked, it appears on no timeline.",
+	Instead: "Use progress_deal when the same event also moves a deal, so move and note are one " +
+		"act; create_task for something still owed.",
+	Retain: "Keep the activity id — draft_email, send_email and send_message identify a " +
+		"conversation by it.",
+}
+
+var createTaskCopy = toolCopy{
+	Purpose: "Put a to-do on someone's list: what is owed, by whom, on which records.",
+	Limits:  "Creates the task only — no reminder, no deal move; unlinked, it sits on no timeline.",
+	Instead: "log_activity is for what already happened.",
 }
 
 var relinkActivityCopy = toolCopy{
@@ -125,12 +127,10 @@ var mergeRecordsCopy = toolCopy{
 
 var advanceDealCopy = toolCopy{
 	Purpose: "Move a deal to a different stage of its pipeline.",
-	Limits: "The stage is named by id, not by label, and the id of the stage you are moving TO " +
-		"comes from list_pipelines — call it first, because a deal you have read carries only the " +
-		"stage it is already in. Moving onto or off a stage that closes the deal as won or lost " +
-		"is a decision a person makes: it is staged for approval and needs a lost_reason when the " +
-		"stage is a losing one. Read the target stage's semantic rather than guessing it from its " +
-		"name.",
+	Limits: "The stage is named by id from list_pipelines — call it first; a deal you read " +
+		"carries only its current stage. Moving onto or off a won/lost stage is a person's " +
+		"decision: staged for approval, with a lost_reason for a losing stage. Read the target " +
+		"stage's semantic rather than guessing from its name.",
 	Instead: "Use progress_deal when the move should also leave a note explaining it, which is " +
 		"almost always what a person means by moving a deal on.",
 	Retain: "Send if_version with the version you read of the deal, and keep the staged approval " +

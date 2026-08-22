@@ -10,12 +10,11 @@ var queryWorkspaceCopy = toolCopy{
 	Purpose: "Answer a question that has STRUCTURE — a record type, conditions on its fields, a " +
 		"hop to a related record, or a likeness to describe — by sending a plan and reading back " +
 		"the records that satisfy it, together with what kind of answer it is.",
-	Limits: "Every name in a plan comes from the published vocabulary, and a name outside it is " +
-		"refused by name rather than guessed at. The margince://schema/query resource — not this " +
-		"description — is what says which record types, fields, operators " +
-		"and relationships this workspace can actually be asked about. A plan takes at most one " +
-		"similarity clause and at most one relationship hop. It cannot group, count or total, and " +
-		"there is no cursor: an answer that hit its limit says so instead of offering a next page.",
+	Limits: "Every name in a plan comes from the published vocabulary; one outside it is refused " +
+		"by name. The margince://schema/query resource — not this description — says which " +
+		"record types, fields, operators and relationships can be asked about. At most one " +
+		"similarity clause and one hop. It cannot group, count or total, and has no cursor: an " +
+		"answer that hit its limit says so.",
 	Instead: "Use search_records when you only have a name or a phrase and no conditions to apply, " +
 		"and run_report when the answer wanted is a count, a total or a breakdown rather than the " +
 		"records themselves.",
