@@ -44,7 +44,13 @@
 # already uses. scripts/test-check-one-spelling.sh proves each arm fires, each
 # arm's waiver works, and the named non-money lookalikes stay silent.
 set -euo pipefail
+# Resolved BEFORE the cd, so they are found however the script is invoked.
+COMMENT_SCAN="$(cd "$(dirname "$0")" && pwd)/lib-commentscan.awk"
+STRIP_PROG="$(cd "$(dirname "$0")" && pwd)/one-spelling-strip.awk"
 cd "$(dirname "$0")/.."
+for lib in "$COMMENT_SCAN" "$STRIP_PROG"; do
+  [[ -f "$lib" ]] || { echo "FAIL: $lib is missing — this gate cannot read code without it"; exit 1; }
+done
 
 # Every hand-written Go tree. extensions/ and fixtures/ are separate modules but
 # the same product; backend/tools is a separate module too and its generators
@@ -86,19 +92,7 @@ corpus="$(mktemp)"
 trap 'rm -f "$corpus"' EXIT
 find "${scan[@]}" -type f -name '*.go' \
      ! -name '*_test.go' ! -name '*_gen.go' ! -name '*.gen.go' -print0 \
-  | xargs -0 awk -v waiver="$waiver" '
-      FNR == 1 { inblock = 0 }
-      {
-        c = $0
-        if (index(c, waiver) > 0) next
-        if (inblock) { if (match(c, /\*\//)) { inblock = 0; c = substr(c, RSTART + RLENGTH) } else next }
-        t = c; sub(/^[[:space:]]+/, "", t)
-        if (t ~ /^(\/\/|\*)/) next
-        while (match(c, /\/\*[^*]*\*+([^\/*][^*]*\*+)*\//)) { c = substr(c, 1, RSTART - 1) substr(c, RSTART + RLENGTH) }
-        if (match(c, /\/\*/)) { inblock = 1; c = substr(c, 1, RSTART - 1) }
-        sub(/[[:space:]]+\/\/.*$/, "", c)
-        print FILENAME ":" FNR ":" c
-      }' > "$corpus"
+  | xargs -0 awk -f "$COMMENT_SCAN" -f "$STRIP_PROG" -v waiver="$waiver" > "$corpus"
 
 # scan_for <regex> [exclude-path-regex]: matching CODE rows, or nothing.
 scan_for() {
