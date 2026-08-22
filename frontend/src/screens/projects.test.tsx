@@ -115,7 +115,11 @@ describe("ProjectsScreen", () => {
                   query: {
                     list: {
                       sort: "name",
-                      filters: { phase: "delivering", owner_id: "u-1" },
+                      filters: {
+                        phase: "delivering",
+                        owner_id: "u-1",
+                        key: "ACME-CRM",
+                      },
                     },
                   },
                   created_at: "2026-06-01T00:00:00Z",
@@ -138,8 +142,45 @@ describe("ProjectsScreen", () => {
         (url) => url.includes("/projects?") && url.includes("phase=delivering"),
       );
       expect(read).toContain("owner_id=u-1");
+      expect(read).toContain("key=ACME-CRM");
       expect(read).toContain("sort=name");
     });
+  });
+
+  it("keeps the table and its saved-view rail when the live list is empty but a view exists", async () => {
+    const user = userEvent.setup();
+    const { urls } = projectsBackend({
+      projects: [],
+      respond: async (url, method) =>
+        method === "GET" && url.includes("/views")
+          ? jsonResponse({
+              data: [
+                {
+                  id: "v-2",
+                  resource: "projects",
+                  name: "Archived too",
+                  query: { list: { includeArchived: true, filters: {} } },
+                  created_at: "2026-06-01T00:00:00Z",
+                  updated_at: "2026-06-01T00:00:00Z",
+                },
+              ],
+              page: { next_cursor: null },
+            })
+          : null,
+    });
+    render(<ProjectsScreen />);
+    await user.click(
+      await screen.findByRole("button", { name: "Archived too" }),
+    );
+    expect(screen.queryByText("No projects yet")).toBeNull();
+    await waitFor(() =>
+      expect(
+        urls.some(
+          (url) =>
+            url.includes("/projects?") && url.includes("include_archived=true"),
+        ),
+      ).toBe(true),
+    );
   });
 
   it("shows the instructional plate on a first run", async () => {
