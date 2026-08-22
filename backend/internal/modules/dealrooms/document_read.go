@@ -50,13 +50,33 @@ const documentFrom = `deal_room_document d
 	JOIN deal_room r ON r.id = d.room_id
 	JOIN attachment a ON a.id = d.attachment_id`
 
-// stillTheDealsFile re-applies, at PUBLISH and at DOWNLOAD, the predicate the
-// add checked once: the attachment is live and filed on the room's own deal. A
-// file archived or re-homed after it was added drops out of the next release
-// and out of the buyer's download, rather than riding on the strength of a
-// check that was true when it was added. The seller's own list does not carry
-// it, so the stale entry stays visible to the one person who can remove it.
-const stillTheDealsFile = `a.archived_at IS NULL AND a.entity_type = 'deal' AND a.entity_id = r.deal_id`
+// inTheDealsFilesArea is the membership rule for a room's documents, spelled
+// once and re-applied at ADD, at PUBLISH and at DOWNLOAD: the attachment is
+// live, it is in the room's deal's Files area — uploaded on the deal, or
+// carried by a message linked to the deal — and it is not hidden from that
+// deal. A file archived, unlinked or hidden after it was added drops out of
+// the next release and out of the buyer's download, rather than riding on the
+// strength of a check that was true when it was added. The seller's own list
+// does not carry the predicate, so the stale entry stays visible to the one
+// person who can remove it.
+//
+// It needs the room aliased `r` and the attachment aliased `a`, and carries no
+// principal: the public download has none. The caller-bound half — may THIS
+// seller see a captured file — is asked once, at add (addDocumentTx).
+//
+// The activities module spells the same membership for the deal's own Files
+// read, inline-image ceiling included (a logo a rep never sees in the area
+// must not be shareable by id); it cannot be shared because a module never
+// imports a sibling, and
+// TestRoomDocumentMembershipIsSpelledOnce holds this module's three readers to
+// this one constant.
+const inTheDealsFilesArea = `a.archived_at IS NULL
+	AND ((a.entity_type = 'deal' AND a.entity_id = r.deal_id)
+	  OR (a.entity_type = 'activity' AND EXISTS (
+	        SELECT 1 FROM activity_link l
+	         WHERE l.activity_id = a.entity_id AND l.entity_type = 'deal' AND l.deal_id = r.deal_id)
+	      AND NOT (a.content_type LIKE 'image/%' AND COALESCE(a.byte_size, 0) < 65536)))
+	AND NOT EXISTS (SELECT 1 FROM deal_document_hide h WHERE h.deal_id = r.deal_id AND h.attachment_id = a.id)`
 
 // ListDocuments returns a room's documents in group-then-position order.
 func (s *Store) ListDocuments(ctx context.Context, roomID ids.DealRoomID) ([]crmcontracts.DealRoomDocument, storekit.Page, error) {
@@ -83,9 +103,9 @@ func documentRows(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID) ([]crmc
 }
 
 // publishableDocumentRows is what a release freezes: only entries whose file is
-// still the deal's own.
+// still in the deal's Files area.
 func publishableDocumentRows(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID) ([]crmcontracts.DealRoomDocument, error) {
-	return documentRowsWhere(ctx, tx, roomID, " AND "+stillTheDealsFile)
+	return documentRowsWhere(ctx, tx, roomID, " AND "+inTheDealsFilesArea)
 }
 
 func documentRowsWhere(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, also string) ([]crmcontracts.DealRoomDocument, error) {
