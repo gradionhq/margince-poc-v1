@@ -11,6 +11,7 @@ package deals
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -18,6 +19,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -75,10 +77,13 @@ func (s *Store) TransferProjectOwnership(ctx context.Context, in TransferProject
 			return err
 		}
 		for _, id := range candidates {
-			if err := transferProjectOwner(ctx, tx, id, in); err != nil {
+			ok, err := transferProjectOwner(ctx, tx, id, in)
+			if err != nil {
 				return err
 			}
-			moved++
+			if ok {
+				moved++
+			}
 		}
 		return nil
 	})
@@ -144,24 +149,55 @@ func transferableProjectIDs(ctx context.Context, tx pgx.Tx, from ids.UserID) ([]
 // transferProjectOwner is one project's share of the handover, spelled as
 // UpdateProject spells an owner change: the row patch, the `update` audit row
 // with the owner_id images, and project.updated — all under the row lock.
-func transferProjectOwner(ctx context.Context, tx pgx.Tx, id ids.UUID, in TransferProjectOwnershipInput) error {
+//
+// false means the row was skipped, not moved: the candidate list was read
+// before the lock, and a concurrent writer may have re-owned, archived or
+// withdrawn the row in between. The lock is taken first and the row re-read
+// under it, so the before-image audited below is the owner the row actually
+// had, never the one the scan remembered.
+func transferProjectOwner(ctx context.Context, tx pgx.Tx, id ids.UUID, in TransferProjectOwnershipInput) (bool, error) {
 	lock, err := storekit.LockRow(ctx, tx, projectObject, id, storekit.LiveOnly)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return false, nil // archived since the scan
+	}
 	if err != nil {
-		return fmt.Errorf("lock project %s for transfer: %w", id, err)
+		return false, fmt.Errorf("lock project %s for transfer: %w", id, err)
+	}
+	still, err := stillTransferable(ctx, tx, id, in.FromOwnerID)
+	if err != nil || !still {
+		return false, err
 	}
 	p := storekit.NewPatch()
 	p.Set("owner_id", in.FromOwnerID, in.ToOwnerID)
 	if err := p.ApplyLocked(ctx, tx, lock); err != nil {
-		return fmt.Errorf("move project %s to its new owner: %w", id, err)
+		return false, fmt.Errorf("move project %s to its new owner: %w", id, err)
 	}
 	auditID, err := storekit.Audit(ctx, tx, "update", projectObject, id, p.Before(), p.After())
 	if err != nil {
-		return fmt.Errorf("audit project transfer: %w", err)
+		return false, fmt.Errorf("audit project transfer: %w", err)
 	}
 	if err := storekit.EmitEvent(ctx, tx, auditID, id, crmcontracts.PublicEventProjectUpdated{
 		ChangedFields: p.After(),
 	}); err != nil {
-		return fmt.Errorf("emit project.updated: %w", err)
+		return false, fmt.Errorf("emit project.updated: %w", err)
 	}
-	return nil
+	return true, nil
+}
+
+// stillTransferable re-asks, under the row lock, the two questions the scan
+// answered before it: is the row still the from-owner's, and is it still the
+// caller's to write. A row that moved between the two is left alone — the
+// other writer's change stands, and no audit row claims an owner it no
+// longer had.
+func stillTransferable(ctx context.Context, tx pgx.Tx, id ids.UUID, from ids.UserID) (bool, error) {
+	var ownedByFrom bool
+	if err := tx.QueryRow(ctx,
+		`SELECT owner_id = $2 FROM project WHERE id = $1 AND archived_at IS NULL`,
+		id, from).Scan(&ownedByFrom); err != nil {
+		return false, fmt.Errorf("re-read project %s under lock: %w", id, err)
+	}
+	if !ownedByFrom {
+		return false, nil
+	}
+	return auth.WritableBy(ctx, tx, projectObject, id)
 }

@@ -71,6 +71,18 @@ var fieldHistoryEntityTypes = map[string]bool{
 	"person": true, "organization": true, "deal": true, "lead": true, "project": true, entityTypeActivity: true,
 }
 
+// fieldHistoryEntityTypeList is fieldHistoryEntityTypes spelled for a
+// validation message, derived so the message cannot name fewer kinds than
+// the map admits.
+var fieldHistoryEntityTypeList = func() string {
+	kinds := make([]string, 0, len(fieldHistoryEntityTypes))
+	for kind := range fieldHistoryEntityTypes {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return strings.Join(kinds, ", ")
+}()
+
 var fieldHistoryActorTypes = map[string]bool{
 	"human": true, "agent": true, "system": true, "connector": true, "buyer": true,
 }

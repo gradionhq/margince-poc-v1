@@ -8816,7 +8816,7 @@ paths:
         One entry per field change, newest first, for the given `entity_type` + `entity_id`.
         A read-only projection over the append-only audit spine — no second history store.
         Only audit verbs whose before/after are honest field images project (create, update,
-        archive, restore, advance_stage); evidence-shaped rows (merge, promote, exports,
+        archive, restore, advance_stage, advance_phase); evidence-shaped rows (merge, promote, exports,
         tombstones) never fabricate field entries. The projection stops at the erasure
         boundary: after an Art. 17 erase or a retention anonymize, the scrub's tombstone row
         and everything older are withheld — the spine keeps its rows, the read refuses them —
