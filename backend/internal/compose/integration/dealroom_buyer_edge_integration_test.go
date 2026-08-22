@@ -25,11 +25,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 )
 
-// buyerRoom is the seller-side setup every scenario starts from: a live room
-// with one published task and one invited buyer, and the buyer's credential.
+// buyerRoom is the seller-side setup every scenario starts from: a live,
+// published room with one invited buyer, and the buyer's credential.
 type buyerRoom struct {
 	roomID     string
-	taskID     string
 	credential string
 	email      string
 }
@@ -47,14 +46,6 @@ func openPublishedRoom(t *testing.T, e *apptest.AppEnv) buyerRoom {
 	}
 	roomID, _ := room["id"].(string)
 
-	var task apptest.AnyMap
-	if status := e.Call(t, "POST", "/v1/deal-rooms/"+roomID+"/tasks", apptest.AnyMap{
-		"side": "buyer", "title": "Sign the DPA", "source": "ui",
-	}, nil, &task); status != http.StatusCreated {
-		t.Fatalf("create task = %d %v", status, task)
-	}
-	taskID, _ := task["id"].(string)
-
 	var release apptest.AnyMap
 	if status := e.Call(t, "POST", "/v1/deal-rooms/"+roomID+"/publish", apptest.AnyMap{}, nil, &release); status != http.StatusCreated {
 		t.Fatalf("publish = %d %v", status, release)
@@ -70,14 +61,14 @@ func openPublishedRoom(t *testing.T, e *apptest.AppEnv) buyerRoom {
 	if credential == "" {
 		t.Fatalf("invite returned no credential: %v", issued)
 	}
-	return buyerRoom{roomID: roomID, taskID: taskID, credential: credential, email: "laura@buyer.example"}
+	return buyerRoom{roomID: roomID, credential: credential, email: "laura@buyer.example"}
 }
 
 func bearer(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
 }
 
-func TestABuyerEntersTheRoomReadsTheReleaseAndTicksATask(t *testing.T) {
+func TestABuyerEntersTheRoomReadsTheReleaseAndSpeaks(t *testing.T) {
 	e := apptest.SetupApp(t)
 	e.BootstrapWorkspace(t)
 	room := openPublishedRoom(t, e)
@@ -126,32 +117,27 @@ func TestABuyerEntersTheRoomReadsTheReleaseAndTicksATask(t *testing.T) {
 		t.Fatalf("buyer saw an unpublished rename: %v", content["title"])
 	}
 
-	var tasks apptest.AnyMap
-	if status := publicCall(t, e, "GET", "/v1/public/rooms/tasks", nil, bearer(token), &tasks); status != http.StatusOK {
-		t.Fatalf("tasks = %d %v", status, tasks)
-	}
-	list, _ := tasks["data"].([]any)
-	if len(list) != 1 {
-		t.Fatalf("tasks = %v, want the one published item", list)
+	// The buyer speaks: a room-level thread, live, no publish needed.
+	var opened apptest.AnyMap
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/threads", apptest.AnyMap{"body": "When does the pilot start?"}, bearer(token), &opened); status != http.StatusCreated {
+		t.Fatalf("open thread = %d %v", status, opened)
 	}
 
-	var ticked apptest.AnyMap
-	if status := publicCall(t, e, "POST", "/v1/public/rooms/tasks/"+room.taskID+"/complete", apptest.AnyMap{"done": true}, bearer(token), &ticked); status != http.StatusOK {
-		t.Fatalf("complete = %d %v", status, ticked)
+	// The seller reads the same thread, attributed to the buyer's side.
+	var sellerThreads apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/deal-rooms/"+room.roomID+"/threads", nil, nil, &sellerThreads); status != http.StatusOK {
+		t.Fatalf("seller threads = %d", status)
 	}
-	if ticked["done"] != true || ticked["done_by"] != "buyer" {
-		t.Fatalf("ticked = %v, want done by buyer", ticked)
+	sellerList, _ := sellerThreads["data"].([]any)
+	if len(sellerList) != 1 {
+		t.Fatalf("seller threads = %v, want the one the buyer opened", sellerList)
 	}
-
-	// The seller sees the same tick, attributed to the participant.
-	var sellerTasks apptest.AnyMap
-	if status := e.Call(t, "GET", "/v1/deal-rooms/"+room.roomID+"/tasks", nil, nil, &sellerTasks); status != http.StatusOK {
-		t.Fatalf("seller tasks = %d", status)
-	}
-	sellerList, _ := sellerTasks["data"].([]any)
 	first, _ := sellerList[0].(map[string]any)
-	if first["done"] != true || first["done_by_participant_id"] == nil || first["done_by_user_id"] != nil {
-		t.Fatalf("seller view of the tick = %v", first)
+	comments, _ := first["comments"].([]any)
+	firstComment, _ := comments[0].(map[string]any)
+	author, _ := firstComment["author"].(map[string]any)
+	if author["side"] != "buyer" {
+		t.Fatalf("seller view of the buyer's comment = %v", first)
 	}
 
 	// Pause: the session still resolves, content is withheld, the tick refuses.
@@ -164,8 +150,8 @@ func TestABuyerEntersTheRoomReadsTheReleaseAndTicksATask(t *testing.T) {
 		t.Fatalf("paused me = %d %v, want access paused and no room", status, paused)
 	}
 	var refused apptest.AnyMap
-	if status := publicCall(t, e, "POST", "/v1/public/rooms/tasks/"+room.taskID+"/complete", apptest.AnyMap{"done": false}, bearer(token), &refused); status != http.StatusUnprocessableEntity || refused["code"] != "deal_room_paused" {
-		t.Fatalf("tick while paused = %d %v, want 422 deal_room_paused", status, refused)
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/threads", apptest.AnyMap{"body": "still there?"}, bearer(token), &refused); status != http.StatusUnprocessableEntity || refused["code"] != "deal_room_paused" {
+		t.Fatalf("comment while paused = %d %v, want 422 deal_room_paused", status, refused)
 	}
 
 	// Revoke: the next request is refused.
@@ -241,8 +227,8 @@ func TestEveryDeadCredentialReadsAlikeAndARoomSessionHoldsNoCRMAuthority(t *test
 	}
 	viewerToken, _ := viewerSession["session_token"].(string)
 	var viewerRefused apptest.AnyMap
-	if status := publicCall(t, e, "POST", "/v1/public/rooms/tasks/"+room.taskID+"/complete", apptest.AnyMap{"done": true}, bearer(viewerToken), &viewerRefused); status != http.StatusUnprocessableEntity || !strings.Contains(fmt.Sprint(viewerRefused["detail"]), "read-only") {
-		t.Fatalf("viewer tick = %d %v, want 422 view_only", status, viewerRefused)
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/threads", apptest.AnyMap{"body": "hello"}, bearer(viewerToken), &viewerRefused); status != http.StatusUnprocessableEntity || !strings.Contains(fmt.Sprint(viewerRefused["detail"]), "read-only") {
+		t.Fatalf("viewer comment = %d %v, want 422 view_only", status, viewerRefused)
 	}
 
 	// Sign-out works while paused (an access act), and ends the session.
