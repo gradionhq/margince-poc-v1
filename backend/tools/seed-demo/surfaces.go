@@ -368,7 +368,11 @@ func seedQuotas(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int
 			"period_end":   end,
 			// A round quarterly target, varied per seat so the attainment bars
 			// are not all the same length.
-			"target_minor": int64(150000+hashIndex("quota:"+ref, 12)*25000) * 100,
+			// money-scale-exempt: this MINTS a euro figure rather than converting
+			// a stored one, and the currency it is minted for is the literal on
+			// the very next line. There is no amount here whose scale a table
+			// could be asked about.
+			"target_minor": int64(150000+hashIndex("quota:"+ref, 12)*25000) * 100, // money-scale-exempt: minted in EUR, see above
 			"currency":     "EUR",
 		}
 		if err := c.post("/v1/quotas", body, nil); err != nil {

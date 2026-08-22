@@ -163,13 +163,16 @@ func generatedContractsFor(domain string, refs pipelineRefs, p profile) []demoCo
 				Company:        domain,
 				Title:          generatedContractTitle(locale, name, "renewal", i),
 				ContractNumber: contract.ContractNumber + "-R1",
-				ValueMinor:     value + value/10, // a renewal reprices upward
-				Currency:       currency,
-				ValueBasis:     "annualized_12m",
-				Status:         "active",
-				SignedInDays:   contract.EndsInDays - 20,
-				StartsInDays:   contract.EndsInDays + 1,
-				EndsInDays:     contract.EndsInDays + 366,
+				// money-scale-exempt: the 10 is a PERCENTAGE — a renewal reprices
+				// ten per cent upward — and the figure stays in whatever minor
+				// units it already carried. There is no scale conversion here.
+				ValueMinor:   value + value/10, // money-scale-exempt: a ten per cent reprice, see above
+				Currency:     currency,
+				ValueBasis:   "annualized_12m",
+				Status:       "active",
+				SignedInDays: contract.EndsInDays - 20,
+				StartsInDays: contract.EndsInDays + 1,
+				EndsInDays:   contract.EndsInDays + 366,
 			})
 			continue
 		}

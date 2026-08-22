@@ -138,7 +138,11 @@ func generatedAmount(domain string) int64 {
 		maxHundreds = 1800 // 180,000 EUR
 	)
 	hundreds := minHundreds + hashIndex("amount:"+domain, maxHundreds-minHundreds)
-	amount := int64(hundreds) * 100 * 100 // hundreds of euros, in minor units
+	// WHOLE EUROS, and it stays whole euros until a currency is chosen below.
+	// This is the unit the range above is written in ("4,000 EUR"), and keeping
+	// the figure in it is what stops the two scalings being applied to each
+	// other.
+	euros := int64(hundreds) * 100
 
 	// Scaled into the account's own currency, because the figure is READ.
 	// A dong contract carrying a euro-sized number printed "VND 154.800,00"
@@ -148,13 +152,20 @@ func generatedAmount(domain string) int64 {
 	// Deliberately round multiples rather than the real FX rate: these are
 	// plausible order sizes, not conversions of one another, and a demo whose
 	// amounts track a rate invites a question nobody wants to answer.
+	//
+	// Each arm returns MINOR units of its own currency, which is the only place
+	// the two scales meet: dong has none, so the rate alone is the answer, and
+	// the euro and the dollar carry two. The previous version converted to euro
+	// cents FIRST and then applied the dong rate to the cents, seeding a €4,000
+	// deal as ₫10,000,000,000 — a hundred times its intent, and self-consistent
+	// enough that the PDF looked plausible.
 	switch currencyFor(localeFor(domain)) {
 	case "VND":
-		return amount * 25000 // dong has no minor unit in practice
+		return euros * 25000 // money-scale-exempt: dong has no minor unit, so the rate IS the whole conversion
 	case "USD":
-		return amount // near enough to the euro at this precision
+		return euros * 100 // money-scale-exempt: minted at the dollar's two digits; near enough to the euro at this precision
 	default:
-		return amount
+		return euros * 100 // money-scale-exempt: minted at the euro's two digits
 	}
 }
 

@@ -49,6 +49,21 @@ var currencyMinorDigits = map[string]int{
 	"XAU": 0, "XAG": 0, "XPT": 0, "XPD": 0, "XDR": 0, "XXX": 0, "XTS": 0,
 }
 
+// MinorUnitExceptions is a copy of the table above, for the ONE caller that
+// needs to compare it rather than use it: the gate asserting that the browser's
+// mirror of this table has not drifted from it
+// (backend/frontendminorunits_test.go).
+//
+// A copy and not the map itself, because a caller holding the real one could
+// change what every money figure in the product scales by, from anywhere.
+func MinorUnitExceptions() map[string]int {
+	out := make(map[string]int, len(currencyMinorDigits))
+	for code, digits := range currencyMinorDigits {
+		out[code] = digits
+	}
+	return out
+}
+
 // MinorUnitDigits reports how many minor-unit digits a currency code carries.
 //
 // A code the table does not name answers 2, and that is the right answer rather
@@ -87,10 +102,7 @@ func MajorUnits(amountMinor int64, currency string) string {
 	if digits == 0 {
 		return strconv.FormatInt(amountMinor, 10)
 	}
-	scale := int64(1)
-	for range digits {
-		scale *= 10
-	}
+	scale := minorUnitScale(digits)
 	// The magnitude is taken as UNSIGNED, because negating an int64 does not
 	// always produce a positive one: math.MinInt64 has no positive counterpart
 	// and negating it yields itself, which would print a minus sign in front of
@@ -107,6 +119,37 @@ func MajorUnits(amountMinor int64, currency string) string {
 	// scale is 10^digits for digits in {2,3,4}, so it is small and positive.
 	unsigned := uint64(scale) // #nosec G115 -- a power of ten bounded by the table above
 	return fmt.Sprintf("%s%d.%0*d", sign, magnitude/unsigned, digits, magnitude%unsigned)
+}
+
+// minorUnitScale is 10^digits — how many minor units make one major unit.
+//
+// One spelling because both callers would otherwise write the same loop:
+// MajorUnits to split the figure into its two halves, WholeMajorUnits to
+// truncate it to the upper one.
+func minorUnitScale(digits int) int64 {
+	scale := int64(1)
+	for range digits {
+		scale *= 10
+	}
+	return scale
+}
+
+// WholeMajorUnits is the amount in whole major units, the fraction discarded:
+// 18000000 EUR is 180000, and the same integer in VND is 18000000 because VND
+// has no minor unit at all.
+//
+// It exists for the prose surfaces, which say an amount out loud ("€180k")
+// rather than stating it, and so need the integer rather than MajorUnits'
+// fixed-decimal string. It is HERE, not at those surfaces, because the division
+// is the arithmetic this file owns — the three copies that each wrote `/ 100`
+// themselves are how a zero-decimal currency came to be understated
+// hundredfold on three surfaces at once, one of them an outbound message.
+//
+// Truncation, not rounding: this figure is already an approximation the caller
+// abbreviates further, and rounding 999999 EUR up to "€10000" would state a
+// number the record does not hold.
+func WholeMajorUnits(amountMinor int64, currency string) int64 {
+	return amountMinor / minorUnitScale(MinorUnitDigits(currency))
 }
 
 // MinorUnits is MajorUnits' inverse: the figure a document writes ("12500.00",

@@ -128,7 +128,14 @@ func (p *OfflineProvider) InvoicesFor(
 		}
 		net := int64(rng.IntN(offlineAmountSpread)+offlineAmountFloor) * 100
 		invoice.NetMinor = net
-		invoice.TaxMinor = net * vatPercent / 100
+		// money-scale-exempt: the 100 is the PERCENT sign, not the minor unit.
+		// net is already in minor units and stays in them; dividing by a hundred
+		// here converts a percentage, and doing it through the ISO table would
+		// be a category error. The euros-to-cents multiply above is sound for
+		// the same reason its sibling in seed-demo is: `currency` is the literal
+		// "EUR" at the top of this generator, and this whole file is the
+		// labelled offline fake.
+		invoice.TaxMinor = net * vatPercent / 100 // money-scale-exempt: a percentage, see above
 		invoice.GrossMinor = invoice.NetMinor + invoice.TaxMinor
 
 		if period < kind.openTail {

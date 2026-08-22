@@ -56,6 +56,7 @@ import {
   formatMoney,
   formatMoneyOrAbsent,
 } from "../format/format";
+import { toMajorUnits, toMinorUnits } from "../format/minorunits";
 import { RECORD_ZONE } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -484,7 +485,16 @@ function dealEditRecord(deal: Deal): Record<
     id: deal.id,
     version: deal.version,
     name: deal.name,
-    amount: deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
+    // The currency's own scale, not a hundred. amount_minor and currency are
+    // NULL together (the deal_amount_currency_pair CHECK), so a priced deal
+    // always carries the code — but a row that WITHHELD the currency for row
+    // scope while sending the amount would be scaled at the two-digit default
+    // and shown wrong. There is no honest figure without its unit, so the field
+    // stays empty rather than guessing one.
+    amount:
+      deal.amount_minor != null && deal.currency
+        ? String(toMajorUnits(deal.amount_minor, deal.currency))
+        : "",
     currency: deal.currency ?? "",
     owner_id: deal.owner_id ?? "",
     organization_id: deal.organization_id ?? "",
@@ -562,10 +572,11 @@ export function mapDealUpdate(
   const amount = str(values.amount);
   const owner = str(values.owner_id);
   const forecast = str(values.forecast_category);
+  const currency = str(values.currency);
   const patch: UpdateDealRequest = {
     name: str(values.name) || undefined,
-    amount_minor: amount ? Math.round(Number(amount) * 100) : null,
-    currency: str(values.currency) || undefined,
+    amount_minor: amount ? toMinorUnits(Number(amount), currency) : null,
+    currency: currency || undefined,
     organization_id: str(values.organization_id) || null,
     owner_id: owner || null,
     partner_org_id: str(values.partner_org_id) || null,
@@ -623,13 +634,16 @@ export function mapDealCreate(
 ): CreateDealRequest {
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const amount = str(values.amount);
+  const currency = str(values.currency) || "EUR";
   return {
     name: str(values.name),
     pipeline_id: pipelineId,
     stage_id: str(values.stage_id),
-    // The UI takes major units; the wire is minor units.
-    amount_minor: amount ? Math.round(Number(amount) * 100) : null,
-    currency: str(values.currency) || "EUR",
+    // The UI takes major units; the wire is minor units, at the scale THIS
+    // currency carries — a dong has none, so multiplying by a hundred here
+    // priced the deal a hundredfold and nothing downstream could tell.
+    amount_minor: amount ? toMinorUnits(Number(amount), currency) : null,
+    currency,
     organization_id: str(values.organization_id) || null,
     partner_org_id: str(values.partner_org_id) || null,
     // The empty option means the caller made no claim, and null is how that

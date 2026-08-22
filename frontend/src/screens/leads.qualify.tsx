@@ -14,6 +14,7 @@ import {
 import { Callout } from "../design-system/callout";
 import { Select } from "../design-system/select";
 import { formatDate } from "../format/format";
+import { toMinorUnits } from "../format/minorunits";
 import { viewerZone } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
@@ -113,7 +114,10 @@ function dealBlock(input: {
     pipeline_id: input.pipelineId ?? null,
     stage_id: input.stageId ?? null,
     name: input.name.trim() || null,
-    amount_minor: priced ? Math.round(parsed * 100) : null,
+    // priced is false without a currency, so the code below is always the
+    // real one — a lead promoted at a dong price is stored as dong, not as a
+    // hundredth of one.
+    amount_minor: priced ? toMinorUnits(parsed, input.currency ?? "") : null,
     currency: priced ? (input.currency ?? null) : null,
   };
 }

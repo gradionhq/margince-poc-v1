@@ -31,6 +31,7 @@ import (
 	"github.com/go-pdf/fpdf"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // pdfLabels holds one locale's label set for the rendered PDF.
@@ -84,13 +85,14 @@ func resolvePDFLabels(locale string) pdfLabels {
 // display string with its currency code. Display-only: the money engine
 // itself (offer_totals.go) never touches a float, and this function never
 // re-derives the amount it formats.
+//
+// The decimal placement is values.MajorUnits' and not this file's, because the
+// PDF is the document a buyer receives and signs. A hard-coded /100 states an
+// offer priced in VND, JPY or KRW at a hundredth of its value — those
+// currencies have no minor unit, so their integer IS the amount — and states
+// a KWD offer at a hundred times, since a dinar has three.
 func pdfFormatMinor(minor int64, currency string) string {
-	sign := ""
-	if minor < 0 {
-		sign = "-"
-		minor = -minor
-	}
-	return fmt.Sprintf("%s%d.%02d %s", sign, minor/100, minor%100, currency)
+	return values.MajorUnits(minor, currency) + " " + currency
 }
 
 func pdfFormatQuantity(quantity float64) string {

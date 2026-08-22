@@ -7,6 +7,7 @@ import type { components } from "../api/schema";
 import { useInstallationSettings } from "../app/uploadlimit";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { FileDropzoneControl } from "../design-system/filedropzone";
+import { MoneyInput } from "../design-system/moneyinput";
 import { Select } from "../design-system/select";
 import { SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
@@ -84,6 +85,14 @@ export function ContractForm({
   // guessing a unit is the failure this whole pairing exists to prevent.
   const baseCurrency = useInstallationSettings().data?.base_currency;
 
+  // The scale the amount field reads and writes in. A recorded agreement keeps
+  // its OWN currency (draftOf preserves it); a new one takes the installation's
+  // declared code once that read lands. The empty-string fallback is not a
+  // guessed currency — it reaches only minorUnitDigits, whose unusable-code
+  // answer is ISO's own default of two, which is what this field assumed
+  // unconditionally before.
+  const contractCurrency = draft.currency || baseCurrency || "";
+
   // Re-seed when the modal opens on a DIFFERENT agreement. Without this the
   // form keeps the previous row's values, and a reader correcting the second
   // contract they clicked would be editing the first one's numbers.
@@ -155,18 +164,30 @@ export function ContractForm({
 
       <Field label={t("contracts.form.value")}>
         {(props) => (
-          <TextInput
+          // MoneyInput rather than a TextInput this file scales itself, and the
+          // reasons are the two defects the hand-rolled version had.
+          //
+          // It keeps the typed text as its OWN state, so a fractional amount is
+          // not reformatted between keystrokes — typing "12.345" into a
+          // three-decimal currency lost its tail when every keystroke was
+          // scaled and echoed back.
+          //
+          // And it re-seeds when the CURRENCY changes, which this form needs
+          // more than any other: the installation read that supplies the code
+          // may land after the reader has already typed. Scaling on each
+          // keystroke against a currency still in flight recorded the amount at
+          // the two-digit fallback and then reinterpreted the same integer at
+          // the real scale, with nothing on screen to say it had moved.
+          <MoneyInput
             {...props}
-            type="number"
             min={0}
-            step="0.01"
-            value={draft.valueMinor === 0 ? "" : draft.valueMinor / 100}
-            onChange={(e) =>
-              setDraft({
-                ...draft,
-                valueMinor: Math.round(Number(e.target.value || 0) * 100),
-              })
-            }
+            currency={contractCurrency}
+            valueMinor={draft.valueMinor}
+            // An agreement on record may carry no value at all — the two money
+            // columns are paired and both NULL until somebody prices it — so an
+            // unpriced one shows an empty field, not a nought nobody typed.
+            blankWhenZero
+            onChangeMinor={(valueMinor) => setDraft({ ...draft, valueMinor })}
           />
         )}
       </Field>

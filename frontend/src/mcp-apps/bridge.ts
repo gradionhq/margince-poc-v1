@@ -30,6 +30,7 @@
 //   the widest part of the extension's surface. A view that stays a renderer
 //   cannot become a second door onto a record.
 
+import { minorUnitDigits, toMajorUnits } from "../format/minorunits";
 import {
   asFiniteNumber,
   asRecord,
@@ -325,18 +326,25 @@ export function count(value: unknown): string {
  * money renders an amount the way the product renders one: integer MINOR units
  * scaled by the currency's own minor-unit count, never by a hard-coded 100.
  *
- * THE SCALING RULE IS THE ONE src/format/format.ts APPLIES, deliberately —
- * ask Intl how many fraction digits the currency has and divide by that power
- * of ten. JPY stores 1234 minor units and means ¥1,234; a view that divided by
- * 100 everywhere would render ¥12.34 for it, and the same class of mistake in
- * the other direction is what made an account brief report every deal a
- * hundred times too large.
+ * THE SCALE IS format/minorunits', which mirrors the server's ISO 4217 table.
+ * JPY stores 1234 minor units and means ¥1,234; a view that divided by 100
+ * everywhere would render ¥12.34 for it, and the same class of mistake in the
+ * other direction is what made an account brief report every deal a hundred
+ * times too large.
  *
- * It is a second implementation rather than an import because formatMoney
- * takes the SPA's Locale, and reaching for that would pull the translation
- * machinery into a document that is inlined whole and served to a third-party
- * host. So the locale is the host runtime's own, and the rule that must not
- * drift — the scale — is stated here in the same terms.
+ * This used to ask Intl for the digit count, on the stated grounds that it was
+ * the rule format.ts applied. Both halves of that stopped being true: format.ts
+ * takes the scale from minorunits now, and Intl was never the same table —
+ * Intl follows CLDR, which records how a currency is USED, and the server
+ * follows ISO, which records what the standard ASSIGNS. They disagree on ten
+ * codes, so this view rendered a stored IQD 1234 as "IQD 1,234" where the
+ * record means 1.234 dinars, and MGA and IRR a hundredfold out.
+ *
+ * Importing is safe where importing formatMoney was not: minorUnitDigits takes
+ * NO locale — a currency's minor-unit count is a property of the currency —
+ * so nothing of the translation machinery follows it into a document that is
+ * inlined whole and served to a third-party host. That is the reason the scale
+ * lives in its own module rather than inside the formatters.
  *
  * An amount that is not a finite number, or a currency Intl does not know,
  * renders as the em dash. Intl throws on an unknown currency code, and a view
@@ -355,12 +363,13 @@ export function money(amountMinor: unknown, currency: unknown): string {
   if (minor === null || code === "" || !Number.isSafeInteger(minor))
     return ABSENT;
   try {
-    const formatter = new Intl.NumberFormat(undefined, {
+    const digits = minorUnitDigits(code);
+    return new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: code,
-    });
-    const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
-    return formatter.format(minor / 10 ** digits);
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(toMajorUnits(minor, code));
   } catch {
     return ABSENT;
   }

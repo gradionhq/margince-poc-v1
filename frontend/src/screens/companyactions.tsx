@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { toMinorUnits } from "../format/minorunits";
 import { useT } from "../i18n";
 import { throwProblem } from "./common";
 import { CreateAction, type CreateField } from "./create";
@@ -108,7 +109,9 @@ export function NewDealAction({
         // refuses a half-populated pair (amount_currency_pair), so sending a
         // currency beside an empty amount 422s the field the form presents as
         // optional.
-        amount_minor: amount ? Math.round(Number(amount) * 100) : null,
+        amount_minor: amount
+          ? toMinorUnits(Number(amount), values.currency || "EUR")
+          : null,
         currency: amount ? values.currency || "EUR" : null,
         organization_id: orgId,
         project_id: projectId ?? null,

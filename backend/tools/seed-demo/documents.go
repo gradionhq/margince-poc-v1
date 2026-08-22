@@ -221,8 +221,24 @@ func contractPage(contract seededContract, refs pipelineRefs) pdfPage {
 
 // formatMinor renders integer minor units as a German-style amount, which is
 // what a contract in this dataset's currencies would print.
+//
+// It assumes two decimals, and for a zero-decimal currency that is WRONG: a
+// dong contract prints a hundredth of its value. The product's own answer is
+// values.MajorUnits, and this program cannot reach it — seed-demo is its own
+// module and internal/shared is not importable across that line, while
+// backend/pkg publishes no money surface. The alternatives are both worse than
+// the defect: a second ISO minor-unit table here is exactly the duplication the
+// money sweep removed, and publishing one under pkg puts a frozen API on the
+// extension surface to serve a demo-data generator.
+//
+// So the residue is deliberate and bounded: it affects the FAKE contract PDF in
+// the demo dataset, never a document a customer receives. generatedAmount
+// already scales the figure into the account's own currency for the same
+// realism reason, so the number is plausible even where the decimal point is
+// not. Fix it by giving seed-demo a real dependency on the product's table, not
+// by copying the table.
 func formatMinor(minor int64) string {
-	whole, cents := minor/100, minor%100
+	whole, cents := minor/100, minor%100 // money-scale-exempt: see above — no importable owner from this module, demo output only
 	var groups []string
 	for whole >= 1000 {
 		groups = append([]string{fmt.Sprintf("%03d", whole%1000)}, groups...)

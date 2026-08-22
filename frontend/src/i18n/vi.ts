@@ -5223,7 +5223,8 @@ export const vi = {
   "quotas.team": "Nhóm",
   "quotas.pickOwner": "Chọn người phụ trách…",
   "quotas.pickTeam": "Chọn nhóm…",
-  "quotas.amountHint": "Số euro chẵn — không có phần thập phân",
+  "quotas.amountHint":
+    "Số nguyên theo đơn vị tiền tệ bên dưới. Không có phần thập phân.",
   "quotas.periodStart": "Bắt đầu kỳ",
   "quotas.periodEnd": "Kết thúc kỳ",
   "quotas.amount": "Số tiền mục tiêu",

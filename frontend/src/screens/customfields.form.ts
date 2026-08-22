@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { formatMoneyOrAbsent } from "../format/format";
+import { toMajorUnits, toMinorUnits } from "../format/minorunits";
 import { webUrl } from "../format/weburl";
 import { type Locale, useT } from "../i18n";
 import type { CreateField } from "./create";
@@ -33,12 +34,18 @@ export function customFieldToFormField(
     case "date":
       return { ...base, type: "date" };
     case "currency":
-      // Stored as bigint minor units; the form edits major units.
+      // Stored as bigint minor units; the form edits major units, at the scale
+      // THIS field's own currency carries. The catalog holds that code
+      // (CF-T06) — the same one the renderer below formats with — so a
+      // hard-coded hundred here made the form and the display disagree for
+      // every currency that is not two-decimal.
       return {
         ...base,
         type: "number",
         toInput: (raw) =>
-          raw == null || raw === "" ? "" : String(Number(raw) / 100),
+          raw == null || raw === ""
+            ? ""
+            : String(toMajorUnits(Number(raw), field.currency ?? "")),
       };
     case "picklist":
       return {
@@ -71,8 +78,25 @@ function coerceWrite(field: CustomField, raw: string): unknown {
     return null;
   }
   switch (field.type) {
-    case "currency":
-      return Math.round(Number(value) * 100);
+    case "currency": {
+      // An unusable amount is OMITTED, not sent. toMinorUnits answers NaN for a
+      // figure finer than its currency or too large to scale exactly, and NaN
+      // serialises to null — which on a PATCH means "clear this column". A
+      // typo would then DELETE a stored price instead of being refused, which
+      // is the one outcome worse than a wrong figure.
+      const minor = toMinorUnits(Number(value), field.currency ?? "");
+      if (Number.isNaN(minor)) {
+        // Sent as the typed TEXT rather than omitted. Omitting protected the
+        // stored value but said nothing: the reader watched their edit vanish
+        // on save with no error. The column is a bigint, so the server refuses
+        // a non-integer by name and the reader is told which field and why —
+        // the same posture as documentextraction, which sends an unconvertible
+        // figure as typed "so the server refuses it by name, rather than being
+        // silently rounded into something plausible".
+        return value;
+      }
+      return minor;
+    }
     case "boolean":
       return value === "true" ? true : value === "false" ? false : null;
     default:

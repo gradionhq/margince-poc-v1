@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose/claims"
+	"github.com/gradionhq/margince/backend/internal/compose/personcontext"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
@@ -142,7 +143,7 @@ func headerSection(in Input) []Sentence {
 // where it sits, and when it is meant to land.
 func dealHeaderLine(deal DealIn) string {
 	parts := []string{deal.Name}
-	if amount := spokenAmount(deal.AmountMinor, deal.Currency); amount != "" {
+	if amount := personcontext.SpokenAmount(deal.AmountMinor, deal.Currency); amount != "" {
 		parts = append(parts, amount)
 	}
 	if deal.Stage != "" {
@@ -461,22 +462,4 @@ func companyContextSection(in Input) []Sentence {
 		})
 	}
 	return out
-}
-
-// spokenAmount renders a deal's value the way somebody would SAY it: "€95k",
-// not "95000.00 EUR". The exact figure belongs on the deal card, where a reader
-// is checking a number; here it is one clause of a header line.
-func spokenAmount(minor int64, currency string) string {
-	if minor == 0 || currency == "" {
-		return ""
-	}
-	symbol := map[string]string{"EUR": "€", "USD": "$", "GBP": "£"}[currency]
-	if symbol == "" {
-		symbol = currency + " "
-	}
-	major := minor / 100
-	if major >= 1000 {
-		return fmt.Sprintf("%s%dk", symbol, major/1000)
-	}
-	return fmt.Sprintf("%s%d", symbol, major)
 }
