@@ -55,6 +55,9 @@ components:
         - deal_room.participant_revoked
         - deal_room.participant_credential_reissued
         - deal_room.task_completion_changed
+        - deal_room.comment_posted
+        - deal_room.thread_resolved
+        - deal_room.decision_recorded
         - offer.created
         - offer.sent
         - offer.accepted
@@ -489,6 +492,102 @@ components:
         deal_id:
           type: string
           format: uuid
+      additionalProperties: false
+
+    PublicEventDealRoomCommentPosted:
+      type: object
+      x-event-type: deal_room.comment_posted
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.comment_posted — somebody on either side said
+        something in a room thread, on a document or on the room as a whole. The
+        comment's text is deliberately absent: a subscriber reads it through the
+        room, under the room's own authority, not off the bus.
+      required:
+        - deal_id
+        - thread_id
+        - comment_id
+        - side
+        - opens_thread
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        thread_id:
+          type: string
+          format: uuid
+        comment_id:
+          type: string
+          format: uuid
+        document_id:
+          type: [string, 'null']
+          format: uuid
+          description: The room document the thread is about; null for a room-level exchange.
+        side:
+          type: string
+          description: Who spoke — `seller` or `buyer`.
+        opens_thread:
+          type: boolean
+          description: True when this comment is the thread's first — a new question, not a reply.
+        required_change:
+          type: boolean
+          description: True when the thread, as opened, blocks confirming the document until resolved.
+      additionalProperties: false
+
+    PublicEventDealRoomThreadResolved:
+      type: object
+      x-event-type: deal_room.thread_resolved
+      x-entity-type: deal_room
+      x-version: 1
+      description: Payload for deal_room.thread_resolved — a thread was closed by the seller's side.
+      required:
+        - deal_id
+        - thread_id
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        thread_id:
+          type: string
+          format: uuid
+        document_id:
+          type: [string, 'null']
+          format: uuid
+      additionalProperties: false
+
+    PublicEventDealRoomDecisionRecorded:
+      type: object
+      x-event-type: deal_room.decision_recorded
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.decision_recorded — a buyer asked for changes to a
+        document version, or confirmed it. A confirmation is a working decision
+        inside the room and explicitly not a legal signature.
+      required:
+        - deal_id
+        - decision_id
+        - document_id
+        - attachment_id
+        - kind
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        decision_id:
+          type: string
+          format: uuid
+        document_id:
+          type: string
+          format: uuid
+        attachment_id:
+          type: string
+          format: uuid
+          description: The exact version decided on.
+        kind:
+          type: string
+          description: '`request_changes` or `confirm_version`.'
       additionalProperties: false
 
     PublicEventDealRoomTaskCompletionChanged:

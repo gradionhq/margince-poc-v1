@@ -103,6 +103,8 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"createDealRoom":            createCommand,
 	"createDealRoomTask":        createDealRoomTaskCommand,
 	"addDealRoomDocument":       createDealRoomTaskCommand,
+	"openDealRoomThread":        createDealRoomTaskCommand,
+	"replyDealRoomThread":       createDealRoomTaskCommand,
 	"createImportRun":           previewImportCommand,
 	"createLead":                createCommand,
 	"createList":                createCommand,

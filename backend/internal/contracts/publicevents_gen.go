@@ -128,6 +128,8 @@ const (
 	DealRestored                          SubscribableEventType = "deal.restored"
 	DealRoomArchived                      SubscribableEventType = "deal_room.archived"
 	DealRoomClosed                        SubscribableEventType = "deal_room.closed"
+	DealRoomCommentPosted                 SubscribableEventType = "deal_room.comment_posted"
+	DealRoomDecisionRecorded              SubscribableEventType = "deal_room.decision_recorded"
 	DealRoomOpened                        SubscribableEventType = "deal_room.opened"
 	DealRoomParticipantCredentialReissued SubscribableEventType = "deal_room.participant_credential_reissued"
 	DealRoomParticipantInvited            SubscribableEventType = "deal_room.participant_invited"
@@ -136,6 +138,7 @@ const (
 	DealRoomPublished                     SubscribableEventType = "deal_room.published"
 	DealRoomResumed                       SubscribableEventType = "deal_room.resumed"
 	DealRoomTaskCompletionChanged         SubscribableEventType = "deal_room.task_completion_changed"
+	DealRoomThreadResolved                SubscribableEventType = "deal_room.thread_resolved"
 	DealRoomUpdated                       SubscribableEventType = "deal_room.updated"
 	DealStageChanged                      SubscribableEventType = "deal.stage_changed"
 	DealUpdated                           SubscribableEventType = "deal.updated"
@@ -253,6 +256,10 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case DealRoomClosed:
 		return true
+	case DealRoomCommentPosted:
+		return true
+	case DealRoomDecisionRecorded:
+		return true
 	case DealRoomOpened:
 		return true
 	case DealRoomParticipantCredentialReissued:
@@ -268,6 +275,8 @@ func (e SubscribableEventType) Valid() bool {
 	case DealRoomResumed:
 		return true
 	case DealRoomTaskCompletionChanged:
+		return true
+	case DealRoomThreadResolved:
 		return true
 	case DealRoomUpdated:
 		return true
@@ -676,6 +685,42 @@ type PublicEventDealRoomClosed struct {
 	DealId openapi_types.UUID `json:"deal_id"`
 }
 
+// PublicEventDealRoomCommentPosted Payload for deal_room.comment_posted — somebody on either side said
+// something in a room thread, on a document or on the room as a whole. The
+// comment's text is deliberately absent: a subscriber reads it through the
+// room, under the room's own authority, not off the bus.
+type PublicEventDealRoomCommentPosted struct {
+	CommentId openapi_types.UUID `json:"comment_id"`
+	DealId    openapi_types.UUID `json:"deal_id"`
+
+	// DocumentId The room document the thread is about; null for a room-level exchange.
+	DocumentId *openapi_types.UUID `json:"document_id,omitempty"`
+
+	// OpensThread True when this comment is the thread's first — a new question, not a reply.
+	OpensThread bool `json:"opens_thread"`
+
+	// RequiredChange True when the thread, as opened, blocks confirming the document until resolved.
+	RequiredChange *bool `json:"required_change,omitempty"`
+
+	// Side Who spoke — `seller` or `buyer`.
+	Side     string             `json:"side"`
+	ThreadId openapi_types.UUID `json:"thread_id"`
+}
+
+// PublicEventDealRoomDecisionRecorded Payload for deal_room.decision_recorded — a buyer asked for changes to a
+// document version, or confirmed it. A confirmation is a working decision
+// inside the room and explicitly not a legal signature.
+type PublicEventDealRoomDecisionRecorded struct {
+	// AttachmentId The exact version decided on.
+	AttachmentId openapi_types.UUID `json:"attachment_id"`
+	DealId       openapi_types.UUID `json:"deal_id"`
+	DecisionId   openapi_types.UUID `json:"decision_id"`
+	DocumentId   openapi_types.UUID `json:"document_id"`
+
+	// Kind `request_changes` or `confirm_version`.
+	Kind string `json:"kind"`
+}
+
 // PublicEventDealRoomOpened Payload for deal_room.opened — a Deal Room was created on a deal. Nothing is
 // buyer-visible yet: the room starts in draft and stays private until a human
 // publishes it.
@@ -758,6 +803,13 @@ type PublicEventDealRoomTaskCompletionChanged struct {
 	// Side Which side owed the item — `seller` or `buyer`.
 	Side   string             `json:"side"`
 	TaskId openapi_types.UUID `json:"task_id"`
+}
+
+// PublicEventDealRoomThreadResolved Payload for deal_room.thread_resolved — a thread was closed by the seller's side.
+type PublicEventDealRoomThreadResolved struct {
+	DealId     openapi_types.UUID  `json:"deal_id"`
+	DocumentId *openapi_types.UUID `json:"document_id,omitempty"`
+	ThreadId   openapi_types.UUID  `json:"thread_id"`
 }
 
 // PublicEventDealRoomUpdated Payload for deal_room.updated — the room's WORKING copy changed. What the
@@ -1740,6 +1792,14 @@ func (PublicEventDealRoomClosed) EventType() string { return "deal_room.closed" 
 
 func (PublicEventDealRoomClosed) EntityType() string { return "deal_room" }
 
+func (PublicEventDealRoomCommentPosted) EventType() string { return "deal_room.comment_posted" }
+
+func (PublicEventDealRoomCommentPosted) EntityType() string { return "deal_room" }
+
+func (PublicEventDealRoomDecisionRecorded) EventType() string { return "deal_room.decision_recorded" }
+
+func (PublicEventDealRoomDecisionRecorded) EntityType() string { return "deal_room" }
+
 func (PublicEventDealRoomOpened) EventType() string { return "deal_room.opened" }
 
 func (PublicEventDealRoomOpened) EntityType() string { return "deal_room" }
@@ -1779,6 +1839,10 @@ func (PublicEventDealRoomTaskCompletionChanged) EventType() string {
 }
 
 func (PublicEventDealRoomTaskCompletionChanged) EntityType() string { return "deal_room" }
+
+func (PublicEventDealRoomThreadResolved) EventType() string { return "deal_room.thread_resolved" }
+
+func (PublicEventDealRoomThreadResolved) EntityType() string { return "deal_room" }
 
 func (PublicEventDealRoomUpdated) EventType() string { return "deal_room.updated" }
 
@@ -2068,6 +2132,8 @@ var PublicEventVersions = map[string]int{
 	"deal.updated":                              1,
 	"deal_room.archived":                        1,
 	"deal_room.closed":                          1,
+	"deal_room.comment_posted":                  1,
+	"deal_room.decision_recorded":               1,
 	"deal_room.opened":                          1,
 	"deal_room.participant_credential_reissued": 1,
 	"deal_room.participant_invited":             1,
@@ -2076,6 +2142,7 @@ var PublicEventVersions = map[string]int{
 	"deal_room.published":                       1,
 	"deal_room.resumed":                         1,
 	"deal_room.task_completion_changed":         1,
+	"deal_room.thread_resolved":                 1,
 	"deal_room.updated":                         1,
 	"email_signature.changed":                   1,
 	"engagement.reply":                          1,
