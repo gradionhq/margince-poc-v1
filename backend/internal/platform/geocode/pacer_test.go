@@ -6,6 +6,8 @@ package geocode
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -39,5 +41,46 @@ func TestAStoppedWaitSaysItWasStopped(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("a stopped wait answered %v, want it to say it was cancelled — a caller "+
 			"that cannot tell records the address as failed and spends one of its attempts", err)
+	}
+}
+
+// A SLOW PROVIDER is not a shutdown, and the difference decides whether a
+// company keeps its attempts.
+//
+// Both surface as a deadline: the http.Client's own timeout reports
+// context.DeadlineExceeded, exactly as a cancelled parent would. So a caller
+// that tests the ERROR cannot tell "we were stopped" from "the provider did
+// not answer in time" — and the second is a real failed lookup that should be
+// counted, while the first learned nothing and must not be.
+//
+// The caller therefore asks the CONTEXT, which is live here and done for a
+// shutdown. This test pins the shape that makes that distinction available.
+func TestASlowProviderLooksLikeADeadlineButTheContextIsLive(t *testing.T) {
+	// Held on a channel rather than a sleep: the handler blocks until the test
+	// releases it, so the client's timeout is what ends the request and the
+	// test never waits on a clock.
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer slow.Close()
+	defer close(release)
+
+	ctx := context.Background()
+	client := NewNominatim(slow.URL, &http.Client{Timeout: 50 * time.Millisecond})
+	_, _, err := client.Resolve(ctx, "Anywhere")
+	if err == nil {
+		t.Fatal("a provider that never answered returned no error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a slow provider answered %v, want a deadline — the shape a caller must "+
+			"not confuse with a shutdown", err)
+	}
+	if ctx.Err() != nil {
+		t.Error("the context is done after only the HTTP call timed out; the caller would " +
+			"read a slow provider as a shutdown and never count the failed lookup")
 	}
 }

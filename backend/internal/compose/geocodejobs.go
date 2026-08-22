@@ -214,21 +214,27 @@ func (w *geocodeWorker) Work(ctx context.Context, job *river.Job[GeocodeOrganiza
 
 	point, found, err := w.geocoder.Resolve(wsCtx, address.Query)
 	if err != nil {
-		// A CANCELLED job never asked the provider, so it is not a failure of
-		// this address and must not spend one of its three attempts.
+		// A job STOPPED BEFORE IT ASKED never learned anything about this
+		// address, so it must not spend one of its three attempts.
 		//
-		// The pacer holds a job for up to the policy interval before the
+		// The pacer holds a lookup for up to the policy interval before the
 		// request is even built, and it gives up when the context does — so
 		// every lookup waiting its turn when the worker shuts down came back
-		// here with context.Canceled. Recording that as `failed` burned an
-		// attempt, set a day-long backoff, and left a company unlocated for a
-		// reason that had nothing to do with its address. Six of Lars's
-		// companies sat that way, every one of them a valid German address
-		// that resolves in under a second.
+		// here cancelled. Recording that as `failed` burned an attempt, set a
+		// day-long backoff, and left a company unlocated for a reason that had
+		// nothing to do with its address. Six companies sat that way, every one
+		// a valid German address that resolves in under a second.
+		//
+		// The test is the CONTEXT's own state, not the error's. A slow provider
+		// surfaces as context.DeadlineExceeded too — the http.Client's timeout
+		// says exactly that — and that IS a failed lookup worth counting, since
+		// a provider too slow to answer is one this address cannot be resolved
+		// against right now. Asking the context tells the two apart: it is done
+		// when the worker was stopped, and live when only the HTTP call gave up.
 		//
 		// Returned unrecorded: River re-queues the job, and the next worker
 		// asks properly.
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if wsCtx.Err() != nil {
 			return jobs.FaultContext(wsCtx,
 				fmt.Errorf("geocoding %q was cut short before the provider was asked: %w",
 					address.Query, err))
