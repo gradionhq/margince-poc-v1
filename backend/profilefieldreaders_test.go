@@ -23,6 +23,7 @@ import (
 	"go/parser"
 	"go/token"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
@@ -61,8 +62,16 @@ var profileFieldRead = gatekit.TableReadPattern("person_profile_field")
 // too. That is a false POSITIVE — it surfaces as a reader that must be
 // overlaid or ratified, never as silence — and a wrong waiver is visible in
 // review where a missed reader is not.
+// valueColumns are the columns that carry the assertion itself or the evidence
+// for it — the things a human verdict can overturn. Named as a LIST rather than
+// spelled inside the pattern so the defect test can derive a must-catch case
+// per word: a hand-written set of cases covered two of four, and dropping one
+// of the other two from the pattern would have gone unnoticed, which is the
+// silent-miss direction this whole census exists to close.
+var valueColumns = []string{"value", "evidence_snippet", "source_ref", "confidence"}
+
 var selectsValues = regexp.MustCompile(
-	`(?is)SELECT\s.*?(?:\b(?:value|evidence_snippet|source_ref|confidence)\b|(?:[a-z_]+\.)?\*).*?\sFROM\s`)
+	`(?is)SELECT\s.*?(?:\b(?:` + strings.Join(valueColumns, "|") + `)\b|(?:[a-z_]+\.)?\*).*?\sFROM\s`)
 
 // profileFieldValueReaders ratifies each statement that serves values from the
 // table WITHOUT the verdict overlay, and says what each one costs.
@@ -181,10 +190,6 @@ func TestTheProfileFieldCensusSeesWhatItClaimsTo(t *testing.T) {
 			source: `func read() string { return "SELECT * FROM person_profile_field" }`,
 			want:   []string{"read"},
 		},
-		"evidence is a value too": {
-			source: `func read() string { return "SELECT evidence_snippet FROM person_profile_field" }`,
-			want:   []string{"read"},
-		},
 		// An existence probe serves nobody: `field` says WHICH assertion a row
 		// is about and appears in the WHERE of every one of them, which is why
 		// it is not a value word.
@@ -224,6 +229,32 @@ func applyFieldVerdicts() {}`,
 				if got[i] != tc.want[i] {
 					t.Errorf("offender %d = %q, want %q", i, got[i], tc.want[i])
 				}
+			}
+		})
+	}
+
+	// EVERY value word gets a must-catch case, and the list is written out HERE
+	// rather than taken from valueColumns.
+	//
+	// That is the whole point and it was wrong once: deriving the cases from the
+	// same list the pattern is built from makes them vacuous, because dropping a
+	// word removes its own test along with it. Measured — cutting valueColumns
+	// to two words left the derived version green. A test and the thing it tests
+	// cannot share a source.
+	//
+	// So the equality check below is what makes this hold in both directions: a
+	// word removed from the pattern fails it, and a word ADDED to the pattern
+	// fails it until somebody writes the case that proves the pattern sees it.
+	expectedValueColumns := []string{"value", "evidence_snippet", "source_ref", "confidence"}
+	if strings.Join(valueColumns, ",") != strings.Join(expectedValueColumns, ",") {
+		t.Fatalf("valueColumns = %v, and this test names %v — every value word owes a must-catch case below, so add or remove one here to match",
+			valueColumns, expectedValueColumns)
+	}
+	for _, column := range expectedValueColumns {
+		t.Run("serving "+column+" is a serve", func(t *testing.T) {
+			source := `func read() string { return "SELECT ` + column + ` FROM person_profile_field" }`
+			if got := unoverlaidValueReaders(parseProbe(t, source)); len(got) != 1 {
+				t.Errorf("a read of %s was not seen as serving a value: offenders = %v", column, got)
 			}
 		})
 	}
