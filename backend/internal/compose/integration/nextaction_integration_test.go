@@ -39,7 +39,9 @@ func TestTheNextBestActionFollowsTheDealsOwnTimeline(t *testing.T) {
 		t.Fatalf("create task from the recommendation = %d", status)
 	}
 	var after apptest.AnyMap
-	e.Call(t, "GET", "/v1/deals/"+dealID+"/next-best-action", nil, nil, &after)
+	if status := e.Call(t, "GET", "/v1/deals/"+dealID+"/next-best-action", nil, nil, &after); status != http.StatusOK {
+		t.Fatalf("nba after task = %d %v", status, after)
+	}
 	if after["action"] != "none" {
 		t.Fatalf("after creating the task, got %v", after)
 	}
@@ -54,7 +56,9 @@ func TestTheNextBestActionFollowsTheDealsOwnTimeline(t *testing.T) {
 		t.Fatalf("log mail = %d %v", status, mail)
 	}
 	var reply apptest.AnyMap
-	e.Call(t, "GET", "/v1/deals/"+dealID+"/next-best-action", nil, nil, &reply)
+	if status := e.Call(t, "GET", "/v1/deals/"+dealID+"/next-best-action", nil, nil, &reply); status != http.StatusOK {
+		t.Fatalf("nba after mail = %d %v", status, reply)
+	}
 	replyArgs, _ := reply["arguments"].(map[string]any)
 	if reply["action"] != "draft_email" || replyArgs["activity_id"] != mail["id"] {
 		t.Fatalf("after an inbound mail, got %v", reply)

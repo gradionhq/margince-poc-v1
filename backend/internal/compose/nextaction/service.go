@@ -30,9 +30,12 @@ const (
 // brief is the thing to open; beyond it the deal still needs a move today.
 const meetingHorizon = 72 * time.Hour
 
-// How many timeline rows the rules read. The questions they ask — is the
-// last message unanswered, when did anyone last speak — are answered by the
-// most recent handful; a deal with a longer tail does not change the answer.
+// How many timeline rows the rules read. The timeline is ordered by
+// occurred_at DESC, which is when a thing happened OR is scheduled — a booked
+// meeting sits at the top with a future time — so the window holds the nearest
+// scheduled rows and then the most recent past ones. The rules look at the
+// past rows for "last contact" and "unanswered", and an older inbound mail
+// pushed out of the window by newer traffic is, by that traffic, answered.
 const timelineWindow = 25
 
 // Service assembles the recommendation from the two modules it reads.
@@ -126,12 +129,18 @@ func withAction(out crmcontracts.DealNextBestAction, action, reason string, args
 	return out
 }
 
-// upcomingMeeting is the soonest booked meeting inside the horizon.
+// upcomingMeeting is the soonest booked meeting inside the horizon. A meeting
+// with no status is booked — the predicate person360 and org360's next-meeting
+// reads spell (`meeting_status IS NULL OR = 'booked'`), so the card and the
+// record pages agree about which meeting is next.
 func upcomingMeeting(f facts) (crmcontracts.Activity, bool) {
 	var best crmcontracts.Activity
 	found := false
 	for _, a := range f.timeline {
-		if a.Kind != crmcontracts.ActivityKindMeeting || a.MeetingStatus == nil || *a.MeetingStatus != crmcontracts.ActivityMeetingStatusBooked {
+		if a.Kind != crmcontracts.ActivityKindMeeting || withheld(a) {
+			continue
+		}
+		if a.MeetingStatus != nil && *a.MeetingStatus != crmcontracts.ActivityMeetingStatusBooked {
 			continue
 		}
 		if a.OccurredAt.Before(f.now) || a.OccurredAt.After(f.now.Add(meetingHorizon)) {
@@ -144,11 +153,14 @@ func upcomingMeeting(f facts) (crmcontracts.Activity, bool) {
 	return best, found
 }
 
-// unansweredInbound is the latest inbound message with no outbound after it.
-// The timeline is newest first, so the first directional row decides.
+// unansweredInbound is the latest inbound MAIL with no outbound mail after it.
+// Mail only: the verb this arm names drafts a threaded reply, which the draft
+// path composes only for an inbound email — an inbound call has no thread to
+// answer on, and falls through to the next rule. Among the past rows, the
+// first directional mail decides.
 func unansweredInbound(f facts) (crmcontracts.Activity, bool) {
 	for _, a := range f.timeline {
-		if a.Direction == nil {
+		if a.Kind != crmcontracts.ActivityKindEmail || a.Direction == nil || a.OccurredAt.After(f.now) || withheld(a) {
 			continue
 		}
 		if *a.Direction == crmcontracts.ActivityDirectionInbound {
@@ -159,18 +171,39 @@ func unansweredInbound(f facts) (crmcontracts.Activity, bool) {
 	return crmcontracts.Activity{}, false
 }
 
+// lastContact is the newest row that has already happened. The timeline's
+// first rows can be scheduled meetings with future times, which are plans and
+// not contact.
+func lastContact(f facts) (crmcontracts.Activity, bool) {
+	for _, a := range f.timeline {
+		if !a.OccurredAt.After(f.now) {
+			return a, true
+		}
+	}
+	return crmcontracts.Activity{}, false
+}
+
+// withheld says the caller may know the row exists but not read it. Such a
+// row is never NAMED as an operand: the verb the answer would point at gates
+// on content, so the button would 404. It still counts as contact having
+// happened, which is all the next-step rule needs from it.
+func withheld(a crmcontracts.Activity) bool {
+	return a.ContentState != nil && *a.ContentState == crmcontracts.ActivityContentStateWithheld
+}
+
 func nextStepReason(f facts) string {
-	if len(f.timeline) == 0 {
+	last, ok := lastContact(f)
+	if !ok {
 		return "Nothing has happened on this deal yet — decide the first step."
 	}
-	return fmt.Sprintf("Last contact was %s and nothing is planned — put the next step on the list.", since(f.now, f.timeline[0].OccurredAt))
+	return fmt.Sprintf("Last contact was %s and nothing is planned — put the next step on the list.", since(f.now, last.OccurredAt))
 }
 
 func lastContactEvidence(f facts) []crmcontracts.DealNextBestActionEvidence {
-	if len(f.timeline) == 0 {
+	last, ok := lastContact(f)
+	if !ok {
 		return nil
 	}
-	last := f.timeline[0]
 	return []crmcontracts.DealNextBestActionEvidence{evidenceOf(last, "Last activity: "+subjectOf(last))}
 }
 
@@ -198,11 +231,21 @@ func until(now, at time.Time) string {
 }
 
 func spanWords(d time.Duration) string {
+	if d < 0 {
+		// A caller handed a future time to "since" or a past one to "until".
+		// Rendering it as a small positive span would state a falsehood;
+		// rendering nothing keeps the sentence honest about what it knows.
+		d = 0
+	}
 	switch {
 	case d < time.Hour:
 		return "under an hour"
-	case d < 48*time.Hour:
+	case d < 2*time.Hour:
+		return "an hour"
+	case d < 24*time.Hour:
 		return fmt.Sprintf("%d hours", int(d.Hours()))
+	case d < 48*time.Hour:
+		return "a day"
 	default:
 		return fmt.Sprintf("%d days", int(d.Hours()/24))
 	}

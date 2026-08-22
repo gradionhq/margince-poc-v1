@@ -38,6 +38,18 @@ func outbound(at time.Time) crmcontracts.Activity {
 	return a
 }
 
+func withStatus(a crmcontracts.Activity, st crmcontracts.ActivityMeetingStatus) crmcontracts.Activity {
+	a.MeetingStatus = &st
+	return a
+}
+
+func inboundCall(at time.Time) crmcontracts.Activity {
+	a := activity(crmcontracts.ActivityKindCall, at)
+	d := crmcontracts.ActivityDirectionInbound
+	a.Direction = &d
+	return a
+}
+
 func booked(at time.Time) crmcontracts.Activity {
 	a := activity(crmcontracts.ActivityKindMeeting, at)
 	st := crmcontracts.ActivityMeetingStatusBooked
@@ -56,7 +68,10 @@ func TestTheRulesPickOneVerbInPriorityOrder(t *testing.T) {
 	}{
 		{"a meeting inside the horizon wins over everything", []crmcontracts.Activity{inbound(now.Add(-time.Hour)), booked(now.Add(24 * time.Hour))}, []activities.OpenTask{{Subject: "x"}}, ActionOpenMeetingBrief, "activity_id"},
 		{"a meeting beyond the horizon does not count", []crmcontracts.Activity{booked(now.Add(10 * 24 * time.Hour))}, nil, ActionCreateTask, "subject"},
-		{"a held meeting is history, not a next step", []crmcontracts.Activity{activity(crmcontracts.ActivityKindMeeting, now.Add(time.Hour))}, nil, ActionCreateTask, "subject"},
+		{"a meeting with no status is booked, as the record pages read it", []crmcontracts.Activity{activity(crmcontracts.ActivityKindMeeting, now.Add(time.Hour))}, nil, ActionOpenMeetingBrief, "activity_id"},
+		{"a canceled meeting is not a next step", []crmcontracts.Activity{withStatus(activity(crmcontracts.ActivityKindMeeting, now.Add(time.Hour)), crmcontracts.ActivityMeetingStatusCanceled)}, nil, ActionCreateTask, "subject"},
+		{"an inbound call is not answered by mail", []crmcontracts.Activity{inboundCall(now.Add(-time.Hour))}, nil, ActionCreateTask, "subject"},
+		{"a meeting ten days out does not pass for last contact", []crmcontracts.Activity{booked(now.Add(10 * 24 * time.Hour)), outbound(now.Add(-5 * 24 * time.Hour))}, nil, ActionCreateTask, "subject"},
 		{"an unanswered inbound mail asks for a reply", []crmcontracts.Activity{inbound(now.Add(-2 * time.Hour)), outbound(now.Add(-3 * 24 * time.Hour))}, nil, ActionDraftEmail, "activity_id"},
 		{"an answered inbound mail does not", []crmcontracts.Activity{outbound(now.Add(-time.Hour)), inbound(now.Add(-2 * time.Hour))}, nil, ActionCreateTask, "subject"},
 		{"an open task means the next step is already named", []crmcontracts.Activity{outbound(now.Add(-time.Hour))}, []activities.OpenTask{{ID: ids.NewV7(), Subject: "Send the redline"}}, ActionNone, ""},
@@ -80,10 +95,40 @@ func TestTheRulesPickOneVerbInPriorityOrder(t *testing.T) {
 			if got.Arguments == nil || (*got.Arguments)[tc.argument] == nil {
 				t.Fatalf("arguments = %v, want %q", got.Arguments, tc.argument)
 			}
-			if len(got.Evidence) == 0 && tc.timeline != nil {
-				t.Fatal("an answer from a non-empty timeline names its evidence")
+			if len(got.Evidence) == 0 && hasPast(tc.timeline) {
+				t.Fatal("an answer from a timeline with past rows names its evidence")
 			}
 		})
+	}
+}
+
+func hasPast(timeline []crmcontracts.Activity) bool {
+	for _, a := range timeline {
+		if !a.OccurredAt.After(now) {
+			return true
+		}
+	}
+	return false
+}
+
+func withheldRow(a crmcontracts.Activity) crmcontracts.Activity {
+	st := crmcontracts.ActivityContentStateWithheld
+	a.ContentState = &st
+	a.Subject = nil
+	return a
+}
+
+func TestAWithheldRowIsNeverNamedAsTheOperand(t *testing.T) {
+	deal := crmcontracts.Deal{Id: openapi_types.UUID(ids.NewV7()), Name: "Acme rollout"}
+	got := decide(facts{deal: deal, timeline: []crmcontracts.Activity{
+		withheldRow(booked(now.Add(2 * time.Hour))),
+		withheldRow(inbound(now.Add(-time.Hour))),
+	}, now: now})
+	if got.Action != ActionCreateTask {
+		t.Fatalf("a withheld meeting and mail must fall through, got %s", got.Action)
+	}
+	if len(got.Evidence) != 1 || got.Evidence[0].Text != "Last activity: email" {
+		t.Fatalf("the withheld mail still counts as contact, by kind only: %v", got.Evidence)
 	}
 }
 
@@ -97,5 +142,19 @@ func TestACreateTaskArgumentIsAReadyTaskBody(t *testing.T) {
 	links, _ := args["links"].([]map[string]any)
 	if len(links) != 1 || links[0]["entity_type"] != "deal" || links[0]["entity_id"] != deal.Id {
 		t.Fatalf("links = %v, want the deal", args["links"])
+	}
+}
+
+func TestLastContactIgnoresWhatIsOnlyScheduled(t *testing.T) {
+	deal := crmcontracts.Deal{Id: openapi_types.UUID(ids.NewV7()), Name: "Acme rollout"}
+	got := decide(facts{deal: deal, timeline: []crmcontracts.Activity{
+		booked(now.Add(10 * 24 * time.Hour)),
+		outbound(now.Add(-5 * 24 * time.Hour)),
+	}, now: now})
+	if got.Reason != "Last contact was 5 days ago and nothing is planned — put the next step on the list." {
+		t.Fatalf("reason = %q", got.Reason)
+	}
+	if spanWords(90*time.Minute) != "an hour" || spanWords(30*time.Hour) != "a day" || spanWords(-time.Hour) != "under an hour" {
+		t.Fatalf("span words: %q %q %q", spanWords(90*time.Minute), spanWords(30*time.Hour), spanWords(-time.Hour))
 	}
 }
