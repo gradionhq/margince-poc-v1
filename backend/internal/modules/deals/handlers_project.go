@@ -125,6 +125,44 @@ func (h Handlers) AdvanceProjectPhase(w http.ResponseWriter, r *http.Request, id
 	httperr.WriteJSON(w, http.StatusOK, project)
 }
 
+// TransferProjectOwnership is the bulk owner handover. The store answers a
+// count and nothing else, so the wire carries a count and nothing else: a
+// caller is never told which of the from-owner's projects were outside
+// their write authority.
+func (h Handlers) TransferProjectOwnership(w http.ResponseWriter, r *http.Request, _ crmcontracts.TransferProjectOwnershipParams) {
+	var req crmcontracts.TransferProjectOwnershipRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	in, err := projectTransferInput(req)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	moved, err := h.store.TransferProjectOwnership(r.Context(), in)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.TransferProjectOwnershipResult{Transferred: moved})
+}
+
+// projectTransferInput maps the handover body onto the store input. Both ids
+// are required: an omitted one decodes to the zero UUID, which would read as
+// "no such user" instead of "you named none".
+func projectTransferInput(req crmcontracts.TransferProjectOwnershipRequest) (TransferProjectOwnershipInput, error) {
+	if err := requireBodyID("from_owner_id", req.FromOwnerId); err != nil {
+		return TransferProjectOwnershipInput{}, err
+	}
+	if err := requireBodyID("to_owner_id", req.ToOwnerId); err != nil {
+		return TransferProjectOwnershipInput{}, err
+	}
+	return TransferProjectOwnershipInput{
+		FromOwnerID: ids.From[ids.UserKind](ids.UUID(req.FromOwnerId)),
+		ToOwnerID:   ids.From[ids.UserKind](ids.UUID(req.ToOwnerId)),
+	}, nil
+}
+
 // ArchiveProject ends the grouping without ending what it grouped.
 func (h Handlers) ArchiveProject(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ArchiveProjectParams) {
 	ifVersion, ok := httperr.IfMatchVersion(w, r)

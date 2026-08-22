@@ -2047,6 +2047,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/transfer-ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move every live project one user owns to another user, in one transaction.
+         * @description The bulk twin of `updateProject.owner_id`, for a handover or a leaver. Every live
+         *     project owned by `from_owner_id` that the caller may write (own/team row scope or a
+         *     `write` share) moves to `to_owner_id`; archived projects and projects the caller cannot
+         *     write are left where they are and are not counted. Each moved project gets its own
+         *     `update` audit row with the `owner_id` before/after images, so its field history shows
+         *     the move, and its own `project.updated` event. `to_owner_id` must name an active user of
+         *     the workspace, else `422`.
+         */
+        post: operations["transferProjectOwnership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}": {
         parameters: {
             query?: never;
@@ -5896,7 +5922,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+                entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
             };
@@ -14668,6 +14694,19 @@ export interface components {
             /** @description Required when to_phase=closed (422 closed_reason_required); recorded on the phase-history row either way. */
             reason?: string | null;
         };
+        TransferProjectOwnershipRequest: {
+            /** Format: uuid */
+            from_owner_id: string;
+            /**
+             * Format: uuid
+             * @description An active user of the workspace (422 otherwise).
+             */
+            to_owner_id: string;
+        };
+        TransferProjectOwnershipResult: {
+            /** @description Live projects the caller could write that moved; archived and unwritable ones are not counted. */
+            transferred: number;
+        };
         SetProjectStakeholderRequest: {
             /** Format: uuid */
             person_id: string;
@@ -17039,7 +17078,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+            entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
             /** Format: uuid */
             entity_id: string;
             field: string;
@@ -24028,6 +24067,51 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    transferProjectOwnership: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferProjectOwnershipRequest"];
+            };
+        };
+        responses: {
+            /** @description How many projects moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferProjectOwnershipResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     getProject: {
         parameters: {
             query?: never;
@@ -30813,7 +30897,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+                entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
             };
@@ -30883,7 +30967,7 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
-                entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+                entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
                 entity_id: string;
                 /** @description Narrow to one field name. */
                 field?: string;

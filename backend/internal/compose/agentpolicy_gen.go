@@ -452,6 +452,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/pipelines":                                                 {Op: "createPipeline", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/products":                                                  {Op: "createProduct", Access: "tool", Tool: "create_record", RecordType: "product", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/projects":                                                  {Op: "createProject", Access: "tool", Tool: "create_record", RecordType: "project", Tier: "confirmation_required", Scope: "write"},
+	"POST /v1/projects/transfer-ownership":                               {Op: "transferProjectOwnership", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/projects/{id}/advance":                                     {Op: "advanceProjectPhase", Access: "tool", Tool: "advance_project_phase", RecordType: "project", Tier: "confirmation_required", Scope: "write"},
 	"POST /v1/public/booking/{host_slug}":                                {Op: "bookPublicMeeting", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/public/preferences/{token}/unsubscribe":                    {Op: "oneClickUnsubscribe", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

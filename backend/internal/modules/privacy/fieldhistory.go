@@ -68,7 +68,7 @@ const entityTypeActivity = "activity"
 // The record kinds whose field history is readable — the audit spine's
 // entity_type is free text, so the surface pins the vocabulary.
 var fieldHistoryEntityTypes = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true, entityTypeActivity: true,
+	"person": true, "organization": true, "deal": true, "lead": true, "project": true, entityTypeActivity: true,
 }
 
 var fieldHistoryActorTypes = map[string]bool{
@@ -81,13 +81,15 @@ var fieldHistoryActorTypes = map[string]bool{
 // lifecycle image (lead disqualification records its status flip there;
 // a retention archive carries no images at all — its policy metadata
 // rides the evidence column — so it projects an honest nothing),
-// advance_stage carries the deal's stage patch. Every other verb's
+// advance_stage carries the deal's stage patch and advance_phase the
+// project's phase patch (deals/project_advance.go records the phase and
+// closed_reason before/after images on it). Every other verb's
 // payload is evidence ABOUT an operation — merge relink counts, promote
 // provenance, an erase tombstone's suppression tallies, an export
 // receipt, assignment routing — and projecting one would fabricate
 // field changes that never happened on the record.
 var fieldHistoryProjectedActions = map[string]bool{
-	"create": true, "update": true, "archive": true, "restore": true, "advance_stage": true,
+	"create": true, "update": true, "archive": true, "restore": true, "advance_stage": true, "advance_phase": true,
 }
 
 // fieldHistoryProjectedActionList mirrors fieldHistoryProjectedActions

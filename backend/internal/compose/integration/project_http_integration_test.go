@@ -645,3 +645,67 @@ func callDescription(e *apptest.AppEnv, t *testing.T, id string) string {
 	}
 	return *out.Description
 }
+
+// The bulk handover over HTTP: two of the admin's projects move to an invited
+// colleague and the answer counts them; a handover onto a deactivated member
+// is a 422 naming to_owner_id, and moves nothing.
+func TestProjectOwnershipTransferOverHTTP(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	org := anchorOrg(t, e, "Northwind")
+
+	var me struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+		t.Fatalf("GET /me → %d, want 200", status)
+	}
+	var colleague struct {
+		ID string `json:"id"`
+	}
+	if status := e.Call(t, "POST", "/v1/users", apptest.AnyMap{
+		"email": "colleague@northwind.test", "display_name": "Colleague", "role": "rep",
+	}, nil, &colleague); status != http.StatusCreated {
+		t.Fatalf("POST /users → %d, want 201", status)
+	}
+	for _, key := range []string{"WHR", "ERP"} {
+		if status := e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
+			"name": key + " project", "key": key, "organization_id": org, "source": "manual", "owner_id": me.User.ID,
+		}, nil, nil); status != http.StatusCreated {
+			t.Fatalf("POST /projects %s → %d, want 201", key, status)
+		}
+	}
+
+	var result struct {
+		Transferred int `json:"transferred"`
+	}
+	if status := e.Call(t, "POST", "/v1/projects/transfer-ownership", apptest.AnyMap{
+		"from_owner_id": me.User.ID, "to_owner_id": colleague.ID,
+	}, nil, &result); status != http.StatusOK {
+		t.Fatalf("POST /projects/transfer-ownership → %d, want 200", status)
+	}
+	if result.Transferred != 2 {
+		t.Errorf("transferred = %d, want 2", result.Transferred)
+	}
+	var listed projectListDTO
+	if status := e.Call(t, "GET", "/v1/projects?owner_id="+colleague.ID, nil, nil, &listed); status != http.StatusOK {
+		t.Fatalf("GET /projects?owner_id → %d, want 200", status)
+	}
+	if len(listed.Data) != 2 {
+		t.Errorf("the colleague now owns %d projects, want 2", len(listed.Data))
+	}
+
+	if status := e.Call(t, "POST", "/v1/users/"+colleague.ID+"/deactivate", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
+		t.Fatalf("POST /users/{id}/deactivate → %d, want 200", status)
+	}
+	var problem projectProblem
+	status := e.Call(t, "POST", "/v1/projects/transfer-ownership", apptest.AnyMap{
+		"from_owner_id": me.User.ID, "to_owner_id": colleague.ID,
+	}, nil, &problem)
+	if status != http.StatusUnprocessableEntity || problem.fieldName() != "to_owner_id" || problem.fieldCode() != "owner_not_active" {
+		t.Errorf("handover to a deactivated member → %d %q/%q, want 422 to_owner_id/owner_not_active",
+			status, problem.fieldName(), problem.fieldCode())
+	}
+}

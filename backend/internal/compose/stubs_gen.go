@@ -1383,6 +1383,10 @@ func (stubs) CreateProject(w nethttp.ResponseWriter, r *nethttp.Request, params 
 	httperr.NotImplemented(w, r, "CreateProject")
 }
 
+func (stubs) TransferProjectOwnership(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.TransferProjectOwnershipParams) {
+	httperr.NotImplemented(w, r, "TransferProjectOwnership")
+}
+
 func (stubs) ArchiveProject(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveProjectParams) {
 	httperr.NotImplemented(w, r, "ArchiveProject")
 }
