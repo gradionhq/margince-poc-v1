@@ -218,8 +218,8 @@ func assessWithModel(ctx context.Context, lane Completer, in Input,
 // both are things the reader can weigh. `suggestions` is the recommended angle
 // alone, which is advice and says so.
 var (
-	observations = map[string]bool{natureFact: true, string(crmcontracts.OrganizationBriefSentenceNatureAssessment): true}
-	suggestions  = map[string]bool{string(crmcontracts.OrganizationBriefSentenceNatureRecommendation): true}
+	observations = map[string]bool{natureFact: true, string(crmcontracts.Assessment): true}
+	suggestions  = map[string]bool{string(crmcontracts.Recommendation): true}
 )
 
 // keepNatures is the grounding filter narrowed to the natures ONE bucket may

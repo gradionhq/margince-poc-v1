@@ -6138,19 +6138,19 @@ func (e OrganizationBriefSectionKind) Valid() bool {
 
 // Defines values for OrganizationBriefSentenceNature.
 const (
-	OrganizationBriefSentenceNatureAssessment     OrganizationBriefSentenceNature = "assessment"
-	OrganizationBriefSentenceNatureFact           OrganizationBriefSentenceNature = "fact"
-	OrganizationBriefSentenceNatureRecommendation OrganizationBriefSentenceNature = "recommendation"
+	Assessment     OrganizationBriefSentenceNature = "assessment"
+	Fact           OrganizationBriefSentenceNature = "fact"
+	Recommendation OrganizationBriefSentenceNature = "recommendation"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationBriefSentenceNature enum.
 func (e OrganizationBriefSentenceNature) Valid() bool {
 	switch e {
-	case OrganizationBriefSentenceNatureAssessment:
+	case Assessment:
 		return true
-	case OrganizationBriefSentenceNatureFact:
+	case Fact:
 		return true
-	case OrganizationBriefSentenceNatureRecommendation:
+	case Recommendation:
 		return true
 	default:
 		return false

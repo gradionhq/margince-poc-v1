@@ -422,9 +422,9 @@ const (
 
 // The natures a sentence can carry, same derivation, same reason.
 const (
-	natureFact           = string(crmcontracts.OrganizationBriefSentenceNatureFact)
-	natureAssessment     = string(crmcontracts.OrganizationBriefSentenceNatureAssessment)
-	natureRecommendation = string(crmcontracts.OrganizationBriefSentenceNatureRecommendation)
+	natureFact           = string(crmcontracts.Fact)
+	natureAssessment     = string(crmcontracts.Assessment)
+	natureRecommendation = string(crmcontracts.Recommendation)
 )
 
 // knownNature is every nature ANY section may carry, derived from natureAllowed

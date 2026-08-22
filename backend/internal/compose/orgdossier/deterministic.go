@@ -42,7 +42,7 @@ var (
 // values and draws no conclusions, so every sentence it writes is a fact by
 // construction — labelling one an assessment would be a claim about a judgment
 // nobody made.
-var natureFact = string(crmcontracts.OrganizationBriefSentenceNatureFact)
+var natureFact = string(crmcontracts.Fact)
 
 // fieldSections routes a profile field to the section a reader would look for
 // it under. A field with no home here still reaches the summary, because

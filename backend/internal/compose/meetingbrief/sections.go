@@ -40,8 +40,8 @@ const (
 // that are not plain facts are the ones that must say so. Anything unlabelled
 // is a fact, which is the contract's default.
 const (
-	natureAssessment     = string(crmcontracts.OrganizationBriefSentenceNatureAssessment)
-	natureRecommendation = string(crmcontracts.OrganizationBriefSentenceNatureRecommendation)
+	natureAssessment     = string(crmcontracts.Assessment)
+	natureRecommendation = string(crmcontracts.Recommendation)
 )
 
 // The claim kinds this floor reads, bound to the contract enum rather than
