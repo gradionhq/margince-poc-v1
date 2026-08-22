@@ -25,7 +25,7 @@ const notDisplayed = (reason: string): NotDisplayed => ({
 });
 
 const WATCHED_BY_THE_ASKER = notDisplayed(
-  "interactive: the person asked for it and is watching the request it answers, so a rail line would narrate work already in front of them",
+  "growth_fit lands on the panel that asked for it and renders the band it returns, so a line here would narrate what the reader is already looking at. cold_start has a reason that does not depend on judgement at all: it runs during onboarding, and the onboarding routes are deliberately RAILLESS (shell.tsx) — there is no rail on screen for its line to appear on. That is why the two sit together despite cold_start also having an out-of-band arm that becomes an approval nobody watches: a task-level map could not separate those arms, and it does not have to, because neither can be drawn where the task runs",
 );
 const SYSTEM_SWEEP = notDisplayed(
   "background workspace work that belongs to nobody in particular, so it has no personal line to draw",
@@ -85,16 +85,45 @@ export const ACTIVITY_LINE: Readonly<
     failed: "agent.activity.documentExtract.failed",
   },
 
-  summarize: WATCHED_BY_THE_ASKER,
-  draft_reply: WATCHED_BY_THE_ASKER,
-  offer_draft: WATCHED_BY_THE_ASKER,
+  // `queued` is written for all three and reachable by none of them: the router
+  // announces a call it is ABOUT to serve, never one waiting, and no carrier
+  // owns these tasks. The LineSet type is total over the state axis, so the key
+  // exists because the compiler requires it — not because a producer is
+  // missing. Saying so here saves the next reader the hunt.
+  summarize: {
+    queued: "agent.activity.summarize.queued",
+    running: "agent.activity.summarize.running",
+    stalled: "agent.activity.summarize.stalled",
+    done: "agent.activity.summarize.done",
+    degraded: "agent.activity.summarize.degraded",
+    failed: "agent.activity.summarize.failed",
+  },
+  draft_reply: {
+    queued: "agent.activity.draftReply.queued",
+    running: "agent.activity.draftReply.running",
+    stalled: "agent.activity.draftReply.stalled",
+    done: "agent.activity.draftReply.done",
+    degraded: "agent.activity.draftReply.degraded",
+    failed: "agent.activity.draftReply.failed",
+  },
+  offer_draft: {
+    queued: "agent.activity.offerDraft.queued",
+    running: "agent.activity.offerDraft.running",
+    stalled: "agent.activity.offerDraft.stalled",
+    done: "agent.activity.offerDraft.done",
+    degraded: "agent.activity.offerDraft.degraded",
+    failed: "agent.activity.offerDraft.failed",
+  },
+
   growth_fit: WATCHED_BY_THE_ASKER,
   cold_start: WATCHED_BY_THE_ASKER,
 
   brief_ranking: SYSTEM_SWEEP,
   capture_classify: SYSTEM_SWEEP,
   capture_counterparty_verdict: SYSTEM_SWEEP,
-  enrich: SYSTEM_SWEEP,
+  enrich: notDisplayed(
+    "it can reach nobody, and that is a fact about the work rather than an editorial choice: the one production site for this task is the signature-enrichment pass, which runs under a system principal with no on_behalf_of, so ResolveActor scopes every occurrence to the workspace with a NULL actor_user_id — and the personal feed selects on actor_user_id. Copy for it would be copy no reader can ever be shown. The ticker's own `enrich` key names DIFFERENT work (a provider run on a person, and the site-read lanes on a company), which is what makes this one easy to mistake for visible",
+  ),
   rate_extract: SYSTEM_SWEEP,
   signal_extract: SYSTEM_SWEEP,
   site_extract: SYSTEM_SWEEP,

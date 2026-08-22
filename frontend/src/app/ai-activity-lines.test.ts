@@ -1,8 +1,17 @@
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 import { vi } from "../i18n/vi";
-import { ACTIVITY_LINE, displayedLines, lineFor } from "./ai-activity-lines";
+import { NAMED, SAID, WROTE } from "./agentrail-copy";
+import {
+  ACTIVITY_LINE,
+  displayedKinds,
+  displayedLines,
+  lineFor,
+} from "./ai-activity-lines";
 
 // A key the map names must exist in the catalog, and a translated
 // `agent.activity.` key nothing names is copy three translators paid for and
@@ -129,8 +138,115 @@ describe("lineFor", () => {
     // The third way to draw nothing, and the one the server now produces by
     // the thousand: a kind this build reports and deliberately does not
     // narrate. It must read as silence, not as a message key.
-    ["a kind the rail does not narrate", { kind: "summarize", state: "done" }],
+    // One per REASON — all FOUR of them. A single case would keep passing while
+    // the other three were narrated by accident, and `cert_judge` carries a
+    // reason of its own rather than sharing one of the three named constants,
+    // which is exactly the entry a "one example per shared constant" reading
+    // would have missed. `summarize` used to stand here and no longer can: it
+    // is displayed now, which is the change this shape of test exists to catch.
+    ["a background sweep", { kind: "brief_ranking", state: "done" }],
+    ["work the asker is watching", { kind: "cold_start", state: "done" }],
+    ["a task nothing has built", { kind: "nl_search", state: "done" }],
+    ["the lane grading this build", { kind: "cert_judge", state: "done" }],
   ])("renders nothing at all for %s", (_name, item) => {
     expect(lineFor(item, (key) => en[key])).toBeNull();
   });
 });
+
+// The set the rail asks the server for, pinned.
+//
+// Not a tautology restating the map: it is the one place a kind ENTERS the
+// product, and adding one has consequences a compiler cannot see. `enrich` was
+// added here and reverted, because every occurrence of it is workspace-scoped —
+// its only production site runs under a system principal with no on_behalf_of,
+// and the personal feed selects on actor_user_id, so no reader could ever have
+// been shown the copy that came with it.
+//
+// A failure here is not a bug. It means somebody widened what the rail draws,
+// and owes two answers: can an occurrence of that kind reach ONE person's feed,
+// and does it still fit inside `recent`'s cap of ten alongside the rest.
+describe("the kinds the rail asks for", () => {
+  it("is exactly the reviewed set", () => {
+    expect([...displayedKinds()].sort()).toEqual([
+      "document_extract",
+      "draft_reply",
+      "morning_brief",
+      "offer_draft",
+      "overnight_at_risk_sweep",
+      "summarize",
+    ]);
+  });
+});
+
+// One action, one vocabulary.
+//
+// The taskbar ticker names work by react-query key; the rail names it by AI
+// task. Where a key and a displayed kind denote THE SAME action, a reader meets
+// two different sentences for one thing — the bar saying "Writing to Anna"
+// while the panel says "I'm drafting your reply."
+//
+// The pairing is HAND-MAINTAINED and cannot be otherwise: nothing in the types
+// connects a mutation key to the task it triggers, and that missing link is
+// exactly what made `enrich` look visible when it was not — the ticker has an
+// `enrich` key for work that never runs ai.TaskEnrich. So this list is a record
+// of collisions somebody checked by reading both sides, and its value is that
+// re-adding either half fails HERE rather than in front of a user.
+describe("the ticker and the rail never narrate one action twice", () => {
+  const COLLISIONS: readonly (readonly [
+    tickerKey: string,
+    railKind: string,
+  ])[] = [
+    // The DRAFT mutations carry ["email-draft", …] and are the draft_reply
+    // call; the SEND mutations keep ["email", …] and are a plain write the rail
+    // knows nothing about. They were ONE key until this pairing forced the
+    // question, and deleting the shared entry silenced the sends — the split is
+    // what lets each be narrated exactly once.
+    ["email-draft", "draft_reply"],
+  ];
+
+  it.each(COLLISIONS)(
+    "does not carry ticker key %s while the rail draws %s",
+    (tickerKey, railKind) => {
+      // A string compare over the drawn kinds, not `includes(x as never)`:
+      // the cast would suppress a typo in COLLISIONS and quietly pass.
+      const drawn = displayedKinds().some((kind) => kind === railKind);
+      const narrated =
+        Object.hasOwn(WROTE, tickerKey) ||
+        Object.hasOwn(SAID, tickerKey) ||
+        Object.hasOwn(NAMED, tickerKey);
+      expect(drawn && narrated).toBe(false);
+    },
+  );
+});
+
+// The other half of the split, gated at the CALL SITES.
+//
+// The pairing above reads the ticker's tables, so it catches somebody re-adding
+// a key there. It does not catch the same collision arriving from the other
+// direction — a draft mutation renamed back to ["email", …] leaves both tables
+// untouched and quietly restores two vocabularies for one action. That is the
+// hole this closes, and finding it took mutating the call site and watching the
+// first gate stay green.
+//
+// Read from source rather than imported: a mutationKey is a literal inside a
+// hook, exported by nothing.
+describe("the email mutation keys stay split", () => {
+  const SITES = ["../screens/compose.tsx", "../screens/persondrawers.tsx"];
+
+  it.each(SITES)("keeps drafts off the send key in %s", async (rel) => {
+    const src = await readSource(rel);
+    // One draft and one send per screen: the draft is the AI call the rail
+    // narrates, the send is the write the ticker narrates.
+    expect(count(src, '["email-draft",')).toBe(1);
+    expect(count(src, '["email",')).toBe(1);
+  });
+});
+
+function count(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
+async function readSource(rel: string): Promise<string> {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return readFile(join(here, rel), "utf8");
+}

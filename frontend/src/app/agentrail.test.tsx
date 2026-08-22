@@ -823,6 +823,20 @@ describe("AgentRail", () => {
   const runDetails = () =>
     [...panel().querySelectorAll(".arrundetail")].map((el) => el.textContent);
 
+  // The work a person ASKS for, which is the case the rail was silent on until
+  // the router could say `running`. Asserted at RENDER and not against the map:
+  // the copy existing is not the claim — the claim is that a live summarize
+  // reaches the reader's own line, in their own words, through the same feed
+  // the overnight run uses.
+  it("narrates a summary the reader asked for while it is still being written", async () => {
+    withRuns(RUN({ kind: "summarize" }));
+    const { container } = render(ROUTE);
+    await settlesOnLine(
+      container,
+      "I'm pulling together what I know about this company.",
+    );
+  });
+
   it("moves the Core to working when a server run is live and this tab is idle", async () => {
     withRuns(RUN());
     const { container } = render(ROUTE);

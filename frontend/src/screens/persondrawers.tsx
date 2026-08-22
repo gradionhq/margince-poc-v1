@@ -587,7 +587,7 @@ export function PersonComposer({
   // model budget, and a draft that arrives unasked is one the rep has to read
   // before they can ignore it. The company composer has always worked this way.
   const draft = useMutation({
-    mutationKey: ["email", personId],
+    mutationKey: ["email-draft", personId],
     mutationFn: async () => {
       const { data, error } = await api.POST("/people/{id}/draft-email", {
         params: { path: { id: personId } },

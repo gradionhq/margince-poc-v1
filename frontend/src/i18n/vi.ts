@@ -2312,6 +2312,35 @@ export const vi = {
     "Tôi mới đọc được một phần tài liệu của bạn rồi dừng.",
   "agent.activity.documentExtract.failed":
     "Tôi không đọc được tài liệu của bạn.",
+  "agent.activity.summarize.queued":
+    "Việc tổng hợp thông tin về công ty này đang chờ xử lý.",
+  "agent.activity.summarize.running":
+    "Tôi đang tổng hợp những gì tôi biết về công ty này.",
+  "agent.activity.summarize.done":
+    "Những gì tôi biết về công ty này đã sẵn sàng.",
+  "agent.activity.summarize.degraded":
+    "Tôi mới tổng hợp được một phần thông tin về công ty này rồi dừng.",
+  "agent.activity.summarize.failed":
+    "Tôi không hoàn thành được việc tổng hợp về công ty này.",
+  "agent.activity.summarize.stalled":
+    "Việc tổng hợp về công ty này kéo dài bất thường. Có thể nó đã dừng.",
+  "agent.activity.draftReply.queued": "Thư trả lời của bạn đang chờ được soạn.",
+  "agent.activity.draftReply.running": "Tôi đang soạn thư trả lời của bạn.",
+  "agent.activity.draftReply.done": "Bản nháp thư trả lời của bạn đã sẵn sàng.",
+  "agent.activity.draftReply.degraded":
+    "Tôi mới soạn được một phần thư trả lời của bạn rồi dừng.",
+  "agent.activity.draftReply.failed":
+    "Tôi không soạn được thư trả lời của bạn.",
+  "agent.activity.draftReply.stalled":
+    "Việc soạn thư trả lời của bạn kéo dài bất thường. Có thể nó đã dừng.",
+  "agent.activity.offerDraft.queued": "Báo giá của bạn đang chờ được soạn.",
+  "agent.activity.offerDraft.running": "Tôi đang soạn báo giá của bạn.",
+  "agent.activity.offerDraft.done": "Bản nháp báo giá của bạn đã sẵn sàng.",
+  "agent.activity.offerDraft.degraded":
+    "Tôi mới soạn được một phần báo giá của bạn rồi dừng.",
+  "agent.activity.offerDraft.failed": "Tôi không soạn được báo giá của bạn.",
+  "agent.activity.offerDraft.stalled":
+    "Việc soạn báo giá của bạn kéo dài bất thường. Có thể nó đã dừng.",
   "agent.panel.runningNow": "Đang chạy",
   "agent.panel.finishedToday": "Đã xong hôm nay",
   "agent.panel.stoppedEarly": "Vì sao nó dừng",

@@ -2333,6 +2333,38 @@ export const de = {
     "Ich bin bei deinem Dokument nur teilweise durchgekommen und habe gestoppt.",
   "agent.activity.documentExtract.failed":
     "Ich konnte dein Dokument nicht lesen.",
+  "agent.activity.summarize.queued":
+    "Das Zusammentragen zu diesem Unternehmen steht in der Warteschlange.",
+  "agent.activity.summarize.running":
+    "Ich trage zusammen, was ich über dieses Unternehmen weiß.",
+  "agent.activity.summarize.done":
+    "Was ich über dieses Unternehmen weiß, ist fertig.",
+  "agent.activity.summarize.degraded":
+    "Ich habe über dieses Unternehmen nur teilweise Informationen zusammengetragen und dann aufgehört.",
+  "agent.activity.summarize.failed":
+    "Ich konnte das Zusammentragen zu diesem Unternehmen nicht abschließen.",
+  "agent.activity.summarize.stalled":
+    "Das Zusammentragen zu diesem Unternehmen dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
+  "agent.activity.draftReply.queued":
+    "Deine Antwort steht zum Entwerfen in der Warteschlange.",
+  "agent.activity.draftReply.running": "Ich entwerfe deine Antwort.",
+  "agent.activity.draftReply.done": "Dein Antwortentwurf ist fertig.",
+  "agent.activity.draftReply.degraded":
+    "Ich bin bei deiner Antwort nur teilweise durchgekommen und habe gestoppt.",
+  "agent.activity.draftReply.failed":
+    "Ich konnte deine Antwort nicht entwerfen.",
+  "agent.activity.draftReply.stalled":
+    "Das Entwerfen deiner Antwort dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
+  "agent.activity.offerDraft.queued":
+    "Dein Angebot steht zum Entwerfen in der Warteschlange.",
+  "agent.activity.offerDraft.running": "Ich entwerfe dein Angebot.",
+  "agent.activity.offerDraft.done": "Dein Angebotsentwurf ist fertig.",
+  "agent.activity.offerDraft.degraded":
+    "Ich bin bei deinem Angebot nur teilweise durchgekommen und habe gestoppt.",
+  "agent.activity.offerDraft.failed":
+    "Ich konnte dein Angebot nicht entwerfen.",
+  "agent.activity.offerDraft.stalled":
+    "Das Entwerfen deines Angebots dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
   "agent.panel.runningNow": "Läuft jetzt",
   "agent.panel.finishedToday": "Heute abgeschlossen",
   "agent.panel.stoppedEarly": "Warum es gestoppt hat",
