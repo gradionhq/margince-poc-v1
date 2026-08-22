@@ -60,14 +60,16 @@ func TestClassifyKindDoesNotPromoteGuidesBecauseTheirSlugsMentionTeamsOrProducts
 // so the company read as publishing no staff at all.
 func TestClassifyKindReadsVietnameseAndKoreanPageNames(t *testing.T) {
 	for rawURL, want := range map[string]crmcontracts.SiteReadPageKind{
-		"https://vinatechgroup.vn/gioi-thieu":                          crmcontracts.SiteReadPageKindAbout,
-		"https://thinksmart.com.vn/gioi-thieu":                         crmcontracts.SiteReadPageKindAbout,
-		"https://tinthanhphat.vn/gioi-thieu/gioi-thieu-cong-ty/":       crmcontracts.SiteReadPageKindAbout,
+		"https://vinatechgroup.vn/gioi-thieu":                    crmcontracts.SiteReadPageKindAbout,
+		"https://thinksmart.com.vn/gioi-thieu":                   crmcontracts.SiteReadPageKindAbout,
+		"https://tinthanhphat.vn/gioi-thieu/gioi-thieu-cong-ty/": crmcontracts.SiteReadPageKindAbout,
+		// The one qualifier a real about page carries is the site's OWN name,
+		// matched against the host rather than guessed at as grammar.
 		"https://tth-automation.com/gioi-thieu-ve-tth-automation.html": crmcontracts.SiteReadPageKindAbout,
-		"https://vinatechgroup.vn/en/introduce":                        crmcontracts.SiteReadPageKindAbout,
+		"https://hanmyviet.vn/gioi-thieu-han-my-viet.html":             crmcontracts.SiteReadPageKindAbout,
+		"https://tth-automation.com/lien-he.html":                      crmcontracts.SiteReadPageKindContact,
 		"https://itgtechnology.vn/lien-he/":                            crmcontracts.SiteReadPageKindContact,
 		"https://aubot.vn/vi/lien-he/":                                 crmcontracts.SiteReadPageKindContact,
-		"https://tth-automation.com/lien-he.html":                      crmcontracts.SiteReadPageKindContact,
 		// Korean sites percent-encode Hangul in links; url.Parse decodes it
 		// into Path, so both spellings have to land in the same place.
 		"https://example.co.kr/회사소개":                                 crmcontracts.SiteReadPageKindAbout,
@@ -81,16 +83,34 @@ func TestClassifyKindReadsVietnameseAndKoreanPageNames(t *testing.T) {
 	}
 }
 
-// The widened vocabulary must not start naming ordinary pages. `company` and
-// `info` are kept out for exactly this reason: the profile lane spends its page
-// budget on what classifyKind names, so a false `about` starves the commercial
-// evidence rather than merely failing to help.
+// The widened vocabulary must not start naming ordinary pages, and every URL
+// here is one the FIRST version of it got wrong — matched as a substring
+// anywhere in the leading segment rather than as a prefix of it.
+//
+// They are in the first path segment on purpose: classifyKind only ever looks
+// at that one, so a case built from a two-segment path passes without
+// exercising the match at all. That was the bug in this test before it was the
+// bug in the code.
+//
+// A false `about` costs more than a missed one: the profile lane spends a
+// limited page budget on what classifyKind names, so a wrong classification
+// starves the commercial evidence rather than merely failing to help.
 func TestClassifyKindStillRefusesOrdinaryPagesInEveryLanguage(t *testing.T) {
 	for _, rawURL := range []string{
-		"https://example.vn/san-pham/gioi-thieu-san-pham-moi",
+		// "introducing our new PRODUCT", not an about page.
+		"https://example.vn/gioi-thieu-san-pham-moi",
+		// A press release. `introduce` is an English verb before it is a page.
+		"https://example.com/acme-introduces-widget",
+		// Staff BENEFITS, not a staff directory.
+		"https://example.co.kr/임직원복지",
+		// A new-year greeting, not the chairman's introduction.
+		"https://example.co.kr/신년인사말",
+		// A product name that happens to contain "lienhe".
+		"https://example.com/alienhero",
+		// Ordinary section words, deliberately never in the lists.
 		"https://example.com/company",
 		"https://example.com/info",
-		"https://example.co.kr/news/2026",
+		"https://example.co.kr/news",
 	} {
 		if got := classifyKind(rawURL); got != crmcontracts.SiteReadPageKindOther {
 			t.Errorf("classifyKind(%q) = %q, want other", rawURL, got)
