@@ -26,9 +26,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	org360svc "github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -98,7 +100,7 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 
 	tracer := &countingTracer{}
 	pool := tracedPool(t, tracer)
-	svc := org360svc.NewService(pool, people.NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.WS))), approvals.NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.WS))),
+	svc := org360svc.NewService(pool, people.NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.WS))), deals.NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.WS)), installseam.Deals()), approvals.NewService(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.WS))),
 		func() time.Time { return org360Clock })
 	ctx := e.Admin()
 
@@ -171,7 +173,11 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 	// exactly like every section above, which is the property this budget
 	// protects. The number moved without this line and the gate went red on main
 	// for every branch cut afterwards.
-	const budget = 34
+	//
+	// 35 since the projects section: one read of the account's unarchived
+	// projects under the caller's project row scope, capped at 25 rows and
+	// flat in the size of the account.
+	const budget = 35
 	if smallCost > budget {
 		t.Errorf("one 360 issued %d queries, budget is %d", smallCost, budget)
 	}

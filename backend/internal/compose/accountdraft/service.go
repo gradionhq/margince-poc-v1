@@ -15,6 +15,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -24,16 +25,22 @@ import (
 
 // Assembler is the caller's own composite read of the account — the same seam
 // the brief uses, for the same reason: a draft may only mention records this
-// caller could open, and one gated read already answers that.
+// caller could open, and one gated read already answers that. The scoped
+// form is what a draft about one project reads: correspondence filed under
+// another project is not in the view to be drawn on.
 type Assembler interface {
-	Assemble(ctx context.Context, orgID ids.OrganizationID) (crmcontracts.Organization360, error)
+	AssembleScoped(ctx context.Context, orgID ids.OrganizationID, opts org360.AssembleOptions) (crmcontracts.Organization360, error)
 }
 
 // Request is the transport's body, narrowed to what the writer needs.
 type Request struct {
 	PersonID string
 	DealID   string
-	Intent   string
+	// ProjectID names the body of work the message is about. When set, the
+	// draft is grounded in the 360 scoped to that project and the project's
+	// own facts are folded in; empty is the account in general.
+	ProjectID *ids.ProjectID
+	Intent    string
 	// Envelope is the correspondence this draft opens: the language it must be
 	// written in, the current time, and who is writing it. Resolved by the
 	// service, never by the model.
@@ -122,9 +129,10 @@ func (s *Service) Draft(
 		return crmcontracts.AccountEmailDraft{}, err
 	}
 	// The gates that matter run HERE, in the caller's own composite read: an
-	// account they cannot read refuses before a word is written, and a contact
-	// or deal they cannot see is not in the view to be found.
-	view, err := s.view.Assemble(ctx, orgID)
+	// account they cannot read refuses before a word is written, a contact
+	// or deal they cannot see is not in the view to be found, and a project
+	// they cannot see refuses the scoped read itself (activities.RequireProjectScope).
+	view, err := s.view.AssembleScoped(ctx, orgID, org360.AssembleOptions{ProjectID: req.ProjectID})
 	if err != nil {
 		return crmcontracts.AccountEmailDraft{}, err
 	}

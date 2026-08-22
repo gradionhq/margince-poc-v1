@@ -52,7 +52,7 @@ var org360Clock = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 // org360Service builds the composite read over the harness pool with the
 // pinned clock.
 func org360Service(e *integration.Env) *org360svc.Service {
-	return org360svc.NewService(e.Pool, people.NewStore(e.DB()), approvals.NewService(e.DB()),
+	return org360svc.NewService(e.Pool, people.NewStore(e.DB()), e.Deals, approvals.NewService(e.DB()),
 		func() time.Time { return org360Clock })
 }
 
