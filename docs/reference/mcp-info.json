@@ -10,16 +10,16 @@
   "totals": {
     "tools": 52,
     "resources": 8,
-    "tool_catalog_bytes": 141647,
+    "tool_catalog_bytes": 142415,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 36188,
+    "approx_wire_tokens_total": 36380,
     "largest_tool_bytes": 4709,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
-      "description_bytes": 34981,
+      "description_bytes": 35061,
       "input_schema_bytes": 30800,
-      "output_schema_bytes": 64702,
-      "description_plus_input_schema_bytes": 65781
+      "output_schema_bytes": 65390,
+      "description_plus_input_schema_bytes": 65861
     }
   },
   "tools": {
@@ -4314,7 +4314,7 @@
           "readOnlyHint": true,
           "title": "Prepare for a meeting"
         },
-        "description": "Get ready for a specific meeting: the same assembled picture as a catch-up, plus the open items pulled out as the things to raise. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Given a meeting it works out which record that meeting is about and names the others alongside. Use catch_me_up_on when there is no meeting and the question is simply what has been happening, and check_availability when the goal is finding a time rather than preparing for one. The focus list names the open items by record_id; those are what to act on after the meeting. prepared_for names the record the prep was built around. occurred_at is when an item happened, in UTC — prefer it over a date the prose recalls. (Governance: runs immediately; requires passport scope \"read\".)",
+        "description": "Get ready for a specific meeting: given the meeting, the same written brief a person reads; given any other record, the assembled picture a catch-up gives, plus the open items pulled out as the things to raise. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Given a meeting it works out which record that meeting is about and names the others alongside. Use catch_me_up_on when there is no meeting and the question is simply what has been happening, and check_availability when the goal is finding a time rather than preparing for one. The focus list names the open items by record_id; those are what to act on after the meeting. prepared_for names the record the prep was built around. occurred_at is when an item happened, in UTC — prefer it over a date the prose recalls. (Governance: runs immediately; requires passport scope \"read\".)",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -4350,6 +4350,79 @@
           "properties": {
             "data": {
               "properties": {
+                "brief": {
+                  "properties": {
+                    "activity_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "generated_at": {
+                      "type": "string"
+                    },
+                    "generated_by": {
+                      "type": "string"
+                    },
+                    "sections": {
+                      "items": {
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "sentences": {
+                            "items": {
+                              "properties": {
+                                "evidence": {
+                                  "items": {
+                                    "properties": {
+                                      "record_id": {
+                                        "format": "uuid",
+                                        "type": "string"
+                                      },
+                                      "record_type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "record_id",
+                                      "record_type"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "type": "array"
+                                },
+                                "nature": {
+                                  "type": "string"
+                                },
+                                "text": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "evidence",
+                                "text"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "sentences"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "activity_id",
+                    "generated_at",
+                    "generated_by",
+                    "sections"
+                  ],
+                  "type": "object"
+                },
                 "briefing": {
                   "properties": {
                     "anchor": {
