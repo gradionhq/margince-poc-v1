@@ -1,0 +1,26 @@
+/* The deal's next-move card. Tokens only. */
+
+.nba {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.nba-reason {
+  margin: 0;
+}
+
+.nba-evidence {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--textMeta);
+}
+
+.nba-none {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--textMeta);
+}

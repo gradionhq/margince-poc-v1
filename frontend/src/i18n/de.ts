@@ -4149,6 +4149,12 @@ export const de = {
   "room.decisions.empty": "Noch keine Entscheidungen.",
   "room.decisions.confirm_version": "hat die Version bestätigt",
   "room.decisions.request_changes": "hat Änderungen angefordert",
+  "nba.title": "Nächster Schritt",
+  "nba.sub": "Eine Sache, die auf diesem Deal zu tun ist — und warum.",
+  "nba.createTask": "Aufgabe anlegen",
+  "nba.draftReply": "Antwort entwerfen",
+  "nba.openBrief": "Meeting-Briefing öffnen",
+  "nba.nothingToDo": "Gerade nichts hinzuzufügen.",
   "prefs.rateLimited":
     "Gerade zu viele Versuche von hier aus. Warte eine Minute und lade neu.",
   "prefs.subscribed": "Abonniert",
