@@ -78,6 +78,30 @@ func notTaskEditable(current string) error {
 	}
 }
 
+// pausedForBuyer refuses a buyer's write while the seller has paused the room.
+// Unlike the finished states this one is reversible, and the buyer can do
+// nothing about it but wait — so the message says that, and never tells them
+// to open a room they cannot open.
+func pausedForBuyer() error {
+	return &stateError{
+		code:    "deal_room_paused",
+		current: statePaused,
+		wanted:  "your contact has paused this room; you can continue once they resume it",
+	}
+}
+
+// errViewerCannotWrite refuses a write from a participant admitted to read
+// only. The capability is the seller's decision about this person, so the
+// answer names it rather than the room's state.
+var errViewerCannotWrite = &fieldError{
+	field: fieldCapability,
+	code:  "view_only",
+	msg:   "your access to this room is read-only; ask your contact to let you work the list",
+}
+
+// fieldCapability names the participant's capability in a fault and an audit image.
+const fieldCapability = "capability"
+
 // codeRequired is the fault code every "you left this out" refusal in this
 // module publishes, named once so the three that raise it cannot drift into
 // three spellings a client would have to special-case.

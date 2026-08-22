@@ -4440,6 +4440,193 @@ paths:
         '409': { description: 'Slot no longer available (`code: slot_taken`).', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+
+  # ---- Deal Room buyer edge ----
+  # The buyer's side of a Deal Room. No room id ever appears in a path: the
+  # credential (exchange, peek) or the session Bearer (everything else) is the
+  # only resolver, so the surface cannot be walked. Every refusal on the three
+  # anonymous operations reads identically — unknown, consumed, expired, revoked
+  # and superseded credentials take one path — so the edge is never an oracle
+  # for whether a credential maps to a real room, paused or otherwise.
+  /public/rooms/peek:
+    post:
+      tags: [Public]
+      operationId: peekDealRoomCredential
+      security: []   # anonymous: answers only whether the credential can be exchanged
+      x-agent-access: human-only
+      summary: Whether a Deal Room credential can still be exchanged (anonymous).
+      description: |
+        Lets the buyer screen tell "open the room" from "ask for a new link" before
+        the one-time exchange consumes the credential. Answers the same for a paused
+        room as for a live one — the paused message is delivered only after
+        authentication, to the person the link was sent to.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DealRoomCredentialRequest' }
+      responses:
+        '200':
+          description: Whether the credential is exchangeable. Never 404 — absence is a false.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomPeekResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /public/rooms/exchange:
+    post:
+      tags: [Public]
+      operationId: exchangeDealRoomCredential
+      security: []   # anonymous: the credential IS the authentication
+      x-agent-access: human-only
+      summary: Exchange a one-time Deal Room credential for a room session (anonymous).
+      description: |
+        Consumes the credential — a second exchange of the same string is refused —
+        and issues a session token the buyer presents as a Bearer on every other
+        `/public/rooms` operation. The session is bound to ONE participant in ONE
+        room and is resolved fresh on every request, so revocation binds on the next
+        call. A paused room still exchanges: the session is established and the
+        room bootstrap then says access is paused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DealRoomCredentialRequest' }
+      responses:
+        '200':
+          description: The session token, returned once.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealRoomSessionIssued' }
+        '404':
+          description: The credential admits nobody — unknown, already used, lapsed, retired or revoked; which one is deliberately not said.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /public/rooms/link-request:
+    post:
+      tags: [Public]
+      operationId: requestDealRoomLink
+      security: []   # anonymous: the only self-service recovery a buyer has
+      x-agent-access: human-only
+      summary: Ask for a fresh Deal Room link by email (anonymous, always 202).
+      description: |
+        A buyer whose link lapsed asks for another. If the address belongs to a live
+        participant of a room that can still admit them, a new credential is minted
+        and mailed, retiring the old one. The response is 202 whatever happened —
+        an address that is not in any room gets the same answer as one that is, so
+        the endpoint cannot be used to discover who was invited where.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DealRoomLinkRequest' }
+      responses:
+        '202': { description: 'Accepted. If the address is known, a link is on its way.' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /public/rooms/me:
+    get:
+      tags: [Public]
+      operationId: getBuyerRoom
+      security: [{ dealRoomSession: [] }]
+      summary: The room as its buyer sees it — the latest release, never the live deal.
+      description: |
+        What the session admits the caller to. `access` says whether content is
+        served: `live` and `closed` carry the room (closed is read-only), `paused`
+        and `expired` carry none — only the participant and whom to contact.
+        Everything editorial comes from the latest published release, so a change
+        the seller has not published is invisible here.
+      responses:
+        '200':
+          description: The buyer's view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BuyerRoomView' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /public/rooms/tasks:
+    get:
+      tags: [Public]
+      operationId: listBuyerRoomTasks
+      security: [{ dealRoomSession: [] }]
+      summary: The shared to-do list as published, with live completion state.
+      description: |
+        Task DEFINITIONS come from the latest release; COMPLETION is live, so a tick
+        from either side shows without a republish. Empty while the room is paused
+        or expired.
+      responses:
+        '200':
+          description: The list, in the order both sides see it.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BuyerRoomTaskListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /public/rooms/tasks/{taskId}/complete:
+    parameters:
+      - { name: taskId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Public]
+      operationId: completeBuyerRoomTask
+      security: [{ dealRoomSession: [] }]
+      x-agent-access: human-only
+      summary: Tick or un-tick an item on the shared list as the buyer.
+      description: |
+        Completion is the one thing a buyer writes to the list in this release; they
+        never author an item. Refused with 422 `deal_room_task_not_editable` once the
+        room is paused, closed or expired — a finished room's list is a record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompleteBuyerRoomTaskRequest' }
+      responses:
+        '200':
+          description: The item as it now stands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BuyerRoomTask' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+
+  /public/rooms/sign-out:
+    post:
+      tags: [Public]
+      operationId: signOutBuyerRoom
+      security: [{ dealRoomSession: [] }]
+      x-agent-access: human-only
+      summary: End the room session.
+      description: |
+        Revokes this session only. The participant keeps their standing; a fresh
+        link admits them again. Works in every room state, because ending a session
+        is an access act, not a content one.
+      responses:
+        '204': { description: 'Signed out.' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429':
+          description: Rate-limited.
+          content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
   # ---- Buyer preference center + RFC 8058 one-click unsubscribe (B-E11.32) ----
   # A no-login public surface over the consent engine. The token in the path
   # is the recipient's unguessable preference token (carried in the
@@ -14153,6 +14340,17 @@ components:
         never exceed its granting human's permissions. Mutations by this scheme ride the autonomy
         gate + approval staging (ADR-0055). Human interactive sessions use `cookieAuth`, not this
         scheme.
+    dealRoomSession:
+      type: http
+      scheme: bearer
+      description: |
+        A Deal Room BUYER session (the `/public/rooms` surface only). Exchanged once
+        from an invitation credential; the server stores only its SHA-256 and
+        resolves it on every request, so revocation and room pause bind on the next
+        call. It carries no CRM authority whatsoever: every platform/auth gate
+        refuses the `buyer` principal it binds, and the room's own store admits it
+        through methods that carry the session's room and participant as a
+        mandatory predicate. Presenting it on any other `/v1` route is a 401.
     cookieAuth:
       type: apiKey
       in: cookie
@@ -25614,6 +25812,130 @@ components:
       additionalProperties: true
       x-extension: true
 
+    DealRoomCredentialRequest:
+      type: object
+      required: [credential]
+      properties:
+        credential:
+          type: string
+          minLength: 1
+          description: The one-time credential from the invitation link's fragment.
+      additionalProperties: false
+
+    DealRoomPeekResponse:
+      type: object
+      required: [exchangeable]
+      properties:
+        exchangeable:
+          type: boolean
+          description: True only for a credential that can be exchanged right now. Identical for a paused and a live room.
+      additionalProperties: false
+
+    DealRoomSessionIssued:
+      type: object
+      required: [session_token, expires_at]
+      properties:
+        session_token:
+          type: string
+          description: "Present as `Authorization: Bearer`. Returned once; only its hash is stored."
+        expires_at:
+          type: string
+          format: date-time
+          description: Absolute expiry. The buyer exchanges a fresh link after it.
+      additionalProperties: false
+
+    DealRoomLinkRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+      additionalProperties: false
+
+    BuyerRoomAccess:
+      type: string
+      description: |
+        Whether the session admits the caller to content right now. `live` — the room
+        is open and the list can be worked. `closed` — the deal is done; everything
+        reads, nothing writes. `paused` — the seller has paused access; the link
+        stays valid and nothing is served until it resumes. `expired` — access has
+        lapsed on its own; ask for a new link.
+
+        A plain string, not an inline enum, for the reason `DealRoomState` and its
+        siblings give: the same four words generated as package-scope constants
+        would collide with the lifecycle's.
+
+    BuyerRoomParticipant:
+      type: object
+      description: The caller, as the room knows them. Nothing about anyone else in the room.
+      required: [id, full_name, email, capability]
+      properties:
+        id: { type: string, format: uuid }
+        full_name: { type: string }
+        email: { type: string, format: email }
+        capability: { $ref: '#/components/schemas/DealRoomParticipantCapability' }
+      additionalProperties: false
+
+    BuyerRoomContent:
+      type: object
+      description: |
+        The latest release, and only that. Every field here was copied at publish
+        time; the live deal is never read on this path.
+      required: [title, release_no, released_at]
+      properties:
+        title: { type: string }
+        welcome_message: { type: [string, 'null'] }
+        release_no: { type: integer }
+        released_at: { type: string, format: date-time }
+        steward_name:
+          type: [string, 'null']
+          description: The named person on the seller's side to contact. Null when the steward's seat is gone.
+        closed_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: false
+
+    BuyerRoomView:
+      type: object
+      required: [access, participant]
+      properties:
+        access: { $ref: '#/components/schemas/BuyerRoomAccess' }
+        participant: { $ref: '#/components/schemas/BuyerRoomParticipant' }
+        steward_name:
+          type: [string, 'null']
+          description: Whom to contact. Present in every access state, because a paused buyer needs it most.
+        room:
+          allOf:
+            - $ref: '#/components/schemas/BuyerRoomContent'
+          description: Omitted while access is `paused` or `expired`, and when nothing has been published yet.
+      additionalProperties: false
+
+    BuyerRoomTask:
+      type: object
+      description: One item on the shared list, as the buyer sees it. No seller-side ids, no provenance.
+      required: [id, side, title, position, done]
+      properties:
+        id: { type: string, format: uuid }
+        side: { $ref: '#/components/schemas/DealRoomTaskSide' }
+        title: { type: string }
+        position: { type: integer }
+        done: { type: boolean }
+        done_at: { type: [string, 'null'], format: date-time }
+        done_by:
+          type: [string, 'null']
+          description: Which side ticked it — `seller` or `buyer` — or null while open.
+      additionalProperties: false
+
+    BuyerRoomTaskListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/BuyerRoomTask' } }
+      additionalProperties: false
+
+    CompleteBuyerRoomTaskRequest:
+      type: object
+      required: [done]
+      properties:
+        done: { type: boolean }
+      additionalProperties: false
     OfferTemplate:
       type: object
       description: >-

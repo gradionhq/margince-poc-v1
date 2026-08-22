@@ -1415,6 +1415,34 @@ func (stubs) OneClickUnsubscribe(w nethttp.ResponseWriter, r *nethttp.Request, t
 	httperr.NotImplemented(w, r, "OneClickUnsubscribe")
 }
 
+func (stubs) ExchangeDealRoomCredential(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ExchangeDealRoomCredential")
+}
+
+func (stubs) RequestDealRoomLink(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "RequestDealRoomLink")
+}
+
+func (stubs) GetBuyerRoom(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetBuyerRoom")
+}
+
+func (stubs) PeekDealRoomCredential(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "PeekDealRoomCredential")
+}
+
+func (stubs) SignOutBuyerRoom(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "SignOutBuyerRoom")
+}
+
+func (stubs) ListBuyerRoomTasks(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListBuyerRoomTasks")
+}
+
+func (stubs) CompleteBuyerRoomTask(w nethttp.ResponseWriter, r *nethttp.Request, taskId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "CompleteBuyerRoomTask")
+}
+
 func (stubs) ListQuotas(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListQuotasParams) {
 	httperr.NotImplemented(w, r, "ListQuotas")
 }

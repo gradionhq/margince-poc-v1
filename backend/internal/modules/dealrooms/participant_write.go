@@ -104,7 +104,7 @@ func inviteTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in InviteIn
 	}
 
 	auditID, err := storekit.Audit(ctx, tx, "invite", participantObject, id.UUID, nil,
-		map[string]any{fieldRoomID: roomID.UUID, "email": email, "capability": in.Capability})
+		map[string]any{fieldRoomID: roomID.UUID, "email": email, fieldCapability: in.Capability})
 	if err != nil {
 		return IssuedInvitation{}, fmt.Errorf("audit deal room invite: %w", err)
 	}
@@ -327,7 +327,7 @@ func applyParticipantPatch(ctx context.Context, tx pgx.Tx, room crmcontracts.Dea
 		if err := refuseUnknownCapability(*in.Capability); err != nil {
 			return err
 		}
-		p.Set("capability", current.Capability, *in.Capability)
+		p.Set(fieldCapability, current.Capability, *in.Capability)
 	}
 	if in.Email != nil {
 		email := *in.Email

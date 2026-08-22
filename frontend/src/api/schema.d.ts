@@ -2869,6 +2869,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/rooms/peek": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Whether a Deal Room credential can still be exchanged (anonymous).
+         * @description Lets the buyer screen tell "open the room" from "ask for a new link" before
+         *     the one-time exchange consumes the credential. Answers the same for a paused
+         *     room as for a live one — the paused message is delivered only after
+         *     authentication, to the person the link was sent to.
+         */
+        post: operations["peekDealRoomCredential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/rooms/exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange a one-time Deal Room credential for a room session (anonymous).
+         * @description Consumes the credential — a second exchange of the same string is refused —
+         *     and issues a session token the buyer presents as a Bearer on every other
+         *     `/public/rooms` operation. The session is bound to ONE participant in ONE
+         *     room and is resolved fresh on every request, so revocation binds on the next
+         *     call. A paused room still exchanges: the session is established and the
+         *     room bootstrap then says access is paused.
+         */
+        post: operations["exchangeDealRoomCredential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/rooms/link-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for a fresh Deal Room link by email (anonymous, always 202).
+         * @description A buyer whose link lapsed asks for another. If the address belongs to a live
+         *     participant of a room that can still admit them, a new credential is minted
+         *     and mailed, retiring the old one. The response is 202 whatever happened —
+         *     an address that is not in any room gets the same answer as one that is, so
+         *     the endpoint cannot be used to discover who was invited where.
+         */
+        post: operations["requestDealRoomLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/rooms/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The room as its buyer sees it — the latest release, never the live deal.
+         * @description What the session admits the caller to. `access` says whether content is
+         *     served: `live` and `closed` carry the room (closed is read-only), `paused`
+         *     and `expired` carry none — only the participant and whom to contact.
+         *     Everything editorial comes from the latest published release, so a change
+         *     the seller has not published is invisible here.
+         */
+        get: operations["getBuyerRoom"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/rooms/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The shared to-do list as published, with live completion state.
+         * @description Task DEFINITIONS come from the latest release; COMPLETION is live, so a tick
+         *     from either side shows without a republish. Empty while the room is paused
+         *     or expired.
+         */
+        get: operations["listBuyerRoomTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/rooms/tasks/{taskId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tick or un-tick an item on the shared list as the buyer.
+         * @description Completion is the one thing a buyer writes to the list in this release; they
+         *     never author an item. Refused with 422 `deal_room_task_not_editable` once the
+         *     room is paused, closed or expired — a finished room's list is a record.
+         */
+        post: operations["completeBuyerRoomTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/public/rooms/sign-out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End the room session.
+         * @description Revokes this session only. The participant keeps their standing; a fresh
+         *     link admits them again. Works in every room state, because ending a session
+         *     is an access act, not a content one.
+         */
+        post: operations["signOutBuyerRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/public/preferences/{token}": {
         parameters: {
             query?: never;
@@ -19164,6 +19328,90 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        DealRoomCredentialRequest: {
+            /** @description The one-time credential from the invitation link's fragment. */
+            credential: string;
+        };
+        DealRoomPeekResponse: {
+            /** @description True only for a credential that can be exchanged right now. Identical for a paused and a live room. */
+            exchangeable: boolean;
+        };
+        DealRoomSessionIssued: {
+            /** @description Present as `Authorization: Bearer`. Returned once; only its hash is stored. */
+            session_token: string;
+            /**
+             * Format: date-time
+             * @description Absolute expiry. The buyer exchanges a fresh link after it.
+             */
+            expires_at: string;
+        };
+        DealRoomLinkRequest: {
+            /** Format: email */
+            email: string;
+        };
+        /**
+         * @description Whether the session admits the caller to content right now. `live` — the room
+         *     is open and the list can be worked. `closed` — the deal is done; everything
+         *     reads, nothing writes. `paused` — the seller has paused access; the link
+         *     stays valid and nothing is served until it resumes. `expired` — access has
+         *     lapsed on its own; ask for a new link.
+         *
+         *     A plain string, not an inline enum, for the reason `DealRoomState` and its
+         *     siblings give: the same four words generated as package-scope constants
+         *     would collide with the lifecycle's.
+         */
+        BuyerRoomAccess: string;
+        /** @description The caller, as the room knows them. Nothing about anyone else in the room. */
+        BuyerRoomParticipant: {
+            /** Format: uuid */
+            id: string;
+            full_name: string;
+            /** Format: email */
+            email: string;
+            capability: components["schemas"]["DealRoomParticipantCapability"];
+        };
+        /**
+         * @description The latest release, and only that. Every field here was copied at publish
+         *     time; the live deal is never read on this path.
+         */
+        BuyerRoomContent: {
+            title: string;
+            welcome_message?: string | null;
+            release_no: number;
+            /** Format: date-time */
+            released_at: string;
+            /** @description The named person on the seller's side to contact. Null when the steward's seat is gone. */
+            steward_name?: string | null;
+            /** Format: date-time */
+            closed_at?: string | null;
+        };
+        BuyerRoomView: {
+            access: components["schemas"]["BuyerRoomAccess"];
+            participant: components["schemas"]["BuyerRoomParticipant"];
+            /** @description Whom to contact. Present in every access state, because a paused buyer needs it most. */
+            steward_name?: string | null;
+            /** @description Omitted while access is `paused` or `expired`, and when nothing has been published yet. */
+            room?: components["schemas"]["BuyerRoomContent"];
+        };
+        /** @description One item on the shared list, as the buyer sees it. No seller-side ids, no provenance. */
+        BuyerRoomTask: {
+            /** Format: uuid */
+            id: string;
+            side: components["schemas"]["DealRoomTaskSide"];
+            title: string;
+            position: number;
+            done: boolean;
+            /** Format: date-time */
+            done_at?: string | null;
+            /** @description Which side ticked it — `seller` or `buyer` — or null while open. */
+            done_by?: string | null;
+        };
+        BuyerRoomTaskListResponse: {
+            data: components["schemas"]["BuyerRoomTask"][];
+        };
+        CompleteBuyerRoomTaskRequest: {
+            done: boolean;
+        };
         /** @description A branded, workspace-governed DE/EN PDF layout for offers (data-model §12.6). Mirrors the `offer_template` table. Deliberately carries no source/captured_by — like Quota/CustomField, this is workspace-authored config, not a captured record; provenance lives in the audit row, not this schema. */
         OfferTemplate: {
             /** Format: uuid */
@@ -25124,6 +25372,242 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationError"];
+        };
+    };
+    peekDealRoomCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DealRoomCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Whether the credential is exchangeable. Never 404 — absence is a false. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomPeekResponse"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    exchangeDealRoomCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DealRoomCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description The session token, returned once. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomSessionIssued"];
+                };
+            };
+            /** @description The credential admits nobody — unknown, already used, lapsed, retired or revoked; which one is deliberately not said. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestDealRoomLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DealRoomLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted. If the address is known, a link is on its way. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getBuyerRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The buyer's view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuyerRoomView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listBuyerRoomTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list, in the order both sides see it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuyerRoomTaskListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    completeBuyerRoomTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteBuyerRoomTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description The item as it now stands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuyerRoomTask"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    signOutBuyerRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed out. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getPreferenceCenter: {
