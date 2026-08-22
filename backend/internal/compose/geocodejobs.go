@@ -164,6 +164,15 @@ func (w *geocodeWorker) Work(ctx context.Context, job *river.Job[GeocodeOrganiza
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
+	// The lookup reads and writes under an actor of its own, and it needs one:
+	// AddressForGeocode takes organization:read and RecordGeocode takes
+	// organization:update, both of which refuse a context with no principal.
+	//
+	// Nobody noticed until the backfill queued the first job. Every enqueue
+	// before it rode an address WRITE, and no address had been written on an
+	// installation whose companies were seeded before the geocoder was
+	// configured — so the worker had never actually run.
+	wsCtx = geocodeJobActor(wsCtx)
 	store := people.NewStore(database.Bind(w.pool, func(context.Context) (ids.WorkspaceID, error) {
 		return ids.From[ids.WorkspaceKind](args.Workspace), nil
 	}))
@@ -241,6 +250,16 @@ func (w *geocodeWorker) Work(ctx context.Context, job *river.Job[GeocodeOrganiza
 	return jobs.FaultContext(wsCtx, errors.Join(
 		store.RecordGeocode(wsCtx, orgID, people.GeocodeOK, &point.Lat, &point.Lon, geocodeProvider, address.InputHash),
 		cacheErr))
+}
+
+// geocodeJobActor binds the principal a geocode lookup runs as: the
+// installation asking where its own company is, named so an audit row does not
+// have to invent a person who was not involved.
+func geocodeJobActor(ctx context.Context) context.Context {
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "system:geocode",
+	})
+	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
 
 // geocodeProvider names what answered, recorded on the row so a later change

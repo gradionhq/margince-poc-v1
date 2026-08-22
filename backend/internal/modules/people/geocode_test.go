@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
 // A transient failure must NOT settle the address.
@@ -120,5 +122,37 @@ func TestOnlyAMovedAddressQueuesALookup(t *testing.T) {
 	}
 	if movedAddress(map[string]any{}) {
 		t.Error("a patch that changed nothing queued a lookup")
+	}
+}
+
+// A create with an address earns a lookup, and a create without one does not.
+//
+// This is the gap the feature shipped with: geocoding was wired to the UPDATE
+// path only, so a company arriving with its address already filled in — every
+// seeded row, every imported row, every MCP create — was written and never
+// located. Nothing else would ever write that address again, so nothing would
+// ever ask where it was.
+func TestACreateWithAnAddressAsksWhereItIs(t *testing.T) {
+	line1, city := "Königstraße 1", "Stuttgart"
+	country := "DE"
+	for _, tc := range []struct {
+		name    string
+		address *crmcontracts.Address
+		want    bool
+	}{
+		{"a street and a city", &crmcontracts.Address{Line1: &line1, City: &city}, true},
+		{"a city alone", &crmcontracts.Address{City: &city}, true},
+		// A country is not somewhere a distance can be measured from, and
+		// asking about one spends fifteen seconds of a rate the whole
+		// installation shares to learn nothing.
+		{"a country alone", &crmcontracts.Address{Country: &country}, false},
+		{"no address at all", nil, false},
+		{"an address carrying nothing", &crmcontracts.Address{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := namesAPlace(tc.address); got != tc.want {
+				t.Errorf("namesAPlace(%+v) = %v, want %v", tc.address, got, tc.want)
+			}
+		})
 	}
 }

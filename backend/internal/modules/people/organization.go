@@ -59,7 +59,10 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = createOrganizationInTx(ctx, tx, in, by, active)
-		return err
+		if err != nil {
+			return err
+		}
+		return s.geocodeANewCompany(ctx, tx, out, in.Address)
 	})
 	return out, err
 }
@@ -83,7 +86,33 @@ func (s *Store) CreateOrganizationTx(ctx context.Context, tx pgx.Tx, in CreateOr
 		return crmcontracts.Organization{}, err
 	}
 	in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
-	return createOrganizationInTx(ctx, tx, in, by, nil)
+	out, err := createOrganizationInTx(ctx, tx, in, by, nil)
+	if err != nil {
+		return out, err
+	}
+	return out, s.geocodeANewCompany(ctx, tx, out, in.Address)
+}
+
+// geocodeANewCompany queues the lookup a create earned.
+//
+// It sits on the two store entry points rather than inside
+// createOrganizationInTx because that one is a free function with no store —
+// which is exactly why the enqueue was missed when the update path got it.
+// Both doors call this, so neither can create a company that never asks where
+// it is.
+//
+// A create with no usable address queues nothing: the row is simply not a
+// place yet, and the update path will queue when it becomes one.
+func (s *Store) geocodeANewCompany(ctx context.Context, tx pgx.Tx,
+	out crmcontracts.Organization, address *crmcontracts.Address,
+) error {
+	if !namesAPlace(address) {
+		return nil
+	}
+	if err := s.enqueueGeocode(ctx, tx, ids.From[ids.OrganizationKind](ids.UUID(out.Id))); err != nil {
+		return fmt.Errorf("locating a new company: %w", err)
+	}
+	return nil
 }
 
 // readyOrganizationCreate runs what a create settles BEFORE any transaction

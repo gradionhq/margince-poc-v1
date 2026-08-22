@@ -152,7 +152,8 @@ func newJobRunner(pool *pgxpool.Pool, logger *slog.Logger, cfg workerConfig, cap
 		// worker records that it cannot resolve, and radius queries stay
 		// unavailable — which is honest for an installation that geocodes
 		// nothing, and better than answering from an empty table.
-		Geocoder: geocoderFor(cfg.geocodeBaseURL),
+		Geocoder:  geocoderFor(cfg.geocodeBaseURL),
+		Geocoding: compose.GeocodingConfig{BackfillInterval: cfg.geocodeBackfill},
 		// The registry that resolves a staged delivery's mailbox: the SAME
 		// sweep registry the capture polls use, so the connector set that
 		// syncs a mailbox is the one that transmits from it.

@@ -99,6 +99,7 @@ func censusJobConfig() JobRunnerConfig {
 		WebhookRetry:           WebhookRetryConfig{Interval: censusInterval, Deliverer: func(*database.DB) *webhooks.Deliverer { return &webhooks.Deliverer{} }},
 		ProviderRuns:           ProviderRunsConfig{Registry: censusProviderRegistry(), Vault: keyvault.NewMemory()},
 		PrivacyRetention:       PrivacyRetentionConfig{Interval: censusInterval},
+		Geocoding:              GeocodingConfig{BackfillInterval: censusInterval},
 		CloseDateInterval:      censusInterval,
 		ReconcileInterval:      censusInterval,
 		TimeScanInterval:       censusInterval,

@@ -21,6 +21,7 @@ package people
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -94,4 +95,78 @@ func readGeocode(t *testing.T, e *dedupeEnv, orgID ids.OrganizationID) (status s
 		t.Fatalf("reading the recorded geocode: %v", err)
 	}
 	return status, lat, lon
+}
+
+// The sweep finds the rows an address write never will, and only those.
+//
+// This is the backfill's whole reason: a company written before the
+// installation had a geocoder is invisible to the trigger, because nothing
+// will ever write its address again. A seeded workspace is exactly that case,
+// and without this pass within_radius answers from an empty set while looking
+// like a query that works.
+func TestTheSweepFindsCompaniesNoWriteWillEverReach(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	located, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Findable GmbH", Source: "manual",
+		Address: &crmcontracts.Address{City: strPtr("Stuttgart"), Country: strPtr("DE")},
+	})
+	if err != nil {
+		t.Fatalf("seeding a company with an address: %v", err)
+	}
+	// A country alone is not a place; the sweep must not spend a lookup on it.
+	if _, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Nowhere GmbH", Source: "manual",
+		Address: &crmcontracts.Address{Country: strPtr("DE")},
+	}); err != nil {
+		t.Fatalf("seeding a company with no usable address: %v", err)
+	}
+	if _, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Addressless GmbH", Source: "manual",
+	}); err != nil {
+		t.Fatalf("seeding a company with no address: %v", err)
+	}
+
+	due, err := e.store.ListNeverGeocoded(ctx, GeocodeBackfillBatch)
+	if err != nil {
+		t.Fatalf("ListNeverGeocoded: %v", err)
+	}
+	wantID := ids.From[ids.OrganizationKind](ids.UUID(located.Id))
+	if !slices.Contains(due, wantID) {
+		t.Errorf("the sweep listed %v, want the company with a city among them — "+
+			"a seeded database is the case this exists for", due)
+	}
+	for _, id := range due {
+		if id == wantID {
+			continue
+		}
+		t.Errorf("the sweep also nominated %v; a company without a usable address "+
+			"costs a lookup to learn nothing", id)
+	}
+
+	// Answered rows are not re-swept. A company that has been through the
+	// worker carries its own retry ledger — `failed` waits for its backoff,
+	// `no_match` waits for its address to change — and re-nominating those
+	// would spend the installation's rate re-asking settled questions and
+	// defeat the backoff by asking again every pass.
+	// Through the real read, because RecordGeocode only writes when the input
+	// hash still matches the row's address — a guard against a worker landing
+	// an answer for an address that was edited while it was away. A made-up
+	// hash writes nothing and the assertion below would pass on an empty
+	// update, proving only that the test was wrong.
+	answered, ok, err := e.store.AddressForGeocode(ctx, wantID)
+	if err != nil || !ok {
+		t.Fatalf("AddressForGeocode before recording: %v (ok=%v)", err, ok)
+	}
+	if err := e.store.RecordGeocode(ctx, wantID, GeocodeNoMatch, nil, nil, "test", answered.InputHash); err != nil {
+		t.Fatalf("recording an answer: %v", err)
+	}
+	after, err := e.store.ListNeverGeocoded(ctx, GeocodeBackfillBatch)
+	if err != nil {
+		t.Fatalf("ListNeverGeocoded after an answer: %v", err)
+	}
+	if slices.Contains(after, wantID) {
+		t.Error("an answered company is still swept, so every pass re-asks a settled question")
+	}
 }

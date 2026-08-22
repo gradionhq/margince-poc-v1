@@ -512,6 +512,7 @@ func TestArgsOwnedAttemptCapsMatchTheirDeclaration(t *testing.T) {
 // rather than against the type the runtime registers.
 var argsForKind = map[string]river.JobArgs{
 	WebhookRetryArgs{}.Kind():        WebhookRetryArgs{},
+	GeocodeBackfillArgs{}.Kind():     GeocodeBackfillArgs{},
 	AgentSchedulerArgs{}.Kind():      AgentSchedulerArgs{},
 	AgentTaskRetentionArgs{}.Kind():  AgentTaskRetentionArgs{},
 	AIActivityReconcileArgs{}.Kind(): AIActivityReconcileArgs{},
