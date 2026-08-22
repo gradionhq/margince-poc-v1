@@ -82,6 +82,32 @@ func activityBodyKept(t *testing.T, e *Env, id ids.UUID) bool {
 	return kept
 }
 
+// derivedRows counts what the erasure derives from an activity besides its
+// text: the vector of it, and the participant row naming the subject. Both
+// are seeded by SQL because no writer in this lane produces them on a note —
+// embeddings come from the indexer, participants from mail capture — and the
+// assertion is about the eraser, not about them.
+func seedDerivedRows(t *testing.T, e *Env, activity, subject ids.UUID) {
+	t.Helper()
+	e.WsExec(t, `INSERT INTO embedding (entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+		VALUES ('activity', $1, 0, 'h', 'fake/test@3', '[1,2,3]'::vector)`, activity)
+	e.WsExec(t, `INSERT INTO activity_participant (activity_id, person_id, role) VALUES ($1, $2, 'from')`,
+		activity, subject)
+}
+
+func derivedRows(t *testing.T, e *Env, activity ids.UUID) (embeddings, participants int) {
+	t.Helper()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT (SELECT count(*) FROM embedding WHERE entity_type = 'activity' AND entity_id = $1),
+			       (SELECT count(*) FROM activity_participant WHERE activity_id = $1 AND person_id IS NOT NULL)`,
+			activity).Scan(&embeddings, &participants)
+	}); err != nil {
+		t.Fatalf("counting derived rows of %s: %v", activity, err)
+	}
+	return embeddings, participants
+}
+
 func TestErasureKeepsASubjectOnlyNoteFiledUnderAHeldProject(t *testing.T) {
 	e := Setup(t)
 	f := seedProjectHoldFixture(t, e)
@@ -91,6 +117,8 @@ func TestErasureKeepsASubjectOnlyNoteFiledUnderAHeldProject(t *testing.T) {
 		activities.ActivityLinkInput{EntityType: "project", EntityID: f.held})
 	onFree := logNote(t, e, "Kick-off", time.Now(), person,
 		activities.ActivityLinkInput{EntityType: "project", EntityID: f.free})
+	seedDerivedRows(t, e, onHeld, subject)
+	seedDerivedRows(t, e, onFree, subject)
 
 	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), subject, "test"); err != nil {
 		t.Fatalf("erasing an unheld subject: %v", err)
@@ -101,6 +129,13 @@ func TestErasureKeepsASubjectOnlyNoteFiledUnderAHeldProject(t *testing.T) {
 	}
 	if activityBodyKept(t, e, onFree) {
 		t.Error("the twin filed under an unheld project survived — the cascade did not discriminate on the hold")
+	}
+	// The hold covers what was derived from the note, not only its text.
+	if emb, part := derivedRows(t, e, onHeld); emb != 1 || part != 1 {
+		t.Errorf("held note: embeddings=%d participants=%d, want 1/1 — the hold must keep the vector and the parties with the text", emb, part)
+	}
+	if emb, part := derivedRows(t, e, onFree); emb != 0 || part != 0 {
+		t.Errorf("unheld twin: embeddings=%d participants=%d, want 0/0 — the cascade did not reach the derived rows", emb, part)
 	}
 }
 

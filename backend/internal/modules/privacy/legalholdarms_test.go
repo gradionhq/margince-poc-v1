@@ -19,13 +19,24 @@ import (
 const headCatalogPath = "../../../migrations/testdata/head_catalog.txt"
 
 // activityHoldSelectors are every SQL statement in this package that decides
-// whether an activity is frozen by a legal hold reached through its links.
-// A hold on a linked record must cover the evidence about it, so each one owes
-// an arm per held table; a selector missing one re-admits exactly what its
-// siblings exclude.
+// whether an activity is frozen by a legal hold reached through its links, and
+// every erasure statement that reaches activity-derived rows — the activity's
+// text, its embedding, its participants. A hold on a linked record must cover
+// the evidence about it, so each one owes an arm per held table; a statement
+// missing one re-admits exactly what its siblings exclude.
+//
+// The package keeps no registry of its erasure statements, so the
+// activity-derived ones are named here by hand. A new statement that touches
+// an activity-derived table belongs in this list.
 func activityHoldSelectors() map[string]string {
 	return map[string]string{
 		"erasure notTransitivelyHeld":       notTransitivelyHeld("x.id"),
+		"erasure subjectOnlyActivities":     subjectOnlyActivities,
+		"erasure unlinkedSubjectMail":       unlinkedSubjectMail,
+		"erasure unlinkedSubjectChannel":    unlinkedSubjectChannel,
+		"erasure embeddings delete":         subjectActivityEmbeddingsDelete,
+		"erasure participants delete":       subjectParticipantsDelete,
+		"erasure participants blank":        subjectParticipantsBlank,
 		"restriction notHeldThroughAnyLink": notHeldThroughAnyLink("x.id"),
 		"retention activity/":               retentionSelectors["activity/"],
 		"retention activity/transcript":     retentionSelectors["activity/transcript"],
@@ -38,11 +49,24 @@ type holdArm string
 func armOf(selector, table string) holdArm { return holdArm(selector + " / " + table) }
 
 // The one arm a selector may lack, with what the omission costs.
-var waivedHoldArms = gatekit.Waive(map[holdArm]string{
-	armOf("erasure notTransitivelyHeld", "person"): "a person-linked activity shared with another subject " +
-		"is already outside every erasure selector, and the erased subject is proven unheld before " +
-		"the cascade runs (ErasePerson's own-hold check); the arm would read a hold that cannot be set",
-})
+var waivedHoldArms = gatekit.Waive(personArmWaivers(
+	"erasure notTransitivelyHeld", "erasure subjectOnlyActivities", "erasure unlinkedSubjectMail",
+	"erasure unlinkedSubjectChannel", "erasure embeddings delete", "erasure participants delete",
+	"erasure participants blank",
+))
+
+// personArmWaivers states the one cost once for every erasure statement built
+// on notTransitivelyHeld: the person arm is not there because it could never
+// fire, not because it was forgotten.
+func personArmWaivers(selectors ...string) map[holdArm]string {
+	out := make(map[holdArm]string, len(selectors))
+	for _, selector := range selectors {
+		out[armOf(selector, "person")] = "a person-linked activity shared with another subject " +
+			"is already outside every erasure selector, and the erased subject is proven unheld before " +
+			"the cascade runs (ErasePerson's own-hold check); the arm would read a hold that cannot be set"
+	}
+	return out
+}
 
 func TestEveryLegalHoldColumnIsReadByEveryActivityHoldSelector(t *testing.T) {
 	held := tablesCarryingLegalHoldReachableFromActivityLink(t)
