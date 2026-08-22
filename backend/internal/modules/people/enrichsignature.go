@@ -21,6 +21,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // enrichSource is the DM-CONV-11 channel for signature-extracted fields.
@@ -89,9 +90,44 @@ func (s *Store) ApplySignatureFields(ctx context.Context, personID ids.PersonID,
 	return res, nil
 }
 
-func (s *Store) applySignatureField(ctx context.Context, tx pgx.Tx, personID ids.PersonID, sourceRef string, f SignatureField) (bool, error) {
+// readSignatureValue is the candidate value a signature field contributes, in
+// the shape the column it fills accepts — or false when this pass cannot read
+// one, which is a skipped field and not a failure.
+//
+// The phone goes through values.ParsePhone, the same door the create and dedupe
+// paths use. person_phone.phone is E.164 by contract and nothing in the database
+// enforces it, so a signature line — which states a number in whatever shape its
+// author types, "+49 (30) 1234-5678" or "030 12345678" — would reach the column
+// verbatim. The one without a country prefix is the one that matters: it is
+// unreachable, and it defeats the phone dedupe, which matches the normalized
+// form.
+//
+// It normalizes BEFORE the evidence row is written rather than at the INSERT,
+// because the sidecar's `value` column is what the surfaces show as the claim
+// this evidence supports. Normalizing only the person_phone row would leave the
+// two disagreeing about the same fact.
+func readSignatureValue(f SignatureField) (string, bool) {
 	value := strings.TrimSpace(f.Value)
 	if value == "" {
+		return "", false
+	}
+	if f.Name != "phone" {
+		return value, true
+	}
+	parsed, err := values.ParsePhone(value)
+	if err != nil {
+		// Declined, not failed: a footer this pass cannot read is one candidate
+		// skipped, exactly like an empty one. Propagating it would abandon the
+		// other fields of the same signature, and the rest of the batch, over
+		// one person's formatting.
+		return "", false
+	}
+	return parsed.String(), true
+}
+
+func (s *Store) applySignatureField(ctx context.Context, tx pgx.Tx, personID ids.PersonID, sourceRef string, f SignatureField) (bool, error) {
+	value, readable := readSignatureValue(f)
+	if !readable {
 		return false, nil
 	}
 

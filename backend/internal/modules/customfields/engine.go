@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -92,8 +93,6 @@ var allowedObjects = func() map[string]bool {
 var allowedTypes = map[string]bool{
 	TypeText: true, TypeNumber: true, TypeDate: true, TypeCurrency: true, TypePicklist: true, TypeBoolean: true,
 }
-
-var currencyCodeRe = regexp.MustCompile(`^[A-Z]{3}$`)
 
 // FieldSpec is a candidate custom-field definition — the only source the
 // DDL generator is permitted to read from. Unlike the poc-1 reference this
@@ -174,7 +173,7 @@ func Validate(spec FieldSpec) []FieldError {
 	if strings.TrimSpace(spec.Label) == "" {
 		errs = append(errs, FieldError{Field: fieldLabel, Code: codeRequired})
 	}
-	if spec.Type == TypeCurrency && (spec.Currency == nil || !currencyCodeRe.MatchString(*spec.Currency)) {
+	if spec.Type == TypeCurrency && (spec.Currency == nil || !values.ValidCurrency(*spec.Currency)) {
 		errs = append(errs, FieldError{Field: fieldCurrency, Code: "required_for_type_currency"})
 	}
 	if spec.Type == TypePicklist && len(spec.Options) == 0 {

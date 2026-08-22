@@ -310,14 +310,31 @@ func (s *Service) profileFieldsSection(ctx context.Context, tx pgx.Tx, personID 
 // would silently lose every correction.
 func profileFieldClaimPath(field string) string { return "profile_field:" + field }
 
-// readProfileFields is EVERY read of person_profile_field — the 360 section
-// and the standalone sidecar endpoint both come through here.
+// readProfileFields is every read of person_profile_field that RENDERS it to a
+// reader — the 360 section and the standalone sidecar endpoint both come
+// through here.
 //
 // That matters because the human's verdict is folded in below. A corrected
 // value rendered without its marker reads as the machine's assertion, which is
 // exactly the claim the human overrode, so consulting the ledger cannot be one
 // caller's job: a second read path that skipped it would keep serving the
 // rejected value on a surface nobody thought to check.
+//
+// Other statements touch the table — an existence probe, a merge relink, the
+// writers — but exactly one other SERVES values out of it, and it deliberately
+// does not come through here: privacy/sar.go's Article 15 export.
+//
+// That is not a gap. An export owes the subject what this installation HOLDS,
+// and it holds two facts: the machine's assertion and the verdict recorded
+// against it. So it exports the stored columns and ai_feedback beside them as
+// its own section, and the subject sees both. Overlaying the verdict there
+// would hand them one merged value and conceal that the override exists — the
+// opposite of what an export is for. The two also cannot share this function:
+// privacy is a module and may not import compose.
+//
+// TestEveryReaderServingProfileFieldValuesConsultsTheVerdictLedger holds this
+// paragraph, so a third reader that serves values without the overlay fails
+// rather than quietly making the sentence above false.
 func (s *Service) readProfileFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]crmcontracts.PersonProfileField, error) {
 	rows, err := tx.Query(ctx, `
 		-- updated_at, not created_at: this is when the value took its CURRENT

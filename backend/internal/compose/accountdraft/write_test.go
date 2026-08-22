@@ -224,3 +224,25 @@ func TestDraftingNeverReturnsADraftRef(t *testing.T) {
 		t.Fatalf("draft_ref = %v, want null: recording a served draft is a write", out.DraftRef)
 	}
 }
+
+// A model that wraps its JSON in a ```json fence has answered correctly, and
+// this surface used to fail it while the reply surface — same models, same
+// ladder — accepted it. The rule is ai.Unfence's own: one reduction defines
+// what every parse sees, so no caller invents its own trim.
+func TestAFencedAnswerIsRead(t *testing.T) {
+	answer := "```json\n" +
+		`{"subject":"Next steps","body":"Hi Sarah,\n\nShall we pick this up?"}` +
+		"\n```"
+	lane := &scriptedLane{answer: answer}
+
+	draft, by, err := Write(context.Background(), lane, sampleInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if by != crmcontracts.Model {
+		t.Fatalf("generated_by = %q, want model: a fenced answer degraded to the floor", by)
+	}
+	if draft.Subject != "Next steps" {
+		t.Errorf("subject = %q, want the model's own", draft.Subject)
+	}
+}

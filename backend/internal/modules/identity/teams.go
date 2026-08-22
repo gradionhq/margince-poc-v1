@@ -53,8 +53,7 @@ func (s *Service) CreateTeam(ctx context.Context, actor Identity, name string) (
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `INSERT INTO team (name) VALUES ($1) RETURNING id, name`, name).
 			Scan(&out.ID, &out.Name)
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if storekit.IsUniqueViolation(err) {
 			return fmt.Errorf("%w: a team named %q already exists", apperrors.ErrConflict, name)
 		}
 		if err != nil {
@@ -100,8 +99,7 @@ func (s *Service) UpdateTeam(ctx context.Context, actor Identity, id ids.UUID, i
 		out = before
 		if name != nil && *name != before.Name {
 			err := tx.QueryRow(ctx, `UPDATE team SET name = $2 WHERE id = $1 RETURNING name`, id, *name).Scan(&out.Name)
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if storekit.IsUniqueViolation(err) {
 				return fmt.Errorf("%w: a team named %q already exists", apperrors.ErrConflict, *name)
 			}
 			if err != nil {

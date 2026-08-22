@@ -11,14 +11,13 @@ package compose
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
 // preservedResetTables are the tables a reset must NOT delete. Everything else
@@ -207,7 +206,7 @@ func sweepWorkspaceData(ctx context.Context, tx pgx.Tx, tables []resetTarget) er
 				progressed = true
 				continue
 			}
-			if !isForeignKeyViolation(delErr) {
+			if !storekit.IsForeignKeyViolation(delErr) {
 				return delErr
 			}
 			if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT reset_sp"); err != nil {
@@ -263,11 +262,6 @@ func (h dataResetHandlers) clearOutbox(ctx context.Context) error {
 	return database.WithWorkspaceTx(ctx, h.pool, func(tx pgx.Tx) error {
 		return clearWorkspaceOutbox(ctx, tx)
 	})
-}
-
-func isForeignKeyViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }
 
 // vaultRefColumn is the one spelling every table uses for a keyvault
