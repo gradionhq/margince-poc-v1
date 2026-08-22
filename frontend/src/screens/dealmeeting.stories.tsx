@@ -30,8 +30,13 @@ const BOOKED = {
 } as Activity;
 
 function Served({ children }: Readonly<{ children: ReactNode }>) {
+  const client = new QueryClient();
+  client.setQueryData(["deal-meetings", "deal-1"], {
+    data: [BOOKED],
+    page: {},
+  });
   return (
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <LocaleProvider initial="en">{children}</LocaleProvider>
     </QueryClientProvider>
   );
@@ -41,7 +46,7 @@ function Served({ children }: Readonly<{ children: ReactNode }>) {
 export const Booked: Story = {
   render: () => (
     <Served>
-      <DealNextMeeting activities={[BOOKED]} />
+      <DealNextMeeting dealId="deal-1" />
     </Served>
   ),
 };
