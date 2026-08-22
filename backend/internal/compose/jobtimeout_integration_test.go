@@ -37,26 +37,44 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
-// deadlinePickupMargin is the ONLY slack TestTheDeclaredTimeoutIsTheDeadlineRiverApplies
+// deadlineReadMargin is the ONLY slack TestTheDeclaredTimeoutIsTheDeadlineRiverApplies
 // grants, and it is absolute rather than a fraction of the declared value:
 // a multiplicative window (e.g. declared/2..declared*10) pins the order of
 // magnitude, not the value, and would admit a deadline that drifted from
 // what was declared by a fixed offset or a small scaling error just as
-// happily as it admits the right one. This margin instead covers only
-// River's own pickup latency between Enqueue returning and Work reading
-// ctx.Deadline() -- LISTEN/NOTIFY dispatch, the insert round trip, goroutine
-// scheduling -- which the GREEN runs recorded during development placed at
-// well under 100ms even with database setup folded in. 200ms is generous
-// slack for a loaded CI runner while still rejecting anything that is
-// wrong rather than merely late.
-const deadlinePickupMargin = 200 * time.Millisecond
+// happily as it admits the right one.
+//
+// It covers the gap between River computing the deadline as Work is invoked
+// and Work's first statement reading ctx.Deadline() -- a few goroutine
+// scheduling slots, microseconds in practice. It deliberately does NOT cover
+// pickup: the measurement starts INSIDE Work rather than at Enqueue, so
+// LISTEN/NOTIFY dispatch, the insert round trip and a busy runner are outside
+// the window entirely instead of being budgeted for.
+//
+// That distinction is why this constant is 25ms rather than the 200ms it
+// replaces. Measuring from enqueue made the assertion "the declared timeout is
+// right AND the runner picked the job up quickly", and the second half is a
+// property of the machine, not of the code under test: a loaded runner put the
+// total at 311ms, 329ms and 333ms against a 300ms ceiling on three separate
+// occasions, reddening main once and two innocent pull requests. A wall-clock
+// ceiling over pickup is a bet that CI never has a bad minute, and widening it
+// only moves the bet.
+const deadlineReadMargin = 25 * time.Millisecond
 
 type timeoutProbeArgs struct{}
 
 func (timeoutProbeArgs) Kind() string { return "timeout_probe" }
 
+// deadlineRead is what the probe saw and when it looked. The pair is the
+// whole point: `deadline` alone can only be compared against a clock reading
+// taken outside Work, which folds pickup latency into the comparison.
+type deadlineRead struct {
+	deadline time.Time
+	readAt   time.Time
+}
+
 type timeoutProbeWorker struct {
-	deadline chan time.Time
+	deadline chan deadlineRead
 	// release lets a job whose context is NEVER cancelled by design (the
 	// {none: true} case) return once the test has read what it needs, rather
 	// than blocking forever. Left nil for the fixed-timeout case, where
@@ -74,7 +92,22 @@ type timeoutProbeWorker struct {
 // not after a fixed delay.
 func (w *timeoutProbeWorker) Work(ctx context.Context, _ *river.Job[timeoutProbeArgs]) error {
 	if d, ok := ctx.Deadline(); ok {
-		w.deadline <- d
+		// Read the clock HERE, beside the deadline it is compared against.
+		//
+		// This is a real clock rather than an injected one, and it cannot be
+		// otherwise: River builds the worker deadline with context.WithTimeout
+		// against its own clock, jobs.Config exposes no seam onto it, and a
+		// deadline is a time.Time -- comparing it to anything requires reading
+		// a clock somewhere. What the pairing buys is the SIZE of the window
+		// that reading is exposed to. Measured from enqueue it spanned a
+		// LISTEN/NOTIFY round trip and a queue, which is why 200ms was not
+		// enough three times; measured from here it spans the goroutine
+		// scheduling slots between River computing the deadline and this
+		// statement running. For that to exceed deadlineReadMargin the runtime
+		// would have to stall this goroutine for 25ms between two adjacent
+		// statements, at which point the machine has a problem the test is
+		// right to report.
+		w.deadline <- deadlineRead{deadline: d, readAt: time.Now()}
 	} else {
 		close(w.deadline)
 	}
@@ -120,7 +153,7 @@ func newProbeRunner(t *testing.T, workers *river.Workers) (*jobs.Runner, func())
 func TestTheDeclaredTimeoutIsTheDeadlineRiverApplies(t *testing.T) {
 	const declared = 100 * time.Millisecond
 
-	probe := &timeoutProbeWorker{deadline: make(chan time.Time, 1)}
+	probe := &timeoutProbeWorker{deadline: make(chan deadlineRead, 1)}
 	workers := river.NewWorkers()
 	river.AddWorker(workers, jobs.Govern[timeoutProbeArgs](
 		probe,
@@ -131,24 +164,26 @@ func TestTheDeclaredTimeoutIsTheDeadlineRiverApplies(t *testing.T) {
 	runner, cleanup := newProbeRunner(t, workers)
 	defer cleanup()
 
-	started := time.Now()
 	if err := runner.Enqueue(context.Background(), timeoutProbeArgs{}, nil); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
 
 	select {
-	case deadline, ok := <-probe.deadline:
+	case read, ok := <-probe.deadline:
 		if !ok {
 			t.Fatal("Work ran with NO deadline — the declared timeout did not reach River")
 		}
-		got := deadline.Sub(started)
+		// From the moment Work looked, never from the moment the job was
+		// enqueued: how long River took to pick the job up says nothing about
+		// whether the declared timeout is the one it applied.
+		got := read.deadline.Sub(read.readAt)
 		off := got - declared
 		if off < 0 {
 			off = -off
 		}
-		if off > deadlinePickupMargin {
-			t.Errorf("deadline arrived %v after enqueue, want %v ± %v (declared %v) — Govern's value is not what River applied",
-				got, declared, deadlinePickupMargin, declared)
+		if off > deadlineReadMargin {
+			t.Errorf("deadline sits %v after Work began, want %v ± %v (declared %v) — Govern's value is not what River applied",
+				got, declared, deadlineReadMargin, declared)
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("Work never started; the probe job was not picked up")
@@ -169,7 +204,7 @@ func TestADeclaredAbsenceLeavesTheJobWithNoDeadline(t *testing.T) {
 	// it. Without release, Work would still be waiting on a deadline that
 	// will never arrive when cleanup calls Stop, and Stop would hang out its
 	// full budget every run.
-	probe := &timeoutProbeWorker{deadline: make(chan time.Time, 1), release: make(chan struct{})}
+	probe := &timeoutProbeWorker{deadline: make(chan deadlineRead, 1), release: make(chan struct{})}
 	workers := river.NewWorkers()
 	river.AddWorker(workers, jobs.Govern[timeoutProbeArgs](
 		probe,
