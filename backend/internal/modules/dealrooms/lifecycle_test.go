@@ -10,36 +10,73 @@ package dealrooms
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
+// dealRoomStates reads the state vocabulary out of the contract rather than
+// restating it, so a tenth state added upstream reaches this test instead of
+// defaulting silently to publishable. crm.yaml is the authority the migration's
+// CHECK and the generated enum both follow.
+func dealRoomStates(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "api", "crm.yaml"))
+	if err != nil {
+		t.Fatalf("reading the contract to derive the state vocabulary: %v", err)
+	}
+	var doc struct {
+		Components struct {
+			Schemas struct {
+				DealRoomState struct {
+					Enum []string `yaml:"enum"`
+				} `yaml:"DealRoomState"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parsing the contract: %v", err)
+	}
+	states := doc.Components.Schemas.DealRoomState.Enum
+	if len(states) == 0 {
+		t.Fatal("DealRoomState declares no enum — this test is reading the wrong shape")
+	}
+	return states
+}
+
 func TestPublishIsRefusedOnlyWhereABuyerIsDoneReceiving(t *testing.T) {
-	// Every state the schema admits, and what publishing from it must do. The
-	// list is exhaustive against the CHECK constraint on purpose: a tenth state
-	// added upstream fails here rather than silently defaulting to publishable.
-	for _, tc := range []struct {
-		state    string
-		admitted bool
-	}{
-		{stateDraft, true},
-		{"building", true},
-		{"ready", true},
-		{"publishing", true},
-		{stateLive, true},
+	// What publishing from each state must do. Every state the contract declares
+	// needs a verdict here; the check below fails on one this table forgot.
+	verdicts := map[string]bool{
+		stateDraft:   true,
+		"building":   true,
+		"ready":      true,
+		"publishing": true,
+		stateLive:    true,
 		// Publishing a paused room deliberately resumes it: a seller who
 		// publishes plainly means the buyer to see the result.
-		{statePaused, true},
-		{stateClosed, false},
-		{"expired", false},
-		{stateArchived, false},
-	} {
-		t.Run(tc.state, func(t *testing.T) {
-			if got := publishable(tc.state); got != tc.admitted {
-				t.Errorf("publishable(%q) = %v, want %v", tc.state, got, tc.admitted)
+		statePaused:   true,
+		stateClosed:   false,
+		"expired":     false,
+		stateArchived: false,
+	}
+
+	for _, state := range dealRoomStates(t) {
+		want, judged := verdicts[state]
+		if !judged {
+			t.Errorf("the contract declares state %q and this test has no verdict for it — "+
+				"decide whether a buyer may still receive a release in that state", state)
+			continue
+		}
+		t.Run(state, func(t *testing.T) {
+			if got := publishable(state); got != want {
+				t.Errorf("publishable(%q) = %v, want %v", state, got, want)
 			}
 		})
 	}

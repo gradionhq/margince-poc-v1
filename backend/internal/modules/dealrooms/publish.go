@@ -94,7 +94,7 @@ func publishRoomTx(ctx context.Context, tx pgx.Tx, id ids.DealRoomID, note *stri
 		return crmcontracts.DealRoomRelease{}, fmt.Errorf("insert deal room release: %w", err)
 	}
 
-	if err := markRoomLive(ctx, tx, room, next); err != nil {
+	if err := markRoomLive(ctx, tx, room); err != nil {
 		return crmcontracts.DealRoomRelease{}, err
 	}
 
@@ -153,16 +153,19 @@ func publishingUser(ctx context.Context) (*ids.UserID, error) {
 	return &u, nil
 }
 
-// markRoomLive moves the room to live and stamps published_at on the FIRST
-// release only. published_at answers "when did this room go live?", which
-// release 2 does not change; re-stamping it would quietly rewrite the answer
-// every time somebody fixed a typo.
-func markRoomLive(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, releaseNo int) error {
+// markRoomLive moves the room to live and stamps published_at once.
+//
+// published_at answers "when did this room go live?", which a later release does
+// not change — so the guard is that it is not already set, and nothing narrower.
+// Keying it on "this is release 1" would say the same thing in the common case
+// and then refuse to repair a live room that somehow reached release 2 without
+// the stamp, leaving that question permanently unanswerable.
+func markRoomLive(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom) error {
 	p := storekit.NewPatch()
 	if string(room.State) != stateLive {
 		p.Set("state", string(room.State), stateLive)
 	}
-	if releaseNo == 1 && room.PublishedAt == nil {
+	if room.PublishedAt == nil {
 		p.Set("published_at", nil, time.Now().UTC())
 	}
 	if p.Empty() {

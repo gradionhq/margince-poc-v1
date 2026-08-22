@@ -6,6 +6,7 @@ package dealrooms
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -71,14 +72,10 @@ func roomPage(ctx context.Context, tx pgx.Tx, in ListRoomsInput) ([]crmcontracts
 	}
 
 	size := storekit.ClampLimit(in.Limit)
-	clause := where[0]
-	for _, w := range where[1:] {
-		clause += " AND " + w
-	}
 	rows, err := tx.Query(ctx, storekit.SQLf(
 		`SELECT %s FROM deal_room r JOIN deal d ON d.id = r.deal_id
 		  WHERE %s ORDER BY r.created_at DESC, r.id DESC LIMIT %d`,
-		roomColumns, clause, size+1), args...)
+		roomColumns, strings.Join(where, " AND "), size+1), args...)
 	if err != nil {
 		return nil, storekit.Page{}, fmt.Errorf("list deal rooms: %w", err)
 	}

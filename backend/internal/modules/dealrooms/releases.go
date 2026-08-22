@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -48,8 +49,7 @@ func (s *Store) ListReleases(ctx context.Context, roomID ids.DealRoomID, limit *
 func releasePage(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, limit *int, cursor *string) ([]crmcontracts.DealRoomRelease, storekit.Page, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
-	roomPos := arg(roomID)
-	where := storekit.SQLf(`room_id = $%d`, roomPos)
+	where := []string{storekit.SQLf(`room_id = $%d`, arg(roomID))}
 
 	if cursor != nil && *cursor != "" {
 		decoded, err := storekit.DecodeCursor(*cursor)
@@ -57,14 +57,14 @@ func releasePage(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, limit *i
 			return nil, storekit.Page{}, err
 		}
 		// Newest first, so the page walks BACKWARDS through the keyset.
-		where += storekit.SQLf(` AND (created_at, id) < ($%d, $%d)`,
-			arg(decoded.CreatedAt), arg(decoded.ID))
+		where = append(where, storekit.SQLf(`(created_at, id) < ($%d, $%d)`,
+			arg(decoded.CreatedAt), arg(decoded.ID)))
 	}
 
 	size := storekit.ClampLimit(limit)
 	rows, err := tx.Query(ctx, storekit.SQLf(
 		`SELECT %s FROM deal_room_release WHERE %s ORDER BY created_at DESC, id DESC LIMIT %d`,
-		releaseColumns, where, size+1), args...)
+		releaseColumns, strings.Join(where, " AND "), size+1), args...)
 	if err != nil {
 		return nil, storekit.Page{}, fmt.Errorf("list deal room releases: %w", err)
 	}

@@ -31,11 +31,15 @@ func (e *stateError) MessageFault() (code, message string) {
 
 func (e *stateError) Unwrap() error { return apperrors.ErrConflict }
 
+// notPublishable refuses a publish from one of the three states where a buyer is
+// no longer meant to receive anything new. All three are terminal — there is no
+// un-close and no un-expire — so the message names opening a new room rather
+// than implying a way back that does not exist.
 func notPublishable(current string) error {
 	return &stateError{
 		code:    "deal_room_not_publishable",
 		current: current,
-		wanted:  "publishing needs a room that has not been closed, expired or archived",
+		wanted:  "this room is finished and cannot publish again: open a new Deal Room on the deal to show the buyer anything further",
 	}
 }
 

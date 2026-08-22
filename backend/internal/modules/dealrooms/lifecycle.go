@@ -83,15 +83,17 @@ type roomMove struct {
 	stampsCol string
 	// payload is the event this move announces, built from the room's deal id.
 	// events.Payload is the generated interface every public payload satisfies,
-	// so storekit.EmitEvent still derives the event and entity type from the
-	// value itself — a mislabeled envelope stays inexpressible.
-	payload   func(dealID openapi_types.UUID) events.Payload
-	ifVersion *int64
+	// so storekit.EmitEvent reads the event type and entity type off the value
+	// rather than from a string a caller passes beside it.
+	payload func(dealID openapi_types.UUID) events.Payload
 }
 
-// moveRoom is the one spelling of a lifecycle transition: lock, check the
-// state, write, audit, emit. Every move goes through it so that a new
-// transition cannot quietly skip the audit or the event.
+// moveRoom is the shared spelling of the three ACCESS moves — pause, resume and
+// close: lock, check the state, write, audit, emit.
+//
+// Publish and archive deliberately do not come through here. Each writes more
+// than a state (a release row; a session revocation) and carries its own audit
+// and event for what it actually did, which this function could not describe.
 func (s *Store) moveRoom(ctx context.Context, id ids.DealRoomID, move roomMove) (crmcontracts.DealRoom, error) {
 	if err := auth.Require(ctx, roomObject, principal.ActionUpdate); err != nil {
 		return crmcontracts.DealRoom{}, err
@@ -125,7 +127,9 @@ func (s *Store) moveRoom(ctx context.Context, id ids.DealRoomID, move roomMove) 
 		if move.stampsCol != "" {
 			p.Set(move.stampsCol, nil, time.Now().UTC())
 		}
-		if err := p.ApplyGuarded(ctx, tx, roomObject, id.UUID, move.ifVersion); err != nil {
+		// No If-Match: none of the three access moves takes one on the wire, and
+		// the row lock above already serializes them against each other.
+		if err := p.ApplyGuarded(ctx, tx, roomObject, id.UUID, nil); err != nil {
 			return fmt.Errorf("apply deal room %s: %w", move.action, err)
 		}
 		auditID, err := storekit.Audit(ctx, tx, move.action, roomObject, id.UUID, p.Before(), p.After())

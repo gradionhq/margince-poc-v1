@@ -12,18 +12,27 @@
 // see in August?" never depends on what the deal says today. That is what makes
 // a public edge safe to serve at all: it reads a release, never the live deal.
 //
-// A BUYER IS NOT A SEAT. A participant is not an app_user, consumes no licence,
-// and holds no CRM authority. Their reach is one room, established by exchanging
-// a one-time emailed credential for a room-scoped session that is resolved fresh
-// on every request — that read IS the revocation guarantee, because a cached
-// session would keep answering after the seller withdrew access.
+// WHAT IS BUILT TODAY is the seller's half: the room, its lifecycle, and the
+// releases. A room reads and writes through the SELLER's authority, which it
+// takes from the parent deal — deal_room carries no owner of its own, so every
+// read joins deal and applies that row-scope clause, and every write takes
+// auth.EnsureWritable on the same deal on top.
 //
-// The authority for a buyer request therefore comes from the SESSION, never from
-// the actor: platform/auth's object and row-scope helpers admit a system
-// principal unconditionally, so leaning on them here would hand an external
-// visitor the run of the workspace. Public reads go through store methods that
-// carry a mandatory room predicate of their own, and nothing on that path calls
-// a general-purpose store.
+// A BUYER IS NOT A SEAT, and the buyer half is NOT BUILT YET. The participant,
+// invitation and session tables exist with no Go code behind them. When that
+// slice lands, a participant will still be no app_user, consume no licence and
+// hold no CRM authority: its reach is one room, established by exchanging a
+// one-time emailed credential for a room-scoped session resolved fresh on every
+// request, because a cached session would keep answering after the seller
+// withdrew access.
+//
+// That slice carries one constraint worth stating before it is written, since
+// getting it wrong is not recoverable by review: platform/auth's object and
+// row-scope helpers admit a system principal UNCONDITIONALLY, so a buyer request
+// leaning on them would hold the run of the workspace. Its authority has to come
+// from the session, through store methods carrying a mandatory room predicate,
+// with a fitness test over the whole public-reachable call graph — not a comment
+// like this one.
 //
 // Tables owned: deal_room, deal_room_release, deal_room_participant,
 // deal_room_invitation, deal_room_session, deal_room_task.
