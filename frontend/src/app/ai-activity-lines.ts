@@ -8,7 +8,28 @@ type ActivityKind = components["schemas"]["AiActivityItem"]["kind"];
 type ActivityState = components["schemas"]["AiActivityItem"]["state"];
 
 /**
- * The line for one (kind, state), by literal key.
+ * A kind the rail deliberately does not narrate, and why.
+ *
+ * The server reports every AI task this build can run, because a task that
+ * reports nothing is AI work the product performed and then denied. What a
+ * reader is SHOWN is a different question, and it is this file's to answer —
+ * which is why the reason lives in the code rather than in a review comment.
+ */
+type NotDisplayed = Readonly<{ notDisplayed: string }>;
+
+const notDisplayed = (reason: string): NotDisplayed => ({
+  notDisplayed: reason,
+});
+
+const WATCHED_BY_THE_ASKER = notDisplayed(
+  "interactive: the person asked for it and is watching the request it answers, so a rail line would narrate work already in front of them",
+);
+const SYSTEM_SWEEP = notDisplayed(
+  "background workspace work that belongs to nobody in particular, so it has no personal line to draw",
+);
+
+/**
+ * The line for one (kind, state), by literal key — or the reason there is none.
  *
  * LITERAL, not `t(`agent.activity.${kind}.${state}`)`. The orphan guard in
  * i18n.test.ts counts a key as rendered when it starts with a template STEM,
@@ -16,20 +37,25 @@ type ActivityState = components["schemas"]["AiActivityItem"]["state"];
  * for the whole `agent.activity.` namespace forever, and a retired kind's copy
  * would sit in three catalogs with nothing to flag it.
  *
- * TOTAL over both axes, and the compiler is what holds it there: a new kind or
- * a new state on the contract fails the build until somebody writes the copy,
- * in every locale. That is the point of typing it `Record` rather than
- * `Partial<Record>` — a runtime test can only check the states somebody
- * remembered to list, and the list is the thing that goes stale.
+ * TOTAL over the contract's kinds, and the compiler is what holds it there: a
+ * new kind fails the build until somebody either writes its copy in every
+ * locale or says, here, why it is not shown. The second branch exists because
+ * every AI task now reports — nineteen of them, most narrating work no rep
+ * asked to watch — and forcing copy for all of them would have bought 300
+ * strings nobody reads and taught the next author that the answer to a new kind
+ * is boilerplate.
  *
- * It became total when `awaiting_approval` left the contract. Every state the
- * feed can now report is reachable by every kind: `stalled` in particular is
+ * Total over the STATE axis too, wherever a kind is displayed: every state the
+ * feed can report is reachable by every kind. `stalled` in particular is
  * DERIVED by the server from a lease the occurrence's own source declared, so
  * it can arrive for anything, and a keyless entry would render nothing for
  * exactly the case the projection exists to show.
  */
 export const ACTIVITY_LINE: Readonly<
-  Record<ActivityKind, Readonly<Record<ActivityState, MessageKey>>>
+  Record<
+    ActivityKind,
+    Readonly<Record<ActivityState, MessageKey>> | NotDisplayed
+  >
 > = {
   morning_brief: {
     queued: "agent.activity.morningBrief.queued",
@@ -55,6 +81,37 @@ export const ACTIVITY_LINE: Readonly<
     degraded: "agent.activity.documentExtract.degraded",
     failed: "agent.activity.documentExtract.failed",
   },
+
+  summarize: WATCHED_BY_THE_ASKER,
+  draft_reply: WATCHED_BY_THE_ASKER,
+  offer_draft: WATCHED_BY_THE_ASKER,
+  growth_fit: WATCHED_BY_THE_ASKER,
+  cold_start: WATCHED_BY_THE_ASKER,
+
+  brief_ranking: SYSTEM_SWEEP,
+  capture_classify: SYSTEM_SWEEP,
+  capture_counterparty_verdict: SYSTEM_SWEEP,
+  enrich: SYSTEM_SWEEP,
+  rate_extract: SYSTEM_SWEEP,
+  signal_extract: SYSTEM_SWEEP,
+  site_extract: SYSTEM_SWEEP,
+  site_fact_extract: SYSTEM_SWEEP,
+  site_triage: SYSTEM_SWEEP,
+  transcript_propose: SYSTEM_SWEEP,
+  voice_build: SYSTEM_SWEEP,
+
+  cert_judge: notDisplayed(
+    "the certification lane grading this build's own answers — an operator's measurement, not a rep's work",
+  ),
+  deal_health: notDisplayed(
+    "declared in api/ai-tasks.yaml and not built: no site runs it, so nothing reports it yet",
+  ),
+  nl_search: notDisplayed(
+    "declared in api/ai-tasks.yaml and not built: no site runs it, so nothing reports it yet",
+  ),
+  transcript: notDisplayed(
+    "declared in api/ai-tasks.yaml and not built: no site runs it, so nothing reports it yet",
+  ),
 };
 
 /**
@@ -96,12 +153,19 @@ export const RUN_DETAIL_LABEL: Readonly<Record<"stopped", MessageKey>> = {
  * back to THE KEY STRING, so a missing entry would put
  * `agent.activity.foo.running` in front of a reader.
  *
+ * There are three ways to draw nothing, and they are different facts: the kind
+ * is one this build has never heard of, the kind is one it deliberately does
+ * not narrate, or the state has no line under a kind it does narrate. All three
+ * answer null, because the reader's screen is the same either way — but they
+ * are distinguished HERE rather than collapsed into a lookup miss, so a kind
+ * that silently lost its copy cannot hide among the ones that never had any.
+ *
  * It takes RAW strings rather than the contract's unions, and that widening is
- * the point: the map is total over the contract, so the only way to miss is a
- * value the contract does not carry — which is exactly what an older tab gets
- * from a newer server that has added a kind or a state. Typed narrowly, that
- * case could only be written with a cast, and a test that casts is asserting
- * against its own escape hatch instead of against the function.
+ * the point: the map is total over the contract, so the only way to reach the
+ * first case is a value the contract does not carry — which is exactly what an
+ * older tab gets from a newer server that has added a kind or a state. Typed
+ * narrowly, that case could only be written with a cast, and a test that casts
+ * is asserting against its own escape hatch instead of against the function.
  */
 export function lineFor(
   item: Readonly<{ kind: string; state: string }>,
@@ -110,8 +174,11 @@ export function lineFor(
   if (!isActivityKind(item.kind)) {
     return null;
   }
-  const byState: Readonly<Partial<Record<string, MessageKey>>> =
-    ACTIVITY_LINE[item.kind];
+  const entry = ACTIVITY_LINE[item.kind];
+  if ("notDisplayed" in entry) {
+    return null;
+  }
+  const byState: Readonly<Partial<Record<string, MessageKey>>> = entry;
   const key = byState[item.state];
   return key === undefined ? null : t(key);
 }

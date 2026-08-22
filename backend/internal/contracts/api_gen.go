@@ -554,19 +554,79 @@ func (e AgentToolTier) Valid() bool {
 
 // Defines values for AiActivityItemKind.
 const (
-	AiActivityItemKindDocumentExtract      AiActivityItemKind = "document_extract"
-	AiActivityItemKindMorningBrief         AiActivityItemKind = "morning_brief"
-	AiActivityItemKindOvernightAtRiskSweep AiActivityItemKind = "overnight_at_risk_sweep"
+	AiActivityItemKindBriefRanking               AiActivityItemKind = "brief_ranking"
+	AiActivityItemKindCaptureClassify            AiActivityItemKind = "capture_classify"
+	AiActivityItemKindCaptureCounterpartyVerdict AiActivityItemKind = "capture_counterparty_verdict"
+	AiActivityItemKindCertJudge                  AiActivityItemKind = "cert_judge"
+	AiActivityItemKindColdStart                  AiActivityItemKind = "cold_start"
+	AiActivityItemKindDealHealth                 AiActivityItemKind = "deal_health"
+	AiActivityItemKindDocumentExtract            AiActivityItemKind = "document_extract"
+	AiActivityItemKindDraftReply                 AiActivityItemKind = "draft_reply"
+	AiActivityItemKindEnrich                     AiActivityItemKind = "enrich"
+	AiActivityItemKindGrowthFit                  AiActivityItemKind = "growth_fit"
+	AiActivityItemKindMorningBrief               AiActivityItemKind = "morning_brief"
+	AiActivityItemKindNlSearch                   AiActivityItemKind = "nl_search"
+	AiActivityItemKindOfferDraft                 AiActivityItemKind = "offer_draft"
+	AiActivityItemKindOvernightAtRiskSweep       AiActivityItemKind = "overnight_at_risk_sweep"
+	AiActivityItemKindRateExtract                AiActivityItemKind = "rate_extract"
+	AiActivityItemKindSignalExtract              AiActivityItemKind = "signal_extract"
+	AiActivityItemKindSiteExtract                AiActivityItemKind = "site_extract"
+	AiActivityItemKindSiteFactExtract            AiActivityItemKind = "site_fact_extract"
+	AiActivityItemKindSiteTriage                 AiActivityItemKind = "site_triage"
+	AiActivityItemKindSummarize                  AiActivityItemKind = "summarize"
+	AiActivityItemKindTranscript                 AiActivityItemKind = "transcript"
+	AiActivityItemKindTranscriptPropose          AiActivityItemKind = "transcript_propose"
+	AiActivityItemKindVoiceBuild                 AiActivityItemKind = "voice_build"
 )
 
 // Valid indicates whether the value is a known member of the AiActivityItemKind enum.
 func (e AiActivityItemKind) Valid() bool {
 	switch e {
+	case AiActivityItemKindBriefRanking:
+		return true
+	case AiActivityItemKindCaptureClassify:
+		return true
+	case AiActivityItemKindCaptureCounterpartyVerdict:
+		return true
+	case AiActivityItemKindCertJudge:
+		return true
+	case AiActivityItemKindColdStart:
+		return true
+	case AiActivityItemKindDealHealth:
+		return true
 	case AiActivityItemKindDocumentExtract:
+		return true
+	case AiActivityItemKindDraftReply:
+		return true
+	case AiActivityItemKindEnrich:
+		return true
+	case AiActivityItemKindGrowthFit:
 		return true
 	case AiActivityItemKindMorningBrief:
 		return true
+	case AiActivityItemKindNlSearch:
+		return true
+	case AiActivityItemKindOfferDraft:
+		return true
 	case AiActivityItemKindOvernightAtRiskSweep:
+		return true
+	case AiActivityItemKindRateExtract:
+		return true
+	case AiActivityItemKindSignalExtract:
+		return true
+	case AiActivityItemKindSiteExtract:
+		return true
+	case AiActivityItemKindSiteFactExtract:
+		return true
+	case AiActivityItemKindSiteTriage:
+		return true
+	case AiActivityItemKindSummarize:
+		return true
+	case AiActivityItemKindTranscript:
+		return true
+	case AiActivityItemKindTranscriptPropose:
+		return true
+	case AiActivityItemKindVoiceBuild:
 		return true
 	default:
 		return false
@@ -11815,11 +11875,17 @@ type AiActivityItem struct {
 	FinishedAt    *time.Time         `json:"finished_at,omitempty"`
 	Id            openapi_types.UUID `json:"id"`
 
-	// Kind What kind of AI work this occurrence is. A kind absent here renders no line, which
-	// is a better answer than a server that silently omits work the AI really did.
+	// Kind What kind of AI work this occurrence is. Every AI task this build can run reports
+	// here, because a task that reports nothing is AI work the product performed and then
+	// denied. What a reader is SHOWN is a separate decision and belongs to the client: a
+	// complete record is the server's obligation, an edited one is the interface's.
 	//
-	// The scheduled kinds match a name in runner.Catalog(); `document_extract` is a
-	// reading of an attached document, requested by a human from the record it hangs on.
+	// Three names come from a durable carrier that owns its own occurrence and can say
+	// queued and running: the two scheduled kinds match a name in runner.Catalog(), and
+	// `document_extract` is a reading of an attached document a human asked for. Every
+	// other name is an api/ai-tasks.yaml task announced by the router on the task's own
+	// behalf — settled when it appears, because the router learns of a call once the call
+	// is over.
 	Kind AiActivityItemKind `json:"kind"`
 
 	// StartedAt When the current attempt became current — its claim, or its enqueue while queued.
@@ -11841,11 +11907,17 @@ type AiActivityItem struct {
 	Summary *string `json:"summary,omitempty"`
 }
 
-// AiActivityItemKind What kind of AI work this occurrence is. A kind absent here renders no line, which
-// is a better answer than a server that silently omits work the AI really did.
+// AiActivityItemKind What kind of AI work this occurrence is. Every AI task this build can run reports
+// here, because a task that reports nothing is AI work the product performed and then
+// denied. What a reader is SHOWN is a separate decision and belongs to the client: a
+// complete record is the server's obligation, an edited one is the interface's.
 //
-// The scheduled kinds match a name in runner.Catalog(); `document_extract` is a
-// reading of an attached document, requested by a human from the record it hangs on.
+// Three names come from a durable carrier that owns its own occurrence and can say
+// queued and running: the two scheduled kinds match a name in runner.Catalog(), and
+// `document_extract` is a reading of an attached document a human asked for. Every
+// other name is an api/ai-tasks.yaml task announced by the router on the task's own
+// behalf — settled when it appears, because the router learns of a call once the call
+// is over.
 type AiActivityItemKind string
 
 // AiActivityItemState `done` is a clean finish; `degraded` kept partial state and MUST NOT read as done.

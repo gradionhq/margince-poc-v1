@@ -22,6 +22,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents/runner"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/aiactivity"
 )
 
@@ -45,8 +46,14 @@ func TestEveryKindSomethingProducesIsOneTheContractCanExpress(t *testing.T) {
 	}
 }
 
-// producedKinds is every kind an emitter can announce: the scheduled specs, and
-// the document reading a human asks for.
+// producedKinds is every kind an emitter can announce.
+//
+// Three producers, and the third is why this function is derived rather than
+// listed: the ROUTER announces on behalf of every task the rail registry leaves
+// to it, under the task's own name. That set grows the moment somebody declares
+// a task in api/ai-tasks.yaml, so a list here would be one edit behind the
+// contract forever — which is the shape of the defect that left seventeen
+// shipped tasks reporting nothing at all.
 //
 // Both directions of this parity are checked against THIS list, which is why it
 // is one function rather than two inline slices — a producer named in only one
@@ -56,6 +63,11 @@ func producedKinds() []string {
 	out := []string{documentReadingKind}
 	for _, spec := range runner.Catalog() {
 		out = append(out, spec.Name)
+	}
+	for task, source := range ai.RailOwners() {
+		if source == ai.SourceRouter {
+			out = append(out, task)
+		}
 	}
 	return out
 }
