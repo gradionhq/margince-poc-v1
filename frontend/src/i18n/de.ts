@@ -4033,6 +4033,40 @@ export const de = {
     "Jeder Zweck steht für sich — hier ist nicht alles oder nichts. Transaktionale Nachrichten lassen sich hier nicht abschalten, weil du sie brauchst; alles andere bestimmst du selbst.",
   "prefs.invalidLink":
     "Dieser Link ist nicht mehr gültig. Präferenz-Links laufen ab oder können widerrufen werden — frag in einer aktuellen E-Mail nach einem neuen.",
+  "buyer.opening": "Ihr Deal Room wird geöffnet …",
+  "buyer.deadTitle": "Dieser Link funktioniert nicht mehr",
+  "buyer.linkDead":
+    "Der Link wurde bereits geöffnet, ist abgelaufen oder durch einen neueren ersetzt worden. Fordern Sie unten einen neuen Link an.",
+  "buyer.noLink":
+    "Öffnen Sie diese Seite über den Link, den Sie erhalten haben. Falls Sie ihn nicht mehr haben, fordern Sie unten einen neuen an.",
+  "buyer.emailLabel": "Ihre E-Mail-Adresse",
+  "buyer.emailHint": "Die Adresse, an die die Einladung ging.",
+  "buyer.requestLink": "Neuen Link schicken",
+  "buyer.linkRequested":
+    "Falls diese Adresse eingeladen wurde, ist ein neuer Link unterwegs.",
+  "buyer.pausedTitle": "Zugang pausiert",
+  "buyer.pausedBody":
+    "{steward} hat diesen Raum vorerst pausiert. Ihr Link bleibt gültig; sobald der Raum wieder geöffnet wird, können Sie weitermachen.",
+  "buyer.expiredTitle": "Zugang beendet",
+  "buyer.expiredBody":
+    "Der Zugang zu diesem Raum ist abgelaufen. Wenden Sie sich an {steward} oder fordern Sie unten einen neuen Link an.",
+  "buyer.notYetTitle": "Noch nichts veröffentlicht",
+  "buyer.notYetBody":
+    "{steward} hat in diesem Raum noch nichts veröffentlicht. Schauen Sie bald wieder vorbei.",
+  "buyer.eyebrow": "Ihr Deal Room",
+  "buyer.contact": "Ihr Ansprechpartner: {steward}.",
+  "buyer.closedNote": "Dieser Raum ist jetzt schreibgeschützt.",
+  "buyer.stewardUnknown": "Ihr Ansprechpartner",
+  "buyer.signOut": "Abmelden",
+  "buyer.tasks.title": "To-dos",
+  "buyer.tasks.sub": "Was beide Seiten einander noch schulden.",
+  "buyer.tasks.empty": "Nichts offen.",
+  "buyer.tasks.yours": "Ihre Aufgabe",
+  "buyer.tasks.theirs": "Aufgabe der Gegenseite",
+  "buyer.tasks.closed":
+    "Dieser Raum ist geschlossen; die Liste ist jetzt ein Protokoll.",
+  "buyer.tasks.readOnly":
+    "Ihr Zugang ist schreibgeschützt. Wenden Sie sich an Ihren Ansprechpartner, wenn Sie die Liste bearbeiten möchten.",
   "prefs.rateLimited":
     "Gerade zu viele Versuche von hier aus. Warte eine Minute und lade neu.",
   "prefs.subscribed": "Abonniert",

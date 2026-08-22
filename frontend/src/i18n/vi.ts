@@ -4004,6 +4004,39 @@ export const vi = {
     "Mỗi mục đích là riêng biệt — không phải chuyện được tất cả hoặc không gì cả. Thư giao dịch không tắt được ở đây, vì bạn cần chúng; mọi thứ còn lại là quyền của bạn.",
   "prefs.invalidLink":
     "Liên kết này không còn hiệu lực. Liên kết tuỳ chọn sẽ hết hạn và có thể bị thu hồi — hãy lấy một liên kết mới từ bất kỳ email gần đây nào.",
+  "buyer.opening": "Đang mở Deal Room của bạn…",
+  "buyer.deadTitle": "Liên kết này không còn hoạt động",
+  "buyer.linkDead":
+    "Liên kết bạn dùng đã được mở, đã hết hạn hoặc đã được thay bằng liên kết mới hơn. Hãy yêu cầu liên kết mới bên dưới.",
+  "buyer.noLink":
+    "Hãy mở trang này từ liên kết bạn đã nhận. Nếu không còn liên kết, hãy yêu cầu liên kết mới bên dưới.",
+  "buyer.emailLabel": "Địa chỉ email của bạn",
+  "buyer.emailHint": "Địa chỉ đã nhận lời mời.",
+  "buyer.requestLink": "Gửi cho tôi liên kết mới",
+  "buyer.linkRequested":
+    "Nếu địa chỉ đó đã được mời, liên kết mới đang được gửi.",
+  "buyer.pausedTitle": "Quyền truy cập đang tạm dừng",
+  "buyer.pausedBody":
+    "{steward} đã tạm dừng phòng này. Liên kết của bạn vẫn hợp lệ; bạn có thể tiếp tục khi phòng được mở lại.",
+  "buyer.expiredTitle": "Quyền truy cập đã kết thúc",
+  "buyer.expiredBody":
+    "Quyền truy cập phòng này đã hết hạn. Hãy liên hệ {steward} hoặc yêu cầu liên kết mới bên dưới.",
+  "buyer.notYetTitle": "Chưa có gì được công bố",
+  "buyer.notYetBody":
+    "{steward} chưa công bố gì trong phòng này. Hãy quay lại sau.",
+  "buyer.eyebrow": "Phòng giao dịch (Deal Room)",
+  "buyer.contact": "Người liên hệ của bạn: {steward}.",
+  "buyer.closedNote": "Phòng này hiện chỉ đọc.",
+  "buyer.stewardUnknown": "người liên hệ của bạn",
+  "buyer.signOut": "Đăng xuất",
+  "buyer.tasks.title": "Việc cần làm",
+  "buyer.tasks.sub": "Những gì mỗi bên còn nợ bên kia.",
+  "buyer.tasks.empty": "Không còn việc nào.",
+  "buyer.tasks.yours": "Của bạn",
+  "buyer.tasks.theirs": "Của bên kia",
+  "buyer.tasks.closed": "Phòng này đã đóng; danh sách giờ là bản ghi.",
+  "buyer.tasks.readOnly":
+    "Quyền truy cập của bạn chỉ đọc. Hãy hỏi người liên hệ nếu bạn cần làm việc với danh sách.",
   "prefs.rateLimited":
     "Vừa có quá nhiều lần thử từ đây. Hãy đợi một phút rồi tải lại.",
   "prefs.subscribed": "Đã đăng ký",

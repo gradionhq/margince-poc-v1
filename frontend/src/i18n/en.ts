@@ -4094,6 +4094,39 @@ export const en = {
     "Each purpose is separate — this isn't all-or-nothing. Transactional messages can't be switched off here, because you need them; everything else is yours to control.",
   "prefs.invalidLink":
     "This link is no longer valid. Preference links expire and can be withdrawn — ask for a fresh one from any recent email.",
+  "buyer.opening": "Opening your Deal Room…",
+  "buyer.deadTitle": "This link no longer works",
+  "buyer.linkDead":
+    "The link you used has already been opened, has lapsed, or was replaced by a newer one. Ask for a fresh link below.",
+  "buyer.noLink":
+    "Open this page from the link you were sent. If you no longer have it, ask for a fresh one below.",
+  "buyer.emailLabel": "Your email address",
+  "buyer.emailHint": "The address the invitation was sent to.",
+  "buyer.requestLink": "Send me a new link",
+  "buyer.linkRequested":
+    "If that address was invited, a new link is on its way.",
+  "buyer.pausedTitle": "Access is paused",
+  "buyer.pausedBody":
+    "{steward} has paused this room for now. Your link stays valid; you will be able to continue once they resume it.",
+  "buyer.expiredTitle": "Access has ended",
+  "buyer.expiredBody":
+    "Access to this room has lapsed. Contact {steward}, or ask for a fresh link below.",
+  "buyer.notYetTitle": "Nothing published yet",
+  "buyer.notYetBody":
+    "{steward} has not published anything to this room yet. Check back soon.",
+  "buyer.eyebrow": "Deal Room",
+  "buyer.contact": "Your contact: {steward}.",
+  "buyer.closedNote": "This room is now read-only.",
+  "buyer.stewardUnknown": "your contact",
+  "buyer.signOut": "Sign out",
+  "buyer.tasks.title": "To-dos",
+  "buyer.tasks.sub": "What each side still owes the other.",
+  "buyer.tasks.empty": "Nothing outstanding.",
+  "buyer.tasks.yours": "Yours",
+  "buyer.tasks.theirs": "Theirs",
+  "buyer.tasks.closed": "This room is closed; the list is a record now.",
+  "buyer.tasks.readOnly":
+    "Your access is read-only. Ask your contact if you need to work the list.",
   "prefs.rateLimited":
     "Too many attempts from here just now. Wait a minute and reload.",
   "prefs.subscribed": "Subscribed",
