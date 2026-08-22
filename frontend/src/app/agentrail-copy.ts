@@ -231,12 +231,15 @@ export const WROTE: Readonly<Record<string, [named: string, plain: string]>> = {
   "deal-edit": ["Editing the %s deal", "Editing a deal"],
   "deal-new": ["Creating a deal on %s", "Creating a deal"],
   dedupe: ["Deciding a duplicate of %s", "Deciding a duplicate"],
-  // No `email` entry, deliberately. The compose screen's draft mutation carries
-  // mutationKey ["email", entityId], which is the AI draft_reply call — and the
-  // rail now narrates that kind from the server's own feed. Naming it here too
-  // put one action into two vocabularies at once: the bar saying "Writing to
-  // Anna" while the panel said "I'm drafting your reply." Whichever wording is
-  // better, a reader should only meet one of them.
+  // SENDING, not drafting. The two are told apart by their mutation key rather
+  // than by this table: `email` is the send, and the AI draft carries
+  // `email-draft` so the rail can own it alone. They used to share one key,
+  // which put one action into two vocabularies at once — the bar saying
+  // "Writing to Anna" from here while the panel said "I'm drafting your reply."
+  // from the server's feed. Deleting this entry fixed that and broke something
+  // else: a send is a real write a rep waits on and the rail knows nothing
+  // about it, so it went silent. Splitting the key is what serves both.
+  email: ["Writing to %s", "Writing an email"],
   enrich: ["Enriching %s", "Enriching a contact"],
   ingest: ["Ingesting %s", "Ingesting"],
   "lead-edit": ["Editing %s", "Editing a lead"],

@@ -2340,7 +2340,7 @@ export const de = {
   "agent.activity.summarize.done":
     "Was ich über dieses Unternehmen weiß, ist fertig.",
   "agent.activity.summarize.degraded":
-    "Ich bin bei diesem Unternehmen nur teilweise durchgekommen und habe gestoppt.",
+    "Ich habe über dieses Unternehmen nur teilweise Informationen zusammengetragen und dann aufgehört.",
   "agent.activity.summarize.failed":
     "Ich konnte das Zusammentragen zu diesem Unternehmen nicht abschließen.",
   "agent.activity.summarize.stalled":

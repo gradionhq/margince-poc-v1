@@ -1077,7 +1077,7 @@ function useDraftMutation({
   t: ReturnType<typeof useT>;
 }>) {
   return useMutation({
-    mutationKey: ["email", entityId],
+    mutationKey: ["email-draft", entityId],
     mutationFn: async (): Promise<DraftResult> => {
       resetUnavailable();
       // A reply answers the message it is anchored to; an account-started

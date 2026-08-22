@@ -2319,7 +2319,7 @@ export const vi = {
   "agent.activity.summarize.done":
     "Những gì tôi biết về công ty này đã sẵn sàng.",
   "agent.activity.summarize.degraded":
-    "Tôi mới tổng hợp được một phần về công ty này rồi dừng.",
+    "Tôi mới tổng hợp được một phần thông tin về công ty này rồi dừng.",
   "agent.activity.summarize.failed":
     "Tôi không hoàn thành được việc tổng hợp về công ty này.",
   "agent.activity.summarize.stalled":

@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
@@ -193,15 +196,20 @@ describe("the ticker and the rail never narrate one action twice", () => {
     tickerKey: string,
     railKind: string,
   ])[] = [
-    // compose.tsx's draft mutation carries mutationKey ["email", entityId],
-    // and that mutation IS the draft_reply call.
-    ["email", "draft_reply"],
+    // The DRAFT mutations carry ["email-draft", …] and are the draft_reply
+    // call; the SEND mutations keep ["email", …] and are a plain write the rail
+    // knows nothing about. They were ONE key until this pairing forced the
+    // question, and deleting the shared entry silenced the sends — the split is
+    // what lets each be narrated exactly once.
+    ["email-draft", "draft_reply"],
   ];
 
   it.each(COLLISIONS)(
     "does not carry ticker key %s while the rail draws %s",
     (tickerKey, railKind) => {
-      const drawn = displayedKinds().includes(railKind as never);
+      // A string compare over the drawn kinds, not `includes(x as never)`:
+      // the cast would suppress a typo in COLLISIONS and quietly pass.
+      const drawn = displayedKinds().some((kind) => kind === railKind);
       const narrated =
         Object.hasOwn(WROTE, tickerKey) ||
         Object.hasOwn(SAID, tickerKey) ||
@@ -210,3 +218,35 @@ describe("the ticker and the rail never narrate one action twice", () => {
     },
   );
 });
+
+// The other half of the split, gated at the CALL SITES.
+//
+// The pairing above reads the ticker's tables, so it catches somebody re-adding
+// a key there. It does not catch the same collision arriving from the other
+// direction — a draft mutation renamed back to ["email", …] leaves both tables
+// untouched and quietly restores two vocabularies for one action. That is the
+// hole this closes, and finding it took mutating the call site and watching the
+// first gate stay green.
+//
+// Read from source rather than imported: a mutationKey is a literal inside a
+// hook, exported by nothing.
+describe("the email mutation keys stay split", () => {
+  const SITES = ["../screens/compose.tsx", "../screens/persondrawers.tsx"];
+
+  it.each(SITES)("keeps drafts off the send key in %s", async (rel) => {
+    const src = await readSource(rel);
+    // One draft and one send per screen: the draft is the AI call the rail
+    // narrates, the send is the write the ticker narrates.
+    expect(count(src, '["email-draft",')).toBe(1);
+    expect(count(src, '["email",')).toBe(1);
+  });
+});
+
+function count(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
+async function readSource(rel: string): Promise<string> {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return readFile(join(here, rel), "utf8");
+}

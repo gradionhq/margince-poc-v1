@@ -2377,7 +2377,7 @@ export const en = {
     "I'm pulling together what I know about this company.",
   "agent.activity.summarize.done": "What I know about this company is ready.",
   "agent.activity.summarize.degraded":
-    "I got partway through this company and stopped.",
+    "I gathered some of what I know about this company and stopped.",
   "agent.activity.summarize.failed":
     "I couldn't finish reading up on this company.",
   "agent.activity.summarize.stalled":

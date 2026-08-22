@@ -74,7 +74,7 @@ func alignEnum(missing []string) string {
 	out := append([]string{}, missing...)
 	sort.Strings(out)
 	return fmt.Sprintf(
-		"align backend/api/crm.yaml: add %s to the AiActivityKind enum, keeping its existing order "+
+		"align: backend/api/crm.yaml — add %s to the AiActivityKind enum, keeping its existing order "+
 			"(the carrier kinds lead it on purpose), then ship each one's copy in en/de/vi",
 		strings.Join(out, ", "))
 }
