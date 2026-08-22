@@ -15576,10 +15576,9 @@ type DealRoomRelease struct {
 	ReleaseNote *string            `json:"release_note,omitempty"`
 	RoomId      openapi_types.UUID `json:"room_id"`
 
-	// Snapshot The frozen buyer projection — status sentence, next step, welcome text,
-	// seller display fields and the task definitions as they read at publish time.
-	// Task COMPLETION is deliberately absent: it is live collaboration state, not
-	// editorial content, so a checkbox never needs a republish.
+	// Snapshot The frozen buyer projection — title, welcome text, steward and the document
+	// manifest as they read at publish time. Comments and decisions are deliberately
+	// absent: they are live collaboration state, not editorial content.
 	Snapshot             map[string]interface{} `json:"snapshot"`
 	Source               string                 `json:"source"`
 	AdditionalProperties map[string]interface{} `json:"-"`

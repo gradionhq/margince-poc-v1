@@ -45,7 +45,6 @@ const (
 	recordTypeDealRoomDocument    agentRecordType = "deal_room_document"
 	recordTypeDealRoomParticipant agentRecordType = "deal_room_participant"
 	recordTypeDealRoomRelease     agentRecordType = "deal_room_release"
-	recordTypeDealRoomTask        agentRecordType = "deal_room_task"
 	recordTypeDealRoomThread      agentRecordType = "deal_room_thread"
 	recordTypeImportRun           agentRecordType = "import_run"
 	recordTypeLead                agentRecordType = "lead"

@@ -24105,7 +24105,6 @@ components:
             - deal_room_document
             - deal_room_participant
             - deal_room_release
-            - deal_room_task
             - deal_room_thread
             - import_run
             - lead
@@ -26188,10 +26187,9 @@ components:
         snapshot:
           type: object
           description: |
-            The frozen buyer projection — status sentence, next step, welcome text,
-            seller display fields and the task definitions as they read at publish time.
-            Task COMPLETION is deliberately absent: it is live collaboration state, not
-            editorial content, so a checkbox never needs a republish.
+            The frozen buyer projection — title, welcome text, steward and the document
+            manifest as they read at publish time. Comments and decisions are deliberately
+            absent: they are live collaboration state, not editorial content.
           additionalProperties: true
         release_note: { type: [string, 'null'] }
         published_by:

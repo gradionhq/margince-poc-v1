@@ -17662,7 +17662,7 @@ export interface components {
              * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
              * @enum {string}
              */
-            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_comment" | "deal_room_decision" | "deal_room_document" | "deal_room_participant" | "deal_room_release" | "deal_room_task" | "deal_room_thread" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_comment" | "deal_room_decision" | "deal_room_document" | "deal_room_participant" | "deal_room_release" | "deal_room_thread" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
             /**
              * @description The autonomy tier, identical on REST and MCP (ADR-0055).
              * @enum {string}
@@ -19601,10 +19601,9 @@ export interface components {
             /** @description Monotonic per room, from 1. Gaps are not possible. */
             release_no: number;
             /**
-             * @description The frozen buyer projection — status sentence, next step, welcome text,
-             *     seller display fields and the task definitions as they read at publish time.
-             *     Task COMPLETION is deliberately absent: it is live collaboration state, not
-             *     editorial content, so a checkbox never needs a republish.
+             * @description The frozen buyer projection — title, welcome text, steward and the document
+             *     manifest as they read at publish time. Comments and decisions are deliberately
+             *     absent: they are live collaboration state, not editorial content.
              */
             snapshot: {
                 [key: string]: unknown;

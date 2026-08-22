@@ -95,7 +95,7 @@ func pausedForBuyer() error {
 var errViewerCannotWrite = &fieldError{
 	field: fieldCapability,
 	code:  "view_only",
-	msg:   "your access to this room is read-only; ask your contact to let you work the list",
+	msg:   "your access to this room is read-only; ask your contact to let you comment",
 }
 
 // The fault code every over-long text refuses with, and the audit-image keys

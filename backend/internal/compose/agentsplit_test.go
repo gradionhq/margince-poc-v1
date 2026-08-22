@@ -389,8 +389,8 @@ func (o ownedOnlyFor) HumanOwnedConflicts(_ context.Context, _ string, target id
 
 // A sub-resource patch asks the ownership probe about the record it WRITES.
 //
-// On /deal-rooms/{id}/tasks/{taskId} the route's own {id} is the ROOM, so a
-// probe reading {id} asks "who typed this field on task ⟨room-id⟩" — a question
+// On /deal-rooms/{id}/documents/{documentId} the route's own {id} is the ROOM,
+// so a probe reading {id} asks "who typed this field on document ⟨room-id⟩" — a question
 // no audit row answers. It misses, the split sees no conflict, and an agent
 // overwrite of a human-typed document title auto-executes instead of staging. The §2.1
 // protection would be off while the route still looked governed.

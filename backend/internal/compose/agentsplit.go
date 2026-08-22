@@ -96,7 +96,7 @@ var actionShapedUpdateOps = map[string]bool{
 //
 // The ownership probe asks "who last typed this field on THIS record", so it
 // has to be asked about the record being patched. On a sub-resource route the
-// {id} names the PARENT — a Deal Room, not the to-do inside it — and asking
+// {id} names the PARENT — a Deal Room, not the document inside it — and asking
 // about the parent's id under the child's record type is a question no audit
 // row can answer. It misses every time, the split sees no conflict, and an
 // agent overwrite of a human-typed field auto-executes instead of staging:

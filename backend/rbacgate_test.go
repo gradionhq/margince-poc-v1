@@ -77,7 +77,7 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	// joins the participant on (id, room_id), and every other method here takes
 	// that Session and puts its room and participant into the WHERE clause: a
 	// buyer reaches their own row, their own room's latest release and their own
-	// room's tasks, and nothing else. TestPublicHandlersReachOnlyTheSessionScopedStore
+	// room's documents and conversation, and nothing else. TestPublicHandlersReachOnlyTheSessionScopedStore
 	// and TestSessionScopedStoreNeverConsultsTheSeatGates (dealrooms) hold the
 	// shape; the three anonymous operations are bounded by the credential digest
 	// itself, which is the authentication.
