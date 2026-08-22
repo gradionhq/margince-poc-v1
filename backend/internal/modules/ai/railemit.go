@@ -116,13 +116,28 @@ const railLockTimeout = "1500ms"
 // placeholder, so the only safe spelling of a GUC value is one that cannot come
 // from a request.
 func lockOccurrence(ctx context.Context, tx pgx.Tx, key string) error {
-	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '`+railLockTimeout+`'`); err != nil {
+	// The PRIOR value, restored afterwards — not `= DEFAULT`, which means the
+	// server's configured default and would discard a caller's own setting. A
+	// pool can carry lock_timeout on its DSN, which makes it the session value,
+	// and this transaction has no business deciding that a bound somebody else
+	// chose no longer applies to the writes that follow.
+	var previous string
+	if err := tx.QueryRow(ctx, `SELECT current_setting('lock_timeout')`).Scan(&previous); err != nil {
+		return fmt.Errorf("ai: reading the lock timeout: %w", err)
+	}
+	// set_config's third argument is is_local, so this is SET LOCAL by another
+	// name — and unlike SET LOCAL it takes the value as a parameter, which is
+	// what lets the restore below carry a value read at runtime.
+	if _, err := tx.Exec(ctx, `SELECT set_config('lock_timeout', $1, true)`, railLockTimeout); err != nil {
 		return fmt.Errorf("ai: bounding the rail occurrence lock: %w", err)
 	}
-	if err := storekit.LockWriteIdentity(ctx, tx, "ai_task_run", key); err != nil {
-		return fmt.Errorf("ai: locking the rail occurrence: %w", err)
+	lockErr := storekit.LockWriteIdentity(ctx, tx, "ai_task_run", key)
+	if lockErr != nil {
+		// Not restored on this path, and it does not need to be: the caller
+		// rolls the savepoint back, which reverts the setting with it.
+		return fmt.Errorf("ai: locking the rail occurrence: %w", lockErr)
 	}
-	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = DEFAULT`); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT set_config('lock_timeout', $1, true)`, previous); err != nil {
 		return fmt.Errorf("ai: restoring the lock timeout: %w", err)
 	}
 	return nil
