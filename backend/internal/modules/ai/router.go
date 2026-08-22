@@ -200,6 +200,16 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 	}
 	ladder = r.applyProfile(ladder)
 
+	// The rail's opening line, and this is the earliest place it can honestly
+	// be drawn. Every return ABOVE is untraced — no workspace, a refused
+	// budget, an unbuildable cache key — so announcing there would open an
+	// occurrence that no flush ever settles, leaving a rep watching work that
+	// is not happening until the lease expired. From here the deferred
+	// finalizeAttempt has been armed, so this attempt appends a terminal trace
+	// whatever it does next, and the settle is guaranteed. The ladder is the
+	// ADJUSTED one, so the lease is sized to the rungs that can really run.
+	lc.announceRailStartOnce(ctx, r, task, ladder)
+
 	// A cached answer only serves when its tier is still on the adjusted
 	// ladder: after a budget band tightened or the profile remapped the
 	// route, a premium-tier entry must not smuggle premium output into an
