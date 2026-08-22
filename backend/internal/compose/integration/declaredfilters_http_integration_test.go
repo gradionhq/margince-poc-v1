@@ -18,6 +18,7 @@ package integration
 // HTTP, and answered by the count that proves the narrowing.
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -267,5 +268,128 @@ func TestTheActivityListNarrowsByProjectOnTheWire(t *testing.T) {
 	}
 	if !seen[onERP] || !seen[unfiled] {
 		t.Errorf("GET %s lost the scoped project's own mail or the unfiled one: got %v", path, seen)
+	}
+}
+
+// The date range on the timeline list, over the wire. Three mails on three
+// days; `occurred_after` keeps its own instant (inclusive) and
+// `occurred_before` drops its own (exclusive), which is what makes a calendar
+// day spell as [day 00:00, next day 00:00) without double-counting midnight.
+func TestTheActivityListNarrowsByDateRangeOnTheWire(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+
+	person := createdRecord(t, e, "/v1/people", apptest.AnyMap{"full_name": "Dana Buyer"})
+	mail := func(subject, occurredAt string) string {
+		return createdRecord(t, e, "/v1/activities", apptest.AnyMap{
+			"kind": "email", "subject": subject, "direction": "inbound", "occurred_at": occurredAt,
+			"links": []apptest.AnyMap{{"entity_type": "person", "entity_id": person}},
+		})
+	}
+	day1 := mail("Monday", "2026-03-02T10:00:00Z")
+	day2 := mail("Tuesday", "2026-03-03T10:00:00Z")
+	day3 := mail("Wednesday", "2026-03-04T10:00:00Z")
+
+	list := func(query string) map[string]bool {
+		var page listedIDs
+		path := "/v1/activities?entity_type=person&entity_id=" + person + query
+		if status := e.Call(t, "GET", path, nil, nil, &page); status != http.StatusOK {
+			t.Fatalf("GET %s = %d, want 200", path, status)
+		}
+		seen := map[string]bool{}
+		for _, row := range page.Data {
+			seen[row.ID] = true
+		}
+		return seen
+	}
+	cases := []struct {
+		query string
+		want  map[string]bool
+	}{
+		// after: the bound itself stays in.
+		{"&occurred_after=2026-03-03T10:00:00Z", map[string]bool{day2: true, day3: true}},
+		// before: the bound itself is out.
+		{"&occurred_before=2026-03-03T10:00:00Z", map[string]bool{day1: true}},
+		// both: one calendar day.
+		{"&occurred_after=2026-03-03T00:00:00Z&occurred_before=2026-03-04T00:00:00Z", map[string]bool{day2: true}},
+	}
+	for _, c := range cases {
+		got := list(c.query)
+		for _, id := range []string{day1, day2, day3} {
+			if got[id] != c.want[id] {
+				t.Errorf("GET ...%s: activity %q present=%v, want %v", c.query, id, got[id], c.want[id])
+			}
+		}
+	}
+}
+
+// The record page draws the 360's own activities page and continues from its
+// cursor through GET /activities. So the two must agree on the edge: the
+// list's page after that cursor starts exactly where the section stopped, and
+// nothing is shown twice or skipped. 27 mails, a 25-row section.
+func TestThePerson360TimelineCursorContinuesIntoTheActivityList(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+
+	person := createdRecord(t, e, "/v1/people", apptest.AnyMap{"full_name": "Dana Buyer"})
+	const total = 27
+	for i := range total {
+		id := createdRecord(t, e, "/v1/activities", apptest.AnyMap{
+			"kind": "email", "subject": fmt.Sprintf("Mail %02d", i), "direction": "inbound",
+			"occurred_at": fmt.Sprintf("2026-03-%02dT10:00:00Z", i+1),
+			"links":       []apptest.AnyMap{{"entity_type": "person", "entity_id": person}},
+		})
+		// The thread key is capture's to write, never the API's, so it is
+		// stamped the way capture leaves it.
+		if err := apptest.InWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
+			_, err := tx.Exec(t.Context(), `UPDATE activity SET thread_key = 'thread-1' WHERE id = $1`, id)
+			return err
+		}); err != nil {
+			t.Fatalf("stamp thread_key on %s: %v", id, err)
+		}
+	}
+
+	var view struct {
+		Activities struct {
+			Data []struct {
+				ID        string  `json:"id"`
+				ThreadKey *string `json:"thread_key"`
+			} `json:"data"`
+			Page struct {
+				HasMore    bool    `json:"has_more"`
+				NextCursor *string `json:"next_cursor"`
+			} `json:"page"`
+		} `json:"activities"`
+	}
+	path := "/v1/people/" + person + "/360"
+	if status := e.Call(t, "GET", path, nil, nil, &view); status != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", path, status)
+	}
+	section := view.Activities
+	if !section.Page.HasMore || section.Page.NextCursor == nil || *section.Page.NextCursor == "" {
+		t.Fatalf("360 activities: has_more=%v next_cursor=%v — want a cut section that says where it stopped",
+			section.Page.HasMore, section.Page.NextCursor)
+	}
+	if section.Data[0].ThreadKey == nil || *section.Data[0].ThreadKey != "thread-1" {
+		t.Errorf("360 activities: first row carries thread_key %v, want thread-1 so the page can fold the conversation", section.Data[0].ThreadKey)
+	}
+
+	var rest listedIDs
+	path = "/v1/activities?entity_type=person&entity_id=" + person + "&cursor=" + *section.Page.NextCursor
+	if status := e.Call(t, "GET", path, nil, nil, &rest); status != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", path, status)
+	}
+	seen := map[string]bool{}
+	for _, row := range section.Data {
+		seen[row.ID] = true
+	}
+	for _, row := range rest.Data {
+		if seen[row.ID] {
+			t.Errorf("activity %s is in the 360 section AND the page after its cursor", row.ID)
+		}
+		seen[row.ID] = true
+	}
+	if len(seen) != total {
+		t.Errorf("section + next page cover %d distinct activities, want all %d", len(seen), total)
 	}
 }
