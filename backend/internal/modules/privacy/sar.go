@@ -351,6 +351,14 @@ func sarProvenanceSections(pkg *SARPackage) []sarSection {
 		{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
 		   FROM field_provenance fp
 		   WHERE fp.object_type = 'person' AND fp.object_id = $1`, nil},
+		// The STORED value, not the one the 360 renders. person360's
+		// readProfileFields overlays whatever verdict a human recorded, because
+		// a page showing the machine's claim as fact would be showing a claim
+		// its reader already overrode. An export is the other obligation: it
+		// owes the subject what this installation HOLDS, and it holds both the
+		// enriched value and the correction — which travels beside it in
+		// Corrections below, as its own section. Merging them here would hand
+		// the subject one value and conceal that the override exists at all.
 		{&pkg.EnrichedFields, `SELECT ppf.field, ppf.value, ppf.evidence_snippet, ppf.source_ref,
 		          ppf.confidence, ppf.source, ppf.captured_by, ppf.updated_at
 		   FROM person_profile_field ppf

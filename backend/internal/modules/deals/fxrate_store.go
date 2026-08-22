@@ -59,19 +59,6 @@ func fxInvalid(field, code, message string) error {
 	return &FxRateValidationError{Field: field, Code: code, Message: message}
 }
 
-// isISO4217 answers whether s is a 3-letter uppercase ISO-4217-shaped code.
-func isISO4217(s string) bool {
-	if len(s) != 3 {
-		return false
-	}
-	for _, r := range s {
-		if r < 'A' || r > 'Z' {
-			return false
-		}
-	}
-	return true
-}
-
 func (s *Store) todayUTC() time.Time {
 	return s.clock().UTC().Truncate(24 * time.Hour)
 }
@@ -246,7 +233,7 @@ func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetF
 // needs the base currency and lives in the tx.
 func normalizeFxCurrencyRate(in SetFxRateInput) (from string, err error) {
 	from = strings.ToUpper(strings.TrimSpace(in.FromCurrency))
-	if !isISO4217(from) {
+	if !values.ValidCurrency(from) {
 		return "", fxInvalid("from_currency", "fx_rate_currency", "from_currency must be a 3-letter ISO code")
 	}
 	rate := strings.TrimSpace(in.Rate)

@@ -194,7 +194,12 @@ func fencedInput(in Input) Input {
 // certification case, which drives the same parse the runtime does.
 func ParseDraft(raw string, in Input) (Draft, error) {
 	var out modelDraft
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+	// ai.Unfence, not the raw text: a model that wraps its JSON in a ```json
+	// fence answers correctly and would fail this parse. The reply surface
+	// already strips the fence, so without this the SAME model succeeds when it
+	// answers a reply and fails when it writes a draft — and ai.Unfence's own
+	// doc says callers must not each invent their own trim.
+	if err := json.Unmarshal([]byte(ai.Unfence(raw)), &out); err != nil {
 		return Draft{}, fmt.Errorf("account draft response: %w", err)
 	}
 	subject := strings.TrimSpace(out.Subject)

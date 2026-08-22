@@ -90,17 +90,14 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	// declares 422 for a refusal, so it answers as one: the caller re-issues
 	// with replace_existing_of_type rather than reading a server fault.
 	if constraint, ok := storekit.UniqueViolation(err); ok && constraint == "uq_activity_link_project" {
-		httperr.Write(w, r, httperr.Validation("entity_id", "constraint_violated",
+		httperr.Write(w, r, httperr.Validation("entity_id", "project_link_exists",
 			"an activity links to at most one project — re-issue with replace_existing_of_type to move it"))
 		return
 	}
-	// Defense-in-depth net: a CHECK constraint is a business rule, so a
-	// breach that slipped past the per-path validations still answers a
-	// typed 422 naming the rule — never an opaque 500.
-	if constraint, ok := storekit.CheckViolation(err); ok {
-		httperr.Write(w, r, httperr.Validation(constraint, "constraint_violated",
-			"the request violates the "+constraint+" business rule"))
-		return
-	}
+	// No CHECK arm below this one, deliberately. httperr's constraint net
+	// answers every CHECK breach that reaches it, and it answers a held
+	// activity as 423 locked carrying retain_until — which a module-local
+	// "422 naming the rule" pre-empted, telling the caller to fix a value when
+	// nothing they can send will work until the retention window closes.
 	httperr.Write(w, r, err)
 }

@@ -6,6 +6,8 @@ package deployconfig
 import (
 	"fmt"
 	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // RatesConfig is the (worker-role) source config for the admin "Refresh from
@@ -32,7 +34,7 @@ func (r RatesConfig) validate() error {
 	seen := make(map[string]bool, len(r.FxCurrencies))
 	for _, c := range r.FxCurrencies {
 		code := strings.ToUpper(strings.TrimSpace(c))
-		if !isCurrencyCode(code) {
+		if !values.ValidCurrency(code) {
 			return fmt.Errorf("deployconfig: rates.fx_currencies %q is not a 3-letter ISO 4217 code", c)
 		}
 		if seen[code] {

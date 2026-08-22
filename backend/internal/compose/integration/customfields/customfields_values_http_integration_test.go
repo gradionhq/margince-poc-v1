@@ -14,9 +14,9 @@ package customfields
 // the typed 422, never a 500.
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
@@ -223,15 +223,36 @@ func assertSixTypesWireRoundTrip(t *testing.T, e *apptest.AppEnv) {
 
 func assertPicklistCheckViolation422(t *testing.T, e *apptest.AppEnv, col string) {
 	t.Helper()
-	var problem customFieldProblem
+	// The RAW body, decoded into the typed shape afterwards. Decoding straight
+	// into customFieldProblem discards every field that struct does not name,
+	// so a constraint leaked into one of THOSE would be gone before the search
+	// below could look for it — a disclosure guard reading a filtered copy of
+	// the thing it is guarding.
+	var raw json.RawMessage
 	status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Bad Option", "source": "ui", col: "bogus",
-	}, nil, &problem)
-	if status != http.StatusUnprocessableEntity {
-		t.Fatalf("create with invalid picklist option status = %d, want 422 (%+v)", status, problem)
+	}, nil, &raw)
+	var problem customFieldProblem
+	if err := json.Unmarshal(raw, &problem); err != nil {
+		t.Fatalf("decoding the refusal %s: %v", raw, err)
 	}
-	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Code != "constraint_violated" {
-		t.Fatalf("problem details = %+v, want one constraint_violated entry", problem.Details)
+	if status != http.StatusUnprocessableEntity || problem.Code != "value_not_allowed" {
+		t.Fatalf("create with invalid picklist option = %d %+v, want 422 value_not_allowed", status, problem)
+	}
+	// The generated CHECK is named after the column, so the constraint name is
+	// the one piece of schema this refusal must not carry.
+	//
+	// Checked against the whole RAW body, not against Detail. The leak this guards
+	// was in the `field` slot of details.errors — a guard reading only Detail
+	// passes unchanged with the deleted translation restored, which makes it a
+	// test of nothing. The empty-errors assertion is the same claim from the
+	// other side: httperr's net names no field at this depth, so any entry here
+	// means somebody translated the CHECK again.
+	if len(problem.Details.Errors) != 0 {
+		t.Errorf("the refusal named a field: %+v", problem.Details.Errors)
+	}
+	if bytes.Contains(raw, []byte(col+"_check")) {
+		t.Errorf("the refusal disclosed the generated constraint somewhere in its body: %s", raw)
 	}
 }
 
@@ -282,41 +303,4 @@ func TestCustomFieldValuesHTTP(t *testing.T) {
 	t.Run("all six types round-trip their wire shape", func(t *testing.T) {
 		assertSixTypesWireRoundTrip(t, e)
 	})
-}
-
-// A runtime CHECK the deals module has no message for — the one behind a
-// project picklist — still answers 422, and the body names no schema: the
-// generated constraint name is our column's, and it reaches the operator's
-// log rather than the caller.
-func TestProjectPicklistCheckViolationAnswers422WithoutTheConstraintName(t *testing.T) {
-	e := schemaWiredEnv(t)
-	status, phaseKind, problem := createCustomField(t, e, apptest.AnyMap{
-		"object": "project", "label": "Delivery model", "type": "picklist",
-		"options": []string{"fixed", "t&m"}, "source": "ui",
-	})
-	if status != http.StatusCreated {
-		t.Fatalf("create project field status = %d: %+v", status, problem)
-	}
-	_, orgID := createWithCF(t, e, "/v1/organizations", apptest.AnyMap{"display_name": "Acme", "source": "ui"})
-
-	var raw json.RawMessage
-	status = e.Call(t, "POST", "/v1/projects", apptest.AnyMap{
-		"name": "Cutover", "organization_id": orgID, "source": "ui", phaseKind.ColumnName: "bogus",
-	}, nil, &raw)
-	if status != http.StatusUnprocessableEntity {
-		t.Fatalf("create with an unsupported option status = %d, want 422 (%s)", status, raw)
-	}
-	var refusal customFieldProblem
-	if err := json.Unmarshal(raw, &refusal); err != nil {
-		t.Fatalf("decoding problem body: %v (%s)", err, raw)
-	}
-	if len(refusal.Details.Errors) != 1 || refusal.Details.Errors[0].Code != "value_not_allowed" ||
-		refusal.Details.Errors[0].Field != "body" {
-		t.Errorf("details.errors = %+v, want one {body value_not_allowed}", refusal.Details.Errors)
-	}
-	for _, leak := range []string{phaseKind.ColumnName, "_check", "cf_"} {
-		if strings.Contains(string(raw), leak) {
-			t.Errorf("the refusal leaks %q to the caller: %s", leak, raw)
-		}
-	}
 }

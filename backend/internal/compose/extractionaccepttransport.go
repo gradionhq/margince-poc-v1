@@ -16,7 +16,6 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -41,9 +40,10 @@ func (h attachmentExtractionHandlers) AcceptAttachmentExtraction(w http.Response
 }
 
 // writeExtractionAcceptErr maps the accept flow's typed refusals onto the
-// wire, mirroring the deals transport's spellings for the store errors
-// this flow can trip (the resulting-row money pair, INV-CLOSE-PAST, the
-// CHECK-constraint net), then falls through to the sentinel registry.
+// wire, mirroring the deals transport's spellings for the store errors this
+// flow can trip (the resulting-row money pair, INV-CLOSE-PAST), then falls
+// through to the sentinel registry — which is also where a CHECK breach is
+// answered, by httperr's own net rather than a spelling of it here.
 func writeExtractionAcceptErr(w http.ResponseWriter, r *http.Request, err error) {
 	// UnsupportedEntityTypeError and ExtractionAcceptError carry their own verdicts
 	// (MessageFault / FieldFault), so the fallthrough below renders them. Do not
@@ -56,11 +56,6 @@ func writeExtractionAcceptErr(w http.ResponseWriter, r *http.Request, err error)
 	var pastClose *deals.PastCloseDateError
 	if errors.As(err, &pastClose) {
 		httperr.Write(w, r, httperr.Validation(acceptFieldExpectedClose, "close_date_past", pastClose.Error()))
-		return
-	}
-	if constraint, ok := storekit.CheckViolation(err); ok {
-		httperr.Write(w, r, httperr.Validation(constraint, "constraint_violated",
-			"the request violates the "+constraint+" business rule"))
 		return
 	}
 	httperr.Write(w, r, err)
