@@ -6,9 +6,10 @@ services run on one host. With separate nodes, the api, the worker, the web
 server and the database each run on their own node. The two shapes use the
 same installation mechanism and the same configuration.
 
-The sizes below apply when the AI lanes use a cloud provider. A model on the
-installation's own hardware needs much more memory and possibly a GPU. This
-page does not give sizes for that configuration.
+The sizes below apply when the AI functions use a cloud provider. A model on
+the installation's own hardware needs more memory and possibly a GPU — see
+*Self-hosted AI models*. The AI functions are optional: without a model
+binding, the rest of the product operates normally.
 
 ## Software
 
@@ -20,6 +21,7 @@ page does not give sizes for that configuration.
 | **A correct system clock** | Retention, automation triggers and job schedules use the system time. |
 | **An S3-compatible object store** | Attachments, company logos, offer PDFs, file custom fields and CSV import keep their data in it. |
 | Outbound HTTPS | Optional, for some features. The core CRM, authentication and license validation operate fully offline. |
+| A model endpoint | Optional, only for the AI functions: a cloud provider with your own key, or your own Ollama / vLLM host. See below. |
 
 The api, worker and web containers keep no permanent local state. Postgres,
 Redis and the object store keep all permanent state.
@@ -103,6 +105,43 @@ model-price sources, the Gmail / Microsoft capture connectors, outbound
 webhook subscribers, and the SMTP relay. An air-gapped installation is
 possible. Without an AI key, the AI lanes stop, and the other functions
 continue.
+
+## AI providers
+
+The product runs no inference of its own. You connect a provider with your
+own key. Supported: **Anthropic** (Claude), **OpenAI** (GPT), **Google**
+(Gemini), and any **OpenAI-compatible** vendor (Mistral, DeepSeek, Groq,
+OpenRouter, a gateway, …).
+
+- The api and the worker both call the provider. Give both of them outbound
+  HTTPS to the endpoint.
+- The embeddings function needs a provider with an embeddings endpoint. A
+  chat-only vendor cannot serve it. A local embedding model is an
+  alternative.
+
+## Self-hosted AI models
+
+**Ollama** and **vLLM** serve a model on your own hardware. No key is
+necessary, and these are the only options in the zero-egress profile.
+
+The model host comes in addition to the node tables above. The sizes below
+assume the default model class (Gemma 3), a 32,768-token context window, and
+an embedding model (for example `bge-m3`) on the same host. Plan **50 GB
+disk** for model files.
+
+| Host | Hardware | Serves |
+|---|---|---|
+| **Minimum** | GPU with 8 GB memory, 16 GB RAM | A quantized 4B model plus the embedding model. Good enough to try the AI functions; expect thin extraction results. |
+| **Recommended** | GPU with 24 GB memory (RTX 4090, L4, A10), 32 GB RAM | A quantized 12B–27B model with the full context window, the embedding model beside it, and interactive latency. |
+| **Concurrent / unquantized** | 48 GB GPU memory or more (L40S, RTX 6000 Ada, 2 × 24 GB), 64 GB RAM | A 12B model unquantized on vLLM, or several requests at the same time without queueing. |
+
+- A CPU-only host works, but only for background tasks: answers take minutes,
+  and interactive functions become unusable.
+- The model server must support JSON-schema output. Most tasks constrain the
+  answer with a schema.
+- A task can escalate from a local model to a cloud tier. For a fully local
+  installation, bind every tier to a local model, or use the zero-egress
+  profile — it refuses a cloud provider at start.
 
 ## Availability
 
