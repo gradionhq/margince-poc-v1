@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 const publicHandlersFile = "handlers_public.go"
@@ -64,9 +66,26 @@ func parseGoFile(t *testing.T, file string) *ast.File {
 	return f
 }
 
+// transportHelpers are the Handlers methods declared outside handlers_public.go
+// that a public handler may still call, each with why it carries no buyer
+// authority. They exist for the link request alone, which runs under the
+// installation's own principal after it has answered the anonymous caller.
+var transportHelpers = gatekit.Waive(map[string]string{
+	"canSendInvite":     "reads two fields of the handler set; touches no store",
+	"sendInvite":        "hands an already-minted credential to the relay; touches no store",
+	"recordSendOutcome": "writes the relay's verdict through RecordInvitationSend under linkRequestPrincipal, a system actor the seat gate admits; the buyer principal never reaches it",
+})
+
 func TestPublicHandlersReachOnlyTheSessionScopedStore(t *testing.T) {
-	allowed, _ := publicStoreMethods(t)
+	defer transportHelpers.AssertAllMatched(t)
+	allowedStore, _ := publicStoreMethods(t)
 	f := parseGoFile(t, publicHandlersFile)
+	declaredHere := map[string]bool{}
+	for _, decl := range f.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv != nil {
+			declaredHere[fn.Name.Name] = true
+		}
+	}
 	var violations []string
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -77,12 +96,18 @@ func TestPublicHandlersReachOnlyTheSessionScopedStore(t *testing.T) {
 		if !ok {
 			return true
 		}
-		inner, ok := sel.X.(*ast.SelectorExpr)
-		if !ok || inner.Sel.Name != "store" {
+		// h.store.X — the store boundary.
+		if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "store" {
+			if !allowedStore[sel.Sel.Name] {
+				violations = append(violations, "h.store."+sel.Sel.Name)
+			}
 			return true
 		}
-		if !allowed[sel.Sel.Name] {
-			violations = append(violations, sel.Sel.Name)
+		// h.X — an indirection that could reach the seller's store unseen.
+		if recv, ok := sel.X.(*ast.Ident); ok && recv.Name == "h" {
+			if !declaredHere[sel.Sel.Name] && !transportHelpers.Waived(t, sel.Sel.Name) {
+				violations = append(violations, "h."+sel.Sel.Name)
+			}
 		}
 		return true
 	})
@@ -109,10 +134,28 @@ func TestSessionScopedStoreNeverConsultsTheSeatGates(t *testing.T) {
 				t.Errorf("%s calls %s: the seat gates refuse a buyer and the deal-scoped room read assumes one; a buyer's authority is the session predicate", file, strings.TrimSuffix(gate, "("))
 			}
 		}
-		for _, table := range []string{"deal_room_task", "deal_room_session", "deal_room_participant"} {
-			if strings.Contains(text, "FROM "+table) || strings.Contains(text, "UPDATE "+table) {
-				if !strings.Contains(text, "room_id = $") && !strings.Contains(text, "room_id = r.id") {
-					t.Errorf("%s reads %s without a room predicate", file, table)
+		// Per STATEMENT: every raw-string literal that reads or writes one of
+		// the session-scoped tables carries a room predicate of its own, so a
+		// predicated neighbour in the same file cannot vouch for it.
+		// The exchange predicate is a named constant spliced into two statements;
+		// fold it back in so each statement is judged whole.
+		text = strings.ReplaceAll(text, "`+exchangeablePredicate+`", exchangeablePredicate)
+		// The address lookup splices the roster's FROM clause in through %s;
+		// fold that in too, so its statement is judged on its own predicate.
+		text = strings.ReplaceAll(text, "participantColumns, participantFrom,", "")
+		text = strings.ReplaceAll(text, "FROM %s", "FROM "+participantFrom)
+		parts := strings.Split(text, "`")
+		for i := 1; i < len(parts); i += 2 {
+			stmt := parts[i]
+			for _, table := range []string{"deal_room_task", "deal_room_session", "deal_room_participant", "deal_room_release"} {
+				if !strings.Contains(stmt, "FROM "+table) && !strings.Contains(stmt, "UPDATE "+table) {
+					continue
+				}
+				// p.email = $ is the one legitimately cross-room predicate: the
+				// link request finds every seat an ADDRESS holds, and mails
+				// that address alone.
+				if !strings.Contains(stmt, "room_id = $") && !strings.Contains(stmt, "room_id = r.id") && !strings.Contains(stmt, "room_id = s.room_id") && !strings.Contains(stmt, "participant_id = $") && !strings.Contains(stmt, "token_hash = $") && !strings.Contains(stmt, "p.email = $") {
+					t.Errorf("%s: a statement reads %s without a room, participant or token predicate:\n%s", file, table, stmt)
 				}
 			}
 		}

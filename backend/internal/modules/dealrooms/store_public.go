@@ -165,7 +165,7 @@ func (s *Store) ResolveSession(ctx context.Context, token string) (Session, erro
 		if err != nil {
 			return fmt.Errorf("resolve deal room session: %w", err)
 		}
-		return touchSession(ctx, tx, out.ID, lastSeen)
+		return touchSession(ctx, tx, out, lastSeen)
 	})
 	if err != nil {
 		return Session{}, err
@@ -176,12 +176,12 @@ func (s *Store) ResolveSession(ctx context.Context, token string) (Session, erro
 // touchSession moves last_seen_at forward, at most once a minute. Not audited:
 // nothing about the record changed and nobody gained or lost access — this is
 // the roster's "last here" column being kept honest.
-func touchSession(ctx context.Context, tx pgx.Tx, sessionID ids.UUID, lastSeen *time.Time) error {
+func touchSession(ctx context.Context, tx pgx.Tx, sess Session, lastSeen *time.Time) error {
 	if lastSeen != nil && time.Since(*lastSeen) < lastSeenGranularity {
 		return nil
 	}
 	if _, err := tx.Exec(ctx,
-		`UPDATE deal_room_session SET last_seen_at = now() WHERE id = $1`, sessionID); err != nil {
+		`UPDATE deal_room_session SET last_seen_at = now() WHERE id = $1 AND room_id = $2`, sess.ID, sess.RoomID); err != nil {
 		return fmt.Errorf("touch deal room session: %w", err)
 	}
 	return nil

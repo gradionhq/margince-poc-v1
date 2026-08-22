@@ -16,7 +16,10 @@ package compose
 // actor at all; the store binds the one the credential names once it is known.
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -46,14 +49,20 @@ var publicDealRoomAnonymous = map[string]bool{
 type publicDealRoomLimiters struct {
 	perIP         *ratelimit.Limiter
 	linkPerIP     *ratelimit.Limiter
+	linkPerEmail  *ratelimit.Limiter
 	linkShared    *ratelimit.Limiter
 	perSessionMut *ratelimit.Limiter
 }
 
 func newPublicDealRoomLimiters() publicDealRoomLimiters {
 	return publicDealRoomLimiters{
-		perIP:         ratelimit.New(60, time.Minute),
-		linkPerIP:     ratelimit.New(3, time.Minute),
+		perIP:     ratelimit.New(60, time.Minute),
+		linkPerIP: ratelimit.New(3, time.Minute),
+		// Per ADDRESS, whatever the source: a reissue retires the buyer's
+		// standing credential, so one address may be reissued a few times an
+		// hour and no more, or a distributed caller could keep a buyer's link
+		// perpetually retired.
+		linkPerEmail:  ratelimit.New(3, time.Hour),
 		linkShared:    ratelimit.New(10, time.Minute),
 		perSessionMut: ratelimit.New(20, time.Minute),
 	}
@@ -97,14 +106,45 @@ func publicDealRoom(store *dealrooms.Store, limits publicDealRoomLimiters) func(
 	}
 }
 
-// linkRequestAdmitted takes both link-request buckets, the per-IP one first so
-// a single source is refused before it eats into the ceiling everyone shares.
+// linkRequestAdmitted takes the link-request buckets in order of cost: the
+// per-IP one first so a single source is refused before it eats into the
+// ceiling everyone shares, the per-address one last because reading it means
+// reading the body.
 func linkRequestAdmitted(limits publicDealRoomLimiters, r *http.Request) bool {
 	if !limits.linkPerIP.Allow(httpserver.ClientIP(r)) {
 		return false
 	}
-	return limits.linkShared.Allow(linkSharedKey)
+	if !limits.linkShared.Allow(linkSharedKey) {
+		return false
+	}
+	email, ok := peekLinkRequestEmail(r)
+	if !ok {
+		// Unparseable: let the handler answer the 422. Nothing is reissued.
+		return true
+	}
+	return limits.linkPerEmail.Allow(email)
 }
+
+// peekLinkRequestEmail reads the address out of the body without consuming it
+// for the handler, lowercased so the bucket matches the stored spelling.
+func peekLinkRequestEmail(r *http.Request) (string, bool) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, linkRequestBodyLimit))
+	if err != nil {
+		return "", false
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	var body struct {
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil || body.Email == "" {
+		return "", false
+	}
+	return strings.ToLower(strings.TrimSpace(body.Email)), true
+}
+
+// linkRequestBodyLimit bounds what the edge will read to find the address: an
+// address and a little JSON around it.
+const linkRequestBodyLimit = 4 << 10
 
 // resolveBuyerSession reads the Bearer and resolves it, writing the one 401
 // every failure shares. A missing header, a malformed one, an unknown token and

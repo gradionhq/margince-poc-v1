@@ -13,6 +13,7 @@ package dealrooms
 // mounted outside the middleware.
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -78,10 +79,13 @@ func (h Handlers) RequestDealRoomLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Answered before the work, so a known address costs the caller no more
-	// wall-clock than an unknown one. The reissue is attributed to the
-	// installation, the same actor the other anonymous edges write under.
+	// wall-clock than an unknown one. The work then runs DETACHED from the
+	// request: a caller who hangs up the moment the 202 lands must not be able
+	// to cancel between the reissue committing and the mail going out, which
+	// would retire a credential and deliver nothing. The reissue is attributed
+	// to the installation, the same actor the other anonymous edges write under.
 	w.WriteHeader(http.StatusAccepted)
-	ctx := principal.WithActor(r.Context(), linkRequestPrincipal)
+	ctx := principal.WithActor(context.WithoutCancel(r.Context()), linkRequestPrincipal)
 	if !h.canSendInvite() {
 		// Without a relay there is nothing to do with a credential but mail it;
 		// minting one that nobody delivers would retire a link the buyer may

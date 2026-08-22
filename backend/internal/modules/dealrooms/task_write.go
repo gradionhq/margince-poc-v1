@@ -219,9 +219,9 @@ func completionPatch(ctx context.Context, done bool, current crmcontracts.DealRo
 		p.Set("done_by_participant_id", current.DoneByParticipantId, nil)
 		return p, nil
 	}
-	// Whoever is ticking it off is on the seller's side: the buyer's own half of
-	// this list is served by the public edge, which is not built yet, so the
-	// participant column stays null on every completion this path writes.
+	// This path is the seller's: a buyer ticks through the session-scoped
+	// writer in store_public_read.go, which sets the participant column and
+	// leaves the user column null — the mirror of what this one writes.
 	actor, err := completingUser(ctx)
 	if err != nil {
 		return nil, err

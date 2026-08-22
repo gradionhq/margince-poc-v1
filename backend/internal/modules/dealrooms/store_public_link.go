@@ -7,8 +7,15 @@ package dealrooms
 //
 // Anonymous and deliberately uninformative. The caller learns nothing from the
 // response — the handler answers 202 whether the address is known or not — and
-// the only observable effect is a mail to the address itself, which is the one
-// party entitled to know they are in a room.
+// the mail goes to the address itself, which is the one party entitled to know
+// they are in a room.
+//
+// It reissues ONLY where no working credential stands. A reissue retires the
+// previous link, and this path is anonymous: if it retired a live link, anyone
+// who knew a buyer's address could kill their access at will, and a relay
+// failure after the retire would leave them with nothing. So a buyer whose link
+// still works gets no new one (and no signal that it still works); a buyer
+// whose link lapsed or was used gets a fresh one.
 
 import (
 	"context"
@@ -68,7 +75,8 @@ func (s *Store) ReissueByEmail(ctx context.Context, email string) ([]IssuedInvit
 	return out, err
 }
 
-// liveSeatsFor finds every (participant, room) this address may still enter.
+// liveSeatsFor finds every (participant, room) this address may still enter and
+// currently holds no exchangeable credential for.
 func liveSeatsFor(ctx context.Context, tx pgx.Tx, email string) ([]crmcontracts.DealRoomParticipant, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -77,6 +85,9 @@ func liveSeatsFor(ctx context.Context, tx pgx.Tx, email string) ([]crmcontracts.
 		   JOIN deal_room r ON r.id = p.room_id
 		  WHERE p.email = $%d AND p.revoked_at IS NULL
 		    AND r.archived_at IS NULL AND r.state <> 'archived'
+		    AND NOT EXISTS (SELECT 1 FROM deal_room_invitation live
+		                     WHERE live.participant_id = p.id AND live.consumed_at IS NULL
+		                       AND live.superseded_at IS NULL AND live.expires_at > now())
 		  ORDER BY p.created_at`,
 		participantColumns, participantFrom, arg(email)), args...)
 	if err != nil {

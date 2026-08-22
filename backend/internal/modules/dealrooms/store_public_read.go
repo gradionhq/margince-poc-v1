@@ -253,13 +253,20 @@ func (s *Store) CompleteBuyerTask(ctx context.Context, sess Session, taskID ids.
 	if sess.ID == ids.Nil {
 		return crmcontracts.BuyerRoomTask{}, apperrors.ErrPermissionDenied
 	}
+	if sess.Capability == capabilityView {
+		return crmcontracts.BuyerRoomTask{}, errViewerCannotWrite
+	}
 	var out crmcontracts.BuyerRoomTask
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		st, tasks, err := publishedTasks(ctx, tx, sess.RoomID, time.Now())
 		if err != nil {
 			return err
 		}
-		if access := st.access(time.Now()); access != accessLive {
+		switch access := st.access(time.Now()); access {
+		case accessLive:
+		case accessPaused:
+			return pausedForBuyer()
+		default:
 			return notTaskEditable(access)
 		}
 		current, ok := findBuyerTask(tasks, taskID)

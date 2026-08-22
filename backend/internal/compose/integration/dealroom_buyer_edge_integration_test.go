@@ -12,7 +12,9 @@ package integration
 // every dead credential reads alike, and a room session holds no CRM authority.
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
@@ -157,8 +159,8 @@ func TestABuyerEntersTheRoomReadsTheReleaseAndTicksATask(t *testing.T) {
 		t.Fatalf("paused me = %d %v, want access paused and no room", status, paused)
 	}
 	var refused apptest.AnyMap
-	if status := publicCall(t, e, "POST", "/v1/public/rooms/tasks/"+room.taskID+"/complete", apptest.AnyMap{"done": false}, bearer(token), &refused); status != http.StatusUnprocessableEntity || refused["code"] != "deal_room_task_not_editable" {
-		t.Fatalf("tick while paused = %d %v, want 422 deal_room_task_not_editable", status, refused)
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/tasks/"+room.taskID+"/complete", apptest.AnyMap{"done": false}, bearer(token), &refused); status != http.StatusUnprocessableEntity || refused["code"] != "deal_room_paused" {
+		t.Fatalf("tick while paused = %d %v, want 422 deal_room_paused", status, refused)
 	}
 
 	// Revoke: the next request is refused.
@@ -219,6 +221,23 @@ func TestEveryDeadCredentialReadsAlikeAndARoomSessionHoldsNoCRMAuthority(t *test
 		if status := publicCall(t, e, "GET", path, nil, bearer(token), nil); status != http.StatusUnauthorized {
 			t.Fatalf("GET %s with a room session = %d, want 401", path, status)
 		}
+	}
+
+	// A read-only participant reads the list but cannot work it.
+	var viewerIssued apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deal-rooms/"+room.roomID+"/participants", apptest.AnyMap{
+		"full_name": "Victor Viewer", "email": "victor@buyer.example", "capability": "view", "source": "ui",
+	}, nil, &viewerIssued); status != http.StatusCreated {
+		t.Fatalf("invite viewer = %d %v", status, viewerIssued)
+	}
+	var viewerSession apptest.AnyMap
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/exchange", apptest.AnyMap{"credential": viewerIssued["credential"]}, nil, &viewerSession); status != http.StatusOK {
+		t.Fatalf("viewer exchange = %d", status)
+	}
+	viewerToken, _ := viewerSession["session_token"].(string)
+	var viewerRefused apptest.AnyMap
+	if status := publicCall(t, e, "POST", "/v1/public/rooms/tasks/"+room.taskID+"/complete", apptest.AnyMap{"done": true}, bearer(viewerToken), &viewerRefused); status != http.StatusUnprocessableEntity || !strings.Contains(fmt.Sprint(viewerRefused["detail"]), "read-only") {
+		t.Fatalf("viewer tick = %d %v, want 422 view_only", status, viewerRefused)
 	}
 
 	// Sign-out works while paused (an access act), and ends the session.

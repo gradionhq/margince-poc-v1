@@ -158,7 +158,7 @@ func refuseUnknownCapability(capability string) error {
 		return nil
 	}
 	return &fieldError{
-		field: "capability",
+		field: fieldCapability,
 		code:  "unknown_capability",
 		msg:   "capability must be view, comment or reviewer",
 	}

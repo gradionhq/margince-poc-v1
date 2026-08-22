@@ -36,12 +36,8 @@ func (h Handlers) canSendInvite() bool {
 	return h.inviteMailer != nil && h.publicBaseURL != ""
 }
 
-// buyerRoute is the SPA route a buyer link points at.
-//
-// It does not exist yet — the buyer screen is a later slice — and that is why
-// canSendInvite refuses to mail anything: a link to an unbuilt route resolves to
-// the not-found page, and it would consume the one credential the recipient was
-// issued getting there. Tracked in the issue named beside canSendInvite.
+// buyerRoute is the SPA route a buyer link points at. The credential rides the
+// query of the FRAGMENT, so the server never sees it in a path.
 const buyerRoute = "/#/room?c="
 
 // buyerLink puts the credential in the URL's FRAGMENT, never its path.

@@ -27,7 +27,10 @@ type Session struct {
 	ID            ids.UUID
 	ParticipantID ids.DealRoomParticipantID
 	RoomID        ids.DealRoomID
-	Capability    string
+	// Capability is the seller's decision about this person: `view` reads
+	// only, `comment` and `reviewer` may also work the list. Read at every
+	// write, so a capability lowered after sign-in binds on the next request.
+	Capability string
 }
 
 // The session token is minted like the credential it was exchanged from: 256
