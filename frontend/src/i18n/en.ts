@@ -960,6 +960,8 @@ export const en = {
   "persondealrooms.open": "Open",
   "persondealrooms.seatGone":
     "This address no longer holds a seat in that room.",
+  "persondealrooms.cut":
+    "Only the first rooms are shown; this contact sits in more.",
   "persondealrooms.revokeTitle": "Revoke access to {room}?",
   "room.state.draft": "Draft",
   "room.state.building": "Building",

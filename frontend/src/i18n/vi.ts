@@ -907,6 +907,8 @@ export const vi = {
   "persondealrooms.sub": "Các phòng liên hệ này vẫn có thể vào.",
   "persondealrooms.open": "Mở",
   "persondealrooms.seatGone": "Địa chỉ này không còn chỗ trong phòng đó.",
+  "persondealrooms.cut":
+    "Chỉ hiện các phòng đầu tiên; liên hệ này còn ở trong các phòng khác.",
   "persondealrooms.revokeTitle": "Thu hồi quyền vào {room}?",
   "room.state.draft": "Bản nháp",
   "room.state.building": "Đang dựng",

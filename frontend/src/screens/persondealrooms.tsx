@@ -21,36 +21,74 @@ import { participantsKey } from "./dealroomaccess";
 
 type DealRoom = components["schemas"]["DealRoom"];
 
-export function PersonDealRooms({ email }: Readonly<{ email: string }>) {
+// The rooms a contact holds a seat in, keyed on the whole address list so a
+// revoke anywhere refreshes it.
+export function roomsOfKey(emails: readonly string[]) {
+  return ["deal-rooms-of", [...emails].sort().join(",")] as const;
+}
+
+// More rooms than any one contact sits in; past this the card says the list
+// is cut rather than pretending it is whole.
+const ROOMS_LIMIT = 50;
+
+export function PersonDealRooms({
+  emails,
+}: Readonly<{ emails: readonly string[] }>) {
   const t = useT();
   const rooms = useQuery({
-    queryKey: ["deal-rooms-of", email],
+    queryKey: roomsOfKey(emails),
     queryFn: async () => {
-      const { data, error } = await api.GET("/deal-rooms", {
-        params: { query: { participant_email: email, limit: 50 } },
-      });
-      if (error) {
-        throwProblem(error);
+      const pages = await Promise.all(
+        emails.map(async (email) => {
+          const { data, error } = await api.GET("/deal-rooms", {
+            params: { query: { participant_email: email, limit: ROOMS_LIMIT } },
+          });
+          if (error) {
+            throwProblem(error);
+          }
+          return {
+            email,
+            rooms: data?.data ?? [],
+            cut: data?.page.has_more ?? false,
+          };
+        }),
+      );
+      // One row per room, even when two of the contact's addresses sit in
+      // it; the first address found is the one the revoke uses.
+      const seen = new Map<string, { room: DealRoom; email: string }>();
+      for (const page of pages) {
+        for (const room of page.rooms) {
+          if (!seen.has(room.id)) {
+            seen.set(room.id, { room, email: page.email });
+          }
+        }
       }
-      return data;
+      return { seats: [...seen.values()], cut: pages.some((p) => p.cut) };
     },
   });
-  const list = rooms.data?.data ?? [];
-  if (rooms.isSuccess && list.length === 0) {
+  const seats = rooms.data?.seats ?? [];
+  if (rooms.isSuccess && seats.length === 0) {
     return null;
   }
   return (
     <Panel title={t("persondealrooms.title")} sub={t("persondealrooms.sub")}>
       <QueryStates query={rooms} pendingLines={2}>
-        {list.map((room) => (
-          <RoomRow key={room.id} room={room} email={email} />
+        {seats.map(({ room, email }) => (
+          <RoomRow key={room.id} room={room} email={email} emails={emails} />
         ))}
+        {rooms.data?.cut ? (
+          <p className="t-small">{t("persondealrooms.cut")}</p>
+        ) : null}
       </QueryStates>
     </Panel>
   );
 }
 
-function RoomRow({ room, email }: Readonly<{ room: DealRoom; email: string }>) {
+function RoomRow({
+  room,
+  email,
+  emails,
+}: Readonly<{ room: DealRoom; email: string; emails: readonly string[] }>) {
   const t = useT();
   const mayManage = useCanWrite("deal_room", "update");
   const [confirming, setConfirming] = useState(false);
@@ -81,6 +119,7 @@ function RoomRow({ room, email }: Readonly<{ room: DealRoom; email: string }>) {
       <RevokeSeat
         room={room}
         email={email}
+        emails={emails}
         open={confirming}
         onClose={() => setConfirming(false)}
       />
@@ -93,11 +132,13 @@ function RoomRow({ room, email }: Readonly<{ room: DealRoom; email: string }>) {
 function RevokeSeat({
   room,
   email,
+  emails,
   open,
   onClose,
 }: Readonly<{
   room: DealRoom;
   email: string;
+  emails: readonly string[];
   open: boolean;
   onClose: () => void;
 }>) {
@@ -127,7 +168,7 @@ function RevokeSeat({
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["deal-rooms-of", email] });
+      queryClient.invalidateQueries({ queryKey: roomsOfKey(emails) });
       queryClient.invalidateQueries({ queryKey: participantsKey(room.id) });
       onClose();
     },

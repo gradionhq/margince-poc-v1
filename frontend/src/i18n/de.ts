@@ -923,6 +923,8 @@ export const de = {
   "persondealrooms.open": "Öffnen",
   "persondealrooms.seatGone":
     "Diese Adresse hat in dem Raum keinen Platz mehr.",
+  "persondealrooms.cut":
+    "Nur die ersten Räume werden gezeigt; dieser Kontakt sitzt in weiteren.",
   "persondealrooms.revokeTitle": "Zugang zu {room} entziehen?",
   "room.state.draft": "Entwurf",
   "room.state.building": "Wird erstellt",
