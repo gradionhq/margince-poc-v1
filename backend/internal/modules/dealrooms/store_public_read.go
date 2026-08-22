@@ -23,6 +23,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// fieldDone names the completion in a buyer's audit image.
+const fieldDone = "done"
+
 // The four access states the buyer edge reports. Distinct from the room's
 // nine lifecycle states on purpose: a buyer is told what they can do, not
 // where the seller's workflow stands.
@@ -316,7 +319,7 @@ func writeBuyerCompletion(ctx context.Context, tx pgx.Tx, sess Session, taskID i
 		return apperrors.ErrConflict
 	}
 	auditID, err := storekit.Audit(ctx, tx, "update", taskObject, taskID.UUID,
-		map[string]any{"done": !done}, map[string]any{"done": done, fieldRoomID: sess.RoomID.UUID})
+		map[string]any{fieldDone: !done}, map[string]any{fieldDone: done, fieldRoomID: sess.RoomID.UUID})
 	if err != nil {
 		return fmt.Errorf("audit deal room task completion: %w", err)
 	}

@@ -81,25 +81,26 @@ func (h Handlers) RequestDealRoomLink(w http.ResponseWriter, r *http.Request) {
 	// wall-clock than an unknown one. The reissue is attributed to the
 	// installation, the same actor the other anonymous edges write under.
 	w.WriteHeader(http.StatusAccepted)
-	r = r.WithContext(principal.WithActor(r.Context(), linkRequestPrincipal))
+	ctx := principal.WithActor(r.Context(), linkRequestPrincipal)
 	if !h.canSendInvite() {
 		// Without a relay there is nothing to do with a credential but mail it;
 		// minting one that nobody delivers would retire a link the buyer may
 		// still have. The seller's roster is the path in that installation.
 		return
 	}
-	issued, err := h.store.ReissueByEmail(r.Context(), email.String())
+	issued, err := h.store.ReissueByEmail(ctx, email.String())
 	if err != nil {
-		slog.ErrorContext(r.Context(), "deal room link request failed", "err", err)
+		slog.ErrorContext(ctx, "deal room link request failed", "err", err)
 		return
 	}
+	attributed := r.WithContext(ctx)
 	for _, inv := range issued {
-		sendErr := h.sendInvite(r, inv)
+		sendErr := h.sendInvite(attributed, inv)
 		if sendErr != nil {
-			slog.ErrorContext(r.Context(), "deal room link request email failed",
+			slog.ErrorContext(ctx, "deal room link request email failed",
 				"participant_id", inv.Participant.Id, "err", sendErr)
 		}
-		h.recordSendOutcome(r, inv, sendErr)
+		h.recordSendOutcome(attributed, inv, sendErr)
 	}
 }
 

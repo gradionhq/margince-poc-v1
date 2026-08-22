@@ -75,7 +75,7 @@ func publicDealRoom(store *dealrooms.Store, limits publicDealRoomLimiters) func(
 				return
 			}
 			if publicDealRoomAnonymous[operation] {
-				if operation == "link-request" && !(limits.linkPerIP.Allow(httpserver.ClientIP(r)) && limits.linkShared.Allow(linkSharedKey)) {
+				if operation == "link-request" && !linkRequestAdmitted(limits, r) {
 					httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 					return
 				}
@@ -95,6 +95,15 @@ func publicDealRoom(store *dealrooms.Store, limits publicDealRoomLimiters) func(
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// linkRequestAdmitted takes both link-request buckets, the per-IP one first so
+// a single source is refused before it eats into the ceiling everyone shares.
+func linkRequestAdmitted(limits publicDealRoomLimiters, r *http.Request) bool {
+	if !limits.linkPerIP.Allow(httpserver.ClientIP(r)) {
+		return false
+	}
+	return limits.linkShared.Allow(linkSharedKey)
 }
 
 // resolveBuyerSession reads the Bearer and resolves it, writing the one 401
