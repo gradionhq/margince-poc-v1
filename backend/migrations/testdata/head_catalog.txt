@@ -1413,6 +1413,7 @@ public.deal_room_participant.email text NOT NULL gen=- def=-
 public.deal_room_participant.full_name text NOT NULL gen=- def=-
 public.deal_room_participant.id uuid NOT NULL gen=- def=uuidv7()
 public.deal_room_participant.invited_by uuid gen=- def=-
+public.deal_room_participant.link_requested_at timestamp with time zone gen=- def=-
 public.deal_room_participant.revoked_at timestamp with time zone gen=- def=-
 public.deal_room_participant.room_id uuid NOT NULL gen=- def=-
 public.deal_room_participant.source text NOT NULL gen=- def=-
