@@ -2365,6 +2365,39 @@ export const en = {
   "agent.activity.documentExtract.degraded":
     "I got partway through your document and stopped.",
   "agent.activity.documentExtract.failed": "I couldn't read your document.",
+  // The AI work a person ASKS for and then waits on. Same rules as the
+  // scheduled lines above — first person, result first, and never a word that
+  // reads as finished on a run that stopped part-way.
+  //
+  // These four were deliberately not narrated until the router could say
+  // `running`: reporting them settled-only meant a line that appeared already
+  // finished, which tells a waiting reader nothing they did not already know.
+  "agent.activity.summarize.queued": "Reading up on this company is queued.",
+  "agent.activity.summarize.running":
+    "I'm pulling together what I know about this company.",
+  "agent.activity.summarize.done": "What I know about this company is ready.",
+  "agent.activity.summarize.degraded":
+    "I gathered some of what I know about this company and stopped.",
+  "agent.activity.summarize.failed":
+    "I couldn't finish reading up on this company.",
+  "agent.activity.summarize.stalled":
+    "Reading up on this company has taken unusually long. It may have stopped.",
+  "agent.activity.draftReply.queued": "Your reply is queued to be drafted.",
+  "agent.activity.draftReply.running": "I'm drafting your reply.",
+  "agent.activity.draftReply.done": "Your draft reply is ready.",
+  "agent.activity.draftReply.degraded":
+    "I got partway through your reply and stopped.",
+  "agent.activity.draftReply.failed": "I couldn't draft your reply.",
+  "agent.activity.draftReply.stalled":
+    "Drafting your reply has taken unusually long. It may have stopped.",
+  "agent.activity.offerDraft.queued": "Your offer is queued to be drafted.",
+  "agent.activity.offerDraft.running": "I'm drafting your offer.",
+  "agent.activity.offerDraft.done": "Your draft offer is ready.",
+  "agent.activity.offerDraft.degraded":
+    "I got partway through your offer and stopped.",
+  "agent.activity.offerDraft.failed": "I couldn't draft your offer.",
+  "agent.activity.offerDraft.stalled":
+    "Drafting your offer has taken unusually long. It may have stopped.",
   "agent.panel.runningNow": "Running now",
   "agent.panel.finishedToday": "Finished today",
   "agent.panel.stoppedEarly": "Why it stopped",
@@ -4148,6 +4181,34 @@ export const en = {
   "buyer.docs.download": "Download {title}",
   "buyer.docs.downloadFailed":
     "The download did not start. Try again, or ask your contact.",
+  "threads.title": "Conversation",
+  "threads.sub":
+    "Questions and answers between the two sides — live, no publish needed.",
+  "threads.empty": "Nothing said yet.",
+  "threads.about": "About: {title}",
+  "threads.room": "The room as a whole",
+  "threads.requiredChange": "Change required",
+  "threads.resolved": "Resolved",
+  "threads.sideBuyer": "buyer",
+  "threads.sideSeller": "seller",
+  "threads.replyLabel": "Reply",
+  "threads.reply": "Reply",
+  "threads.resolve": "Resolve",
+  "threads.aboutLabel": "This is about",
+  "threads.newLabel": "New thread",
+  "threads.requireChangeLabel":
+    "This requires a change before I can confirm the document",
+  "threads.open": "Post",
+  "threads.readOnly": "Your access is read-only.",
+  "buyer.decide.requestChanges": "Request changes",
+  "buyer.decide.confirm": "Confirm this version",
+  "buyer.decide.confirmed":
+    "You confirmed this version. This is a working decision inside the room, not a signature.",
+  "buyer.decide.requested": "You asked for changes to this version.",
+  "room.decisions.title": "Buyer decisions",
+  "room.decisions.empty": "No decisions yet.",
+  "room.decisions.confirm_version": "confirmed the version",
+  "room.decisions.request_changes": "asked for changes",
   "prefs.rateLimited":
     "Too many attempts from here just now. Wait a minute and reload.",
   "prefs.subscribed": "Subscribed",

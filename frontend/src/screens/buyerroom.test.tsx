@@ -79,6 +79,33 @@ function stubRoom(
           ],
         });
       }
+      if (key === "GET /public/rooms/threads") {
+        return jsonResponse({
+          data: [
+            {
+              id: "th-1",
+              room_id: "r-1",
+              document_id: "d-1",
+              required_change: false,
+              state: "open",
+              author: { side: "seller", name: "Ada Admin" },
+              created_at: "2026-08-22T09:00:00Z",
+              comments: [
+                {
+                  id: "c-1",
+                  thread_id: "th-1",
+                  body: "Does clause 4 work for you?",
+                  author: { side: "seller", name: "Ada Admin" },
+                  created_at: "2026-08-22T09:00:00Z",
+                },
+              ],
+            },
+          ],
+        });
+      }
+      if (key === "POST /public/rooms/threads/th-1/comments") {
+        return jsonResponse({ id: "th-1" });
+      }
       if (key === "GET /public/rooms/tasks") {
         return jsonResponse({ data: [TASK] });
       }
@@ -176,6 +203,27 @@ describe("BuyerRoomScreen", () => {
     );
     expect(tick?.body).toEqual({ done: true });
     expect(tick?.authorization).toBe("Bearer mdrs_session");
+  });
+
+  it("the buyer reads the seller's question and answers it with the Bearer", async () => {
+    globalThis.sessionStorage.setItem("margince.room.session", "mdrs_session");
+    const sent = stubRoom();
+    const user = userEvent.setup();
+    render(<BuyerRoomScreen />);
+
+    await screen.findByText("Does clause 4 work for you?");
+    await user.type(screen.getByLabelText("Reply"), "Thirty days would.");
+    await user.click(screen.getByRole("button", { name: "Reply" }));
+    await waitFor(() =>
+      expect(
+        sent.find((s) => s.key === "POST /public/rooms/threads/th-1/comments"),
+      ).toBeTruthy(),
+    );
+    const posted = sent.find(
+      (s) => s.key === "POST /public/rooms/threads/th-1/comments",
+    );
+    expect(posted?.body).toEqual({ body: "Thirty days would." });
+    expect(posted?.authorization).toBe("Bearer mdrs_session");
   });
 
   it("a paused room shows the paused notice and no content", async () => {

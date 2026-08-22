@@ -14,8 +14,10 @@ package backendarch
 // contract and the read's own bounds at once.
 
 import (
+	"fmt"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -42,13 +44,39 @@ func TestEveryKindSomethingProducesIsOneTheContractCanExpress(t *testing.T) {
 	if len(declared) == 0 {
 		t.Fatal("AiActivityKind declares no enum; this gate would pass vacuously")
 	}
+	var missing []string
 	for _, kind := range producedKinds() {
 		if !slices.Contains(declared, kind) {
+			missing = append(missing, kind)
 			t.Errorf("something announces kind %q and the contract's enum does not carry it — the wire "+
 				"cannot express it, and the rail would render nothing for AI work that really happened. "+
 				"Add it to the enum and ship its copy in en/de/vi", kind)
 		}
 	}
+	if len(missing) > 0 {
+		t.Log(alignEnum(missing))
+	}
+}
+
+// alignEnum names the file, the schema and exactly what to add.
+//
+// It deliberately does NOT render a replacement enum, and the reason is worth
+// keeping: crmYAMLNamedEnum SORTS what it reads, because its callers do set
+// comparisons. So no helper built on it can reproduce the contract's own order
+// — and that order is deliberate, opening with the three carrier kinds the
+// schema's own description explains. A "paste this" block built from a sorted
+// list would move every name in the enum in order to add one: a diff nobody can
+// review, and a grouping silently destroyed.
+//
+// Naming the file and the missing names is the part that was actually missing.
+// The per-kind errors above already say why each one matters.
+func alignEnum(missing []string) string {
+	out := append([]string{}, missing...)
+	sort.Strings(out)
+	return fmt.Sprintf(
+		"align: backend/api/crm.yaml — add %s to the AiActivityKind enum, keeping its existing order "+
+			"(the carrier kinds lead it on purpose), then ship each one's copy in en/de/vi",
+		strings.Join(out, ", "))
 }
 
 // producedKinds is every kind an emitter can announce.

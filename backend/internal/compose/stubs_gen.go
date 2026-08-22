@@ -675,6 +675,10 @@ func (stubs) GetDealCoverage(w nethttp.ResponseWriter, r *nethttp.Request, id op
 	httperr.NotImplemented(w, r, "GetDealCoverage")
 }
 
+func (stubs) GetDealNextBestAction(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetDealNextBestAction")
+}
+
 func (stubs) ListDealOffers(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealOffersParams) {
 	httperr.NotImplemented(w, r, "ListDealOffers")
 }
@@ -1043,7 +1047,7 @@ func (stubs) UpdateOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "UpdateOrganization")
 }
 
-func (stubs) GetOrganization360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) GetOrganization360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetOrganization360Params) {
 	httperr.NotImplemented(w, r, "GetOrganization360")
 }
 
@@ -1259,7 +1263,7 @@ func (stubs) UpdatePerson(w nethttp.ResponseWriter, r *nethttp.Request, id crmco
 	httperr.NotImplemented(w, r, "UpdatePerson")
 }
 
-func (stubs) GetPerson360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+func (stubs) GetPerson360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetPerson360Params) {
 	httperr.NotImplemented(w, r, "GetPerson360")
 }
 
@@ -1381,6 +1385,10 @@ func (stubs) ListProjects(w nethttp.ResponseWriter, r *nethttp.Request, params c
 
 func (stubs) CreateProject(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateProjectParams) {
 	httperr.NotImplemented(w, r, "CreateProject")
+}
+
+func (stubs) TransferProjectOwnership(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.TransferProjectOwnershipParams) {
+	httperr.NotImplemented(w, r, "TransferProjectOwnership")
 }
 
 func (stubs) ArchiveProject(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveProjectParams) {
@@ -1713,6 +1721,10 @@ func (stubs) RemoveTag(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontr
 
 func (stubs) ApplyTag(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "ApplyTag")
+}
+
+func (stubs) CreateTask(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateTaskParams) {
+	httperr.NotImplemented(w, r, "CreateTask")
 }
 
 func (stubs) ListTeams(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListTeamsParams) {

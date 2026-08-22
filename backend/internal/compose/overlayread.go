@@ -364,6 +364,9 @@ func (s Server) ListActivities(w http.ResponseWriter, r *http.Request, params cr
 			// telegram" had been applied, which reads as a much larger
 			// conversation than the one that exists.
 			{"channel_provider", params.ChannelProvider != nil},
+			// The mirror carries no project attribution either, so "minus the
+			// other engagement" cannot be answered from it.
+			{"project_id", params.ProjectId != nil},
 		},
 		params.Q, params.Cursor, params.Limit, overlayWireActivity,
 		func(data []crmcontracts.Activity, page crmcontracts.PageInfo) any {

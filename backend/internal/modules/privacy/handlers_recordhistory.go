@@ -16,14 +16,14 @@ import (
 // GetRecordHistory implements (GET /records/{entity_type}/{id}/history).
 // entityType arrives as a bare, generator-unvalidated string (an inline
 // path param, not a named enum type) — this handler is the only
-// enforcement point for the [person, organization, deal, lead, activity]
+// enforcement point for the fieldHistoryEntityTypes
 // vocabulary, same as GetFieldHistory's entity_type query param.
 func (h Handlers) GetRecordHistory(w http.ResponseWriter, r *http.Request,
 	entityType string, id crmcontracts.Id, params crmcontracts.GetRecordHistoryParams,
 ) {
 	if !fieldHistoryEntityTypes[entityType] {
 		httperr.Write(w, r, httperr.Validation("entity_type", "invalid_entity_type",
-			"entity_type must be one of person, organization, deal, lead, activity"))
+			"entity_type must be one of "+fieldHistoryEntityTypeList))
 		return
 	}
 	f := RecordHistoryFilter{

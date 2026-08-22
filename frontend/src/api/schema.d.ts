@@ -2047,6 +2047,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/transfer-ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move every live project one user owns to another user, in one transaction.
+         * @description The bulk twin of `updateProject.owner_id`, for a handover or a leaver. Every live
+         *     project owned by `from_owner_id` that the caller may write (own/team row scope or a
+         *     `write` share) moves to `to_owner_id`; archived projects and projects the caller cannot
+         *     write are left where they are and are not counted. Each moved project gets its own
+         *     `update` audit row with the `owner_id` before/after images, so its field history shows
+         *     the move, and its own `project.updated` event. `to_owner_id` must name an active user of
+         *     the workspace, else `422`.
+         */
+        post: operations["transferProjectOwnership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}": {
         parameters: {
             query?: never;
@@ -2328,6 +2354,29 @@ export interface paths {
         get: operations["listChannelProviders"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a task — a commitment with an owner, on the records it is about.
+         * @description A task is an activity of kind `task`, and this is the one door that says so:
+         *     `POST /activities` with `kind: task` stores the same row, but a caller
+         *     (an agent above all) should not have to know that a to-do is a species of
+         *     timeline entry. Takes what a task needs and nothing a meeting does.
+         */
+        post: operations["createTask"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5943,7 +5992,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+                entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
             };
@@ -6024,7 +6073,7 @@ export interface paths {
          * @description One entry per field change, newest first, for the given `entity_type` + `entity_id`.
          *     A read-only projection over the append-only audit spine — no second history store.
          *     Only audit verbs whose before/after are honest field images project (create, update,
-         *     archive, restore, advance_stage); evidence-shaped rows (merge, promote, exports,
+         *     archive, restore, advance_stage, advance_phase); evidence-shaped rows (merge, promote, exports,
          *     tombstones) never fabricate field entries. The projection stops at the erasure
          *     boundary: after an Art. 17 erase or a retention anonymize, the scrub's tombstone row
          *     and everything older are withheld — the spine keeps its rows, the read refuses them —
@@ -8583,6 +8632,36 @@ export interface paths {
          *     A contact the caller cannot read answers 404, never a leak of its existence.
          */
         get: operations["getPersonNetwork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals/{id}/next-best-action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The one thing to do next on this deal, computed — never performed — on read.
+         * @description A pure read: it COMPUTES a recommendation and returns it with the evidence
+         *     it rests on. Nothing executes here, because the deal page's reads retry and
+         *     re-run on remount, and a mutation hidden in a read would fire repeatedly and
+         *     skip the write shape. Performing it is the client's click, through the verb
+         *     the recommendation names: `draft_email` (`POST /activities/{id}/draft-email`),
+         *     `create_task` (`POST /tasks`, the arguments are its body), or
+         *     `open_meeting_brief` (navigation to the activity's brief). `none` says why
+         *     nothing is recommended. Deterministic: the same facts give the same answer.
+         */
+        get: operations["getDealNextBestAction"];
         put?: never;
         post?: never;
         delete?: never;
@@ -13746,6 +13825,33 @@ export interface components {
              */
             days_since_touch?: number | null;
         };
+        /**
+         * @description One recommendation for a deal. `action` is one of `draft_email`,
+         *     `create_task`, `open_meeting_brief`, `none` — a plain string for the reason
+         *     `DealRoomTaskSide` gives. `arguments` is the body or the operand the named
+         *     verb takes, ready to send; absent for `none`.
+         */
+        DealNextBestAction: {
+            /** Format: uuid */
+            deal_id: string;
+            action: string;
+            /** @description One sentence, in the user's terms, saying why this and not something else. */
+            reason: string;
+            /** @description `draft_email` and `open_meeting_brief` carry `{activity_id}`; `create_task` carries a `CreateTaskRequest` body. */
+            arguments?: {
+                [key: string]: unknown;
+            };
+            evidence: components["schemas"]["DealNextBestActionEvidence"][];
+            /** Format: date-time */
+            computed_at: string;
+        };
+        DealNextBestActionEvidence: {
+            text: string;
+            /** Format: uuid */
+            activity_id?: string | null;
+            /** Format: date-time */
+            occurred_at?: string | null;
+        };
         DealCoverage: {
             /** Format: uuid */
             deal_id: string;
@@ -14854,6 +14960,19 @@ export interface components {
             /** @description Required when to_phase=closed (422 closed_reason_required); recorded on the phase-history row either way. */
             reason?: string | null;
         };
+        TransferProjectOwnershipRequest: {
+            /** Format: uuid */
+            from_owner_id: string;
+            /**
+             * Format: uuid
+             * @description An active user of the workspace (422 otherwise).
+             */
+            to_owner_id: string;
+        };
+        TransferProjectOwnershipResult: {
+            /** @description Live projects the caller could write that moved; archived and unwritable ones are not counted. */
+            transferred: number;
+        };
         SetProjectStakeholderRequest: {
             /** Format: uuid */
             person_id: string;
@@ -15170,6 +15289,31 @@ export interface components {
                  */
                 max_body_with_files: number;
             };
+        };
+        /** @description What a task needs. Stored as an activity of kind `task`. */
+        CreateTaskRequest: {
+            /** @description What has to be done, as one line. */
+            subject: string;
+            /** @description Detail, if one line is not enough. */
+            body?: string | null;
+            /**
+             * Format: date-time
+             * @description When it is due. Optional — a task without a date is still a task.
+             */
+            due_at?: string | null;
+            /**
+             * Format: uuid
+             * @description Who owes it. Defaults to the caller.
+             */
+            assignee_id?: string | null;
+            /** @description The records the task is about. Omit it and the task appears on no timeline. */
+            links?: {
+                /** @enum {string} */
+                entity_type: "person" | "organization" | "deal" | "lead" | "project";
+                /** Format: uuid */
+                entity_id: string;
+            }[];
+            source: string;
         };
         CreateActivityRequest: {
             /** @enum {string} */
@@ -17228,7 +17372,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+            entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
             /** Format: uuid */
             entity_id: string;
             field: string;
@@ -21791,7 +21935,10 @@ export interface operations {
     };
     getPerson360: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out. */
+                project_id?: string;
+            };
             header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
@@ -22884,7 +23031,10 @@ export interface operations {
     };
     getOrganization360: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out. */
+                project_id?: string;
+            };
             header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
@@ -24217,6 +24367,51 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    transferProjectOwnership: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferProjectOwnershipRequest"];
+            };
+        };
+        responses: {
+            /** @description How many projects moved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferProjectOwnershipResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     getProject: {
         parameters: {
             query?: never;
@@ -24899,6 +25094,53 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    createTask: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description The task, as an activity. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Activity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     listActivities: {
         parameters: {
             query?: {
@@ -24941,6 +25183,8 @@ export interface operations {
                 /** @description Open tasks for an assignee. */
                 assignee_id?: string;
                 q?: string;
+                /** @description Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out. */
+                project_id?: string;
                 /** @description One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread. */
                 thread_key?: string;
             };
@@ -31029,7 +31273,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+                entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];
             };
@@ -31099,7 +31343,7 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
-                entity_type: "person" | "organization" | "deal" | "lead" | "activity";
+                entity_type: "person" | "organization" | "deal" | "lead" | "project" | "activity";
                 entity_id: string;
                 /** @description Narrow to one field name. */
                 field?: string;
@@ -36301,6 +36545,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonNetwork"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDealNextBestAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recommendation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealNextBestAction"];
                 };
             };
             401: components["responses"]["Unauthorized"];

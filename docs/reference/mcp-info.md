@@ -13,10 +13,10 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 53 |
 | Resources | 8 |
-| Tool catalog | 145.3 KB |
+| Tool catalog | 140.1 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 37984 |
-| Largest tool | `read_project_360` (6.3 KB) |
+| Approx. wire tokens | 36653 |
+| Largest tool | `run_report` (4.5 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
 Those are the WIRE bytes: they carry each tool's output schema and the governance
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 69.3 KB | 47% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 34.7 KB | 23% | Yes, every step |
-| Input schemas | 30.2 KB | 20% | Yes, every step |
+| Output schemas | 64.8 KB | 46% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 33.5 KB | 23% | Yes, every step |
+| Input schemas | 30.7 KB | 21% | Yes, every step |
 | _Names, annotations, punctuation_ | 11.1 KB | 7% | Partly |
-| **Description + input schema** | **65.0 KB** | **44%** | **the recurring cost** |
+| **Description + input schema** | **64.2 KB** | **45%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -60,16 +60,17 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
 | [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.7 KB |
-| [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.3 KB |
+| [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.1 KB |
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
 | [`apply_tag`](#apply_tag) | Apply a tag to a record |  |  | 2.0 KB |
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.5 KB |
-| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.9 KB |
+| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.8 KB |
 | [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.7 KB |
 | [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.2 KB |
 | [`commit_import`](#commit_import) | Commit an import |  |  | 1.8 KB |
 | [`create_record`](#create_record) | Create a record |  |  | 2.6 KB |
+| [`create_task`](#create_task) | Create a task |  |  | 2.2 KB |
 | [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 3.0 KB |
 | [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 3.0 KB |
 | [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 1.9 KB |
@@ -83,7 +84,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`list_pipelines`](#list_pipelines) | List pipelines and their stages | yes |  | 2.3 KB |
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
 | [`list_tags`](#list_tags) | List tags | yes |  | 1.6 KB |
-| [`log_activity`](#log_activity) | Log an activity |  |  | 3.2 KB |
+| [`log_activity`](#log_activity) | Log an activity |  |  | 2.9 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.8 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
@@ -91,24 +92,23 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
 | [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.5 KB |
 | [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.4 KB |
-| [`query_workspace`](#query_workspace) | Query the workspace | yes |  | 3.6 KB |
+| [`query_workspace`](#query_workspace) | Query the workspace | yes |  | 3.5 KB |
 | [`read_approval`](#read_approval) | Read one staged action in full | yes |  | 2.4 KB |
 | [`read_brief`](#read_brief) | Read the morning brief | yes | [`ui://margince/account-brief.html`](#account_brief_view) | 2.8 KB |
 | [`read_import_report`](#read_import_report) | Read an import report | yes |  | 2.5 KB |
 | [`read_import_run`](#read_import_run) | Read an import run | yes |  | 1.4 KB |
-| [`read_project_360`](#read_project_360) | Read a project's page | yes |  | 6.2 KB |
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.4 KB |
 | [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
-| [`run_report`](#run_report) | Run a report | yes |  | 4.6 KB |
+| [`run_report`](#run_report) | Run a report | yes |  | 4.5 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
-| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.5 KB |
+| [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.4 KB |
 | [`send_email`](#send_email) | Send an email |  |  | 3.0 KB |
 | [`send_message`](#send_message) | Reply on a channel conversation |  |  | 2.4 KB |
-| [`update_record`](#update_record) | Update a record |  |  | 3.9 KB |
+| [`update_record`](#update_record) | Update a record |  |  | 3.7 KB |
 | [`whats_slipping_this_week`](#whats_slipping_this_week) | What's slipping this week | yes | [`ui://margince/pipeline-review.html`](#pipeline_review_view) | 2.3 KB |
 | [`who_knows`](#who_knows) | Who knows this contact | yes | [`ui://margince/relationship-map.html`](#relationship_map_view) | 2.2 KB |
 | [`whoami`](#whoami) | Who this passport acts for | yes |  | 1.5 KB |
@@ -503,7 +503,7 @@ Answer "is this deal covered?": which roles on the account we have a relationshi
 
 **Advance a deal to a stage**
 
-Move a deal to a different stage of its pipeline. The stage is named by id, not by label, and the id of the stage you are moving TO comes from list_pipelines — call it first, because a deal you have read carries only the stage it is already in. Moving onto or off a stage that closes the deal as won or lost is a decision a person makes: it is staged for approval and needs a lost_reason when the stage is a losing one. Read the target stage's semantic rather than guessing it from its name. Use progress_deal when the move should also leave a note explaining it, which is almost always what a person means by moving a deal on. Send if_version with the version you read of the deal, and keep the staged approval id when a closing move comes back for approval. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
+Move a deal to a different stage of its pipeline. The stage is named by id from list_pipelines — call it first; a deal you read carries only its current stage. Moving onto or off a won/lost stage is a person's decision: staged for approval, with a lost_reason for a losing stage. Read the target stage's semantic rather than guessing from its name. Use progress_deal when the move should also leave a note explaining it, which is almost always what a person means by moving a deal on. Send if_version with the version you read of the deal, and keep the staged approval id when a closing move comes back for approval. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 
@@ -1330,7 +1330,7 @@ Answer "where are our relationships thin?": across the caller's OPEN deals, the 
 
 **Book a meeting**
 
-Hold a slot in the host's calendar and record the meeting against the records it is about. It requires at least one link saying what the meeting is about and is refused without one. The slot is taken and the meeting becomes a real commitment, so a person approves it before it is booked. It takes no attendee list: who is invited, and whether an invitation is delivered at all, is the deployment's calendar connection rather than this call. Check the slot is free first — this tool does not. Use check_availability to find the time, and log_activity to record a meeting that already happened. Keep the staged approval id and re-send the identical start, end and links: the approval is bound to the meeting as it was described. (Governance: a person approves every call before it runs; requires passport scope "send".)
+Hold a slot in the host's calendar and record the meeting against the records it is about. Needs at least one link saying what it is about. The slot is taken and the meeting is a real commitment, so a person approves it first. No attendee list: who is invited is the calendar connection's business. Check the slot is free first — this tool does not. Use check_availability to find the time, and log_activity to record a meeting that already happened. Keep the staged approval id and re-send the identical start, end and links: the approval is bound to the meeting as it was described. (Governance: a person approves every call before it runs; requires passport scope "send".)
 
 <details><summary>Input schema</summary>
 
@@ -2067,6 +2067,189 @@ Create a person, organization, deal, lead, project, activity or relationship tha
   "required": [
     "record_type",
     "fields"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "fields": {
+          "type": "object"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "record_type": {
+          "type": "string"
+        },
+        "trust_tier": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fields",
+        "id",
+        "record_type"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### create_task
+
+**Create a task**
+
+Put a to-do on someone's list: what is owed, by whom, on which records. Creates the task only — no reminder, no deal move; unlinked, it sits on no timeline. log_activity is for what already happened. (Governance: runs immediately; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "assignee_id": {
+      "description": "Defaults to the human you act for.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "due_at": {
+      "description": "RFC 3339 WITH a zone offset (…T16:35:00+07:00 or …Z); a bare local time is refused.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "links": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "entity_type": {
+            "enum": [
+              "person",
+              "organization",
+              "deal",
+              "lead",
+              "project"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_type",
+          "entity_id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "subject": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "subject"
   ],
   "type": "object"
 }
@@ -4445,7 +4628,7 @@ The workspace's words for grouping records, with the tag_id apply_tag takes. Arc
 
 **Log an activity**
 
-Record something that happened — a call, a meeting, a note, a message — on the timeline of the records it was about. It writes history, and changes nothing else: logging a call does not move a deal, update a field or notify anyone. An activity logged without links is stored attached to nothing and appears on no timeline. Use progress_deal when the same event also moves a deal forward, so the move and the note are one act rather than two. The activity id comes back in the result; keep it — draft_email, send_email and send_message all identify a conversation by it. (Governance: runs immediately; requires passport scope "write".)
+Record something that happened — a call, a meeting, a note, a message — on the timeline of the records it was about. It writes history and changes nothing else: no deal moves, no field updates, nobody is notified. Unlinked, it appears on no timeline. Use progress_deal when the same event also moves a deal, so move and note are one act; create_task for something still owed. Keep the activity id — draft_email, send_email and send_message identify a conversation by it. (Governance: runs immediately; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 
@@ -4457,7 +4640,7 @@ Record something that happened — a call, a meeting, a note, a message — on t
       "type": "string"
     },
     "channel_provider": {
-      "description": "Which messaging transport carried this — required when kind is \"message\", and not allowed otherwise. Name a provider this installation has registered; list_channel_providers reports them.",
+      "description": "Required when kind is \"message\", else refused; a provider list_channel_providers names.",
       "type": "string"
     },
     "direction": {
@@ -4489,7 +4672,7 @@ Record something that happened — a call, a meeting, a note, a message — on t
       "type": "string"
     },
     "links": {
-      "description": "What the activity is about. Omit it and the activity is stored unattached to any record — it will not appear on a person's, company's or deal's timeline.",
+      "description": "What it is about; unlinked, it appears on no timeline.",
       "items": {
         "additionalProperties": false,
         "properties": {
@@ -6141,7 +6324,7 @@ Fill in what a lead's own data already implies — today the company name, from 
 
 **Query the workspace**
 
-Answer a question that has STRUCTURE — a record type, conditions on its fields, a hop to a related record, or a likeness to describe — by sending a plan and reading back the records that satisfy it, together with what kind of answer it is. Every name in a plan comes from the published vocabulary, and a name outside it is refused by name rather than guessed at. The margince://schema/query resource — not this description — is what says which record types, fields, operators and relationships this workspace can actually be asked about. A plan takes at most one similarity clause and at most one relationship hop. It cannot group, count or total, and there is no cursor: an answer that hit its limit says so instead of offering a next page. Use search_records when you only have a name or a phrase and no conditions to apply, and run_report when the answer wanted is a count, a total or a breakdown rather than the records themselves. Read `coverage` before you use the rows: `complete_exact` means every record matching the plan is here, `ranked_semantic` means these ranked highest and others may match, and `partial_degraded` means something in the plan could not be answered as asked — `notes` says which. Keep each row's record_type and id for any follow-up call, and its `evidence` for the related record that admitted it. (Governance: runs immediately; requires passport scope "read".)
+Answer a question that has STRUCTURE — a record type, conditions on its fields, a hop to a related record, or a likeness to describe — by sending a plan and reading back the records that satisfy it, together with what kind of answer it is. Every name in a plan comes from the published vocabulary; one outside it is refused by name. The margince://schema/query resource — not this description — says which record types, fields, operators and relationships can be asked about. At most one similarity clause and one hop. It cannot group, count or total, and has no cursor: an answer that hit its limit says so. Use search_records when you only have a name or a phrase and no conditions to apply, and run_report when the answer wanted is a count, a total or a breakdown rather than the records themselves. Read `coverage` before you use the rows: `complete_exact` means every record matching the plan is here, `ranked_semantic` means these ranked highest and others may match, and `partial_degraded` means something in the plan could not be answered as asked — `notes` says which. Keep each row's record_type and id for any follow-up call, and its `evidence` for the related record that admitted it. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -7162,605 +7345,6 @@ Where one import got to: awaiting approval, running, done, or stopped. A stopped
 
 </details>
 
-### read_project_360
-
-**Read a project's page**
-
-Read one project's whole page: company, phase history with time per phase, deals, stakeholders, contracts, documents, open commitments, timeline, filing coverage, totals. Each section is cut at 25 rows and carries a truncated flag; sections_omitted names what your grants withhold. prepare_handoff for the delivery gaps, read_record for the project's stored fields alone. The project_id, and the deal, person and task ids a follow-up acts on. (Governance: runs immediately; requires passport scope "read".)
-
-<details><summary>Input schema</summary>
-
-```json
-{
-  "additionalProperties": false,
-  "properties": {
-    "project_id": {
-      "description": "The project to read",
-      "format": "uuid",
-      "type": "string"
-    }
-  },
-  "required": [
-    "project_id"
-  ],
-  "type": "object"
-}
-```
-
-</details>
-
-<details><summary>Output schema</summary>
-
-```json
-{
-  "properties": {
-    "data": {
-      "properties": {
-        "activities": {
-          "properties": {
-            "items": {
-              "items": {
-                "properties": {
-                  "activity_id": {
-                    "format": "uuid",
-                    "type": "string"
-                  },
-                  "direction": {
-                    "type": "string"
-                  },
-                  "kind": {
-                    "type": "string"
-                  },
-                  "occurred_at": {
-                    "type": "string"
-                  },
-                  "subject": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "activity_id",
-                  "direction",
-                  "kind",
-                  "occurred_at",
-                  "subject"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "truncated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "items",
-            "truncated"
-          ],
-          "type": "object"
-        },
-        "as_of": {
-          "type": "string"
-        },
-        "commitments": {
-          "properties": {
-            "items": {
-              "items": {
-                "properties": {
-                  "about": {
-                    "items": {
-                      "properties": {
-                        "entity_id": {
-                          "format": "uuid",
-                          "type": "string"
-                        },
-                        "entity_type": {
-                          "type": "string"
-                        },
-                        "name": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "entity_id",
-                        "entity_type"
-                      ],
-                      "type": "object"
-                    },
-                    "type": "array"
-                  },
-                  "assignee_id": {
-                    "format": "uuid",
-                    "type": "string"
-                  },
-                  "assignee_name": {
-                    "type": "string"
-                  },
-                  "days_overdue": {
-                    "type": "integer"
-                  },
-                  "due_at": {
-                    "type": "string"
-                  },
-                  "state": {
-                    "type": "string"
-                  },
-                  "subject": {
-                    "type": "string"
-                  },
-                  "task_id": {
-                    "format": "uuid",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "about",
-                  "state",
-                  "subject",
-                  "task_id"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "truncated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "items",
-            "truncated"
-          ],
-          "type": "object"
-        },
-        "contracts": {
-          "properties": {
-            "items": {
-              "items": {
-                "properties": {
-                  "contract_id": {
-                    "format": "uuid",
-                    "type": "string"
-                  },
-                  "contract_number": {
-                    "type": "string"
-                  },
-                  "currency": {
-                    "type": "string"
-                  },
-                  "ends_on": {
-                    "type": "string"
-                  },
-                  "starts_on": {
-                    "type": "string"
-                  },
-                  "status": {
-                    "type": "string"
-                  },
-                  "title": {
-                    "type": "string"
-                  },
-                  "under_contract": {
-                    "type": "boolean"
-                  },
-                  "value_minor": {
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "contract_id",
-                  "contract_number",
-                  "currency",
-                  "status",
-                  "title",
-                  "under_contract"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "truncated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "items",
-            "truncated"
-          ],
-          "type": "object"
-        },
-        "deals": {
-          "properties": {
-            "items": {
-              "items": {
-                "properties": {
-                  "amount_minor": {
-                    "type": "integer"
-                  },
-                  "currency": {
-                    "type": "string"
-                  },
-                  "deal_id": {
-                    "format": "uuid",
-                    "type": "string"
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "status": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "deal_id",
-                  "name",
-                  "status"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "truncated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "items",
-            "truncated"
-          ],
-          "type": "object"
-        },
-        "documents": {
-          "properties": {
-            "items": {
-              "items": {
-                "properties": {
-                  "attachment_id": {
-                    "format": "uuid",
-                    "type": "string"
-                  },
-                  "category": {
-                    "type": "string"
-                  },
-                  "created_at": {
-                    "type": "string"
-                  },
-                  "doc_state": {
-                    "type": "string"
-                  },
-                  "filename": {
-                    "type": "string"
-                  },
-                  "title": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "attachment_id",
-                  "category",
-                  "created_at",
-                  "doc_state",
-                  "filename",
-                  "title"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "truncated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "items",
-            "truncated"
-          ],
-          "type": "object"
-        },
-        "filing": {
-          "properties": {
-            "attributed": {
-              "type": "integer"
-            },
-            "unattributed_nearby": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "attributed",
-            "unattributed_nearby"
-          ],
-          "type": "object"
-        },
-        "organization": {
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "organization_id": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          "required": [
-            "name",
-            "organization_id"
-          ],
-          "type": "object"
-        },
-        "phase_history": {
-          "properties": {
-            "phase_durations": {
-              "items": {
-                "properties": {
-                  "current": {
-                    "type": "boolean"
-                  },
-                  "phase": {
-                    "type": "string"
-                  },
-                  "seconds": {
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "current",
-                  "phase",
-                  "seconds"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "transitions": {
-              "items": {
-                "properties": {
-                  "changed_at": {
-                    "type": "string"
-                  },
-                  "changed_by": {
-                    "type": "string"
-                  },
-                  "changed_by_name": {
-                    "type": "string"
-                  },
-                  "from_phase": {
-                    "type": "string"
-                  },
-                  "reason": {
-                    "type": "string"
-                  },
-                  "to_phase": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "changed_at",
-                  "changed_by",
-                  "changed_by_name",
-                  "from_phase",
-                  "reason",
-                  "to_phase"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            }
-          },
-          "required": [
-            "phase_durations",
-            "transitions"
-          ],
-          "type": "object"
-        },
-        "project": {
-          "properties": {
-            "closed_reason": {
-              "type": "string"
-            },
-            "description": {
-              "type": "string"
-            },
-            "ended_at": {
-              "type": "string"
-            },
-            "key": {
-              "type": "string"
-            },
-            "name": {
-              "type": "string"
-            },
-            "organization_id": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "owner_id": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "phase": {
-              "type": "string"
-            },
-            "project_id": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "started_at": {
-              "type": "string"
-            },
-            "target_end_date": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "closed_reason",
-            "description",
-            "key",
-            "name",
-            "phase",
-            "project_id"
-          ],
-          "type": "object"
-        },
-        "rollups": {
-          "properties": {
-            "activity_count": {
-              "type": "integer"
-            },
-            "currency": {
-              "type": "string"
-            },
-            "last_activity_at": {
-              "type": "string"
-            },
-            "open_commitments": {
-              "type": "integer"
-            },
-            "open_deal_value_minor": {
-              "type": "integer"
-            },
-            "won_deal_value_minor": {
-              "type": "integer"
-            }
-          },
-          "required": [
-            "activity_count",
-            "currency",
-            "open_commitments",
-            "open_deal_value_minor",
-            "won_deal_value_minor"
-          ],
-          "type": "object"
-        },
-        "sections_omitted": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "stakeholders": {
-          "properties": {
-            "items": {
-              "items": {
-                "properties": {
-                  "name": {
-                    "type": "string"
-                  },
-                  "person_id": {
-                    "format": "uuid",
-                    "type": "string"
-                  },
-                  "role": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "person_id"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "truncated": {
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "items",
-            "truncated"
-          ],
-          "type": "object"
-        }
-      },
-      "required": [
-        "as_of",
-        "project",
-        "sections_omitted"
-      ],
-      "type": "object"
-    },
-    "evidence": {
-      "items": {
-        "properties": {
-          "captured_by": {
-            "type": "string"
-          },
-          "record_id": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "record_type": {
-            "type": "string"
-          },
-          "source": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "record_id",
-          "record_type"
-        ],
-        "type": "object"
-      },
-      "type": "array"
-    },
-    "freshness": {
-      "properties": {
-        "authoritative": {
-          "type": "boolean"
-        },
-        "last_synced_at": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "authoritative"
-      ],
-      "type": "object"
-    },
-    "schema_version": {
-      "type": "string"
-    },
-    "trace_id": {
-      "type": "string"
-    },
-    "trust": {
-      "type": "string"
-    },
-    "warnings": {
-      "items": {
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "message"
-        ],
-        "type": "object"
-      },
-      "type": "array"
-    }
-  },
-  "required": [
-    "data",
-    "evidence",
-    "freshness",
-    "schema_version",
-    "trace_id",
-    "trust",
-    "warnings"
-  ],
-  "type": "object"
-}
-```
-
-</details>
-
 ### read_record
 
 **Read a record**
@@ -8231,7 +7815,7 @@ Take one tag off one record — by tag_id or tag_name — leaving the word itsel
 
 **Resolve people and companies**
 
-Find out whether the people and companies named in something you are holding already exist here, matched on addresses, phone numbers and company domains rather than on text. It reads only. Nothing is created, changed or merged, and it answers person and organization, never leads. A near match comes back `ambiguous` however close it is. Use search_records to find a record you know exists, and merge_records once a person has decided that two records are one. Call this BEFORE creating a person or company from anything you did not type. Act on `matched`; on `ambiguous` ask which is meant; on `unresolved` say what you are about to create, because a miss is not proof that nothing exists. (Governance: runs immediately; requires passport scope "read".)
+Find out whether the people and companies named in something you are holding already exist here, matched on addresses, phone numbers and company domains rather than on text. It reads only. Nothing is created, changed or merged, and it answers person and organization, never leads. A near match comes back `ambiguous` however close it is. Use search_records to find a record you know exists, and merge_records once a person has decided that two records are one. Call this BEFORE creating a person or company from anything you did not type. Act on `matched`; on `ambiguous` ask which is meant; on `unresolved` say what you will create — a miss is not proof nothing exists. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -8659,7 +8243,7 @@ Renders its result in [`ui://margince/commitments.html`](#commitments_view), vis
 
 **Run a report**
 
-Answer a question about totals, counts or breakdowns — pipeline by stage, deals won by owner, activity volume over time — by running one of this workspace's prebuilt reports. Only the named reports exist, and each accepts only its own filter, grouping and measure names; anything outside its lists is refused rather than approximated. It aggregates, so it answers how many and how much, never which record. Use search_records or whats_slipping_this_week when the answer wanted is the records themselves rather than a number over them. Call a report with no plan arguments first to see what it answers by default, then narrow using the names its own catalog entry lists. (Governance: runs immediately; requires passport scope "read".)
+Answer a question about totals, counts or breakdowns — pipeline by stage, deals won by owner, activity volume over time — by running one of this workspace's prebuilt reports. Only the named reports exist, each with its own filter, grouping and measure names; anything else is refused. It aggregates: how many and how much, never which record. Use search_records or whats_slipping_this_week when the answer wanted is the records themselves rather than a number over them. Call a report with no plan first to see its default answer, then narrow with the names its catalog entry lists. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -9259,7 +8843,7 @@ Find people, organizations, deals, leads and projects when you know roughly what
 
 **Start an email conversation from a record**
 
-Put a mail on the wire to a real recipient, from this workspace, starting a new conversation rather than answering one, and file it on the records it is about. It sends EXACTLY the subject and body it is given and composes nothing. It needs at least one link naming the records the conversation belongs to and is refused without one. Every recipient must have granted the consent purpose the call names, and a person approves the send before it leaves — a message leaving the workspace cannot be recalled. Use send_email when the message answers a conversation already recorded here: that keeps the reply on its own thread, where this starts a separate one beside it. Keep the staged approval id and re-send the identical text and links: the approval is bound to that exact message. The activity_id that comes back is the new conversation. (Governance: a person approves every call before it runs; requires passport scope "send".)
+Put a mail on the wire to a real recipient, from this workspace, starting a new conversation rather than answering one, and file it on the records it is about. Sends EXACTLY the subject and body given; composes nothing. Needs at least one link naming the records it belongs to. Every recipient must have granted the named consent purpose, and a person approves the send first — a sent mail cannot be recalled. Use send_email to answer a conversation already recorded here; this starts a separate thread beside it. Keep the staged approval id and re-send the identical text and links: the approval is bound to that exact message. The activity_id that comes back is the new conversation. (Governance: a person approves every call before it runs; requires passport scope "send".)
 
 <details><summary>Input schema</summary>
 
@@ -9801,7 +9385,7 @@ Reply on a captured chat conversation — the channels this workspace has connec
 
 **Update a record**
 
-Change stored field values on a record that already exists — a corrected title, an amount, an expected close date. Only the fields you send change, and only the fields the record type stores: a person's email addresses, for one, are not among them. A field whose current value a HUMAN last set is not overwritten — that part of the call is staged for a person to decide and named in the result, so treat a staged answer as the write not having happened yet. It names the record by id: when a name matches two records, which of them was meant is a question for a person and not a choice to make quietly. There is no sharing verb here, but owner_id is NOT a neutral field — who owns a record is what decides who can see it, so reassigning it moves the record onto someone else's book and can take it off the current owner's. Use advance_deal or progress_deal to move a deal between stages, and relink_activity to change what an activity is about; neither is a field edit. Send if_version with the version you read, and keep the staged approval id from the result if you intend to retry the same change once a human has released it. (Governance: runs immediately; requires passport scope "write".)
+Change stored field values on a record that already exists — a corrected title, an amount, an expected close date. Only the fields you send change, and only the fields the record type stores (a person's email addresses are not among them). A field a HUMAN last set is not overwritten: that part is staged for a person and named in the result, and that part of the write has not happened. It names the record by id; when a name matches two records, a person picks. owner_id is NOT neutral — ownership decides visibility, so reassigning moves the record onto someone else's book and can take it off the owner's. Use advance_deal or progress_deal to move a deal between stages, and relink_activity to change what an activity is about; neither is a field edit. Send if_version with the version you read, and keep the staged approval id from the result if you intend to retry the same change once a human has released it. (Governance: runs immediately; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 

@@ -2333,6 +2333,38 @@ export const de = {
     "Ich bin bei deinem Dokument nur teilweise durchgekommen und habe gestoppt.",
   "agent.activity.documentExtract.failed":
     "Ich konnte dein Dokument nicht lesen.",
+  "agent.activity.summarize.queued":
+    "Das Zusammentragen zu diesem Unternehmen steht in der Warteschlange.",
+  "agent.activity.summarize.running":
+    "Ich trage zusammen, was ich über dieses Unternehmen weiß.",
+  "agent.activity.summarize.done":
+    "Was ich über dieses Unternehmen weiß, ist fertig.",
+  "agent.activity.summarize.degraded":
+    "Ich habe über dieses Unternehmen nur teilweise Informationen zusammengetragen und dann aufgehört.",
+  "agent.activity.summarize.failed":
+    "Ich konnte das Zusammentragen zu diesem Unternehmen nicht abschließen.",
+  "agent.activity.summarize.stalled":
+    "Das Zusammentragen zu diesem Unternehmen dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
+  "agent.activity.draftReply.queued":
+    "Deine Antwort steht zum Entwerfen in der Warteschlange.",
+  "agent.activity.draftReply.running": "Ich entwerfe deine Antwort.",
+  "agent.activity.draftReply.done": "Dein Antwortentwurf ist fertig.",
+  "agent.activity.draftReply.degraded":
+    "Ich bin bei deiner Antwort nur teilweise durchgekommen und habe gestoppt.",
+  "agent.activity.draftReply.failed":
+    "Ich konnte deine Antwort nicht entwerfen.",
+  "agent.activity.draftReply.stalled":
+    "Das Entwerfen deiner Antwort dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
+  "agent.activity.offerDraft.queued":
+    "Dein Angebot steht zum Entwerfen in der Warteschlange.",
+  "agent.activity.offerDraft.running": "Ich entwerfe dein Angebot.",
+  "agent.activity.offerDraft.done": "Dein Angebotsentwurf ist fertig.",
+  "agent.activity.offerDraft.degraded":
+    "Ich bin bei deinem Angebot nur teilweise durchgekommen und habe gestoppt.",
+  "agent.activity.offerDraft.failed":
+    "Ich konnte dein Angebot nicht entwerfen.",
+  "agent.activity.offerDraft.stalled":
+    "Das Entwerfen deines Angebots dauert ungewöhnlich lange. Möglicherweise wurde es abgebrochen.",
   "agent.panel.runningNow": "Läuft jetzt",
   "agent.panel.finishedToday": "Heute abgeschlossen",
   "agent.panel.stoppedEarly": "Warum es gestoppt hat",
@@ -4088,6 +4120,35 @@ export const de = {
   "buyer.docs.download": "{title} herunterladen",
   "buyer.docs.downloadFailed":
     "Der Download hat nicht begonnen. Versuchen Sie es erneut oder wenden Sie sich an Ihren Ansprechpartner.",
+  "threads.title": "Gespräch",
+  "threads.sub":
+    "Fragen und Antworten zwischen beiden Seiten — live, ohne Veröffentlichung.",
+  "threads.empty": "Noch nichts gesagt.",
+  "threads.about": "Betrifft: {title}",
+  "threads.room": "Den Raum insgesamt",
+  "threads.requiredChange": "Änderung nötig",
+  "threads.resolved": "Erledigt",
+  "threads.sideBuyer": "Käufer",
+  "threads.sideSeller": "Anbieter",
+  "threads.replyLabel": "Antwort",
+  "threads.reply": "Antworten",
+  "threads.resolve": "Erledigen",
+  "threads.aboutLabel": "Es geht um",
+  "threads.newLabel": "Neuer Thread",
+  "threads.requireChangeLabel":
+    "Das muss geändert werden, bevor ich das Dokument bestätigen kann",
+  "threads.open": "Absenden",
+  "threads.readOnly": "Ihr Zugang ist schreibgeschützt.",
+  "buyer.decide.requestChanges": "Änderungen anfordern",
+  "buyer.decide.confirm": "Diese Version bestätigen",
+  "buyer.decide.confirmed":
+    "Sie haben diese Version bestätigt. Das ist eine Arbeitsentscheidung im Raum, keine Unterschrift.",
+  "buyer.decide.requested":
+    "Sie haben Änderungen an dieser Version angefordert.",
+  "room.decisions.title": "Entscheidungen des Käufers",
+  "room.decisions.empty": "Noch keine Entscheidungen.",
+  "room.decisions.confirm_version": "hat die Version bestätigt",
+  "room.decisions.request_changes": "hat Änderungen angefordert",
   "prefs.rateLimited":
     "Gerade zu viele Versuche von hier aus. Warte eine Minute und lade neu.",
   "prefs.subscribed": "Abonniert",

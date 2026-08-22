@@ -18,6 +18,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -60,13 +61,24 @@ func activityScopeUnder(ctx context.Context, arg func(any) int,
 	return clause, nil
 }
 
+// projectScope renders the body-of-work narrowing as one more WHERE term, or
+// nothing when the page is unscoped. Every timeline section of this page goes
+// through it, so the recent rows, the open tasks, the last-touch dates and the
+// since-last-visit count cannot disagree about which project they describe.
+func projectScope(opts AssembleOptions, arg func(any) int) string {
+	if opts.ProjectID == nil {
+		return ""
+	}
+	return " AND " + activities.ActivityWithinProject(arg(*opts.ProjectID))
+}
+
 // activitiesSection is the recent timeline — a summary, not a paging
 // surface: page two comes from GET /activities with its own cursor.
-func (s *Service) activitiesSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, out *crmcontracts.Person360) error {
+func (s *Service) activitiesSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, opts AssembleOptions, out *crmcontracts.Person360) error {
 	if err := requireRead(ctx, "activity"); err != nil {
 		return err
 	}
-	rows, hasMore, err := s.readActivities(ctx, tx, personID, "")
+	rows, hasMore, err := s.readActivities(ctx, tx, personID, opts, "")
 	if err != nil {
 		return err
 	}
@@ -79,11 +91,11 @@ func (s *Service) activitiesSection(ctx context.Context, tx pgx.Tx, personID ids
 
 // nextStepsSection is the open work filed against this person: tasks not
 // yet done. A task with no due date still counts — it is owed either way.
-func (s *Service) nextStepsSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, out *crmcontracts.Person360) error {
+func (s *Service) nextStepsSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, opts AssembleOptions, out *crmcontracts.Person360) error {
 	if err := requireRead(ctx, "activity"); err != nil {
 		return err
 	}
-	rows, hasMore, err := s.readActivities(ctx, tx, personID,
+	rows, hasMore, err := s.readActivities(ctx, tx, personID, opts,
 		`AND a.kind = 'task' AND coalesce(a.is_done, false) = false`)
 	if err != nil {
 		return err
@@ -105,7 +117,7 @@ func (s *Service) nextStepsSection(ctx context.Context, tx pgx.Tx, personID ids.
 // column for a whole slice — the narrowing added it there and nothing pointed
 // at the copy. TestThePerson360TimelineNamesTheTransportThatCarriedAMessage is
 // the guard that says so out loud.
-func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.PersonID, extra string) ([]crmcontracts.Activity, bool, error) {
+func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.PersonID, opts AssembleOptions, extra string) ([]crmcontracts.Activity, bool, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
@@ -126,10 +138,10 @@ func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.Pe
 		       a.occurred_at, a.due_at, a.is_done, a.source, a.captured_by, a.created_at,
 		       a.audience, (%s) AS content_available
 		FROM activity a
-		WHERE a.archived_at IS NULL AND %s AND (%s) %s
+		WHERE a.archived_at IS NULL AND %s AND (%s)%s %s
 		ORDER BY a.occurred_at DESC, a.id DESC
 		LIMIT %d`,
-		contentArm, fmt.Sprintf(personLinkedActivity, personPos), scope, extra, sectionCap+1), args...)
+		contentArm, fmt.Sprintf(personLinkedActivity, personPos), scope, projectScope(opts, arg), extra, sectionCap+1), args...)
 	if err != nil {
 		return nil, false, err
 	}
@@ -177,7 +189,7 @@ func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.Pe
 // one "last touch" hides the only distinction a reader acts on: a contact
 // we mailed a fortnight ago with no reply and one who wrote to us this
 // morning have the same last-touch date and opposite meanings.
-func (s *Service) lastTouchSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, out *crmcontracts.Person360) error {
+func (s *Service) lastTouchSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, opts AssembleOptions, out *crmcontracts.Person360) error {
 	if err := requireRead(ctx, "activity"); err != nil {
 		return err
 	}
@@ -192,8 +204,8 @@ func (s *Service) lastTouchSection(ctx context.Context, tx pgx.Tx, personID ids.
 		SELECT max(a.occurred_at) FILTER (WHERE a.direction = 'inbound'),
 		       max(a.occurred_at) FILTER (WHERE a.direction = 'outbound')
 		FROM activity a
-		WHERE a.archived_at IS NULL AND %s AND (%s)`,
-		fmt.Sprintf(personLinkedActivity, personPos), scope), args...).
+		WHERE a.archived_at IS NULL AND %s AND (%s)%s`,
+		fmt.Sprintf(personLinkedActivity, personPos), scope, projectScope(opts, arg)), args...).
 		Scan(&out.LastInboundAt, &out.LastOutboundAt)
 }
 
@@ -350,7 +362,7 @@ func (s *Service) applyFieldVerdicts(
 // baseline. READ-ONLY: nothing here advances the mark — only view-ack does,
 // because a GET that moved it would destroy the answer the caller opened
 // the page to read.
-func (s *Service) sinceLastVisitSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, out *crmcontracts.Person360) error {
+func (s *Service) sinceLastVisitSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, opts AssembleOptions, out *crmcontracts.Person360) error {
 	if err := requireRead(ctx, "activity"); err != nil {
 		return err
 	}
@@ -372,8 +384,8 @@ func (s *Service) sinceLastVisitSection(ctx context.Context, tx pgx.Tx, personID
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT count(*)
 		FROM activity a
-		WHERE a.archived_at IS NULL AND a.created_at > $%d AND %s AND (%s)`,
-		sincePos, fmt.Sprintf(personLinkedActivity, personPos), scope), args...).
+		WHERE a.archived_at IS NULL AND a.created_at > $%d AND %s AND (%s)%s`,
+		sincePos, fmt.Sprintf(personLinkedActivity, personPos), scope, projectScope(opts, arg)), args...).
 		Scan(&view.NewActivities); err != nil {
 		return fmt.Errorf("count new activities: %w", err)
 	}

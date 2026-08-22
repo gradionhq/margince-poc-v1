@@ -10,6 +10,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/accountdraft"
 	"github.com/gradionhq/margince/backend/internal/compose/meetingbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/nextaction"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/orgdossier"
@@ -75,6 +76,7 @@ type (
 	personBriefHandlers    = personbrief.Handlers
 	personResearchHandlers = personresearch.Handlers
 	meetingBriefHandlers   = meetingbrief.Handlers
+	nextActionHandlers     = nextaction.Handlers
 	orgBriefHandlers       = orgbrief.Handlers
 	orgDossierHandlers     = orgdossier.Handlers
 	accountDraftHandlers   = accountdraft.Handlers
@@ -106,6 +108,12 @@ func (s *Server) wirePerson360(pool *pgxpool.Pool) {
 	s.meetingBriefHandlers = meetingbrief.NewHandlers(
 		meetingbrief.NewService(pool, s.person360Svc, s.peopleStore, time.Now),
 		s.sorDispatch.isOverlay,
+	)
+	// The deal's next best action reads the deal and its timeline through
+	// their own gated stores and performs nothing; the click goes through the
+	// verb the answer names.
+	s.nextActionHandlers = nextaction.NewHandlers(
+		nextaction.NewService(s.dealsStore, activities.NewStore(InstallationDB(pool)), time.Now),
 	)
 	// No provider is registered, which is the supported configuration rather
 	// than a gap: the surface answers "not connected" and writes nothing

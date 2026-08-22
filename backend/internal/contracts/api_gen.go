@@ -3787,6 +3787,33 @@ func (e CreateStageRequestSemantic) Valid() bool {
 	}
 }
 
+// Defines values for CreateTaskRequestLinksEntityType.
+const (
+	CreateTaskRequestLinksEntityTypeDeal         CreateTaskRequestLinksEntityType = "deal"
+	CreateTaskRequestLinksEntityTypeLead         CreateTaskRequestLinksEntityType = "lead"
+	CreateTaskRequestLinksEntityTypeOrganization CreateTaskRequestLinksEntityType = "organization"
+	CreateTaskRequestLinksEntityTypePerson       CreateTaskRequestLinksEntityType = "person"
+	CreateTaskRequestLinksEntityTypeProject      CreateTaskRequestLinksEntityType = "project"
+)
+
+// Valid indicates whether the value is a known member of the CreateTaskRequestLinksEntityType enum.
+func (e CreateTaskRequestLinksEntityType) Valid() bool {
+	switch e {
+	case CreateTaskRequestLinksEntityTypeDeal:
+		return true
+	case CreateTaskRequestLinksEntityTypeLead:
+		return true
+	case CreateTaskRequestLinksEntityTypeOrganization:
+		return true
+	case CreateTaskRequestLinksEntityTypePerson:
+		return true
+	case CreateTaskRequestLinksEntityTypeProject:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CreateVoiceBuildRequestReason.
 const (
 	CreateVoiceBuildRequestReasonManual     CreateVoiceBuildRequestReason = "manual"
@@ -4358,6 +4385,7 @@ const (
 	FieldHistoryEntryEntityTypeLead         FieldHistoryEntryEntityType = "lead"
 	FieldHistoryEntryEntityTypeOrganization FieldHistoryEntryEntityType = "organization"
 	FieldHistoryEntryEntityTypePerson       FieldHistoryEntryEntityType = "person"
+	FieldHistoryEntryEntityTypeProject      FieldHistoryEntryEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the FieldHistoryEntryEntityType enum.
@@ -4372,6 +4400,8 @@ func (e FieldHistoryEntryEntityType) Valid() bool {
 	case FieldHistoryEntryEntityTypeOrganization:
 		return true
 	case FieldHistoryEntryEntityTypePerson:
+		return true
+	case FieldHistoryEntryEntityTypeProject:
 		return true
 	default:
 		return false
@@ -10709,6 +10739,7 @@ const (
 	GetFieldHistoryParamsEntityTypeLead         GetFieldHistoryParamsEntityType = "lead"
 	GetFieldHistoryParamsEntityTypeOrganization GetFieldHistoryParamsEntityType = "organization"
 	GetFieldHistoryParamsEntityTypePerson       GetFieldHistoryParamsEntityType = "person"
+	GetFieldHistoryParamsEntityTypeProject      GetFieldHistoryParamsEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the GetFieldHistoryParamsEntityType enum.
@@ -10723,6 +10754,8 @@ func (e GetFieldHistoryParamsEntityType) Valid() bool {
 	case GetFieldHistoryParamsEntityTypeOrganization:
 		return true
 	case GetFieldHistoryParamsEntityTypePerson:
+		return true
+	case GetFieldHistoryParamsEntityTypeProject:
 		return true
 	default:
 		return false
@@ -14955,6 +14988,31 @@ type CreateTagRequest struct {
 	Name  string  `json:"name"`
 }
 
+// CreateTaskRequest What a task needs. Stored as an activity of kind `task`.
+type CreateTaskRequest struct {
+	// AssigneeId Who owes it. Defaults to the caller.
+	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
+
+	// Body Detail, if one line is not enough.
+	Body *string `json:"body,omitempty"`
+
+	// DueAt When it is due. Optional — a task without a date is still a task.
+	DueAt *time.Time `json:"due_at,omitempty"`
+
+	// Links The records the task is about. Omit it and the task appears on no timeline.
+	Links *[]struct {
+		EntityId   openapi_types.UUID               `json:"entity_id"`
+		EntityType CreateTaskRequestLinksEntityType `json:"entity_type"`
+	} `json:"links,omitempty"`
+	Source string `json:"source"`
+
+	// Subject What has to be done, as one line.
+	Subject string `json:"subject"`
+}
+
+// CreateTaskRequestLinksEntityType defines model for CreateTaskRequest.Links.EntityType.
+type CreateTaskRequestLinksEntityType string
+
 // CreateTeamRequest defines model for CreateTeamRequest.
 type CreateTeamRequest struct {
 	Name string `json:"name"`
@@ -15246,6 +15304,30 @@ type DealCoverageSeat struct {
 type DealListResponse struct {
 	Data []Deal   `json:"data"`
 	Page PageInfo `json:"page"`
+}
+
+// DealNextBestAction One recommendation for a deal. `action` is one of `draft_email`,
+// `create_task`, `open_meeting_brief`, `none` — a plain string for the reason
+// `DealRoomTaskSide` gives. `arguments` is the body or the operand the named
+// verb takes, ready to send; absent for `none`.
+type DealNextBestAction struct {
+	Action string `json:"action"`
+
+	// Arguments `draft_email` and `open_meeting_brief` carry `{activity_id}`; `create_task` carries a `CreateTaskRequest` body.
+	Arguments  *map[string]interface{}      `json:"arguments,omitempty"`
+	ComputedAt time.Time                    `json:"computed_at"`
+	DealId     openapi_types.UUID           `json:"deal_id"`
+	Evidence   []DealNextBestActionEvidence `json:"evidence"`
+
+	// Reason One sentence, in the user's terms, saying why this and not something else.
+	Reason string `json:"reason"`
+}
+
+// DealNextBestActionEvidence defines model for DealNextBestActionEvidence.
+type DealNextBestActionEvidence struct {
+	ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
+	OccurredAt *time.Time          `json:"occurred_at,omitempty"`
+	Text       string              `json:"text"`
 }
 
 // DealRoom One buyer-facing room per deal. Mirrors the `deal_room` table.
@@ -22292,6 +22374,20 @@ type TranscriptReadStarted struct {
 // TranscriptReadStartedStatus The joined reading's state when one is already in flight.
 type TranscriptReadStartedStatus string
 
+// TransferProjectOwnershipRequest defines model for TransferProjectOwnershipRequest.
+type TransferProjectOwnershipRequest struct {
+	FromOwnerId openapi_types.UUID `json:"from_owner_id"`
+
+	// ToOwnerId An active user of the workspace (422 otherwise).
+	ToOwnerId openapi_types.UUID `json:"to_owner_id"`
+}
+
+// TransferProjectOwnershipResult defines model for TransferProjectOwnershipResult.
+type TransferProjectOwnershipResult struct {
+	// Transferred Live projects the caller could write that moved; archived and unwritable ones are not counted.
+	Transferred int `json:"transferred"`
+}
+
 // UpdateActivityRequest defines model for UpdateActivityRequest.
 type UpdateActivityRequest struct {
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
@@ -23338,6 +23434,9 @@ type ListActivitiesParams struct {
 	// AssigneeId Open tasks for an assignee.
 	AssigneeId *openapi_types.UUID `form:"assignee_id,omitempty" json:"assignee_id,omitempty"`
 	Q          *string             `form:"q,omitempty" json:"q,omitempty"`
+
+	// ProjectId Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out.
+	ProjectId *openapi_types.UUID `form:"project_id,omitempty" json:"project_id,omitempty"`
 
 	// ThreadKey One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread.
 	ThreadKey *string `form:"thread_key,omitempty" json:"thread_key,omitempty"`
@@ -25398,6 +25497,12 @@ type UpdateOrganizationParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// GetOrganization360Params defines parameters for GetOrganization360.
+type GetOrganization360Params struct {
+	// ProjectId Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out.
+	ProjectId *openapi_types.UUID `form:"project_id,omitempty" json:"project_id,omitempty"`
+}
+
 // AskAboutOrganizationJSONBody defines parameters for AskAboutOrganization.
 type AskAboutOrganizationJSONBody struct {
 	// Question The prepared questions. Fixed, because each one names the records its answer is
@@ -25896,6 +26001,12 @@ type UpdatePersonParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// GetPerson360Params defines parameters for GetPerson360.
+type GetPerson360Params struct {
+	// ProjectId Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out.
+	ProjectId *openapi_types.UUID `form:"project_id,omitempty" json:"project_id,omitempty"`
+}
+
 // RecordConsentParams defines parameters for RecordConsent.
 type RecordConsentParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
@@ -26156,6 +26267,25 @@ type CreateProjectParams struct {
 	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
 	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
+// TransferProjectOwnershipParams defines parameters for TransferProjectOwnership.
+type TransferProjectOwnershipParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ArchiveProjectParams defines parameters for ArchiveProject.
@@ -26874,6 +27004,25 @@ type UpdateStageParams struct {
 type ListTagsParams struct {
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
 	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+}
+
+// CreateTaskParams defines parameters for CreateTask.
+type CreateTaskParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListTeamsParams defines parameters for ListTeams.
@@ -27641,6 +27790,9 @@ type UpdateProductJSONRequestBody = UpdateProductRequest
 // CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
 type CreateProjectJSONRequestBody = CreateProjectRequest
 
+// TransferProjectOwnershipJSONRequestBody defines body for TransferProjectOwnership for application/json ContentType.
+type TransferProjectOwnershipJSONRequestBody = TransferProjectOwnershipRequest
+
 // UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
 type UpdateProjectJSONRequestBody = UpdateProjectRequest
 
@@ -27742,6 +27894,9 @@ type RemoveTagJSONRequestBody = ApplyTagRequest
 
 // ApplyTagJSONRequestBody defines body for ApplyTag for application/json ContentType.
 type ApplyTagJSONRequestBody = ApplyTagRequest
+
+// CreateTaskJSONRequestBody defines body for CreateTask for application/json ContentType.
+type CreateTaskJSONRequestBody = CreateTaskRequest
 
 // CreateTeamJSONRequestBody defines body for CreateTeam for application/json ContentType.
 type CreateTeamJSONRequestBody = CreateTeamRequest
@@ -36545,6 +36700,9 @@ type ServerInterface interface {
 	// Who covers this deal, and what is wrong with how it is covered.
 	// (GET /deals/{id}/coverage)
 	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// The one thing to do next on this deal, computed — never performed — on read.
+	// (GET /deals/{id}/next-best-action)
+	GetDealNextBestAction(w http.ResponseWriter, r *http.Request, id Id)
 	// List a deal's offers, newest revision first.
 	// (GET /deals/{id}/offers)
 	ListDealOffers(w http.ResponseWriter, r *http.Request, id Id, params ListDealOffersParams)
@@ -36823,7 +36981,7 @@ type ServerInterface interface {
 	UpdateOrganization(w http.ResponseWriter, r *http.Request, id Id, params UpdateOrganizationParams)
 	// The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
 	// (GET /organizations/{id}/360)
-	GetOrganization360(w http.ResponseWriter, r *http.Request, id Id)
+	GetOrganization360(w http.ResponseWriter, r *http.Request, id Id, params GetOrganization360Params)
 	// Ask one of the prepared questions about this account.
 	// (POST /organizations/{id}/ask)
 	AskAboutOrganization(w http.ResponseWriter, r *http.Request, id Id)
@@ -36985,7 +37143,7 @@ type ServerInterface interface {
 	UpdatePerson(w http.ResponseWriter, r *http.Request, id Id, params UpdatePersonParams)
 	// The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
 	// (GET /people/{id}/360)
-	GetPerson360(w http.ResponseWriter, r *http.Request, id Id)
+	GetPerson360(w http.ResponseWriter, r *http.Request, id Id, params GetPerson360Params)
 	// The standing relationship brief — who this person is commercially, what they care about, what changed.
 	// (GET /people/{id}/brief)
 	GetPersonBrief(w http.ResponseWriter, r *http.Request, id Id)
@@ -37076,6 +37234,9 @@ type ServerInterface interface {
 	// Create a project on a company.
 	// (POST /projects)
 	CreateProject(w http.ResponseWriter, r *http.Request, params CreateProjectParams)
+	// Move every live project one user owns to another user, in one transaction.
+	// (POST /projects/transfer-ownership)
+	TransferProjectOwnership(w http.ResponseWriter, r *http.Request, params TransferProjectOwnershipParams)
 	// Archive a project (soft delete; archive is the delete).
 	// (DELETE /projects/{id})
 	ArchiveProject(w http.ResponseWriter, r *http.Request, id Id, params ArchiveProjectParams)
@@ -37325,6 +37486,9 @@ type ServerInterface interface {
 	// Apply a tag to an entity (person/org/deal/lead).
 	// (POST /tags/{id}/apply)
 	ApplyTag(w http.ResponseWriter, r *http.Request, id Id)
+	// Create a task — a commitment with an owner, on the records it is about.
+	// (POST /tasks)
+	CreateTask(w http.ResponseWriter, r *http.Request, params CreateTaskParams)
 	// List workspace teams — cursor-paginated. Read-only.
 	// (GET /teams)
 	ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams)
@@ -38447,6 +38611,12 @@ func (_ Unimplemented) GetDealCoverage(w http.ResponseWriter, r *http.Request, i
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The one thing to do next on this deal, computed — never performed — on read.
+// (GET /deals/{id}/next-best-action)
+func (_ Unimplemented) GetDealNextBestAction(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List a deal's offers, newest revision first.
 // (GET /deals/{id}/offers)
 func (_ Unimplemented) ListDealOffers(w http.ResponseWriter, r *http.Request, id Id, params ListDealOffersParams) {
@@ -39001,7 +39171,7 @@ func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request
 
 // The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
 // (GET /organizations/{id}/360)
-func (_ Unimplemented) GetOrganization360(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) GetOrganization360(w http.ResponseWriter, r *http.Request, id Id, params GetOrganization360Params) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -39325,7 +39495,7 @@ func (_ Unimplemented) UpdatePerson(w http.ResponseWriter, r *http.Request, id I
 
 // The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
 // (GET /people/{id}/360)
-func (_ Unimplemented) GetPerson360(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) GetPerson360(w http.ResponseWriter, r *http.Request, id Id, params GetPerson360Params) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -39506,6 +39676,12 @@ func (_ Unimplemented) ListProjects(w http.ResponseWriter, r *http.Request, para
 // Create a project on a company.
 // (POST /projects)
 func (_ Unimplemented) CreateProject(w http.ResponseWriter, r *http.Request, params CreateProjectParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Move every live project one user owns to another user, in one transaction.
+// (POST /projects/transfer-ownership)
+func (_ Unimplemented) TransferProjectOwnership(w http.ResponseWriter, r *http.Request, params TransferProjectOwnershipParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40007,6 +40183,12 @@ func (_ Unimplemented) ApplyTag(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Create a task — a commitment with an owner, on the records it is about.
+// (POST /tasks)
+func (_ Unimplemented) CreateTask(w http.ResponseWriter, r *http.Request, params CreateTaskParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List workspace teams — cursor-paginated. Read-only.
 // (GET /teams)
 func (_ Unimplemented) ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams) {
@@ -40435,6 +40617,19 @@ func (siw *ServerInterfaceWrapper) ListActivities(w http.ResponseWriter, r *http
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
 		}
 		return
 	}
@@ -47343,6 +47538,40 @@ func (siw *ServerInterfaceWrapper) GetDealCoverage(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// GetDealNextBestAction operation middleware
+func (siw *ServerInterfaceWrapper) GetDealNextBestAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealNextBestAction(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListDealOffers operation middleware
 func (siw *ServerInterfaceWrapper) ListDealOffers(w http.ResponseWriter, r *http.Request) {
 
@@ -51456,8 +51685,24 @@ func (siw *ServerInterfaceWrapper) GetOrganization360(w http.ResponseWriter, r *
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOrganization360Params
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetOrganization360(w, r, id)
+		siw.Handler.GetOrganization360(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -53960,8 +54205,24 @@ func (siw *ServerInterfaceWrapper) GetPerson360(w http.ResponseWriter, r *http.R
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPerson360Params
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetPerson360(w, r, id)
+		siw.Handler.GetPerson360(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -55352,6 +55613,55 @@ func (siw *ServerInterfaceWrapper) CreateProject(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateProject(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TransferProjectOwnership operation middleware
+func (siw *ServerInterfaceWrapper) TransferProjectOwnership(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params TransferProjectOwnershipParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TransferProjectOwnership(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -59171,6 +59481,55 @@ func (siw *ServerInterfaceWrapper) ApplyTag(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// CreateTask operation middleware
+func (siw *ServerInterfaceWrapper) CreateTask(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTaskParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTask(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTeams operation middleware
 func (siw *ServerInterfaceWrapper) ListTeams(w http.ResponseWriter, r *http.Request) {
 
@@ -61922,6 +62281,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/next-best-action", wrapper.GetDealNextBestAction)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/offers", wrapper.ListDealOffers)
 	})
 	r.Group(func(r chi.Router) {
@@ -62453,6 +62815,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/projects", wrapper.CreateProject)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/projects/transfer-ownership", wrapper.TransferProjectOwnership)
+	})
+	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/projects/{id}", wrapper.ArchiveProject)
 	})
 	r.Group(func(r chi.Router) {
@@ -62700,6 +63065,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/tags/{id}/apply", wrapper.ApplyTag)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/tasks", wrapper.CreateTask)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams", wrapper.ListTeams)

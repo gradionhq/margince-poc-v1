@@ -120,8 +120,8 @@ func (s *Service) sinceLastVisit(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT count(*)
 		FROM activity a
-		WHERE a.archived_at IS NULL AND a.created_at > $%d AND %s AND (%s)`,
-		sincePos, activities.OrgLinkedActivityExists(orgPos), activityScope),
+		WHERE a.archived_at IS NULL AND a.created_at > $%d AND %s AND (%s)%s`,
+		sincePos, activities.OrgLinkedActivityExists(orgPos), activityScope, a.opts.projectScope(arg)),
 		args...).Scan(&out.NewActivities); err != nil {
 		return out, fmt.Errorf("count new activities: %w", err)
 	}

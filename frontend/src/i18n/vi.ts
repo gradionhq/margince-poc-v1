@@ -2312,6 +2312,35 @@ export const vi = {
     "Tôi mới đọc được một phần tài liệu của bạn rồi dừng.",
   "agent.activity.documentExtract.failed":
     "Tôi không đọc được tài liệu của bạn.",
+  "agent.activity.summarize.queued":
+    "Việc tổng hợp thông tin về công ty này đang chờ xử lý.",
+  "agent.activity.summarize.running":
+    "Tôi đang tổng hợp những gì tôi biết về công ty này.",
+  "agent.activity.summarize.done":
+    "Những gì tôi biết về công ty này đã sẵn sàng.",
+  "agent.activity.summarize.degraded":
+    "Tôi mới tổng hợp được một phần thông tin về công ty này rồi dừng.",
+  "agent.activity.summarize.failed":
+    "Tôi không hoàn thành được việc tổng hợp về công ty này.",
+  "agent.activity.summarize.stalled":
+    "Việc tổng hợp về công ty này kéo dài bất thường. Có thể nó đã dừng.",
+  "agent.activity.draftReply.queued": "Thư trả lời của bạn đang chờ được soạn.",
+  "agent.activity.draftReply.running": "Tôi đang soạn thư trả lời của bạn.",
+  "agent.activity.draftReply.done": "Bản nháp thư trả lời của bạn đã sẵn sàng.",
+  "agent.activity.draftReply.degraded":
+    "Tôi mới soạn được một phần thư trả lời của bạn rồi dừng.",
+  "agent.activity.draftReply.failed":
+    "Tôi không soạn được thư trả lời của bạn.",
+  "agent.activity.draftReply.stalled":
+    "Việc soạn thư trả lời của bạn kéo dài bất thường. Có thể nó đã dừng.",
+  "agent.activity.offerDraft.queued": "Báo giá của bạn đang chờ được soạn.",
+  "agent.activity.offerDraft.running": "Tôi đang soạn báo giá của bạn.",
+  "agent.activity.offerDraft.done": "Bản nháp báo giá của bạn đã sẵn sàng.",
+  "agent.activity.offerDraft.degraded":
+    "Tôi mới soạn được một phần báo giá của bạn rồi dừng.",
+  "agent.activity.offerDraft.failed": "Tôi không soạn được báo giá của bạn.",
+  "agent.activity.offerDraft.stalled":
+    "Việc soạn báo giá của bạn kéo dài bất thường. Có thể nó đã dừng.",
   "agent.panel.runningNow": "Đang chạy",
   "agent.panel.finishedToday": "Đã xong hôm nay",
   "agent.panel.stoppedEarly": "Vì sao nó dừng",
@@ -4058,6 +4087,33 @@ export const vi = {
   "buyer.docs.download": "Tải xuống {title}",
   "buyer.docs.downloadFailed":
     "Tải xuống chưa bắt đầu. Hãy thử lại hoặc liên hệ người liên hệ của bạn.",
+  "threads.title": "Trao đổi",
+  "threads.sub": "Hỏi đáp giữa hai bên — trực tiếp, không cần công bố.",
+  "threads.empty": "Chưa có trao đổi nào.",
+  "threads.about": "Về: {title}",
+  "threads.room": "Toàn bộ phòng",
+  "threads.requiredChange": "Cần thay đổi",
+  "threads.resolved": "Đã giải quyết",
+  "threads.sideBuyer": "bên mua",
+  "threads.sideSeller": "bên bán",
+  "threads.replyLabel": "Trả lời",
+  "threads.reply": "Trả lời",
+  "threads.resolve": "Giải quyết",
+  "threads.aboutLabel": "Nội dung về",
+  "threads.newLabel": "Chủ đề mới",
+  "threads.requireChangeLabel":
+    "Cần thay đổi trước khi tôi có thể xác nhận tài liệu",
+  "threads.open": "Đăng",
+  "threads.readOnly": "Quyền truy cập của bạn chỉ đọc.",
+  "buyer.decide.requestChanges": "Yêu cầu thay đổi",
+  "buyer.decide.confirm": "Xác nhận phiên bản này",
+  "buyer.decide.confirmed":
+    "Bạn đã xác nhận phiên bản này. Đây là quyết định làm việc trong phòng, không phải chữ ký.",
+  "buyer.decide.requested": "Bạn đã yêu cầu thay đổi phiên bản này.",
+  "room.decisions.title": "Quyết định của bên mua",
+  "room.decisions.empty": "Chưa có quyết định.",
+  "room.decisions.confirm_version": "đã xác nhận phiên bản",
+  "room.decisions.request_changes": "đã yêu cầu thay đổi",
   "prefs.rateLimited":
     "Vừa có quá nhiều lần thử từ đây. Hãy đợi một phút rồi tải lại.",
   "prefs.subscribed": "Đã đăng ký",

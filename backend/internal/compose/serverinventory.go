@@ -113,6 +113,7 @@ type Server struct {
 	project360Handlers
 	personBriefHandlers
 	meetingBriefHandlers
+	nextActionHandlers
 	personResearchHandlers
 	personDraftHandlers
 	orgBriefHandlers
