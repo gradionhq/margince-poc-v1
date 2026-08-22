@@ -70,10 +70,17 @@ func recencyReason(last *time.Time, stalled bool, now time.Time) string {
 		return "No activity has been logged on this deal."
 	}
 	days := int(now.Sub(*last).Hours() / 24)
-	if stalled {
-		return fmt.Sprintf("Last activity %d days ago — the deal counts as stalled.", days)
+	when := fmt.Sprintf("%d days ago", days)
+	switch days {
+	case 0:
+		when = "today"
+	case 1:
+		when = "yesterday"
 	}
-	return fmt.Sprintf("Last activity %d days ago.", days)
+	if stalled {
+		return fmt.Sprintf("Last activity %s — the deal counts as stalled.", when)
+	}
+	return fmt.Sprintf("Last activity %s.", when)
 }
 
 func engagementReason(engaged int) string {

@@ -137,10 +137,12 @@ type dealHealthInputs struct {
 // score, no I/O.
 func healthFromInputs(in dealHealthInputs, now time.Time) DealHealth {
 	expected := stageVelocityFallbackDays
-	// A non-positive median (instant stage hops) would make the pace
-	// ratio meaningless or divide by zero; the fallback is the honest
-	// expectation in that degenerate history too.
-	if in.medianWonStageDays != nil && *in.medianWonStageDays > 0 {
+	// A median under a day (instant stage hops — an import, a demo seed, a
+	// deal closed the day it was opened) is not an expectation anyone holds:
+	// measured against it every live deal reads as crawling and the pace
+	// factor is zero for all of them. The fallback is the honest expectation
+	// in that degenerate history, exactly as for a non-positive one.
+	if in.medianWonStageDays != nil && *in.medianWonStageDays >= 1 {
 		expected = *in.medianWonStageDays
 	}
 	age := daysBetween(in.stageEnteredAt, now)
