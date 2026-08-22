@@ -330,7 +330,7 @@ func (c Config) validate() error {
 			return fmt.Errorf("deployconfig: organization.timezone: %w", err)
 		}
 	}
-	if cur := c.Organization.BaseCurrency; cur != "" && !isCurrencyCode(cur) {
+	if cur := c.Organization.BaseCurrency; cur != "" && !values.ValidCurrency(cur) {
 		return fmt.Errorf("deployconfig: organization.base_currency %q is not a 3-letter ISO 4217 code", cur)
 	}
 	if err := c.Rates.validate(); err != nil {
@@ -453,18 +453,4 @@ func (p PipelineSeed) validate() error {
 		}
 	}
 	return nil
-}
-
-// isCurrencyCode accepts the ISO 4217 shape (three ASCII uppercase
-// letters); the currency's existence is the workspace table's concern.
-func isCurrencyCode(s string) bool {
-	if len(s) != 3 {
-		return false
-	}
-	for _, r := range s {
-		if r < 'A' || r > 'Z' {
-			return false
-		}
-	}
-	return true
 }

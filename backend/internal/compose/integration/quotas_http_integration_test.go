@@ -440,13 +440,7 @@ func assertQuotaInvalidCurrency(t *testing.T, e *apptest.AppEnv, ownerID string)
 		"owner_id": ownerID, "period_start": "2026-01-01", "period_end": "2026-03-31",
 		"target_minor": 1000, "currency": "eur",
 	}, nil, &problem)
-	if status != http.StatusUnprocessableEntity || problem.Code != "validation_error" {
-		t.Fatalf("lowercase currency = %d %+v, want 422 validation_error", status, problem)
-	}
-	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "quota_currency_check" ||
-		problem.Details.Errors[0].Code != "constraint_violated" {
-		t.Fatalf("details.errors = %+v, want [{quota_currency_check constraint_violated}]", problem.Details.Errors)
-	}
+	assertCheckBreachIsAnsweredWithoutItsConstraintName(t, status, problem, "quota_currency_check")
 }
 
 // assertQuotaInvertedPeriod drives a period_end before period_start into
@@ -460,12 +454,30 @@ func assertQuotaInvertedPeriod(t *testing.T, e *apptest.AppEnv, ownerID string) 
 		"owner_id": ownerID, "period_start": "2026-03-31", "period_end": "2026-01-01",
 		"target_minor": 1000, "currency": "EUR",
 	}, nil, &problem)
-	if status != http.StatusUnprocessableEntity || problem.Code != "validation_error" {
-		t.Fatalf("inverted period = %d %+v, want 422 validation_error", status, problem)
+	assertCheckBreachIsAnsweredWithoutItsConstraintName(t, status, problem, "quota_period_valid")
+}
+
+// A CHECK the store did not pre-validate is answered by httperr's constraint
+// net, and the net names no field on purpose: the only thing that knows one at
+// that depth is the CONSTRAINT NAME, which is our schema. This module used to
+// carry its own copy of the translation that put that name in the `field` slot
+// — and the copy also pre-empted the net's 423 for a held activity.
+//
+// The negative half is the point. Asserting the status and code alone passes
+// just as well with the constraint name still in the body, which is the shape
+// the deletion exists to remove.
+func assertCheckBreachIsAnsweredWithoutItsConstraintName(
+	t *testing.T, status int, problem quotaProblem, constraint string,
+) {
+	t.Helper()
+	if status != http.StatusUnprocessableEntity || problem.Code != "value_not_allowed" {
+		t.Fatalf("%s breach = %d %+v, want 422 value_not_allowed", constraint, status, problem)
 	}
-	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Field != "quota_period_valid" ||
-		problem.Details.Errors[0].Code != "constraint_violated" {
-		t.Fatalf("details.errors = %+v, want [{quota_period_valid constraint_violated}]", problem.Details.Errors)
+	if len(problem.Details.Errors) != 0 {
+		t.Errorf("%s breach named a field: %+v", constraint, problem.Details.Errors)
+	}
+	if strings.Contains(problem.Detail, constraint) {
+		t.Errorf("%s breach disclosed the constraint: %q", constraint, problem.Detail)
 	}
 }
 

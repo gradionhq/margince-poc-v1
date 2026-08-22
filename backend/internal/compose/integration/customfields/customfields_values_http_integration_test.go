@@ -15,6 +15,7 @@ package customfields
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
@@ -225,11 +226,15 @@ func assertPicklistCheckViolation422(t *testing.T, e *apptest.AppEnv, col string
 	status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{
 		"full_name": "Bad Option", "source": "ui", col: "bogus",
 	}, nil, &problem)
-	if status != http.StatusUnprocessableEntity {
-		t.Fatalf("create with invalid picklist option status = %d, want 422 (%+v)", status, problem)
+	if status != http.StatusUnprocessableEntity || problem.Code != "value_not_allowed" {
+		t.Fatalf("create with invalid picklist option = %d %+v, want 422 value_not_allowed", status, problem)
 	}
-	if len(problem.Details.Errors) != 1 || problem.Details.Errors[0].Code != "constraint_violated" {
-		t.Fatalf("problem details = %+v, want one constraint_violated entry", problem.Details)
+	// The generated CHECK is named after the column, so the constraint name is
+	// the one piece of schema this refusal must not carry: httperr's net names
+	// no field at this depth, and the module copy that used to put the name in
+	// the `field` slot has been deleted.
+	if strings.Contains(problem.Detail, col+"_check") {
+		t.Errorf("the refusal disclosed the generated constraint: %q", problem.Detail)
 	}
 }
 

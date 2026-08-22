@@ -242,14 +242,5 @@ func writeQuotaErr(w http.ResponseWriter, r *http.Request, err error) {
 		})
 		return
 	}
-	// Defense-in-depth net: a CHECK constraint is a business rule (e.g. a
-	// lowercase currency, never pre-validated by the store — see the T3
-	// report), so a breach still answers a typed 422 naming the rule —
-	// never an opaque 500 (the deals/handlers.go precedent).
-	if constraint, ok := storekit.CheckViolation(err); ok {
-		httperr.Write(w, r, httperr.Validation(constraint, "constraint_violated",
-			"the request violates the "+constraint+" business rule"))
-		return
-	}
 	httperr.Write(w, r, err)
 }

@@ -12,6 +12,8 @@ package deals
 
 import (
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
@@ -68,9 +71,17 @@ var unreachableChecks = gatekit.Waive(map[string]string{
 		"request can produce a row that violates it",
 })
 
+// raisedCheck is the error Postgres hands the store when a project CHECK
+// fires — the input projectCheckError translates, and the value it returns
+// untranslated for a rule this module has not described.
+func raisedCheck(constraint string) error {
+	return fmt.Errorf("apply project patch: %w",
+		&pgconn.PgError{Code: "23514", TableName: "project", ConstraintName: constraint})
+}
+
 // Every rule the table names must have a message of its own. Falling through
-// to the generic arm is not a failure of correctness — it still answers 422 —
-// but it means the caller is told a constraint name instead of what to fix.
+// is not a failure of correctness — httperr's net still answers 422 — but it
+// means the caller is told to check their values with no clue which one.
 func TestEveryNamedProjectCheckHasItsOwnRefusal(t *testing.T) {
 	defer unreachableChecks.AssertAllMatched(t)
 	for _, constraint := range projectCheckConstraints(t) {
@@ -78,11 +89,11 @@ func TestEveryNamedProjectCheckHasItsOwnRefusal(t *testing.T) {
 			continue
 		}
 		t.Run(constraint, func(t *testing.T) {
-			err := projectCheckError(constraint, "")
-			var generic *ProjectConstraintError
-			if errors.As(err, &generic) {
-				t.Fatalf("%s falls through to the generic arm, so the caller is told %q instead of what to fix",
-					constraint, err.Error())
+			raised := raisedCheck(constraint)
+			err := projectCheckError(raised, constraint, "")
+			if errors.Is(err, raised) {
+				t.Fatalf("%s falls through untranslated, so the caller is told to check every value it sent",
+					constraint)
 			}
 			if strings.Contains(err.Error(), constraint) {
 				t.Errorf("%s reports its own constraint name to the caller: %q", constraint, err.Error())
@@ -91,16 +102,33 @@ func TestEveryNamedProjectCheckHasItsOwnRefusal(t *testing.T) {
 	}
 }
 
-// A rule this module has not described yet still answers as a business rule,
-// and says which one — an honest gap beats a 500 that says nothing.
-func TestAnUnnamedProjectCheckStillReadsAsARuleBreach(t *testing.T) {
-	err := projectCheckError("project_some_future_rule", "")
-	var generic *ProjectConstraintError
-	if !errors.As(err, &generic) {
-		t.Fatalf("an undescribed constraint produced %T, want the generic rule breach", err)
+// A rule this module has not described goes to the caller through httperr's
+// constraint net, not through a spelling of that net here: still a 422, and
+// still without our constraint name in it.
+//
+// The name is the point. A module-local fallback can only put the CONSTRAINT
+// into the sentence — that is the one thing it knows — and the constraint is
+// our schema. This asserts the whole way to the wire fault rather than
+// stopping at "the error was passed along", because passing it along is only
+// correct if what receives it answers well.
+func TestAnUnnamedProjectCheckIsAnsweredByTheConstraintNet(t *testing.T) {
+	const constraint = "project_some_future_rule"
+	raised := raisedCheck(constraint)
+
+	err := projectCheckError(raised, constraint, "")
+	if !errors.Is(err, raised) {
+		t.Fatalf("an undescribed constraint produced %T, want the raised error untranslated", err)
 	}
-	if generic.Constraint != "project_some_future_rule" {
-		t.Errorf("the fallback lost the constraint name: %q", generic.Constraint)
+
+	fault, ok := httperr.Classify(err)
+	if !ok {
+		t.Fatal("the constraint net did not classify an undescribed CHECK, so the caller gets a 500 telling them to retry")
+	}
+	if fault.Status != http.StatusUnprocessableEntity || fault.Code != "value_not_allowed" {
+		t.Errorf("status/code = %d/%s, want 422/value_not_allowed", fault.Status, fault.Code)
+	}
+	if strings.Contains(fault.Detail, constraint) || len(fault.Fields) != 0 {
+		t.Errorf("the refusal discloses the constraint: detail=%q fields=%+v", fault.Detail, fault.Fields)
 	}
 }
 

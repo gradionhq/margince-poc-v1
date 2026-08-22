@@ -15,23 +15,19 @@ package identity
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // installationSettingsObject is the RBAC object gating the installation
 // settings surface. Read is broad — a rep seeing amounts in the base currency
 // benefits from knowing which one it is — and write is admin/ops.
 const installationSettingsObject = "installation_settings"
-
-// iso4217 is the shape of a currency code, matching the CHECK that guarded
-// the column this replaces (0002: base_currency ~ '^[A-Z]{3}$').
-var iso4217 = regexp.MustCompile(`^[A-Z]{3}$`)
 
 // Name is the organization's display name. Seeded from margince.yaml at
 // bootstrap; the row is authoritative afterwards, so renaming the
@@ -97,7 +93,7 @@ var BaseCurrency = settings.Define[string](
 	"update",
 	"EUR",
 	func(v string) error {
-		if !iso4217.MatchString(v) {
+		if !values.ValidCurrency(v) {
 			return fmt.Errorf("a base currency is three uppercase ISO-4217 letters, like EUR")
 		}
 		return nil

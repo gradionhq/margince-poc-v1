@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -110,8 +109,7 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 			`INSERT INTO app_user (email, password_hash, display_name, status)
 			 VALUES (lower($1), NULL, $2, 'active') RETURNING id`,
 			in.Email, in.DisplayName).Scan(&newUserID)
-		var pgErr *pgconn.PgError
-		if errors.As(insErr, &pgErr) && pgErr.Code == "23505" {
+		if storekit.IsUniqueViolation(insErr) {
 			return errEmailTaken
 		}
 		if insErr != nil {
