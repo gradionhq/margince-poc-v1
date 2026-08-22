@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { throwProblem } from "../screens/common";
+import { displayedKinds } from "./ai-activity-lines";
 
 type AiActivityItem = components["schemas"]["AiActivityItem"];
 
@@ -57,7 +58,12 @@ export function useAiActivity(): AiActivity {
     queryKey: ACTIVITY_KEY,
     enabled: visible,
     queryFn: async () => {
-      const { data, error } = await api.GET("/me/ai-activity");
+      const { data, error } = await api.GET("/me/ai-activity", {
+        // The rail asks for the kinds it draws. Without this the server's
+        // bounds fall on the complete record and can spend all ten `recent`
+        // slots on work this surface renders nothing for.
+        params: { query: { kinds: displayedKinds() } },
+      });
       if (error) {
         throwProblem(error);
       }

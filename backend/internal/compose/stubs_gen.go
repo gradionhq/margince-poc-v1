@@ -871,7 +871,7 @@ func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
 }
 
-func (stubs) GetMyAiActivity(w nethttp.ResponseWriter, r *nethttp.Request) {
+func (stubs) GetMyAiActivity(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetMyAiActivityParams) {
 	httperr.NotImplemented(w, r, "GetMyAiActivity")
 }
 

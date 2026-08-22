@@ -57,13 +57,44 @@ func TestTheWireStateEnumIsTheProjectionsPlusTheDerivedOne(t *testing.T) {
 // crmYAMLEnum reads one property's enum out of the authoritative contract.
 func crmYAMLEnum(t *testing.T, schema, property string) []string {
 	t.Helper()
+	prop, ok := crmYAMLSchemas(t)[schema].Properties[property]
+	if !ok || len(prop.Enum) == 0 {
+		t.Fatalf("%s.%s declares no enum in api/crm.yaml", schema, property)
+	}
+	out := slices.Clone(prop.Enum)
+	slices.Sort(out)
+	return out
+}
+
+// crmYAMLNamedEnum reads a schema that IS an enum rather than one that has a
+// property carrying one. A vocabulary two places must agree on gets its own
+// schema, so reading it needs its own accessor — the property walk above simply
+// finds nothing there and reports it as an absent enum.
+func crmYAMLNamedEnum(t *testing.T, schema string) []string {
+	t.Helper()
+	declared := crmYAMLSchemas(t)[schema]
+	if len(declared.Enum) == 0 {
+		t.Fatalf("schema %s declares no enum in api/crm.yaml", schema)
+	}
+	out := slices.Clone(declared.Enum)
+	slices.Sort(out)
+	return out
+}
+
+// crmYAMLSchema is as much of one contract schema as these gates read: its own
+// enum, when it is one, and its properties' enums when it is an object.
+type crmYAMLSchema struct {
+	Enum       []string `yaml:"enum"`
+	Properties map[string]struct {
+		Enum []string `yaml:"enum"`
+	} `yaml:"properties"`
+}
+
+func crmYAMLSchemas(t *testing.T) map[string]crmYAMLSchema {
+	t.Helper()
 	var doc struct {
 		Components struct {
-			Schemas map[string]struct {
-				Properties map[string]struct {
-					Enum []string `yaml:"enum"`
-				} `yaml:"properties"`
-			} `yaml:"schemas"`
+			Schemas map[string]crmYAMLSchema `yaml:"schemas"`
 		} `yaml:"components"`
 	}
 	raw, err := os.ReadFile("api/crm.yaml")
@@ -73,13 +104,7 @@ func crmYAMLEnum(t *testing.T, schema, property string) []string {
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("parsing the contract: %v", err)
 	}
-	prop, ok := doc.Components.Schemas[schema].Properties[property]
-	if !ok || len(prop.Enum) == 0 {
-		t.Fatalf("%s.%s declares no enum in api/crm.yaml", schema, property)
-	}
-	out := slices.Clone(prop.Enum)
-	slices.Sort(out)
-	return out
+	return doc.Components.Schemas
 }
 
 func TestTheAiTaskPayloadEnumsMatchTheProjectionsChecks(t *testing.T) {

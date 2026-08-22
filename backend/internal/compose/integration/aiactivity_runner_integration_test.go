@@ -123,7 +123,7 @@ func (f *runnerFixture) feed(t *testing.T) (live, settled []aiactivity.Item) {
 		t.Fatalf("reading the database's idea of today: %v", err)
 	}
 	live, settled, err := aiactivity.NewStore(f.env.DB()).
-		Mine(f.env.As(f.owner, nil, principal.Permissions{}), midnight)
+		Mine(f.env.As(f.owner, nil, principal.Permissions{}), midnight, nil)
 	if err != nil {
 		t.Fatalf("Mine: %v", err)
 	}

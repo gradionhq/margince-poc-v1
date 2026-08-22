@@ -193,3 +193,20 @@ export function lineFor(
 function isActivityKind(kind: string): kind is ActivityKind {
   return Object.hasOwn(ACTIVITY_LINE, kind);
 }
+
+/**
+ * The kinds this rail draws, as the server's `kinds` filter takes them.
+ *
+ * DERIVED from ACTIVITY_LINE rather than listed, and that is the whole point:
+ * the server reports every AI task, and `recent` is bounded at ten. A client
+ * that asked for everything and drew three kinds would be handed the newest ten
+ * of twenty-three — ten it renders nothing for — and the rail would go blank on
+ * the day a rep used the composer a lot, while the projection was right the
+ * whole time. Naming the kinds moves the bound inside this list; deriving it
+ * means the list cannot fall out of step with the copy that decides it.
+ */
+export function displayedKinds(): ActivityKind[] {
+  return Object.entries(ACTIVITY_LINE).flatMap(([kind, entry]) =>
+    "notDisplayed" in entry ? [] : [kind as ActivityKind],
+  );
+}

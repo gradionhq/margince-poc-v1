@@ -552,87 +552,6 @@ func (e AgentToolTier) Valid() bool {
 	}
 }
 
-// Defines values for AiActivityItemKind.
-const (
-	AiActivityItemKindBriefRanking               AiActivityItemKind = "brief_ranking"
-	AiActivityItemKindCaptureClassify            AiActivityItemKind = "capture_classify"
-	AiActivityItemKindCaptureCounterpartyVerdict AiActivityItemKind = "capture_counterparty_verdict"
-	AiActivityItemKindCertJudge                  AiActivityItemKind = "cert_judge"
-	AiActivityItemKindColdStart                  AiActivityItemKind = "cold_start"
-	AiActivityItemKindDealHealth                 AiActivityItemKind = "deal_health"
-	AiActivityItemKindDocumentExtract            AiActivityItemKind = "document_extract"
-	AiActivityItemKindDraftReply                 AiActivityItemKind = "draft_reply"
-	AiActivityItemKindEnrich                     AiActivityItemKind = "enrich"
-	AiActivityItemKindGrowthFit                  AiActivityItemKind = "growth_fit"
-	AiActivityItemKindMorningBrief               AiActivityItemKind = "morning_brief"
-	AiActivityItemKindNlSearch                   AiActivityItemKind = "nl_search"
-	AiActivityItemKindOfferDraft                 AiActivityItemKind = "offer_draft"
-	AiActivityItemKindOvernightAtRiskSweep       AiActivityItemKind = "overnight_at_risk_sweep"
-	AiActivityItemKindRateExtract                AiActivityItemKind = "rate_extract"
-	AiActivityItemKindSignalExtract              AiActivityItemKind = "signal_extract"
-	AiActivityItemKindSiteExtract                AiActivityItemKind = "site_extract"
-	AiActivityItemKindSiteFactExtract            AiActivityItemKind = "site_fact_extract"
-	AiActivityItemKindSiteTriage                 AiActivityItemKind = "site_triage"
-	AiActivityItemKindSummarize                  AiActivityItemKind = "summarize"
-	AiActivityItemKindTranscript                 AiActivityItemKind = "transcript"
-	AiActivityItemKindTranscriptPropose          AiActivityItemKind = "transcript_propose"
-	AiActivityItemKindVoiceBuild                 AiActivityItemKind = "voice_build"
-)
-
-// Valid indicates whether the value is a known member of the AiActivityItemKind enum.
-func (e AiActivityItemKind) Valid() bool {
-	switch e {
-	case AiActivityItemKindBriefRanking:
-		return true
-	case AiActivityItemKindCaptureClassify:
-		return true
-	case AiActivityItemKindCaptureCounterpartyVerdict:
-		return true
-	case AiActivityItemKindCertJudge:
-		return true
-	case AiActivityItemKindColdStart:
-		return true
-	case AiActivityItemKindDealHealth:
-		return true
-	case AiActivityItemKindDocumentExtract:
-		return true
-	case AiActivityItemKindDraftReply:
-		return true
-	case AiActivityItemKindEnrich:
-		return true
-	case AiActivityItemKindGrowthFit:
-		return true
-	case AiActivityItemKindMorningBrief:
-		return true
-	case AiActivityItemKindNlSearch:
-		return true
-	case AiActivityItemKindOfferDraft:
-		return true
-	case AiActivityItemKindOvernightAtRiskSweep:
-		return true
-	case AiActivityItemKindRateExtract:
-		return true
-	case AiActivityItemKindSignalExtract:
-		return true
-	case AiActivityItemKindSiteExtract:
-		return true
-	case AiActivityItemKindSiteFactExtract:
-		return true
-	case AiActivityItemKindSiteTriage:
-		return true
-	case AiActivityItemKindSummarize:
-		return true
-	case AiActivityItemKindTranscript:
-		return true
-	case AiActivityItemKindTranscriptPropose:
-		return true
-	case AiActivityItemKindVoiceBuild:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for AiActivityItemState.
 const (
 	AiActivityItemStateDegraded AiActivityItemState = "degraded"
@@ -657,6 +576,87 @@ func (e AiActivityItemState) Valid() bool {
 	case AiActivityItemStateRunning:
 		return true
 	case AiActivityItemStateStalled:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AiActivityKind.
+const (
+	AiActivityKindBriefRanking               AiActivityKind = "brief_ranking"
+	AiActivityKindCaptureClassify            AiActivityKind = "capture_classify"
+	AiActivityKindCaptureCounterpartyVerdict AiActivityKind = "capture_counterparty_verdict"
+	AiActivityKindCertJudge                  AiActivityKind = "cert_judge"
+	AiActivityKindColdStart                  AiActivityKind = "cold_start"
+	AiActivityKindDealHealth                 AiActivityKind = "deal_health"
+	AiActivityKindDocumentExtract            AiActivityKind = "document_extract"
+	AiActivityKindDraftReply                 AiActivityKind = "draft_reply"
+	AiActivityKindEnrich                     AiActivityKind = "enrich"
+	AiActivityKindGrowthFit                  AiActivityKind = "growth_fit"
+	AiActivityKindMorningBrief               AiActivityKind = "morning_brief"
+	AiActivityKindNlSearch                   AiActivityKind = "nl_search"
+	AiActivityKindOfferDraft                 AiActivityKind = "offer_draft"
+	AiActivityKindOvernightAtRiskSweep       AiActivityKind = "overnight_at_risk_sweep"
+	AiActivityKindRateExtract                AiActivityKind = "rate_extract"
+	AiActivityKindSignalExtract              AiActivityKind = "signal_extract"
+	AiActivityKindSiteExtract                AiActivityKind = "site_extract"
+	AiActivityKindSiteFactExtract            AiActivityKind = "site_fact_extract"
+	AiActivityKindSiteTriage                 AiActivityKind = "site_triage"
+	AiActivityKindSummarize                  AiActivityKind = "summarize"
+	AiActivityKindTranscript                 AiActivityKind = "transcript"
+	AiActivityKindTranscriptPropose          AiActivityKind = "transcript_propose"
+	AiActivityKindVoiceBuild                 AiActivityKind = "voice_build"
+)
+
+// Valid indicates whether the value is a known member of the AiActivityKind enum.
+func (e AiActivityKind) Valid() bool {
+	switch e {
+	case AiActivityKindBriefRanking:
+		return true
+	case AiActivityKindCaptureClassify:
+		return true
+	case AiActivityKindCaptureCounterpartyVerdict:
+		return true
+	case AiActivityKindCertJudge:
+		return true
+	case AiActivityKindColdStart:
+		return true
+	case AiActivityKindDealHealth:
+		return true
+	case AiActivityKindDocumentExtract:
+		return true
+	case AiActivityKindDraftReply:
+		return true
+	case AiActivityKindEnrich:
+		return true
+	case AiActivityKindGrowthFit:
+		return true
+	case AiActivityKindMorningBrief:
+		return true
+	case AiActivityKindNlSearch:
+		return true
+	case AiActivityKindOfferDraft:
+		return true
+	case AiActivityKindOvernightAtRiskSweep:
+		return true
+	case AiActivityKindRateExtract:
+		return true
+	case AiActivityKindSignalExtract:
+		return true
+	case AiActivityKindSiteExtract:
+		return true
+	case AiActivityKindSiteFactExtract:
+		return true
+	case AiActivityKindSiteTriage:
+		return true
+	case AiActivityKindSummarize:
+		return true
+	case AiActivityKindTranscript:
+		return true
+	case AiActivityKindTranscriptPropose:
+		return true
+	case AiActivityKindVoiceBuild:
 		return true
 	default:
 		return false
@@ -11886,7 +11886,7 @@ type AiActivityItem struct {
 	// other name is an api/ai-tasks.yaml task announced by the router on the task's own
 	// behalf — settled when it appears, because the router learns of a call once the call
 	// is over.
-	Kind AiActivityItemKind `json:"kind"`
+	Kind AiActivityKind `json:"kind"`
 
 	// StartedAt When the current attempt became current — its claim, or its enqueue while queued.
 	// An occurrence can start on one day and settle on the next, so this is NOT what
@@ -11907,19 +11907,6 @@ type AiActivityItem struct {
 	Summary *string `json:"summary,omitempty"`
 }
 
-// AiActivityItemKind What kind of AI work this occurrence is. Every AI task this build can run reports
-// here, because a task that reports nothing is AI work the product performed and then
-// denied. What a reader is SHOWN is a separate decision and belongs to the client: a
-// complete record is the server's obligation, an edited one is the interface's.
-//
-// Three names come from a durable carrier that owns its own occurrence and can say
-// queued and running: the two scheduled kinds match a name in runner.Catalog(), and
-// `document_extract` is a reading of an attached document a human asked for. Every
-// other name is an api/ai-tasks.yaml task announced by the router on the task's own
-// behalf — settled when it appears, because the router learns of a call once the call
-// is over.
-type AiActivityItemKind string
-
 // AiActivityItemState `done` is a clean finish; `degraded` kept partial state and MUST NOT read as done.
 //
 // `stalled` is DERIVED at read time and never stored: the occurrence's own source
@@ -11927,6 +11914,11 @@ type AiActivityItemKind string
 // what stops a worker that died without saying so from being displayed as working —
 // a row cannot be left stalled by a writer that forgot, because no writer writes it.
 type AiActivityItemState string
+
+// AiActivityKind One kind of AI work. Named as its own schema because the item that reports a kind
+// and the query that asks for kinds must be ONE list — two copies of a vocabulary
+// are two vocabularies as soon as somebody edits one.
+type AiActivityKind string
 
 // AiCall defines model for AiCall.
 type AiCall struct {
@@ -24471,6 +24463,16 @@ type ListListMembersParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetMyAiActivityParams defines parameters for GetMyAiActivity.
+type GetMyAiActivityParams struct {
+	// Kinds Restrict both arrays to these kinds of AI work, applied BEFORE the bounds.
+	// Omitted means every kind. An empty list is a 422 rather than an empty feed:
+	// a client asking for nothing is a client that lost its list, and answering it
+	// with "the AI did nothing" is the one reply that cannot be distinguished from
+	// the truth.
+	Kinds *[]AiActivityKind `form:"kinds,omitempty" json:"kinds,omitempty"`
+}
+
 // ImportLinkedInConnectionsMultipartBody defines parameters for ImportLinkedInConnections.
 type ImportLinkedInConnectionsMultipartBody struct {
 	// File LinkedIn `Connections.csv`.
@@ -35663,7 +35665,7 @@ type ServerInterface interface {
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
 	// What the AI is doing for THIS person, right now and lately.
 	// (GET /me/ai-activity)
-	GetMyAiActivity(w http.ResponseWriter, r *http.Request)
+	GetMyAiActivity(w http.ResponseWriter, r *http.Request, params GetMyAiActivityParams)
 	// The sign-off appended to mail you send.
 	// (GET /me/email-signature)
 	GetMyEmailSignature(w http.ResponseWriter, r *http.Request)
@@ -37643,7 +37645,7 @@ func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Reques
 
 // What the AI is doing for THIS person, right now and lately.
 // (GET /me/ai-activity)
-func (_ Unimplemented) GetMyAiActivity(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) GetMyAiActivity(w http.ResponseWriter, r *http.Request, params GetMyAiActivityParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -48110,14 +48112,33 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 // GetMyAiActivity operation middleware
 func (siw *ServerInterfaceWrapper) GetMyAiActivity(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMyAiActivityParams
+
+	// ------------- Optional query parameter "kinds" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "kinds", r.URL.Query(), &params.Kinds, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kinds"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kinds", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetMyAiActivity(w, r)
+		siw.Handler.GetMyAiActivity(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

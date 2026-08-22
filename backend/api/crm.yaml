@@ -12789,7 +12789,37 @@ paths:
         `recent` is BOUNDED (since local midnight, at most 10). An unbounded per-person
         history is a per-person activity ledger, which this installation does not keep.
 
+        `kinds` is how a client that renders only part of the record asks for its part.
+        Every AI task reports into this feed, so a caller that shows three kinds and is
+        served the newest ten of twenty-three can be handed ten it will draw nothing for
+        — the bound would fall on rows the reader never sees, and the rail would go blank
+        while its work was reported correctly. Naming the kinds moves the bound inside
+        the client's own set. Omit it to receive the complete record, which is what an
+        auditor or an operator's client wants.
+
         Read-only; no audit or event row (EVT-NOEVT-3).
+      parameters:
+        - name: kinds
+          in: query
+          required: false
+          description: |
+            Restrict both arrays to these kinds of AI work, applied BEFORE the bounds.
+            Omitted means every kind. An empty list is a 422 rather than an empty feed:
+            a client asking for nothing is a client that lost its list, and answering it
+            with "the AI did nothing" is the one reply that cannot be distinguished from
+            the truth.
+          schema:
+            type: array
+            maxItems: 40
+            items: { $ref: '#/components/schemas/AiActivityKind' }
+          # explode: true — one `kinds=` per value, which is what the SPA's
+          # openapi-fetch client emits by default and what the generated server
+          # binder parses. The comma-joined form is equally legal OpenAPI and
+          # would have been silently wrong in exactly one direction: the client
+          # sends `kinds=a&kinds=b`, the server reads one value `a`, and the
+          # rail quietly loses a kind with no error anywhere.
+          style: form
+          explode: true
       responses:
         '200':
           description: The caller's own AI activity.
@@ -23120,6 +23150,18 @@ components:
           maxItems: 10
           items: { $ref: '#/components/schemas/AiActivityItem' }
           description: 'Occurrences that SETTLED since midnight in the server''s own timezone (not the reader''s, and not UTC unless the server runs on it), newest-settled first, at most 10.'
+    AiActivityKind:
+      type: string
+      enum:
+        [morning_brief, overnight_at_risk_sweep, document_extract,
+         brief_ranking, capture_classify, capture_counterparty_verdict, cert_judge,
+         cold_start, deal_health, draft_reply, enrich, growth_fit, nl_search,
+         offer_draft, rate_extract, signal_extract, site_extract, site_fact_extract,
+         site_triage, summarize, transcript, transcript_propose, voice_build]
+      description: |
+        One kind of AI work. Named as its own schema because the item that reports a kind
+        and the query that asks for kinds must be ONE list — two copies of a vocabulary
+        are two vocabularies as soon as somebody edits one.
     AiActivityItem:
       type: object
       additionalProperties: false
@@ -23127,13 +23169,8 @@ components:
       properties:
         id: { type: string, format: uuid }
         kind:
-          type: string
-          enum:
-            [morning_brief, overnight_at_risk_sweep, document_extract,
-             brief_ranking, capture_classify, capture_counterparty_verdict, cert_judge,
-             cold_start, deal_health, draft_reply, enrich, growth_fit, nl_search,
-             offer_draft, rate_extract, signal_extract, site_extract, site_fact_extract,
-             site_triage, summarize, transcript, transcript_propose, voice_build]
+          allOf:
+            - $ref: '#/components/schemas/AiActivityKind'
           description: |
             What kind of AI work this occurrence is. Every AI task this build can run reports
             here, because a task that reports nothing is AI work the product performed and then

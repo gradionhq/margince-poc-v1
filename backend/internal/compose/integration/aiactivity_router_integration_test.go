@@ -299,3 +299,58 @@ func TestACallTheRouterCannotAnnounceIsStillTraced(t *testing.T) {
 		t.Errorf("ai_task_run rows = %d, want 0 — an occurrence nobody can be attributed for must not be invented", n)
 	}
 }
+
+// The filter is what makes "every task reports, the client decides" work at all.
+//
+// `recent` is bounded at ten and the server now reports every AI task, so a
+// client that draws three kinds and asks for none can be handed ten rows it
+// renders nothing for — the rail goes blank on the day somebody used the
+// composer a lot, while the projection was right the whole time. The bound has
+// to fall INSIDE the caller's own set, which is a property of where the
+// predicate sits in the statement and cannot be got by filtering the result.
+func TestTheBoundFallsInsideTheKindsTheCallerAskedFor(t *testing.T) {
+	f := newRouterFixture(t)
+	// Twelve settled occurrences of a kind the caller does not want, more than
+	// the ten `recent` holds, and then the one it does.
+	for range 12 {
+		f.corr = ids.NewV7()
+		f.call(t, ai.TaskDraftReply, nil)
+	}
+	f.corr = ids.NewV7()
+	f.call(t, ai.TaskSummarize, nil)
+	f.drain(t)
+
+	asked := []string{string(ai.TaskSummarize)}
+	_, settled, err := aiactivity.NewStore(f.env.DB()).Mine(f.ctx, f.midnightOf(t), asked)
+	if err != nil {
+		t.Fatalf("Mine: %v", err)
+	}
+	if len(settled) != 1 {
+		t.Fatalf("settled = %d rows, want the 1 kind the caller asked for — the bound fell on the whole record", len(settled))
+	}
+	if settled[0].Kind != string(ai.TaskSummarize) {
+		t.Errorf("settled kind = %q, want %q", settled[0].Kind, ai.TaskSummarize)
+	}
+
+	// And the unfiltered read is still the COMPLETE record: an omitted filter
+	// must not quietly inherit whatever the last caller asked for.
+	_, everything, err := aiactivity.NewStore(f.env.DB()).Mine(f.ctx, f.midnightOf(t), nil)
+	if err != nil {
+		t.Fatalf("Mine unfiltered: %v", err)
+	}
+	if len(everything) != 10 {
+		t.Errorf("the unfiltered feed returned %d rows, want the bound's 10 — the complete record is what an unfiltered read is for", len(everything))
+	}
+}
+
+// midnightOf is the start of the database's today, read from the database: the
+// rows were stamped against that clock and the boundary has to be the same one.
+func (f *routerFixture) midnightOf(t *testing.T) time.Time {
+	t.Helper()
+	var midnight time.Time
+	if err := f.env.Pool.QueryRow(context.Background(),
+		`SELECT date_trunc('day', now())`).Scan(&midnight); err != nil {
+		t.Fatalf("reading the database's idea of today: %v", err)
+	}
+	return midnight
+}

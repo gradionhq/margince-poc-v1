@@ -33,9 +33,9 @@ import (
 const documentReadingKind = "document_extract"
 
 func TestEveryKindSomethingProducesIsOneTheContractCanExpress(t *testing.T) {
-	declared := crmYAMLEnum(t, "AiActivityItem", "kind")
+	declared := crmYAMLNamedEnum(t, "AiActivityKind")
 	if len(declared) == 0 {
-		t.Fatal("AiActivityItem declares no kind enum; this gate would pass vacuously")
+		t.Fatal("AiActivityKind declares no enum; this gate would pass vacuously")
 	}
 	for _, kind := range producedKinds() {
 		if !slices.Contains(declared, kind) {
@@ -76,7 +76,7 @@ func producedKinds() []string {
 // no reader will see, and a promise the server cannot keep.
 func TestEveryContractKindHasSomethingThatProducesIt(t *testing.T) {
 	produced := producedKinds()
-	for _, kind := range crmYAMLEnum(t, "AiActivityItem", "kind") {
+	for _, kind := range crmYAMLNamedEnum(t, "AiActivityKind") {
 		if !slices.Contains(produced, kind) {
 			t.Errorf("the contract declares kind %q and nothing announces it — either an emitter was "+
 				"removed and the enum kept its name, or the name is aspirational. Drop it, or point this "+

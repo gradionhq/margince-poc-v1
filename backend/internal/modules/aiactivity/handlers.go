@@ -25,7 +25,7 @@ import (
 // rather than in SQL — can be pinned without a database. *Store is the
 // production implementation.
 type Reader interface {
-	Mine(ctx context.Context, startOfToday time.Time) (live, settled []Item, err error)
+	Mine(ctx context.Context, startOfToday time.Time, kinds []string) (live, settled []Item, err error)
 }
 
 // Handlers serves one person's view of the AI's work.
@@ -49,7 +49,7 @@ func NewHandlers(store Reader, now func() time.Time) Handlers {
 // empty feed is the real answer for an AI at rest, so handing one to an
 // unidentified caller would report "nothing is running" about a person the
 // server never resolved.
-func (h Handlers) GetMyAiActivity(w http.ResponseWriter, r *http.Request) {
+func (h Handlers) GetMyAiActivity(w http.ResponseWriter, r *http.Request, params crmcontracts.GetMyAiActivityParams) {
 	// Refused HERE as well as in the store, and the duplication is deliberate:
 	// this one turns an unidentified caller into a 401 the client understands,
 	// where the store's turns it into a 500. The store's is the one that makes
@@ -59,8 +59,14 @@ func (h Handlers) GetMyAiActivity(w http.ResponseWriter, r *http.Request) {
 		httperr.Unauthorized(w, r, "reading your AI activity needs an authenticated caller")
 		return
 	}
+	kinds, ok := requestedKinds(params)
+	if !ok {
+		httperr.Write(w, r, httperr.Validation("kinds", "empty_filter",
+			"name at least one kind of AI work, or omit kinds entirely to receive every kind"))
+		return
+	}
 	now := h.now()
-	live, settled, err := h.store.Mine(r.Context(), startOfDay(now))
+	live, settled, err := h.store.Mine(r.Context(), startOfDay(now), kinds)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -70,6 +76,28 @@ func (h Handlers) GetMyAiActivity(w http.ResponseWriter, r *http.Request) {
 		Running: toWire(live),
 		Recent:  toWire(settled),
 	})
+}
+
+// requestedKinds is the caller's filter as the store takes it: nil for every
+// kind, a populated slice for the kinds a client draws.
+//
+// An empty list is REFUSED rather than served, and the distinction is the whole
+// reason this returns two values. `?kinds=` is what a client sends when the
+// list it meant to send went missing, and an empty feed is the true answer for
+// an AI at rest — so serving it would report "nothing happened" about a
+// question the server never actually asked.
+func requestedKinds(params crmcontracts.GetMyAiActivityParams) (kinds []string, ok bool) {
+	if params.Kinds == nil {
+		return nil, true
+	}
+	if len(*params.Kinds) == 0 {
+		return nil, false
+	}
+	out := make([]string, 0, len(*params.Kinds))
+	for _, kind := range *params.Kinds {
+		out = append(out, string(kind))
+	}
+	return out, true
 }
 
 // startOfDay is midnight in the clock's own location, which is what "today"
@@ -94,7 +122,7 @@ func toWire(items []Item) []crmcontracts.AiActivityItem {
 	for _, item := range items {
 		wire = append(wire, crmcontracts.AiActivityItem{
 			Id:            openapi_types.UUID(item.ID),
-			Kind:          crmcontracts.AiActivityItemKind(item.Kind),
+			Kind:          crmcontracts.AiActivityKind(item.Kind),
 			State:         crmcontracts.AiActivityItemState(item.State),
 			StartedAt:     item.StartedAt,
 			FinishedAt:    item.FinishedAt,
