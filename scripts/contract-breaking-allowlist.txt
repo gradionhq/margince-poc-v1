@@ -14,4 +14,4 @@ eb33e542118408d8d6c5233bb0d3b96dfd5683c6 e6817f5db19e96c521146052ed3f450be16cce4
 1189c1fb19aaa48f2b617b60c4308cb05af7514f 697aaa62acbce3b3fc96a3bc740c542dd6ed24cb ratified-a-project-masks-an-anchor-company-its-reader-cannot-see
 c2f615a69958f0c645c6907d8c44283497b1c9f8 f0618d3ff41aa3fd2949ed4cb7c6f2329e991d7e ratified-the-ai-activity-rail-reads-one-projection-not-agent-runs-only
 65bc2ee9daa7f9ec038bf72970f12c8065a68cbc fced19dd57c43acf0e47d8033557436c17164aa7 ratified-deal-room-drops-the-shared-to-do-list
-14d8f7f015f80fc1f5a0e2162e49993b62986861 2457225e2f9e5a7ef64d7ce846487e6ccf70024e ratified-1520-custom-field-object-enum-is-the-engine-allowlist-activity-was-never-served
+8fc1218b5485876403f48bc3c0a8ab6c9fb8a491 7c47a1e931e7cd287227b2146991d6aec368bebb ratified-1520-custom-field-object-enum-is-the-engine-allowlist-activity-was-never-served
