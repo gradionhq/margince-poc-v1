@@ -60,6 +60,7 @@ import { toMajorUnits, toMinorUnits } from "../format/minorunits";
 import { RECORD_ZONE } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { dealWinKeys } from "./activitykeys";
 import { approvalKindLabel } from "./approvalkind";
 import { ArchiveAction } from "./archive";
 import {
@@ -91,10 +92,16 @@ import { DealNextAction } from "./dealnextaction";
 function DealAside({
   dealId,
   dealName,
-}: Readonly<{ dealId: string; dealName: string }>) {
+  activities,
+}: Readonly<{
+  dealId: string;
+  dealName: string;
+  activities: readonly Activity[];
+}>) {
   return (
     <>
       <DealNextAction dealId={dealId} />
+      <DealNextMeeting activities={activities} />
       <DealBriefCard dealId={dealId} />
       <DealHealthCard dealId={dealId} />
       <DealRoomAside dealId={dealId} dealName={dealName} />
@@ -104,6 +111,7 @@ function DealAside({
 
 import { DealBriefCard } from "./dealbrief";
 import { DealFiles } from "./dealfiles";
+import { DealNextMeeting } from "./dealmeeting";
 import {
   DealProjectChip,
   dealProjectFields,
@@ -137,6 +145,7 @@ import { groupChronology } from "./timelinegroups";
 // across currencies).
 
 type Deal = components["schemas"]["Deal"];
+type Activity = components["schemas"]["Activity"];
 type Organization = components["schemas"]["Organization"];
 type Stage = components["schemas"]["Stage"];
 type Pipeline = components["schemas"]["Pipeline"];
@@ -1435,6 +1444,15 @@ function useAdvanceDeal(toast: Toast) {
       }
       queryClient.invalidateQueries({ queryKey: ["deals"] });
       queryClient.invalidateQueries({ queryKey: ["deal", input.dealId] });
+      // A win moves the deal's project into delivery in the same server
+      // write, so the project page and list are stale the moment this
+      // returns. Without this a reader who follows the project chip within
+      // the 30s stale window reads a won deal on a project still being
+      // pursued — the contradiction the server's one-transaction move exists
+      // to prevent.
+      for (const queryKey of dealWinKeys(deal)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       toast.show(t("deals.advanced", { stage: input.toStage.name }));
     },
   });
@@ -3349,7 +3367,11 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               )}
               aside={
                 overlay ? undefined : (
-                  <DealAside dealId={id} dealName={deal.name} />
+                  <DealAside
+                    dealId={id}
+                    dealName={deal.name}
+                    activities={timelineQuery.activities}
+                  />
                 )
               }
               asideLabel={t("nba.title")}
