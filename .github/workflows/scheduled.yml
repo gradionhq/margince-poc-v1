@@ -127,7 +127,7 @@ jobs:
       - name: Read main's quality gate
         id: gate
         env:
-          PROJECT_KEY: gradionhq_margince-poc-v1
+          PROJECT_KEY: margince_margince
         run: |
           set -euo pipefail
           if [ -z "${SONAR_TOKEN:-}" ]; then
