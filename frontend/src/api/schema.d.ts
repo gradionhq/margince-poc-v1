@@ -7306,6 +7306,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deal-rooms/{id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a room's shared to-do list, in the order both sides see it.
+         * @description The work outstanding between seller and buyer, each item owned by one side.
+         *     There are no due dates: an item is done or it is not.
+         */
+        get: operations["listDealRoomTasks"];
+        put?: never;
+        /**
+         * Add an item to the shared to-do list.
+         * @description Adding an item changes what the buyer is asked to do, so it is editorial: it
+         *     reaches them at the next publish, not immediately. Refused once the room can no
+         *     longer reach a buyer at all — closed, expired or archived.
+         */
+        post: operations["createDealRoomTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/tasks/{taskId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                taskId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Take an item off the shared to-do list.
+         * @description Archives the item rather than deleting it, so a completed item stays attributed
+         *     to whoever did it. Removal is editorial: the buyer stops seeing it at the next
+         *     publish.
+         */
+        delete: operations["archiveDealRoomTask"];
+        options?: never;
+        head?: never;
+        /**
+         * Reword, reassign, reorder or tick off a to-do.
+         * @description Two kinds of change go through here, and they are frozen differently.
+         *
+         *     DEFINITION — title, side and position — is editorial, exactly like adding an
+         *     item: the buyer sees it at the next publish, and it is refused once the room is
+         *     closed, expired or archived.
+         *
+         *     COMPLETION — `done` — is live collaboration state. Both sides tick items off
+         *     without republishing, so this is never frozen by a publish. It IS refused in a
+         *     room that can no longer reach a buyer, because a closed room's to-do list is a
+         *     record of what happened rather than a list anyone is still working.
+         *
+         *     Ticking an item stamps who did it. Un-ticking clears both the time and the
+         *     attribution, so a reopened item names nobody until it is done again.
+         */
+        patch: operations["updateDealRoomTask"];
+        trace?: never;
+    };
     "/deal-rooms/{id}/releases": {
         parameters: {
             query?: never;
@@ -16903,7 +16975,7 @@ export interface components {
              * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
              * @enum {string}
              */
-            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_participant" | "deal_room_release" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_participant" | "deal_room_release" | "deal_room_task" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
             /**
              * @description The autonomy tier, identical on REST and MCP (ADR-0055).
              * @enum {string}
@@ -18995,6 +19067,84 @@ export interface components {
         DealRoomReleaseListResponse: {
             data: components["schemas"]["DealRoomRelease"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description Which side of the table owes this item: `seller` or `buyer`. One side, never
+         *     both — an item two parties own is one nobody chases.
+         *
+         *     Typed as a plain string rather than an inline enum for the reason
+         *     `DealRoomParticipantCapability` gives: an inline enum would generate
+         *     package-scope Go constants named `Seller` and `Buyer` in the shared contracts
+         *     package, colliding with any other schema declaring those values. The closed set
+         *     is stated here and held by the writer and the schema CHECK.
+         */
+        DealRoomTaskSide: string;
+        /**
+         * @description One item on the shared to-do list. Deliberately carries no due date: the list
+         *     says what is outstanding and who owes it, and adding deadlines turns a shared
+         *     working list into a chase.
+         */
+        DealRoomTask: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            side: components["schemas"]["DealRoomTaskSide"];
+            title: string;
+            /** @description The order both sides see, ascending. */
+            position: number;
+            /** @description Whether the item has been ticked off. */
+            done: boolean;
+            /** Format: date-time */
+            done_at?: string | null;
+            /**
+             * Format: uuid
+             * @description Set when a buyer ticked it off. Exactly one of the two done_by fields is set on a done item.
+             */
+            done_by_participant_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Set when someone on the seller's side ticked it off.
+             */
+            done_by_user_id?: string | null;
+            source: string;
+            /** @description Server-stamped from the authenticated principal; never client-supplied. */
+            readonly captured_by?: string;
+            version: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        DealRoomTaskListResponse: {
+            data: components["schemas"]["DealRoomTask"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        CreateDealRoomTaskRequest: {
+            side: components["schemas"]["DealRoomTaskSide"];
+            title: string;
+            /** @description Where the item sits in the list. Defaults to 0, which puts it first. */
+            position?: number;
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Any subset; omit a field to leave it unchanged. */
+        UpdateDealRoomTaskRequest: {
+            side?: components["schemas"]["DealRoomTaskSide"];
+            title?: string;
+            position?: number;
+            /**
+             * @description Tick or un-tick the item. Ticking stamps who did it from the authenticated
+             *     principal; un-ticking clears both the time and the attribution.
+             */
+            done?: boolean;
+        } & {
+            [key: string]: unknown;
         };
         /** @description A branded, workspace-governed DE/EN PDF layout for offers (data-model §12.6). Mirrors the `offer_template` table. Deliberately carries no source/captured_by — like Quota/CustomField, this is workspace-authored config, not a captured record; provenance lives in the audit row, not this schema. */
         OfferTemplate: {
@@ -32672,6 +32822,157 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listDealRoomTasks: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of to-dos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomTaskListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createDealRoomTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDealRoomTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description The added to-do. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomTask"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    archiveDealRoomTask: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                taskId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archived to-do. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomTask"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateDealRoomTask: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                taskId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDealRoomTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated to-do. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomTask"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listDealRoomReleases: {
