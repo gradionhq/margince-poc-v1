@@ -328,7 +328,18 @@ func linkActivityToProject(ctx context.Context, tx pgx.Tx, activityID ids.Activi
 		return fmt.Errorf("capture: filing the activity under its project: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return nil
+		// A link was already there. Stamp anyway before returning: the early
+		// exit used to skip it on the reasoning that whoever filed the link
+		// also stamped it, and that is exactly the guarantee nothing enforces
+		// — the migration's own backfill exists because pre-stamp project
+		// links do. A missed stamp leaves a Handelsbrief an erasure destroys;
+		// a repeated one costs a no-op, because the stamp is idempotent. The
+		// echo path made the same call for the same reason
+		// (activities/messageidentity.go).
+		//
+		// Nothing else runs: no version bump and no audit row, because nothing
+		// changed about where the activity is filed.
+		return stamp(ctx, tx, activityID, projectID)
 	}
 	// Touch the activity ROW, not just its link table, for the reason the
 	// human relink path does it (activities/lifecycle.go): a staged approval
@@ -342,8 +353,7 @@ func linkActivityToProject(ctx context.Context, tx pgx.Tx, activityID ids.Activi
 		return fmt.Errorf("capture: bumping the filed activity's version: %w", err)
 	}
 	// The link is what qualifies the correspondence, so the stamp commits with
-	// it (D5). Only when a link actually landed: the ON CONFLICT path above
-	// means another pass already filed and stamped this activity.
+	// it (D5).
 	if err := stamp(ctx, tx, activityID, projectID); err != nil {
 		return fmt.Errorf("capture: classifying the filed activity's correspondence: %w", err)
 	}

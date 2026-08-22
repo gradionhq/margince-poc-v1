@@ -109,6 +109,17 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, activityID ids.Activity
 		if column == "" {
 			return &InvalidLinkTypeError{EntityType: link.EntityType}
 		}
+		// The project grant is checked BEFORE the insert it gates, not after.
+		// A refusal returned later is undone only because every caller runs
+		// this inside a transaction it aborts — correct today, and the wrong
+		// thing to hang an authorization check on. The sibling writer asks
+		// first (capture/sinkproject.go), and two doors onto one act must not
+		// disagree about WHEN they ask either.
+		if link.EntityType == linkEntityProject {
+			if err := auth.Require(ctx, "activity", principal.ActionUpdate); err != nil {
+				return err
+			}
+		}
 		if err := auth.EnsureLinkTarget(ctx, tx, link.EntityType, link.EntityID); err != nil {
 			return err
 		}
@@ -118,9 +129,6 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, activityID ids.Activity
 			return err
 		}
 		if link.EntityType == linkEntityProject {
-			if err := auth.Require(ctx, "activity", principal.ActionUpdate); err != nil {
-				return err
-			}
 			if err := StampCorrespondenceForProject(ctx, tx, activityID, link.EntityID); err != nil {
 				return err
 			}
