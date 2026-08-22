@@ -241,39 +241,9 @@ func seedDeals(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int,
 			continue
 		}
 
-		body := jsonBody{
-			"name":            deal.Name,
-			"pipeline_id":     refs.pipelineID,
-			"stage_id":        openAt,
-			"organization_id": orgID,
-			"source":          seedSource,
-		}
-		if deal.AmountMinor > 0 {
-			body["amount_minor"] = deal.AmountMinor
-			body["currency"] = deal.Currency
-		}
-		if owner, ok := refs.usersByRef[deal.Owner]; ok {
-			body["owner_id"] = owner
-		}
-		// Attributed at BIRTH rather than patched afterwards: the commission
-		// ledger accrues off the deal's won event, and a deal that was already
-		// won before the attribution landed would never produce one.
-		if deal.Partner != "" {
-			partnerID, ok := refs.orgsByDom[strings.ToLower(deal.Partner)]
-			if !ok {
-				return created, fmt.Errorf(
-					"deal %s is attributed to partner %q, which is not seeded",
-					deal.Ref, deal.Partner)
-			}
-			body["partner_org_id"] = partnerID
-			if deal.PartnerAttribution != "" {
-				body["partner_attribution"] = deal.PartnerAttribution
-			}
-		}
-		// A deal is born open, so a close date already past is refused. A
-		// closed deal gets no date here; its close is the event that matters.
-		if deal.CloseInDays > 0 {
-			body["expected_close_date"] = refs.date(deal.CloseInDays)
+		body, err := dealBody(deal, refs, orgID, openAt)
+		if err != nil {
+			return created, err
 		}
 
 		var out struct {
@@ -284,23 +254,8 @@ func seedDeals(c *client, cfg demoConfig, refs pipelineRefs, mode runMode) (int,
 		}
 		created++
 
-		if terminal := terminalStatus(deal.Stage); terminal != "" {
-			advance := jsonBody{"to_stage_id": stageID, "status": terminal}
-			if terminal == "lost" {
-				// The product requires a reason for a loss, and a demo that
-				// shrugs at "why did we lose?" teaches the wrong habit.
-				reason := deal.LostReason
-				if reason == "" {
-					reason = "Kein Grund erfasst"
-				}
-				advance["lost_reason"] = reason
-			}
-			if terminal == "won" {
-				advance["won_without_contract_reason"] = wonWithoutContractReason
-			}
-			if err := c.post("/v1/deals/"+out.ID+"/advance", advance, nil); err != nil {
-				return created, fmt.Errorf("closing deal %s as %s: %w", deal.Ref, terminal, err)
-			}
+		if err := closeIfTerminal(c, deal, out.ID, stageID); err != nil {
+			return created, err
 		}
 	}
 	return created, nil

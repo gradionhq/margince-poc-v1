@@ -4,6 +4,7 @@
 package jobs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -137,5 +138,30 @@ func TestEverySentenceFaultCanWriteIsVetted(t *testing.T) {
 	if !VettedSentence(unclassified) {
 		t.Errorf("Fault wrote %q for an unclassified cause, and the reader would not admit it",
 			unclassified)
+	}
+}
+
+// A provider that could not be reached says so ON THE ROW.
+//
+// Unclassified, this published "the diagnosis is in the process log" — true,
+// and useless once the process has restarted, which is exactly when an
+// operator goes looking. Six companies sat unlocated behind that sentence with
+// nothing anywhere to say why.
+func TestAnUnreachableProviderSaysSoOnTheJobRow(t *testing.T) {
+	cause := fmt.Errorf("geocoding %q: %w: %w", "Alte Wittener Straße 50, Bochum",
+		apperrors.ErrProviderUnusable, errors.New("connection reset"))
+	got := FaultContext(context.Background(), cause)
+
+	if strings.Contains(got.Error(), "process log") {
+		t.Errorf("an unreachable provider published %q — the sentence that sends a reader "+
+			"to a log the restart already discarded", got.Error())
+	}
+	if _, vetted := VettedFailure("geocode_organization", got.Error()); !vetted {
+		t.Errorf("the published sentence %q is not one a reader can classify", got.Error())
+	}
+	// The cause stays reachable underneath, so anything classifying on the
+	// sentinel downstream still can.
+	if !errors.Is(got, apperrors.ErrProviderUnusable) {
+		t.Error("the published fault no longer carries the sentinel, so nothing downstream can classify it")
 	}
 }

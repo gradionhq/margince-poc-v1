@@ -163,3 +163,22 @@ var ErrBaseCurrencyLocked = errors.New("base currency is locked by frozen conver
 // row) — so a caller must never retry it; the one way past it is the audited
 // release, which is its own operation.
 var ErrRetentionHold = errors.New("record is held under a statutory retention obligation")
+
+// ErrProviderUnusable says a request to an outside service produced no usable
+// answer: it could not be reached, it refused, or what it sent back could not
+// be read.
+//
+// The three are one condition FOR THE CALLER, which is why they share a
+// sentinel. None of them says anything about the subject — the address, the
+// account, the document — so none may be recorded as a fact about it, and all
+// of them are worth asking again. The distinction that matters is against a
+// service that ANSWERED: "this address is not a place" is a fact, recorded
+// once and never re-asked, and conflating that with a failed request is how a
+// job either retries a settled question forever or gives up on a transient one.
+//
+// It is core rather than module-local because the caller's DECISION is core:
+// jobs.FaultContext publishes a classified sentence only for a sentinel this
+// package declares. Left unclassified, the failure reached the job row as
+// "the diagnosis is in the process log" — true, and useless once the process
+// has restarted, which is exactly when an operator goes looking.
+var ErrProviderUnusable = errors.New("the provider returned no usable answer")

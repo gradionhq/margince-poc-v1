@@ -395,5 +395,6 @@ var vocabulary = []struct {
 	{apperrors.ErrIncumbentAlreadyConnected, "incumbent_already_connected", "an incumbent connection already exists for this workspace", "Disconnect the existing incumbent first if this job was meant to replace it."},
 	{apperrors.ErrOverlayFlipBlocked, "overlay_flip_blocked", "the overlay flip preflight is unsatisfied", "Read the flip preflight for what is outstanding, satisfy it, then re-queue."},
 	{apperrors.ErrBaseCurrencyLocked, "base_currency_locked", "the base currency is locked by frozen conversion rates", "Nothing to do in the job: a base currency stops being changeable once rates are frozen against it."},
+	{apperrors.ErrProviderUnusable, "provider_unusable", "an outside service gave no usable answer, so nothing was learned", "Check the provider is reachable, is not rate-limiting this installation, and answers in the expected shape, then re-queue. A request with no answer says nothing about its subject."},
 	{apperrors.ErrRetentionHold, "retention_hold", "the record is held under a statutory retention obligation", "Nothing to do, and nothing to force: the hold outranks this job. The record becomes workable when the obligation lapses."},
 }
