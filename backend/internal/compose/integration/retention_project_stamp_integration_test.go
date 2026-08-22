@@ -230,7 +230,7 @@ func TestAnActivityCanQualifyThroughBothADealAndAProject(t *testing.T) {
 // the STATEMENT is safe to run again, which is what makes a partially failed
 // backfill recoverable rather than a one-way door with no second chance.
 //
-// It must stay in step with 1787370000_project_linked_correspondence.up.sql.
+// It must stay in step with 1787400000_project_linked_correspondence.up.sql.
 // A drift here is not silent: the first run's assertions below fail, because a
 // statement that no longer stamps is a statement that stamps nothing.
 const backfillStatement = `
