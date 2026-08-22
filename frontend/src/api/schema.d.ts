@@ -8698,6 +8698,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deals/{id}/brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The deal in a few cited sentences — where it stands, who is on it, what is open, what happened last.
+         * @description Deterministic: every sentence restates a record the caller can open and
+         *     cites it, so the card renders the same whichever writer produced it. No
+         *     inference — a sentence nobody can check is worth less than the number it
+         *     paraphrases. Reads the deal, its health, its timeline, its open tasks and
+         *     its Deal Room through their own gated reads; a record the caller cannot
+         *     see never reaches a sentence.
+         */
+        get: operations["getDealBrief"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deals/{id}/next-best-action": {
         parameters: {
             query?: never;
@@ -13933,6 +13961,25 @@ export interface components {
              *     61 days cannot appear on one surface and not the other.
              */
             days_since_touch?: number | null;
+        };
+        DealBrief: {
+            /** Format: uuid */
+            deal_id: string;
+            /** Format: date-time */
+            generated_at: string;
+            generated_by: components["schemas"]["WrittenBy"];
+            sections: components["schemas"]["DealBriefSection"][];
+        };
+        DealBriefSection: {
+            /**
+             * @description `standing` — stage, value, close date, health.
+             *     `activity` — what happened last and what is booked next.
+             *     `open` — the tasks still owed.
+             *     `room` — the Deal Room: state, what the buyer said, what they decided.
+             * @enum {string}
+             */
+            kind: "standing" | "activity" | "open" | "room";
+            sentences: components["schemas"]["OrganizationBriefSentence"][];
         };
         /**
          * @description One recommendation for a deal. `action` is one of `draft_email`,
@@ -36723,6 +36770,32 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDealBrief: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The brief. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };

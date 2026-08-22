@@ -24,6 +24,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // deal's own name in a placeholder.
   "room.card.title",
   "persondealrooms.title",
+  "dealbrief.room",
   "room.create.defaultTitle",
   // Pure punctuation layouts: every word in them is a placeholder, so there is
   // nothing to translate and a "translation" could only reorder the slots.

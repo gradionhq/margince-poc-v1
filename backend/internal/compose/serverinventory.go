@@ -114,6 +114,7 @@ type Server struct {
 	personBriefHandlers
 	meetingBriefHandlers
 	nextActionHandlers
+	dealBriefHandlers
 	personResearchHandlers
 	personDraftHandlers
 	orgBriefHandlers
