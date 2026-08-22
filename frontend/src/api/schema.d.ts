@@ -8567,6 +8567,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deals/{id}/next-best-action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The one thing to do next on this deal, computed — never performed — on read.
+         * @description A pure read: it COMPUTES a recommendation and returns it with the evidence
+         *     it rests on. Nothing executes here, because the deal page's reads retry and
+         *     re-run on remount, and a mutation hidden in a read would fire repeatedly and
+         *     skip the write shape. Performing it is the client's click, through the verb
+         *     the recommendation names: `draft_email` (`POST /activities/{id}/draft-email`),
+         *     `create_task` (`POST /tasks`, the arguments are its body), or
+         *     `open_meeting_brief` (navigation to the activity's brief). `none` says why
+         *     nothing is recommended. Deterministic: the same facts give the same answer.
+         */
+        get: operations["getDealNextBestAction"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deals/{id}/coverage": {
         parameters: {
             query?: never;
@@ -13721,6 +13751,33 @@ export interface components {
              *     61 days cannot appear on one surface and not the other.
              */
             days_since_touch?: number | null;
+        };
+        /**
+         * @description One recommendation for a deal. `action` is one of `draft_email`,
+         *     `create_task`, `open_meeting_brief`, `none` — a plain string for the reason
+         *     `DealRoomTaskSide` gives. `arguments` is the body or the operand the named
+         *     verb takes, ready to send; absent for `none`.
+         */
+        DealNextBestAction: {
+            /** Format: uuid */
+            deal_id: string;
+            action: string;
+            /** @description One sentence, in the user's terms, saying why this and not something else. */
+            reason: string;
+            /** @description `draft_email` and `open_meeting_brief` carry `{activity_id}`; `create_task` carries a `CreateTaskRequest` body. */
+            arguments?: {
+                [key: string]: unknown;
+            };
+            evidence: components["schemas"]["DealNextBestActionEvidence"][];
+            /** Format: date-time */
+            computed_at: string;
+        };
+        DealNextBestActionEvidence: {
+            text: string;
+            /** Format: uuid */
+            activity_id?: string | null;
+            /** Format: date-time */
+            occurred_at?: string | null;
         };
         DealCoverage: {
             /** Format: uuid */
@@ -36180,6 +36237,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PersonNetwork"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDealNextBestAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recommendation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealNextBestAction"];
                 };
             };
             401: components["responses"]["Unauthorized"];

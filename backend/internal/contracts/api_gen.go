@@ -15328,6 +15328,30 @@ type DealListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// DealNextBestAction One recommendation for a deal. `action` is one of `draft_email`,
+// `create_task`, `open_meeting_brief`, `none` — a plain string for the reason
+// `DealRoomTaskSide` gives. `arguments` is the body or the operand the named
+// verb takes, ready to send; absent for `none`.
+type DealNextBestAction struct {
+	Action string `json:"action"`
+
+	// Arguments `draft_email` and `open_meeting_brief` carry `{activity_id}`; `create_task` carries a `CreateTaskRequest` body.
+	Arguments  *map[string]interface{}      `json:"arguments,omitempty"`
+	ComputedAt time.Time                    `json:"computed_at"`
+	DealId     openapi_types.UUID           `json:"deal_id"`
+	Evidence   []DealNextBestActionEvidence `json:"evidence"`
+
+	// Reason One sentence, in the user's terms, saying why this and not something else.
+	Reason string `json:"reason"`
+}
+
+// DealNextBestActionEvidence defines model for DealNextBestActionEvidence.
+type DealNextBestActionEvidence struct {
+	ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
+	OccurredAt *time.Time          `json:"occurred_at,omitempty"`
+	Text       string              `json:"text"`
+}
+
 // DealRoom One buyer-facing room per deal. Mirrors the `deal_room` table.
 //
 // The fields here are the WORKING copy — what a buyer actually reads is the
@@ -36485,6 +36509,9 @@ type ServerInterface interface {
 	// Who covers this deal, and what is wrong with how it is covered.
 	// (GET /deals/{id}/coverage)
 	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// The one thing to do next on this deal, computed — never performed — on read.
+	// (GET /deals/{id}/next-best-action)
+	GetDealNextBestAction(w http.ResponseWriter, r *http.Request, id Id)
 	// List a deal's offers, newest revision first.
 	// (GET /deals/{id}/offers)
 	ListDealOffers(w http.ResponseWriter, r *http.Request, id Id, params ListDealOffersParams)
@@ -38384,6 +38411,12 @@ func (_ Unimplemented) AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id
 // Who covers this deal, and what is wrong with how it is covered.
 // (GET /deals/{id}/coverage)
 func (_ Unimplemented) GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The one thing to do next on this deal, computed — never performed — on read.
+// (GET /deals/{id}/next-best-action)
+func (_ Unimplemented) GetDealNextBestAction(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -47274,6 +47307,40 @@ func (siw *ServerInterfaceWrapper) GetDealCoverage(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDealCoverage(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDealNextBestAction operation middleware
+func (siw *ServerInterfaceWrapper) GetDealNextBestAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealNextBestAction(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -61875,6 +61942,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/next-best-action", wrapper.GetDealNextBestAction)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/offers", wrapper.ListDealOffers)
