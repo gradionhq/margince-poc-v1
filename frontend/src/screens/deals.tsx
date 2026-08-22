@@ -59,6 +59,7 @@ import {
 import { RECORD_ZONE } from "../format/timezone";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { dealWinKeys } from "./activitykeys";
 import { approvalKindLabel } from "./approvalkind";
 import { ArchiveAction } from "./archive";
 import {
@@ -1421,6 +1422,15 @@ function useAdvanceDeal(toast: Toast) {
       }
       queryClient.invalidateQueries({ queryKey: ["deals"] });
       queryClient.invalidateQueries({ queryKey: ["deal", input.dealId] });
+      // A win moves the deal's project into delivery in the same server
+      // write, so the project page and list are stale the moment this
+      // returns. Without this a reader who follows the project chip within
+      // the 30s stale window reads a won deal on a project still being
+      // pursued — the contradiction the server's one-transaction move exists
+      // to prevent.
+      for (const queryKey of dealWinKeys(deal)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       toast.show(t("deals.advanced", { stage: input.toStage.name }));
     },
   });

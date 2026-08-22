@@ -25,12 +25,14 @@ export function entityTimelineKeys(
   return keys;
 }
 
+const ORGANIZATION_360_KEY = (id: string): QueryKey => ["organization360", id];
+
 // The composite reads that carry a timeline's first page, by record kind —
 // spelled the way each page's own query spells its key.
 const TIMELINE_SEED_KEYS: Partial<
   Record<EntityKind, (entityId: string) => QueryKey>
 > = {
-  organization: (id) => ["organization360", id],
+  organization: (id) => ORGANIZATION_360_KEY(id),
   person: (id) => ["person360", id],
   project: (id) => ["project", id, "360"],
 };
@@ -45,4 +47,26 @@ export function taskWriteKeys(
   entityId: string,
 ): QueryKey[] {
   return [...entityTimelineKeys(entityType, entityId), TASK_QUEUE_KEY];
+}
+
+// Which cached reads carry a deal's project and its phase. A won deal moves
+// its project into delivery in the same server write, so besides the project
+// page and list, the company page — it embeds the account's projects with
+// their phase — is stale the moment the advance returns. A deal names no
+// contact of its own (the Deal schema carries organization_id and project_id
+// only), so there is no person page to reach from here. Derived beside the
+// timeline keys so the 360 keys keep one spelling.
+export function dealWinKeys(
+  deal:
+    | { project_id?: string | null; organization_id?: string | null }
+    | undefined,
+): QueryKey[] {
+  const keys: QueryKey[] = [["projects"]];
+  if (deal?.project_id) {
+    keys.push(["project", deal.project_id]);
+  }
+  if (deal?.organization_id) {
+    keys.push(ORGANIZATION_360_KEY(deal.organization_id));
+  }
+  return keys;
 }
