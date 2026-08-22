@@ -46,10 +46,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Every hand-written Go tree. extensions/ and fixtures/ are separate modules
-# but the same product; backend/tools is a separate module too and its
-# generators emit the code the product runs.
-scan=(backend/internal backend/cmd backend/tools extensions fixtures)
+# Every hand-written Go tree. extensions/ and fixtures/ are separate modules but
+# the same product; backend/tools is a separate module too and its generators
+# emit the code the product runs; backend/pkg is the PUBLISHED surface, where a
+# second spelling is worse than internal because a fork inherits it.
+#
+# Overridable so scripts/test-check-one-spelling.sh can point the same regexes
+# at a throwaway tree. It plants deliberate defects, and planting them in the
+# real tree makes `make -j` a race — a concurrent one-spelling would read the
+# probe as a finding, and gofmt/license/craft would read it as an unlicensed
+# file. The default is the real answer; the override only moves where it looks.
+IFS=' ' read -r -a scan <<< "${ONE_SPELLING_SCAN:-backend/internal backend/cmd backend/pkg backend/tools extensions fixtures}"
 waiver='one-spelling-exempt:'
 
 # The gate reads CODE, so the whole tree is stripped of comments ONCE, into a

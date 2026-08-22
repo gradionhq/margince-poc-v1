@@ -298,17 +298,21 @@ func profileFieldClaimPath(field string) string { return "profile_field:" + fiel
 // caller's job: a second read path that skipped it would keep serving the
 // rejected value on a surface nobody thought to check.
 //
-// This is the render path, and it is the whole of it. Other statements touch
-// the table — an existence probe, a merge relink, the writers — but exactly
-// one other READS values out of it to serve them to somebody, and that one
-// deliberately does not come through here: privacy/sar.go's Article 15 export.
-// It is a different obligation and it answers it correctly. An export owes the subject what the installation
-// HOLDS, so it copies the stored row verbatim and exports ai_feedback beside
-// it as its own section — the subject sees the machine's claim and their own
-// correction as two facts, which is what the record is. Folding the verdict in
-// there would hand them one merged value and hide that the override exists.
-// The two cannot share this function; privacy is a module and may not import
-// compose.
+// Other statements touch the table — an existence probe, a merge relink, the
+// writers — but exactly one other SERVES values out of it, and it deliberately
+// does not come through here: privacy/sar.go's Article 15 export.
+//
+// That is not a gap. An export owes the subject what this installation HOLDS,
+// and it holds two facts: the machine's assertion and the verdict recorded
+// against it. So it exports the stored columns and ai_feedback beside them as
+// its own section, and the subject sees both. Overlaying the verdict there
+// would hand them one merged value and conceal that the override exists — the
+// opposite of what an export is for. The two also cannot share this function:
+// privacy is a module and may not import compose.
+//
+// TestEveryReaderServingProfileFieldValuesConsultsTheVerdictLedger holds this
+// paragraph, so a third reader that serves values without the overlay fails
+// rather than quietly making the sentence above false.
 func (s *Service) readProfileFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]crmcontracts.PersonProfileField, error) {
 	rows, err := tx.Query(ctx, `
 		-- updated_at, not created_at: this is when the value took its CURRENT

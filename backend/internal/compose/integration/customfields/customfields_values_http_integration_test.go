@@ -14,8 +14,9 @@ package customfields
 // the typed 422, never a 500.
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
@@ -230,11 +231,23 @@ func assertPicklistCheckViolation422(t *testing.T, e *apptest.AppEnv, col string
 		t.Fatalf("create with invalid picklist option = %d %+v, want 422 value_not_allowed", status, problem)
 	}
 	// The generated CHECK is named after the column, so the constraint name is
-	// the one piece of schema this refusal must not carry: httperr's net names
-	// no field at this depth, and the module copy that used to put the name in
-	// the `field` slot has been deleted.
-	if strings.Contains(problem.Detail, col+"_check") {
-		t.Errorf("the refusal disclosed the generated constraint: %q", problem.Detail)
+	// the one piece of schema this refusal must not carry.
+	//
+	// Checked against the WHOLE body, not against Detail. The leak this guards
+	// was in the `field` slot of details.errors — a guard reading only Detail
+	// passes unchanged with the deleted translation restored, which makes it a
+	// test of nothing. The empty-errors assertion is the same claim from the
+	// other side: httperr's net names no field at this depth, so any entry here
+	// means somebody translated the CHECK again.
+	if len(problem.Details.Errors) != 0 {
+		t.Errorf("the refusal named a field: %+v", problem.Details.Errors)
+	}
+	body, err := json.Marshal(problem)
+	if err != nil {
+		t.Fatalf("re-encoding the problem to search it: %v", err)
+	}
+	if bytes.Contains(body, []byte(col+"_check")) {
+		t.Errorf("the refusal disclosed the generated constraint somewhere in its body: %s", body)
 	}
 }
 
