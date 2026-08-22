@@ -96,17 +96,23 @@ function ActionButton({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["deal-next-action", dealId] });
       queryClient.invalidateQueries({ queryKey: ["activities"] });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
 
+  const taskBody = nba.arguments;
   switch (nba.action) {
     case "create_task":
+      // No body, no button: a click that sent {} would only be refused.
+      if (!taskBody) {
+        return null;
+      }
       return (
         <>
           <Button
             variant="primary"
             pending={createTask.isPending}
-            onClick={() => createTask.mutate(nba.arguments ?? {})}
+            onClick={() => createTask.mutate(taskBody)}
           >
             <ListChecks aria-hidden />
             {t("nba.createTask")}
