@@ -5752,6 +5752,7 @@ export const vi = {
   "person.meeting.loading": "Đang tổng hợp bản tóm tắt…",
   "person.meeting.assembledNow": "Vừa được tổng hợp từ dữ liệu mới nhất",
   "person.meeting.header": "Tổng quan",
+  "person.meeting.what_changed": "Kể từ lần trao đổi gần nhất",
   "person.meeting.goal": "Mục tiêu cuộc họp",
   "person.meeting.attendees": "Người tham dự",
   "person.meeting.commitments": "Cam kết còn mở",

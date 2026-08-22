@@ -159,7 +159,10 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 		if err != nil {
 			return err
 		}
-		lastSpoke, err = s.readLastSpoke(ctx, tx, loaded, s.now().UTC())
+		spoke, ever, err := s.readLastSpoke(ctx, tx, loaded, s.now().UTC())
+		if ever {
+			lastSpoke = &spoke
+		}
 		return err
 	})
 	if err != nil {

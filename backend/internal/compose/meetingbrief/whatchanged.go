@@ -29,15 +29,15 @@ import (
 )
 
 // readLastSpoke returns when the reader last dealt with anyone in the room
-// before this meeting, or nil for first contact. Any captured activity the
+// before this meeting, and whether they ever have. Any captured activity the
 // reader took part in counts, whichever way it went: an outbound-only gap
 // does not reset the baseline.
-func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, now time.Time) (*time.Time, error) {
+func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, now time.Time) (time.Time, bool, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.UserID == (ids.UUID{}) || len(room.Room) == 0 {
 		// An agent on a passport reads as the human behind it; a principal with
 		// no user has never spoken to anyone.
-		return nil, nil
+		return time.Time{}, false, nil
 	}
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -47,7 +47,7 @@ func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, no
 	peoplePos := arg(room.Room)
 	scope, err := auth.ActivityDiscoverClause(ctx, "a", arg)
 	if err != nil {
-		return nil, err
+		return time.Time{}, false, err
 	}
 	if scope == "" {
 		scope = scopeAll
@@ -62,9 +62,12 @@ func (s *Service) readLastSpoke(ctx context.Context, tx pgx.Tx, room meeting, no
 		                WHERE l.activity_id = a.id AND l.entity_type = 'person' AND l.person_id = ANY($%d))
 		   AND %s`, mePos, roomPos, nowPos, peoplePos, scope), args...).Scan(&last)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("read when the reader last spoke to the room: %w", err)
+		return time.Time{}, false, fmt.Errorf("read when the reader last spoke to the room: %w", err)
 	}
-	return last, nil
+	if last == nil {
+		return time.Time{}, false, nil
+	}
+	return *last, true, nil
 }
 
 // whatChangedSection lists what happened after the baseline, sharpest first
