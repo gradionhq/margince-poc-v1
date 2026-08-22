@@ -17,15 +17,16 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
+import { useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
   EmptyState,
   Field,
+  SegmentedControl,
   TextInput,
 } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
@@ -36,15 +37,24 @@ import { problemMessageOf, QueryStates, throwProblem } from "./common";
 
 type DealRoom = components["schemas"]["DealRoom"];
 type DealRoomTask = components["schemas"]["DealRoomTask"];
+type DealRoomState = components["schemas"]["DealRoomState"];
 
 // The room states in which the list is still work rather than a record. It
 // mirrors the store's own `publishable` rule; the server refuses regardless, so
 // this exists to say WHY before the click rather than to enforce anything.
-const FINISHED_STATES = new Set(["closed", "expired", "archived"]);
+const FINISHED_STATES: ReadonlySet<DealRoomState> = new Set([
+  "closed",
+  "expired",
+  "archived",
+]);
 
-// Each room state's chip label, named as message keys so a state the contract
-// adds fails the build here rather than rendering a bare machine word to a rep.
-const STATE_LABELS: Record<string, MessageKey> = {
+// Each room state's chip label. Keyed by the contract's own closed union rather
+// than by string, so a state the contract adds fails the typecheck here — a
+// Record<string, …> would compile and render the bare machine word to a rep.
+// The two sides an item can be owed by, as the segmented control reads them.
+const SIDES = ["buyer", "seller"] as const;
+
+const STATE_LABELS: Record<DealRoomState, MessageKey> = {
   draft: "room.state.draft",
   building: "room.state.building",
   ready: "room.state.ready",
@@ -62,18 +72,7 @@ const STATE_LABELS: Record<string, MessageKey> = {
  * and a card that only ever says "none" is furniture.
  */
 export function DealRoomAside({ dealId }: Readonly<{ dealId: string }>) {
-  const roomQuery = useQuery({
-    queryKey: ["deal-rooms", dealId],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/deal-rooms", {
-        params: { query: { deal_id: dealId } },
-      });
-      if (error) {
-        throwProblem(error);
-      }
-      return data;
-    },
-  });
+  const roomQuery = useDealRoom(dealId);
 
   const room = roomQuery.data?.data?.[0];
   if (roomQuery.isSuccess && !room) {
@@ -86,9 +85,48 @@ export function DealRoomAside({ dealId }: Readonly<{ dealId: string }>) {
   );
 }
 
+/**
+ * Whether this deal has a Deal Room, for a caller deciding whether to give the
+ * aside a slot at all.
+ *
+ * The slot has to be decided OUTSIDE this component, because a React element
+ * is truthy whatever it renders: passing `aside={<DealRoomAside …/>}` reserves
+ * the aside column and its landmark even on the deals where the component then
+ * renders nothing, leaving the page's story narrower for no content. Sharing
+ * the query key means the caller's question costs no second request.
+ */
+export function useDealRoomPresence(dealId: string, enabled = true): boolean {
+  const roomQuery = useDealRoom(dealId, enabled);
+  return (roomQuery.data?.data?.length ?? 0) > 0;
+}
+
+function useDealRoom(dealId: string, enabled = true) {
+  return useQuery({
+    // Off in overlay mode, where the deal is a mirror from another system of
+    // record and its sub-resources answer 422.
+    enabled,
+    queryKey: ["deal-rooms", dealId],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/deal-rooms", {
+        params: { query: { deal_id: dealId } },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+  });
+}
+
 function DealRoomTasks({ room }: Readonly<{ room: DealRoom }>) {
   const t = useT();
-  const finished = FINISHED_STATES.has(String(room.state));
+  // Two separate reasons a control refuses, folded into one answer because a
+  // reader only ever needs the first true one. A finished room refuses
+  // everybody; a read-only seat refuses this reader in every room. Without the
+  // second, a reader who may not write sees live controls whose every click
+  // comes back 403 — the server holds the line, but only after the click.
+  const mayWrite = useCanWrite("deal_room", "update");
+  const finished = FINISHED_STATES.has(room.state);
   const tasksQuery = useQuery({
     queryKey: ["deal-room-tasks", room.id],
     queryFn: async () => {
@@ -102,40 +140,54 @@ function DealRoomTasks({ room }: Readonly<{ room: DealRoom }>) {
     },
   });
 
-  const stateLabel = STATE_LABELS[String(room.state)];
   return (
     <Panel
       title={t("room.tasks.title")}
       sub={t("room.tasks.sub")}
-      titleAction={
-        stateLabel ? (
-          <Badge>{t(stateLabel)}</Badge>
-        ) : (
-          <Badge>{room.state}</Badge>
-        )
-      }
+      titleAction={<Badge>{t(STATE_LABELS[room.state])}</Badge>}
     >
       <QueryStates query={tasksQuery} pendingLines={3}>
         {tasksQuery.data ? (
           <TaskList
             roomId={room.id}
             tasks={tasksQuery.data.data ?? []}
-            finished={finished}
+            refusal={refusalFor(finished, mayWrite, t)}
           />
         ) : null}
       </QueryStates>
       <PanelBody>
-        <AddTask roomId={room.id} finished={finished} />
+        <AddTask roomId={room.id} refusal={refusalFor(finished, mayWrite, t)} />
       </PanelBody>
     </Panel>
   );
 }
 
+// The sentence a control states instead of accepting a change, or undefined
+// when this reader may make it. One function so the row and the form cannot
+// disagree about whether a change is possible.
+function refusalFor(
+  finished: boolean,
+  mayWrite: boolean,
+  t: ReturnType<typeof useT>,
+): string | undefined {
+  if (finished) {
+    return t("room.tasks.finished");
+  }
+  if (!mayWrite) {
+    return t("room.tasks.readOnly");
+  }
+  return undefined;
+}
+
 function TaskList({
   roomId,
   tasks,
-  finished,
-}: Readonly<{ roomId: string; tasks: DealRoomTask[]; finished: boolean }>) {
+  refusal,
+}: Readonly<{
+  roomId: string;
+  tasks: DealRoomTask[];
+  refusal: string | undefined;
+}>) {
   const t = useT();
   if (tasks.length === 0) {
     return (
@@ -149,12 +201,7 @@ function TaskList({
   return (
     <>
       {tasks.map((task) => (
-        <TaskRow
-          key={task.id}
-          roomId={roomId}
-          task={task}
-          finished={finished}
-        />
+        <TaskRow key={task.id} roomId={roomId} task={task} refusal={refusal} />
       ))}
     </>
   );
@@ -163,8 +210,12 @@ function TaskList({
 function TaskRow({
   roomId,
   task,
-  finished,
-}: Readonly<{ roomId: string; task: DealRoomTask; finished: boolean }>) {
+  refusal,
+}: Readonly<{
+  roomId: string;
+  task: DealRoomTask;
+  refusal: string | undefined;
+}>) {
   const t = useT();
   const toggle = useToggleTask(roomId);
   // A row CONTAINS a control rather than being one, so it is not interactive:
@@ -181,7 +232,7 @@ function TaskRow({
         )}
         checked={task.done}
         pending={toggle.isPending}
-        reason={finished ? t("room.tasks.finished") : undefined}
+        reason={refusal}
         onChange={(done) =>
           toggle.mutate({ taskId: task.id, done, version: task.version })
         }
@@ -198,15 +249,15 @@ function TaskRow({
 
 function AddTask({
   roomId,
-  finished,
-}: Readonly<{ roomId: string; finished: boolean }>) {
+  refusal,
+}: Readonly<{ roomId: string; refusal: string | undefined }>) {
   const t = useT();
   const [title, setTitle] = useState("");
-  const [side, setSide] = useState<"seller" | "buyer">("buyer");
+  const [side, setSide] = useState<(typeof SIDES)[number]>("buyer");
   const add = useAddTask(roomId);
 
-  if (finished) {
-    return <p className="t-small">{t("room.tasks.finished")}</p>;
+  if (refusal !== undefined) {
+    return <p className="t-small">{refusal}</p>;
   }
   const submit = () => {
     const wording = title.trim();
@@ -233,16 +284,20 @@ function AddTask({
           />
         )}
       </Field>
+      {/* Both sides stay visible rather than one hiding behind a flip: a
+          button reading "the buyer owes this" does not say whether that is the
+          current choice or the one a press would make. */}
+      <SegmentedControl
+        options={SIDES}
+        value={side}
+        onChange={setSide}
+        label={t("room.tasks.sideLabel")}
+        labels={{
+          buyer: t("room.tasks.owedByBuyer"),
+          seller: t("room.tasks.owedByUs"),
+        }}
+      />
       <div className="card-actions">
-        <Button
-          variant="ghost"
-          small
-          onClick={() => setSide(side === "buyer" ? "seller" : "buyer")}
-        >
-          {t(
-            side === "buyer" ? "room.tasks.owedByBuyer" : "room.tasks.owedByUs",
-          )}
-        </Button>
         <Button
           small
           onClick={submit}
@@ -301,7 +356,10 @@ function useAddTask(roomId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationKey: ["deal-room-task-add"],
-    mutationFn: async (input: { title: string; side: "seller" | "buyer" }) => {
+    mutationFn: async (input: {
+      title: string;
+      side: (typeof SIDES)[number];
+    }) => {
       const { data, error } = await api.POST("/deal-rooms/{id}/tasks", {
         params: { path: { id: roomId } },
         body: { title: input.title, side: input.side, source: "manual" },

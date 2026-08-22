@@ -776,12 +776,14 @@ export const de = {
   "room.tasks.owedByUs": "Das schulden wir",
   "room.tasks.owedByBuyer": "Das schuldet der Käufer",
   "room.tasks.newLabel": "Aufgabe hinzufügen",
+  "room.tasks.sideLabel": "Wer ist zuständig",
   "room.tasks.add": "Hinzufügen",
   "room.tasks.adding": "Wird hinzugefügt",
   "room.tasks.addFailed": "Die Aufgabe konnte nicht hinzugefügt werden.",
   "room.tasks.toggleFailed": "Das konnte nicht gespeichert werden.",
   "room.tasks.editorial":
     "Neue und geänderte Aufgaben erreichen den Käufer bei der nächsten Veröffentlichung. Das Abhaken wirkt sofort.",
+  "room.tasks.readOnly": "Sie können diese Liste lesen, aber nicht ändern.",
   "room.tasks.finished":
     "Dieser Raum ist abgeschlossen, seine Aufgabenliste ist jetzt ein Protokoll.",
   "room.state.draft": "Entwurf",

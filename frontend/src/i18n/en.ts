@@ -820,12 +820,14 @@ export const en = {
   "room.tasks.owedByUs": "We owe this",
   "room.tasks.owedByBuyer": "The buyer owes this",
   "room.tasks.newLabel": "Add a to-do",
+  "room.tasks.sideLabel": "Who owes this",
   "room.tasks.add": "Add",
   "room.tasks.adding": "Adding",
   "room.tasks.addFailed": "The item could not be added.",
   "room.tasks.toggleFailed": "That could not be saved.",
   "room.tasks.editorial":
     "New and reworded items reach the buyer at the next publish. Ticking one off is immediate.",
+  "room.tasks.readOnly": "You can read this list but not change it.",
   "room.tasks.finished":
     "This room is finished, so its to-do list is now a record.",
   "room.state.draft": "Draft",

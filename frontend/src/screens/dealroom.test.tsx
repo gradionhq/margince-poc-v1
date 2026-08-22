@@ -74,11 +74,33 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-// Routes the two GETs the aside makes, and records every write so a test can
+// The principal the controls ask about. `useCanWrite` folds two questions —
+// does this role hold the grant, and is this a full seat — so a double that
+// answers only one of them would let a control through that the real page
+// refuses.
+function me(mayWrite: boolean) {
+  return {
+    user: { id: "u1" },
+    authorization: {
+      seat_type: mayWrite ? "full" : "read_only",
+      objects: {
+        deal_room: {
+          create: mayWrite,
+          read: true,
+          update: mayWrite,
+          delete: mayWrite,
+        },
+      },
+    },
+  };
+}
+
+// Routes the GETs the aside makes, and records every write so a test can
 // assert what actually went on the wire rather than what the UI drew.
 function stubApi(
   rooms: DealRoom[],
   tasks: DealRoomTask[],
+  mayWrite = true,
 ): { calls: Request[] } {
   const calls: Request[] = [];
   // openapi-fetch hands `fetch` a Request rather than a url string, so the url
@@ -90,7 +112,11 @@ function stubApi(
       calls.push(input.clone());
       return Promise.resolve(jsonResponse(task({ done: true, version: 4 })));
     }
-    if (new URL(input.url).pathname.endsWith("/tasks")) {
+    const path = new URL(input.url).pathname;
+    if (path.endsWith("/me")) {
+      return Promise.resolve(jsonResponse(me(mayWrite)));
+    }
+    if (path.endsWith("/tasks")) {
       return Promise.resolve(jsonResponse({ data: tasks, page: {} }));
     }
     return Promise.resolve(jsonResponse({ data: rooms, page: {} }));
@@ -171,4 +197,39 @@ it("says an empty list is empty rather than drawing a bare card", async () => {
   expect(
     await screen.findByText(/Nothing outstanding between you and the buyer/),
   ).toBeInTheDocument();
+});
+
+it("adding an item records which side was chosen", async () => {
+  // Both sides stay on screen, so a rep can see which one an item is going to
+  // before they add it. The wrong side is not a cosmetic slip: it decides who
+  // gets chased for the work.
+  const { calls } = stubApi([room("live")], []);
+  const user = userEvent.setup();
+  render(<DealRoomAside dealId="deal-1" />);
+
+  await user.click(await screen.findByRole("button", { name: /We owe/ }));
+  await user.type(screen.getByTestId("room-task-new"), "Draft the SOW");
+  await user.click(screen.getByRole("button", { name: "Add" }));
+
+  await waitFor(() => expect(calls).toHaveLength(1));
+  expect(await calls[0].json()).toEqual({
+    title: "Draft the SOW",
+    side: "seller",
+    source: "manual",
+  });
+});
+
+it("a reader who may not write is told so instead of being offered the controls", async () => {
+  // The server refuses a read-only seat's write regardless, but only after the
+  // click. A control that looks live and comes back 403 teaches a reader that
+  // the product is broken rather than that the permission is.
+  stubApi([room("live")], [task({})], false);
+  render(<DealRoomAside dealId="deal-1" />);
+
+  const toggle = await screen.findByRole("switch", {
+    name: /Return the signed NDA/,
+  });
+  expect(toggle).toBeDisabled();
+  expect(toggle).toHaveAccessibleDescription(/read this list but not change/i);
+  expect(screen.queryByTestId("room-task-new")).not.toBeInTheDocument();
 });
