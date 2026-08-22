@@ -57,7 +57,19 @@ IFS=' ' read -r -a ts_scan <<< "${MONEY_SCALE_TS_SCAN:-frontend/src}"
 # The pairing is bounded by the statement, and the statement by four lines, so
 # "somewhere in this file" is never enough to fire.
 names='[Mm]inor[A-Za-z_]*|MINOR[A-Z_]*'
-powers='[/*%][[:space:]]*10{1,4}([^0-9.]|$)'
+# Spelled as an ALTERNATION rather than the interval `10{1,4}`.
+#
+# The powers are matched inside awk, and ERE interval support is the one thing
+# awk implementations still differ on — mawk 1.3.3, which shipped as the default
+# /usr/bin/awk on Debian and Ubuntu for years, does not have it. It would not
+# error: the pattern simply never matches and this gate reports OK over every
+# hard-coded scale in the tree. A construct whose failure mode is silent
+# universal success is not worth the four characters it saves.
+#
+# scripts/test-check-money-scale.sh is the belt to this brace: its `fires` cases
+# run the real gate, so on any awk where the pattern stopped matching the tests
+# go red rather than the gate going quietly green.
+powers='[/*%][[:space:]]*(10|100|1000|10000)([^0-9.]|$)'
 
 # strip <files…>: emit `file:line:statement` with comments removed and
 # CONTINUATION LINES JOINED, so a wrapped expression is judged whole.
@@ -88,6 +100,35 @@ strip() {
   xargs -0 awk -v waiver="$waiver" '
     function opens(s,   n, t) { t = s; n = gsub(/[([]/, "", t); return n }
     function closes(s,  n, t) { t = s; n = gsub(/[)\]]/, "", t); return n }
+    # commentAt returns the offset where a line comment begins, skipping any
+    # `//` that falls inside a string. Scanning quote by quote rather than
+    # matching a pattern, because the pattern cannot tell the two apart: a line
+    # holding `return x / 100, "// money-scale-exempt: fake"` has a real
+    # arithmetic defect and a fake marker, and a regex reading left to right
+    # waives the whole line. Probed before and after — it bypassed the gate.
+    function commentAt(s,   i, ch, quote, prev) {
+      quote = ""
+      for (i = 1; i <= length(s); i++) {
+        ch = substr(s, i, 1)
+        if (quote != "") {
+          if (ch == "\\" && quote != "`") { i++; continue }
+          if (ch == quote) quote = ""
+          continue
+        }
+        if (ch == "\"" || ch == "\x27" || ch == "`") { quote = ch; continue }
+        if (ch == "/" && substr(s, i + 1, 1) == "/" && prev != ":") return i
+        if (ch == "/" && substr(s, i + 1, 1) == "*") return i
+        prev = ch
+      }
+      return 0
+    }
+
+    # waived: the marker appears in a REAL comment on this line.
+    function waived(s, marker,   at) {
+      at = commentAt(s)
+      return at > 0 && index(substr(s, at), marker) > 0
+    }
+
     function flush() { if (buf != "") print FILENAME ":" start ":" buf; buf = ""; depth = 0; lines = 0 }
     FNR == 1 { flush(); inblock = 0 }
     {
@@ -96,7 +137,7 @@ strip() {
       # line carrying the marker inside a string literal was skipping the whole
       # line, which let any code on it bypass the gate under a marker its author
       # never wrote as one.
-      if (match(c, /(\/\/|\/\*)[^"`\x27]*money-scale-exempt:/)) { flush(); next }
+      if (waived(c, waiver)) { flush(); next }
       if (inblock) { if (match(c, /\*\//)) { inblock = 0; c = substr(c, RSTART + RLENGTH) } else next }
       t = c; sub(/^[[:space:]]+/, "", t)
       if (t ~ /^(\/\/|\*)/) next
@@ -105,12 +146,10 @@ strip() {
       # `x:=minor/100//note` is a comment too. Anchored on a `//` that is not
       # part of a scheme (`https://`), which is the only form that routinely
       # appears inside a string here.
-      pos = 0
-      while ((i = index(substr(c, pos + 1), "//")) > 0) {
-        abs = pos + i
-        if (abs == 1 || substr(c, abs - 1, 1) != ":") { c = substr(c, 1, abs - 1); break }
-        pos = abs + 1
-      }
+      # The same scanner decides where a trailing comment starts, so a `//`
+      # inside a string is not mistaken for one — and `https://` is not either.
+      at = commentAt(c)
+      if (at > 0) c = substr(c, 1, at - 1)
       if (t == "") { flush(); next }
       if (buf == "") start = FNR
       buf = buf " " c

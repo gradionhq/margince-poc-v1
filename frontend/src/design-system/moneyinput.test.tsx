@@ -114,6 +114,51 @@ describe("MoneyInput", () => {
     },
   );
 
+  // Exponent notation has no decimal point, so counting the literal text let
+  // `15e-1` — one and a half — past the precision guard and it committed as 2
+  // minor units of a currency that cannot hold a half.
+  it.each([
+    ["VND", "15e-1"],
+    ["VND", "1.5e0"],
+    ["EUR", "1005e-3"],
+  ])("%s: %s is over-precise however it is written", (currency, typed) => {
+    const onChangeMinor = vi.fn();
+    rtlRender(
+      <MoneyInput
+        currency={currency}
+        valueMinor={0}
+        onChangeMinor={onChangeMinor}
+        aria-label="Amount"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Amount"), {
+      target: { value: typed },
+    });
+    expect(onChangeMinor).not.toHaveBeenCalled();
+  });
+
+  // A positive exponent shifts the point the other way and REMOVES decimals,
+  // so these are within precision and must still commit.
+  it.each([
+    ["VND", "150e-1", 15],
+    ["VND", "1.5e1", 15],
+    ["EUR", "1.2345e2", 12_345],
+  ])("%s: %s is exact after the exponent", (currency, typed, want) => {
+    const onChangeMinor = vi.fn();
+    rtlRender(
+      <MoneyInput
+        currency={currency}
+        valueMinor={0}
+        onChangeMinor={onChangeMinor}
+        aria-label="Amount"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Amount"), {
+      target: { value: typed },
+    });
+    expect(onChangeMinor).toHaveBeenLastCalledWith(want);
+  });
+
   // And the boundary on the other side: exactly as many decimals as the
   // currency carries is a perfectly good amount and must still commit.
   it.each([

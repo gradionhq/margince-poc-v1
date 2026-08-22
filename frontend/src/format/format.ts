@@ -1,4 +1,5 @@
 import type { Locale } from "../i18n";
+import { minorUnitDigits, toMajorUnits } from "./minorunits";
 
 // The presentation edge (architecture/10 §1–3): everything here formats
 // ALREADY-stored values — minor units, UTC instants, IR-provided base
@@ -17,17 +18,27 @@ export const INTL_LOCALE: Record<Locale, string> = {
 // Money arrives as integer minor units + ISO currency (data-semantics §1).
 // The only transformation is the currency's minor-unit scaling — display,
 // not arithmetic.
+//
+// The SCALE comes from format/minorunits, which mirrors the server's ISO 4217
+// table; only the FORMATTING is Intl's. Those are different questions and Intl
+// answers the second one better: it knows where the symbol goes and how a
+// reader groups digits. It answers the first one differently, because CLDR
+// records how a currency is used rather than what ISO assigns — they disagree
+// on ten codes, and dividing by Intl's count while the server multiplied by
+// ISO's would show a stored IQD 1234 as 1234 here and as 1.234 on the server.
+// The reader would be looking at a number the record does not hold.
 export function formatMoney(
   amountMinor: number,
   currency: string,
   locale: Locale,
 ): string {
-  const formatter = new Intl.NumberFormat(INTL_LOCALE[locale], {
+  const digits = minorUnitDigits(currency);
+  return new Intl.NumberFormat(INTL_LOCALE[locale], {
     style: "currency",
     currency,
-  });
-  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 2;
-  return formatter.format(amountMinor / 10 ** digits);
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(toMajorUnits(amountMinor, currency));
 }
 
 // What the product shows for a money figure it does not have. Not a zero and
@@ -81,12 +92,9 @@ export function formatMoneyCompact(
   currency: string,
   locale: Locale,
 ): string {
-  const probe = new Intl.NumberFormat(INTL_LOCALE[locale], {
-    style: "currency",
-    currency,
-  });
-  const digits = probe.resolvedOptions().maximumFractionDigits ?? 2;
-  const major = amountMinor / 10 ** digits;
+  // Our scale, Intl's formatting — see formatMoney for why the two are
+  // deliberately not the same source.
+  const major = toMajorUnits(amountMinor, currency);
   return new Intl.NumberFormat(INTL_LOCALE[locale], {
     style: "currency",
     currency,

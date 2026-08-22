@@ -64,14 +64,42 @@ describe("the scale between what a person types and what we store", () => {
     expect(toMinorUnits(0.005, "EUR")).toBe(1);
   });
 
-  // A pasted overflowing exponent parses to Infinity, which is not NaN and
-  // would have reached the request body as `null` or a garbage integer.
+  // A pasted overflowing exponent parses to Infinity, which is not NaN.
+  //
+  // The answer is NaN and NOT zero, which was the first version of this: a
+  // caller building a request body writes `amount_minor: 0` for a garbage
+  // input, and zero is a perfectly legal price. NaN serialises to `null`, which
+  // the nullable money fields accept as "unpriced" and the non-nullable ones
+  // refuse — either way the API decides, not a silent default.
   it.each([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN])(
     "refuses %p rather than sending it to the API",
     (major) => {
-      expect(toMinorUnits(major, "EUR")).toBe(0);
+      expect(toMinorUnits(major, "EUR")).toBeNaN();
     },
   );
+
+  // Above 2^53 the scaling multiply stops being exact, so a figure would arrive
+  // ALTERED rather than refused — the one outcome worse than a rejection.
+  it.each([
+    [1e15, "EUR"],
+    [1e14, "KWD"],
+    [Number.MAX_SAFE_INTEGER, "EUR"],
+  ])(
+    "refuses %p %s, which cannot survive scaling exactly",
+    (major, currency) => {
+      expect(toMinorUnits(major, currency)).toBeNaN();
+    },
+  );
+
+  // And the boundary holds on the safe side: a large but exact amount goes.
+  it("still scales a large amount that stays exact", () => {
+    expect(toMinorUnits(1_000_000_000, "EUR")).toBe(100_000_000_000);
+    // The interesting half: a zero-decimal currency needs no scaling, so the
+    // largest exact integer there is survives it and must NOT be refused.
+    expect(toMinorUnits(Number.MAX_SAFE_INTEGER, "VND")).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
+  });
 
   // A code Intl cannot place still has an amount attached to it. Two digits is
   // ISO's own default; throwing would leave the caller storing raw digits.

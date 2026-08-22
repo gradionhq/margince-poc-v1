@@ -88,7 +88,16 @@ export function MoneyInput({
         setText(event.target.value);
         // An empty or unparseable buffer (mid-edit, e.g. a lone "-" or a
         // cleared field) is never committed as 0 — the last valid minor
-        // value stands until the user finishes typing a real number.
+        // value stands until the user finishes typing a real number, and the
+        // blur below snaps the text back to it.
+        //
+        // This is deliberate and it has a cost worth naming: a reader cannot
+        // clear a priced field back to "no amount" by deleting it. That is
+        // right for an offer line, which must have a price, and wrong for an
+        // agreement that may legitimately be unpriced — but the remedy is an
+        // explicit control on the form that means "remove this value", not a
+        // component that reads a half-deleted buffer as an intention. Changing
+        // it here would also make every mid-edit keystroke commit a zero.
         if (event.target.value.trim() === "") {
           return;
         }
@@ -98,14 +107,14 @@ export function MoneyInput({
         // an offer line saved the altered amount on blur. Holding the text
         // instead lets the reader finish or correct it, exactly as an empty
         // buffer is held above, and nothing is stored that nobody typed.
-        if (fractionalDigits(event.target.value) > digits) {
-          return;
-        }
         // isFinite, not !isNaN: a pasted overflowing exponent like 1e309
         // parses to Infinity, which is not NaN and would reach the request
         // body as a number no column can hold.
         const parsed = Number(event.target.value);
-        if (Number.isFinite(parsed)) {
+        if (!Number.isFinite(parsed) || exceedsPrecision(parsed, digits)) {
+          return;
+        }
+        {
           const minor = toMinorUnits(parsed, currency);
           lastCommittedMinor.current = minor;
           onChangeMinor(minor);
@@ -131,9 +140,15 @@ export function MoneyInput({
   );
 }
 
-// fractionalDigits counts the digits after the point in what was TYPED, not in
-// the parsed number: "1.50" is two, and Number() would have told us zero.
-function fractionalDigits(text: string): number {
-  const point = text.indexOf(".");
-  return point < 0 ? 0 : text.trim().length - point - 1;
+// exceedsPrecision reports whether an amount needs finer division than its
+// currency has — a half dong, a tenth of a cent.
+//
+// Measured on the VALUE, not on the typed text. Counting written decimals is
+// the obvious approach and it is wrong in both directions once exponent
+// notation is allowed: `15e-1` has no decimal point and is one and a half,
+// while `150e-1` has none either and is exactly fifteen. Rounding to the
+// currency's own digits and asking whether the number moved answers both, and
+// every other notation, without a parser.
+function exceedsPrecision(value: number, digits: number): boolean {
+  return Number(value.toFixed(digits)) !== value;
 }

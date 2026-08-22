@@ -5261,7 +5261,7 @@ export const de = {
   "quotas.pickOwner": "Inhaber auswählen…",
   "quotas.pickTeam": "Team auswählen…",
   "quotas.amountHint":
-    "Ganze Einheiten der unten gewählten Währung — keine Dezimalstellen",
+    "Ganze Einheiten der unten gewählten Währung. Keine Dezimalstellen.",
   "quotas.periodStart": "Zeitraum-Beginn",
   "quotas.periodEnd": "Zeitraum-Ende",
   "quotas.amount": "Zielbetrag",

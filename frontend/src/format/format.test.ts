@@ -135,3 +135,21 @@ describe("FX display discipline (B-EP09.18)", () => {
     expect(explainSource).not.toMatch(/nativeAmountMinor\s*\*|rate\s*\*/);
   });
 });
+
+// The ten codes where CLDR and ISO 4217 disagree are the ones that prove
+// display and storage share a scale. A stored IQD 1234 is 1.234 dinars to the
+// server, and Intl's own count would have rendered it as 1,234.
+describe("display scales by the same table the server stores with", () => {
+  it.each([
+    ["IQD", 1234, "1.234"],
+    ["MGA", 1234, "12.34"],
+    ["IRR", 1234, "12.34"],
+    ["VND", 18_000_000, "18,000,000"],
+    ["EUR", 12_345, "123.45"],
+  ])("%s %i renders the figure %s", (currency, minor, figure) => {
+    // Only the digits are asserted: symbol placement and grouping are Intl's
+    // to decide and are not what this pins.
+    const rendered = formatMoney(minor, currency, "en").replace(/[^\d.,]/g, "");
+    expect(rendered).toBe(figure);
+  });
+});

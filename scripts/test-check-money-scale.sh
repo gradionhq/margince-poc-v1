@@ -66,6 +66,7 @@ expect fires go "a remainder for the cents half" 'func probe(minor int64) int64 
 # ever plants 100 would not notice the detector losing either.
 expect fires go "a KWD-style 1000"     'func probe(amountMinor int64) int64 { return amountMinor / 1000 }'
 expect fires go "a one-digit 10"       'func probe(amountMinor int64) int64 { return amountMinor / 10 }'
+expect fires go "a four-zero 10000"    'func probe(amountMinor int64) int64 { return amountMinor / 10000 }'
 expect fires ts "a KWD-style 1000"     'export const toWire = (amount_minor: number) => amount_minor / 1000;'
 expect fires ts "a one-digit 10"       'export const toWire = (amount_minor: number) => amount_minor * 10;'
 expect fires ts "a remainder for the fractional half" \
@@ -93,6 +94,14 @@ echo
 echo "== the waiver, and comments =="
 expect silent go "a waived line" \
   'func probe(amountMinor int64) int64 { return amountMinor / 100 } // money-scale-exempt: probing the gate'
+# The marker must be in a REAL comment. A line carrying it inside a STRING was
+# waiving itself, so any arithmetic sharing that line bypassed the gate under a
+# marker nobody wrote as one — probed, and it did.
+expect fires go "a marker inside a string waives nothing" \
+  'func probe(amountMinor int64) (int64, string) { return amountMinor / 100, "// money-scale-exempt: fake" }'
+expect fires ts "a marker inside a TS string waives nothing" \
+  'export const toWire = (amount_minor: number) => [amount_minor / 100, "// money-scale-exempt: fake"];'
+
 expect fires go "a waiver silences its own line only" \
   'func waived(amountMinor int64) int64 { return amountMinor / 100 } // money-scale-exempt: probing the gate
 func notWaived(valueMinor int64) int64 { return valueMinor / 100 }'

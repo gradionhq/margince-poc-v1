@@ -100,16 +100,29 @@ export function minorUnitDigits(currency: string): number {
 // size scale to the same magnitude. `Math.round` rounds -0.5 to -0, which would
 // make the two disagree by one minor unit.
 //
-// NaN in, NaN out is not acceptable here — the caller is building a request
-// body — so a value that is not finite answers 0 and the caller's own
-// empty-amount handling decides what to send.
+// A value that is not finite, or too large to be an exact integer once scaled,
+// answers NaN rather than 0.
+//
+// Zero was the first answer here and it is the wrong one: a caller building a
+// request body writes `amount_minor: 0` for what was a garbage input, and zero
+// is a perfectly legal price. Callers do not all check — the deal, product and
+// custom-field writers pass this straight into the body — so the value that
+// travels has to be one the API refuses rather than one it accepts. NaN
+// serialises to `null` through JSON.stringify, which the contract's nullable
+// money fields already handle and its non-nullable ones already reject.
+//
+// The safe-integer bound matters for the same reason: above 2^53 the scaling
+// multiply stops being exact, so a figure would arrive silently altered rather
+// than refused. That is ninety trillion euros in cents; a real amount never
+// reaches it and a typo does.
 export function toMinorUnits(major: number, currency: string): number {
   if (!Number.isFinite(major)) {
-    return 0;
+    return Number.NaN;
   }
   const digits = minorUnitDigits(currency);
   if (digits === 0) {
-    return roundHalfAwayFromZero(major);
+    const whole = roundHalfAwayFromZero(major);
+    return Number.isSafeInteger(whole) ? whole : Number.NaN;
   }
   // toFixed gives a decimal string with more digits than the currency has, so
   // the shift below never has to round a binary artefact back into place.
@@ -120,7 +133,8 @@ export function toMinorUnits(major: number, currency: string): number {
     `${whole}${frac.slice(0, digits)}.${frac.slice(digits)}`,
   );
   const scaled = roundHalfAwayFromZero(shifted);
-  return negative ? -scaled : scaled;
+  const minor = negative ? -scaled : scaled;
+  return Number.isSafeInteger(minor) ? minor : Number.NaN;
 }
 
 function roundHalfAwayFromZero(value: number): number {

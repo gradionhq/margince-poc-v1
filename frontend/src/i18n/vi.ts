@@ -5210,7 +5210,7 @@ export const vi = {
   "quotas.pickOwner": "Chọn người phụ trách…",
   "quotas.pickTeam": "Chọn nhóm…",
   "quotas.amountHint":
-    "Số nguyên theo đơn vị tiền tệ bên dưới — không có phần thập phân",
+    "Số nguyên theo đơn vị tiền tệ bên dưới. Không có phần thập phân.",
   "quotas.periodStart": "Bắt đầu kỳ",
   "quotas.periodEnd": "Kết thúc kỳ",
   "quotas.amount": "Số tiền mục tiêu",
