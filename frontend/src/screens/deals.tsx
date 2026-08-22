@@ -77,6 +77,7 @@ import { CreateAction } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { DealBulkBar } from "./dealbulk";
+import { DealRoomAside, useDealRoomPresence } from "./dealroom";
 import { EditAction } from "./edit";
 import { EntityRef, useEntityName } from "./entityref";
 import { RecordHistoryTab } from "./history";
@@ -3101,6 +3102,10 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   // and the deal's stakeholders/offers sub-resources 422/404, and offer
   // creation would write to a mirrored deal. Gate all of it on this.
   const overlay = useSorMode() === "overlay";
+  // Asked here rather than inside the aside, because an element is truthy
+  // whatever it renders: a slot filled with a component that draws nothing
+  // still reserves the aside column and its landmark.
+  const hasDealRoom = useDealRoomPresence(id, !overlay);
   const orgs = useQuery({
     queryKey: ["organizations"],
     queryFn: async () => {
@@ -3240,6 +3245,8 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                 { overlay, pending: timelineQuery.isPending },
                 t,
               )}
+              aside={hasDealRoom ? <DealRoomAside dealId={id} /> : undefined}
+              asideLabel={t("room.tasks.title")}
             >
               <div style={{ marginBottom: 16 }}>
                 <SegmentedControl
