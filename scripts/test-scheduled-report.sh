@@ -124,10 +124,19 @@ expect "a similar title is a different finding" \
 # that filed the issue and dropped MAIN_SUSPECTS would look identical from the
 # outside and be worth nothing.
 
+readonly GATES_TITLE="main is red: the backend gate fails on the tip"
 readonly INTEGRATION_TITLE="main is red: the integration lane fails on the tip"
 readonly FRONTEND_TITLE="main is red: the frontend lane fails on the tip"
 readonly SONAR_TITLE="main's SonarCloud analysis was not published"
 readonly SUSPECTS="- \`deadbeef\` Some Author — the commit that did it"
+
+# What the cases below actually exercised, recorded as they run rather than
+# listed by hand. The census at the end of this file reads it: a list kept
+# beside the arms is a list that stops being true the day somebody adds one,
+# which is exactly how MAIN_GATES_RESULT went uncovered while a comment above
+# claimed every arm carried both of its cases.
+covered_with_range=""
+covered_no_range=""
 
 # expect_health <name> <lane-result-variable> <expected-title> <suspects>
 #
@@ -172,15 +181,26 @@ expect_health() {
 		failures=$((failures + 1))
 		return
 	fi
+	if [ -n "$suspects" ]; then
+		covered_with_range="$covered_with_range $lane"
+	else
+		covered_no_range="$covered_no_range $lane"
+	fi
 	echo "ok: $name"
 }
+
+expect_health "a red backend gate on main is filed with its suspect range" \
+	MAIN_GATES_RESULT "$GATES_TITLE" "$SUSPECTS"
+
+expect_health "a red backend gate with no range still files" \
+	MAIN_GATES_RESULT "$GATES_TITLE" ""
 
 expect_health "a red integration lane on main is filed with its suspect range" \
 	MAIN_INTEGRATION_RESULT "$INTEGRATION_TITLE" "$SUSPECTS"
 
 # No range computed is a degraded report, not a silent one: the issue still has to
 # exist, because "main is red" is worth filing even when the window is unknown.
-expect_health "a red lane with no range still files" \
+expect_health "a red integration lane with no range still files" \
 	MAIN_INTEGRATION_RESULT "$INTEGRATION_TITLE" ""
 
 # The frontend arm. It carries a second obligation the other two do not: while it
@@ -191,7 +211,8 @@ expect_health "a red frontend lane on main is filed with its suspect range" \
 
 # Every arm owes the degraded path a case of its own, not only the first one
 # written: the fallback is per-arm text, so a missing one is missing for that arm
-# alone and the other arms' cases go on passing over it.
+# alone and the other arms' cases go on passing over it. The census at the end of
+# this file is what holds that, rather than this comment.
 expect_health "a red frontend lane with no range still files" \
 	MAIN_FRONTEND_RESULT "$FRONTEND_TITLE" ""
 
@@ -203,6 +224,33 @@ expect_health "a failed publish of main's analysis is filed with its suspect ran
 
 expect_health "a failed publish with no range still files" \
 	MAIN_SONAR_RESULT "$SONAR_TITLE" ""
+
+# --- the census -----------------------------------------------------------------
+#
+# Derived from the reporter, not from a list here. Every MAIN_*_RESULT arm it
+# carries owes both cases, and the obligation is checked rather than asserted in a
+# comment — a comment claiming full coverage is what stood over the uncovered
+# MAIN_GATES_RESULT arm until a reviewer read both files side by side.
+#
+# The health arms only. The daily lane's arms (VULN_RESULT, GATE_RESULT, …) carry
+# no suspect range and are covered by the `expect` cases above, so a rule about
+# the fallback text does not apply to them.
+for lane in $(grep -oE 'MAIN_[A-Z_]+_RESULT' "$root/scripts/scheduled-report.sh" | sort -u); do
+	case " $covered_with_range " in
+	*" $lane "*) ;;
+	*)
+		echo "FAIL: the reporter has a $lane arm that no case exercises with a suspect range"
+		failures=$((failures + 1))
+		;;
+	esac
+	case " $covered_no_range " in
+	*" $lane "*) ;;
+	*)
+		echo "FAIL: the reporter has a $lane arm that no case exercises without a suspect range"
+		failures=$((failures + 1))
+		;;
+	esac
+done
 
 if [ "$failures" -ne 0 ]; then
 	echo "FAIL: $failures case(s)" >&2
