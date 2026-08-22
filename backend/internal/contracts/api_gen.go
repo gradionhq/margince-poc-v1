@@ -8191,6 +8191,33 @@ func (e RelationshipStrengthBucket) Valid() bool {
 	}
 }
 
+// Defines values for RelinkDestinationType.
+const (
+	RelinkDestinationTypeDeal         RelinkDestinationType = "deal"
+	RelinkDestinationTypeLead         RelinkDestinationType = "lead"
+	RelinkDestinationTypeOrganization RelinkDestinationType = "organization"
+	RelinkDestinationTypePerson       RelinkDestinationType = "person"
+	RelinkDestinationTypeProject      RelinkDestinationType = "project"
+)
+
+// Valid indicates whether the value is a known member of the RelinkDestinationType enum.
+func (e RelinkDestinationType) Valid() bool {
+	switch e {
+	case RelinkDestinationTypeDeal:
+		return true
+	case RelinkDestinationTypeLead:
+		return true
+	case RelinkDestinationTypeOrganization:
+		return true
+	case RelinkDestinationTypePerson:
+		return true
+	case RelinkDestinationTypeProject:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RenewContractRequestValueBasis.
 const (
 	RenewContractRequestValueBasisAnnualized12m RenewContractRequestValueBasis = "annualized_12m"
@@ -21290,6 +21317,47 @@ type RelationshipStrength struct {
 // RelationshipStrengthBucket Coarse band derived from score for display.
 type RelationshipStrengthBucket string
 
+// RelinkActivitiesRequest The destination for a named set of activities. Every id must be one the caller can see and
+// write, or the whole request is refused and nothing moves.
+type RelinkActivitiesRequest struct {
+	ActivityIds []openapi_types.UUID `json:"activity_ids"`
+	EntityId    openapi_types.UUID   `json:"entity_id"`
+
+	// EntityType The record kinds an activity may be filed under.
+	EntityType RelinkDestinationType `json:"entity_type"`
+
+	// ReplaceExistingOfType When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+	ReplaceExistingOfType *bool `json:"replace_existing_of_type,omitempty"`
+}
+
+// RelinkBatchResult defines model for RelinkBatchResult.
+type RelinkBatchResult struct {
+	// ActivityIds The ids counted in `relinked`, in the order they were written.
+	ActivityIds []openapi_types.UUID `json:"activity_ids"`
+
+	// Relinked Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted.
+	Relinked int `json:"relinked"`
+}
+
+// RelinkDestinationType The record kinds an activity may be filed under.
+type RelinkDestinationType string
+
+// RelinkThreadRequest The destination for every writable, non-archived activity of one conversation thread.
+// `entity_type`/`entity_id`/`replace_existing_of_type` mean exactly what they mean on
+// `relinkActivity`.
+type RelinkThreadRequest struct {
+	EntityId openapi_types.UUID `json:"entity_id"`
+
+	// EntityType The record kinds an activity may be filed under.
+	EntityType RelinkDestinationType `json:"entity_type"`
+
+	// ReplaceExistingOfType When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+	ReplaceExistingOfType *bool `json:"replace_existing_of_type,omitempty"`
+
+	// ThreadKey The conversation key the activities carry (`Activity.thread_key`, also the `thread_key` list filter).
+	ThreadKey string `json:"thread_key"`
+}
+
 // RenameCustomFieldRequest Merge-PATCH; `label` only — `column_name`, `object`, and `type` are absent from this request schema entirely (immutable, not just ignored if sent).
 type RenameCustomFieldRequest struct {
 	Label *string `json:"label,omitempty"`
@@ -23450,6 +23518,44 @@ type ListActivitiesParamsEntityType string
 
 // LogActivityParams defines parameters for LogActivity.
 type LogActivityParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RelinkActivitiesParams defines parameters for RelinkActivities.
+type RelinkActivitiesParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// RelinkThreadParams defines parameters for RelinkThread.
+type RelinkThreadParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
 	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
@@ -27390,6 +27496,12 @@ type ListWebhookDeliveriesParams struct {
 
 // LogActivityJSONRequestBody defines body for LogActivity for application/json ContentType.
 type LogActivityJSONRequestBody = CreateActivityRequest
+
+// RelinkActivitiesJSONRequestBody defines body for RelinkActivities for application/json ContentType.
+type RelinkActivitiesJSONRequestBody = RelinkActivitiesRequest
+
+// RelinkThreadJSONRequestBody defines body for RelinkThread for application/json ContentType.
+type RelinkThreadJSONRequestBody = RelinkThreadRequest
 
 // UpdateActivityJSONRequestBody defines body for UpdateActivity for application/json ContentType.
 type UpdateActivityJSONRequestBody = UpdateActivityRequest
@@ -36217,6 +36329,12 @@ type ServerInterface interface {
 	// Log an activity (the `log_activity` MCP verb).
 	// (POST /activities)
 	LogActivity(w http.ResponseWriter, r *http.Request, params LogActivityParams)
+	// Re-associate a named set of activities to a chosen record, in one transaction.
+	// (POST /activities/relink-bulk)
+	RelinkActivities(w http.ResponseWriter, r *http.Request, params RelinkActivitiesParams)
+	// Re-associate every activity of one conversation thread to a chosen record, in one transaction.
+	// (POST /activities/relink-thread)
+	RelinkThread(w http.ResponseWriter, r *http.Request, params RelinkThreadParams)
 	// Archive (soft-delete) an activity.
 	// (DELETE /activities/{id})
 	ArchiveActivity(w http.ResponseWriter, r *http.Request, id Id, params ArchiveActivityParams)
@@ -37642,6 +37760,18 @@ func (_ Unimplemented) ListActivities(w http.ResponseWriter, r *http.Request, pa
 // Log an activity (the `log_activity` MCP verb).
 // (POST /activities)
 func (_ Unimplemented) LogActivity(w http.ResponseWriter, r *http.Request, params LogActivityParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Re-associate a named set of activities to a chosen record, in one transaction.
+// (POST /activities/relink-bulk)
+func (_ Unimplemented) RelinkActivities(w http.ResponseWriter, r *http.Request, params RelinkActivitiesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Re-associate every activity of one conversation thread to a chosen record, in one transaction.
+// (POST /activities/relink-thread)
+func (_ Unimplemented) RelinkThread(w http.ResponseWriter, r *http.Request, params RelinkThreadParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40698,6 +40828,104 @@ func (siw *ServerInterfaceWrapper) LogActivity(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.LogActivity(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RelinkActivities operation middleware
+func (siw *ServerInterfaceWrapper) RelinkActivities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RelinkActivitiesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RelinkActivities(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RelinkThread operation middleware
+func (siw *ServerInterfaceWrapper) RelinkThread(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RelinkThreadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RelinkThread(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -61796,6 +62024,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities", wrapper.LogActivity)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/activities/relink-bulk", wrapper.RelinkActivities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/activities/relink-thread", wrapper.RelinkThread)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/activities/{id}", wrapper.ArchiveActivity)

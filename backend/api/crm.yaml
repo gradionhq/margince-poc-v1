@@ -3977,6 +3977,72 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /activities/relink-thread:
+    post:
+      tags: [Activities]
+      operationId: relinkThread
+      summary: Re-associate every activity of one conversation thread to a chosen record, in one transaction.
+      description: |
+        The thread twin of `relinkActivity`: the same association applied to every non-archived
+        activity carrying `thread_key` that the caller may write. A mis-filed conversation is
+        usually mis-filed whole, and one call here is the remedy rather than one call per message.
+        Each moved activity gets its own `audit_log` row (`activity_relink`) and its own
+        `activity.updated` event, exactly as the single relink writes them; filing under a project
+        stamps each one as commercial correspondence the same way. An activity in the thread the
+        caller cannot write is left where it is and is not counted — the response says how many
+        moved and which. An activity already carrying the link is not counted either (the single
+        relink's idempotency, per row). All rows commit together or none do.
+      x-mcp-tool: { verb: relink_thread, record_type: activity, tier: dynamic, tier_resolver: destination_record_type, confirmation_required_when: 'entity_type is project — filing under a project classifies every activity in the thread as commercial correspondence, which is write-once and cannot be undone by relinking away', scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RelinkThreadRequest' }
+      responses:
+        '200':
+          description: How many activities moved, and which.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelinkBatchResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /activities/relink-bulk:
+    post:
+      tags: [Activities]
+      operationId: relinkActivities
+      summary: Re-associate a named set of activities to a chosen record, in one transaction.
+      description: |
+        The explicit-id twin of `relinkThread`, for a selection that is not one conversation. The
+        caller names up to 500 activities; each is relinked exactly as `relinkActivity` would
+        relink it, with its own `audit_log` row and `activity.updated` event. Unlike the thread
+        form, every named id must be one the caller can see and write: an id outside the caller's
+        sight answers `404` and one they may read but not write answers `403`, and in either case
+        NOTHING moves — the whole set is one transaction. An activity already carrying the link is
+        left as it is and not counted.
+      x-mcp-tool: { verb: relink_activities, record_type: activity, tier: dynamic, tier_resolver: destination_record_type, confirmation_required_when: 'entity_type is project — filing under a project classifies every named activity as commercial correspondence, which is write-once and cannot be undone by relinking away', scope: write }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RelinkActivitiesRequest' }
+      responses:
+        '200':
+          description: How many activities moved, and which.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelinkBatchResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /activities/{id}/transcript-proposals:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -21161,6 +21227,56 @@ components:
         activity_id: { type: string, format: uuid }
         entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
+
+    RelinkThreadRequest:
+      type: object
+      description: |
+        The destination for every writable, non-archived activity of one conversation thread.
+        `entity_type`/`entity_id`/`replace_existing_of_type` mean exactly what they mean on
+        `relinkActivity`.
+      required: [thread_key, entity_type, entity_id]
+      properties:
+        thread_key: { type: string, minLength: 1, maxLength: 512, description: 'The conversation key the activities carry (`Activity.thread_key`, also the `thread_key` list filter).' }
+        entity_type: { $ref: '#/components/schemas/RelinkDestinationType' }
+        entity_id: { type: string, format: uuid }
+        replace_existing_of_type:
+          type: boolean
+          default: false
+          description: When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+
+    RelinkActivitiesRequest:
+      type: object
+      description: |
+        The destination for a named set of activities. Every id must be one the caller can see and
+        write, or the whole request is refused and nothing moves.
+      required: [activity_ids, entity_type, entity_id]
+      properties:
+        activity_ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { type: string, format: uuid }
+        entity_type: { $ref: '#/components/schemas/RelinkDestinationType' }
+        entity_id: { type: string, format: uuid }
+        replace_existing_of_type:
+          type: boolean
+          default: false
+          description: When true, replaces each activity's existing link of the same entity_type (move) rather than adding (associate).
+
+    RelinkBatchResult:
+      type: object
+      required: [relinked, activity_ids]
+      properties:
+        relinked: { type: integer, description: 'Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted.' }
+        activity_ids:
+          type: array
+          description: The ids counted in `relinked`, in the order they were written.
+          items: { type: string, format: uuid }
+
+    RelinkDestinationType:
+      type: string
+      description: The record kinds an activity may be filed under.
+      enum: [person, organization, deal, lead, project]
 
     ActivityLinkInput:
       type: object

@@ -91,14 +91,21 @@ function useSearchTargets() {
 // A 🟢 internal association (no autonomy dot): move or also-link a captured
 // activity's typed link to the right person/org/deal/lead. Idempotent on the
 // backend — re-relinking the same target is a no-op that still answers 200.
+// `threadKey` is the activity's conversation key when it has one. With it the
+// dialog offers to move the whole thread through `relinkThread`, which applies
+// this same association to every message of the conversation the rep may
+// edit, in one transaction — a mis-filed conversation is usually mis-filed
+// whole.
 export function RelinkModal({
   activityId,
+  threadKey,
   entityType,
   entityId,
   open,
   onClose,
 }: Readonly<{
   activityId: string;
+  threadKey?: string | null;
   entityType: RelinkKind;
   entityId: string;
   open: boolean;
@@ -109,6 +116,7 @@ export function RelinkModal({
   const { search, kindOf } = useSearchTargets();
   const [target, setTarget] = useState<RecordPickerCandidate | null>(null);
   const [replace, setReplace] = useState(false);
+  const [wholeThread, setWholeThread] = useState(false);
 
   // The picked target arrives as the mutation's variable: read through this
   // closure it would be the one from the render before the confirm was
@@ -121,6 +129,19 @@ export function RelinkModal({
       const kind = kindOf(target.id);
       if (!kind) {
         throwProblem({ title: t("compose.relinkTarget") });
+      }
+      if (threadKey && wholeThread) {
+        const { data, error } = await api.POST("/activities/relink-thread", {
+          params: { header: { "Idempotency-Key": crypto.randomUUID() } },
+          body: {
+            thread_key: threadKey,
+            entity_type: kind,
+            entity_id: target.id,
+            replace_existing_of_type: replace,
+          },
+        });
+        if (error) throwProblem(error);
+        return data;
       }
       const { data, error } = await api.POST("/activities/{id}/relink", {
         params: {
@@ -169,6 +190,17 @@ export function RelinkModal({
           onChange={(event) => setReplace(event.target.checked)}
         />
         <p className="t-caption">{t("compose.relinkReplaceHint")}</p>
+        {threadKey && (
+          <>
+            <Checkbox
+              className="t-body"
+              label={t("compose.relinkThread")}
+              checked={wholeThread}
+              onChange={(event) => setWholeThread(event.target.checked)}
+            />
+            <p className="t-caption">{t("compose.relinkThreadHint")}</p>
+          </>
+        )}
       </div>
     </ConfirmModal>
   );
@@ -1652,6 +1684,7 @@ export function TimelineActions({
       {relink && (
         <RelinkModal
           activityId={activity.id}
+          threadKey={activity.thread_key}
           entityType={entityType}
           entityId={entityId}
           open={relink}

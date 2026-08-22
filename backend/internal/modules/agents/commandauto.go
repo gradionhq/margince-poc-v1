@@ -128,20 +128,21 @@ type RelinkActivityCommand struct {
 }
 
 // NewRelinkActivityCall binds one re-association to the resolver that answers
-// for it.
+// for it, wrapped in the destination-tier question every relink door shares.
 //
 //nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewRelinkActivityCall(records datasource.SystemOfRecordProvider, cmd RelinkActivityCommand) GovernedCall {
-	return relinkActivityCall{
+	return destinationTieredCall{
 		GovernedCall: bind[RelinkActivityCommand](&relinkActivityResolver{
 			activity: anchoredRecord{records: records, entityType: datasource.EntityActivity},
 		}, cmd),
-		cmd: cmd,
+		entityType: cmd.EntityType,
 	}
 }
 
-// relinkActivityCall is the bound re-association plus the one question this
-// operation's tier turns on: WHICH KIND of record it files the activity under.
+// destinationTieredCall is a bound relink — of one activity, a thread, or a
+// named set — plus the one question this family's tier turns on: WHICH KIND
+// of record it files the activities under.
 //
 // Every destination but one is an ordinary association a member can undo by
 // relinking again. Filing under a PROJECT is not: it classifies the activity as
@@ -151,9 +152,11 @@ func NewRelinkActivityCall(records datasource.SystemOfRecordProvider, cmd Relink
 // controller's release path. An agent that could do that unattended could put a
 // six-year retention floor across a mailbox with nothing to undo it, which is a
 // denial of the subject's Art. 17 right that the controller cannot reverse.
-type relinkActivityCall struct {
+// The batch doors are the same decision at scale, so they share this wrapper
+// rather than each spelling the question again.
+type destinationTieredCall struct {
 	GovernedCall
-	cmd RelinkActivityCommand
+	entityType string
 }
 
 // tierInput shows the gate the destination type. Nothing here reads a record:
@@ -165,8 +168,8 @@ type relinkActivityCall struct {
 // implements dynamicTierCall, whose other implementation resolves a tier from
 // records it must read. Narrowing it here would put the seam's two sides on
 // different shapes for the sake of one call that happens not to need it.
-func (c relinkActivityCall) tierInput(context.Context, json.RawMessage) (mcp.TierResolverInput, error) { //nolint:unparam // the shape is dynamicTierCall's, not this call's
-	return mcp.TierResolverInput{Args: relinkTierArgsFor(c.cmd.EntityType)}, nil
+func (c destinationTieredCall) tierInput(context.Context, json.RawMessage) (mcp.TierResolverInput, error) { //nolint:unparam // the shape is dynamicTierCall's, not this call's
+	return mcp.TierResolverInput{Args: relinkTierArgsFor(c.entityType)}, nil
 }
 
 // relinkTierArgs is the shape relinkActivityTier reads. It carries the

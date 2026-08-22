@@ -2222,6 +2222,9 @@ export const en = {
   "compose.relinkReplaceHint":
     "Replaces the existing link of the same type rather than adding another.",
   "compose.relinkConfirm": "Relink",
+  "compose.relinkThread": "Also move the rest of this conversation",
+  "compose.relinkThreadHint":
+    "Every message in this thread you can edit moves with it, in one step.",
   "compose.emptyRecipients": "Add at least one recipient.",
   "compose.removeRecipient": "Remove {recipient}",
   "compose.actionFailed": "The request failed. Please try again.",

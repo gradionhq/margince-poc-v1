@@ -89,15 +89,28 @@ var createTaskCopy = toolCopy{
 }
 
 var relinkActivityCopy = toolCopy{
-	Purpose: "Fix what an already-recorded activity is about, when a captured mail or meeting " +
-		"landed on the wrong record or on none.",
-	Limits: "It changes only the association. The activity's own content — subject, body, when it " +
-		"happened — is untouched, and by default the new link is ADDED alongside any existing " +
-		"one rather than replacing it.",
-	Instead: "Use log_activity when the event is not recorded at all yet; this tool moves an " +
-		"existing one.",
-	Retain: "Set replace_existing_of_type when you mean to move the activity rather than " +
-		"associate it with one more record.",
+	Purpose: "Fix what a recorded activity is about, when a captured mail or meeting landed on " +
+		"the wrong record or on none.",
+	Limits: "Changes only the association; content is untouched. By default the new link is " +
+		"ADDED beside existing ones.",
+	Instead: "log_activity records an event not recorded yet; relink_thread moves a whole " +
+		"conversation; relink_activities a picked set.",
+	Retain: "Set replace_existing_of_type to move rather than associate.",
+}
+
+var relinkThreadCopy = toolCopy{
+	Purpose: "Move one whole conversation (by thread_key) onto a record, in one transaction.",
+	Limits: "Moves only activities you may write; the rest stay, uncounted. A project " +
+		"destination needs a human.",
+	Instead: "relink_activity moves one message.",
+	Retain:  "The answer lists the ids moved.",
+}
+
+var relinkActivitiesCopy = toolCopy{
+	Purpose: "Move up to 500 named activities onto one record, all or nothing.",
+	Limits:  "Each id must be visible and writable to you. A project destination needs a human.",
+	Instead: "relink_thread moves one conversation.",
+	Retain:  "The answer lists the ids moved.",
 }
 
 var archiveRecordCopy = toolCopy{

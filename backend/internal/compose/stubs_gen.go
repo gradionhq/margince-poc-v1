@@ -31,6 +31,14 @@ func (stubs) LogActivity(w nethttp.ResponseWriter, r *nethttp.Request, params cr
 	httperr.NotImplemented(w, r, "LogActivity")
 }
 
+func (stubs) RelinkActivities(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.RelinkActivitiesParams) {
+	httperr.NotImplemented(w, r, "RelinkActivities")
+}
+
+func (stubs) RelinkThread(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.RelinkThreadParams) {
+	httperr.NotImplemented(w, r, "RelinkThread")
+}
+
 func (stubs) ArchiveActivity(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveActivityParams) {
 	httperr.NotImplemented(w, r, "ArchiveActivity")
 }

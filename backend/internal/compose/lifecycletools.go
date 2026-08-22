@@ -43,6 +43,41 @@ func (a activityRelinker) RelinkActivity(
 	return json.Marshal(out)
 }
 
+// RelinkThread and RelinkActivities reach the store's batch doors, which
+// perform the single relink's guarded write per row; the count-and-ids answer
+// is marshalled here as the contract shape the REST route serves.
+func (a activityRelinker) RelinkThread(
+	ctx context.Context, threadKey string, entityType string, entityID ids.UUID, replaceExistingOfType bool,
+) (json.RawMessage, error) {
+	out, err := a.store.RelinkThread(ctx, threadKey, activities.RelinkActivityInput{
+		EntityType: entityType, EntityID: entityID, ReplaceExistingOfType: replaceExistingOfType,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(relinkBatchWire(out))
+}
+
+func (a activityRelinker) RelinkActivities(
+	ctx context.Context, activityIDs []ids.UUID, entityType string, entityID ids.UUID, replaceExistingOfType bool,
+) (json.RawMessage, error) {
+	out, err := a.store.RelinkActivities(ctx, activityIDs, activities.RelinkActivityInput{
+		EntityType: entityType, EntityID: entityID, ReplaceExistingOfType: replaceExistingOfType,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(relinkBatchWire(out))
+}
+
+// relinkBatchWire is the tool door's spelling of the REST handler's answer:
+// the same two members, the id list never nil.
+func relinkBatchWire(out activities.RelinkBatchResult) agents.RelinkBatchResult {
+	wire := agents.RelinkBatchResult{Relinked: len(out.ActivityIDs), ActivityIDs: make([]ids.UUID, 0, len(out.ActivityIDs))}
+	wire.ActivityIDs = append(wire.ActivityIDs, out.ActivityIDs...)
+	return wire
+}
+
 type leadDisqualifier struct{ store *people.Store }
 
 func (l leadDisqualifier) DisqualifyLead(ctx context.Context, id ids.UUID) (json.RawMessage, error) {

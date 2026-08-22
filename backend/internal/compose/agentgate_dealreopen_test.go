@@ -167,6 +167,19 @@ var wellFormedDynamicCalls = map[string]func(t *testing.T, stage ids.UUID) (*htt
 		return requestForRelink(t, ids.NewV7()),
 			[]byte(`{"entity_type":"person","entity_id":"` + ids.NewV7().String() + `"}`)
 	},
+	// The batch forms answer the same destination question off the same
+	// argument, with no routed id to carry.
+	"relinkThread": func(t *testing.T, _ ids.UUID) (*http.Request, []byte) {
+		t.Helper()
+		return httptest.NewRequest(http.MethodPost, "/v1/activities/relink-thread", http.NoBody),
+			[]byte(`{"thread_key":"thread-1","entity_type":"person","entity_id":"` + ids.NewV7().String() + `"}`)
+	},
+	"relinkActivities": func(t *testing.T, _ ids.UUID) (*http.Request, []byte) {
+		t.Helper()
+		return httptest.NewRequest(http.MethodPost, "/v1/activities/relink-bulk", http.NoBody),
+			[]byte(`{"activity_ids":["` + ids.NewV7().String() + `"],"entity_type":"person","entity_id":"` +
+				ids.NewV7().String() + `"}`)
+	},
 }
 
 // requestForRelink builds a request whose chi route context carries the id the

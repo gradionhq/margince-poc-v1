@@ -6,6 +6,8 @@ package activities
 import (
 	"net/http"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -63,6 +65,62 @@ func (h Handlers) RelinkActivity(w http.ResponseWriter, r *http.Request, id crmc
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, activity)
+}
+
+// RelinkThread moves every writable activity of one conversation in one
+// transaction; the count and the ids are the answer.
+func (h Handlers) RelinkThread(w http.ResponseWriter, r *http.Request, _ crmcontracts.RelinkThreadParams) {
+	var req crmcontracts.RelinkThreadRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	out, err := h.store.RelinkThread(r.Context(), req.ThreadKey, RelinkActivityInput{
+		EntityType:            string(req.EntityType),
+		EntityID:              ids.UUID(req.EntityId),
+		ReplaceExistingOfType: req.ReplaceExistingOfType != nil && *req.ReplaceExistingOfType,
+	})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, relinkBatchWire(out))
+}
+
+// RelinkActivities moves a named set of activities in one transaction, or
+// none of them.
+func (h Handlers) RelinkActivities(w http.ResponseWriter, r *http.Request, _ crmcontracts.RelinkActivitiesParams) {
+	var req crmcontracts.RelinkActivitiesRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	activityIDs := make([]ids.UUID, 0, len(req.ActivityIds))
+	for _, id := range req.ActivityIds {
+		activityIDs = append(activityIDs, ids.UUID(id))
+	}
+	out, err := h.store.RelinkActivities(r.Context(), activityIDs, RelinkActivityInput{
+		EntityType:            string(req.EntityType),
+		EntityID:              ids.UUID(req.EntityId),
+		ReplaceExistingOfType: req.ReplaceExistingOfType != nil && *req.ReplaceExistingOfType,
+	})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, relinkBatchWire(out))
+}
+
+// relinkBatchWire projects the store's answer onto the contract shape. The id
+// list is never nil on the wire: a move that touched nothing still answers
+// `[]`, and a client counting it must not have to special-case null.
+func relinkBatchWire(out RelinkBatchResult) crmcontracts.RelinkBatchResult {
+	wire := crmcontracts.RelinkBatchResult{
+		Relinked:    len(out.ActivityIDs),
+		ActivityIds: make([]openapi_types.UUID, 0, len(out.ActivityIDs)),
+	}
+	for _, id := range out.ActivityIDs {
+		wire.ActivityIds = append(wire.ActivityIds, openapi_types.UUID(id))
+	}
+	return wire
 }
 
 func (h Handlers) SetActivityAudience(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.SetActivityAudienceParams) {
