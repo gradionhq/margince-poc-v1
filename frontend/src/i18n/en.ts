@@ -2115,6 +2115,27 @@ export const en = {
   "docs.category.email": "Email attachment",
   "docs.category.message": "Message attachment",
   "docs.category.other": "Other",
+  "files.title": "Files",
+  "files.sub":
+    "What you uploaded on this deal, and what arrived with its emails and messages.",
+  "files.empty":
+    "No files on this deal yet. Upload one, or link an email that carries one.",
+  "files.origin": "Attachment of a message from {who}, {when}",
+  "files.originUnknown": "an unknown sender",
+  "files.uploaded": "Uploaded {when}",
+  "files.hiddenBadge": "Hidden",
+  "files.rowActions": "Actions for {name}",
+  "files.hide": "Hide from this deal",
+  "files.unhide": "Show on this deal again",
+  "files.delete": "Delete",
+  "files.hideTitle": "Hide {name} from this deal?",
+  "files.hideBody":
+    "The message and its attachment stay on the activity and in the company library. Only this deal stops listing it.",
+  "files.deleteTitle": "Delete {name}?",
+  "files.deleteBody":
+    "The file is removed from this deal. A Deal Room release that names it keeps serving it until the room is published again.",
+  "files.showHidden": "Show hidden files",
+  "files.hideHidden": "Hide the hidden files",
   "docs.state.draft": "Draft",
   "docs.state.current": "Current",
   "docs.state.final": "Final",

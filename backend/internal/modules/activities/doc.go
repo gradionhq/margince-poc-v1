@@ -8,7 +8,8 @@
 // datasource provider, flat per ADR-0054 §3.
 //
 // Tables owned: activity, activity_link, activity_audience_member,
-// activity_retention_evidence, transcript_read, attachment_extraction.
+// activity_retention_evidence, transcript_read, attachment_extraction,
+// deal_document_hide.
 //
 // transcript_read is the run record for reading a meeting transcript for
 // the next steps in it (S-E04.3): the POST answers 202 with its id and the
