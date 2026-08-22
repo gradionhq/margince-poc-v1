@@ -91,7 +91,7 @@ func createTaskTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in Crea
 	}
 
 	if _, err := storekit.Audit(ctx, tx, "create", taskObject, id.UUID, nil,
-		map[string]any{fieldRoomID: roomID.UUID, "side": in.Side, columnTitle: in.Title}); err != nil {
+		map[string]any{fieldRoomID: roomID.UUID, fieldSide: in.Side, columnTitle: in.Title}); err != nil {
 		return crmcontracts.DealRoomTask{}, fmt.Errorf("audit deal room task create: %w", err)
 	}
 	return readTask(ctx, tx, roomID, id)

@@ -54,7 +54,7 @@ func cleanBody(body string) (string, error) {
 		return "", &fieldError{field: "body", code: codeRequired, msg: "a comment needs some words"}
 	}
 	if len(trimmed) > commentLimit {
-		return "", &fieldError{field: "body", code: "too_long", msg: fmt.Sprintf("a comment is at most %d characters", commentLimit)}
+		return "", &fieldError{field: "body", code: codeTooLong, msg: fmt.Sprintf("a comment is at most %d characters", commentLimit)}
 	}
 	return trimmed, nil
 }
@@ -172,7 +172,7 @@ func postCommentTx(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, a
 		return fmt.Errorf("insert deal room comment: %w", err)
 	}
 	auditID, err := storekit.Audit(ctx, tx, "create", commentObject, commentID, nil,
-		map[string]any{fieldRoomID: ids.UUID(room.Id), "thread_id": at.threadID, "side": by.side()})
+		map[string]any{fieldRoomID: ids.UUID(room.Id), "thread_id": at.threadID, fieldSide: by.side()})
 	if err != nil {
 		return fmt.Errorf("audit deal room comment: %w", err)
 	}

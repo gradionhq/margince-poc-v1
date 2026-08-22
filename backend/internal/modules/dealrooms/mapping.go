@@ -132,7 +132,7 @@ func refuseOverlongName(name string) error {
 	if len([]rune(name)) > nameLimit {
 		return &fieldError{
 			field: "full_name",
-			code:  "too_long",
+			code:  codeTooLong,
 			msg:   "full_name is longer than 255 characters",
 		}
 	}

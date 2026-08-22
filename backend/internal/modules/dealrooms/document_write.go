@@ -76,7 +76,7 @@ func addDocumentTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in Add
 		return crmcontracts.DealRoomDocument{}, fmt.Errorf("insert deal room document: %w", err)
 	}
 	if _, err := storekit.Audit(ctx, tx, "create", documentObject, id.UUID, nil,
-		map[string]any{fieldRoomID: roomID.UUID, "attachment_id": in.AttachmentID, "group_key": in.GroupKey, columnTitle: title}); err != nil {
+		map[string]any{fieldRoomID: roomID.UUID, fieldAttachmentID: in.AttachmentID, "group_key": in.GroupKey, columnTitle: title}); err != nil {
 		return crmcontracts.DealRoomDocument{}, fmt.Errorf("audit deal room document add: %w", err)
 	}
 	return readDocument(ctx, tx, roomID, id)
@@ -186,7 +186,7 @@ func (s *Store) RemoveDocument(ctx context.Context, roomID ids.DealRoomID, id id
 			return fmt.Errorf("remove deal room document: %w", err)
 		}
 		if _, err := storekit.Audit(ctx, tx, "archive", documentObject, id.UUID,
-			map[string]any{columnTitle: current.Title, "attachment_id": current.AttachmentId}, p.After()); err != nil {
+			map[string]any{columnTitle: current.Title, fieldAttachmentID: current.AttachmentId}, p.After()); err != nil {
 			return fmt.Errorf("audit deal room document remove: %w", err)
 		}
 		out, err = readArchivedDocument(ctx, tx, roomID, id)

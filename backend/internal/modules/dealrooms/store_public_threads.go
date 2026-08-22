@@ -194,7 +194,7 @@ func recordDecisionTx(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom
 		return crmcontracts.DealRoomDecision{}, fmt.Errorf("insert deal room decision: %w", err)
 	}
 	auditID, err := storekit.Audit(ctx, tx, "create", decisionObject, id, nil,
-		map[string]any{fieldRoomID: sess.RoomID.UUID, "document_id": documentID, "attachment_id": attachmentID, "kind": kind})
+		map[string]any{fieldRoomID: sess.RoomID.UUID, "document_id": documentID, fieldAttachmentID: attachmentID, "kind": kind})
 	if err != nil {
 		return crmcontracts.DealRoomDecision{}, fmt.Errorf("audit deal room decision: %w", err)
 	}
