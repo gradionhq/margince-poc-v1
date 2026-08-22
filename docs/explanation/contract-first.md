@@ -1,9 +1,10 @@
 # Contract-first
 
-This repository is built **from** a specification that lives in a
-separate sibling repo. Principle P3 is binding: when this
-code and the spec disagree, the spec wins. The same posture applies one
-level down, between the code and its own API contract.
+This repository is not built from a specification that outranks it. What the
+product exposes is defined by `backend/api/crm.yaml` and the Go generated from
+it — see [the record is the code](../principles/the-record-is-the-code.md) for
+the precedence order that replaced the older arrangement. This page is how that
+contract becomes Go, and why drift is merge-blocking.
 
 ## The contract is the source of truth
 

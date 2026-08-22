@@ -76,6 +76,21 @@ A decision number (`ADR-0054`) may appear as a label, but never cite it as
 though a reader could open it — the records are not in this tree. Write the rule
 itself out here, where a public contributor can read it.
 
+**[docs/principles/](docs/principles/README.md) explains these rules** — six
+pages, one per principle, each naming the rulebook section it explains, the
+method for checking the tree still holds it, and what it explicitly does not ask
+for. That is the PUBLIC explanation and the audit method, which is a different
+thing from the private decision rationale described above: a principle page
+tells you how to check a rule, not why the team chose it.
+
+The binding short form stays in the rulebooks, and specifically in `AGENTS.md`:
+`cli/craft` feeds the whole nearest `AGENTS.md` into its gate prompt, so a rule
+relocated to `docs/` stops reaching the gate. Read a principle when you need to
+know *why* a rule is shaped the way it is, or when you are auditing a subsystem
+against it rather than obeying it on one diff —
+[one-source-of-truth.md](docs/principles/one-source-of-truth.md) carries the
+six-probe scan for finding a capability that got built twice.
+
 **Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
 Read its *Open work, in one screen* index first and open only the sections that
 bear on your change; the file is not meant to be read end to end. Update it at
@@ -440,8 +455,8 @@ rules, each of them here because this tree has already paid for it.
 grep its nouns across `backend/`, `frontend/src/` and `extensions/`. The
 duplicate is almost never in the package you are editing — that is precisely why
 it gets missed. The agent tool `prep_for_meeting` was written beside a working
-`compose/meetingbrief/` that a one-word grep would have found, and the two now
-answer one question with different grounding rules.
+`compose/meetingbrief/` that a one-word grep would have found, and the two
+answered one question with different grounding rules until a seam was written.
 
 **2. The tool surface and the web surface share ONE engine.** An MCP tool never
 re-derives what an HTTP handler already computes. The binding is a
@@ -472,9 +487,9 @@ an identifier a caller chose is an injection with a placeholder's manners.
 **4. A comment may not claim to be the only implementation unless a test holds
 it.** "the one spelling of X", "the only writer of Y", "the same anonymization
 the eraser performs" — if no test fails when a second one appears, delete the
-claim or write the test. Every such claim audited in this tree was false. A
-false uniqueness claim is worse than silence: the next author greps, finds it,
-and stops looking.
+claim or write the test. Nine of the ten claims counted in this tree were
+false. A false uniqueness claim is worse than silence: the next author greps,
+finds it, and stops looking.
 
 **Two writers of one invariant either share a helper or say why they do not.**
 If you are adding the second, put the reason in the code beside it, not in the
@@ -526,9 +541,10 @@ your push.
   are 80 CODE lines / 500 file lines for product code and 160 / 1000 for `*_test.go`
   — a long scenario test that sets up, acts and asserts once is not the
   god-function smell, but a suite still splits when it stops being navigable.
-  A comment-only line is not length: the ceiling asks how much a reader must hold
-  at once, and an explanation reduces that. The whole-tree file-length check in
-  `scripts/check-go-file-length.sh` counts the same way.
+  A comment-only line is not length for the FUNCTION ceiling: it asks how much a
+  reader must hold at once, and an explanation reduces that. The whole-tree file
+  check in `scripts/check-go-file-length.sh` is a plain `wc -l` and counts every
+  line, with a ratchet file freezing each pre-existing offender.
 - A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
   (a reasonless waiver is itself a finding).
 
