@@ -140,7 +140,7 @@ func (w *geocodeBackfillWorker) sweepOneWorkspace(ctx context.Context, ws ids.UU
 	store := people.NewStore(database.Bind(w.pool, func(context.Context) (ids.WorkspaceID, error) {
 		return ids.From[ids.WorkspaceKind](ws), nil
 	}))
-	due, err := store.ListNeverGeocoded(wsCtx, people.GeocodeBackfillBatch)
+	due, err := store.ListGeocodeOrphans(wsCtx, people.GeocodeBackfillBatch)
 	if err != nil {
 		return 0, err
 	}

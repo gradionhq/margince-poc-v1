@@ -40,7 +40,8 @@ import (
 // would sit behind an address a person edited and is waiting on.
 const GeocodeBackfillBatch = 50
 
-// ListNeverGeocoded answers which companies have an address and no answer.
+// ListGeocodeOrphans answers which companies have an address and no coordinates
+// coming.
 //
 // NEVER-ASKED only, deliberately. A row with any geocode_status has been
 // through the worker and carries its own retry ledger — `failed` waits for its
@@ -48,10 +49,18 @@ const GeocodeBackfillBatch = 50
 // re-nominated those would spend the installation's rate on questions already
 // answered, and would defeat the backoff by asking again every pass.
 //
-// `stale` is not swept either: the trigger sets it in the same transaction as
-// the address write that also queues the lookup, so a stale row already has a
-// job coming.
-func (s *Store) ListNeverGeocoded(ctx context.Context, limit int) ([]ids.OrganizationID, error) {
+// `stale` IS swept, and that is not symmetry — it closes an orphan. The
+// trigger marks a row stale on any address column that changes, but only the
+// update path pairs that with an enqueue. The site-read profile apply writes
+// address_line1 through table-driven SQL with no seam to carry a callback
+// (company.go), so a company whose address arrives from its own website is
+// marked stale with nothing coming to resolve it, and its old coordinates are
+// gone. Without this it would sit that way forever.
+//
+// Re-nominating a stale row costs nothing when a job IS already coming: the
+// insert deduplicates by args across every active state, so the sweep's
+// nomination collapses into the one the write queued.
+func (s *Store) ListGeocodeOrphans(ctx context.Context, limit int) ([]ids.OrganizationID, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return nil, err
 	}
@@ -64,7 +73,7 @@ func (s *Store) ListNeverGeocoded(ctx context.Context, limit int) ([]ids.Organiz
 			SELECT o.id
 			  FROM organization o
 			 WHERE o.archived_at IS NULL
-			   AND o.geocode_status IS NULL
+			   AND (o.geocode_status IS NULL OR o.geocode_status = 'stale')
 			   -- The same bar locatable() holds a written address to: a country
 			   -- on its own is not a place a distance can be measured from, and
 			   -- nominating one spends a lookup to learn nothing.

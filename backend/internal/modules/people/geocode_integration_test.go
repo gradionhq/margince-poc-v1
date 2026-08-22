@@ -128,9 +128,9 @@ func TestTheSweepFindsCompaniesNoWriteWillEverReach(t *testing.T) {
 		t.Fatalf("seeding a company with no address: %v", err)
 	}
 
-	due, err := e.store.ListNeverGeocoded(ctx, GeocodeBackfillBatch)
+	due, err := e.store.ListGeocodeOrphans(ctx, GeocodeBackfillBatch)
 	if err != nil {
-		t.Fatalf("ListNeverGeocoded: %v", err)
+		t.Fatalf("ListGeocodeOrphans: %v", err)
 	}
 	wantID := ids.From[ids.OrganizationKind](ids.UUID(located.Id))
 	if !slices.Contains(due, wantID) {
@@ -162,11 +162,68 @@ func TestTheSweepFindsCompaniesNoWriteWillEverReach(t *testing.T) {
 	if err := e.store.RecordGeocode(ctx, wantID, GeocodeNoMatch, nil, nil, "test", answered.InputHash); err != nil {
 		t.Fatalf("recording an answer: %v", err)
 	}
-	after, err := e.store.ListNeverGeocoded(ctx, GeocodeBackfillBatch)
+	after, err := e.store.ListGeocodeOrphans(ctx, GeocodeBackfillBatch)
 	if err != nil {
-		t.Fatalf("ListNeverGeocoded after an answer: %v", err)
+		t.Fatalf("ListGeocodeOrphans after an answer: %v", err)
 	}
 	if slices.Contains(after, wantID) {
 		t.Error("an answered company is still swept, so every pass re-asks a settled question")
+	}
+}
+
+// A company whose coordinates went stale with no job coming is swept.
+//
+// The trigger marks a row stale on any address column that changes, but only
+// the update path pairs that with an enqueue. The site-read profile apply
+// writes address_line1 through table-driven SQL with no seam to carry a
+// callback, so a company whose address arrives from its own website is marked
+// stale, loses its old point, and has nothing coming to resolve it. Without the
+// sweep it sits that way forever, invisible to within_radius and to anyone
+// looking for a reason.
+func TestAStaleCompanyWithNoJobComingIsSwept(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Moved GmbH", Source: "manual",
+		Address: &crmcontracts.Address{City: strPtr("Hamburg"), Country: strPtr("DE")},
+	})
+	if err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+
+	// Give it a point, the way the worker would.
+	located, ok, err := e.store.AddressForGeocode(ctx, orgID)
+	if err != nil || !ok {
+		t.Fatalf("AddressForGeocode: %v (ok=%v)", err, ok)
+	}
+	lat, lon := 53.5511, 9.9937
+	if err := e.store.RecordGeocode(ctx, orgID, GeocodeOK, &lat, &lon, "test", located.InputHash); err != nil {
+		t.Fatalf("recording a point: %v", err)
+	}
+	if swept, err := e.store.ListGeocodeOrphans(ctx, GeocodeBackfillBatch); err != nil {
+		t.Fatalf("ListGeocodeOrphans: %v", err)
+	} else if slices.Contains(swept, orgID) {
+		t.Fatal("a located company is swept, so the pass re-asks what it already knows")
+	}
+
+	// Move it. The store's update path enqueues as well as marking stale, and
+	// this environment wires no enqueue — which is exactly the orphan shape the
+	// site-read apply produces in production, where the column is written
+	// through table-driven SQL with no seam to carry a callback. Either way the
+	// row ends up stale with nothing coming, and the sweep is what finds it.
+	if _, err := e.store.UpdateOrganization(ctx, orgID, UpdateOrganizationInput{
+		Address: &crmcontracts.Address{City: strPtr("München"), Country: strPtr("DE")},
+	}); err != nil {
+		t.Fatalf("moving the company: %v", err)
+	}
+	swept, err := e.store.ListGeocodeOrphans(ctx, GeocodeBackfillBatch)
+	if err != nil {
+		t.Fatalf("ListGeocodeOrphans after the move: %v", err)
+	}
+	if !slices.Contains(swept, orgID) {
+		t.Error("a company marked stale by the trigger is not swept, so its coordinates " +
+			"are gone and nothing will ever replace them")
 	}
 }
