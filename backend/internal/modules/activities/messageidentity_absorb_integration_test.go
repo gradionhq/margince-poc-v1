@@ -19,9 +19,13 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // seedCapturedEcho writes the row the Gmail sync leaves behind when it re-reads
@@ -353,6 +357,50 @@ func TestAbsorbGivesTheSurvivorTheEchosProjectLinkWhenItHasNone(t *testing.T) {
 	}
 }
 
+// The copied project link CLASSIFIES the survivor, in the transaction that
+// copies it (D5). The survivor is a different activity from the echo, and until
+// the absorb runs it carries no classification at all — so a copy that files
+// without stamping leaves a Handelsbrief the next erasure destroys.
+//
+// The absorb runs inside a savepoint the reconcile rolls back on any fault, so
+// a broken stamp here does not surface as an error: the whole fold silently
+// does not happen. That is exactly how the first version of this shipped a
+// statement Postgres refuses, and why the assertion is on the CLASS rather than
+// on the absence of an error.
+func TestAbsorbStampsTheProjectLinkItCopies(t *testing.T) {
+	e := setupSend(t)
+	survivor := e.seedSentEmail(t, mintedIdentity)
+	echo := e.seedCapturedEcho(t)
+	theirs := e.seedProject(t, "Migration")
+	e.link(t, echo, "project", theirs)
+
+	e.reconcileAbsorbing(t, survivor)
+
+	var class, name *string
+	var evidence int
+	if err := e.owner.QueryRow(context.Background(), `
+		SELECT a.retention_class,
+		       (SELECT count(*) FROM activity_retention_evidence r
+		         WHERE r.activity_id = a.id AND r.basis = 'project_linked'),
+		       (SELECT max(r.project_name) FROM activity_retention_evidence r
+		         WHERE r.activity_id = a.id AND r.basis = 'project_linked')
+		  FROM activity a WHERE a.id = $1`, survivor).Scan(&class, &evidence, &name); err != nil {
+		t.Fatalf("reading the survivor's stamp: %v", err)
+	}
+	if class == nil {
+		t.Fatal("the absorb filed the survivor under a project and left it unclassified — an unstamped Handelsbrief is one the next erasure destroys")
+	}
+	if *class != "commercial_correspondence" {
+		t.Errorf("retention_class = %q, want commercial_correspondence", *class)
+	}
+	if evidence != 1 {
+		t.Errorf("project_linked evidence rows = %d, want 1", evidence)
+	}
+	if name == nil || *name != "Migration" {
+		t.Errorf("evidence project_name = %v, want the name frozen when the link landed, not at erasure time", name)
+	}
+}
+
 // WHO the absorb may fold in is not "whoever holds the identity". The identity
 // is parsed out of a remote provider's response, so a hostile or corrupted
 // answer would otherwise get to nominate any Gmail-captured row in the
@@ -432,5 +480,98 @@ func TestAbsorbRePointsAQueuedCounterpartyReview(t *testing.T) {
 	}
 	if on != survivor {
 		t.Errorf("the queued review points at %s, want the surviving send %s", on, survivor)
+	}
+}
+
+// Filing under a project takes activity.UPDATE, not merely activity.CREATE —
+// on BOTH doors, which is the point of the test.
+//
+// The capture ladder has always refused to attribute for a principal that may
+// create captured mail but not change it. The create door had no such check, so
+// once filing under a project began writing a write-once six-year retention
+// mark, the cheaper grant became the cheaper way in. Two doors onto one act
+// must not disagree about who may perform it.
+//
+// A person link in the same body still lands on the create grant alone: the
+// rule is about what a PROJECT link means, not about links in general.
+func TestFilingUnderAProjectNeedsTheUpdateGrantNotJustCreate(t *testing.T) {
+	e := setupSend(t)
+	project := e.seedProject(t, "Migration")
+	person := e.seedPerson(t, "Dieter")
+
+	createOnly := principal.WithActor(
+		principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.ws), ids.NewV7()),
+		principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + e.rep.String(), UserID: e.rep,
+			Permissions: principal.Permissions{
+				RoleKeys: []string{"rep"},
+				Objects: map[string]principal.ObjectGrant{
+					"activity": {Create: true, Read: true},
+					"person":   {Read: true},
+					"project":  {Read: true},
+				},
+				RowScope: principal.RowScopeAll,
+			},
+		})
+
+	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
+	filed, ordinary := "Milestone 3", "Ordinary note"
+	_, _, err := store.LogActivity(createOnly, LogActivityInput{
+		Kind: "note", Subject: &filed,
+		Links: []ActivityLinkInput{{EntityType: "project", EntityID: project}},
+	})
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("logging an activity filed under a project on the CREATE grant alone returned %v, want permission denied — the create door must not be the cheap way to write an irreversible retention mark", err)
+	}
+
+	// The same grant still logs an ordinary activity: the refusal is about the
+	// project link, not about creating a row.
+	if _, _, err := store.LogActivity(createOnly, LogActivityInput{
+		Kind: "note", Subject: &ordinary,
+		Links: []ActivityLinkInput{{EntityType: "person", EntityID: person}},
+	}); err != nil {
+		t.Errorf("logging an ordinary person-linked activity on the create grant failed: %v — the gate is meant to narrow one link type, not the verb", err)
+	}
+}
+
+// THE HOLE log_activity STILL LEAVES, pinned as a test so it is a known
+// measured exposure rather than a thing somebody rediscovers.
+//
+// insertActivityLinks requires activity.UPDATE for a project link, which stops
+// the CREATE-only caller. It does NOT stop a caller who holds UPDATE — and
+// log_activity is auto_execute on the agent surface, so a passport with
+// activity:update mints a write-once six-year retention mark per call with no
+// human in the loop. relink_activity was raised to confirm-first for exactly
+// this act; the create door was not, because log_activity is named by the
+// overnight_at_risk_sweep and a dynamic tier there would let a scheduled run
+// suspend while the AI projection still reports it as `running`.
+//
+// Closing it needs either a suspended-run state on that projection (with copy
+// in en/de/vi) or the sweep restricted — a product decision, tracked rather
+// than made inside a retention change.
+//
+// This test asserts what is TRUE TODAY. When the hole is closed it will fail,
+// which is the intent: the fix should have to come here and say so.
+func TestLogActivityStillWritesTheMarkOnTheUpdateGrantAlone(t *testing.T) {
+	e := setupSend(t)
+	project := e.seedProject(t, "Migration")
+
+	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
+	subject := "Filed by an agent"
+	activity, _, err := store.LogActivity(e.as(principal.RowScopeAll), LogActivityInput{
+		Kind: "note", Subject: &subject,
+		Links: []ActivityLinkInput{{EntityType: "project", EntityID: project}},
+	})
+	if err != nil {
+		t.Fatalf("logging an activity filed under a project on the update grant: %v", err)
+	}
+
+	var class *string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT retention_class FROM activity WHERE id = $1`, activity.Id).Scan(&class); err != nil {
+		t.Fatalf("reading the class: %v", err)
+	}
+	if class == nil {
+		t.Fatal("the create door no longer writes the mark on the update grant — if that is deliberate, this test has done its job and should be replaced by one asserting the refusal")
 	}
 }

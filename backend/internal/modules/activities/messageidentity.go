@@ -283,7 +283,7 @@ func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamp
 	if err != nil {
 		return fmt.Errorf("activities: finding the captured echo of the sent message: %w", err)
 	}
-	if err := copyEchoLinks(ctx, tx, survivorID, echoID); err != nil {
+	if err := copyEchoLinks(ctx, tx, survivorID, echoID, StampCorrespondenceForProject); err != nil {
 		return err
 	}
 	if err := repointEchoReviews(ctx, tx, survivorID, echoID); err != nil {
@@ -316,7 +316,16 @@ func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamp
 // permits exactly one per activity WHATEVER the target: the link ladder decides
 // once and never overwrites, so the survivor's project wins rather than the
 // echo's replacing it.
-func copyEchoLinks(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.ActivityID) error {
+//
+// A project link it copies is STAMPED here, in this transaction, the way every
+// other writer of one stamps its own (D5). This is the fourth writer and the
+// easiest to miss, because it copies a link somebody else decided rather than
+// deciding one — but the survivor is a different activity, and until this runs
+// that activity carries no classification at all. Leaving it to the erasure's
+// legacy arm would still shield the row, and would freeze the project's name at
+// erasure time instead of at qualification, which is the whole point of
+// freezing it.
+func copyEchoLinks(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.ActivityID, stamp StampProject) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_link
 		  (activity_id, entity_type, person_id, organization_id, deal_id, lead_id, project_id)
@@ -337,8 +346,37 @@ func copyEchoLinks(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.Activi
 		survivorID, echoID); err != nil {
 		return fmt.Errorf("activities: giving the send the absorbed echo's timeline links: %w", err)
 	}
-	return nil
+	// Read the survivor's project link back rather than counting on the insert
+	// to report it: a multi-row insert's RETURNING yields one row per link and
+	// the project is at most one of several. This asks the question directly —
+	// which project does the survivor hold NOW — and answers the same whether
+	// the link arrived here or was already there. At most one row can come
+	// back: uq_activity_link_project admits one project link per activity.
+	var project ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT project_id FROM activity_link WHERE activity_id = $1 AND entity_type = 'project'`,
+		survivorID).Scan(&project)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Filed under no project, which is the ordinary answer for most mail.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("activities: reading the absorbed send's project filing: %w", err)
+	}
+	// Stamped unconditionally rather than only when the link is new: the stamp
+	// is idempotent (write-once class, ON CONFLICT evidence), and a survivor
+	// that already held the project was stamped by whoever filed it. Asking
+	// "did this insert add it" would be a second question with the worse
+	// failure mode — a missed stamp leaves a Handelsbrief an erasure destroys,
+	// a repeated one costs a no-op.
+	return stamp(ctx, tx, survivorID, project)
 }
+
+// StampProject is the shape of the correspondence stamp the link writers call.
+// Named so the echo path can take it as a parameter rather than reaching for
+// the package function directly — which is what lets a test prove the call
+// happens instead of proving the database ended up right for some other reason.
+type StampProject func(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, projectID ids.UUID) error
 
 // repointEchoReviews MOVES the echo's queued counterparty dispositions onto the
 // survivor — the one thing here that is moved rather than copied, because it is

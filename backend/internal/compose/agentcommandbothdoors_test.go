@@ -603,6 +603,15 @@ var dynamicTierVerbs = gatekit.Waive(map[string]string{
 		"states produce — what the two doors do share is the command itself, both decoding into " +
 		"AdvanceDealCommand{DealID, ToStageID} (advanceDealCommand in agentcommandlifecycle.go, " +
 		"advanceDeal.StageInfo in tools.go), which no test compares door-to-door today",
+	"relink_activity": "the tier turns on the DESTINATION TYPE in the arguments, not on any record, so a " +
+		"person relink executes where a project relink stages and this lane's fixture would compare a " +
+		"staged row only one destination produces. Unlike the deal move, both doors ARE compared, each " +
+		"against the shape it actually receives: TestRelinkingOntoAProjectReachesAHumanAndOtherDestinationsDoNot " +
+		"(agentgate_dealreopen_test.go) drives the REST door through tierInput, and " +
+		"TestRelinkTierReadsTheArgumentShapeTheToolActuallyDeclares (agents/tools_lifecycle_test.go) drives " +
+		"the MCP door through the tool's own InputSchema — that second one exists because relinkActivity is " +
+		"not a dynamicTool, so the registry hands the resolver raw tool arguments and the two spellings of " +
+		"`entity_type` are held together by nothing else",
 })
 
 // assertVerbResolvesItsTierPerCall holds an unwritten fixture to the one

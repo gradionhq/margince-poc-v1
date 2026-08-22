@@ -83,6 +83,22 @@ correspondence (a *Handelsbrief*) from destruction below it — while an interna
 not correspondence, carries no floor. A fitness test pins that boundary (a 400-day email survives; a
 same-age note is erased).
 
+**What qualifies correspondence as a *Handelsbrief*.** Two things, and both are recorded on the record
+itself the moment they happen rather than re-derived later:
+
+- **A deal it is filed under concludes** — won, or carrying an offer past draft.
+- **It is filed under a project.** A project is a commercial engagement from the moment it exists, so
+  its correspondence documents an actual transaction whether or not a deal on it has closed. This is
+  what reaches mail from a negotiation that was lost and from delivery work years after the deal that
+  started it — both of which the deal rule alone misses.
+
+**The mark is permanent, and moving the record does not remove it.** Relinking an activity away from
+the project, archiving the project, or closing it all leave the classification standing. The evidence
+behind it is frozen too: the project's name is copied at the moment it qualifies, so a later rename
+does not rewrite what the record says. Removing a mark takes a named person giving a written reason,
+through the controller's release path. The asymmetry is deliberate — over-retention is an argument to
+have with a supervisory authority, and destruction is irreversible.
+
 ## Where the code lives
 
 | | |

@@ -126,12 +126,28 @@ func restrictShieldedTimeline(ctx context.Context, tx pgx.Tx, personID ids.Perso
 }
 
 // stampLegacyHandelsbriefe gives a pre-stamp row the class and the evidence
-// it would have received had the stamp writer existed when its deal
-// qualified. It reads the links NOW because for these rows the links are the
-// only evidence there is — and it writes what it reads down, so from this
-// moment the record's own class decides its fate and the links may move.
-// One basis row per (deal, fact): a deal that is won AND carries a sent offer
-// is two facts, exactly as the stamp writer records them.
+// it would have received had the stamp writer existed when it qualified. It
+// reads the links NOW because for these rows the links are the only evidence
+// there is — and it writes what it reads down, so from this moment the
+// record's own class decides its fate and the links may move.
+//
+// One basis row per fact, not per row: a deal that is won AND carries a sent
+// offer is two facts, and an activity filed under both a qualifying deal and a
+// project is two more — exactly as the stamp writers record them.
+//
+// Every arm must stay in step with handelsbriefArm. A row this misses is a row
+// the restrict step selects as shielded and the
+// activity_restriction_needs_evidence trigger then refuses, failing the whole
+// erasure — so an arm missing here is not an under-stamped record, it is an
+// erasure that cannot run at all.
+//
+// The arms join the qualifying record where handelsbriefArm only tests the
+// link, which looks like a gap and is closed by the schema rather than by the
+// query: activity_link.deal_id and activity_link.project_id are both ON DELETE
+// CASCADE, so a link to a record that no longer exists is not a state the
+// database holds. Changing either to SET NULL would open exactly the divergence
+// above, which is why the dependency is written here and not left to be
+// rediscovered.
 func stampLegacyHandelsbriefe(ctx context.Context, tx pgx.Tx, args []any) error {
 	if _, err := tx.Exec(ctx, `
 		WITH legacy AS (
@@ -143,18 +159,23 @@ func stampLegacyHandelsbriefe(ctx context.Context, tx pgx.Tx, args []any) error 
 		  UPDATE activity a SET retention_class = $5, retention_class_at = now()
 		  WHERE a.id IN (SELECT id FROM legacy)
 		)
-		INSERT INTO activity_retention_evidence (activity_id, basis, qualified_at, deal_id, deal_name)
-		SELECT l.id, 'deal_won', now(), hd.id, hd.name
+		INSERT INTO activity_retention_evidence (activity_id, basis, qualified_at, deal_id, deal_name, project_id, project_name)
+		SELECT l.id, 'deal_won', now(), hd.id, hd.name, NULL::uuid, NULL::text
 		  FROM legacy l
 		  JOIN activity_link hl ON hl.activity_id = l.id AND hl.entity_type = 'deal'
 		  JOIN deal hd ON hd.id = hl.deal_id
 		 WHERE hd.status = 'won'
 		UNION ALL
-		SELECT l.id, 'offer_beyond_draft', now(), hd.id, hd.name
+		SELECT l.id, 'offer_beyond_draft', now(), hd.id, hd.name, NULL::uuid, NULL::text
 		  FROM legacy l
 		  JOIN activity_link hl ON hl.activity_id = l.id AND hl.entity_type = 'deal'
 		  JOIN deal hd ON hd.id = hl.deal_id
 		 WHERE EXISTS (SELECT 1 FROM offer o WHERE o.deal_id = hd.id AND o.status <> 'draft')
+		UNION ALL
+		SELECT l.id, 'project_linked', now(), NULL::uuid, NULL::text, hp.id, hp.name
+		  FROM legacy l
+		  JOIN activity_link pl ON pl.activity_id = l.id AND pl.entity_type = 'project'
+		  JOIN project hp ON hp.id = pl.project_id
 		ON CONFLICT DO NOTHING`, args...); err != nil {
 		return fmt.Errorf("stamping the subject's pre-stamp correspondence: %w", err)
 	}

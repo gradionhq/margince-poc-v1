@@ -17,6 +17,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ActivityLinkInput ties one activity to one record. Which record types are
@@ -85,6 +86,15 @@ func (e *TooManyLinksError) FieldFault() (field, code, message string) {
 // this is the one statement every writer passes through — the timeline's link
 // vocabulary describes what a message or meeting is ABOUT, and a record set
 // larger than this is about nothing.
+//
+// A PROJECT link additionally requires activity.UPDATE, which the create grant
+// alone does not confer. Filing under a project classifies the correspondence
+// as commercial (D5), and that classification is write-once in the database and
+// is not lifted by unfiling — so it is a heavier act than creating a row, and
+// the capture ladder already refuses it on exactly these terms
+// (capture/sinkproject.go: "a principal that may create captured mail but not
+// change it attributes nothing"). Two doors onto one act must not disagree
+// about who may perform it; before this the create door was the cheaper way in.
 func insertActivityLinks(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, links []ActivityLinkInput) error {
 	if len(links) > maxActivityLinks {
 		return &TooManyLinksError{Count: len(links)}
@@ -99,6 +109,17 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, activityID ids.Activity
 		if column == "" {
 			return &InvalidLinkTypeError{EntityType: link.EntityType}
 		}
+		// The project grant is checked BEFORE the insert it gates, not after.
+		// A refusal returned later is undone only because every caller runs
+		// this inside a transaction it aborts — correct today, and the wrong
+		// thing to hang an authorization check on. The sibling writer asks
+		// first (capture/sinkproject.go), and two doors onto one act must not
+		// disagree about WHEN they ask either.
+		if link.EntityType == linkEntityProject {
+			if err := auth.Require(ctx, "activity", principal.ActionUpdate); err != nil {
+				return err
+			}
+		}
 		if err := auth.EnsureLinkTarget(ctx, tx, link.EntityType, link.EntityID); err != nil {
 			return err
 		}
@@ -106,6 +127,11 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, activityID ids.Activity
 			sprintf(`INSERT INTO activity_link (activity_id, entity_type, %s) VALUES ($1, $2, $3)`, column),
 			activityID, link.EntityType, link.EntityID); err != nil {
 			return err
+		}
+		if link.EntityType == linkEntityProject {
+			if err := StampCorrespondenceForProject(ctx, tx, activityID, link.EntityID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

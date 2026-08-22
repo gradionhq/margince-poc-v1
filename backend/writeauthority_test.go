@@ -135,8 +135,24 @@ var readAuthorityOnAWritePath = gatekit.Waive(map[string]string{
 	// be touched or named.
 	"internal/modules/activities:deleteVisibleLinksOfType":     "clears an activity's links to records the caller can see, so a relink cannot silently drop an edge to a record they cannot; what it deletes is the LINK row, and its own comment already states the one bit that escapes",
 	"internal/modules/activities:repointDisplacedParticipants": "moves activity_participant rows from the displaced people to the relink target; the row written is the participant edge, never the person",
-	"internal/modules/people:matchGhostsByEmail":               "confirms the UPLOADER's own linkedin_connection rows against people they can see. The scope is there to stop the confirmed count becoming an existence oracle — a read concern, which its own comment spells out — and the row it writes is the ghost, not the person",
-	"internal/modules/capture:projectScopeClause":              "the project-attribution ladder's row predicate, narrowing which projects a captured message may be FILED UNDER. Read authority is the whole of what it needs: the project is referenced, never changed — the rows written are the activity_link edge and the activity's own version bump, and both are gated on activity:update in linkActivityToProject. A `read` share on a project is exactly the authority to see mail land on it, so requiring write here would refuse a filing to the colleague the project was deliberately shared with",
+	// The one waiver here that is a LIMIT OF THE EXTRACTOR rather than a claim
+	// about what the probe decides, and it is spelled that way on purpose.
+	//
+	// resolveAttachmentParent branches on its `action` argument: this probe runs
+	// under principal.ActionRead alone, and every other action falls through to
+	// ensureAttachmentParentWritable four lines below. The gate walks the call
+	// graph, not the branch, so a mutating caller reaching the resolver looks
+	// exactly like a mutation gated on visibility alone.
+	//
+	// Splitting the read arm into its own function does NOT help — the walk is
+	// transitive and reaches the split arm just the same. What this costs is
+	// real and worth stating: the waiver excuses the FUNCTION, so it would go on
+	// passing if somebody wired this probe onto a genuine write path. Read the
+	// `action` branch in resolveAttachmentParent before trusting it, and if the
+	// attachment paths grow a third arm, revisit this rather than extend it.
+	"internal/modules/activities:ensureAttachmentParentVisible": "the READ half of a pair whose only caller picks between them by action: principal.ActionRead takes this one, everything else takes ensureAttachmentParentWritable. The write path is gated as this test demands; the extractor sees the function, not the arm",
+	"internal/modules/people:matchGhostsByEmail":                "confirms the UPLOADER's own linkedin_connection rows against people they can see. The scope is there to stop the confirmed count becoming an existence oracle — a read concern, which its own comment spells out — and the row it writes is the ghost, not the person",
+	"internal/modules/capture:projectScopeClause":               "the project-attribution ladder's row predicate, narrowing which projects a captured message may be FILED UNDER. Read authority is the whole of what it needs: the project is referenced, never changed — the rows written are the activity_link edge and the activity's own version bump, and both are gated on activity:update in linkActivityToProject. A `read` share on a project is exactly the authority to see mail land on it, so requiring write here would refuse a filing to the colleague the project was deliberately shared with",
 
 	// Read predicates whose mutating callers take the write probe elsewhere.
 	"internal/modules/contracts:VisibleClause":        "the contracts module's READ predicate, shared by the list, the single read and the company-value rollup. A contract owns no owner_id and inherits its whole row scope from its anchor, so this one clause used to stand in front of every mutation too; the patch, archive, status change, cancellation and renewal now go through writableContract, which takes auth.EnsureWritable on that same anchor",

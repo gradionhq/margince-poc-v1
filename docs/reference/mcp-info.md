@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 52 |
 | Resources | 8 |
-| Tool catalog | 139.0 KB |
+| Tool catalog | 139.1 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 36360 |
+| Approx. wire tokens | 36380 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -32,7 +32,7 @@ budget in `agenttooldescriptions_test.go`.
 | Descriptions (incl. governance clause) | 34.2 KB | 24% | Yes, every step |
 | Input schemas | 30.1 KB | 21% | Yes, every step |
 | _Names, annotations, punctuation_ | 10.9 KB | 7% | Partly |
-| **Description + input schema** | **64.2 KB** | **46%** | **the recurring cost** |
+| **Description + input schema** | **64.3 KB** | **46%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -97,7 +97,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`read_import_report`](#read_import_report) | Read an import report | yes |  | 2.5 KB |
 | [`read_import_run`](#read_import_run) | Read an import run | yes |  | 1.4 KB |
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
-| [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.3 KB |
+| [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.4 KB |
 | [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
@@ -7316,7 +7316,7 @@ Read one record's own stored fields — the values a person would see on its det
 
 **Re-associate an activity to a record**
 
-Fix what an already-recorded activity is about, when a captured mail or meeting landed on the wrong record or on none. It changes only the association. The activity's own content — subject, body, when it happened — is untouched, and by default the new link is ADDED alongside any existing one rather than replacing it. Use log_activity when the event is not recorded at all yet; this tool moves an existing one. Set replace_existing_of_type when you mean to move the activity rather than associate it with one more record. (Governance: runs immediately; requires passport scope "write".)
+Fix what an already-recorded activity is about, when a captured mail or meeting landed on the wrong record or on none. It changes only the association. The activity's own content — subject, body, when it happened — is untouched, and by default the new link is ADDED alongside any existing one rather than replacing it. Use log_activity when the event is not recorded at all yet; this tool moves an existing one. Set replace_existing_of_type when you mean to move the activity rather than associate it with one more record. (Governance: some calls run immediately and others a person approves first, decided per call from its arguments; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 

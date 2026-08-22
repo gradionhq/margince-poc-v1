@@ -36,7 +36,7 @@ func RegisterLifecycleTools(
 	disqualifier LeadDisqualifier,
 	advancer ProjectPhaseAdvancer,
 ) {
-	r.Register(relinkActivity{relinker: relinker})
+	r.Register(relinkActivity{relinker: relinker, p: p})
 	r.Register(disqualifyLead{p: p, disqualifier: disqualifier})
 	r.Register(advanceProjectPhase{p: p, advancer: advancer})
 }
@@ -81,14 +81,24 @@ type relinkActivityArgs struct {
 
 type relinkActivity struct {
 	relinker ActivityRelinker
+	// p resolves the activity a staged relink binds to. Needed only since the
+	// tier became dynamic: a project destination resolves 🟡, and a 🟡 call
+	// that cannot describe its subject is refused with no card minted, so the
+	// human the raise asks for is never asked.
+	p datasource.SystemOfRecordProvider
 }
 
 func (t relinkActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "relink_activity", Title: "Re-associate an activity to a record", Version: toolVersionV1,
-		Description:   relinkActivityCopy.render(),
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "relinkActivity",
+		Description: relinkActivityCopy.render(),
+		// Dynamic because filing under a PROJECT classifies the activity as
+		// commercial correspondence — write-once and monotonic — while every
+		// other destination is an association a member can undo. See
+		// relinkActivityTier.
+		RequiredScope: principal.ScopeWrite, Tier: mcp.TierDynamic,
+		TierResolver: relinkActivityTier,
+		OpenAPIOp:    "relinkActivity",
 		InputSchema: schema(`{"type":"object","required":["activity_id","entity_type","entity_id"],"properties":{
 			"activity_id":{"type":"string","format":"uuid","description":"The captured activity to re-associate"},
 			"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
@@ -98,6 +108,24 @@ func (t relinkActivity) Spec() mcp.ToolSpec {
 			"additionalProperties":false}`),
 		OutputSchema: schemaFor[PassthroughEntityResult](),
 	}
+}
+
+// StageInfo decodes this door's arguments into the relink command and
+// delegates, so the refusals and the staged subject come from the resolver the
+// REST door reaches for the same operation (commandauto.go).
+//
+// Without it a project relink resolves 🟡 and then dies: Registry.stageRefusedCall
+// returns the bare refusal for a tool that is not stageable, so no approval row
+// is written and the decision grant this operation now carries would never have
+// a card to govern.
+func (t relinkActivity) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
+	var args relinkActivityArgs
+	if err := decodeArgs(in, &args); err != nil {
+		return StageInfo{}, err
+	}
+	return StageSubject(ctx, NewRelinkActivityCall(t.p, RelinkActivityCommand{
+		ActivityID: args.ActivityID, EntityType: args.EntityType, EntityID: args.EntityID,
+	}))
 }
 
 func (t relinkActivity) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {

@@ -115,6 +115,17 @@ func floorWindowEnd(intervalArg, anchorArg int) string {
 // alongside accepted ones. An ORGANIZATION link is deliberately not enough: an
 // organization is a party, not a transaction, and a Handelsbrief hangs off the
 // transaction.
+//
+// A PROJECT link qualifies on its own (D5), and unlike a deal it needs no
+// further condition: a project is a commercial engagement from the moment it
+// exists, so the correspondence filed under it is about an actual transaction
+// whether or not any deal on it has closed. That is also why the deal rule
+// alone was too narrow — it missed correspondence from a negotiation that was
+// lost and from delivery work years after the deal that started it.
+//
+// Like the deal arm, this is the FALLBACK for rows that predate the stamp.
+// Every project link written from now on carries the class
+// (activities.StampCorrespondenceForProject), and the class decides.
 const handelsbriefArm = `a.retention_class IS NOT NULL
 		    OR (a.retention_class IS NULL AND EXISTS (
 		          SELECT 1 FROM activity_link hl
@@ -122,7 +133,10 @@ const handelsbriefArm = `a.retention_class IS NOT NULL
 		          WHERE hl.activity_id = a.id AND hl.entity_type = 'deal'
 		            AND (hd.status = 'won'
 		                 OR EXISTS (SELECT 1 FROM offer o
-		                             WHERE o.deal_id = hd.id AND o.status <> 'draft'))))`
+		                             WHERE o.deal_id = hd.id AND o.status <> 'draft'))))
+		    OR (a.retention_class IS NULL AND EXISTS (
+		          SELECT 1 FROM activity_link pl
+		          WHERE pl.activity_id = a.id AND pl.entity_type = 'project'))`
 
 // statutoryCorrespondenceFloor is the strictest compiled-in pack's
 // commercial-correspondence class — the boundary below which a

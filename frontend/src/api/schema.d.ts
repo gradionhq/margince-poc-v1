@@ -18567,8 +18567,14 @@ export interface components {
             restricted_until: string;
             /** @description The retention class that holds it (e.g. commercial_correspondence), plus the statutory basis. Never free text from a user. */
             reason: string;
-            /** @description Every transaction the record qualifies through, by name. Both id and name are required, so a qualification whose deal has since been deleted — and a controller pin that never named one (germany-package DEPACK-AC-5h: supplier correspondence has no deal in this product) — is reported through `reason` rather than as a half-populated entry. */
+            /** @description Every deal the record qualifies through, by name. Both id and name are required, so a qualification whose deal has since been deleted — and a controller pin that never named one (germany-package DEPACK-AC-5h: supplier correspondence has no deal in this product) — is reported through `reason` rather than as a half-populated entry. Empty is also the ordinary answer for a record held by a project alone; see `projects`. */
             deals: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            }[];
+            /** @description Every project the record qualifies through, by name, on the same terms as `deals`. A project qualifies its correspondence by existing — it is a commercial engagement, so the mail filed under it is about an actual transaction whether or not a deal on it has closed. A record can qualify through both a deal and a project; neither list is a summary of the other. */
+            projects?: {
                 /** Format: uuid */
                 id: string;
                 name: string;
