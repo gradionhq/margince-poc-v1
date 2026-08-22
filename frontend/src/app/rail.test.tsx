@@ -46,7 +46,7 @@ vi.mock("@composition/extensions", () => ({
 
 // B-EP09.4 acceptance, for the SIDEBAR — the left-hand panel and nothing else.
 //
-// It is destinations only: the canonical 11-item nav in order (AC-shell-1b —
+// It is destinations only: the canonical 12-item nav in order (AC-shell-1b —
 // Automations left it for Settings → AI while the dedupe queue and the filter
 // builder took rows, which is a UI divergence on the founder's back-fill list),
 // at most one active
@@ -94,6 +94,7 @@ const CANONICAL_ORDER = [
   "Duplicates",
   "Filters & views",
   "Pipeline",
+  "Projects",
   "Tasks",
   "Approvals",
   "Reports",
@@ -144,7 +145,7 @@ function railDisplay(container: HTMLElement, selector: string): string {
 }
 
 describe("WorkspaceRail (AC-shell-1/2)", () => {
-  it("renders the canonical 11 items in order, logomark → home", () => {
+  it("renders the canonical 12 items in order, logomark → home", () => {
     render(<WorkspaceRail route={{ screen: "deals" }} />);
     const brand = within(
       screen.getByRole("navigation", { name: "Primary navigation" }),

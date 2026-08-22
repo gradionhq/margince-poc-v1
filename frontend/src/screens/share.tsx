@@ -55,9 +55,9 @@ type RecordGrant = components["schemas"]["RecordGrant"];
 type CreateRecordGrantRequest =
   components["schemas"]["CreateRecordGrantRequest"];
 type Access = CreateRecordGrantRequest["access"];
-// The share screen serves the record kinds the app has a page for; the
-// contract also admits `project`, which is shareable through the API and has
-// no screen of its own yet.
+// The share screen serves the record kinds the app has a page for, which is
+// every kind the grant contract admits: a grant on a record the reader could
+// not open afterwards would be a door to nowhere.
 type RecordType = Extract<CreateRecordGrantRequest["record_type"], EntityKind>;
 type User = components["schemas"]["User"];
 type Team = components["schemas"]["Team"];

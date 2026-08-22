@@ -629,6 +629,20 @@ export const Placeholders: Story = {
         </div>
       </Card>
       <EmptyState>No deals match these filters yet.</EmptyState>
+      <EmptyState
+        title="No projects yet"
+        action={
+          <Button small variant="primary">
+            New project
+          </Button>
+        }
+      >
+        <p>
+          A project is the body of work a deal is about. It starts during the
+          deal, in the initiative phase, and outlives close-won: delivery is
+          tracked here after the pipeline has let go.
+        </p>
+      </EmptyState>
     </div>
   ),
 };

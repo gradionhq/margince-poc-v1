@@ -140,6 +140,20 @@ const LeadsScreen = lazy(
     import("./screens/leads").then((m) => ({ default: m.LeadsScreen })),
   ),
 );
+const ProjectScreen = lazy(
+  routed(() =>
+    import("./screens/project360").then((m) => ({
+      default: m.ProjectScreen,
+    })),
+  ),
+);
+const ProjectsScreen = lazy(
+  routed(() =>
+    import("./screens/projects").then((m) => ({
+      default: m.ProjectsScreen,
+    })),
+  ),
+);
 const OAuthConsent = lazy(
   routed(() =>
     import("./screens/oauthconsent").then((m) => ({ default: m.OAuthConsent })),
@@ -405,6 +419,7 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     partners: () => <PartnersScreen />,
     leads: ({ id }) => (id ? <LeadScreen id={id} /> : <LeadsScreen />),
     deals: ({ id }) => <DealsRoute id={id} />,
+    projects: ({ id }) => (id ? <ProjectScreen id={id} /> : <ProjectsScreen />),
     tasks: () => <TasksScreen />,
     inbox: () => <InboxScreen />,
     reports: () => <ReportsScreen />,
