@@ -235,7 +235,22 @@ expect_health "a failed publish with no range still files" \
 # The health arms only. The daily lane's arms (VULN_RESULT, GATE_RESULT, …) carry
 # no suspect range and are covered by the `expect` cases above, so a rule about
 # the fallback text does not apply to them.
-for lane in $(grep -oE 'MAIN_[A-Z_]+_RESULT' "$root/scripts/scheduled-report.sh" | sort -u); do
+#
+# `[A-Z0-9_]`, and the digit is the point: a census that silently drops a subject
+# reports the same "nothing missing" as one that checked it, so a future
+# MAIN_SHARD2_RESULT would be exempt from the rule by spelling alone. The count
+# below is the same argument one level up — a pattern that matches nothing reads
+# as total coverage, which is the loudest way this file could lie.
+# `|| true` so the empty case reaches the message below: grep exits 1 on no match
+# and this script runs under `set -e`, so without it the suite dies at this line
+# having printed thirteen `ok:` lines and no reason — a gate that fails without
+# saying what it found is barely better than one that passes without looking.
+lanes="$(grep -oE 'MAIN_[A-Z0-9_]+_RESULT' "$root/scripts/scheduled-report.sh" | sort -u || true)"
+if [ -z "$lanes" ]; then
+	echo "FAIL: the census found no MAIN_*_RESULT arm in the reporter — the pattern stopped matching, it did not stop mattering"
+	failures=$((failures + 1))
+fi
+for lane in $lanes; do
 	case " $covered_with_range " in
 	*" $lane "*) ;;
 	*)
