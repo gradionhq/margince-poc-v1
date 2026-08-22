@@ -17,6 +17,9 @@ type ActivityState = components["schemas"]["AiActivityItem"]["state"];
  */
 type NotDisplayed = Readonly<{ notDisplayed: string }>;
 
+/** The (state -> message key) table of a kind the rail narrates. */
+type LineSet = Readonly<Record<ActivityState, MessageKey>>;
+
 const notDisplayed = (reason: string): NotDisplayed => ({
   notDisplayed: reason,
 });
@@ -206,7 +209,28 @@ function isActivityKind(kind: string): kind is ActivityKind {
  * means the list cannot fall out of step with the copy that decides it.
  */
 export function displayedKinds(): ActivityKind[] {
-  return Object.entries(ACTIVITY_LINE).flatMap(([kind, entry]) =>
-    "notDisplayed" in entry ? [] : [kind as ActivityKind],
-  );
+  return displayedLines().map(([kind]) => kind);
+}
+
+/**
+ * The narrated kinds paired with their line tables.
+ *
+ * The narrowing happens HERE, once, where `"notDisplayed" in entry` is a check
+ * the compiler performs rather than an assertion somebody makes: a caller that
+ * looked the entry up again would be holding `LineSet | NotDisplayed` and would
+ * need a cast to say what it already knows. Returning the pair means nobody
+ * downstream has to.
+ *
+ * `Object.entries` widens the key to `string`, so the entry list is rebuilt from
+ * the map's own keys rather than trusting that widening back — `ACTIVITY_LINE`
+ * is a total `Record<ActivityKind, …>`, so its keys ARE the kinds.
+ */
+export function displayedLines(): [ActivityKind, LineSet][] {
+  const kinds = Object.keys(ACTIVITY_LINE) as ActivityKind[];
+  return kinds.flatMap((kind) => {
+    const entry = ACTIVITY_LINE[kind];
+    return "notDisplayed" in entry
+      ? []
+      : [[kind, entry] as [ActivityKind, LineSet]];
+  });
 }

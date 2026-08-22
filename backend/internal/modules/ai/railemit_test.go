@@ -70,18 +70,30 @@ func TestTheUnitOfWorkKeyGroupsOneRequestsCallsForOneTask(t *testing.T) {
 	}
 }
 
-// A call with no correlation id is nothing's neighbour, and the honest answer
-// is its own occurrence rather than none: an unreported call is exactly the
-// silence this whole registry exists to end.
-func TestACallWithNoCorrelationIsStillItsOwnOccurrence(t *testing.T) {
-	logical := ids.NewV7()
-	key := unitOfWorkKey(Call{Task: TaskSummarize, LogicalCallID: logical})
-	if key != logical.String()+":"+string(TaskSummarize) {
-		t.Errorf("key = %q, want the logical call's own id", key)
+// A degraded call says WHY, and the sentinel is not the only source.
+//
+// The degraded-without-a-sentinel case is the common one: the budget guardrail
+// demotes the ladder and the call then succeeds, so there is no error to name.
+// A rail that said "degraded" and could never say why would be reporting a
+// worse outcome than "done" with nothing a reader could act on.
+func TestADegradedCallSaysWhyEvenWithNoSentinel(t *testing.T) {
+	got := railDegradeReason(Call{Degraded: true, AttemptReason: attemptReasonBudgetDegrade})
+	if got == nil {
+		t.Fatal("a budget-degraded call carries no reason, so the rail can only say that it went badly")
 	}
-	var zero ids.UUID
-	if unitOfWorkKey(Call{CorrelationID: &zero, Task: TaskSummarize, LogicalCallID: logical}) != key {
-		t.Error("a zero correlation id keys differently from an absent one, so a caller that passed the zero value would open a second occurrence per call")
+	if *got != attemptReasonBudgetDegrade {
+		t.Errorf("reason = %q, want the attempt's own reason", *got)
+	}
+	// The sentinel still wins where there is one: a call that ended on an error
+	// kept nothing, and its sentinel is the more specific fact.
+	both := railDegradeReason(Call{Degraded: true, ErrorSentinel: "budget_exceeded", AttemptReason: attemptReasonBudgetDegrade})
+	if both == nil || *both != "budget_exceeded" {
+		t.Errorf("reason = %v, want the sentinel to win over the attempt reason", both)
+	}
+	// And a clean call still carries none rather than an empty string, which the
+	// projection would store as a reason that exists.
+	if clean := railDegradeReason(Call{AttemptReason: attemptReasonBudgetDegrade}); clean != nil {
+		t.Errorf("a clean call carries reason %q", *clean)
 	}
 }
 
@@ -124,5 +136,38 @@ func TestAnUnansweredTaskIsNobodysToReport(t *testing.T) {
 	}
 	if RouterReports(Task("a_task_nobody_declared")) {
 		t.Error("the router would announce a task nobody answered for, inventing a grain and an attribution no gate has read")
+	}
+}
+
+// A call outside any correlation scope is NOT announced, and the router says so
+// rather than trying.
+//
+// storekit.Emit refuses an envelope with no correlation id, and Call.CorrelationID
+// is read from that same context value — so when it is absent the announcement
+// cannot succeed, it can only fail late. An earlier version of this file
+// documented a fallback to the logical call id, and the test for it asserted the
+// KEY that fallback would have used: the key was reachable, the occurrence never
+// was, and every such call paid a lock, a count and a system_log row before
+// erroring out.
+func TestACallOutsideACorrelationScopeIsNotAnnounced(t *testing.T) {
+	logical := ids.NewV7()
+	// The key function still answers, because it is asked for other reasons —
+	// what changed is that nothing asks it on this path.
+	if key := unitOfWorkKey(Call{Task: TaskSummarize, LogicalCallID: logical}); key == "" {
+		t.Error("the key function answers nothing for a call with no correlation id")
+	}
+	// The behaviour that matters is the skip, and it is asserted where the
+	// decision is made rather than through the key it would have used.
+	for _, c := range []Call{
+		{Task: TaskSummarize, LogicalCallID: logical},
+		{Task: TaskSummarize, LogicalCallID: logical, CorrelationID: new(ids.UUID)},
+	} {
+		if announceable(c) {
+			t.Errorf("a call with correlation %v would be announced, and the bus would refuse it", c.CorrelationID)
+		}
+	}
+	corr := ids.NewV7()
+	if !announceable(Call{Task: TaskSummarize, LogicalCallID: logical, CorrelationID: &corr}) {
+		t.Error("a call inside a correlation scope is not announceable, so nothing would ever reach the rail")
 	}
 }

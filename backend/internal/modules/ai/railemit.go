@@ -55,24 +55,16 @@ func (m *CallMeter) announceRailBestEffort(ctx context.Context, tx pgx.Tx, termi
 	if !RouterReports(terminal.Task) {
 		return
 	}
-	// Serialize the occurrence's writers before anything reads its attempt.
-	//
-	// railAttempt COUNTS, and at READ COMMITTED two concurrent transactions for
-	// one (correlation, task) cannot see each other's uncommitted ai_call row —
-	// so both count the same value, both announce the same attempt, and the
-	// projection's guard refuses the second as a redelivery of the first. One of
-	// the two outcomes is then lost with nothing logged, and it is the LATER one
-	// that loses, so a failure can outlive the retry that fixed it.
-	//
-	// Not hypothetical: site_fact_extract is the deep read's page-PARALLEL fact
-	// lane by design, so one read fires many of these at once under one
-	// correlation id.
-	//
-	// The lock is taken on the OUTER transaction rather than inside the savepoint
-	// below, so it cannot be released by a rollback that happens between the
-	// count and the write.
-	if err := storekit.LockWriteIdentity(ctx, tx, "ai_task_run", unitOfWorkKey(terminal)); err != nil {
-		m.log.ErrorContext(ctx, "ai: locking the rail occurrence failed — the call is traced but absent from the AI-activity rail", "task", string(terminal.Task), "err", err)
+	// A call outside a correlation scope cannot be announced AT ALL, and saying
+	// so here is the difference between one skipped occurrence and a guaranteed
+	// error per call. storekit.Emit refuses an envelope with no correlation id,
+	// and Call.CorrelationID is read from that same context value — so when it
+	// is absent the emit below is not unlikely to fail, it cannot succeed. An
+	// earlier version of this file documented a fallback to the logical call id
+	// and had a test for the key it would have used; the key was reachable and
+	// the occurrence never was.
+	if !announceable(terminal) {
+		m.log.WarnContext(ctx, "ai: a model call ran outside any correlation scope, so it is traced but cannot be announced to the AI-activity rail", "task", string(terminal.Task))
 		return
 	}
 	nested, err := tx.Begin(ctx)
@@ -92,6 +84,25 @@ func (m *CallMeter) announceRailBestEffort(ctx context.Context, tx pgx.Tx, termi
 	}
 }
 
+// announceable reports whether this call can reach the bus at all.
+//
+// A correlation id is not a nicety here: storekit.Emit REFUSES an envelope
+// without one, so a call outside a correlation scope cannot produce an
+// occurrence however the key is built.
+func announceable(c Call) bool {
+	return c.CorrelationID != nil && !c.CorrelationID.IsZero()
+}
+
+// railLockOccurrence bounds the wait for the occurrence lock and then takes it.
+//
+// The whole flush runs under traceWriteTimeout, and the lock serializes the
+// page-parallel fan-out this exists for — so an unbounded wait would spend the
+// TRACE's budget queueing behind siblings, and the deadline would then land on
+// whatever statement happened to be running. A bounded wait fails as a clean
+// SQL error inside the savepoint instead, which costs one occurrence rather
+// than every ai_call row of the logical call.
+const railLockTimeout = "1500ms"
+
 // announceRail publishes the terminal attempt of one logical call as a state
 // change on the AI-activity projection.
 //
@@ -102,6 +113,34 @@ func (m *CallMeter) announceRailBestEffort(ctx context.Context, tx pgx.Tx, termi
 // the outcome attributable.
 func (m *CallMeter) announceRail(ctx context.Context, tx pgx.Tx, terminal Call) error {
 	key := unitOfWorkKey(terminal)
+	// Serialize this occurrence's writers before anything reads its attempt.
+	//
+	// railAttempt COUNTS, and at READ COMMITTED two concurrent transactions for
+	// one (correlation, task) cannot see each other's uncommitted ai_call row —
+	// so both count the same value, both announce the same attempt, and the
+	// projection's guard refuses the second as a redelivery of the first. One of
+	// the two outcomes is then lost with nothing logged, and it is the LATER one
+	// that loses, so a failure can outlive the retry that fixed it. Measured
+	// without it: 3 of 16 concurrent calls got a distinct attempt.
+	//
+	// Not hypothetical: site_fact_extract is the deep read's page-PARALLEL fact
+	// lane by design, so one read fires many of these at once under one
+	// correlation id.
+	//
+	// It is taken INSIDE the savepoint, with the timeout, so that failing to get
+	// it aborts only this subtransaction. Taken on the outer transaction a lock
+	// error would poison the trace transaction itself, and every ai_call row of
+	// the logical call would be lost at COMMIT — the opposite of what the
+	// savepoint is here to guarantee.
+	// A compile-time literal, never a caller's value: SET LOCAL takes no
+	// placeholder, so the only safe spelling of a GUC value is one that cannot
+	// come from a request.
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '`+railLockTimeout+`'`); err != nil {
+		return fmt.Errorf("ai: bounding the rail occurrence lock: %w", err)
+	}
+	if err := storekit.LockWriteIdentity(ctx, tx, "ai_task_run", key); err != nil {
+		return fmt.Errorf("ai: locking the rail occurrence: %w", err)
+	}
 	attempt, finished, err := railAttempt(ctx, tx, terminal)
 	if err != nil {
 		return err
@@ -115,6 +154,14 @@ func (m *CallMeter) announceRail(ctx context.Context, tx pgx.Tx, terminal Call) 
 	// The call ran for LatencyMS before it finished, so its start is derivable
 	// from the database's own clock rather than this process's — a host clock
 	// here would disagree with every other timestamp on the row.
+	//
+	// This pair describes the LATEST call of the unit of work, not the span of
+	// all of them, and that is the grain rather than a rounding error: the
+	// contract defines started_at as "when the current attempt became current",
+	// and a row that claimed to span forty page reads would be answering a
+	// question ("how long did the site read take") that no emitter here can
+	// actually answer — the unit of work has no end of its own until its last
+	// call lands.
 	started := finished.Add(-time.Duration(terminal.LatencyMS) * time.Millisecond)
 	task := string(terminal.Task)
 	payload := crmcontracts.InternalEventAiTaskStateChanged{
@@ -157,8 +204,18 @@ func unitOfWorkKey(c Call) string {
 }
 
 // railAttempt counts the terminal calls this unit of work has now made for this
-// task, and reads the finish instant off the same clock the rows were written
-// with.
+// task, and reads the finish instant off the database's clock.
+//
+// clock_timestamp(), NOT now(): now() is TRANSACTION-START, and this transaction
+// may have spent time queueing for the occurrence lock. A waiter would then
+// stamp an earlier finish than the attempt that went before it, and the settled
+// feed — ordered by finished_at — would move the occurrence backwards in a list
+// that is supposed to read newest-first. clock_timestamp() is when the call
+// actually finished being recorded, which is the fact the column names.
+//
+// Still the DATABASE's clock either way: every other timestamp on the row is
+// stamped there, and a host clock would disagree with them by the drift between
+// the two machines.
 //
 // The count is the occurrence's attempt, and it has to be counted rather than
 // assumed: the projection's guard is lexicographic on (attempt, rank) and
@@ -178,7 +235,7 @@ func railAttempt(ctx context.Context, tx pgx.Tx, c Call) (attempt int, finished 
 		corr = storekit.UUIDOrNil(*c.CorrelationID)
 	}
 	row := tx.QueryRow(ctx, `
-		SELECT count(*), now()
+		SELECT count(*), clock_timestamp()
 		  FROM ai_call
 		 WHERE is_terminal
 		   AND task = $1
@@ -211,15 +268,28 @@ func railState(c Call) string {
 	}
 }
 
-// railDegradeReason is the closed sentinel the route ended on, or none.
+// railDegradeReason says why the occurrence did not finish cleanly, in a closed
+// vocabulary, or none when it did.
 //
-// A SENTINEL, never a provider's message: degrade_reason reaches an ordinary
-// rep, and vendor error text carries provider detail and can echo credential
-// material. The underlying cause is already in the router's own log line.
+// A SENTINEL or an attempt reason, never a provider's message: degrade_reason
+// reaches an ordinary rep, and vendor error text carries provider detail and can
+// echo credential material. The underlying cause is already in the router's own
+// log line.
+//
+// The degraded-WITHOUT-a-sentinel case is the common one and was missed at
+// first: applyBudget demotes the ladder and the call then SUCCEEDS, so there is
+// no error to name and the rail said "degraded" with no way to say why. The
+// router already knows — it wrote the reason onto the trace as the attempt's
+// own — so the answer is to carry it rather than to leave the field null and
+// call it optional.
 func railDegradeReason(c Call) *string {
-	if c.ErrorSentinel == "" {
-		return nil
+	if c.ErrorSentinel != "" {
+		reason := c.ErrorSentinel
+		return &reason
 	}
-	reason := c.ErrorSentinel
-	return &reason
+	if c.Degraded && c.AttemptReason != "" {
+		reason := c.AttemptReason
+		return &reason
+	}
+	return nil
 }

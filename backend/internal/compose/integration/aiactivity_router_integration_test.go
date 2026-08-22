@@ -442,3 +442,71 @@ func racingSentinel(i int) string {
 	}
 	return "provider_unavailable"
 }
+
+// A call that cannot get the occurrence lock is still TRACED.
+//
+// This is the failure the savepoint exists for, and an earlier version of this
+// code got it exactly wrong: the lock was taken on the OUTER transaction, so a
+// lock error poisoned the trace transaction itself and every ai_call row of the
+// logical call was lost at COMMIT — while the code above it claimed the
+// announcement could not break the trace. The trace is what the budget
+// guardrail, the cost ledger and the certification record are read from.
+//
+// The lock is held from a SEPARATE connection for longer than the bounded wait,
+// which is the only way to make the timeout fire deterministically: a race
+// between goroutines would prove nothing, since the loser usually gets the lock
+// a moment later.
+func TestACallThatCannotGetTheOccurrenceLockIsStillTraced(t *testing.T) {
+	f := newRouterFixture(t)
+
+	holder, err := f.env.Pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("acquiring the holding connection: %v", err)
+	}
+	defer holder.Release()
+	held, err := holder.Begin(context.Background())
+	if err != nil {
+		t.Fatalf("opening the holding transaction: %v", err)
+	}
+	// The same key the announcement will build, taken the same way, so this is
+	// the lock it really contends for and not one that merely looks like it.
+	if err := lockRailOccurrence(t, held, f.env.WS, f.corr, ai.TaskSummarize); err != nil {
+		t.Fatalf("taking the occurrence lock: %v", err)
+	}
+
+	f.call(t, ai.TaskSummarize, nil)
+
+	if err := held.Rollback(context.Background()); err != nil {
+		t.Fatalf("releasing the occurrence lock: %v", err)
+	}
+
+	if n := f.env.WsCount(t, `SELECT count(*) FROM ai_call`); n != 1 {
+		t.Errorf("ai_call rows = %d, want 1 — a lock the announcement could not get took the whole trace with it", n)
+	}
+	if n := f.env.WsCount(t,
+		`SELECT count(*) FROM event_outbox
+		  WHERE envelope->>'type' = 'ai_task.state_changed'
+		    AND envelope->'payload'->>'source' = 'ai_router'`); n != 0 {
+		t.Errorf("the router staged %d announcements despite never holding the lock", n)
+	}
+}
+
+// lockRailOccurrence takes the advisory lock the announcement takes, spelled the
+// way storekit.LockWriteIdentity spells it.
+//
+// The WORKSPACE GUC has to be bound first, and that is not incidental: the key
+// storekit builds includes current_setting('app.workspace_id'), so a holder that
+// left it unset locks a DIFFERENT key and contends with nothing. The first
+// version of this helper did exactly that, and the announcement sailed past a
+// lock the test believed it was holding.
+func lockRailOccurrence(t *testing.T, tx pgx.Tx, ws ids.UUID, corr ids.UUID, task ai.Task) error {
+	t.Helper()
+	if _, err := tx.Exec(context.Background(),
+		`SELECT set_config('app.workspace_id', $1, true)`, ws.String()); err != nil {
+		return err
+	}
+	_, err := tx.Exec(context.Background(), `SELECT pg_advisory_xact_lock(hashtextextended(
+		$1 || ':' || coalesce(current_setting('app.workspace_id', true), '') || ':' || $2, 0))`,
+		"ai_task_run_write", corr.String()+":"+string(task))
+	return err
+}

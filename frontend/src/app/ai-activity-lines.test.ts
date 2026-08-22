@@ -2,28 +2,7 @@ import { describe, expect, it } from "vitest";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 import { vi } from "../i18n/vi";
-import { ACTIVITY_LINE, displayedKinds, lineFor } from "./ai-activity-lines";
-
-/**
- * The kinds the rail narrates, paired with their (state -> key) tables.
- *
- * The classification itself comes from the exported `displayedKinds()`, never a
- * second copy of the `"notDisplayed" in entry` predicate: that derivation is
- * this PR's single authoritative answer to "what does the rail show", and a
- * test carrying its own copy is the drift the change exists to remove — the
- * copy that goes stale is the one nothing else reads.
- */
-function displayedLines(): [string, Readonly<Record<string, string>>][] {
-  return displayedKinds().map((kind) => {
-    const entry = ACTIVITY_LINE[kind];
-    if ("notDisplayed" in entry) {
-      throw new Error(
-        `displayedKinds() returned ${kind}, which is not displayed`,
-      );
-    }
-    return [kind, entry as Readonly<Record<string, string>>];
-  });
-}
+import { ACTIVITY_LINE, displayedLines, lineFor } from "./ai-activity-lines";
 
 // A key the map names must exist in the catalog, and a translated
 // `agent.activity.` key nothing names is copy three translators paid for and

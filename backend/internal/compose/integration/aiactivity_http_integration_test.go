@@ -83,3 +83,61 @@ func TestMyAiActivityRefusesAnAgentBearer(t *testing.T) {
 		t.Errorf("agent GET /v1/me/ai-activity → code %q, want permission_denied", problem.Code)
 	}
 }
+
+// The kinds filter, through the REAL binder.
+//
+// Every handler test constructs GetMyAiActivityParams directly, and that is
+// exactly how the empty-filter branch came to be unreachable over HTTP: `?kinds=`
+// does not bind to a zero-length slice, it binds to one empty member, so the
+// case the code documents as its motivating example was answering with the wrong
+// code and the wrong sentence. A test that skips the binder cannot see that.
+func TestTheKindsFilterIsRefusedOrHonouredAsTheBinderDeliversIt(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+
+	for _, tc := range []struct {
+		name  string
+		query string
+		want  int
+		code  string
+	}{
+		{"a list that went missing", "?kinds=", http.StatusUnprocessableEntity, "empty_filter"},
+		{"a hand-typed name", "?kinds=summarise", http.StatusUnprocessableEntity, "unknown_kind"},
+		{"one bad name beside a good one", "?kinds=morning_brief&kinds=summarise", http.StatusUnprocessableEntity, "unknown_kind"},
+		{"the kinds a client draws", "?kinds=morning_brief&kinds=document_extract", http.StatusOK, ""},
+		{"no filter at all", "", http.StatusOK, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// The per-field breakdown lives under `details.errors`, which is the
+			// contract's shape and NOT a top-level `fields` — decoding the wrong
+			// key yields an empty list that reads exactly like a refusal that
+			// named no field.
+			var body struct {
+				Running *[]json.RawMessage `json:"running"`
+				Details struct {
+					Errors []struct {
+						Field string `json:"field"`
+						Code  string `json:"code"`
+					} `json:"errors"`
+				} `json:"details"`
+			}
+			status := e.Call(t, "GET", "/v1/me/ai-activity"+tc.query, nil, nil, &body)
+			if status != tc.want {
+				t.Fatalf("GET %s → %d, want %d", tc.query, status, tc.want)
+			}
+			if tc.code == "" {
+				if body.Running == nil {
+					t.Error("a served feed carries no running array")
+				}
+				return
+			}
+			// The CODE is the half a client acts on, and it is the half that was
+			// wrong: both refusals are 422, so a status assertion alone would
+			// have passed over the defect this case exists for.
+			got := body.Details.Errors
+			if len(got) != 1 || got[0].Field != "kinds" || got[0].Code != tc.code {
+				t.Errorf("details.errors = %+v, want one kinds/%s", got, tc.code)
+			}
+		})
+	}
+}
