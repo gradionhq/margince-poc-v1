@@ -350,3 +350,54 @@ func advertisedEnum(t *testing.T, inputSchema json.RawMessage, arg string) []str
 	}
 	return values
 }
+
+// The MCP door resolves relink_activity's tier from the TOOL's own arguments,
+// which is a different path from the REST door and is why this pair exists
+// beside the one in compose.
+//
+// relinkActivity is not a dynamicTool, so Registry.tierResolverFor hands the
+// resolver the raw tool arguments rather than anything relinkActivityCall
+// builds. That works only because the InputSchema's field is spelled
+// `entity_type` and relinkTierArgs unmarshals the same tag — two independently
+// maintained strings that nothing otherwise holds together. Rename either and
+// every project relink silently drops back to auto-execute, which is precisely
+// the unattended six-year retention mark the tier exists to prevent.
+//
+// So the assertion is made against the schema's own spelling, read out of the
+// spec rather than restated here.
+func TestRelinkTierReadsTheArgumentShapeTheToolActuallyDeclares(t *testing.T) {
+	spec := relinkActivity{}.Spec()
+	if spec.Tier != mcp.TierDynamic {
+		t.Fatalf("relink_activity tier = %v, want dynamic — without it the resolver below is never consulted", spec.Tier)
+	}
+	if spec.TierResolver == nil {
+		t.Fatal("relink_activity declares a dynamic tier with no resolver")
+	}
+	if !strings.Contains(string(spec.InputSchema), `"entity_type"`) {
+		t.Fatal("relink_activity's InputSchema no longer names `entity_type`; relinkTierArgs reads that field off the raw tool arguments, so the tier would stop seeing the destination and every project relink would auto-execute")
+	}
+
+	for _, c := range []struct {
+		destination string
+		want        mcp.RiskTier
+		why         string
+	}{
+		{"project", mcp.TierConfirmationRequired, "filing under a project writes an irreversible six-year retention mark"},
+		{"person", mcp.TierAutoExecute, "an ordinary association a member can undo by relinking again"},
+		{"deal", mcp.TierAutoExecute, "the deal's own stamp is governed at the deal move, not here"},
+		{"not_a_record_type", mcp.TierConfirmationRequired, "an unrecognised destination fails toward the gate, never away from it"},
+	} {
+		// The body an MCP client actually sends, matching the InputSchema.
+		args := json.RawMessage(`{"activity_id":"` + ids.NewV7().String() +
+			`","entity_type":"` + c.destination +
+			`","entity_id":"` + ids.NewV7().String() + `"}`)
+		if got := spec.TierResolver(mcp.TierResolverInput{Args: args}); got != c.want {
+			t.Errorf("relink onto %s resolved tier %v, want %v — %s", c.destination, got, c.want, c.why)
+		}
+	}
+
+	// A body the resolver cannot read at all is the gate's case, not a panic.
+	if got := spec.TierResolver(mcp.TierResolverInput{Args: json.RawMessage(`not json`)}); got != mcp.TierConfirmationRequired {
+		t.Errorf("an unparseable body resolved tier %v, want confirmation required", got)
+	}
+}

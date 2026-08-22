@@ -533,3 +533,45 @@ func TestFilingUnderAProjectNeedsTheUpdateGrantNotJustCreate(t *testing.T) {
 		t.Errorf("logging an ordinary person-linked activity on the create grant failed: %v — the gate is meant to narrow one link type, not the verb", err)
 	}
 }
+
+// THE HOLE log_activity STILL LEAVES, pinned as a test so it is a known
+// measured exposure rather than a thing somebody rediscovers.
+//
+// insertActivityLinks requires activity.UPDATE for a project link, which stops
+// the CREATE-only caller. It does NOT stop a caller who holds UPDATE — and
+// log_activity is auto_execute on the agent surface, so a passport with
+// activity:update mints a write-once six-year retention mark per call with no
+// human in the loop. relink_activity was raised to confirm-first for exactly
+// this act; the create door was not, because log_activity is named by the
+// overnight_at_risk_sweep and a dynamic tier there would let a scheduled run
+// suspend while the AI projection still reports it as `running`.
+//
+// Closing it needs either a suspended-run state on that projection (with copy
+// in en/de/vi) or the sweep restricted — a product decision, tracked rather
+// than made inside a retention change.
+//
+// This test asserts what is TRUE TODAY. When the hole is closed it will fail,
+// which is the intent: the fix should have to come here and say so.
+func TestLogActivityStillWritesTheMarkOnTheUpdateGrantAlone(t *testing.T) {
+	e := setupSend(t)
+	project := e.seedProject(t, "Migration")
+
+	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
+	subject := "Filed by an agent"
+	activity, _, err := store.LogActivity(e.as(principal.RowScopeAll), LogActivityInput{
+		Kind: "note", Subject: &subject,
+		Links: []ActivityLinkInput{{EntityType: "project", EntityID: project}},
+	})
+	if err != nil {
+		t.Fatalf("logging an activity filed under a project on the update grant: %v", err)
+	}
+
+	var class *string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT retention_class FROM activity WHERE id = $1`, activity.Id).Scan(&class); err != nil {
+		t.Fatalf("reading the class: %v", err)
+	}
+	if class == nil {
+		t.Fatal("the create door no longer writes the mark on the update grant — if that is deliberate, this test has done its job and should be replaced by one asserting the refusal")
+	}
+}

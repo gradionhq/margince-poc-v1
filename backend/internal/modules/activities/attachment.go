@@ -116,6 +116,12 @@ func resolveAttachmentParent(ctx context.Context, tx pgx.Tx, id ids.UUID, action
 	if err := requireParentOrHide(ctx, entityType, action); err != nil {
 		return "", err
 	}
+	// This branch is WAIVED in backend/writeauthority_test.go under
+	// readAuthorityOnAWritePath:internal/modules/activities:ensureAttachmentParentVisible,
+	// because that gate walks the call graph and cannot see which arm a caller
+	// takes. The waiver excuses the FUNCTION, so it would keep passing if the
+	// visibility probe were ever moved onto a write path — read the waiver
+	// before adding a third arm here, and revisit it rather than extend it.
 	if action == principal.ActionRead {
 		if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
 			return "", err

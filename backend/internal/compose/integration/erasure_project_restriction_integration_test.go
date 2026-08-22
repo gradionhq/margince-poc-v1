@@ -262,6 +262,21 @@ func TestDeletingAProjectTakesItsActivityLinksWithIt(t *testing.T) {
 		activities.RelinkActivityInput{EntityType: "project", EntityID: f.project}); err != nil {
 		t.Fatalf("filing the email under its project: %v", err)
 	}
+	// Assert the link EXISTS before deleting the project. Without this the
+	// orphan count below is satisfied by having nothing to count, so a relink
+	// that silently wrote no link would read as a passing cascade.
+	var linked int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM activity_link WHERE activity_id = $1 AND entity_type = 'project'`,
+			f.email).Scan(&linked)
+	}); err != nil {
+		t.Fatalf("reading the fixture's project link: %v", err)
+	}
+	if linked != 1 {
+		t.Fatalf("fixture drift: the email carries %d project links before the delete, want 1 — the cascade assertion below would pass with nothing to cascade", linked)
+	}
+
 	e.WsExec(t, `DELETE FROM project WHERE id = $1`, f.project)
 
 	var orphans int
