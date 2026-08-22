@@ -95,6 +95,7 @@ function DealAside({
   return (
     <>
       <DealNextAction dealId={dealId} />
+      <DealNextMeeting dealId={dealId} />
       <DealBriefCard dealId={dealId} />
       <DealHealthCard dealId={dealId} />
       <DealRoomAside dealId={dealId} dealName={dealName} />
@@ -104,6 +105,7 @@ function DealAside({
 
 import { DealBriefCard } from "./dealbrief";
 import { DealFiles } from "./dealfiles";
+import { DealNextMeeting } from "./dealmeeting";
 import {
   DealProjectChip,
   dealProjectFields,
