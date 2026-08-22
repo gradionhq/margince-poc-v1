@@ -6,8 +6,6 @@ package activities
 import (
 	"net/http"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
-
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -109,18 +107,9 @@ func (h Handlers) RelinkActivities(w http.ResponseWriter, r *http.Request, _ crm
 	httperr.WriteJSON(w, http.StatusOK, relinkBatchWire(out))
 }
 
-// relinkBatchWire projects the store's answer onto the contract shape. The id
-// list is never nil on the wire: a move that touched nothing still answers
-// `[]`, and a client counting it must not have to special-case null.
+// relinkBatchWire projects the store's answer onto the contract shape.
 func relinkBatchWire(out RelinkBatchResult) crmcontracts.RelinkBatchResult {
-	wire := crmcontracts.RelinkBatchResult{
-		Relinked:    len(out.ActivityIDs),
-		ActivityIds: make([]openapi_types.UUID, 0, len(out.ActivityIDs)),
-	}
-	for _, id := range out.ActivityIDs {
-		wire.ActivityIds = append(wire.ActivityIds, openapi_types.UUID(id))
-	}
-	return wire
+	return crmcontracts.RelinkBatchResult{Relinked: out.Relinked}
 }
 
 func (h Handlers) SetActivityAudience(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.SetActivityAudienceParams) {

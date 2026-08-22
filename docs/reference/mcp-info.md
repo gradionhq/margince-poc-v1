@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 56 |
 | Resources | 8 |
-| Tool catalog | 149.4 KB |
+| Tool catalog | 149.2 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 39025 |
+| Approx. wire tokens | 38981 |
 | Largest tool | `read_project_360` (6.3 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,7 +28,7 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 72.1 KB | 48% | **No** — a result's shape, never listed to a model |
+| Output schemas | 71.9 KB | 48% | **No** — a result's shape, never listed to a model |
 | Descriptions (incl. governance clause) | 34.6 KB | 23% | Yes, every step |
 | Input schemas | 31.0 KB | 20% | Yes, every step |
 | _Names, annotations, punctuation_ | 11.8 KB | 7% | Partly |
@@ -101,7 +101,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
 | [`relink_activities`](#relink_activities) | Re-associate a set of activities to a record |  |  | 2.0 KB |
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.2 KB |
-| [`relink_thread`](#relink_thread) | Re-associate a whole conversation to a record |  |  | 2.0 KB |
+| [`relink_thread`](#relink_thread) | Re-associate a whole conversation to a record |  |  | 1.9 KB |
 | [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
@@ -8162,19 +8162,11 @@ Move up to 500 named activities onto one record, all or nothing. Each id must be
   "properties": {
     "data": {
       "properties": {
-        "activity_ids": {
-          "items": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "type": "array"
-        },
         "relinked": {
           "type": "integer"
         }
       },
       "required": [
-        "activity_ids",
         "relinked"
       ],
       "type": "object"
@@ -8473,19 +8465,11 @@ Move one whole conversation (by thread_key) onto a record, in one transaction. M
   "properties": {
     "data": {
       "properties": {
-        "activity_ids": {
-          "items": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "type": "array"
-        },
         "relinked": {
           "type": "integer"
         }
       },
       "required": [
-        "activity_ids",
         "relinked"
       ],
       "type": "object"

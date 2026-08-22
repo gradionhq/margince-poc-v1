@@ -174,8 +174,8 @@ var replayableOperations = map[string]replayTarget{
 	"POST /v1/tasks":                       {object: tableActivity, table: tableActivity, idPath: "id"},
 	"PATCH /v1/activities/{id}":            {object: tableActivity, table: tableActivity, idPath: "id"},
 	"POST /v1/activities/{id}/relink":      {object: tableActivity, table: tableActivity, idPath: "id"},
-	"POST /v1/activities/relink-thread":    {object: tableActivity, rowNote: "the response is a count and an id list, not a record: every row moved was gated on the caller's write authority when it ran, and a replay hands back the same list"},
-	"POST /v1/activities/relink-bulk":      {object: tableActivity, rowNote: "the response is a count and an id list, not a record: every named row was gated on the caller's sight and write authority when it ran, or nothing moved at all"},
+	"POST /v1/activities/relink-thread":    {object: tableActivity, rowNote: "the response is a count, not a record: every row moved was gated on the caller's write authority when it ran, and a replay hands back the number alone"},
+	"POST /v1/activities/relink-bulk":      {object: tableActivity, rowNote: "the response is a count, not a record: every named row was gated on the caller's sight and write authority when it ran, or nothing moved at all"},
 	// A send answers its outbound ACTIVITY when it went now, and its SCHEDULED
 	// SEND when the caller asked for it later — different tables behind the
 	// same "id". scheduled_at is the discriminator because only the second

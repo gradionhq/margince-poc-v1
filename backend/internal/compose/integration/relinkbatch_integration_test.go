@@ -76,8 +76,8 @@ func TestRelinkingAThreadMovesEveryWritableMemberWithItsOwnWriteShape(t *testing
 	if err != nil {
 		t.Fatalf("relinking the thread: %v", err)
 	}
-	if len(out.ActivityIDs) != 2 {
-		t.Fatalf("relinked = %v, want exactly Rep1's two mails", out.ActivityIDs)
+	if out.Relinked != 2 {
+		t.Fatalf("relinked = %d, want exactly Rep1's two mails", out.Relinked)
 	}
 	for _, id := range f.mine {
 		if projectLinks(t, e, id, f.project) != 1 {
@@ -106,8 +106,8 @@ func TestRelinkingAThreadMovesEveryWritableMemberWithItsOwnWriteShape(t *testing
 	if err != nil {
 		t.Fatalf("replaying the thread move: %v", err)
 	}
-	if len(again.ActivityIDs) != 0 {
-		t.Errorf("replay relinked %v, want nothing", again.ActivityIDs)
+	if again.Relinked != 0 {
+		t.Errorf("replay relinked %d, want nothing", again.Relinked)
 	}
 }
 
@@ -139,8 +139,8 @@ func TestRelinkingANamedSetWithAnInvisibleIdMovesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bulk relink of the caller's own mails: %v", err)
 	}
-	if len(out.ActivityIDs) != 2 {
-		t.Errorf("relinked = %v, want the two distinct ids once each", out.ActivityIDs)
+	if out.Relinked != 2 {
+		t.Errorf("relinked = %d, want the two distinct ids once each", out.Relinked)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM audit_log WHERE action = 'activity_relink'`); n != 2 {
 		t.Errorf("audit rows after the set moved = %d, want 2", n)

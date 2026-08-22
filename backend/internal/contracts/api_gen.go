@@ -21330,11 +21330,10 @@ type RelinkActivitiesRequest struct {
 	ReplaceExistingOfType *bool `json:"replace_existing_of_type,omitempty"`
 }
 
-// RelinkBatchResult defines model for RelinkBatchResult.
+// RelinkBatchResult A count and nothing else. The moved ids are deliberately not echoed: a replay of the same
+// Idempotency-Key, or an approval inbox showing the staged call, would otherwise hand back
+// rows the reader may since have lost sight of.
 type RelinkBatchResult struct {
-	// ActivityIds The ids counted in `relinked`, in the order they were written.
-	ActivityIds []openapi_types.UUID `json:"activity_ids"`
-
 	// Relinked Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted.
 	Relinked int `json:"relinked"`
 }

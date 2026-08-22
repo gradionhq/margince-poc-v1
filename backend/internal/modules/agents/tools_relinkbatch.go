@@ -18,13 +18,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// RelinkBatchResult is what the thread and named-set relinks answer: the
-// count of rows that gained the link and their ids. It is the whole contract
-// shape rather than a subset, because the seam passes the handler's own
-// answer through and that answer has exactly these two members.
+// RelinkBatchResult is what the thread and named-set relinks answer: the count
+// of rows that gained the link, and nothing else. The ids are deliberately not
+// echoed — a replay of the same key, or an inbox reading the card, would hand
+// back rows the reader may since have lost sight of, and a count discloses no
+// row.
 type RelinkBatchResult struct {
-	Relinked    int        `json:"relinked"`
-	ActivityIDs []ids.UUID `json:"activity_ids"`
+	Relinked int `json:"relinked"`
 }
 
 // --- relink_thread (dynamic write) ---
@@ -38,6 +38,7 @@ type relinkThreadArgs struct {
 
 type relinkThread struct {
 	relinker ActivityRelinker
+	p        datasource.SystemOfRecordProvider
 }
 
 func (t relinkThread) Spec() mcp.ToolSpec {
@@ -69,7 +70,7 @@ func (t relinkThread) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	return StageSubject(ctx, NewRelinkThreadCall(RelinkThreadCommand{
+	return StageSubject(ctx, NewRelinkThreadCall(t.p, RelinkThreadCommand{
 		ThreadKey: args.ThreadKey, EntityType: args.EntityType, EntityID: args.EntityID,
 	}))
 }
@@ -97,6 +98,7 @@ type relinkActivitiesArgs struct {
 
 type relinkActivities struct {
 	relinker ActivityRelinker
+	p        datasource.SystemOfRecordProvider
 }
 
 func (t relinkActivities) Spec() mcp.ToolSpec {
@@ -123,7 +125,7 @@ func (t relinkActivities) StageInfo(ctx context.Context, in json.RawMessage) (St
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
 	}
-	return StageSubject(ctx, NewRelinkActivitiesCall(RelinkActivitiesCommand{
+	return StageSubject(ctx, NewRelinkActivitiesCall(t.p, RelinkActivitiesCommand{
 		ActivityIDs: args.ActivityIDs, EntityType: args.EntityType, EntityID: args.EntityID,
 	}))
 }

@@ -274,11 +274,7 @@ describe("RelinkModal", () => {
           data: [{ type: "project", id: "pr-4", title: "ERP rollout" }],
           page: { has_more: false },
         }),
-      "POST /activities/relink-thread": () =>
-        jsonResponse({
-          relinked: 3,
-          activity_ids: ["act-1", "act-2", "act-3"],
-        }),
+      "POST /activities/relink-thread": () => jsonResponse({ relinked: 3 }),
     });
     render(
       <RelinkModal

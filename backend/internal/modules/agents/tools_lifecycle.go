@@ -37,8 +37,8 @@ func RegisterLifecycleTools(
 	advancer ProjectPhaseAdvancer,
 ) {
 	r.Register(relinkActivity{relinker: relinker, p: p})
-	r.Register(relinkThread{relinker: relinker})
-	r.Register(relinkActivities{relinker: relinker})
+	r.Register(relinkThread{relinker: relinker, p: p})
+	r.Register(relinkActivities{relinker: relinker, p: p})
 	r.Register(disqualifyLead{p: p, disqualifier: disqualifier})
 	r.Register(advanceProjectPhase{p: p, advancer: advancer})
 }

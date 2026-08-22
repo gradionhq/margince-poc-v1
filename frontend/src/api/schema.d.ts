@@ -2595,7 +2595,7 @@ export interface paths {
          *     `activity.updated` event, exactly as the single relink writes them; filing under a project
          *     stamps each one as commercial correspondence the same way. An activity in the thread the
          *     caller cannot write is left where it is and is not counted — the response says how many
-         *     moved and which. An activity already carrying the link is not counted either (the single
+         *     moved. An activity already carrying the link is not counted either (the single
          *     relink's idempotency, per row). All rows commit together or none do.
          */
         post: operations["relinkThread"];
@@ -15167,11 +15167,14 @@ export interface components {
              */
             replace_existing_of_type: boolean;
         };
+        /**
+         * @description A count and nothing else. The moved ids are deliberately not echoed: a replay of the same
+         *     Idempotency-Key, or an approval inbox showing the staged call, would otherwise hand back
+         *     rows the reader may since have lost sight of.
+         */
         RelinkBatchResult: {
             /** @description Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted. */
             relinked: number;
-            /** @description The ids counted in `relinked`, in the order they were written. */
-            activity_ids: string[];
         };
         /**
          * @description The record kinds an activity may be filed under.
@@ -25663,7 +25666,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description How many activities moved, and which. */
+            /** @description How many activities moved. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -25709,7 +25712,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description How many activities moved, and which. */
+            /** @description How many activities moved. */
             200: {
                 headers: {
                     [name: string]: unknown;

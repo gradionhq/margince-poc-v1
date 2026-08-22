@@ -3990,7 +3990,7 @@ paths:
         `activity.updated` event, exactly as the single relink writes them; filing under a project
         stamps each one as commercial correspondence the same way. An activity in the thread the
         caller cannot write is left where it is and is not counted — the response says how many
-        moved and which. An activity already carrying the link is not counted either (the single
+        moved. An activity already carrying the link is not counted either (the single
         relink's idempotency, per row). All rows commit together or none do.
       x-mcp-tool: { verb: relink_thread, record_type: activity, tier: dynamic, tier_resolver: destination_record_type, confirmation_required_when: 'entity_type is project — filing under a project classifies every activity in the thread as commercial correspondence, which is write-once and cannot be undone by relinking away', scope: write }
       parameters:
@@ -4002,7 +4002,7 @@ paths:
             schema: { $ref: '#/components/schemas/RelinkThreadRequest' }
       responses:
         '200':
-          description: How many activities moved, and which.
+          description: How many activities moved.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RelinkBatchResult' }
@@ -4034,7 +4034,7 @@ paths:
             schema: { $ref: '#/components/schemas/RelinkActivitiesRequest' }
       responses:
         '200':
-          description: How many activities moved, and which.
+          description: How many activities moved.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RelinkBatchResult' }
@@ -21265,13 +21265,13 @@ components:
 
     RelinkBatchResult:
       type: object
-      required: [relinked, activity_ids]
+      description: |
+        A count and nothing else. The moved ids are deliberately not echoed: a replay of the same
+        Idempotency-Key, or an approval inbox showing the staged call, would otherwise hand back
+        rows the reader may since have lost sight of.
+      required: [relinked]
       properties:
         relinked: { type: integer, description: 'Activities that gained the link. One the caller could not write (thread form) or that already carried it is not counted.' }
-        activity_ids:
-          type: array
-          description: The ids counted in `relinked`, in the order they were written.
-          items: { type: string, format: uuid }
 
     RelinkDestinationType:
       type: string

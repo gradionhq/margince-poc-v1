@@ -88,7 +88,7 @@ func relinkActivityCommand(_ agentPolicy, deps restCommandDeps, r *http.Request,
 // the relink, carrying the same destination for the same two questions.
 //
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
-func relinkThreadCommand(_ agentPolicy, _ restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
+func relinkThreadCommand(_ agentPolicy, deps restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
 	in, err := commandBody[struct {
 		ThreadKey  string   `json:"thread_key"`
 		EntityType string   `json:"entity_type"`
@@ -97,13 +97,13 @@ func relinkThreadCommand(_ agentPolicy, _ restCommandDeps, _ *http.Request, body
 	if err != nil {
 		return nil, err
 	}
-	return agents.NewRelinkThreadCall(agents.RelinkThreadCommand{
+	return agents.NewRelinkThreadCall(deps.records, agents.RelinkThreadCommand{
 		ThreadKey: in.ThreadKey, EntityType: in.EntityType, EntityID: in.EntityID,
 	}), nil
 }
 
 //nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
-func relinkActivitiesCommand(_ agentPolicy, _ restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
+func relinkActivitiesCommand(_ agentPolicy, deps restCommandDeps, _ *http.Request, body []byte) (agents.GovernedCall, error) {
 	in, err := commandBody[struct {
 		ActivityIDs []ids.UUID `json:"activity_ids"`
 		EntityType  string     `json:"entity_type"`
@@ -112,7 +112,7 @@ func relinkActivitiesCommand(_ agentPolicy, _ restCommandDeps, _ *http.Request, 
 	if err != nil {
 		return nil, err
 	}
-	return agents.NewRelinkActivitiesCall(agents.RelinkActivitiesCommand{
+	return agents.NewRelinkActivitiesCall(deps.records, agents.RelinkActivitiesCommand{
 		ActivityIDs: in.ActivityIDs, EntityType: in.EntityType, EntityID: in.EntityID,
 	}), nil
 }

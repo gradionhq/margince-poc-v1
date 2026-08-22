@@ -16,8 +16,7 @@ import (
 
 // relinkBatchDTO is the wire shape both batch relinks answer.
 type relinkBatchDTO struct {
-	Relinked    int      `json:"relinked"`
-	ActivityIDs []string `json:"activity_ids"`
+	Relinked int `json:"relinked"`
 }
 
 // A whole conversation moves over HTTP: the route exists, the body decodes,
@@ -62,8 +61,8 @@ func TestRelinkingAThreadOverHTTP(t *testing.T) {
 	}, nil, &out); status != http.StatusOK {
 		t.Fatalf("POST /activities/relink-thread → %d, want 200", status)
 	}
-	if out.Relinked != 2 || len(out.ActivityIDs) != 2 {
-		t.Errorf("relinked = %d %v, want the two live members and not the archived one", out.Relinked, out.ActivityIDs)
+	if out.Relinked != 2 {
+		t.Errorf("relinked = %d, want the two live members and not the archived one", out.Relinked)
 	}
 
 	var problem projectProblem

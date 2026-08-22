@@ -70,12 +70,9 @@ func (a activityRelinker) RelinkActivities(
 	return json.Marshal(relinkBatchWire(out))
 }
 
-// relinkBatchWire is the tool door's spelling of the REST handler's answer:
-// the same two members, the id list never nil.
+// relinkBatchWire is the tool door's spelling of the REST handler's answer.
 func relinkBatchWire(out activities.RelinkBatchResult) agents.RelinkBatchResult {
-	wire := agents.RelinkBatchResult{Relinked: len(out.ActivityIDs), ActivityIDs: make([]ids.UUID, 0, len(out.ActivityIDs))}
-	wire.ActivityIDs = append(wire.ActivityIDs, out.ActivityIDs...)
-	return wire
+	return agents.RelinkBatchResult{Relinked: out.Relinked}
 }
 
 type leadDisqualifier struct{ store *people.Store }

@@ -10,15 +10,15 @@
   "totals": {
     "tools": 56,
     "resources": 8,
-    "tool_catalog_bytes": 152995,
+    "tool_catalog_bytes": 152817,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 39025,
+    "approx_wire_tokens_total": 38981,
     "largest_tool_bytes": 6414,
     "largest_tool": "read_project_360",
     "tool_catalog_composition": {
       "description_bytes": 35469,
       "input_schema_bytes": 31695,
-      "output_schema_bytes": 73793,
+      "output_schema_bytes": 73615,
       "description_plus_input_schema_bytes": 67164
     }
   },
@@ -7522,19 +7522,11 @@
           "properties": {
             "data": {
               "properties": {
-                "activity_ids": {
-                  "items": {
-                    "format": "uuid",
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
                 "relinked": {
                   "type": "integer"
                 }
               },
               "required": [
-                "activity_ids",
                 "relinked"
               ],
               "type": "object"
@@ -7813,19 +7805,11 @@
           "properties": {
             "data": {
               "properties": {
-                "activity_ids": {
-                  "items": {
-                    "format": "uuid",
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
                 "relinked": {
                   "type": "integer"
                 }
               },
               "required": [
-                "activity_ids",
                 "relinked"
               ],
               "type": "object"

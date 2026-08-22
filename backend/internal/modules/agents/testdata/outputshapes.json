@@ -5900,19 +5900,11 @@
       "data": {
         "type": "object",
         "properties": {
-          "activity_ids": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
           "relinked": {
             "type": "integer"
           }
         },
         "required": [
-          "activity_ids",
           "relinked"
         ]
       },
@@ -6091,19 +6083,11 @@
       "data": {
         "type": "object",
         "properties": {
-          "activity_ids": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
           "relinked": {
             "type": "integer"
           }
         },
         "required": [
-          "activity_ids",
           "relinked"
         ]
       },

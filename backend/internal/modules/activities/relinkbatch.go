@@ -32,10 +32,12 @@ import (
 const maxBulkRelink = 500
 
 // RelinkBatchResult is what the thread and bulk doors answer: how many rows
-// gained the link, and which. A row the caller could not write (thread door)
-// or that already carried the link is not in it.
+// gained the link. A row the caller could not write (thread door) or that
+// already carried the link is not counted. The ids are not answered — the
+// response is replayed under its Idempotency-Key and shown in an approval
+// inbox, and neither reader is re-checked against the rows.
 type RelinkBatchResult struct {
-	ActivityIDs []ids.UUID
+	Relinked int
 }
 
 // admitRelink is the pre-transaction admission every relink door shares: the
@@ -156,7 +158,7 @@ func (s *Store) RelinkThread(ctx context.Context, threadKey string, in RelinkAct
 			case err != nil:
 				return err
 			case written:
-				out.ActivityIDs = append(out.ActivityIDs, id.UUID)
+				out.Relinked++
 			}
 		}
 		return nil
@@ -213,7 +215,7 @@ func (s *Store) RelinkActivities(ctx context.Context, activityIDs []ids.UUID, in
 				return err
 			}
 			if written {
-				out.ActivityIDs = append(out.ActivityIDs, raw)
+				out.Relinked++
 			}
 		}
 		return nil
