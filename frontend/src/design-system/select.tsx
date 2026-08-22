@@ -720,7 +720,7 @@ function SelectPopup({
         {options.map((option, index) => (
           // biome-ignore lint/a11y/useKeyWithClickEvents: the keyboard path is the combobox trigger's own keydown handling
           // biome-ignore lint/a11y/useFocusableInteractive: an option in an aria-activedescendant listbox must NOT be focusable — focus stays on the combobox, which is what makes typeahead and Escape work
-          <div
+          <div // NOSONAR: keyboard path is the combobox's own keydown; an activedescendant option must not be focusable
             key={option.value}
             id={listbox.optionDomId(index)}
             role="option"

@@ -59,9 +59,12 @@ export function DealBulkBar({
   // stage chosen for rows that are no longer selected. A verb armed for one
   // selection must not fire at another, so the pickers clear when the
   // membership changes.
+  // Sorted in "en" rather than the reader's locale: this string is compared
+  // against itself to detect a changed selection, so the ordering has to be a
+  // property of the ids and of nothing else.
   const selectionKey = deals
     .map((deal) => deal.id)
-    .sort()
+    .sort((a, b) => a.localeCompare(b, "en"))
     .join(",");
   const [armedFor, setArmedFor] = useState(selectionKey);
   if (armedFor !== selectionKey) {

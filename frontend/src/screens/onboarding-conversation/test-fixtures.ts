@@ -13,7 +13,13 @@ export function run(
   events: readonly ConversationEvent[],
   from: ConversationState = initialConversationState,
 ): ConversationState {
-  return events.reduce(conversationReducer, from);
+  // Called with exactly the two arguments the reducer declares. Passing it
+  // straight to reduce() would also hand it the index and the array, which is
+  // a signature it does not have and a change away from silently mattering.
+  return events.reduce(
+    (state, event) => conversationReducer(state, event),
+    from,
+  );
 }
 
 export const entityQuestion: ConversationQuestion = {

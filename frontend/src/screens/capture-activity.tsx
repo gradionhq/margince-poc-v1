@@ -169,10 +169,16 @@ async function fetchWindow(
   path: "/capture/activity" | "/capture/activity/workspace",
   cursor: string | undefined,
 ): Promise<CaptureActivity> {
+  // Each branch names its route as a LITERAL. `api.GET` is typed per path, so
+  // the union the overloads accept is not something it can be handed — the
+  // narrowing is the reason the branch exists, and writing the literal is what
+  // makes the two arms visibly two different calls rather than one repeated.
   const { data, error } =
     path === "/capture/activity/workspace"
-      ? await api.GET(path, { params: { query: { cursor } } })
-      : await api.GET(path, { params: { query: { cursor } } });
+      ? await api.GET("/capture/activity/workspace", {
+          params: { query: { cursor } },
+        })
+      : await api.GET("/capture/activity", { params: { query: { cursor } } });
   if (error) throwProblem(error);
   return data;
 }

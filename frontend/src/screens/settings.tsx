@@ -2501,7 +2501,12 @@ function diffKeys(
   for (const key of Object.keys(after ?? {})) {
     keys.add(key);
   }
-  return [...keys].sort();
+  // "en", like every other canonical ordering in this file's neighbourhood.
+  // These are the record's OWN column names, rendered untranslated a few lines
+  // below — so the reader's UI language has no claim on their order, and the
+  // runtime's default locale has even less: it would let one audit row read in
+  // two different orders on two machines showing the same page.
+  return [...keys].sort((a, b) => a.localeCompare(b, "en"));
 }
 
 // A key absent from an object (withheld/never set) reads the same as an
