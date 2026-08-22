@@ -236,16 +236,27 @@ expect_health "a failed publish with no range still files" \
 # no suspect range and are covered by the `expect` cases above, so a rule about
 # the fallback text does not apply to them.
 #
+# What is matched is the ARM — an `if [ "${…:-}" = "failure" ]` line at column
+# zero — rather than a bare identifier anywhere in the file. A bare match reads
+# prose: a single explanatory comment in the reporter naming an arm would invent
+# a lane that does not exist, and the census would both demand cases for it and
+# count it towards the no-arm check below, so a reporter carrying no real arm
+# could satisfy that check on a comment alone. Nothing in the tree does this
+# today; the anchored pattern is what keeps it that way.
+#
 # `[A-Z0-9_]`, and the digit is the point: a census that silently drops a subject
 # reports the same "nothing missing" as one that checked it, so a future
 # MAIN_SHARD2_RESULT would be exempt from the rule by spelling alone. The count
 # below is the same argument one level up — a pattern that matches nothing reads
 # as total coverage, which is the loudest way this file could lie.
+#
 # `|| true` so the empty case reaches the message below: grep exits 1 on no match
 # and this script runs under `set -e`, so without it the suite dies at this line
 # having printed thirteen `ok:` lines and no reason — a gate that fails without
 # saying what it found is barely better than one that passes without looking.
-lanes="$(grep -oE 'MAIN_[A-Z0-9_]+_RESULT' "$root/scripts/scheduled-report.sh" | sort -u || true)"
+lanes="$(grep -oE '^if \[ "\$\{MAIN_[A-Z0-9_]+_RESULT:-\}" = "failure" \]' \
+	"$root/scripts/scheduled-report.sh" |
+	grep -oE 'MAIN_[A-Z0-9_]+_RESULT' | sort -u || true)"
 if [ -z "$lanes" ]; then
 	echo "FAIL: the census found no MAIN_*_RESULT arm in the reporter — the pattern stopped matching, it did not stop mattering"
 	failures=$((failures + 1))
