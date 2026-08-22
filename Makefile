@@ -218,10 +218,14 @@ fe-test-ext: composition
 	@# (pnpm-workspace.yaml says why), so without this a unit's screen resolves
 	@# neither its test renderer nor its peers at all.
 	@#
-	@# No --frozen-lockfile: this lockfile is GENERATED, under ignored build
-	@# output, and regenerating it is the point. The root install above keeps
+	@# --no-frozen-lockfile, and EXPLICITLY: this lockfile is GENERATED, under
+	@# ignored build output, and regenerating it is the point. Omitting the flag
+	@# relies on pnpm's default, which flips to frozen when CI=true — so a fresh
+	@# checkout passed while any environment that REUSES build/ failed with
+	@# ERR_PNPM_OUTDATED_LOCKFILE the moment the member set changed. That is a
+	@# persistent runner, or a laptop with CI set. The root install above keeps
 	@# --frozen-lockfile, which is the property this whole change buys.
-	cd build/composition-frontend/workspace && pnpm install
+	cd build/composition-frontend/workspace && pnpm install --no-frozen-lockfile
 	cd frontend && pnpm build && \
 		MARGINCE_COMPOSITION_FRONTEND=../build/composition/frontend pnpm test:ext
 
@@ -453,10 +457,14 @@ fe-typecheck-composed: composition
 	@# (pnpm-workspace.yaml says why), so without this a unit's screen resolves
 	@# neither its test renderer nor its peers at all.
 	@#
-	@# No --frozen-lockfile: this lockfile is GENERATED, under ignored build
-	@# output, and regenerating it is the point. The root install above keeps
+	@# --no-frozen-lockfile, and EXPLICITLY: this lockfile is GENERATED, under
+	@# ignored build output, and regenerating it is the point. Omitting the flag
+	@# relies on pnpm's default, which flips to frozen when CI=true — so a fresh
+	@# checkout passed while any environment that REUSES build/ failed with
+	@# ERR_PNPM_OUTDATED_LOCKFILE the moment the member set changed. That is a
+	@# persistent runner, or a laptop with CI set. The root install above keeps
 	@# --frozen-lockfile, which is the property this whole change buys.
-	cd build/composition-frontend/workspace && pnpm install
+	cd build/composition-frontend/workspace && pnpm install --no-frozen-lockfile
 	@[ -f build/composition/api/crm.yaml ] || { echo "fe-typecheck-composed: build/composition/api/crm.yaml is missing after 'make composition' — the composed lane has no merged contract to type the client against" >&2; exit 1; }
 	cd frontend && pnpm gen:composed-types
 	@[ -f build/composition-frontend/schema.d.ts ] || { echo "fe-typecheck-composed: pnpm gen:composed-types produced no schema.d.ts — the composed lane would silently typecheck against the committed contract" >&2; exit 1; }
