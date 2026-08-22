@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { components, operations } from "../api/schema";
 import type { EntityKind } from "../app/entity";
+import { RECORD_ZONE, startOfDayInZone } from "../format/timezone";
 import { entityTimelineKeys } from "../screens/activitykeys";
 import { throwProblem, useSorMode } from "../screens/common";
 import type { ISODate } from "./dateinput";
@@ -59,16 +60,14 @@ export function hasTimelineFilters(filters: TimelineFilters): boolean {
 export const TIMELINE_PAGE_SIZE = 20;
 
 /**
- * dayStartIso turns a picked calendar day into the instant it begins, in the
- * reader's own zone — a reader asking for "the 3rd" means their 3rd, and a UTC
- * midnight would shift every evening message onto the next day for anyone
- * east of Greenwich. `daysLater` shifts by whole days, which is how an
- * EXCLUSIVE `before` is spelled from an inclusive "to" date: the next day's
- * start.
+ * dayStartIso turns a picked calendar day into the instant it begins — in
+ * RECORD_ZONE, the clock every timeline row is rendered in, so the day the
+ * reader picks is the day the rows show. `daysLater` shifts by whole days,
+ * which is how an EXCLUSIVE `before` is spelled from an inclusive "to" date:
+ * the next day's start.
  */
 export function dayStartIso(day: ISODate, daysLater = 0): string {
-  const [year, month, date] = day.split("-").map(Number);
-  return new Date(year, month - 1, date + daysLater).toISOString();
+  return startOfDayInZone(day, RECORD_ZONE, daysLater);
 }
 
 /**

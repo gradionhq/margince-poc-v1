@@ -275,10 +275,18 @@ function changesOwnTheCut(
   changeEntries: TimelineEntry[],
   activityEntries: TimelineEntry[],
 ): boolean {
-  // Seeded with the first row rather than left to throw on an empty one.
+  // Instants, not the strings that spell them — the same reason
+  // mergeChronology compares numbers: two feeds written by two stores spell
+  // one moment two ways. Seeded with the first row rather than left to throw
+  // on an empty one.
   const oldest = (rows: TimelineEntry[]) =>
     rows.length > 0
-      ? rows.reduce((a, b) => (a.atIso < b.atIso ? a : b), rows[0]).atIso
+      ? Date.parse(
+          rows.reduce(
+            (a, b) => (Date.parse(a.atIso) < Date.parse(b.atIso) ? a : b),
+            rows[0],
+          ).atIso,
+        )
       : undefined;
   const oldestChange = oldest(changeEntries);
   const oldestActivity = oldest(activityEntries);

@@ -28,6 +28,7 @@ import {
 import { Select, type SelectOption } from "../design-system/select";
 import { viewerZone } from "../format/timezone";
 import { useT } from "../i18n";
+import { entityTimelineKeys } from "./activitykeys";
 import {
   isConsentNotGranted,
   ProblemError,
@@ -164,9 +165,9 @@ export function RelinkModal({
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["activities", entityType, entityId],
-      });
+      for (const queryKey of entityTimelineKeys(entityType, entityId)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       onClose();
     },
   });
@@ -1471,9 +1472,9 @@ export function ComposeModal({
         setSendUnavailable(true);
         return;
       }
-      queryClient.invalidateQueries({
-        queryKey: ["activities", entityType, entityId],
-      });
+      for (const queryKey of entityTimelineKeys(entityType, entityId)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       onClose();
     },
   });
@@ -1859,9 +1860,9 @@ export function AudienceAction({
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["activities", entityType, entityId],
-      });
+      for (const queryKey of entityTimelineKeys(entityType, entityId)) {
+        queryClient.invalidateQueries({ queryKey });
+      }
       setOpen(false);
     },
   });

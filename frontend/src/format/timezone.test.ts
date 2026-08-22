@@ -3,7 +3,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { formatDate } from "./format";
-import { RECORD_ZONE, viewerZone } from "./timezone";
+import { RECORD_ZONE, startOfDayInZone, viewerZone } from "./timezone";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -61,5 +61,22 @@ describe("RECORD_ZONE", () => {
     const instant = "2026-07-02T00:30:00Z";
     expect(formatDate(instant, "en", RECORD_ZONE)).toBe("02/07/2026");
     expect(formatDate(instant, "en", viewerZone())).toBe("01/07/2026");
+  });
+});
+
+describe("startOfDayInZone", () => {
+  // A positive-offset zone's morning is still the PREVIOUS UTC calendar day,
+  // which is exactly what a browser-local or UTC midnight gets wrong for a
+  // timeline's date range.
+  it("lands on the previous UTC day for a positive-offset zone", () => {
+    expect(startOfDayInZone("2026-07-15", "Europe/Berlin")).toBe(
+      "2026-07-14T22:00:00.000Z",
+    );
+  });
+
+  it("shifts by whole calendar days for an exclusive range end, across a month edge", () => {
+    expect(startOfDayInZone("2026-07-31", "America/New_York", 1)).toBe(
+      "2026-08-01T04:00:00.000Z",
+    );
   });
 });
