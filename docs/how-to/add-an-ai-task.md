@@ -233,6 +233,35 @@ and it caps how much of the site one certification run can cover:
    **`absent`** for your site, which is honest, and the paid lane never gates a
    merge.
 
+   Two gates will stop you here if the task is NEW (a new site on an existing
+   task trips neither), and both are about the activity rail:
+
+   - **`TestEveryKindSomethingProducesIsOneTheContractCanExpress`** — a task the
+     router announces under a name `AiActivityKind` does not carry is a kind the
+     wire cannot express, and the rail renders nothing for AI work that really
+     happened. Its failure prints an `align:` line naming the file and exactly
+     what to add.
+   - **The frontend census** — `ACTIVITY_LINE` in
+     `frontend/src/app/ai-activity-lines.ts` is typed `Record`, not
+     `Partial<Record>`, so a new kind is a **compile error** until you either
+     write its copy in en/de/vi for all six states or state, in code, why it is
+     not shown.
+
+   The second one is a decision, not paperwork, and the default is "not shown":
+   the server's obligation is a complete record, but a reader is shown only work
+   they are waiting on. Ask whether a rep would be sitting there wondering. If
+   the work reaches nobody at all — a system principal with no `on_behalf_of` is
+   workspace-scoped with a NULL `actor_user_id`, and the feed filters on the
+   reader's own id — say THAT, because it is a fact about the work rather than an
+   editorial preference. See
+   [explanation/ai-activity-rail.md](../explanation/ai-activity-rail.md).
+
+   By default the router reports your task, which is why you did not have to
+   think about this earlier. If it owns a durable row with its own lifecycle,
+   consider registering it as a **carrier** in `ai.railOwners` instead — only a
+   carrier can say `queued`/`running` and declare the lease that makes `stalled`
+   derivable.
+
 ## Notes
 
 - **A record is a claim about one (provider, model, env) binding**, not about the

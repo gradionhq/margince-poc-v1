@@ -367,6 +367,7 @@ writing the case that certifies one:
 | Certification | `internal/compose/aicert` — `make e2e-ai`, `make e2e-ai-report` |
 
 **Related:** [agent-surface.md](agent-surface.md) (what agents do with a call) ·
+[ai-activity-rail.md](ai-activity-rail.md) (how a call reaches the rail a rep watches) ·
 [authorization.md](authorization.md) (the admission gate) ·
 [how-to/connect-a-cloud-model-provider.md](../how-to/connect-a-cloud-model-provider.md) ·
 [how-to/enrich-with-a-local-llm.md](../how-to/enrich-with-a-local-llm.md) ·
