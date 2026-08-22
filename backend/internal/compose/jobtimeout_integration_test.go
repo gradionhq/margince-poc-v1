@@ -93,6 +93,20 @@ type timeoutProbeWorker struct {
 func (w *timeoutProbeWorker) Work(ctx context.Context, _ *river.Job[timeoutProbeArgs]) error {
 	if d, ok := ctx.Deadline(); ok {
 		// Read the clock HERE, beside the deadline it is compared against.
+		//
+		// This is a real clock rather than an injected one, and it cannot be
+		// otherwise: River builds the worker deadline with context.WithTimeout
+		// against its own clock, jobs.Config exposes no seam onto it, and a
+		// deadline is a time.Time -- comparing it to anything requires reading
+		// a clock somewhere. What the pairing buys is the SIZE of the window
+		// that reading is exposed to. Measured from enqueue it spanned a
+		// LISTEN/NOTIFY round trip and a queue, which is why 200ms was not
+		// enough three times; measured from here it spans the goroutine
+		// scheduling slots between River computing the deadline and this
+		// statement running. For that to exceed deadlineReadMargin the runtime
+		// would have to stall this goroutine for 25ms between two adjacent
+		// statements, at which point the machine has a problem the test is
+		// right to report.
 		w.deadline <- deadlineRead{deadline: d, readAt: time.Now()}
 	} else {
 		close(w.deadline)
