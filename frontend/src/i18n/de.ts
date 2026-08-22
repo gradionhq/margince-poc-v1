@@ -4088,6 +4088,35 @@ export const de = {
   "buyer.docs.download": "{title} herunterladen",
   "buyer.docs.downloadFailed":
     "Der Download hat nicht begonnen. Versuchen Sie es erneut oder wenden Sie sich an Ihren Ansprechpartner.",
+  "threads.title": "Gespräch",
+  "threads.sub":
+    "Fragen und Antworten zwischen beiden Seiten — live, ohne Veröffentlichung.",
+  "threads.empty": "Noch nichts gesagt.",
+  "threads.about": "Betrifft: {title}",
+  "threads.room": "Den Raum insgesamt",
+  "threads.requiredChange": "Änderung nötig",
+  "threads.resolved": "Erledigt",
+  "threads.sideBuyer": "Käufer",
+  "threads.sideSeller": "Anbieter",
+  "threads.replyLabel": "Antwort",
+  "threads.reply": "Antworten",
+  "threads.resolve": "Erledigen",
+  "threads.aboutLabel": "Es geht um",
+  "threads.newLabel": "Neuer Thread",
+  "threads.requireChangeLabel":
+    "Das muss geändert werden, bevor ich das Dokument bestätigen kann",
+  "threads.open": "Absenden",
+  "threads.readOnly": "Ihr Zugang ist schreibgeschützt.",
+  "buyer.decide.requestChanges": "Änderungen anfordern",
+  "buyer.decide.confirm": "Diese Version bestätigen",
+  "buyer.decide.confirmed":
+    "Sie haben diese Version bestätigt. Das ist eine Arbeitsentscheidung im Raum, keine Unterschrift.",
+  "buyer.decide.requested":
+    "Sie haben Änderungen an dieser Version angefordert.",
+  "room.decisions.title": "Entscheidungen des Käufers",
+  "room.decisions.empty": "Noch keine Entscheidungen.",
+  "room.decisions.confirm_version": "hat die Version bestätigt",
+  "room.decisions.request_changes": "hat Änderungen angefordert",
   "prefs.rateLimited":
     "Gerade zu viele Versuche von hier aus. Warte eine Minute und lade neu.",
   "prefs.subscribed": "Abonniert",

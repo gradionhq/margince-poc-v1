@@ -34,6 +34,7 @@ import { Switch } from "../design-system/switch";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryStates, throwProblem } from "./common";
+import { DealRoomConversation } from "./dealroomconversation";
 import { DealRoomDocuments } from "./dealroomdocuments";
 
 type DealRoom = components["schemas"]["DealRoom"];
@@ -87,6 +88,10 @@ export function DealRoomAside({ dealId }: Readonly<{ dealId: string }>) {
         <>
           <DealRoomTasks room={room} />
           <DealRoomDocuments
+            room={room}
+            refusal={refusalFor(FINISHED_STATES.has(room.state), mayWrite, t)}
+          />
+          <DealRoomConversation
             room={room}
             refusal={refusalFor(FINISHED_STATES.has(room.state), mayWrite, t)}
           />
