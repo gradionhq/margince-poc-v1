@@ -14,6 +14,7 @@ package backendarch
 // contract and the read's own bounds at once.
 
 import (
+	"fmt"
 	"os"
 	"slices"
 	"sort"
@@ -53,41 +54,29 @@ func TestEveryKindSomethingProducesIsOneTheContractCanExpress(t *testing.T) {
 		}
 	}
 	if len(missing) > 0 {
-		t.Log(alignEnum(declared, missing))
+		t.Log(alignEnum(missing))
 	}
 }
 
-// alignEnum renders the enum block to paste into crm.yaml, in the same spirit as
-// gen-composition's `align:` line for its committed stubs.
+// alignEnum names the file, the schema and exactly what to add.
 //
-// The enum is HAND-MAINTAINED here on purpose. A sibling generated file cannot
-// work: every $ref in crm.yaml is internal, and at least three consumers read
-// that file as plain YAML and resolve nothing — gen-agentpolicy, gen-recordfields
-// and crmYAMLNamedEnum, the helper this very gate uses to read the enum. A
-// generator writing into a region of the authoritative contract would also be
-// the first of its kind in this tree; every other generator owns its whole file.
+// It deliberately does NOT render a replacement enum, and the reason is worth
+// keeping: crmYAMLNamedEnum SORTS what it reads, because its callers do set
+// comparisons. So no helper built on it can reproduce the contract's own order
+// — and that order is deliberate, opening with the three carrier kinds the
+// schema's own description explains. A "paste this" block built from a sorted
+// list would move every name in the enum in order to add one: a diff nobody can
+// review, and a grouping silently destroyed.
 //
-// So what is missing is not the gate — the gate above cannot be fooled — but the
-// paste. Naming what to add is the difference between a red test that teaches
-// and one that sets homework.
-func alignEnum(declared, missing []string) string {
-	full := append(append([]string{}, declared...), missing...)
-	sort.Strings(full)
-	var b strings.Builder
-	b.WriteString("align backend/api/crm.yaml's AiActivityKind with the producers — replace its enum with:\n")
-	b.WriteString("      enum:\n        [")
-	for i, kind := range full {
-		switch {
-		case i == 0:
-		case i%4 == 0:
-			b.WriteString(",\n         ")
-		default:
-			b.WriteString(", ")
-		}
-		b.WriteString(kind)
-	}
-	b.WriteString("]")
-	return b.String()
+// Naming the file and the missing names is the part that was actually missing.
+// The per-kind errors above already say why each one matters.
+func alignEnum(missing []string) string {
+	out := append([]string{}, missing...)
+	sort.Strings(out)
+	return fmt.Sprintf(
+		"align backend/api/crm.yaml: add %s to the AiActivityKind enum, keeping its existing order "+
+			"(the carrier kinds lead it on purpose), then ship each one's copy in en/de/vi",
+		strings.Join(out, ", "))
 }
 
 // producedKinds is every kind an emitter can announce.
