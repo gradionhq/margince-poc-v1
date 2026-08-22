@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
+	"github.com/gradionhq/margince/backend/internal/platform/geocode"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
@@ -202,11 +203,42 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		return lanes, err
 	}
 
+	announceGeocoding(cfg.geocodeBaseURL, stdout)
+
 	if err := startWebhookLane(laneCtx, cfg, pool, rdb, &lanes, logger, stdout); err != nil {
 		return lanes, err
 	}
 	startWorkflowLane(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
 	return lanes, nil
+}
+
+// announceGeocoding says at boot whether company addresses become coordinates,
+// and it is the ONLY lane announcement that speaks when the feature is ABSENT.
+//
+// Every other one here says something when its half is configured and stays
+// quiet otherwise, which is right for a feature whose absence shows up the
+// moment it is asked for: an unconfigured blobstore answers 501, an
+// unconfigured webhook key answers 503. Geocoding has no such moment. An
+// address writes, the row is saved, nothing is queued, and no coordinate ever
+// appears — so the only symptom is that `within_radius` answers "unavailable"
+// weeks later, in a different surface, with nothing to search for.
+//
+// A line naming the variable is what turns that into a question an operator
+// can answer.
+func announceGeocoding(baseURL string, stdout io.Writer) {
+	if baseURL == "" {
+		_, _ = fmt.Fprintln(stdout,
+			"worker geocoding OFF (MARGINCE_GEOCODE_BASE_URL unset) — company addresses "+
+				"keep no coordinates and every within_radius query answers unavailable")
+		return
+	}
+	where := baseURL
+	if baseURL == "public" {
+		// Named rather than echoed: "public" is the flag's word, and an
+		// operator reading the log wants to know whose service this is.
+		where = geocode.PublicBaseURL + " (OpenStreetMap's own; 4 requests/minute)"
+	}
+	_, _ = fmt.Fprintf(stdout, "worker geocoding company addresses via %s\n", where)
 }
 
 // startExtensionSubscriptionLanes starts one consumer per composed unit

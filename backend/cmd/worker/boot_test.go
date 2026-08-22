@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -70,4 +71,45 @@ func TestResetFlushWithoutARouterStillReturnsACallableFlush(t *testing.T) {
 		t.Fatal("resetFlush returned nil; the reset subscriber would nil-panic on the first announcement")
 	}
 	flush(ids.NewV7())
+}
+
+// The boot line exists because geocoding's absence has no other symptom.
+//
+// Every other optional half here fails loudly when it is asked for — an
+// unconfigured blobstore answers 501, an unconfigured webhook key answers 503.
+// Geocoding does not: the address writes, the row saves, nothing is queued,
+// and the only trace is `within_radius` answering "unavailable" later, in a
+// different surface, with nothing an operator could search for.
+//
+// So the OFF line is the load-bearing one, and it names the variable — a
+// message saying only "geocoding disabled" leaves the reader exactly as stuck.
+func TestTheWorkerSaysWhenItWillGeocodeNothing(t *testing.T) {
+	var out strings.Builder
+	announceGeocoding("", &out)
+	said := out.String()
+	if !strings.Contains(said, "MARGINCE_GEOCODE_BASE_URL") {
+		t.Errorf("boot said %q, want it to name the variable — without it the reader has "+
+			"nothing to look up", said)
+	}
+	if !strings.Contains(said, "within_radius") {
+		t.Errorf("boot said %q, want it to name the query that will answer unavailable, "+
+			"which is the symptom the reader will actually meet", said)
+	}
+}
+
+// Configured, it says WHERE — an installation that geocodes through somebody
+// else's service should be able to read that off its own boot log.
+func TestTheWorkerSaysWhoseGeocoderItUses(t *testing.T) {
+	var public strings.Builder
+	announceGeocoding("public", &public)
+	// "public" is the flag's word, not a service. The log names the host.
+	if !strings.Contains(public.String(), "openstreetmap.org") {
+		t.Errorf("boot said %q for `public`, want the host it will actually call", public.String())
+	}
+
+	var own strings.Builder
+	announceGeocoding("https://nominatim.internal", &own)
+	if !strings.Contains(own.String(), "https://nominatim.internal") {
+		t.Errorf("boot said %q, want the self-hosted URL it was given", own.String())
+	}
 }
