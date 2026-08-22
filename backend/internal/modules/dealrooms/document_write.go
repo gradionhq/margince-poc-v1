@@ -108,6 +108,15 @@ func attachmentOfDeal(ctx context.Context, tx pgx.Tx, attachmentID ids.UUID, roo
 		return "", fmt.Errorf("read attachment for deal room document: %w", err)
 	}
 	if entityType == "activity" {
+		// The object grant first, then the row: a seat that lost activity.read
+		// must not be able to replay an id it once saw. Denial reads as absent,
+		// as every attachment read answers.
+		if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
+			if errors.Is(err, apperrors.ErrPermissionDenied) {
+				return "", apperrors.ErrNotFound
+			}
+			return "", err
+		}
 		if err := auth.EnsureActivityContentVisible(ctx, tx, entityID); err != nil {
 			return "", err
 		}

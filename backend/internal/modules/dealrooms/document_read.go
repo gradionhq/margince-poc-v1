@@ -65,14 +65,17 @@ const documentFrom = `deal_room_document d
 // seller see a captured file — is asked once, at add (addDocumentTx).
 //
 // The activities module spells the same membership for the deal's own Files
-// read; it cannot be shared because a module never imports a sibling, and
+// read, inline-image ceiling included (a logo a rep never sees in the area
+// must not be shareable by id); it cannot be shared because a module never
+// imports a sibling, and
 // TestRoomDocumentMembershipIsSpelledOnce holds this module's three readers to
 // this one constant.
 const inTheDealsFilesArea = `a.archived_at IS NULL
 	AND ((a.entity_type = 'deal' AND a.entity_id = r.deal_id)
 	  OR (a.entity_type = 'activity' AND EXISTS (
 	        SELECT 1 FROM activity_link l
-	         WHERE l.activity_id = a.entity_id AND l.entity_type = 'deal' AND l.deal_id = r.deal_id)))
+	         WHERE l.activity_id = a.entity_id AND l.entity_type = 'deal' AND l.deal_id = r.deal_id)
+	      AND NOT (a.content_type LIKE 'image/%' AND COALESCE(a.byte_size, 0) < 65536)))
 	AND NOT EXISTS (SELECT 1 FROM deal_document_hide h WHERE h.deal_id = r.deal_id AND h.attachment_id = a.id)`
 
 // ListDocuments returns a room's documents in group-then-position order.
