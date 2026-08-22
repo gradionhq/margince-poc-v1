@@ -4,6 +4,8 @@
 package activities
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -23,10 +25,15 @@ func (h Handlers) CreateTask(w http.ResponseWriter, r *http.Request, _ crmcontra
 	// The activity writer admits a blank subject (a captured mail may carry
 	// none); a task is nothing but its subject, so this door refuses one.
 	if strings.TrimSpace(req.Subject) == "" {
-		writeStoreErr(w, r, &RequiredFieldError{Field: "subject"})
+		writeStoreErr(w, r, &RequiredFieldError{Field: fieldSubject})
 		return
 	}
-	in, err := LogActivityInputFrom(activityOfTask(req))
+	activityReq, err := activityOfTask(req)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	in, err := LogActivityInputFrom(activityReq)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -43,7 +50,7 @@ func (h Handlers) CreateTask(w http.ResponseWriter, r *http.Request, _ crmcontra
 // activityOfTask is the fold: the task request as the activity request the
 // writer understands. Kept as a function rather than inlined so a field the
 // task grows is added here once, where its mapping is visible.
-func activityOfTask(req crmcontracts.CreateTaskRequest) crmcontracts.CreateActivityRequest {
+func activityOfTask(req crmcontracts.CreateTaskRequest) (crmcontracts.CreateActivityRequest, error) {
 	subject := req.Subject
 	out := crmcontracts.CreateActivityRequest{
 		Kind:       crmcontracts.CreateActivityRequestKindTask,
@@ -54,17 +61,16 @@ func activityOfTask(req crmcontracts.CreateTaskRequest) crmcontracts.CreateActiv
 		Source:     req.Source,
 	}
 	if req.Links != nil {
-		links := make([]struct {
-			EntityId   crmcontracts.Id                                   `json:"entity_id"`
-			EntityType crmcontracts.CreateActivityRequestLinksEntityType `json:"entity_type"`
-		}, 0, len(*req.Links))
-		for _, l := range *req.Links {
-			links = append(links, struct {
-				EntityId   crmcontracts.Id                                   `json:"entity_id"`
-				EntityType crmcontracts.CreateActivityRequestLinksEntityType `json:"entity_type"`
-			}{EntityId: l.EntityId, EntityType: crmcontracts.CreateActivityRequestLinksEntityType(l.EntityType)})
+		// The two link shapes are generated separately and identical on the
+		// wire; a round trip through JSON is the one spelling of the copy that
+		// cannot drift from either generated struct.
+		raw, err := json.Marshal(req.Links)
+		if err != nil {
+			return out, fmt.Errorf("encode task links: %w", err)
 		}
-		out.Links = &links
+		if err := json.Unmarshal(raw, &out.Links); err != nil {
+			return out, fmt.Errorf("decode task links as activity links: %w", err)
+		}
 	}
-	return out
+	return out, nil
 }
