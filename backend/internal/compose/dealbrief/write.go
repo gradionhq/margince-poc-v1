@@ -80,8 +80,9 @@ func openLine(f facts) string {
 		text += fmt.Sprintf(" at %s %s", values.MajorUnits(*d.AmountMinor, *d.Currency), *d.Currency)
 	}
 	if d.ExpectedCloseDate != nil {
+		// A date, not an instant: "past" means the calendar day has ended.
 		closeDay := d.ExpectedCloseDate.Time
-		if closeDay.Before(f.now) {
+		if closeDay.Format("2006-01-02") < f.now.UTC().Format("2006-01-02") {
 			text += fmt.Sprintf(", past its expected close of %s", closeDay.Format("2 Jan 2006"))
 		} else {
 			text += fmt.Sprintf(", expected to close %s", closeDay.Format("2 Jan 2006"))
@@ -133,7 +134,11 @@ func open(f facts) []sentence {
 		return nil
 	}
 	first := f.openTasks[0]
-	text := fmt.Sprintf("%s, starting with %q", plural(len(f.openTasks), "open task"), first.Subject)
+	count := plural(len(f.openTasks), "open task")
+	if f.moreTasks {
+		count = "At least " + count
+	}
+	text := fmt.Sprintf("%s, starting with %q", count, first.Subject)
 	if first.DueAt != nil && first.DueAt.Before(f.now) {
 		text += fmt.Sprintf(", overdue since %s", first.DueAt.Format("2 Jan"))
 	}

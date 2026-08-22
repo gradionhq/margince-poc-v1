@@ -27,9 +27,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// timelineWindow bounds how much of the timeline the brief reads: the nearest
-// booked rows and the most recent past ones, which is all "last" and "next"
-// need.
+// timelineWindow bounds how much of the timeline the brief reads. The
+// timeline is ordered by occurred_at DESC, so the window holds the nearest
+// scheduled rows first and then the most recent past ones; a deal with more
+// booked future rows than the window would show no "last activity", which
+// the activity section says rather than guessing.
 const timelineWindow = 25
 
 // Service gathers the facts from the three modules that hold them.
@@ -51,6 +53,9 @@ type facts struct {
 	health    *deals.DealHealth
 	timeline  []crmcontracts.Activity
 	openTasks []activities.OpenTask
+	// moreTasks says the open-task read was cut at its window, so the count
+	// is a floor rather than the number.
+	moreTasks bool
 	room      *crmcontracts.DealRoom
 	threads   []crmcontracts.DealRoomThread
 	decisions []crmcontracts.DealRoomDecision
@@ -92,13 +97,13 @@ func (s *Service) gather(ctx context.Context, dealID ids.DealID) (facts, error) 
 		return facts{}, fmt.Errorf("deal brief: reading the deal's timeline: %w", err)
 	}
 	f.timeline = timeline
-	open, _, err := s.activities.ListOpenTasks(ctx, activities.ListOpenTasksInput{
+	open, more, err := s.activities.ListOpenTasks(ctx, activities.ListOpenTasksInput{
 		EntityType: &entityType, EntityID: &dealID.UUID, Limit: timelineWindow,
 	})
 	if err != nil {
 		return facts{}, fmt.Errorf("deal brief: reading the deal's open tasks: %w", err)
 	}
-	f.openTasks = open
+	f.openTasks, f.moreTasks = open, more
 	if err := s.gatherRoom(ctx, dealID, &f); err != nil {
 		return facts{}, err
 	}
