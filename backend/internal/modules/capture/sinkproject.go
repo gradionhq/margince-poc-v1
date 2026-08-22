@@ -46,13 +46,35 @@ type ProjectKeyMatcher interface {
 	MatchProjectKey(ctx context.Context, tokens []string) (ids.UUID, error)
 }
 
+// StampProjectCorrespondence marks the activity just filed under a project as
+// commercial correspondence, inside the transaction that wrote the link (D5).
+// `activity` belongs to another module, so this is a seam for the same reason
+// ProjectKeyMatcher is one.
+type StampProjectCorrespondence func(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, projectID ids.UUID) error
+
+// ProjectAttribution is the ladder's two halves, which are one seam because
+// they are one obligation: deciding a message belongs to a project and
+// classifying the correspondence that decision qualifies (D5).
+//
+// They are ONE struct rather than two parameters so a caller cannot supply the
+// first without the second. The two failure modes are not comparable —
+// attributing nothing is an ordinary configuration, attributing without
+// classifying leaves a Handelsbrief the next erasure destroys — so the wiring
+// that could get it wrong does not exist rather than being checked for.
+type ProjectAttribution struct {
+	Keys  ProjectKeyMatcher
+	Stamp StampProjectCorrespondence
+}
+
 // WithProjectAttribution returns a copy that files captured activities under a
-// project. A nil matcher leaves capture exactly as it is without one: messages
-// land, and none of them is attributed — which is also what every rung
-// concluding nothing looks like, so no caller has to special-case the absence.
-func (s *Sink) WithProjectAttribution(matcher ProjectKeyMatcher) *Sink {
+// project and classifies what it files. The zero value leaves capture exactly
+// as it is without one: messages land, and none of them is attributed — which
+// is also what every rung concluding nothing looks like, so no caller has to
+// special-case the absence.
+func (s *Sink) WithProjectAttribution(attribution ProjectAttribution) *Sink {
 	c := *s
-	c.projectKeys = matcher
+	c.projectKeys = attribution.Keys
+	c.stampProject = attribution.Stamp
 	return &c
 }
 
@@ -64,7 +86,7 @@ func (s *Sink) WithProjectAttribution(matcher ProjectKeyMatcher) *Sink {
 // budget must not wait on this. A fault is recorded for the nightly reconcile
 // and never returned — the message is already on the timeline and stays there.
 func (s *Sink) attributeProject(ctx context.Context, rec connector.NormalizedRecord, ref datasource.EntityRef) {
-	if s.projectKeys == nil {
+	if s.projectKeys == nil || s.stampProject == nil {
 		return
 	}
 	activityID := ids.From[ids.ActivityKind](ref.ID)
@@ -73,7 +95,7 @@ func (s *Sink) attributeProject(ctx context.Context, rec connector.NormalizedRec
 		if err != nil || projectID.IsZero() {
 			return err
 		}
-		return linkActivityToProject(ctx, tx, activityID, projectID)
+		return linkActivityToProject(ctx, tx, activityID, projectID, s.stampProject)
 	})
 	if err != nil {
 		s.logProjectAttributionFault(ctx, rec, err)
@@ -285,7 +307,7 @@ func dealProject(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID) (ids
 // project link per activity: a concurrent pass that got there first is the
 // system working, not a collision to report. Nothing is audited or bumped when
 // nothing landed — a no-op writes no audit noise and moves no version.
-func linkActivityToProject(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, projectID ids.UUID) error {
+func linkActivityToProject(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, projectID ids.UUID, stamp StampProjectCorrespondence) error {
 	if err := auth.Require(ctx, "activity", principal.ActionUpdate); err != nil {
 		if errors.Is(err, apperrors.ErrPermissionDenied) {
 			return nil
@@ -318,6 +340,12 @@ func linkActivityToProject(ctx context.Context, tx pgx.Tx, activityID ids.Activi
 	// genuine UPDATE of the row.
 	if _, err := tx.Exec(ctx, `UPDATE activity SET updated_at = now() WHERE id = $1`, activityID); err != nil {
 		return fmt.Errorf("capture: bumping the filed activity's version: %w", err)
+	}
+	// The link is what qualifies the correspondence, so the stamp commits with
+	// it (D5). Only when a link actually landed: the ON CONFLICT path above
+	// means another pass already filed and stamped this activity.
+	if err := stamp(ctx, tx, activityID, projectID); err != nil {
+		return fmt.Errorf("capture: classifying the filed activity's correspondence: %w", err)
 	}
 	return auditProjectAttribution(ctx, tx, activityID, projectID)
 }

@@ -206,7 +206,13 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// reason the counterparty resolver is: capture must not import a
 		// sibling, and which project a subject names is a question about
 		// another module's records.
-		WithProjectAttribution(deals.NewStore(InstallationDB(pool), DealsInstallation())).
+		// The stamp beside it comes from activities, which owns `activity` —
+		// filing an activity under a project qualifies its correspondence as
+		// a Handelsbrief (D5), and that classification commits with the link.
+		WithProjectAttribution(capture.ProjectAttribution{
+			Keys:  deals.NewStore(InstallationDB(pool), DealsInstallation()),
+			Stamp: activities.StampCorrespondenceForProject,
+		}).
 		// The 24-hour trace's payload posture. It rides the Sink because the
 		// Sink is where a payload would be written, and it is a deployment
 		// decision rather than a workspace one -- there is no API that flips it.

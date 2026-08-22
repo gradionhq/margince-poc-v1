@@ -107,6 +107,11 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, activityID ids.Activity
 			activityID, link.EntityType, link.EntityID); err != nil {
 			return err
 		}
+		if link.EntityType == linkEntityProject {
+			if err := StampCorrespondenceForProject(ctx, tx, activityID, link.EntityID); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

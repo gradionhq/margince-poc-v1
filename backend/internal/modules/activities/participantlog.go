@@ -34,6 +34,7 @@ const (
 	linkEntityOrganization = "organization"
 	linkEntityDeal         = "deal"
 	linkEntityActivity     = "activity"
+	linkEntityProject      = "project"
 )
 
 // stampLoggedParticipants records who was in a hand-logged interaction: the

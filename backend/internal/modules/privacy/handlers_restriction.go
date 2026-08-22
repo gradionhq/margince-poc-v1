@@ -37,22 +37,32 @@ func (h Handlers) ListRestrictedActivities(w http.ResponseWriter, r *http.Reques
 	httperr.WriteJSON(w, http.StatusOK, resp)
 }
 
-// qualifyingDealWire is the generated RestrictedRecord.Deals item shape,
-// named once so the mapping below reads as a mapping.
-type qualifyingDealWire = struct {
+// qualifyingRecordWire is the generated RestrictedRecord.Deals item shape,
+// named once so the mapping below reads as a mapping. RestrictedRecord.Projects
+// carries the identical shape, so one alias serves both lists.
+type qualifyingRecordWire = struct {
 	Id   openapi_types.UUID `json:"id"` //nolint:staticcheck // matches the generated RestrictedRecord.Deals item shape
 	Name string             `json:"name"`
 }
 
-// restrictedRecordToWire states the obligation as class plus statute — never
-// free text from a user — and names the deals the evidence froze. The
-// redacted-field list is always present, empty meaning "nothing was removed",
-// which is a real state and not an unknown.
-func restrictedRecordToWire(record RestrictedRecord) crmcontracts.RestrictedRecord {
-	deals := make([]qualifyingDealWire, 0, len(record.Deals))
-	for _, deal := range record.Deals {
-		deals = append(deals, qualifyingDealWire{Id: openapi_types.UUID(deal.ID), Name: deal.Name})
+// qualifyingRecordsToWire maps one frozen-evidence list onto the wire.
+func qualifyingRecordsToWire(records []QualifyingRecord) []qualifyingRecordWire {
+	wire := make([]qualifyingRecordWire, 0, len(records))
+	for _, record := range records {
+		wire = append(wire, qualifyingRecordWire{Id: openapi_types.UUID(record.ID), Name: record.Name})
 	}
+	return wire
+}
+
+// restrictedRecordToWire states the obligation as class plus statute — never
+// free text from a user — and names the deals and projects the evidence froze.
+// The redacted-field list is always present, empty meaning "nothing was
+// removed", which is a real state and not an unknown. The project list is
+// always present too, for the same reason: an absent list and an empty one
+// would read alike, and only one of them means "no project holds this".
+func restrictedRecordToWire(record RestrictedRecord) crmcontracts.RestrictedRecord {
+	deals := qualifyingRecordsToWire(record.Deals)
+	projects := qualifyingRecordsToWire(record.Projects)
 	redacted := record.RedactedFields
 	if redacted == nil {
 		redacted = []string{}
@@ -65,6 +75,7 @@ func restrictedRecordToWire(record RestrictedRecord) crmcontracts.RestrictedReco
 		RestrictedUntil: record.RestrictedUntil,
 		Reason:          record.Class + " · " + statutoryBasisCorrespondence,
 		Deals:           deals,
+		Projects:        &projects,
 		RedactedFields:  &redacted,
 	}
 }
