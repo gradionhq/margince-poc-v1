@@ -217,6 +217,84 @@ func TestOfferRenderHTTP_ConcurrentLineEditBetweenPrepareAndSetRejectsWithVersio
 	}
 }
 
+// raceOfferArchiver wraps a real blobstore.Store and ARCHIVES the offer
+// right after Put writes the rendered bytes — the same instant raceLineAdder
+// uses, but producing a refusal that is not a version conflict: the persist
+// then finds no live offer to write. It stands for the whole class of
+// non-skew refusals that can land in that window (the offer retired under the
+// request; the deal's write authority lapsing between the two calls), which
+// is why the reclamation has to key on "the persist did not happen" rather
+// than on one particular refusal.
+type raceOfferArchiver struct {
+	blobstore.Store
+	t       *testing.T
+	e       *apptest.AppEnv
+	offerID string
+	// putKey records the exact per-attempt key the render handler wrote, the
+	// only key the reclaim is allowed to touch.
+	putKey string
+	// hookErr carries a failure out to the test goroutine for the reason
+	// raceLineAdder's does: a t.Fatalf on this goroutine would hang the
+	// outer render's e.Call forever.
+	hookErr error
+}
+
+func (r *raceOfferArchiver) Put(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
+	if err := r.Store.Put(ctx, key, body, size, contentType); err != nil {
+		return err
+	}
+	r.putKey = key
+	var archived apptest.AnyMap
+	if status := r.e.Call(r.t, "DELETE", "/v1/offers/"+r.offerID, nil, nil, &archived); status != http.StatusOK {
+		r.hookErr = fmt.Errorf("archive the offer between prepare and set = %d %v", status, archived)
+	}
+	return nil
+}
+
+// TestOfferRenderHTTP_OfferArchivedBetweenPrepareAndSetReclaimsTheBlob proves
+// the reclaim is not special-cased to version conflicts. The offer stops being
+// persistable for a different reason entirely — it is archived after the PDF
+// has already been written — and the bytes must still not survive: a refusal
+// that leaves its object behind bills the installation for storage nothing
+// references and nothing will ever collect.
+func TestOfferRenderHTTP_OfferArchivedBetweenPrepareAndSetReclaimsTheBlob(t *testing.T) {
+	race := &raceOfferArchiver{Store: blobstore.NewMemory()}
+	e := apptest.SetupAppWithOptions(t, compose.WithBlobstore(race))
+	race.t, race.e = t, e
+	e.BootstrapWorkspace(t)
+	dealID := offerFixture(t, e)
+
+	var offer apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/deals/"+dealID+"/offers", apptest.AnyMap{
+		"currency": "EUR", "source": "manual",
+		"line_items": []apptest.AnyMap{{"description": "Retainer", "quantity": 1, "unit_price_minor": 500000, "tax_rate": 19.0}},
+	}, nil, &offer); status != http.StatusCreated {
+		t.Fatalf("create offer for render = %d %v", status, offer)
+	}
+	offerID, ok := offer["id"].(string)
+	if !ok {
+		t.Fatalf("create offer for render response carries no id: %v", offer)
+	}
+	race.offerID = offerID
+
+	var problem struct {
+		Code string `json:"code"`
+	}
+	status := e.Call(t, "POST", "/v1/offers/"+offerID+"/render", apptest.AnyMap{}, nil, &problem)
+	if race.hookErr != nil {
+		t.Fatal(race.hookErr)
+	}
+	if status != http.StatusNotFound {
+		t.Fatalf("render whose offer was archived mid-flight = %d %+v, want 404", status, problem)
+	}
+	if race.putKey == "" {
+		t.Fatal("the race hook never observed a Put — the render must have failed before writing any blob")
+	}
+	if _, _, err := race.Get(context.Background(), race.putKey); !errors.Is(err, blobstore.ErrNotFound) {
+		t.Fatalf("the render blob must be reclaimed after a non-version-skew refusal too, got err=%v", err)
+	}
+}
+
 // raceDoubleRenderer wraps a real blobstore.Store and, right after Put
 // writes the OUTER render's PDF bytes, drives a second, COMPLETE render of
 // the same offer over the ordinary HTTP surface — reproducing two renders

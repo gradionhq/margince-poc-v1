@@ -133,15 +133,16 @@ func (h Handlers) ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request, i
 // fenced on the row version PrepareRender saw. Without a wired blobstore
 // (WithBlobstore) this stays an explicit 501 — the same unwired-by-omission
 // posture as activities' attachment endpoints — rather than nil-derefing
-// h.blob. A concurrent draft edit between PrepareRender and the
-// SetPdfAssetRef call (another render, a line edit, a regenerate) moves
-// the offer's version out from under this request: SetPdfAssetRef then
-// answers version_skew, and this handler reclaims the blob it already
-// wrote — safely, since the per-attempt key means that blob is never the
-// one another render's SetPdfAssetRef could have just committed. A
-// successful re-render instead reclaims its own now-superseded PREVIOUS
-// ref (best-effort: the row is already committed at this point, so a
-// stray old blob is a GC concern, never a dangling reference).
+// h.blob. Anything that refuses the persist between PrepareRender and the
+// SetPdfAssetRef call — a concurrent draft edit moving the version
+// (version_skew), the offer archived under the request (not-found), the
+// deal's write authority lapsing (denied) — leaves this handler holding
+// bytes nothing points at, so it reclaims them, safely, since the
+// per-attempt key means that blob is never the one another render's
+// SetPdfAssetRef could have just committed. A successful re-render instead
+// reclaims its own now-superseded PREVIOUS ref (best-effort: the row is
+// already committed at this point, so a stray old blob is a GC concern,
+// never a dangling reference).
 func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.RenderOfferParams) {
 	if h.blob == nil {
 		httperr.NotImplemented(w, r, "RenderOffer")
@@ -173,11 +174,20 @@ func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcont
 	}
 	updated, oldRef, err := h.store.SetPdfAssetRef(r.Context(), offerID, key, preparedVersion)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrVersionSkew) {
-			if delErr := h.blob.Delete(r.Context(), key); delErr != nil {
-				httperr.Write(w, r, fmt.Errorf("reclaim orphaned render blob after a version conflict: %w", delErr))
-				return
-			}
+		// The persist did not happen, so the bytes above belong to nobody —
+		// reclaim them whatever refused it. Keying this on version_skew alone
+		// covered one refusal and left the others orphaning an object: the
+		// offer archived under the request answers not-found, and the deal's
+		// write authority lapsing between the two calls answers denied. What
+		// makes the blanket reclaim safe is the per-attempt key, which can
+		// only ever name what THIS attempt wrote.
+		//
+		// A failed cleanup is logged rather than returned: it leaves an inert
+		// orphan, and the caller is owed the reason their render was refused,
+		// not the reason a cleanup they never asked for did not finish.
+		if delErr := h.blob.Delete(r.Context(), key); delErr != nil {
+			slog.WarnContext(r.Context(), "reclaiming an unpersisted render blob",
+				"offer", offerID.String(), "ref", key, "err", delErr)
 		}
 		writeStoreErr(w, r, err)
 		return
