@@ -148,8 +148,55 @@ describe("lineFor", () => {
     ["work the asker is watching", { kind: "cold_start", state: "done" }],
     ["a task nothing has built", { kind: "nl_search", state: "done" }],
     ["the lane grading this build", { kind: "cert_judge", state: "done" }],
+    // Two reasons this list did not carry. `enrich` has had its own reason all
+    // along and no case named it, so the "one per REASON" claim above was one
+    // short of true the day it was written — the exact drift a hand-kept list
+    // suffers. The site lanes are the fifth, and new: they left SYSTEM_SWEEP
+    // because that sentence is false whenever a human asked for the read.
+    ["a pass that reaches nobody", { kind: "enrich", state: "done" }],
+    ["a site-read lane", { kind: "site_triage", state: "running" }],
   ])("renders nothing at all for %s", (_name, item) => {
     expect(lineFor(item, (key) => en[key])).toBeNull();
+  });
+});
+
+// The site-read lanes are not filed under the sweep sentence.
+//
+// A prose reason cannot be checked by reading it, but WHICH reason a kind
+// carries can be. These three sat on SYSTEM_SWEEP — "background workspace work
+// that belongs to nobody in particular" — and that is false for the commonest
+// case: compose binds the requester as on_behalf_of when a HUMAN asks for a
+// read, so the occurrence is personal to them. A reader who trusted the shared
+// sentence would conclude no site read can ever reach a person, and stop
+// looking.
+//
+// Comparing against a kind that legitimately IS a sweep, rather than asserting
+// the new text, is what makes this survive rewording: the reason may be edited
+// freely, and only re-sharing the sweep's sentence fails. Mutation-checked by
+// pointing the three back at SYSTEM_SWEEP, which fails all three cases.
+describe("the site-read lanes carry their own reason", () => {
+  const reasonFor = (kind: string): string => {
+    const entry = ACTIVITY_LINE[kind as keyof typeof ACTIVITY_LINE];
+    return "notDisplayed" in entry ? entry.notDisplayed : "";
+  };
+  const SWEEP = reasonFor("brief_ranking");
+
+  it.each(["site_extract", "site_fact_extract", "site_triage"])(
+    "%s does not reuse the background-sweep sentence",
+    (kind) => {
+      expect(SWEEP).not.toBe("");
+      expect(reasonFor(kind)).not.toBe(SWEEP);
+    },
+  );
+
+  // One reason between them, not three near-copies: they are one capability
+  // and a reader comparing two of them must not have to diff prose.
+  it("uses ONE reason for all three", () => {
+    expect(
+      new Set(
+        ["site_extract", "site_fact_extract", "site_triage"].map(reasonFor),
+      ).size,
+    ).toBe(1);
   });
 });
 

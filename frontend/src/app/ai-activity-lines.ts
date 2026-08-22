@@ -25,10 +25,24 @@ const notDisplayed = (reason: string): NotDisplayed => ({
 });
 
 const WATCHED_BY_THE_ASKER = notDisplayed(
-  "growth_fit lands on the panel that asked for it and renders the band it returns, so a line here would narrate what the reader is already looking at. cold_start has a reason that does not depend on judgement at all: it runs during onboarding, and the onboarding routes are deliberately RAILLESS (shell.tsx) — there is no rail on screen for its line to appear on. That is why the two sit together despite cold_start also having an out-of-band arm that becomes an approval nobody watches: a task-level map could not separate those arms, and it does not have to, because neither can be drawn where the task runs",
+  "the work lands on the surface that asked for it and changes it when it arrives, so a line here would narrate what the reader is already looking at. growth_fit renders the band it returns on the panel that asked. cold_start has TWO production sites and the reason has to cover both: during onboarding the routes are deliberately RAILLESS (shell.tsx), so there is no rail on screen for its line to appear on — and the organization page's Enrich card runs it too (cmd/api/modelwiring.go wires WithScrape with the cold_start brain), where a rail DOES exist and the card itself renders the proposal. Naming only the onboarding half would leave the org-page site looking like an oversight. A task-level map cannot separate those arms and does not have to, because neither is drawn where the task runs",
 );
 const SYSTEM_SWEEP = notDisplayed(
   "background workspace work that belongs to nobody in particular, so it has no personal line to draw",
+);
+
+// The site-read lanes, which do NOT belong above however much they look like it.
+//
+// Their attribution is a property of the READ, not of the task: compose binds
+// the requester as OnBehalfOf when a human asked (deepreadprincipal.go), so
+// those occurrences resolve to that person and land in their personal feed —
+// while a read requested by domain triage or the auto-enrich sweep names no
+// human, yields the zero uuid, and is workspace-scoped like any sweep. Calling
+// all three "work that belongs to nobody" is therefore false for the commonest
+// case, and a kind-level map cannot say "sometimes personal" in the SYSTEM_SWEEP
+// sentence — which is why they get their own reason instead of sharing one.
+const SITE_READ_WATCHED_WHERE_IT_RUNS = notDisplayed(
+  "the site-read lanes, whose attribution is a fact about the READ rather than the task: a human-requested read carries that person as on_behalf_of and IS personal to them, while a domain-triage or auto-enrich read names no human and is workspace-scoped. Neither wants a line here. The human's read is already narrated where it was started — the organization page polls the read's own status and draws it live (SiteReadPanel), and the taskbar carries a `site-read` key for the same action — so a rail line would be a third telling of one thing. The system's read belongs to nobody, exactly like the sweeps above. There is also a grain the rail could not render honestly today: ONE read files THREE occurrences, because its correlation id is the site_read row id and it runs three tasks under it, so narrating them would show three lines for one thing a person asked for once",
 );
 
 /**
@@ -122,13 +136,13 @@ export const ACTIVITY_LINE: Readonly<
   capture_classify: SYSTEM_SWEEP,
   capture_counterparty_verdict: SYSTEM_SWEEP,
   enrich: notDisplayed(
-    "it can reach nobody, and that is a fact about the work rather than an editorial choice: the one production site for this task is the signature-enrichment pass, which runs under a system principal with no on_behalf_of, so ResolveActor scopes every occurrence to the workspace with a NULL actor_user_id — and the personal feed selects on actor_user_id. Copy for it would be copy no reader can ever be shown. The ticker's own `enrich` key names DIFFERENT work (a provider run on a person, and the site-read lanes on a company), which is what makes this one easy to mistake for visible",
+    "it reaches nobody, and it would not be worth showing if it did — recording only the first half is what made this read like a gap somebody should close. Reachability: the one production site is the signature-enrichment pass, which runs under a system principal with no on_behalf_of, so ResolveActor scopes every occurrence to the workspace with a NULL actor_user_id while the personal feed selects on actor_user_id. Worth: the pass is NIGHTLY (api/jobs.yaml capture_enrich, cadence 24h, up to 100 candidates in series), so a per-person window is a few seconds in the middle of the night — a line for it would address a reader who is not there. And it could not be per-person anyway: the pass mints ONE correlation id for the whole run, so all 100 candidates share one occurrence, and a per-person subject would make that single row flap from one person to the next. What a reader actually wants from this pass is what it FOUND, which is durable and already drawn as evidence-or-omit provenance on the person record. The ticker's own `enrich` key names DIFFERENT work (a provider run on a person, and the organization page's Enrich card, which runs cold_start rather than this task), which is what makes this one easy to mistake for visible",
   ),
   rate_extract: SYSTEM_SWEEP,
   signal_extract: SYSTEM_SWEEP,
-  site_extract: SYSTEM_SWEEP,
-  site_fact_extract: SYSTEM_SWEEP,
-  site_triage: SYSTEM_SWEEP,
+  site_extract: SITE_READ_WATCHED_WHERE_IT_RUNS,
+  site_fact_extract: SITE_READ_WATCHED_WHERE_IT_RUNS,
+  site_triage: SITE_READ_WATCHED_WHERE_IT_RUNS,
   transcript_propose: SYSTEM_SWEEP,
   voice_build: SYSTEM_SWEEP,
 

@@ -175,9 +175,10 @@ requires it — not because a producer is missing.
 
 | Reason | Kinds | Why |
 |---|---|---|
-| Watched by the asker | `growth_fit`, `cold_start` | `growth_fit` renders on the panel that asked for it, so a line would narrate what the reader is already looking at. `cold_start` runs during onboarding, and the onboarding routes are deliberately RAILLESS — there is no rail on screen for its line to appear on. |
-| System sweep | `brief_ranking`, `capture_classify`, `capture_counterparty_verdict`, `rate_extract`, `signal_extract`, `site_extract`, `site_fact_extract`, `site_triage`, `transcript_propose`, `voice_build` | Background workspace work that belongs to nobody in particular, so it has no personal line to draw. |
-| Reaches nobody | `enrich` | Structural, not editorial. Its one production site is the signature-enrichment pass, which runs under a system principal with no `on_behalf_of` — so every occurrence is workspace-scoped with a NULL `actor_user_id`, and the personal feed selects on `actor_user_id`. Copy for it would be copy no reader can ever be shown. |
+| Watched by the asker | `growth_fit`, `cold_start` | The work lands on the surface that asked and changes it on arrival. `growth_fit` renders the band it returns on the panel that asked. `cold_start` has TWO sites and needs both named: onboarding, whose routes are deliberately RAILLESS, and the organization page's Enrich card — `cmd/api/modelwiring.go` wires `WithScrape` with the cold-start brain — where a rail does exist and the card itself renders the proposal. |
+| System sweep | `brief_ranking`, `capture_classify`, `capture_counterparty_verdict`, `rate_extract`, `signal_extract`, `transcript_propose`, `voice_build` | Background workspace work that belongs to nobody in particular, so it has no personal line to draw. |
+| Watched where it runs | `site_extract`, `site_fact_extract`, `site_triage` | Attribution here is a fact about the READ, not the task: a human-requested read carries that person as `on_behalf_of` and IS personal to them; a domain-triage or auto-enrich read names no human and is workspace-scoped. Neither wants a line. The human's read is already drawn live where it was started (the organization page polls the read's own status), and the system's belongs to nobody. A grain problem seals it: one read files THREE occurrences, so narrating them would show three lines for one thing somebody asked for once. |
+| Reaches nobody, and would not be worth showing | `enrich` | Both halves matter. **Reachability:** its one production site is the signature-enrichment pass, which runs under a system principal with no `on_behalf_of` — so every occurrence is workspace-scoped with a NULL `actor_user_id`, and the personal feed selects on `actor_user_id`. **Worth:** the pass is nightly (`capture_enrich`, `cadence: 24h`, up to 100 candidates in series), so a per-person window is a few seconds in the middle of the night — a line would address a reader who is not there. It could not be per-person anyway: the pass mints ONE correlation id for the whole run, so all 100 candidates share one occurrence. What a reader wants from it is what it FOUND, which is durable and already drawn as evidence-or-omit provenance on the person record. |
 | An operator's measurement | `cert_judge` | The certification lane grading this build's own answers — not a rep's work. |
 | Declared, not built | `deal_health`, `nl_search`, `transcript` | Named in `api/ai-tasks.yaml`; no site runs them, so nothing reports them yet. |
 
@@ -253,7 +254,20 @@ reporting nothing at all.
 - **`subject_type` / `subject_id` are carried and stored but never read.** The
   event envelope has both, `ai_task_run` has both columns, and exactly one
   emitter populates them (`document_extract` → `attachment`). Nothing selects
-  them, and the wire contract does not expose them.
+  them, and the wire contract does not expose them. **This is not a to-do.** A
+  subject-scoped read was designed and declined: it would replace an
+  authorization that holds by construction — another person's feed cannot be
+  expressed — with one that holds because a gate ran, and `auth.EnsureVisible`
+  alone is not that gate (it checks no object grant, and for an identity table
+  its clause is empty, so it returns success without a query). The one populated
+  subject, `attachment`, is not row-scoped at all; its authority is inherited
+  from a polymorphic parent. And a single `LIMIT` over a widened predicate lets
+  one population evict the other, which is the opposite of what a subject arm is
+  for. If it is ever built it copies `ai/feedback.go`, which already spells the
+  gate correctly.
+- **Per-person `enrich` narration was considered and declined**, not deferred.
+  The reasons are in the census entry beside the code: a nightly cadence has no
+  observer, and the pass mints one correlation id for all its candidates.
 
 [#2272]: https://github.com/gradionhq/margince-poc-v1/issues/2272
 [#2276]: https://github.com/gradionhq/margince-poc-v1/issues/2276
