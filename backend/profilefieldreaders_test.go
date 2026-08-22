@@ -63,11 +63,15 @@ var profileFieldRead = gatekit.TableReadPattern("person_profile_field")
 // overlaid or ratified, never as silence — and a wrong waiver is visible in
 // review where a missed reader is not.
 // valueColumns are the columns that carry the assertion itself or the evidence
-// for it — the things a human verdict can overturn. Named as a LIST rather than
-// spelled inside the pattern so the defect test can derive a must-catch case
-// per word: a hand-written set of cases covered two of four, and dropping one
-// of the other two from the pattern would have gone unnoticed, which is the
-// silent-miss direction this whole census exists to close.
+// for it — the things a human verdict can overturn.
+//
+// A list rather than words spelled inside the pattern, so the defect test can
+// COMPARE it against a set of words that test writes out for itself. The test
+// deliberately does not iterate this list to build its cases: a case derived
+// from the same list the pattern is built from disappears when a word does, and
+// proves nothing about that word. The comparison is what holds both directions
+// — a word dropped here fails, and a word added here fails until the test names
+// it too.
 var valueColumns = []string{"value", "evidence_snippet", "source_ref", "confidence"}
 
 var selectsValues = regexp.MustCompile(
@@ -101,9 +105,9 @@ func readsProfileFieldValues(path string, file *ast.File) bool {
 
 // The overlay itself, matched in the FUNCTION that does the reading — not
 // file-wide, which is how the sibling activity census matches and is wrong
-// here. Measured: with a file-wide match, deleting the overlay call from
-// readProfileFields left this test green, because applyFieldVerdicts was still
-// declared ten lines below. A marker the defect cannot remove is not a marker.
+// here. A file-wide match is satisfied by applyFieldVerdicts merely being
+// DECLARED in the file, so deleting the call from readProfileFields leaves it
+// green: a marker the defect cannot remove is not a marker.
 //
 // Per-function is right for this obligation because the overlay is a direct
 // call from the reader (readProfileFields → applyFieldVerdicts → VerdictsForTx)
@@ -234,15 +238,11 @@ func applyFieldVerdicts() {}`,
 	}
 
 	// EVERY value word gets a must-catch case, and the list is written out HERE
-	// rather than taken from valueColumns.
+	// rather than taken from valueColumns. A test and the thing it tests cannot
+	// share a source: cases derived from the pattern's own list vanish when a
+	// word does, so they say nothing about that word.
 	//
-	// That is the whole point and it was wrong once: deriving the cases from the
-	// same list the pattern is built from makes them vacuous, because dropping a
-	// word removes its own test along with it. Measured — cutting valueColumns
-	// to two words left the derived version green. A test and the thing it tests
-	// cannot share a source.
-	//
-	// So the equality check below is what makes this hold in both directions: a
+	// The equality check below is what makes this hold in both directions: a
 	// word removed from the pattern fails it, and a word ADDED to the pattern
 	// fails it until somebody writes the case that proves the pattern sees it.
 	expectedValueColumns := []string{"value", "evidence_snippet", "source_ref", "confidence"}
