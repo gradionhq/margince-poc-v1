@@ -50,10 +50,12 @@ const handoffScanLimit = 50
 func commitmentLister(pool *pgxpool.Pool) agents.CommitmentLister {
 	store := activities.NewStore(InstallationDB(pool))
 	return func(ctx context.Context, in agents.CommitmentQuery) (agents.CommitmentSweep, error) {
-		tasks, truncated, err := store.ListOpenTasks(ctx, activities.ListOpenTasksInput{
-			AssigneeID: in.AssigneeID,
-			Limit:      in.Limit,
-		})
+		query := activities.ListOpenTasksInput{AssigneeID: in.AssigneeID, Limit: in.Limit}
+		if in.WithinProjectID != nil {
+			project := ids.From[ids.ProjectKind](*in.WithinProjectID)
+			query.WithinProjectID = &project
+		}
+		tasks, truncated, err := store.ListOpenTasks(ctx, query)
 		if err != nil {
 			return agents.CommitmentSweep{}, err
 		}

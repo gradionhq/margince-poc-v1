@@ -12,8 +12,6 @@ package deals
 
 import (
 	"errors"
-	"fmt"
-	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -21,33 +19,33 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
-// projectMigration is the table's own definition — the source of truth for
-// which CHECK constraints exist. core opens with one baseline file holding every
-// table; a later migration that adds a CHECK adds a file of its own, and this
-// reads the declaration rather than the amendments.
-const projectMigration = "../../../migrations/core/0001_baseline.up.sql"
+// headCatalog is the committed rendering of the schema every migration
+// builds (migrations/testdata/head_catalog.txt) — the source of truth for
+// which CHECK constraints the project table carries TODAY, amendments
+// included. Reading the baseline alone would miss a CHECK a later migration
+// added, which is exactly the rule most likely to have no message yet.
+const headCatalog = "../../../migrations/testdata/head_catalog.txt"
 
-// namedCheckPattern finds the constraints the migration names explicitly.
-// An inline unnamed CHECK gets a generated name and is covered by the
-// fallback arm, which is exactly what the fallback is for.
-var namedCheckPattern = regexp.MustCompile(`CONSTRAINT\s+(project_[a-z_]+)\s+CHECK`)
+// projectCheckLine finds the catalog rows that are CHECK constraints on the
+// project table. An inline unnamed CHECK gets a generated name and is covered
+// by the constraint net, which is exactly what the net is for.
+var projectCheckLine = regexp.MustCompile(`(?m)^public\.project\.([a-z_]+) CHECK `)
 
 func projectCheckConstraints(t *testing.T) []string {
 	t.Helper()
-	raw, err := os.ReadFile(projectMigration)
+	raw, err := os.ReadFile(headCatalog)
 	if err != nil {
-		t.Fatalf("reading the project migration: %v", err)
+		t.Fatalf("reading the head catalog: %v", err)
 	}
 	var names []string
-	for _, m := range namedCheckPattern.FindAllStringSubmatch(string(raw), -1) {
+	for _, m := range projectCheckLine.FindAllStringSubmatch(string(raw), -1) {
 		names = append(names, m[1])
 	}
 	if len(names) == 0 {
-		t.Fatal("found no named CHECK constraints — the pattern no longer reads the migration")
+		t.Fatal("found no CHECK constraints on project — the pattern no longer reads the catalog")
 	}
 	return names
 }
@@ -71,17 +69,10 @@ var unreachableChecks = gatekit.Waive(map[string]string{
 		"request can produce a row that violates it",
 })
 
-// raisedCheck is the error Postgres hands the store when a project CHECK
-// fires — the input projectCheckError translates, and the value it returns
-// untranslated for a rule this module has not described.
-func raisedCheck(constraint string) error {
-	return fmt.Errorf("apply project patch: %w",
-		&pgconn.PgError{Code: "23514", TableName: "project", ConstraintName: constraint})
-}
-
-// Every rule the table names must have a message of its own. Falling through
-// is not a failure of correctness — httperr's net still answers 422 — but it
-// means the caller is told to check their values with no clue which one.
+// Every CHECK the table carries must have a message of its own. Falling
+// through to the constraint net is not a failure of correctness — it still
+// answers 422 — but the net cannot name a field, so the caller is told only
+// that some value is outside what its field accepts.
 func TestEveryNamedProjectCheckHasItsOwnRefusal(t *testing.T) {
 	defer unreachableChecks.AssertAllMatched(t)
 	for _, constraint := range projectCheckConstraints(t) {
@@ -89,46 +80,26 @@ func TestEveryNamedProjectCheckHasItsOwnRefusal(t *testing.T) {
 			continue
 		}
 		t.Run(constraint, func(t *testing.T) {
-			raised := raisedCheck(constraint)
-			err := projectCheckError(raised, constraint, "")
-			if errors.Is(err, raised) {
-				t.Fatalf("%s falls through untranslated, so the caller is told to check every value it sent",
+			err := projectCheckError(constraint, "")
+			if err == nil {
+				t.Fatalf("%s has no refusal of its own, so a caller breaking it is told only that a value is not allowed",
 					constraint)
 			}
 			if strings.Contains(err.Error(), constraint) {
 				t.Errorf("%s reports its own constraint name to the caller: %q", constraint, err.Error())
 			}
+			// The 422 is field-coded only if the refusal says which field.
+			coded, ok := err.(interface {
+				FieldFault() (string, string, string)
+			})
+			if !ok {
+				t.Fatalf("%s answers %T, which names no field, so the 422 cannot say what to fix", constraint, err)
+			}
+			field, code, _ := coded.FieldFault()
+			if field == "" || code == "" || strings.HasPrefix(field, "project_") {
+				t.Errorf("%s answers field %q code %q, want a request field and a code a caller can act on", constraint, field, code)
+			}
 		})
-	}
-}
-
-// A rule this module has not described goes to the caller through httperr's
-// constraint net, not through a spelling of that net here: still a 422, and
-// still without our constraint name in it.
-//
-// The name is the point. A module-local fallback can only put the CONSTRAINT
-// into the sentence — that is the one thing it knows — and the constraint is
-// our schema. This asserts the whole way to the wire fault rather than
-// stopping at "the error was passed along", because passing it along is only
-// correct if what receives it answers well.
-func TestAnUnnamedProjectCheckIsAnsweredByTheConstraintNet(t *testing.T) {
-	const constraint = "project_some_future_rule"
-	raised := raisedCheck(constraint)
-
-	err := projectCheckError(raised, constraint, "")
-	if !errors.Is(err, raised) {
-		t.Fatalf("an undescribed constraint produced %T, want the raised error untranslated", err)
-	}
-
-	fault, ok := httperr.Classify(err)
-	if !ok {
-		t.Fatal("the constraint net did not classify an undescribed CHECK, so the caller gets a 500 telling them to retry")
-	}
-	if fault.Status != http.StatusUnprocessableEntity || fault.Code != "value_not_allowed" {
-		t.Errorf("status/code = %d/%s, want 422/value_not_allowed", fault.Status, fault.Code)
-	}
-	if strings.Contains(fault.Detail, constraint) || len(fault.Fields) != 0 {
-		t.Errorf("the refusal discloses the constraint: detail=%q fields=%+v", fault.Detail, fault.Fields)
 	}
 }
 
@@ -186,7 +157,7 @@ func TestProjectRefusalsKeepSchemaNamesOffTheWire(t *testing.T) {
 		&ProjectDateRangeError{},
 		&DealProjectOrgMismatchError{},
 	} {
-		for _, leak := range []string{"uq_", "project_key_shape", "project_closed_reason", "project_dates", "project_phase_check", "SQLSTATE"} {
+		for _, leak := range append(projectCheckConstraints(t), "uq_", "SQLSTATE") {
 			if strings.Contains(err.Error(), leak) {
 				t.Errorf("%T leaks %q to the caller: %q", err, leak, err.Error())
 			}

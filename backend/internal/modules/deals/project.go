@@ -121,7 +121,9 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 			return crmcontracts.Project{}, apperrors.ErrNotFound
 		}
 		if constraint, ok := storekit.CheckViolation(err); ok {
-			return crmcontracts.Project{}, projectCheckError(err, constraint, submittedDateField(in.StartedAt, in.TargetEndDate, nil))
+			if refusal := projectCheckError(constraint, submittedDateField(in.StartedAt, in.TargetEndDate, nil)); refusal != nil {
+				return crmcontracts.Project{}, refusal
+			}
 		}
 		return crmcontracts.Project{}, fmt.Errorf("insert project: %w", err)
 	}
@@ -316,13 +318,13 @@ func submittedDateField(startedAt, targetEnd, endedAt *time.Time) string {
 // actually carried, so a date-range breach points at the value the caller can
 // change; empty when the path submitted none.
 //
-// A constraint with no case here is returned UNTRANSLATED, on purpose. The
-// answer is not this module's to write: httperr's constraint net already turns
-// any CHECK breach into a 422 the caller can act on, and it deliberately names
-// no field, because the only thing that knows one at that depth is the
-// CONSTRAINT NAME — which is our schema. A fallback here could only re-disclose
-// that name while producing a worse sentence than the net's.
-func projectCheckError(err error, constraint string, dateField string) error {
+// A CHECK this module has no message for answers nil, and the caller returns
+// the database error itself: httperr's constraint net still answers it as a
+// 422 business-rule breach, with the constraint name in the operator's log
+// rather than in the client's refusal. A schema identifier tells a caller our
+// table's shape and nothing it can act on. TestEveryNamedProjectCheckHasItsOwnRefusal
+// is what keeps that net from being the answer for a rule a request can reach.
+func projectCheckError(constraint string, dateField string) error {
 	switch constraint {
 	case "project_key_shape":
 		return &ProjectKeyShapeError{}
@@ -333,7 +335,7 @@ func projectCheckError(err error, constraint string, dateField string) error {
 	case "project_phase_check":
 		return &ProjectPhaseError{}
 	default:
-		return err
+		return nil
 	}
 }
 

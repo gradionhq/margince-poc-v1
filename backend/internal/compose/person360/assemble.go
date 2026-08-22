@@ -207,7 +207,7 @@ func (s *Service) sections(personID ids.PersonID, now time.Time, opts AssembleOp
 		// missing-next-step rung asks whether an open deal has nothing
 		// scheduled on it.
 		{name: crmcontracts.Person360SectionsOmittedClaims, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
-			return s.claimsSection(ctx, tx, personID, out)
+			return s.claimsSection(ctx, tx, personID, opts, out)
 		}},
 		{name: crmcontracts.Person360SectionsOmittedCommercial, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.commercialSection(ctx, tx, personID, out)

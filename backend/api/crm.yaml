@@ -9001,7 +9001,7 @@ paths:
         - name: object
           in: query
           required: true
-          schema: { type: string, enum: [person, organization, deal, lead, activity] }
+          schema: { type: string, enum: [person, organization, deal, lead, project] }
           description: Target core object (CUSTOM-FIELDS-PARAM-2).
         - name: status
           in: query
@@ -23999,7 +23999,7 @@ components:
         id: { type: string, format: uuid }
         object:
           type: string
-          enum: [person, organization, deal, lead, activity]
+          enum: [person, organization, deal, lead, project]
           description: The existing core object this field is added to (CUSTOM-FIELDS-PARAM-2).
         label: { type: string, description: Display label; the only thing a rename updates. }
         slug: { type: string, description: Admin-facing key the column_name derives from. }
@@ -24057,7 +24057,7 @@ components:
       properties:
         object:
           type: string
-          enum: [person, organization, deal, lead, activity]
+          enum: [person, organization, deal, lead, project]
         label: { type: string }
         type:
           type: string

@@ -47,8 +47,20 @@ var profileFieldRead = gatekit.TableReadPattern("person_profile_field")
 // query, which is how the candidate sweep in enrichsignature.go came to look
 // like a value reader. The words below are the assertion ITSELF and its
 // evidence, which is what a verdict can overturn.
+//
+// A STAR projection is a value serve too, and it names none of those words.
+// `SELECT *` and `SELECT ppf.*` are matched separately for that reason: a
+// census that misses them misses them SILENTLY, which is the one direction
+// this gate must not fail in.
+//
+// The residue, and it fails the safe way: the words are matched between a
+// SELECT and a later FROM within a statement that names this table, so a
+// `value` column belonging to a DIFFERENT table in the same statement matches
+// too. That is a false POSITIVE — it surfaces as a reader that must be
+// overlaid or ratified, never as silence — and a wrong waiver is visible in
+// review where a missed reader is not.
 var selectsValues = regexp.MustCompile(
-	`(?is)SELECT\s.*?\b(?:value|evidence_snippet|source_ref|confidence)\b.*?\sFROM\s`)
+	`(?is)SELECT\s.*?(?:\b(?:value|evidence_snippet|source_ref|confidence)\b|(?:[a-z_]+\.)?\*).*?\sFROM\s`)
 
 // profileFieldValueReaders ratifies each statement that serves values from the
 // table WITHOUT the verdict overlay, and says what each one costs.

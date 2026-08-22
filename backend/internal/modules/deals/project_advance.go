@@ -128,7 +128,9 @@ func recordPhaseTransition(ctx context.Context, tx pgx.Tx, id ids.ProjectID,
 	}
 	if err := p.ApplyGuarded(ctx, tx, projectObject, id.UUID, in.IfVersion); err != nil {
 		if constraint, ok := storekit.CheckViolation(err); ok {
-			return projectCheckError(err, constraint, "ended_at")
+			if refusal := projectCheckError(constraint, "ended_at"); refusal != nil {
+				return refusal
+			}
 		}
 		return fmt.Errorf("apply project phase patch: %w", err)
 	}
