@@ -51,6 +51,12 @@ func (a *assembly) readLastTouch() error {
 	if scope != "" {
 		where += " AND " + scope
 	}
+	// The same narrowing the timeline section applied: a last-touch date
+	// taken from the other engagement's mail would contradict the rows shown
+	// beneath it.
+	if a.opts.ProjectID != nil {
+		where += " AND " + activities.ActivityWithinProject(arg(*a.opts.ProjectID))
+	}
 	// Two ordered LIMIT-1 arms in ONE round trip, rather than two FILTERed
 	// max() aggregates. An aggregate has to see every qualifying row before it
 	// can answer; each arm here stops at the first, so the cost is bounded by

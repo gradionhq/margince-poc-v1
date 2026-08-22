@@ -23,8 +23,8 @@ func at(daysAgo int) time.Time { return now.AddDate(0, 0, -daysAgo) }
 
 func ahead(hours int) time.Time { return now.Add(time.Duration(hours) * time.Hour) }
 
-// activities builds the timeline section the rules read.
-func activities(rows ...crmcontracts.Activity) *struct {
+// timelineOf builds the timeline section the rules read.
+func timelineOf(rows ...crmcontracts.Activity) *struct {
 	Data []crmcontracts.Activity `json:"data"`
 	Page crmcontracts.PageInfo   `json:"page"`
 } {
@@ -89,7 +89,7 @@ func TestAnAnsweredConversationIsNotGoneQuiet(t *testing.T) {
 	page := &crmcontracts.Person360{
 		LastOutboundAt: ptr(at(30)),
 		LastInboundAt:  ptr(at(2)),
-		Activities:     activities(),
+		Activities:     timelineOf(),
 		Network: &struct {
 			Colleagues []crmcontracts.PersonNetworkColleague `json:"colleagues"`
 		}{},
@@ -140,7 +140,7 @@ func TestEveryOfferedActionEitherGoesSomewhereOrSaysWhyItCannot(t *testing.T) {
 		"meeting prep": {NextMeeting: &crmcontracts.Person360NextMeeting{StartsAt: ahead(24)}},
 		"gone quiet":   {LastOutboundAt: ptr(at(9)), LastInboundAt: ptr(at(16))},
 		"thin relationship": {
-			Activities: activities(),
+			Activities: timelineOf(),
 			Network: &struct {
 				Colleagues []crmcontracts.PersonNetworkColleague `json:"colleagues"`
 			}{},
@@ -277,7 +277,7 @@ func assertActionsAreHonest(t *testing.T, moment crmcontracts.PersonMoment) {
 // for, and an empty card fails to give it.
 func TestAQuietRecordStillGetsAnAnswer(t *testing.T) {
 	page := &crmcontracts.Person360{
-		Activities: activities(crmcontracts.Activity{Id: openapi_types.UUID{}, Kind: "email", OccurredAt: at(3)}),
+		Activities: timelineOf(crmcontracts.Activity{Id: openapi_types.UUID{}, Kind: "email", OccurredAt: at(3)}),
 		Network: &struct {
 			Colleagues []crmcontracts.PersonNetworkColleague `json:"colleagues"`
 		}{Colleagues: []crmcontracts.PersonNetworkColleague{{}}},

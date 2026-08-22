@@ -277,7 +277,7 @@ func TestOrganization360TransportServesANativeWorkspace(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/"+org.String()+"/360", nil)
-	handlers.GetOrganization360(rec, req.WithContext(rep), crmcontracts.Id(org.UUID))
+	handlers.GetOrganization360(rec, req.WithContext(rep), crmcontracts.Id(org.UUID), crmcontracts.GetOrganization360Params{})
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body.String())

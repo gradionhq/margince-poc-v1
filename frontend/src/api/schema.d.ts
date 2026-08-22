@@ -21602,7 +21602,10 @@ export interface operations {
     };
     getPerson360: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out. */
+                project_id?: string;
+            };
             header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
@@ -22695,7 +22698,10 @@ export interface operations {
     };
     getOrganization360: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out. */
+                project_id?: string;
+            };
             header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
@@ -24725,6 +24731,8 @@ export interface operations {
                 /** @description Open tasks for an assignee. */
                 assignee_id?: string;
                 q?: string;
+                /** @description Narrow the timeline sections to one body of work: what is filed under this project or under no project; correspondence filed under another project is left out. */
+                project_id?: string;
                 /** @description One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread. */
                 thread_key?: string;
             };
