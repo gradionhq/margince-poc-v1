@@ -37,6 +37,21 @@ func rankClaims(in Input) *rankedClaims {
 	return &rankedClaims{claims: ordered, taken: make([]bool, len(ordered))}
 }
 
+// all hands over every claim the predicate wants, in rank order, WITHOUT
+// marking them: for the one section that is a ledger rather than a reading —
+// the commitments list must be complete even when the goal or a risk also
+// names one of its lines, because a rep checking what is owed needs the
+// whole list, not the whole list minus what another heading took.
+func (r *rankedClaims) all(want func(ClaimIn) bool) []ClaimIn {
+	var out []ClaimIn
+	for _, claim := range r.claims {
+		if want(claim) {
+			out = append(out, claim)
+		}
+	}
+	return out
+}
+
 // take hands the first untaken claim the predicate wants to its caller and
 // marks it, so no later section can say it again.
 func (r *rankedClaims) take(want func(ClaimIn) bool) (ClaimIn, bool) {
@@ -102,12 +117,17 @@ func score(claim ClaimIn, now time.Time) int {
 	return s + urgency(claim, now) + freshness(claim, now)
 }
 
-// urgency: due sooner ranks higher; a week out is worth less than tomorrow.
+// urgency: due sooner ranks higher, and once overdue, later ranks higher — a
+// promise a month late is sharper than one a day late. Both arms are bounded
+// at thirty days so they reorder inside a kind and never across kinds.
 func urgency(claim ClaimIn, now time.Time) int {
 	if claim.DueAt == nil {
 		return 0
 	}
-	days := max(int(claim.DueAt.Sub(now).Hours()/24), 0)
+	days := int(claim.DueAt.Sub(now).Hours() / 24)
+	if days < 0 {
+		return 30 + min(-days, 30)
+	}
 	if days >= 30 {
 		return 0
 	}

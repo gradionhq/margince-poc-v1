@@ -92,8 +92,10 @@ type Section struct {
 // time.
 func Deterministic(in Input) []Section {
 	// One ranked claim set, consumed in section order: the goal takes the
-	// sharpest ask, risks take what is wrong, commitments and deal state take
-	// the rest of the record, and talking points get what nobody else said.
+	// sharpest ask, risks take what is wrong, deal state takes what was
+	// settled, and talking points get what nobody else said. The commitments
+	// ledger reads the whole set without taking: it is a list to check, not
+	// a reading to avoid repeating.
 	ranked := rankClaims(in)
 	built := []Section{
 		{Kind: crmcontracts.MeetingBriefSectionKindHeader, Sentences: headerSection(in)},
@@ -268,8 +270,12 @@ func readableRole(role string) string {
 // Ours come first. A rep who walks in without having done what they promised
 // has a different meeting than one who has, and reading their own overdue
 // promise first is what changes the opening sentence.
+// The ledger: every promise and question, complete, in rank order. It does
+// not take from the set — the goal and a risk may each name one of these
+// lines as a reading of it, and the ledger still has to show the whole of
+// what is owed.
 func commitmentsSection(ranked *rankedClaims) []Sentence {
-	claims := ranked.takeAll(ofKind(kindCommitmentOurs, kindCommitmentTheirs, kindOpenQuestion), commitmentCap)
+	claims := ranked.all(ofKind(kindCommitmentOurs, kindCommitmentTheirs, kindOpenQuestion))
 	out := make([]Sentence, 0, len(claims))
 	for _, claim := range claims {
 		out = append(out, Sentence{
@@ -279,10 +285,6 @@ func commitmentsSection(ranked *rankedClaims) []Sentence {
 	}
 	return out
 }
-
-// commitmentCap keeps the ledger readable in the ninety seconds a brief gets;
-// the ranked order puts what is owed soonest at the top.
-const commitmentCap = 8
 
 func commitmentLine(claim ClaimIn) string {
 	var opener string

@@ -22,6 +22,11 @@ func TestNoClaimIsSaidTwiceAcrossTheBrief(t *testing.T) {
 	seen := map[string]crmcontracts.MeetingBriefSectionKind{}
 	for _, section := range Deterministic(in) {
 		for _, line := range section.Sentences {
+			// The commitments ledger is complete by design and may repeat what
+			// the goal or a risk reads out of it.
+			if section.Kind == crmcontracts.MeetingBriefSectionKindCommitments {
+				continue
+			}
 			for _, body := range []string{"cure period", "go-live before Q4", "pilot on two sites", "security pack"} {
 				if !contains(line.Text, body) {
 					continue
@@ -90,4 +95,17 @@ func bodies(claims []ClaimIn) []string {
 		out = append(out, c.Body)
 	}
 	return out
+}
+
+// Later is sharper: a promise a month overdue outranks one a day overdue.
+func TestAnOlderOverduePromiseOutranksANewerOne(t *testing.T) {
+	in := fullInput()
+	in.Commitments = []ClaimIn{
+		{Kind: kindCommitmentOurs, Body: "a day late", Status: statusOpen, DueAt: ptr(at(9))},
+		{Kind: kindCommitmentOurs, Body: "a month late", Status: statusOpen, DueAt: ptr(at(-20))},
+	}
+	ranked := rankClaims(in)
+	if ranked.claims[0].Body != "a month late" {
+		t.Fatalf("rank = %v, want the later promise first", bodies(ranked.claims))
+	}
 }

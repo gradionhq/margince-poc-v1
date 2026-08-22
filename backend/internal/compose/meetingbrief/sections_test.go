@@ -143,11 +143,19 @@ func TestAnOverduePromiseIsTheGoalOnceAndTheNextOneIsARisk(t *testing.T) {
 		t.Errorf("a risk read out of a record is nature %q, want %q", risks.Sentences[0].Nature, natureAssessment)
 	}
 	for _, section := range sections {
+		// The ledger lists every promise by design; no READING repeats the goal.
+		if section.Kind == crmcontracts.MeetingBriefSectionKindCommitments {
+			continue
+		}
 		for _, line := range section.Sentences {
 			if section.Kind != crmcontracts.MeetingBriefSectionKindGoal && strings.Contains(line.Text, "send the security pack") {
 				t.Errorf("%s repeats the goal's promise: %q", section.Kind, line.Text)
 			}
 		}
+	}
+	ledger := sectionOf(t, sections, crmcontracts.MeetingBriefSectionKindCommitments)
+	if len(ledger.Sentences) != 2 {
+		t.Fatalf("the ledger lists %d promises, want both — it is complete even when the goal names one", len(ledger.Sentences))
 	}
 }
 
