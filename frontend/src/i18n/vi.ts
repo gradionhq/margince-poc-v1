@@ -4114,6 +4114,12 @@ export const vi = {
   "room.decisions.empty": "Chưa có quyết định.",
   "room.decisions.confirm_version": "đã xác nhận phiên bản",
   "room.decisions.request_changes": "đã yêu cầu thay đổi",
+  "nba.title": "Bước tiếp theo",
+  "nba.sub": "Một việc cần làm trên giao dịch này, và lý do.",
+  "nba.createTask": "Thêm việc này",
+  "nba.draftReply": "Soạn thư trả lời",
+  "nba.openBrief": "Mở bản tóm tắt cuộc họp",
+  "nba.nothingToDo": "Hiện không có gì cần thêm.",
   "prefs.rateLimited":
     "Vừa có quá nhiều lần thử từ đây. Hãy đợi một phút rồi tải lại.",
   "prefs.subscribed": "Đã đăng ký",

@@ -4209,6 +4209,12 @@ export const en = {
   "room.decisions.empty": "No decisions yet.",
   "room.decisions.confirm_version": "confirmed the version",
   "room.decisions.request_changes": "asked for changes",
+  "nba.title": "Next move",
+  "nba.sub": "One thing to do on this deal, and why.",
+  "nba.createTask": "Add this task",
+  "nba.draftReply": "Draft the reply",
+  "nba.openBrief": "Open the meeting brief",
+  "nba.nothingToDo": "Nothing to add right now.",
   "prefs.rateLimited":
     "Too many attempts from here just now. Wait a minute and reload.",
   "prefs.subscribed": "Subscribed",
