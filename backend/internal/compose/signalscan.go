@@ -117,11 +117,19 @@ func scanGhostedThreads(ctx context.Context, tx pgx.Tx, now time.Time) ([]ghoste
 // runs hourly raises nothing new on an unchanged account, and a dismissal
 // survives every later pass over the same evidence.
 func signalFingerprint(kind string, orgID ids.UUID, evidence ...ids.UUID) string {
-	sum := sha256.New()
-	sum.Write([]byte(kind))
-	sum.Write([]byte(orgID.String()))
+	parts := []string{kind, orgID.String()}
 	for _, id := range evidence {
-		sum.Write([]byte(id.String()))
+		parts = append(parts, id.String())
+	}
+	return fingerprintOf(parts...)
+}
+
+// fingerprintOf hashes the facts a finding fired on into the one column the
+// dedupe index reads; every producer's fingerprint is spelled through it.
+func fingerprintOf(parts ...string) string {
+	sum := sha256.New()
+	for _, part := range parts {
+		sum.Write([]byte(part))
 	}
 	return hex.EncodeToString(sum.Sum(nil))
 }
@@ -156,7 +164,7 @@ func WriteGhostedSignals(ctx context.Context, tx pgx.Tx, now time.Time) (Ghosted
 			Kind:           kindGhostedThread,
 			OrganizationID: found.OrganizationID,
 			Summary:        fmt.Sprintf("We wrote %d days ago and nobody has answered.", days),
-			Severity:       "warn",
+			Severity:       severityWarn,
 			Fingerprint:    signalFingerprint(kindGhostedThread, found.OrganizationID, found.ActivityID),
 			// The message is CITED, not quoted. This finding is shared with
 			// everyone who can see the account, while the message it points at

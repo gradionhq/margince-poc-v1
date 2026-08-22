@@ -77,6 +77,13 @@ func periodDimensions(anchor string) map[string]string {
 	}
 }
 
+// withProjectFilter adds the project_id filter a deal-based report carries:
+// every deal report answers "for this project" the same way.
+func withProjectFilter(filters map[string]string) map[string]string {
+	filters[fieldProjectID] = colProjectID
+	return filters
+}
+
 // winLossSpec is REPORT-KEY-8's vocabulary, pinned upstream as REPORT-VOCAB-1.
 //
 // The grain is one row per deal, so a deal counts once. The base set is closed
@@ -114,7 +121,8 @@ func winLossSpec() reportSpec {
 		// Cloned rather than aliased — the two vocabularies are equal today and
 		// nothing about them has to stay equal, so sharing one map would make a
 		// later edit to either silently change both.
-		filters: maps.Clone(dimensions),
+		filters:      withProjectFilter(maps.Clone(dimensions)),
+		filterScopes: projectFilterScope,
 		// The company a won or lost deal points at is row-scoped and masked on
 		// a normal deal read, so grouping by it carries the same obligation the
 		// partner dimension does on deals-by-stage.

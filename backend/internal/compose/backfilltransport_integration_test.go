@@ -167,7 +167,8 @@ func setupBackfillWire(t *testing.T) *backfillWireEnv {
 	e := integration.Setup(t)
 	integration.ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	registry := capture.NewRegistry(e.DB(), capture.NewSink(e.DB()), backfillAuthority{}, keyvault.NewMemory())
+	registry := capture.NewRegistry(e.DB(), capture.NewSink(e.DB()), backfillAuthority{}, keyvault.NewMemory()).
+		WithDigestProjects(digestProjectsSource)
 	gm := &backfillFakeConnector{name: "gmail", messages: 25, pageSize: 10}
 	registry.Register(gm)
 	registry.Register(plainSyncConnector{})

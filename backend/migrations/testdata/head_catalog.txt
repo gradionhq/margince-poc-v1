@@ -3706,8 +3706,8 @@ public.signal.resolved_org_id uuid gen=- def=-
 public.signal.resolved_person_id uuid gen=- def=-
 public.signal.severity text NOT NULL gen=- def='info'::text
 public.signal.signal_entity_pair CHECK (((entity_type IS NULL) = (entity_id IS NULL)))
-public.signal.signal_entity_type_check CHECK (((entity_type IS NULL) OR (entity_type = ANY (ARRAY['deal'::text, 'organization'::text, 'person'::text]))))
-public.signal.signal_kind_check CHECK ((kind = ANY (ARRAY['stalled_deal'::text, 'champion_left'::text, 'reengagement'::text, 'buying_intent'::text, 'risk'::text, 'other'::text, 'contract_ended'::text, 'new_opportunity'::text, 'commitment_made'::text, 'ghosted_thread'::text])))
+public.signal.signal_entity_type_check CHECK (((entity_type IS NULL) OR (entity_type = ANY (ARRAY['deal'::text, 'organization'::text, 'person'::text, 'project'::text]))))
+public.signal.signal_kind_check CHECK ((kind = ANY (ARRAY['stalled_deal'::text, 'champion_left'::text, 'reengagement'::text, 'buying_intent'::text, 'risk'::text, 'other'::text, 'contract_ended'::text, 'new_opportunity'::text, 'commitment_made'::text, 'ghosted_thread'::text, 'project_gone_quiet'::text])))
 public.signal.signal_owner_fkey FOREIGN KEY (owner_id) REFERENCES app_user(id) ON DELETE SET NULL (owner_id)
 public.signal.signal_owner_private_names_its_owner CHECK (((visibility <> 'owner'::text) OR (owner_id IS NOT NULL)))
 public.signal.signal_pkey PRIMARY KEY (id)

@@ -24,6 +24,9 @@ import (
 // predicates + the caller's row-scope clause) in one transaction.
 func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec reportSpec, plan derivationPlan, out *derivationOutcome) error {
 	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+		if err := requireFilterScopes(ctx, tx, spec, predicatesAsFilters(plan.predicates)); err != nil {
+			return err
+		}
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 
@@ -48,7 +51,7 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 		}
 		whereSQL := strings.Join(where, " AND ")
 
-		rowsSQL, rowsArgs, err := bindInstallationZone(ctx, tx, fmt.Sprintf(
+		rowsSQL, rowsArgs, err := bindReportTokens(ctx, tx, fmt.Sprintf(
 			"SELECT %s FROM %s WHERE %s ORDER BY t.id LIMIT %d",
 			strings.Join(plan.selects, ", "), spec.fromClause(), whereSQL, reportRowLimit), args)
 		if err != nil {
@@ -69,7 +72,7 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 		// (count(*) rides along as the honest total behind the capped
 		// rows slice). Values are read positionally, so a caller alias
 		// cannot shadow the total.
-		aggSQL, aggArgs, err := bindInstallationZone(ctx, tx, fmt.Sprintf(
+		aggSQL, aggArgs, err := bindReportTokens(ctx, tx, fmt.Sprintf(
 			"SELECT count(*), %s FROM %s WHERE %s",
 			strings.Join(plan.aggSelects, ", "), spec.fromClause(), whereSQL), args)
 		if err != nil {
@@ -104,9 +107,16 @@ func (e *reportEngine) fetchDerivation(ctx context.Context, report string, spec 
 func derivationWhere(ctx context.Context, spec reportSpec, plan derivationPlan, arg func(any) int) ([]string, error) {
 	where := []string{spec.baseWhere}
 	for _, p := range plan.preds {
-		if p.isNull {
+		switch {
+		case p.threshold != nil:
+			n, err := thresholdValue(p.field, p.value)
+			if err != nil {
+				return nil, err
+			}
+			where = append(where, p.threshold.clause(arg(n)))
+		case p.isNull:
 			where = append(where, p.expr+" IS NULL")
-		} else {
+		default:
 			where = append(where, fmt.Sprintf("%s = $%d", p.expr, arg(p.value)))
 		}
 	}
@@ -123,7 +133,14 @@ func derivationWhere(ctx context.Context, spec reportSpec, plan derivationPlan, 
 	if scope != "" {
 		where = append(where, scope)
 	}
-	return where, nil
+	// The drill-through puts every dimension on its rows, so every reference
+	// the spec carries takes its row scope here too — the explanation must
+	// not out-see the number it explains.
+	refs, err := referenceScopeClauses(ctx, spec, arg)
+	if err != nil {
+		return nil, err
+	}
+	return append(where, refs...), nil
 }
 
 // scanDerivationRows materializes the drill-through rows, mapping each

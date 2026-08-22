@@ -218,6 +218,28 @@
   margin: 0;
 }
 
+/* The projects block: what moved on the bodies of work overnight, each one a
+ * link to its page. Lists, because the reader scans for a name they own. */
+
+.digest-projects {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.digest-projects-title {
+  color: var(--textSecondary);
+}
+
+.digest-project-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 /* The connector-health line (Task 11): renders only when the digest's
  * connectors[] holds an unhealthy source — a degraded mailbox is news, a
  * healthy one is not — and deep-links into Settings → Connections, where a

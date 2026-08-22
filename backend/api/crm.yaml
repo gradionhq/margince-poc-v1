@@ -16260,6 +16260,56 @@ components:
               status: { type: string, enum: [connected, disconnected, error, reauth_required] }
               last_synced_at: { type: [string, 'null'], format: date-time }
               last_sync_error_class: { type: [string, 'null'] }
+        projects:
+          type: object
+          description: |
+            What moved on the bodies of work in the window, and which have gone quiet. Absent
+            from a digest built without the section; each list is empty when nothing happened.
+            Workspace-level like the counts above: a project is read by every seat holding the
+            grant.
+          required: [phase_changes, new_commitments, gone_quiet]
+          properties:
+            phase_changes:
+              type: array
+              description: The ladder moves recorded in the window (from `project_phase_history`), newest first.
+              items:
+                type: object
+                required: [project_id, name, to_phase, occurred_at]
+                properties:
+                  project_id: { type: string, format: uuid }
+                  name: { type: string }
+                  key: { type: [string, 'null'] }
+                  from_phase: { type: [string, 'null'], description: 'A rung of the project ladder (initiative, pursuing, delivering, closed); null for the birth row.' }
+                  to_phase: { type: string, description: A rung of the project ladder. }
+                  occurred_at: { type: string, format: date-time }
+            new_commitments:
+              type: array
+              description: The projects that gained still-open tasks in the window, most first.
+              items:
+                type: object
+                required: [project_id, name, new_open_commitments]
+                properties:
+                  project_id: { type: string, format: uuid }
+                  name: { type: string }
+                  key: { type: [string, 'null'] }
+                  new_open_commitments: { type: integer }
+            gone_quiet:
+              type: array
+              description: |
+                The projects being pursued or delivered that nothing has been filed against for
+                30 days — the `projects-gone-quiet` report's rule, the same one the
+                `project_gone_quiet` signal is raised on — quietest first.
+              items:
+                type: object
+                required: [project_id, name, phase, quiet_since, days_quiet]
+                properties:
+                  project_id: { type: string, format: uuid }
+                  name: { type: string }
+                  key: { type: [string, 'null'] }
+                  phase: { type: string, description: 'A rung of the project ladder: pursuing or delivering, the two the quiet rule watches.' }
+                  quiet_since: { type: string, format: date-time, description: 'When the silence began: the last filed activity, or the project''s creation when nothing was ever filed.' }
+                  days_quiet: { type: integer }
+                  owner_id: { type: [string, 'null'], format: uuid }
     DedupeCandidate:
       type: object
       description: 'One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8).'
@@ -22837,13 +22887,18 @@ components:
         kind:
           type: string
           enum: [stalled_deal, champion_left, reengagement, buying_intent, risk, other,
-                 contract_ended, new_opportunity, commitment_made, ghosted_thread]
+                 contract_ended, new_opportunity, commitment_made, ghosted_thread,
+                 project_gone_quiet]
           description: |
-            The first six are what a human files by hand. The last four are what the producers
+            The first six are what a human files by hand. The rest are what the producers
             raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
             out of a settled conversation by the `signal_extract` site, each citing the message
             it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
-            interaction is ours, nobody answered it, and the account is one worth chasing.
+            interaction is ours, nobody answered it, and the account is one worth chasing;
+            `project_gone_quiet` is the same kind of comparison on a project — it is being
+            pursued or delivered and nothing has been filed against it for 30 days (the
+            `projects-gone-quiet` report's own rule). Its subject is the project
+            (`entity_type: project`), attributed to the project's company.
         source_channel:
           type: string
           enum: [derived, inbound, web, social, deal_room_engagement]
@@ -22852,7 +22907,7 @@ components:
         raw_ref: { type: [string, 'null'], description: 'Pointer to the raw source payload the resolver works from: an email address/handle, a domain, a URL, or a company mention.' }
         entity_type:
           type: [string, 'null']
-          enum: [deal, organization, person, null]
+          enum: [deal, organization, person, project, null]
           description: The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
         entity_id: { type: [string, 'null'], format: uuid }
         resolution_state:
@@ -22894,7 +22949,7 @@ components:
         raw_ref: { type: [string, 'null'] }
         entity_type:
           type: [string, 'null']
-          enum: [deal, organization, person, null]
+          enum: [deal, organization, person, project, null]
           description: 'Subject record, both entity fields together or neither: with a subject the signal enters `resolved`; without one it enters `unresolved` (a raw item needing a raw_ref for POST /signals/{id}/resolve).'
         entity_id: { type: [string, 'null'], format: uuid }
         severity: { type: string, enum: [info, warn, urgent], default: info }
