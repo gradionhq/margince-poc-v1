@@ -217,7 +217,8 @@ describe("TasksScreen reminders (B-E16.1)", () => {
 // Task subjects are generated ("Follow up with the new lead"), so a queue of
 // them is a column of the same sentence and the only way to tell two apart is
 // to open both. The row names WHICH record it is about — the first link the app
-// can route to. `project` is not one of those: it has no 360 to send anyone to.
+// can route to, which since the project page exists is every link kind but
+// `activity`.
 describe("TaskRow — when the task is due, in the reader's own zone", () => {
   const due = "2026-07-04T22:30:00Z";
 

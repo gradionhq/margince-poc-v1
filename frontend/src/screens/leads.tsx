@@ -741,7 +741,7 @@ function LeadIdentityFields({
           </FieldRow>
           {lead.project_id && (
             <FieldRow label={t("lead.project")}>
-              <span className="t-mono">{lead.project_id}</span>
+              <EntityRef kind="project" id={lead.project_id} />
             </FieldRow>
           )}
         </FieldGrid>

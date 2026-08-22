@@ -43,7 +43,7 @@ export const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
   partners: "nav.partners",
   share: "nav.share",
   search: "nav.search",
-  // Off the rail deliberately. The rail carries the product's eleven
+  // Off the rail deliberately. The rail carries the product's twelve
   // destinations and a queue of one person's own unsent mail is not a twelfth;
   // it is reached from the composer that put a message in it and from the Tasks page,
   // which is where the same rep's other waiting work already lives.

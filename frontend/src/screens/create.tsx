@@ -10,6 +10,7 @@ import {
   type FieldControl,
   Modal,
   Radio,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { Select, type SelectOption } from "../design-system/select";
@@ -71,10 +72,26 @@ export type CreateField = {
     | "datetime-local"
     | "select"
     | "multiselect"
-    | "repeatable";
+    | "repeatable"
+    | "textarea";
   required?: boolean;
   options?: CreateFieldOption[];
   placeholder?: string;
+  /**
+   * A sentence under the control saying what the value is FOR — what a
+   * project key does in an email subject. Already translated by the caller.
+   */
+  hint?: string;
+  /**
+   * The one client-side refusal a field may carry: what is wrong with the
+   * value as typed, or undefined when nothing is. The server stays the truth
+   * for everything else (uniqueness, cross-record rules); this is for a shape
+   * the contract states as a pattern, where a round trip to learn that a key
+   * may not start with a digit is a wait the reader need not pay. A refused
+   * value blocks Save exactly as a missing required value does, and renders
+   * through `Field`'s own `error` slot so it announces.
+   */
+  validate?: (value: string) => string | undefined;
   // repeatable-only: the subfields each row renders, the "add row" button's
   // label, and (if set) which subfield key holds the row's primary flag.
   rowFields?: SubField[];
@@ -366,6 +383,17 @@ export function fieldControl(
       />
     );
   }
+  if (field.type === "textarea") {
+    return (
+      <Textarea
+        {...control}
+        value={value}
+        placeholder={field.placeholder}
+        rows={3}
+        onChange={(event) => setValue(event.target.value)}
+      />
+    );
+  }
   return (
     <TextInput
       {...control}
@@ -598,6 +626,12 @@ export function RecordFormBody({
     }
     return field.required && !(values[field.key] ?? "").trim();
   });
+  const refusals = new Map(
+    shown.flatMap((field) => {
+      const refusal = field.validate?.(values[field.key] ?? "");
+      return refusal ? [[field.key, refusal] as const] : [];
+    }),
+  );
 
   return (
     <form
@@ -644,6 +678,8 @@ export function RecordFormBody({
             key={field.key}
             label={fieldLabel(field, t)}
             required={field.required}
+            hint={field.hint}
+            error={refusals.get(field.key)}
           >
             {(control) =>
               fieldControl(
@@ -688,7 +724,7 @@ export function RecordFormBody({
           small
           variant="primary"
           type="submit"
-          disabled={pending || requiredMissing}
+          disabled={pending || requiredMissing || refusals.size > 0}
         >
           {pending ? t("create.saving") : t(submitLabelKey)}
         </Button>

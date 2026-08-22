@@ -4,20 +4,27 @@ import type { Route } from "./router";
 // EntityRef, and LogActivity all speak this vocabulary; before this registry
 // each kept its own person|organization|deal union (all missing lead).
 // `activity` is intentionally absent: it is the timeline, not a 360 record.
-export type EntityKind = "person" | "organization" | "deal" | "lead";
+export type EntityKind =
+  | "person"
+  | "organization"
+  | "deal"
+  | "lead"
+  | "project";
 
 export const ENTITY_KINDS = [
   "person",
   "organization",
   "deal",
   "lead",
+  "project",
 ] as const satisfies readonly EntityKind[];
 
 const ROUTABLE_KINDS: ReadonlySet<string> = new Set(ENTITY_KINDS);
 
 // Whether a kind that arrived as free-form wire text is one this app can route
 // to. Activity links and audit rows both carry kinds beyond the routable set
-// (`project`), so a caller that wants to LINK a record has to ask first.
+// (`activity` itself, and the governance objects an audit row names), so a
+// caller that wants to LINK a record has to ask first.
 export function isEntityKind(kind: string): kind is EntityKind {
   return ROUTABLE_KINDS.has(kind);
 }
@@ -38,6 +45,9 @@ export const ENTITY: Record<EntityKind, EntityDescriptor> = {
   },
   lead: {
     route: (id) => ({ screen: "leads", id }),
+  },
+  project: {
+    route: (id) => ({ screen: "projects", id }),
   },
 };
 

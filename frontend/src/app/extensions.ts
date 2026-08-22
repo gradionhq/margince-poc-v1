@@ -54,8 +54,8 @@ export type ExtensionScreenRegistry = Readonly<
  * `/v1/ext/<name>` routes); this is its hash-route spelling.
  *
  * NOT REACHABLE FROM THE RAIL. `nav.ts` keeps `NAV_GROUPS` as the canonical
- * 10-item list whose order `shell.test.tsx` pins, and an installation cannot
- * add an eleventh: enabling a unit is not the product growing a destination.
+ * 12-item list whose order `rail.test.tsx` pins, and an installation cannot
+ * add a thirteenth: enabling a unit is not the product growing a destination.
  * A unit is OFFERED in Settings instead, on the page that already holds the
  * kind of credential it is configured with — see `unitsForSecretScope` below
  * and `screens/extension-units.tsx`.

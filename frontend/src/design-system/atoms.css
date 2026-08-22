@@ -298,6 +298,35 @@
   color: var(--textMeta);
   font-size: 13px;
 }
+/* The instructional variant: a heading in the primary ink, a measured
+   paragraph under it, the one verb below. The measure keeps the explanation
+   readable on a wide list surface — a sentence stretched across a 1400px table
+   is one nobody finishes. */
+.empty-instructional {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 48px 20px;
+}
+.empty-title {
+  color: var(--textPrimary);
+  margin: 0;
+}
+.empty-body {
+  max-width: 52ch;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.empty-body p {
+  margin: 0;
+}
+.empty-body p + p {
+  margin-top: var(--space-2);
+}
+.empty-action {
+  margin-top: var(--space-1);
+}
 
 .overlay {
   position: fixed;

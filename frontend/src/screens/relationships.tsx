@@ -165,10 +165,11 @@ async function searchDealCandidates(q: string): Promise<Candidate[]> {
 
 // The entity kinds this tab can ever pick as a relationship's other side —
 // organization/person/deal, per the rel_*_shape CHECKs (migration 0007). A
-// lead has no relationship edges (it is promoted into a person first), so
+// lead has no relationship edges (it is promoted into a person first) and a
+// project seats its stakeholders through its own endpoint, so
 // this narrows EntityKind rather than switching on a kind the module can
 // never produce.
-type RelationshipEntity = Exclude<EntityKind, "lead">;
+type RelationshipEntity = Exclude<EntityKind, "lead" | "project">;
 
 function searchByEntity(
   entity: RelationshipEntity,
