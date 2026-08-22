@@ -1,0 +1,53 @@
+.roompage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.roompage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.roompage-verbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.roompage-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .roompage-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.roompage-main,
+.roompage-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.roompage-menu-hint {
+  display: block;
+  color: var(--textMeta);
+}
+
+.roompage-changes {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}

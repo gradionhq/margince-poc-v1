@@ -7864,6 +7864,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deal-rooms/{id}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What the buyer would see differently if the room were published now.
+         * @description The draft diffed against the latest release: the title or welcome text
+         *     changed, documents added, removed, retitled or regrouped, and documents that
+         *     are no longer eligible (archived, unlinked from the deal, or hidden from it)
+         *     and would drop out of the next release. A room never published reports every
+         *     document as added. This is what the Publish button is disabled on when empty.
+         */
+        get: operations["getDealRoomChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deal-rooms/{id}/releases": {
         parameters: {
             query?: never;
@@ -19964,6 +19991,13 @@ export interface components {
             readonly has_signed_in?: boolean;
             /**
              * Format: date-time
+             * @description When this person last asked for a new link from the public page. The
+             *     seller sees it beside the row so a buyer whose mail never arrived (no
+             *     relay configured, or a link still standing) can be handed one by hand.
+             */
+            readonly link_requested_at?: string | null;
+            /**
+             * Format: date-time
              * @description When their access was taken away. The row survives revocation so their
              *     comments and decisions stay attributed to a name.
              */
@@ -20024,6 +20058,20 @@ export interface components {
              *     link itself rather than being told the invitation failed.
              */
             delivered: boolean;
+        };
+        DealRoomChanges: {
+            has_changes: boolean;
+            /** @description The release the draft was compared against; null when the room was never published. */
+            release_no?: number | null;
+            changes: components["schemas"]["DealRoomChange"][];
+        };
+        DealRoomChange: {
+            /** @description One of title_changed, welcome_changed, document_added, document_removed, document_retitled, document_regrouped, document_reordered, document_ineligible. A plain string for the reason DealRoomParticipantCapability gives. */
+            kind: string;
+            /** Format: uuid */
+            document_id?: string | null;
+            /** @description The document title the sentence names: current, or as last published. */
+            title?: string | null;
         };
         DealRoomReleaseListResponse: {
             data: components["schemas"]["DealRoomRelease"][];
@@ -34823,6 +34871,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DealRoomDecisionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDealRoomChanges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pending changes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomChanges"];
                 };
             };
             401: components["responses"]["Unauthorized"];

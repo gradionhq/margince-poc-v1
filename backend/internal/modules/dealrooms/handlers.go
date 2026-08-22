@@ -193,3 +193,13 @@ func (h Handlers) ListDealRoomReleases(w http.ResponseWriter, r *http.Request, i
 		Page: pageInfo(page),
 	})
 }
+
+// GetDealRoomChanges serves what a publish would change.
+func (h Handlers) GetDealRoomChanges(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	changes, err := h.store.Changes(r.Context(), pathID(id))
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, changes)
+}

@@ -559,6 +559,10 @@ func (stubs) UpdateDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 	httperr.NotImplemented(w, r, "UpdateDealRoom")
 }
 
+func (stubs) GetDealRoomChanges(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetDealRoomChanges")
+}
+
 func (stubs) CloseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "CloseDealRoom")
 }
