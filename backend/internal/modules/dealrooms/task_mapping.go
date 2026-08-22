@@ -67,7 +67,7 @@ func updateTaskInput(req crmcontracts.UpdateDealRoomTaskRequest, ifVersion *int6
 func cleanTaskTitle(title string) (string, error) {
 	trimmed := strings.TrimSpace(title)
 	if trimmed == "" {
-		return "", &fieldError{field: columnTitle, code: "required", msg: "title is required"}
+		return "", &fieldError{field: columnTitle, code: codeRequired, msg: "title is required"}
 	}
 	if len([]rune(trimmed)) > titleLimit {
 		return "", &fieldError{

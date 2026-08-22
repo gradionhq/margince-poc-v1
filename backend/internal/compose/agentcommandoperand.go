@@ -189,3 +189,82 @@ func removeStakeholderCommand(_ agentPolicy, deps restCommandDeps, r *http.Reque
 	}
 	return agents.NewRemoveStakeholderCall(deps.records, agents.RemoveStakeholderCommand{ID: id, PersonID: personID}), nil
 }
+
+// createDealRoomTaskCommand decodes POST /v1/deal-rooms/{id}/tasks.
+//
+// The routed {id} names the ROOM, and the record being created is the task, so
+// this cannot be the plain createCommand: that one carries only the body, and an
+// approval of it would say nothing about which room the item lands in. The room
+// travels in the fields, where the staged proposed_change shows it beside the
+// wording a human is being asked to release.
+//
+//nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
+func createDealRoomTaskCommand(pol agentPolicy, _ restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
+	roomID, err := routedID(r)
+	if err != nil {
+		return nil, err
+	}
+	fields, err := withRoomID(body, roomID)
+	if err != nil {
+		return nil, err
+	}
+	return agents.NewCreateCall(agents.CreateCommand{
+		RecordType: string(pol.RecordType),
+		Fields:     fields,
+	}), nil
+}
+
+// updateDealRoomTaskCommand decodes PATCH /v1/deal-rooms/{id}/tasks/{taskId}.
+//
+// It binds to the TASK, not the routed {id}. patchCommand would bind to the
+// room, so the approval a human released would name a different record than the
+// one the call goes on to write — and the task id it did carry would never be
+// checked at all.
+//
+//nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
+func updateDealRoomTaskCommand(pol agentPolicy, deps restCommandDeps, r *http.Request, body []byte) (agents.GovernedCall, error) {
+	if _, err := routedID(r); err != nil {
+		return nil, err
+	}
+	raw, err := pathOperand(r, "taskId")
+	if err != nil {
+		return nil, err
+	}
+	// The existence-hiding 404 routedID gives, not the 422 person_id gives.
+	// taskId names a ROW rather than an edge, so "that is not a uuid" and "there
+	// is no such item" must read alike, or the shape of a caller's id tells them
+	// which of a room's items exist. It is also not a contract field, so it has
+	// no name a validation fault could legitimately publish.
+	taskID, perr := ids.Parse(raw)
+	if perr != nil {
+		return nil, apperrors.ErrNotFound
+	}
+	return agents.NewPatchCall(deps.records, agents.PatchCommand{
+		RecordType: string(pol.RecordType),
+		ID:         taskID,
+		Fields:     json.RawMessage(body),
+	}), nil
+}
+
+// withRoomID folds the routed room into a create body so the staged approval
+// names where the item lands. A body that is not an object is refused here
+// rather than reaching the handler, because a create whose fields cannot carry
+// the room would stage an item belonging to no room at all.
+func withRoomID(body []byte, roomID ids.UUID) (json.RawMessage, error) {
+	fields := map[string]json.RawMessage{}
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &fields); err != nil {
+			return nil, httperr.Validation("body", "invalid", "the request body must be a JSON object")
+		}
+	}
+	encoded, err := json.Marshal(roomID)
+	if err != nil {
+		return nil, httperr.Validation("id", "invalid", "the room in the path is not a uuid")
+	}
+	fields["room_id"] = encoded
+	merged, err := json.Marshal(fields)
+	if err != nil {
+		return nil, httperr.Validation("body", "invalid", "the request body could not be read as fields")
+	}
+	return merged, nil
+}

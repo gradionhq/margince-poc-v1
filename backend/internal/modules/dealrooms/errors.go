@@ -78,6 +78,11 @@ func notTaskEditable(current string) error {
 	}
 }
 
+// codeRequired is the fault code every "you left this out" refusal in this
+// module publishes, named once so the three that raise it cannot drift into
+// three spellings a client would have to special-case.
+const codeRequired = "required"
+
 // errCompletionNeedsActor refuses a completion nobody can be attributed to. The
 // schema requires a done item to name who did it, and a to-do list that says
 // work was finished without saying by whom answers neither side's question.

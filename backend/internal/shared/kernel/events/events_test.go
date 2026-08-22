@@ -80,8 +80,12 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		"opened": true, "published": true, "paused": true, "resumed": true, "closed": true,
 		"participant_invited": true, "participant_revoked": true,
 		"participant_credential_reissued": true,
-		"state_changed":                   true,
-		"profile_created":                 true, "profile_updated": true, "profile_archived": true,
+		// Either side ticking a shared to-do off, or re-opening one. Past tense
+		// like the rest, and it names the CHANGE rather than the completion
+		// because un-ticking is the same event travelling the other way.
+		"task_completion_changed": true,
+		"state_changed":           true,
+		"profile_created":         true, "profile_updated": true, "profile_archived": true,
 		"corpus_changed": true, "build_changed": true, "version_changed": true,
 		"draft_outcome_recorded": true,
 		// engagement.reply is the §5.11 spec-pinned type name (EVT-SEM-14):
