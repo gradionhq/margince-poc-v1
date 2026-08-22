@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/compose/claims"
+	"github.com/gradionhq/margince/backend/internal/compose/personcontext"
 )
 
 // The citable record types. A brief may only point at things the reader can
@@ -76,7 +77,7 @@ func identityLine(in Input) string {
 func dealLine(in Input) string {
 	deal := in.OpenDeal
 	parts := []string{deal.Name}
-	if spoken := spokenAmount(deal.AmountMinor, deal.Currency); spoken != "" {
+	if spoken := personcontext.SpokenAmount(deal.AmountMinor, deal.Currency); spoken != "" {
 		parts = append(parts, spoken)
 	}
 	if deal.Stage != "" {
@@ -94,27 +95,6 @@ func dealLine(in Input) string {
 // stored — inventing a label for a role nobody defined would be a claim.
 func readableRole(role string) string {
 	return strings.ReplaceAll(role, "_", " ")
-}
-
-// spokenAmount renders a deal's value the way somebody would SAY it in a
-// sentence: "€95k", not "95000.00 EUR".
-//
-// The exact figure belongs on the deal card, where a reader is checking a
-// number. Here it is one clause of a sentence about a relationship, and the
-// full decimal spelling reads as a database field pasted into prose.
-func spokenAmount(minor int64, currency string) string {
-	if minor == 0 || currency == "" {
-		return ""
-	}
-	symbol := map[string]string{"EUR": "€", "USD": "$", "GBP": "£"}[currency]
-	if symbol == "" {
-		symbol = currency + " "
-	}
-	major := minor / 100
-	if major >= 1000 {
-		return fmt.Sprintf("%s%dk", symbol, major/1000)
-	}
-	return fmt.Sprintf("%s%d", symbol, major)
 }
 
 // caresAboutLine names what this person has explicitly said matters, citing the

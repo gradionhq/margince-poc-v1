@@ -1,6 +1,7 @@
 import type { components } from "../api/schema";
 import { StatCard } from "../design-system/atoms";
 import { StatStrip } from "../design-system/statstrip";
+import { toMajorUnits } from "../format/minorunits";
 import { useT } from "../i18n";
 
 // The relationship state strip (concept §5.3): six facts that change how a
@@ -162,8 +163,19 @@ function consentTone(
 // Money arrives in MINOR units and is rendered whole: the strip shows €95k,
 // not €95,000.00, because the slot is a glance and the exact figure lives on
 // the deal card below.
+//
+// The scale is the CURRENCY's. A hard-coded /100 rendered ₫18,000,000 as
+// "VND 180k" — the same hundredfold understatement the three server-side
+// copies of this function carried, which is what makes this the fourth.
+//
+// It is still a fourth FORMATTER, and that half is not fixed here.
+// format/formatMoneyCompact does this job locale-aware and currency-aware
+// already, but neither this component nor personcards.tsx has a locale in
+// scope, and threading one in changes the rendered string on both surfaces —
+// a visual change that belongs with the frontend formatter sweep, not with a
+// correctness fix to the scale. Adopting it is tracked there.
 export function money(minor: number, currency: string): string {
-  const major = minor / 100;
+  const major = toMajorUnits(minor, currency);
   if (major >= 1000) {
     return `${symbolFor(currency)}${Math.round(major / 1000)}k`;
   }

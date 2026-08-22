@@ -15,9 +15,9 @@ package persondraft
 // no claim about what the recipient thinks, no invented urgency.
 
 import (
-	"fmt"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/compose/personcontext"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/draftfloor"
 )
@@ -66,22 +66,7 @@ func deterministicSubject(in Input) string {
 	if len(in.Recent) > 0 && in.Recent[0].Subject != "" {
 		return draftfloor.Subject(lang, band, in.Recent[0].Subject, in.Recent[0].Inbound)
 	}
-	// A project outranks the employer in general: a message about one body of
-	// work is titled after the work, and its key is what the recipient's own
-	// filing recognises.
-	if in.Project != nil {
-		return draftfloor.Subject(lang, band, projectTopic(in.Project), false)
-	}
 	return draftfloor.Subject(lang, band, in.Recipient.Employer, false)
-}
-
-// projectTopic is the project as a subject line names it: "ERP-27 ERP rollout"
-// when the project has a key, the bare name when it has none.
-func projectTopic(project *ProjectIn) string {
-	if project.Key == "" {
-		return project.Name
-	}
-	return project.Key + " " + project.Name
 }
 
 // The body: a greeting, where the conversation stands, the one thing there is
@@ -196,35 +181,11 @@ func claimOpener(claim ClaimIn, lines draftfloor.Substance) string {
 // dealLine names the deal the way a sentence would, with the money only when
 // the record carries a currency for it.
 func dealLine(deal *DealIn) string {
-	spoken := spokenAmount(deal.AmountMinor, deal.Currency)
+	spoken := personcontext.SpokenAmount(deal.AmountMinor, deal.Currency)
 	if spoken == "" {
 		return deal.Name
 	}
 	return deal.Name + " (" + spoken + ")"
-}
-
-// spokenAmount renders a deal's value the way somebody would SAY it in a
-// sentence: "€95k", not "95000.00 EUR". The exact figure belongs on the deal
-// card, where a reader is checking a number; here it is one clause of a
-// sentence, and the full decimal spelling reads as a database field pasted into
-// prose.
-//
-// A zero amount and an amount with no currency are both rendered as nothing: a
-// figure whose scale the reader has to guess is worse in an outbound message
-// than no figure at all.
-func spokenAmount(minor int64, currency string) string {
-	if minor == 0 || currency == "" {
-		return ""
-	}
-	symbol := map[string]string{"EUR": "€", "USD": "$", "GBP": "£"}[currency]
-	if symbol == "" {
-		symbol = currency + " "
-	}
-	major := minor / 100
-	if major >= 1000 {
-		return fmt.Sprintf("%s%dk", symbol, major/1000)
-	}
-	return fmt.Sprintf("%s%d", symbol, major)
 }
 
 // The floor cites what it actually used, so a reader gets the same "Based on"

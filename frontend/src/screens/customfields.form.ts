@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { formatMoneyOrAbsent } from "../format/format";
+import { toMajorUnits, toMinorUnits } from "../format/minorunits";
 import { webUrl } from "../format/weburl";
 import { type Locale, useT } from "../i18n";
 import type { CreateField } from "./create";
@@ -33,12 +34,18 @@ export function customFieldToFormField(
     case "date":
       return { ...base, type: "date" };
     case "currency":
-      // Stored as bigint minor units; the form edits major units.
+      // Stored as bigint minor units; the form edits major units, at the scale
+      // THIS field's own currency carries. The catalog holds that code
+      // (CF-T06) — the same one the renderer below formats with — so a
+      // hard-coded hundred here made the form and the display disagree for
+      // every currency that is not two-decimal.
       return {
         ...base,
         type: "number",
         toInput: (raw) =>
-          raw == null || raw === "" ? "" : String(Number(raw) / 100),
+          raw == null || raw === ""
+            ? ""
+            : String(toMajorUnits(Number(raw), field.currency ?? "")),
       };
     case "picklist":
       return {
@@ -72,7 +79,7 @@ function coerceWrite(field: CustomField, raw: string): unknown {
   }
   switch (field.type) {
     case "currency":
-      return Math.round(Number(value) * 100);
+      return toMinorUnits(Number(value), field.currency ?? "");
     case "boolean":
       return value === "true" ? true : value === "false" ? false : null;
     default:

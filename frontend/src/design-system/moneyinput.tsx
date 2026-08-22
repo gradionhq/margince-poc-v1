@@ -1,12 +1,21 @@
 import { type InputHTMLAttributes, useEffect, useRef, useState } from "react";
+import {
+  minorUnitDigits,
+  toMajorUnits,
+  toMinorUnits,
+} from "../format/minorunits";
 import { TextInput } from "./atoms";
 
-// A thin wrapper around TextInput type="number" that displays/edits MAJOR
-// units while emitting MINOR units, matching the major→minor convention
-// already established in deals.tsx (Math.round(Number(amount) * 100)) and
-// products.tsx's toMinor helper. This assumes 2-decimal currencies only —
-// there is no second caller needing a different decimal count today, so
-// there is no currency prop to thread through for one.
+// A thin wrapper around TextInput type="number" that displays and edits MAJOR
+// units while emitting the MINOR units the API stores.
+//
+// The scale is the CURRENCY's, taken from format/minorunits. This used to
+// assume two decimals, on the stated grounds that no caller needed a different
+// count — which was true of the callers and false of the currencies: an offer
+// priced in dong went to the server multiplied by a hundred, and the server had
+// no way to tell that figure from a real one. So `currency` is required rather
+// than defaulted; a component that silently assumes EUR is the same bug with a
+// friendlier signature.
 //
 // The displayed text is its OWN state, not `(valueMinor / 100).toFixed(2)`
 // recomputed on every render: a fully-derived display reformats after every
@@ -19,24 +28,41 @@ import { TextInput } from "./atoms";
 // swapped in, a reset) — never mid-edit.
 export function MoneyInput({
   valueMinor,
+  currency,
   onChangeMinor,
   onBlur,
   ...rest
 }: Readonly<
   Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> & {
     valueMinor: number;
+    currency: string;
     onChangeMinor: (minor: number) => void;
   }
 >) {
-  const [text, setText] = useState((valueMinor / 100).toFixed(2));
+  const digits = minorUnitDigits(currency);
+  const [text, setText] = useState(() =>
+    toMajorUnits(valueMinor, currency).toFixed(digits),
+  );
   const lastCommittedMinor = useRef(valueMinor);
+  // The currency the text on screen is written in, tracked beside the amount
+  // because the SCALE is part of what that text says: an offer switched from
+  // EUR to VND holds the same minor integer and must not keep showing the euro
+  // reading of it.
+  const lastRenderedCurrency = useRef(currency);
 
   useEffect(() => {
-    if (valueMinor !== lastCommittedMinor.current) {
-      setText((valueMinor / 100).toFixed(2));
-      lastCommittedMinor.current = valueMinor;
+    if (
+      valueMinor === lastCommittedMinor.current &&
+      currency === lastRenderedCurrency.current
+    ) {
+      return;
     }
-  }, [valueMinor]);
+    setText(
+      toMajorUnits(valueMinor, currency).toFixed(minorUnitDigits(currency)),
+    );
+    lastCommittedMinor.current = valueMinor;
+    lastRenderedCurrency.current = currency;
+  }, [valueMinor, currency]);
 
   return (
     <TextInput
@@ -52,19 +78,23 @@ export function MoneyInput({
         }
         const parsed = Number(event.target.value);
         if (!Number.isNaN(parsed)) {
-          const minor = Math.round(parsed * 100);
+          const minor = toMinorUnits(parsed, currency);
           lastCommittedMinor.current = minor;
           onChangeMinor(minor);
         }
       }}
       onBlur={(event) => {
-        setText((lastCommittedMinor.current / 100).toFixed(2));
+        setText(
+          toMajorUnits(lastCommittedMinor.current, currency).toFixed(digits),
+        );
         onBlur?.(event);
       }}
       // type="number" defaults to step="1" — without this, a genuine
       // 2-decimal amount like "12.34" fails the input's native constraint
-      // validation (:invalid, blocked form submission).
-      step="0.01"
+      // validation (:invalid, blocked form submission). The step is the
+      // currency's smallest unit, so a zero-decimal currency refuses a
+      // fractional dong instead of accepting one it cannot store.
+      step={digits === 0 ? "1" : `0.${"0".repeat(digits - 1)}1`}
       {...rest}
     />
   );

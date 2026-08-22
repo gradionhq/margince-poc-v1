@@ -9,6 +9,11 @@ import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { FileDropzoneControl } from "../design-system/filedropzone";
 import { Select } from "../design-system/select";
 import { SurfaceState } from "../design-system/surfacestate";
+import {
+  minorUnitDigits,
+  toMajorUnits,
+  toMinorUnits,
+} from "../format/minorunits";
 import { useT } from "../i18n";
 import { throwProblem } from "./common";
 import { paperState, useContractPaper } from "./contractpaper";
@@ -83,6 +88,14 @@ export function ContractForm({
   // read is in flight and if it never answers, and undefined stays undefined:
   // guessing a unit is the failure this whole pairing exists to prevent.
   const baseCurrency = useInstallationSettings().data?.base_currency;
+
+  // The scale the amount field reads and writes in. A recorded agreement keeps
+  // its OWN currency (draftOf preserves it); a new one takes the installation's
+  // declared code once that read lands. The empty-string fallback is not a
+  // guessed currency — it reaches only minorUnitDigits, whose unusable-code
+  // answer is ISO's own default of two, which is what this field assumed
+  // unconditionally before.
+  const contractCurrency = draft.currency || baseCurrency || "";
 
   // Re-seed when the modal opens on a DIFFERENT agreement. Without this the
   // form keeps the previous row's values, and a reader correcting the second
@@ -159,12 +172,28 @@ export function ContractForm({
             {...props}
             type="number"
             min={0}
-            step="0.01"
-            value={draft.valueMinor === 0 ? "" : draft.valueMinor / 100}
+            // The scale — and the step — are the CURRENCY's. The form offers no
+            // currency control, so the record's own code stands, falling back
+            // to the installation's declared one for a contract being written
+            // now. A fixed 0.01 both mis-scaled a dong value and invited a
+            // fractional one the schema cannot hold.
+            step={
+              minorUnitDigits(contractCurrency) === 0
+                ? "1"
+                : `0.${"0".repeat(minorUnitDigits(contractCurrency) - 1)}1`
+            }
+            value={
+              draft.valueMinor === 0
+                ? ""
+                : toMajorUnits(draft.valueMinor, contractCurrency)
+            }
             onChange={(e) =>
               setDraft({
                 ...draft,
-                valueMinor: Math.round(Number(e.target.value || 0) * 100),
+                valueMinor: toMinorUnits(
+                  Number(e.target.value || 0),
+                  contractCurrency,
+                ),
               })
             }
           />

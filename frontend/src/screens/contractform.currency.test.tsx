@@ -17,6 +17,11 @@ import { ContractForm } from "./contractform";
 // installation's declared base currency. Never a literal, which would label one
 // deployment's agreements in another country's money and be indistinguishable
 // from a currency an operator chose.
+//
+// The currency also decides the SCALE, so these cases pin both. They used to
+// assert 500_000 minor units for 5000 dong: the form multiplied by a hundred
+// whatever the currency, and this file — whose installation is deliberately a
+// dong one — wrote the hundredfold figure down as expected.
 
 const SETTINGS = {
   organization_name: "Brandt Automotive GmbH",
@@ -118,7 +123,10 @@ describe("recording an agreement's value", () => {
 
     await waitFor(async () =>
       expect(await writtenBody(seen, "POST")).toMatchObject({
-        value_minor: 500_000,
+        // 5000 dong is 5000 minor units. VND has no minor unit at all, so the
+        // scale is 1 — this file's whole premise is a dong installation, and
+        // it used to assert the hundredfold figure the form produced.
+        value_minor: 5_000,
         currency: "VND",
       }),
     );
@@ -138,6 +146,11 @@ describe("recording an agreement's value", () => {
 
     await waitFor(async () => {
       const body = await writtenBody(seen, "POST");
+      // No currency reached this form, so the amount is scaled at ISO's own
+      // default of two digits — the same assumption the field made
+      // unconditionally before. It is stated here rather than left implicit,
+      // because it is the one path where the figure's unit is genuinely
+      // unknown and the server is what refuses the half-pair.
       expect(body.value_minor).toBe(500_000);
       expect(body).not.toHaveProperty("currency");
     });
@@ -187,7 +200,7 @@ describe("correcting an agreement's value", () => {
 
     await waitFor(async () =>
       expect(await writtenBody(seen, "PATCH")).toMatchObject({
-        value_minor: 500_000,
+        value_minor: 5_000,
         currency: "VND",
       }),
     );

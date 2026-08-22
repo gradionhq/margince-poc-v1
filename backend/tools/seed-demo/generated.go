@@ -138,7 +138,11 @@ func generatedAmount(domain string) int64 {
 		maxHundreds = 1800 // 180,000 EUR
 	)
 	hundreds := minHundreds + hashIndex("amount:"+domain, maxHundreds-minHundreds)
-	amount := int64(hundreds) * 100 * 100 // hundreds of euros, in minor units
+	// money-scale-exempt: this is not a conversion of a stored amount — it MINTS
+	// a plausible euro figure (hundreds of euros, then euros to cents) before
+	// the block below scales it into the account's own currency. There is no
+	// minor-unit amount here to consult a table about.
+	amount := int64(hundreds) * 100 * 100 // money-scale-exempt: minted, not converted — see above
 
 	// Scaled into the account's own currency, because the figure is READ.
 	// A dong contract carrying a euro-sized number printed "VND 154.800,00"

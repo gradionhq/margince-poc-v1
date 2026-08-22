@@ -8,7 +8,7 @@ import type { components } from "../api/schema";
 import { AttainmentRing } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
 import { AttainmentNumbers, PaceLine, QuotasView } from "./quotas";
-import { isOwnerXorTeam, parseEuroMinor } from "./quotas.forms";
+import { isOwnerXorTeam, parseTargetMinor } from "./quotas.forms";
 
 // Quotas & attainment (RD-T06) acceptance: the ring reflects the server band
 // (never a client recompute), the pace compare is ahead/behind/met, honest 422
@@ -220,12 +220,22 @@ describe("AttainmentNumbers", () => {
   });
 });
 
-describe("parseEuroMinor", () => {
-  it("parses grouped integer euros to minor units and round-trips", () => {
-    expect(parseEuroMinor("280.000")).toBe(28000000);
-    expect(parseEuroMinor("1234")).toBe(123400);
-    expect(parseEuroMinor("")).toBe(0);
-    expect(parseEuroMinor("abc")).toBe(0);
+describe("parseTargetMinor", () => {
+  it("parses a grouped whole amount to minor units", () => {
+    expect(parseTargetMinor("280.000", "EUR")).toBe(28000000);
+    expect(parseTargetMinor("1234", "EUR")).toBe(123400);
+    expect(parseTargetMinor("", "EUR")).toBe(0);
+    expect(parseTargetMinor("abc", "EUR")).toBe(0);
+  });
+
+  // The defect the rename records: this scaled by a hard-coded hundred while
+  // the form has always carried a currency field, so a dong target typed as
+  // 500,000,000 was stored as fifty billion — and read back through the same
+  // hundred, so the screen agreed with itself and only the record was wrong.
+  it("uses the target's own currency, not the euro's", () => {
+    expect(parseTargetMinor("500.000.000", "VND")).toBe(500_000_000);
+    expect(parseTargetMinor("950.000", "JPY")).toBe(950_000);
+    expect(parseTargetMinor("95", "KWD")).toBe(95_000);
   });
 });
 

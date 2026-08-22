@@ -12,6 +12,7 @@ import { ProblemError, problemMessageOf, throwProblem } from "./common";
 import { EditAction } from "./edit";
 import { useRoster, useRosterPartial, useRosterPartialHint } from "./entityref";
 import "./quotas.css";
+import { toMajorUnits, toMinorUnits } from "../format/minorunits";
 
 // The quota target write surface: create (owner-XOR-team side picker), edit
 // (reassign within the fixed side), and archive. Split out of quotas.tsx so
@@ -25,12 +26,18 @@ type Team = components["schemas"]["Team"];
 
 type Side = "owner" | "team";
 
-// Human-typed integer euros → minor units (mirrors the mockup's parseTgt):
-// strip every non-digit, then scale by the 2-decimal minor unit. The target
-// is whole-euro, human-set (RD-PARAM-3) — never a fractional or computed value.
-export function parseEuroMinor(input: string): number {
+// A human-typed whole amount → minor units, at the scale the quota's own
+// currency carries. The target is whole-unit and human-set (RD-PARAM-3) —
+// never fractional or computed — so every non-digit is stripped first.
+//
+// It used to be parseEuroMinor and it scaled by a hard-coded hundred, which
+// the name at least admitted. The form has always had a currency field, so a
+// dong target typed as 500,000,000 was stored as fifty billion and read back
+// as five hundred million — wrong in the record and right on the screen, which
+// is the pair that survives review.
+export function parseTargetMinor(input: string, currency: string): number {
   const digits = input.replace(/[^\d]/g, "");
-  return digits ? Number.parseInt(digits, 10) * 100 : 0;
+  return digits ? toMinorUnits(Number.parseInt(digits, 10), currency) : 0;
 }
 
 // A 422 whose owner-XOR-team contract failed — either the top-level code names
@@ -113,7 +120,7 @@ function SetTargetModal({
           team_id: side === "team" ? subjectId : null,
           period_start: periodStart,
           period_end: periodEnd,
-          target_minor: parseEuroMinor(amount),
+          target_minor: parseTargetMinor(amount, currency.trim().toUpperCase()),
           // Currency is a 3-letter uppercase code on the wire (^[A-Z]{3}$);
           // normalise a lowercase entry rather than bounce it off the server.
           currency: currency.trim().toUpperCase(),
@@ -150,7 +157,7 @@ function SetTargetModal({
     subjectId !== "" &&
     periodStart !== "" &&
     periodEnd !== "" &&
-    parseEuroMinor(amount) > 0 &&
+    parseTargetMinor(amount, currency.trim().toUpperCase()) > 0 &&
     currency.trim() !== "";
 
   function pickSide(next: Side) {
@@ -360,11 +367,12 @@ export function EditTargetAction({
           required: true,
           placeholder: t("quotas.amountHint"),
           // The record carries integer minor units; the field edits whole
-          // euros, so echo minor→euro on prefill and parse euro→minor on save.
+          // units of the quota's own currency, so echo minor→major on prefill
+          // and parse major→minor on save, both at that currency's scale.
           toInput: (raw) =>
             raw == null || raw === ""
               ? ""
-              : String(Math.round(Number(raw) / 100)),
+              : String(Math.round(toMajorUnits(Number(raw), quota.currency))),
         },
         {
           key: "currency",
@@ -390,7 +398,10 @@ export function EditTargetAction({
           body: {
             period_start: String(values.period_start),
             period_end: String(values.period_end),
-            target_minor: parseEuroMinor(String(values.amount ?? "")),
+            target_minor: parseTargetMinor(
+              String(values.amount ?? ""),
+              String(values.currency).trim().toUpperCase(),
+            ),
             currency: String(values.currency).trim().toUpperCase(),
           },
         });
