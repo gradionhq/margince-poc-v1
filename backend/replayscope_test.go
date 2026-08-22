@@ -49,7 +49,11 @@ var rowScopedResponses = map[string]expectedTarget{
 	// A contract has no owner column; it is row-scoped through the deal it came
 	// from, falling back to its organization (ADR-0109 §8). It still hands back
 	// a record — terms, value, dates — so it is probed like any other.
-	"Contract":            {object: "contract", moduleProbe: "contract", idPath: "id", rowNote: "a contract carries no owner column; visibility is inherited from its deal or organization, so the contracts store owns the probe"},
+	"Contract": {object: "contract", moduleProbe: "contract", idPath: "id", rowNote: "a contract carries no owner column; visibility is inherited from its deal or organization, so the contracts store owns the probe"},
+	// A Deal Room has no owner column either: its visibility IS its deal's. It
+	// hands back a record — title, welcome text, steward, expiry — so it is
+	// probed like any other rather than waved through for lacking an owner.
+	"DealRoom":            {object: "deal_room", moduleProbe: "deal_room", idPath: "id", rowNote: "a Deal Room carries no owner column; its visibility is its parent deal's, so the dealrooms store owns the probe"},
 	"Activity":            {table: "activity", idPath: "id"},
 	"VoiceProfile":        {table: "voice_profile", idPath: "id"},
 	"List":                {table: "list", idPath: "id"},

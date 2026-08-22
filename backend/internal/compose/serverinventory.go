@@ -46,6 +46,7 @@ type Server struct {
 	peopleHandlers
 	dealsHandlers
 	contractsHandlers
+	dealroomsHandlers
 	commissionsHandlers
 	activitiesHandlers
 	approvalsHandlers

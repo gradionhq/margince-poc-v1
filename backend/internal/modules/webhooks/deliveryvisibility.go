@@ -185,6 +185,11 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 		// deal it was accrued on, the same shape as the contract above with one
 		// anchor fewer — an entry cannot exist without a deal.
 		return s.commissionVisibleTo(ctx, entityID)
+	case "deal_room":
+		// A Deal Room has no owner of its own: its visibility IS its deal's,
+		// the same shape as the commission above. A room cannot exist without a
+		// deal, so there is no second anchor to fall back to.
+		return s.dealRoomVisibleTo(ctx, entityID)
 	case "approval":
 		// An approval (and its coldstart.* echoes) carries staged-change
 		// detail — summary, edited_change, target ids — so it is gated on
@@ -285,6 +290,30 @@ func (s *Store) contractVisibleTo(ctx context.Context, contractID ids.UUID) (boo
 	}
 	return s.rowScopedVisible(ctx, anchor, func(c context.Context, tx pgx.Tx) error {
 		return auth.EnsureVisible(c, tx, anchor, anchorID)
+	})
+}
+
+// dealRoomVisibleTo gates a Deal Room subject on deal_room.read and then on the
+// row-scope visibility of the deal it projects. A subscriber who cannot see the
+// deal must not learn that a buyer-facing room was opened on it, let alone what
+// it was called. An absent room reads as not-visible.
+func (s *Store) dealRoomVisibleTo(ctx context.Context, roomID ids.UUID) (bool, error) {
+	readable, err := objectReadable(ctx, "deal_room")
+	if err != nil || !readable {
+		return false, err
+	}
+	var dealID ids.UUID
+	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT deal_id FROM deal_room WHERE id = $1`, roomID).Scan(&dealID)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return s.rowScopedVisible(ctx, "deal", func(c context.Context, tx pgx.Tx) error {
+		return auth.EnsureVisible(c, tx, "deal", dealID)
 	})
 }
 

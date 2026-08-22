@@ -6958,6 +6958,210 @@ export interface paths {
         patch: operations["updateProduct"];
         trace?: never;
     };
+    "/deal-rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Deal Rooms (live by default; cursor-paginated).
+         * @description Scoped by the parent deal's visibility: a room whose deal the caller cannot
+         *     see is absent, indistinguishable from one that does not exist.
+         */
+        get: operations["listDealRooms"];
+        put?: never;
+        /**
+         * Open a Deal Room on a deal.
+         * @description Starts in `draft` — nothing is buyer-visible until a human publishes. At most
+         *     one active room per deal: a second create while the first is still in draft,
+         *     building, ready, publishing, live or paused is rejected
+         *     (409 `deal_room_already_open`). Archiving the first frees the deal for another.
+         *
+         *     The steward defaults to the deal's owner and is the named human a buyer is
+         *     pointed at for help; a room whose steward left the company points its buyers
+         *     at nobody, so the field transfers deliberately rather than following the deal.
+         */
+        post: operations["createDealRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a Deal Room by id. */
+        get: operations["getDealRoom"];
+        put?: never;
+        post?: never;
+        /**
+         * Archive a Deal Room, ending buyer access.
+         * @description Terminal and deliberate: archiving revokes every live session, so buyers lose
+         *     access immediately. Releases survive — what a buyer was shown stays answerable
+         *     after the room itself is gone. Archiving frees the deal for a new room.
+         */
+        delete: operations["archiveDealRoom"];
+        options?: never;
+        head?: never;
+        /**
+         * Edit a Deal Room's draft text (partial).
+         * @description Edits the WORKING copy only. A live room keeps serving its last published
+         *     release until a human publishes again, so changing the title or welcome text
+         *     here never changes what a buyer is currently reading.
+         *
+         *     `state` is not editable — it moves through the lifecycle operations
+         *     (publish/pause/resume/close), which are human-only for that reason.
+         */
+        patch: operations["updateDealRoom"];
+        trace?: never;
+    };
+    "/deal-rooms/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish the working copy as the next release.
+         * @description HUMAN-ONLY, and this is the governance boundary for the whole resource: an
+         *     agent may draft room text, but the act that puts words in front of a buyer
+         *     belongs to a person who can be named in the audit trail.
+         *
+         *     Copies every buyer-visible editorial value into an immutable release and moves
+         *     the room to `live`. Releases are numbered from 1 and never edited — publishing
+         *     again writes release N+1 rather than changing what release N said, so
+         *     "what did they see in August?" has an answer that does not depend on the
+         *     current state of the CRM.
+         *
+         *     Rejected with 409 `deal_room_not_publishable` from `closed`, `expired` or
+         *     `archived`. Publishing a `paused` room resumes it.
+         */
+        post: operations["publishDealRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause buyer access without ending it.
+         * @description A paused room refuses buyer reads while every credential stays valid, so
+         *     resuming restores access without re-inviting anyone. Only a `live` room
+         *     pauses (409 `deal_room_not_pausable` otherwise).
+         */
+        post: operations["pauseDealRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume a paused Deal Room.
+         * @description Returns a `paused` room to `live` on its existing release — no republish, and
+         *     every credential that worked before works again. 409 `deal_room_not_paused`
+         *     from any other state.
+         */
+        post: operations["resumeDealRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Freeze the room's content, keeping buyer access.
+         * @description Closing freezes CONTENT, not ACCESS. The buyer keeps reading documents,
+         *     to-dos and history; no comment, decision or task toggle is accepted after it.
+         *
+         *     Access management deliberately keeps working on a closed room — a steward can
+         *     still revoke a participant — because being unable to remove someone from a
+         *     room holding your signed contract is a real hazard months after the deal
+         *     closed. 409 `deal_room_not_closable` unless the room is live or paused.
+         */
+        post: operations["closeDealRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a room's published releases, newest first.
+         * @description The record of what this room showed a buyer over its life. Immutable and
+         *     insert-only — a release is never edited, so this list only grows.
+         */
+        get: operations["listDealRoomReleases"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/offer-templates": {
         parameters: {
             query?: never;
@@ -16079,7 +16283,7 @@ export interface components {
             /** @description Resolved display name for on_behalf_of. */
             on_behalf_of_name?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire" | "resolve" | "restrict" | "pin" | "accrue" | "pay";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire" | "resolve" | "restrict" | "pin" | "accrue" | "pay" | "publish" | "pause" | "resume" | "close";
             entity_type: string;
             /**
              * Format: uuid
@@ -16531,7 +16735,7 @@ export interface components {
              * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
              * @enum {string}
              */
-            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_release" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
             /**
              * @description The autonomy tier, identical on REST and MCP (ADR-0055).
              * @enum {string}
@@ -18337,6 +18541,148 @@ export interface components {
             active?: boolean;
         } & {
             [key: string]: unknown;
+        };
+        /**
+         * @description Where the room stands. Only `live` serves a buyer; `draft`, `building`, `ready`
+         *     and `publishing` are seller-side assembly, and the last four are terminal or
+         *     suspended.
+         *
+         *     `closed` freezes content while KEEPING access — the buyer still reads what
+         *     they were shown. `expired` is access lapsing on its own. `archived` ends the
+         *     room outright and frees the deal for another.
+         * @enum {string}
+         */
+        DealRoomState: "draft" | "building" | "ready" | "publishing" | "live" | "paused" | "closed" | "expired" | "archived";
+        /**
+         * @description One buyer-facing room per deal. Mirrors the `deal_room` table.
+         *
+         *     The fields here are the WORKING copy — what a buyer actually reads is the
+         *     latest release, which freezes these values at publish time. Editing a live
+         *     room's title changes nothing for the buyer until someone publishes again.
+         */
+        DealRoom: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The deal this room projects. Immutable — a room never moves between deals.
+             */
+            deal_id: string;
+            title: string;
+            /** @description The buyer's first paragraph on opening the room. */
+            welcome_message?: string | null;
+            state: components["schemas"]["DealRoomState"];
+            /**
+             * Format: uuid
+             * @description The named human a buyer is pointed at for help. Defaults to the deal's owner
+             *     at create time and transfers deliberately thereafter; null once that user is
+             *     deleted, which is the state a steward transfer exists to repair.
+             */
+            steward_user_id?: string | null;
+            /**
+             * Format: date-time
+             * @description When buyer access lapses on its own. Extending is an explicit human act.
+             */
+            expires_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When the room first went live. Unchanged by later releases.
+             */
+            published_at?: string | null;
+            /** Format: date-time */
+            closed_at?: string | null;
+            /** @description How many releases this room has published. 0 means no buyer has ever seen it. */
+            readonly release_count?: number;
+            source: string;
+            /** @description Server-stamped from the authenticated principal; never client-supplied. */
+            readonly captured_by: string;
+            version?: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        DealRoomListResponse: {
+            data: components["schemas"]["DealRoom"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        CreateDealRoomRequest: {
+            /** Format: uuid */
+            deal_id: string;
+            title: string;
+            welcome_message?: string | null;
+            /**
+             * Format: uuid
+             * @description Defaults to the deal's owner when omitted.
+             */
+            steward_user_id?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * @description Any subset; omit a field to leave it unchanged. Edits the working copy — a live
+         *     room keeps serving its last release until someone publishes.
+         */
+        UpdateDealRoomRequest: {
+            title?: string;
+            welcome_message?: string | null;
+            /** Format: uuid */
+            steward_user_id?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        PublishDealRoomRequest: {
+            /** @description Why this release exists, for the seller's own record. Not shown to the buyer. */
+            release_note?: string | null;
+        };
+        /**
+         * @description An immutable published snapshot. Every buyer-visible editorial value is COPIED
+         *     in at publish time, so a later edit to the room or the deal cannot change what
+         *     a buyer was shown. The database refuses updates to this row outright.
+         */
+        DealRoomRelease: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            /** @description Monotonic per room, from 1. Gaps are not possible. */
+            release_no: number;
+            /**
+             * @description The frozen buyer projection — status sentence, next step, welcome text,
+             *     seller display fields and the task definitions as they read at publish time.
+             *     Task COMPLETION is deliberately absent: it is live collaboration state, not
+             *     editorial content, so a checkbox never needs a republish.
+             */
+            snapshot: {
+                [key: string]: unknown;
+            };
+            release_note?: string | null;
+            /**
+             * Format: uuid
+             * @description The human who published. Null once that user is deleted; the release stands.
+             */
+            published_by?: string | null;
+            /** Format: date-time */
+            published_at: string;
+            source: string;
+            readonly captured_by: string;
+            /** Format: date-time */
+            created_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        DealRoomReleaseListResponse: {
+            data: components["schemas"]["DealRoomRelease"][];
+            page: components["schemas"]["PageInfo"];
         };
         /** @description A branded, workspace-governed DE/EN PDF layout for offers (data-model §12.6). Mirrors the `offer_template` table. Deliberately carries no source/captured_by — like Quota/CustomField, this is workspace-authored config, not a captured record; provenance lives in the audit row, not this schema. */
         OfferTemplate: {
@@ -31507,6 +31853,363 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listDealRooms: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 */
+                sort?: components["parameters"]["Sort"];
+                /** @description Include soft-deleted (archived) rows. Default false. */
+                include_archived?: components["parameters"]["IncludeArchived"];
+                /** @description Only the room belonging to this deal. */
+                deal_id?: string;
+                state?: components["schemas"]["DealRoomState"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of Deal Rooms. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createDealRoom: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDealRoomRequest"];
+            };
+        };
+        responses: {
+            /** @description The new Deal Room, in draft. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoom"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getDealRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The Deal Room. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoom"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    archiveDealRoom: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archived Deal Room. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoom"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateDealRoom: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDealRoomRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated Deal Room. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoom"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    publishDealRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PublishDealRoomRequest"];
+            };
+        };
+        responses: {
+            /** @description The release that was published. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomRelease"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    pauseDealRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The paused Deal Room. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoom"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    resumeDealRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The resumed Deal Room. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoom"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    closeDealRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The closed Deal Room. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoom"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listDealRoomReleases: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of releases. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomReleaseListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listOfferTemplates: {

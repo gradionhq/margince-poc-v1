@@ -44,6 +44,13 @@ components:
         - contract.updated
         - contract.status_changed
         - contract.archived
+        - deal_room.opened
+        - deal_room.updated
+        - deal_room.published
+        - deal_room.paused
+        - deal_room.resumed
+        - deal_room.closed
+        - deal_room.archived
         - offer.created
         - offer.sent
         - offer.accepted
@@ -259,6 +266,144 @@ components:
         reason:
           type: string
           description: Why the entry was voided; absent for approve and pay.
+      additionalProperties: false
+
+    PublicEventDealRoomOpened:
+      type: object
+      x-event-type: deal_room.opened
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.opened — a Deal Room was created on a deal. Nothing is
+        buyer-visible yet: the room starts in draft and stays private until a human
+        publishes it.
+      required:
+        - deal_id
+        - title
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        steward_user_id:
+          type: string
+          format: uuid
+          description: The named human a buyer is pointed at for help.
+      additionalProperties: false
+
+    PublicEventDealRoomUpdated:
+      type: object
+      x-event-type: deal_room.updated
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.updated — the room's WORKING copy changed. What the
+        buyer reads is unaffected: that is the last published release, and it stays
+        authoritative until somebody publishes again.
+      required:
+        - deal_id
+        - changed_fields
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        changed_fields:
+          type: array
+          description: |
+            Which editorial fields moved. Names only — the text itself is not published.
+            Typed as a plain string rather than an inline enum: an inline enum here
+            generates package-scope Go constants named `Title`, `ExpiresAt` and the
+            like in the shared contracts package, which collide with, and silently
+            rename, the constants of any other schema that later declares the same
+            value. The closed set is stated here and held by the writer.
+          items:
+            type: string
+      additionalProperties: false
+
+    PublicEventDealRoomPublished:
+      type: object
+      x-event-type: deal_room.published
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.published — a human published a release, fixing exactly
+        what the buyer now reads. Release 1 is the room going live for the first time.
+      required:
+        - deal_id
+        - release_no
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        release_no:
+          type: integer
+          description: Monotonic per room, from 1.
+        release_id:
+          type: string
+          format: uuid
+      additionalProperties: false
+
+    PublicEventDealRoomPaused:
+      type: object
+      x-event-type: deal_room.paused
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.paused — buyer reads are refused while every credential
+        stays valid, so resuming needs no re-invitation.
+      required:
+        - deal_id
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+      additionalProperties: false
+
+    PublicEventDealRoomResumed:
+      type: object
+      x-event-type: deal_room.resumed
+      x-entity-type: deal_room
+      x-version: 1
+      description: Payload for deal_room.resumed — a paused room serves its existing release again.
+      required:
+        - deal_id
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+      additionalProperties: false
+
+    PublicEventDealRoomClosed:
+      type: object
+      x-event-type: deal_room.closed
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.closed — the room's CONTENT is frozen while buyer ACCESS
+        continues. The buyer keeps reading; nobody writes.
+      required:
+        - deal_id
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+      additionalProperties: false
+
+    PublicEventDealRoomArchived:
+      type: object
+      x-event-type: deal_room.archived
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.archived — the room ended and buyer access is revoked.
+        Its releases survive, so what a buyer was shown stays answerable.
+      required:
+        - deal_id
+      properties:
+        deal_id:
+          type: string
+          format: uuid
       additionalProperties: false
 
     PublicEventContractCreated:
