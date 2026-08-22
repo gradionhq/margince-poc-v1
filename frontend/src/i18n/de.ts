@@ -2111,7 +2111,7 @@ export const de = {
   "files.deleteTitle": "{name} löschen?",
   "files.deleteBody":
     "Die Datei wird von diesem Deal entfernt. Eine Deal-Room-Veröffentlichung, die sie nennt, liefert sie weiter aus, bis der Raum erneut veröffentlicht wird.",
-  "files.showHidden": "Ausgeblendete zeigen ({count})",
+  "files.showHidden": "Ausgeblendete Dateien zeigen",
   "files.hideHidden": "Ausgeblendete verbergen",
   "docs.state.draft": "Entwurf",
   "docs.state.current": "Aktuell",

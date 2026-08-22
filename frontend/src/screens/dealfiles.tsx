@@ -67,7 +67,6 @@ export function DealFiles({ dealId }: Readonly<{ dealId: string }>) {
     },
   });
   const files = query.data?.data ?? [];
-  const hiddenCount = files.filter((f) => f.hidden).length;
 
   let state: SectionState;
   if (query.isPending) {
@@ -91,9 +90,7 @@ export function DealFiles({ dealId }: Readonly<{ dealId: string }>) {
       }
       footer={
         <Button small variant="ghost" onClick={() => setShowHidden((s) => !s)}>
-          {showHidden
-            ? t("files.hideHidden")
-            : t("files.showHidden", { count: String(hiddenCount) })}
+          {showHidden ? t("files.hideHidden") : t("files.showHidden")}
         </Button>
       }
     >
@@ -262,8 +259,13 @@ function FileMenu({
 function useFileVerbs(dealId: string, attachmentId: string) {
   const t = useT();
   const queryClient = useQueryClient();
+  // Both spellings of "the deal's files": this area's own key and the one the
+  // Deal Room's picker reads, so a delete here never leaves a ghost there.
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: ["deal-documents", dealId] });
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["deal-documents", dealId] }),
+      queryClient.invalidateQueries({ queryKey: ["deal-attachments", dealId] }),
+    ]);
   const hide = useMutation({
     mutationFn: async () => {
       const { error } = await api.PUT(

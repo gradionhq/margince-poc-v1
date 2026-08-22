@@ -563,7 +563,10 @@ function staleAfterUpload(anchor: DocumentAnchor): readonly QueryKey[] {
     return [["attachments", "person", anchor.id]];
   }
   if (anchor.record === "deal") {
-    return [["deal-documents", anchor.id]];
+    return [
+      ["deal-documents", anchor.id],
+      ["deal-attachments", anchor.id],
+    ];
   }
   return [
     ["orgDocuments", anchor.id],

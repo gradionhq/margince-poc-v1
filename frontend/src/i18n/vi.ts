@@ -2088,7 +2088,7 @@ export const vi = {
   "files.deleteTitle": "Xóa {name}?",
   "files.deleteBody":
     "Tệp bị gỡ khỏi giao dịch này. Bản phát hành Deal Room đã nêu tên tệp vẫn cung cấp nó cho đến khi phòng được công bố lại.",
-  "files.showHidden": "Hiện tệp đã ẩn ({count})",
+  "files.showHidden": "Hiện các tệp đã ẩn",
   "files.hideHidden": "Ẩn các tệp đã ẩn",
   "docs.state.draft": "Bản nháp",
   "docs.state.current": "Hiện hành",

@@ -2134,7 +2134,7 @@ export const en = {
   "files.deleteTitle": "Delete {name}?",
   "files.deleteBody":
     "The file is removed from this deal. A Deal Room release that names it keeps serving it until the room is published again.",
-  "files.showHidden": "Show hidden ({count})",
+  "files.showHidden": "Show hidden files",
   "files.hideHidden": "Hide the hidden files",
   "docs.state.draft": "Draft",
   "docs.state.current": "Current",
