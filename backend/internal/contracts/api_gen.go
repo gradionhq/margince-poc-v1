@@ -15300,6 +15300,38 @@ type DealCoverageSeat struct {
 	Role     string             `json:"role"`
 }
 
+// DealHealthFactor defines model for DealHealthFactor.
+type DealHealthFactor struct {
+	// ActivityId The activity the factor points at, where one does.
+	ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
+
+	// Key `activity_recency`, `stage_velocity`, `engagement` or `commitments`.
+	Key string `json:"key"`
+
+	// Reason The fact behind the number, in one sentence.
+	Reason string `json:"reason"`
+
+	// Value The factor, 0..1.
+	Value float32 `json:"value"`
+
+	// Weight Its share of the reading.
+	Weight float32 `json:"weight"`
+}
+
+// DealHealthReading defines model for DealHealthReading.
+type DealHealthReading struct {
+	// AtRisk Below the at-risk threshold.
+	AtRisk     bool               `json:"at_risk"`
+	ComputedAt time.Time          `json:"computed_at"`
+	DealId     openapi_types.UUID `json:"deal_id"`
+
+	// Factors The four parts, in the order they weigh. Each names the fact it was read from.
+	Factors []DealHealthFactor `json:"factors"`
+
+	// Health The weighted reading, 0..1.
+	Health float32 `json:"health"`
+}
+
 // DealListResponse defines model for DealListResponse.
 type DealListResponse struct {
 	Data []Deal   `json:"data"`
@@ -36700,6 +36732,9 @@ type ServerInterface interface {
 	// Who covers this deal, and what is wrong with how it is covered.
 	// (GET /deals/{id}/coverage)
 	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// How the deal stands — four named factors, each with the fact behind it.
+	// (GET /deals/{id}/health)
+	GetDealHealth(w http.ResponseWriter, r *http.Request, id Id)
 	// The one thing to do next on this deal, computed — never performed — on read.
 	// (GET /deals/{id}/next-best-action)
 	GetDealNextBestAction(w http.ResponseWriter, r *http.Request, id Id)
@@ -38608,6 +38643,12 @@ func (_ Unimplemented) AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id
 // Who covers this deal, and what is wrong with how it is covered.
 // (GET /deals/{id}/coverage)
 func (_ Unimplemented) GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// How the deal stands — four named factors, each with the fact behind it.
+// (GET /deals/{id}/health)
+func (_ Unimplemented) GetDealHealth(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -47529,6 +47570,40 @@ func (siw *ServerInterfaceWrapper) GetDealCoverage(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDealCoverage(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDealHealth operation middleware
+func (siw *ServerInterfaceWrapper) GetDealHealth(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealHealth(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -62279,6 +62354,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/health", wrapper.GetDealHealth)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/next-best-action", wrapper.GetDealNextBestAction)
