@@ -352,6 +352,15 @@ func TestABuyerReadsAndDownloadsOnlyWhatTheReleaseNames(t *testing.T) {
 		t.Fatalf("download = %d %q %q", resp.StatusCode, bytes, resp.Header.Get("Content-Disposition"))
 	}
 
+	// The file archived on the deal: the release still names it, but the bytes
+	// are no longer the deal's to hand out.
+	if status := e.Call(t, "DELETE", "/v1/attachments/"+attachmentID, nil, nil, nil); status != http.StatusNoContent {
+		t.Fatalf("archive attachment = %d", status)
+	}
+	if status := publicCall(t, e, "GET", "/v1/public/rooms/documents/"+docID+"/file", nil, bearer(token), nil); status != http.StatusNotFound {
+		t.Fatalf("download of an archived file = %d, want 404", status)
+	}
+
 	// Removed after publish: the release still names it, so the buyer still
 	// reads it until the next publish — and then it is gone.
 	if status := e.Call(t, "DELETE", "/v1/deal-rooms/"+room.roomID+"/documents/"+docID, nil, map[string]string{"If-Match": fmt.Sprint(doc["version"])}, nil); status != http.StatusOK {

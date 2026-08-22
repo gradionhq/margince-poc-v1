@@ -88,7 +88,7 @@ func publishRoomTx(ctx context.Context, tx pgx.Tx, id ids.DealRoomID, note *stri
 	if err != nil {
 		return crmcontracts.DealRoomRelease{}, err
 	}
-	docs, err := documentRows(ctx, tx, id)
+	docs, err := publishableDocumentRows(ctx, tx, id)
 	if err != nil {
 		return crmcontracts.DealRoomRelease{}, err
 	}

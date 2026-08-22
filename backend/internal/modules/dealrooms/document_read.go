@@ -44,7 +44,19 @@ const documentColumns = `d.id, d.room_id, d.attachment_id, d.group_key, d.title,
 	a.filename, a.content_type, a.byte_size,
 	d.source, d.captured_by, d.version, d.created_at, d.updated_at, d.archived_at`
 
-const documentFrom = `deal_room_document d JOIN attachment a ON a.id = d.attachment_id`
+// documentFrom is the seller's join: every entry, whatever became of its file,
+// so an entry whose file was archived can still be seen and removed.
+const documentFrom = `deal_room_document d
+	JOIN deal_room r ON r.id = d.room_id
+	JOIN attachment a ON a.id = d.attachment_id`
+
+// stillTheDealsFile re-applies, at PUBLISH and at DOWNLOAD, the predicate the
+// add checked once: the attachment is live and filed on the room's own deal. A
+// file archived or re-homed after it was added drops out of the next release
+// and out of the buyer's download, rather than riding on the strength of a
+// check that was true when it was added. The seller's own list does not carry
+// it, so the stale entry stays visible to the one person who can remove it.
+const stillTheDealsFile = `a.archived_at IS NULL AND a.entity_type = 'deal' AND a.entity_id = r.deal_id`
 
 // ListDocuments returns a room's documents in group-then-position order.
 func (s *Store) ListDocuments(ctx context.Context, roomID ids.DealRoomID) ([]crmcontracts.DealRoomDocument, storekit.Page, error) {
@@ -67,11 +79,21 @@ func (s *Store) ListDocuments(ctx context.Context, roomID ids.DealRoomID) ([]crm
 }
 
 func documentRows(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID) ([]crmcontracts.DealRoomDocument, error) {
+	return documentRowsWhere(ctx, tx, roomID, "")
+}
+
+// publishableDocumentRows is what a release freezes: only entries whose file is
+// still the deal's own.
+func publishableDocumentRows(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID) ([]crmcontracts.DealRoomDocument, error) {
+	return documentRowsWhere(ctx, tx, roomID, " AND "+stillTheDealsFile)
+}
+
+func documentRowsWhere(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, also string) ([]crmcontracts.DealRoomDocument, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	rows, err := tx.Query(ctx, storekit.SQLf(
 		`SELECT %s FROM %s
-		  WHERE d.room_id = $%d AND d.archived_at IS NULL
+		  WHERE d.room_id = $%d AND d.archived_at IS NULL`+also+`
 		  ORDER BY d.group_key, d.position, d.created_at, d.id`,
 		documentColumns, documentFrom, arg(roomID)), args...)
 	if err != nil {
