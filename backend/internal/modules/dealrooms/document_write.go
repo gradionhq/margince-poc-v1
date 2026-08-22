@@ -57,7 +57,7 @@ func addDocumentTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in Add
 	if err != nil {
 		return crmcontracts.DealRoomDocument{}, err
 	}
-	filename, err := attachmentOfDeal(ctx, tx, in.AttachmentID, ids.UUID(room.DealId))
+	filename, err := attachmentOfDeal(ctx, tx, in.AttachmentID, ids.From[ids.DealRoomKind](ids.UUID(room.Id)))
 	if err != nil {
 		return crmcontracts.DealRoomDocument{}, err
 	}
@@ -82,22 +82,35 @@ func addDocumentTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in Add
 	return readDocument(ctx, tx, roomID, id)
 }
 
-// attachmentOfDeal is the whole authority check on the file: it must be a live
-// attachment filed on THIS room's deal. That is a predicate, not a grant — the
-// caller already holds write on the deal (openRoomForContent), and a deal's own
-// files are what that authority covers. Any other id is absent, so a caller
-// cannot use this path to learn that some other record's file exists.
-func attachmentOfDeal(ctx context.Context, tx pgx.Tx, attachmentID, dealID ids.UUID) (string, error) {
-	var filename string
+// attachmentOfDeal admits a file into the room: it must be in the room's
+// deal's Files area (inTheDealsFilesArea — the same predicate publish and the
+// buyer download re-apply), and, when it arrived with a message, that message
+// must be one THIS caller may read. The second half is the grant the first
+// cannot carry: a captured file follows its message's audience, and a rep with
+// write on the deal must not be able to hand a teammate's limited-audience
+// mail to an outsider. Any other id is absent, so a caller cannot use this
+// path to learn that some other record's file exists.
+func attachmentOfDeal(ctx context.Context, tx pgx.Tx, attachmentID ids.UUID, roomID ids.DealRoomID) (string, error) {
+	var (
+		filename   string
+		entityType string
+		entityID   ids.UUID
+	)
 	err := tx.QueryRow(ctx,
-		`SELECT filename FROM attachment
-		  WHERE id = $1 AND entity_type = 'deal' AND entity_id = $2 AND archived_at IS NULL`,
-		attachmentID, dealID).Scan(&filename)
+		`SELECT a.filename, a.entity_type, a.entity_id
+		   FROM attachment a JOIN deal_room r ON r.id = $2
+		  WHERE a.id = $1 AND `+inTheDealsFilesArea,
+		attachmentID, roomID).Scan(&filename, &entityType, &entityID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", apperrors.ErrNotFound
 	}
 	if err != nil {
 		return "", fmt.Errorf("read attachment for deal room document: %w", err)
+	}
+	if entityType == "activity" {
+		if err := auth.EnsureActivityContentVisible(ctx, tx, entityID); err != nil {
+			return "", err
+		}
 	}
 	return filename, nil
 }
