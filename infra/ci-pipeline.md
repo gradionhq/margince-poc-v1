@@ -530,7 +530,7 @@ beside the gate, deliberately outside it:
 - **`main-health.yml`** — every two hours on `main`: the backend gate, the
   real-Postgres lane and the SPA lane (the last two called, not copied — it
   `uses:` `_lane-integration.yml` and `_lane-frontend.yml`), and `main`'s
-  SonarCloud analysis published from the coverage all three produce.
+  SonarCloud analysis published from the three coverage reports they produce.
   **It is not a gate and never will be**: it reports on a tree that has already
   landed.
 
@@ -561,7 +561,10 @@ beside the gate, deliberately outside it:
   80; the `ci.yml` scan that downloaded all three read 84.0). The job now `needs` every
   producer and requires each to have SUCCEEDED: a red lane freezes the analysis
   for two hours, which the report job files an issue about, while a scan missing
-  a report replaces it with a number describing a tree that does not exist.
+  a report replaces it with a number describing a tree that does not exist. The
+  report job now watches the scan itself for the same reason — a failed publish
+  leaves the previous analysis answering, which reads identically to a current
+  one, so it was the one failure here nobody was told about.
 
   The cadence is the knob: two hours costs ~15 jobs a run and narrows the suspect
   range to roughly a dozen commits at eight merges an hour.

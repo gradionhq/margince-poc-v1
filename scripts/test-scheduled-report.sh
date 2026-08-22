@@ -126,6 +126,7 @@ expect "a similar title is a different finding" \
 
 readonly INTEGRATION_TITLE="main is red: the integration lane fails on the tip"
 readonly FRONTEND_TITLE="main is red: the frontend lane fails on the tip"
+readonly SONAR_TITLE="main's SonarCloud analysis was not published"
 readonly SUSPECTS="- \`deadbeef\` Some Author — the commit that did it"
 
 # expect_health <name> <lane-result-variable> <expected-title> <suspects>
@@ -162,6 +163,15 @@ expect_health() {
 		failures=$((failures + 1))
 		return
 	fi
+	# The degraded path asserts its own text, not merely that an issue exists.
+	# Without this the no-range cases pass for free: an arm that dropped the
+	# fallback would still file, and "a red lane with no range still files"
+	# would go on reporting ok over a body that says nothing about the window.
+	if [ -z "$suspects" ] && ! printf '%s' "$body" | grep -qF -- "no suspect range was computed"; then
+		echo "FAIL: $name — filed without saying the suspect range is unknown"
+		failures=$((failures + 1))
+		return
+	fi
 	echo "ok: $name"
 }
 
@@ -178,6 +188,21 @@ expect_health "a red lane with no range still files" \
 # the only place a reader learns the quality gate's verdict has stopped moving.
 expect_health "a red frontend lane on main is filed with its suspect range" \
 	MAIN_FRONTEND_RESULT "$FRONTEND_TITLE" "$SUSPECTS"
+
+# Every arm owes the degraded path a case of its own, not only the first one
+# written: the fallback is per-arm text, so a missing one is missing for that arm
+# alone and the other arms' cases go on passing over it.
+expect_health "a red frontend lane with no range still files" \
+	MAIN_FRONTEND_RESULT "$FRONTEND_TITLE" ""
+
+# The publisher, which is the arm that exists because its failure is invisible:
+# a stale analysis reads exactly like a current one, so nothing but this issue
+# would say the verdict stopped moving.
+expect_health "a failed publish of main's analysis is filed with its suspect range" \
+	MAIN_SONAR_RESULT "$SONAR_TITLE" "$SUSPECTS"
+
+expect_health "a failed publish with no range still files" \
+	MAIN_SONAR_RESULT "$SONAR_TITLE" ""
 
 if [ "$failures" -ne 0 ]; then
 	echo "FAIL: $failures case(s)" >&2

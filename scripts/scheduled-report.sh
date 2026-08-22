@@ -255,8 +255,37 @@ worse answer than a stale one — but it means the quality gate's reading for
 
 ${MAIN_SUSPECTS:-_no suspect range was computed for this run._}
 
-Reproduce locally with \`make check-fe\` on \`main\`. The run above names which of
-the three legs went red; only one of them has to be reproduced."\
+Reproduce locally with the leg the run above names — \`make fe-quality\`,
+\`make fe-unit FE_COVERAGE=1\` or \`make fe-bundle\`. Not \`make check-fe\`: it
+runs neither the Storybook build nor the coverage report, so it can pass over a
+red \`fe-bundle\` or a broken lcov and send you looking for a failure that is
+not there."\
+    || unreported=1
+fi
+
+if [ "${MAIN_SONAR_RESULT:-}" = "failure" ]; then
+  report "main's SonarCloud analysis was not published" bug \
+"The \`sonarcloud (main)\` job failed on the two-hourly health check, with every
+lane it depends on green: $RUN_URL
+
+This one is filed because it is the failure that hides itself. A stored analysis
+does not go missing when a publish fails — it keeps answering with the last one,
+so \`main\`'s dashboard and the nightly quality-gate job both go on reporting a
+verdict for a tree that has moved on. Nothing else in this repository would say
+so.
+
+The job publishes only with all three coverage reports in hand
+(\`backend/coverage.out\`, \`backend/coverage-extensions.out\`,
+\`frontend/coverage/lcov.info\`), because the scanner's Zero Coverage Sensor
+scores every line it holds no report for as UNCOVERED — a partial scan does not
+decline to answer, it publishes zeros. So the likely cause is an artifact a green
+producer did not upload rather than anything about the scan itself, and the
+failing step names which download it was.
+
+${MAIN_SUSPECTS:-_no suspect range was computed for this run._}
+
+Until it is fixed, treat the quality gate's reading for \`main\` as stale rather
+than as a verdict."\
     || unreported=1
 fi
 

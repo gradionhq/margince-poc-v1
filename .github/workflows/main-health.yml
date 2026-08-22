@@ -101,12 +101,20 @@ jobs:
           # measurement of zero.
           EXT_COVER_OUT: ${{ github.workspace }}/backend/coverage-extensions.out
         run: make check-backend
+      # `error`, not ci.yml's `ignore`. There the artifact is optional because a
+      # frontend-only pull request legitimately never runs this job; here the
+      # gate above is unconditional, so no file means `test-extensions` produced
+      # none — and it does exactly that, silently and with exit 0, when
+      # extensions/ holds no Go unit. Tolerating that would leave the gate green,
+      # fail the sonar download two jobs later, and skip the report job (which
+      # reads lane results, all of them successful) — main's analysis frozen with
+      # nobody told, which is the failure this whole change is about.
       - name: Upload extension coverage
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: go-coverage-extensions
           path: backend/coverage-extensions.out
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 1
 
   # The real-Postgres lane, called rather than copied. Every schema fitness gate
@@ -225,12 +233,20 @@ jobs:
   report:
     name: report
     timeout-minutes: 10
-    needs: [gates, integration, frontend]
+    # `sonar` is here for a reason the three lanes are not. A lane going red is
+    # visible from a dozen other places; the SCAN failing is visible from none —
+    # main's stored analysis does not go missing when a publish fails, it keeps
+    # answering with the last one, so a broken publisher looks exactly like a
+    # working one on every dashboard. Left out of this list, the job that exists
+    # to publish main's verdict was the one job whose failure nobody was told
+    # about.
+    needs: [gates, integration, frontend, sonar]
     if: >-
       !cancelled()
       && (needs.gates.result == 'failure'
       || needs.integration.result == 'failure'
-      || needs.frontend.result == 'failure')
+      || needs.frontend.result == 'failure'
+      || needs.sonar.result == 'failure')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -265,5 +281,6 @@ jobs:
           MAIN_GATES_RESULT: ${{ needs.gates.result }}
           MAIN_INTEGRATION_RESULT: ${{ needs.integration.result }}
           MAIN_FRONTEND_RESULT: ${{ needs.frontend.result }}
+          MAIN_SONAR_RESULT: ${{ needs.sonar.result }}
           MAIN_SUSPECTS: ${{ steps.range.outputs.suspects }}
         run: ./scripts/scheduled-report.sh
