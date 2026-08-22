@@ -826,6 +826,9 @@ export const de = {
     "Dieser Raum ist abgeschlossen und nimmt keine Veröffentlichungen mehr an.",
   "roompage.publishNothing":
     "Seit der letzten Veröffentlichung hat sich nichts geändert.",
+  "roompage.publishChecking": "Prüfe, was sich geändert hat …",
+  "roompage.publishUnknown":
+    "Die Änderungen konnten nicht gelesen werden; laden Sie die Seite neu.",
   "roompage.publishTitle": "Diese Änderungen für den Käufer veröffentlichen?",
   "roompage.publishNoteLabel": "Notiz fürs Protokoll (optional)",
   "publish.title": "Veröffentlichen",
@@ -842,6 +845,7 @@ export const de = {
   "publish.change.removed": "Entfernt: {title}",
   "publish.change.retitled": "Umbenannt: {title}",
   "publish.change.regrouped": "In eine andere Gruppe verschoben: {title}",
+  "publish.change.reordered": "Umsortiert: {title}",
   "publish.change.ineligible":
     "Fällt heraus (am Deal ausgeblendet, entkoppelt oder gelöscht): {title}",
   "publish.change.other": "Geändert: {title}",

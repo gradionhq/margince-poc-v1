@@ -26720,7 +26720,8 @@ components:
           type: string
           description: >-
             One of title_changed, welcome_changed, document_added, document_removed,
-            document_retitled, document_regrouped, document_ineligible. A plain string
+            document_retitled, document_regrouped, document_reordered,
+            document_ineligible. A plain string
             for the reason DealRoomParticipantCapability gives.
         document_id: { type: [string, 'null'], format: uuid }
         title: { type: [string, 'null'], description: 'The document title the sentence names: current, or as last published.' }

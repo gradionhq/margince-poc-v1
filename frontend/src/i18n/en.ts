@@ -866,6 +866,9 @@ export const en = {
   "roompage.publishFinished":
     "This room is finished and takes no more releases.",
   "roompage.publishNothing": "Nothing has changed since the last release.",
+  "roompage.publishChecking": "Checking what has changed…",
+  "roompage.publishUnknown":
+    "Could not read what has changed; reload the page.",
   "roompage.publishTitle": "Publish these changes to the buyer?",
   "roompage.publishNoteLabel": "Note for the record (optional)",
   "publish.title": "Publish",
@@ -881,6 +884,7 @@ export const en = {
   "publish.change.removed": "Removed: {title}",
   "publish.change.retitled": "Renamed: {title}",
   "publish.change.regrouped": "Moved to another group: {title}",
+  "publish.change.reordered": "Reordered: {title}",
   "publish.change.ineligible":
     "Will drop out (hidden, unlinked or deleted on the deal): {title}",
   "publish.change.other": "Changed: {title}",

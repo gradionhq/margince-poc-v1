@@ -52,6 +52,7 @@ const CHANGE_LABELS: Record<string, MessageKey> = {
   document_removed: "publish.change.removed",
   document_retitled: "publish.change.retitled",
   document_regrouped: "publish.change.regrouped",
+  document_reordered: "publish.change.reordered",
   document_ineligible: "publish.change.ineligible",
 };
 
@@ -283,15 +284,16 @@ function ExpiryDialog({
     room.expires_at ? room.expires_at.slice(0, 10) : "",
   );
   const set = useMutation({
-    mutationFn: async (day: string) => {
+    // The version rides in the variables: a click between a room refresh and
+    // the mutation re-arming would otherwise pin a version already gone.
+    mutationFn: async (input: { day: string; version: number }) => {
       const { error } = await api.PUT("/deal-rooms/{id}/expiry", {
-        params: {
-          path: { id: room.id },
-          ...ifMatch(requireVersion(room.version)),
-        },
+        params: { path: { id: room.id }, ...ifMatch(input.version) },
         body: {
           expires_at:
-            day === "" ? null : new Date(`${day}T23:59:59Z`).toISOString(),
+            input.day === ""
+              ? null
+              : new Date(`${input.day}T23:59:59Z`).toISOString(),
         },
       });
       if (error) {
@@ -311,7 +313,9 @@ function ExpiryDialog({
       confirmLabel={t("access.save")}
       pending={set.isPending}
       error={set.isError ? problemMessageOf(set.error, t) : null}
-      onConfirm={() => set.mutate(date)}
+      onConfirm={() =>
+        set.mutate({ day: date, version: requireVersion(room.version) })
+      }
     >
       <Field label={t("roompage.expiryLabel")} hint={t("roompage.expiryHint")}>
         {(control) => (
@@ -337,12 +341,13 @@ function RoomText({
   const [title, setTitle] = useState(room.title);
   const [welcome, setWelcome] = useState(room.welcome_message ?? "");
   const save = useMutation({
-    mutationFn: async (input: { title: string; welcome: string }) => {
+    mutationFn: async (input: {
+      title: string;
+      welcome: string;
+      version: number;
+    }) => {
       const { error } = await api.PATCH("/deal-rooms/{id}", {
-        params: {
-          path: { id: room.id },
-          ...ifMatch(requireVersion(room.version)),
-        },
+        params: { path: { id: room.id }, ...ifMatch(input.version) },
         body: {
           title: input.title,
           welcome_message: input.welcome === "" ? null : input.welcome,
@@ -390,7 +395,11 @@ function RoomText({
                 disabled={!dirty || title.trim() === ""}
                 pending={save.isPending}
                 onClick={() =>
-                  save.mutate({ title: title.trim(), welcome: welcome.trim() })
+                  save.mutate({
+                    title: title.trim(),
+                    welcome: welcome.trim(),
+                    version: requireVersion(room.version),
+                  })
                 }
               >
                 {t("access.save")}
@@ -430,12 +439,17 @@ function PublishButton({ room }: Readonly<{ room: DealRoom }>) {
     },
   });
   const finished = FINISHED_STATES.has(room.state);
-  const nothing = changes.isSuccess && !changes.data.has_changes;
+  // Enabled only once the server has said there IS something to publish: a
+  // click before that answer, or after a failed one, would go out unreviewed.
   const reason = finished
     ? t("roompage.publishFinished")
-    : nothing
-      ? t("roompage.publishNothing")
-      : undefined;
+    : changes.isPending
+      ? t("roompage.publishChecking")
+      : changes.isError
+        ? t("roompage.publishUnknown")
+        : !changes.data?.has_changes
+          ? t("roompage.publishNothing")
+          : undefined;
   return (
     <>
       <Button

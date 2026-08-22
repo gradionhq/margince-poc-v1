@@ -20066,7 +20066,7 @@ export interface components {
             changes: components["schemas"]["DealRoomChange"][];
         };
         DealRoomChange: {
-            /** @description One of title_changed, welcome_changed, document_added, document_removed, document_retitled, document_regrouped, document_ineligible. A plain string for the reason DealRoomParticipantCapability gives. */
+            /** @description One of title_changed, welcome_changed, document_added, document_removed, document_retitled, document_regrouped, document_reordered, document_ineligible. A plain string for the reason DealRoomParticipantCapability gives. */
             kind: string;
             /** Format: uuid */
             document_id?: string | null;

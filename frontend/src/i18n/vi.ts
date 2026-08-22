@@ -814,6 +814,8 @@ export const vi = {
   "roompage.publishFinished":
     "Phòng này đã kết thúc và không nhận thêm bản phát hành.",
   "roompage.publishNothing": "Không có gì thay đổi kể từ bản phát hành trước.",
+  "roompage.publishChecking": "Đang kiểm tra thay đổi…",
+  "roompage.publishUnknown": "Không đọc được thay đổi; hãy tải lại trang.",
   "roompage.publishTitle": "Công bố những thay đổi này cho người mua?",
   "roompage.publishNoteLabel": "Ghi chú lưu hồ sơ (tùy chọn)",
   "publish.title": "Công bố",
@@ -829,6 +831,7 @@ export const vi = {
   "publish.change.removed": "Đã gỡ: {title}",
   "publish.change.retitled": "Đã đổi tên: {title}",
   "publish.change.regrouped": "Đã chuyển nhóm: {title}",
+  "publish.change.reordered": "Đã sắp xếp lại: {title}",
   "publish.change.ineligible":
     "Sẽ bị loại (đã ẩn, bỏ liên kết hoặc xóa trên giao dịch): {title}",
   "publish.change.other": "Đã thay đổi: {title}",

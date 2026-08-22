@@ -15496,7 +15496,7 @@ type DealRoomAuthor struct {
 type DealRoomChange struct {
 	DocumentId *openapi_types.UUID `json:"document_id,omitempty"`
 
-	// Kind One of title_changed, welcome_changed, document_added, document_removed, document_retitled, document_regrouped, document_ineligible. A plain string for the reason DealRoomParticipantCapability gives.
+	// Kind One of title_changed, welcome_changed, document_added, document_removed, document_retitled, document_regrouped, document_reordered, document_ineligible. A plain string for the reason DealRoomParticipantCapability gives.
 	Kind string `json:"kind"`
 
 	// Title The document title the sentence names: current, or as last published.

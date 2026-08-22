@@ -29,6 +29,7 @@ const (
 	changeDocumentRemoved    = "document_removed"
 	changeDocumentRetitled   = "document_retitled"
 	changeDocumentRegrouped  = "document_regrouped"
+	changeDocumentReordered  = "document_reordered"
 	changeDocumentIneligible = "document_ineligible"
 )
 
@@ -130,6 +131,9 @@ func documentChanges(d crmcontracts.DealRoomDocument, was map[openapi_types.UUID
 	}
 	if before.GroupKey != string(d.GroupKey) {
 		out = append(out, change(changeDocumentRegrouped, d.Id, d.Title))
+	}
+	if before.Position != d.Position {
+		out = append(out, change(changeDocumentReordered, d.Id, d.Title))
 	}
 	return out
 }

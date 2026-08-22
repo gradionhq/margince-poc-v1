@@ -28,7 +28,7 @@ func TestTheDiffNamesEveryWayTheNextReleaseWouldDiffer(t *testing.T) {
 	room := crmcontracts.DealRoom{Title: "Acme rollout", WelcomeMessage: &newWelcome}
 	eligible := []crmcontracts.DealRoomDocument{
 		{Id: kept, GroupKey: "legal", Title: "MSA"},
-		{Id: retitled, GroupKey: "commercial", Title: "DPA v2"},
+		{Id: retitled, GroupKey: "commercial", Title: "DPA v2", Position: 2},
 		{Id: added, GroupKey: "legal", Title: "SOW"},
 	}
 	all := append(append([]crmcontracts.DealRoomDocument{}, eligible...),
@@ -47,6 +47,7 @@ func TestTheDiffNamesEveryWayTheNextReleaseWouldDiffer(t *testing.T) {
 		changeWelcome:            {""},
 		changeDocumentRetitled:   {"DPA v2"},
 		changeDocumentRegrouped:  {"DPA v2"},
+		changeDocumentReordered:  {"DPA v2"},
 		changeDocumentAdded:      {"SOW"},
 		changeDocumentIneligible: {"Emailed redline"},
 		changeDocumentRemoved:    {"Old pricing"},
