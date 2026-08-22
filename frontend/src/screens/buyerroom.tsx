@@ -88,6 +88,10 @@ export function BuyerRoomScreen() {
   // still holds room A's session must not show room A for a breath while
   // room B's link is being exchanged.
   const [token, setToken] = useState(() => (credential ? null : readSession()));
+  // What the exchange answered, held HERE rather than read off the mutation:
+  // the replayed mount (StrictMode) swaps the observer that ran it for one that
+  // never hears the result, so isSuccess/isError would stay false for ever.
+  const [refusal, setRefusal] = useState<Error | null>(null);
   const t = useT();
 
   const exchange = useMutation({
@@ -130,8 +134,8 @@ export function BuyerRoomScreen() {
           setToken(issued.session_token);
         }
       },
-      () => {
-        // The refusal is already on exchange.error for the render branch.
+      (error: unknown) => {
+        setRefusal(error instanceof Error ? error : new Error(String(error)));
       },
     );
   }, [credential, exchangeAsync]);
@@ -143,7 +147,7 @@ export function BuyerRoomScreen() {
 
   // "Opening" until the exchange has answered — not merely while the mutation
   // is in flight, because the first render happens before the effect fires it.
-  if (credential && !exchange.isSuccess && !exchange.isError) {
+  if (credential && !token && !refusal) {
     return (
       <BuyerFrame>
         <EmptyState>
@@ -152,14 +156,14 @@ export function BuyerRoomScreen() {
       </BuyerFrame>
     );
   }
-  if (credential && exchange.isError) {
+  if (credential && refusal) {
     return (
       <BuyerFrame>
         <DeadLink
           message={
-            exchange.error instanceof SessionRefusedError
+            refusal instanceof SessionRefusedError
               ? t("buyer.linkDead")
-              : problemMessageOf(exchange.error, t)
+              : problemMessageOf(refusal, t)
           }
         />
       </BuyerFrame>
