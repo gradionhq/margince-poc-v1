@@ -14,6 +14,7 @@ package integration
 import (
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -119,4 +120,41 @@ func hasHit(page search.Page, id ids.UUID) bool {
 		}
 	}
 	return false
+}
+
+// A project hit carries `key · company` as its excerpt, so a reader can tell
+// two accounts' "Phase 2" apart without opening each. A project with no key
+// shows the company alone rather than a dangling separator.
+func TestProjectSearchHitsCarryTheKeyAndTheCompanyAsTheSnippet(t *testing.T) {
+	e := Setup(t)
+	admin := e.Admin()
+	org := e.SeedOrg(t, "Acme Tooling", &e.Rep1)
+	key := "ERP-27"
+	keyed, err := e.Deals.CreateProject(admin, deals.CreateProjectInput{
+		Name: "Cutover rehearsal", Key: &key, OrganizationID: orgIDOf(org), Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create keyed project: %v", err)
+	}
+	keyless, err := e.Deals.CreateProject(admin, deals.CreateProjectInput{
+		Name: "Cutover planning", OrganizationID: orgIDOf(org), Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create keyless project: %v", err)
+	}
+
+	page, err := search.NewStore(e.DB()).Search(admin, search.Input{Query: "Cutover", Types: []string{"project"}})
+	if err != nil {
+		t.Fatalf("search projects: %v", err)
+	}
+	snippets := map[ids.UUID]string{}
+	for _, hit := range page.Hits {
+		snippets[hit.ID] = hit.Snippet
+	}
+	if got := snippets[ids.UUID(keyed.Id)]; got != "ERP-27 · Acme Tooling" {
+		t.Errorf("keyed project snippet = %q, want \"ERP-27 · Acme Tooling\"", got)
+	}
+	if got := snippets[ids.UUID(keyless.Id)]; got != "Acme Tooling" {
+		t.Errorf("keyless project snippet = %q, want the company alone", got)
+	}
 }

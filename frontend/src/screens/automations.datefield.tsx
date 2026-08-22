@@ -21,12 +21,9 @@ import { throwProblem } from "./common";
 // server-side, since the endpoint's own filter vocabulary is object + status
 // only (no field-type filter).
 
-// The query param's own closed enum (listCustomFields, crm.yaml) — NOT
-// customfields.logic.ts's CF_OBJECTS (which additionally excludes
-// "activity" for that screen's own reasons) and NOT renewal_reminder's
-// wider object vocabulary (automations_catalog.go's renewalReminderObjects,
-// which also allows "project" — a contract/backend gap already tracked
-// there, not something this picker can paper over). An `object` value
+// The query param's own closed enum (listCustomFields, crm.yaml), which is
+// the backend engine's allowlist — NOT customfields.logic.ts's CF_OBJECTS,
+// which does not yet offer "project" in its picker. An `object` value
 // outside this set can never resolve to a real /custom-fields page, so the
 // picker degrades to its disabled, hinted state rather than issuing a query
 // the endpoint would refuse.
@@ -35,7 +32,7 @@ const CUSTOM_FIELD_QUERY_OBJECTS = new Set([
   "organization",
   "deal",
   "lead",
-  "activity",
+  "project",
 ]);
 
 type CustomFieldQueryObject =
@@ -43,7 +40,7 @@ type CustomFieldQueryObject =
   | "organization"
   | "deal"
   | "lead"
-  | "activity";
+  | "project";
 
 function isCustomFieldQueryObject(
   value: string,

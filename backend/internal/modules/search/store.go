@@ -137,7 +137,16 @@ var searchBranches = []searchBranch{
 	{entity: "organization", table: "organization", title: "display_name", snippet: "NULL", extraWhere: "NOT %s.is_anchor"},
 	{entity: "deal", table: "deal", title: "name", snippet: "NULL"},
 	{entity: "lead", table: "lead", title: "coalesce(full_name, company_name, email)", snippet: "NULL"},
-	{entity: "project", table: "project", title: "name", snippet: "NULL"},
+	// A project's name alone does not say which account's work it is, and two
+	// accounts can run a "Phase 2". The excerpt is the key and the company,
+	// which is how a person tells the hits apart; a keyless project shows the
+	// company alone (concat_ws skips a NULL rather than printing the dot).
+	// The company is the project's own anchor (organization_id is NOT NULL),
+	// so naming it hands over nothing the project row did not already carry.
+	{
+		entity: "project", table: "project", title: "name",
+		snippet: "(SELECT concat_ws(' · ', t.key, o.display_name) FROM organization o WHERE o.id = t.organization_id)",
+	},
 	// `entity` stays a literal and `table` takes the constant, which looks
 	// inconsistent and is not: TestContextAnchorEnumMatchesTheSearchableEntities
 	// AST-parses the `entity` values and can only read literals, while goconst

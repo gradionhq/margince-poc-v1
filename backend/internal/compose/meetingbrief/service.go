@@ -9,6 +9,7 @@ package meetingbrief
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -72,6 +73,15 @@ func NewService(pool *pgxpool.Pool, view Assembler, claimReader ClaimReader, now
 // caller's own composite read, which carries its own row scope. A brief can
 // therefore only describe records this caller could open themselves.
 func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.MeetingBrief, error) {
+	brief, _, err := s.GetFiled(ctx, activityID)
+	return brief, err
+}
+
+// GetFiled is Get plus the project the meeting is filed under, nil when it
+// is filed under none. The brief scopes itself by that project without
+// saying so on the wire; a surface that lets a caller ask for a project
+// needs it to tell an agreeing request from a disagreeing one.
+func (s *Service) GetFiled(ctx context.Context, activityID ids.UUID) (crmcontracts.MeetingBrief, *ids.UUID, error) {
 	// NO human gate. It used to read "an agent reading records through a
 	// passport has the records themselves", and that argument is what produced
 	// two answers to one question: agents could not reach this, so a second
@@ -88,17 +98,27 @@ func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.Me
 	// meetings at all, and a reader with no activity grant would otherwise
 	// reach the brief through a path every sibling read refuses.
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
-		return crmcontracts.MeetingBrief{}, err
+		return crmcontracts.MeetingBrief{}, nil, err
 	}
 	// The brief names the people in the room and what they promised, so it is
 	// also a person read — and the caller must hold that grant for the same
 	// reason the person page does.
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
-		return crmcontracts.MeetingBrief{}, err
+		return crmcontracts.MeetingBrief{}, nil, err
 	}
 	in, err := s.assembleInput(ctx, activityID)
 	if err != nil {
-		return crmcontracts.MeetingBrief{}, err
+		return crmcontracts.MeetingBrief{}, nil, err
+	}
+	var filed *ids.UUID
+	if in.Project != nil {
+		id, err := ids.Parse(in.Project.ID)
+		if err != nil {
+			// The id travels through the brief's input as the string the
+			// header line prints, and is parsed back here.
+			return crmcontracts.MeetingBrief{}, nil, fmt.Errorf("meeting brief: project id %q read off the meeting is not an id: %w", in.Project.ID, err)
+		}
+		filed = &id
 	}
 	return crmcontracts.MeetingBrief{
 		ActivityId: openapi_types.UUID(activityID),
@@ -109,7 +129,7 @@ func (s *Service) Get(ctx context.Context, activityID ids.UUID) (crmcontracts.Me
 		// say so, rather than passing a composition off as a written brief.
 		GeneratedBy: crmcontracts.Deterministic,
 		Sections:    wireSections(Deterministic(in)),
-	}, nil
+	}, filed, nil
 }
 
 // assembleInput gathers everything the brief is written from.

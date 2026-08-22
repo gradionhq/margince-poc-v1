@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 56 |
 | Resources | 8 |
-| Tool catalog | 149.2 KB |
+| Tool catalog | 149.8 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 38981 |
+| Approx. wire tokens | 39115 |
 | Largest tool | `read_project_360` (6.3 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -29,10 +29,10 @@ budget in `agenttooldescriptions_test.go`.
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
 | Output schemas | 71.9 KB | 48% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 34.6 KB | 23% | Yes, every step |
-| Input schemas | 31.0 KB | 20% | Yes, every step |
+| Descriptions (incl. governance clause) | 34.8 KB | 23% | Yes, every step |
+| Input schemas | 31.3 KB | 20% | Yes, every step |
 | _Names, annotations, punctuation_ | 11.8 KB | 7% | Partly |
-| **Description + input schema** | **65.6 KB** | **43%** | **the recurring cost** |
+| **Description + input schema** | **66.1 KB** | **44%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -66,7 +66,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.5 KB |
 | [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.7 KB |
-| [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.7 KB |
+| [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.8 KB |
 | [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.2 KB |
 | [`commit_import`](#commit_import) | Commit an import |  |  | 1.8 KB |
 | [`create_record`](#create_record) | Create a record |  |  | 2.6 KB |
@@ -86,7 +86,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`list_tags`](#list_tags) | List tags | yes |  | 1.6 KB |
 | [`log_activity`](#log_activity) | Log an activity |  |  | 2.9 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.4 KB |
-| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.8 KB |
+| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 4.0 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
 | [`preview_import`](#preview_import) | Preview an import |  |  | 2.2 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.0 KB |
@@ -104,9 +104,9 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`relink_thread`](#relink_thread) | Re-associate a whole conversation to a record |  |  | 1.9 KB |
 | [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
-| [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
+| [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.9 KB |
 | [`run_report`](#run_report) | Run a report | yes |  | 4.5 KB |
-| [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
+| [`search_context`](#search_context) | Search for relevant material | yes |  | 3.1 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
 | [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.3 KB |
 | [`send_email`](#send_email) | Send an email |  |  | 3.0 KB |
@@ -1525,6 +1525,11 @@ Answer "what has been going on with this?" for one person, company, deal, lead, 
       "maximum": 20,
       "minimum": 1,
       "type": "integer"
+    },
+    "project_id": {
+      "description": "Keep only what is filed under this project or under none",
+      "format": "uuid",
+      "type": "string"
     },
     "record_id": {
       "format": "uuid",
@@ -5014,6 +5019,11 @@ Get ready for a specific meeting: given the meeting, the same written brief a pe
       "minimum": 1,
       "type": "integer"
     },
+    "project_id": {
+      "description": "Keep only what is filed under this project or under none",
+      "format": "uuid",
+      "type": "string"
+    },
     "record_id": {
       "format": "uuid",
       "type": "string"
@@ -5057,6 +5067,10 @@ Get ready for a specific meeting: given the meeting, the same written brief a pe
               "type": "string"
             },
             "generated_by": {
+              "type": "string"
+            },
+            "project_id": {
+              "format": "uuid",
               "type": "string"
             },
             "sections": {
@@ -8980,6 +8994,11 @@ Renders its result in [`ui://margince/commitments.html`](#commitments_view), vis
       "maximum": 50,
       "minimum": 1,
       "type": "integer"
+    },
+    "project_id": {
+      "description": "Keep only promises filed under this project or under none",
+      "format": "uuid",
+      "type": "string"
     }
   },
   "type": "object"
@@ -9353,7 +9372,7 @@ Answer a question about totals, counts or breakdowns — pipeline by stage, deal
 
 **Search for relevant material**
 
-Find the records most relevant to a description, ranked by meaning as well as by wording, each with the excerpt that ranked it. Ranked, never exhaustive: records that also match may be absent, and no count of them exists. You can narrow it to particular record types, but not by field, date or owner, and it does not group or total. Use query_workspace when the question has conditions, a date bound or a related record to reach through, and search_records when you have the exact name or phrase. Read `coverage`: `partial_degraded` means `notes` matters, and `semantic_ranking_degraded_to_lexical` there means the ranking fell back to word overlap. Keep each hit's record_type and id. (Governance: runs immediately; requires passport scope "read".)
+Find the records most relevant to a description, ranked by meaning as well as by wording, each with the excerpt that ranked it. Ranked, never exhaustive: records that also match may be absent, and no count of them exists. You can narrow it to particular record types, but not by field, date or owner, and it does not group or total. It cannot be narrowed to a project either: the index carries no project column, so use catch_me_up_on with project_id for that. Use query_workspace when the question has conditions, a date bound or a related record to reach through, and search_records when you have the exact name or phrase. Read `coverage`: `partial_degraded` means `notes` matters, and `semantic_ranking_degraded_to_lexical` there means the ranking fell back to word overlap. Keep each hit's record_type and id. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
