@@ -41,7 +41,13 @@
 # scripts/test-check-money-scale.sh proves each language's arm fires, that the
 # waiver works and is line-scoped, and that comments are not code.
 set -euo pipefail
+# Resolved BEFORE the cd, so the library is found however the script is invoked.
+COMMENT_SCAN="$(cd "$(dirname "$0")" && pwd)/lib-commentscan.awk"
+STRIP_PROG="$(cd "$(dirname "$0")" && pwd)/money-scale-strip.awk"
 cd "$(dirname "$0")/.."
+for lib in "$COMMENT_SCAN" "$STRIP_PROG"; do
+  [[ -f "$lib" ]] || { echo "FAIL: $lib is missing — this gate cannot read code without it"; exit 1; }
+done
 
 waiver='money-scale-exempt:'
 IFS=' ' read -r -a go_scan <<< "${MONEY_SCALE_GO_SCAN:-backend/internal backend/cmd backend/pkg backend/tools extensions fixtures}"
@@ -103,139 +109,7 @@ powers='[/*%][[:space:]]*(10|100|1000|10000|1_000|10_000)([^0-9._]|$)'
 # line. Both are false NEGATIVES — the gate under-reports rather than crying
 # wolf, which is the direction a scanner should fail in.
 strip() {
-  xargs -0 awk -v waiver="$waiver" '
-    function opens(s,   n, t) { t = s; n = gsub(/[([]/, "", t); return n }
-    function closes(s,  n, t) { t = s; n = gsub(/[)\]]/, "", t); return n }
-    # commentAt returns the offset where a line comment begins, skipping any
-    # `//` that falls inside a string. Scanning quote by quote rather than
-    # matching a pattern, because the pattern cannot tell the two apart: a line
-    # holding `return x / 100, "// money-scale-exempt: fake"` has a real
-    # arithmetic defect and a fake marker, and a regex reading left to right
-    # waives the whole line along with the defect on it.
-    function commentAt(s,   i, ch, quote, prev) {
-      quote = ""
-      for (i = 1; i <= length(s); i++) {
-        ch = substr(s, i, 1)
-        if (quote != "") {
-          # A backslash escapes inside ANY quote, backticks included. Excluding
-          # them was meant to serve Go raw strings, where a backslash is
-          # literal — but a Go raw string is delimited by backticks and cannot
-          # contain one at all, so the exclusion bought nothing and read an
-          # escaped backtick in a TypeScript template as the closing delimiter.
-          if (ch == "\\") { i++; continue }
-          if (ch == quote) quote = ""
-          continue
-        }
-        if (ch == "\"" || ch == "\x27" || ch == "`") { quote = ch; continue }
-        # An ESCAPED slash is not a comment opener. `u.replace(/^https?:\/\//,
-        # "")` is a TypeScript regex literal, and reading its `\/\/` as a
-        # comment truncated the rest of the line — including, on the line that
-        # found this, a real `amountMinor / 100` after it. Regex literals are
-        # not tracked as a state of their own (that needs to know whether a `/`
-        # is division or a literal, which needs a parser); skipping an escaped
-        # slash covers the spelling that actually occurs.
-        if (ch == "/" && prev != "\\" && substr(s, i + 1, 1) == "/" && prev != ":") return i
-        if (ch == "/" && prev != "\\" && substr(s, i + 1, 1) == "*") return i
-        prev = ch
-      }
-      return 0
-    }
-
-    # blankStrings replaces the inside of every string literal with spaces,
-    # keeping the line length and the code around it.
-    function blankStrings(s,   i, ch, quote, out) {
-      out = ""
-      for (i = 1; i <= length(s); i++) {
-        ch = substr(s, i, 1)
-        if (quote != "") {
-          if (ch == "\\") { out = out "  "; i++; continue }
-          if (ch == quote) { quote = ""; out = out ch; continue }
-          # `${…}` inside a template literal is EXECUTABLE, not string content,
-          # so it is kept. Blanking it hid `${amountMinor / 100}` entirely.
-          if (quote == "`" && ch == "$" && substr(s, i + 1, 1) == "{") {
-            depth = 1; out = out "${"; i += 2
-            while (i <= length(s) && depth > 0) {
-              ch = substr(s, i, 1)
-              if (ch == "{") depth++
-              if (ch == "}") depth--
-              out = out ch
-              i++
-            }
-            i--
-            continue
-          }
-          out = out " "
-          continue
-        }
-        if (ch == "\"" || ch == "\x27" || ch == "`") { quote = ch; out = out ch; continue }
-        out = out ch
-      }
-      return out
-    }
-
-    # waived: the marker appears in a REAL comment on this line.
-    function waived(s, marker,   at) {
-      at = commentAt(s)
-      return at > 0 && index(substr(s, at), marker) > 0
-    }
-
-    function flush() { if (buf != "") print FILENAME ":" start ":" buf; buf = ""; depth = 0; lines = 0 }
-    FNR == 1 { flush(); inblock = 0 }
-    {
-      c = $0
-      # The waiver counts only where a waiver can be WRITTEN — in a comment. A
-      # line carrying the marker inside a string literal was skipping the whole
-      # line, which let any code on it bypass the gate under a marker its author
-      # never wrote as one.
-      if (waived(c, waiver)) { flush(); next }
-      if (inblock) { if (match(c, /\*\//)) { inblock = 0; c = substr(c, RSTART + RLENGTH) } else next }
-      t = c; sub(/^[[:space:]]+/, "", t)
-      if (t ~ /^(\/\/|\*)/) next
-      while (match(c, /\/\*[^*]*\*+([^\/*][^*]*\*+)*\//)) { c = substr(c, 1, RSTART - 1) substr(c, RSTART + RLENGTH) }
-      if (match(c, /\/\*/)) { inblock = 1; c = substr(c, 1, RSTART - 1) }
-      # `x:=minor/100//note` is a comment too. Anchored on a `//` that is not
-      # part of a scheme (`https://`), which is the only form that routinely
-      # appears inside a string here.
-      # The same scanner decides where a trailing comment starts, so a `//`
-      # inside a string is not mistaken for one — and `https://` is not either.
-      at = commentAt(c)
-      if (at > 0) c = substr(c, 1, at - 1)
-      # And the contents of a STRING are not code. A line mentioning the shape
-      # in prose — "see amountMinor / 100 in the old code" — was reported as
-      # the arithmetic it describes. The same quote scanner that finds the
-      # comment blanks the literals, so the identifier and the power have to be
-      # in the CODE to pair.
-      c = blankStrings(c)
-      if (t == "") { flush(); next }
-      if (buf == "") start = FNR
-      buf = buf " " c
-      lines++
-      depth += opens(c) - closes(c)
-      # An expression may also be broken after a trailing operator with no
-      # bracket open — `amountMinor :=` on one line and `major * 100` on the
-      # next — so a line ENDING in one keeps the statement open. Without this
-      # the gate flushed before the arithmetic arrived and saw two halves,
-      # neither of them a finding.
-      # Only an operator that CANNOT end a statement continues one. A trailing
-      # comma or colon ends a perfectly good line in a struct literal, and
-      # treating those as continuations joined unrelated members — a `valueMinor`
-      # field and an `ageMs * 1000` two lines below became a finding. Braces are
-      # left out of the depth above for the same reason: they open a BLOCK, and
-      # counting them swallowed whole function bodies.
-      trailing = c
-      sub(/[[:space:]]+$/, "", trailing)
-      if (trailing ~ /(=|\+|-|\*|\/|&&|\|\|)$/ && lines < 6) next
-      # Bounded at SIX lines. Four was the first bound and it missed the shape
-      # this gate exists for, one line longer: biome wraps
-      # `const amountMinor = Math.round(Number(amount) * 100)` across five when
-      # the expression is long enough, and the buffer flushed with the name in
-      # one half and the power in the other. A `const (` block is thirty lines,
-      # so six still refuses to join one — measured on compose/report.go, whose
-      # block holds `amount_minor` and a `/ 100.0` thirty lines apart with
-      # nothing to do with each other. A blank line ends a statement too.
-      if (depth <= 0 || lines >= 6) flush()
-    }
-    END { flush() }'
+  xargs -0 awk -f "$COMMENT_SCAN" -f "$STRIP_PROG" -v waiver="$waiver"
 }
 
 # A scan root that does not exist makes find print an error and match nothing,
