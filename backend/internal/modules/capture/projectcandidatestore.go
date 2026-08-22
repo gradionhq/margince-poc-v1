@@ -139,13 +139,13 @@ func recordCandidate(ctx context.Context, tx pgx.Tx, candidate ProjectCandidate,
 }
 
 // ResolveProjectCandidateTx closes the pending candidate that rode on one approval,
-// on the caller's transaction — the decision's own, so the ledger can never
-// disagree with the approval row about what was decided. The CAS on `pending`
+// on the caller's transaction — the decision's own, or the expiry sweep's, so
+// the ledger can never disagree with the approval row about what was decided. The CAS on `pending`
 // makes a replayed effect a no-op; an approval no candidate points at (the
 // capture crashed between staging and recording) resolves nothing, and that is
 // not an error: the approval itself is the record that the question was asked.
 func ResolveProjectCandidateTx(ctx context.Context, tx pgx.Tx, proposalID ids.UUID, status string) error {
-	if status != CandidateStatusConfirmed && status != CandidateStatusRejected {
+	if status != CandidateStatusConfirmed && status != CandidateStatusRejected && status != CandidateStatusExpired {
 		return fmt.Errorf("capture: %q is not a decision a project candidate can take", status)
 	}
 	if _, err := tx.Exec(ctx, `

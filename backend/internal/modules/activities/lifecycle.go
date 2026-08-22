@@ -240,6 +240,17 @@ func RelinkActivityInTx(ctx context.Context, tx pgx.Tx, id ids.ActivityID, in Re
 	return relinkAdmittedRow(ctx, tx, id, in, column)
 }
 
+// LockActivityLive takes the row lock on one live activity for the rest of the
+// caller's transaction, for a caller that must read something about the
+// activity and then relink it as ONE state — the attribution confirm reads
+// where the message is filed before filing it. The lock belongs to this
+// module because the row does; a gone or archived activity answers the same
+// not-found every live read gives.
+func LockActivityLive(ctx context.Context, tx pgx.Tx, id ids.ActivityID) error {
+	_, err := storekit.LockRow(ctx, tx, "activity", id.UUID, storekit.LiveOnly)
+	return err
+}
+
 // relinkAdmittedRow is the transactional half both doors share: the target
 // probe, then the guarded row write. The admission stays outside it so the
 // single door can refuse a malformed request before it opens a transaction.

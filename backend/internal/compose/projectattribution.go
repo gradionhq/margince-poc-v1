@@ -35,10 +35,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// projectAttributionActor is the principal the confirm executes as, in the
-// contract's declared grammar for captured_by.
-const projectAttributionActor = "agent:" + approvals.KindProjectAttribution
-
 // projectAttributionProposal is the staged offer's payload: the pairing, the
 // words a reviewer recognizes it by, and how the ladder got there.
 //
@@ -185,6 +181,15 @@ func projectLabel(project capture.LiveProject) string {
 // project through the relink path and the candidate closes as confirmed, in
 // the redemption's own transaction.
 //
+// The relink runs AS THE DECIDING HUMAN, not as a system executor. The relink
+// door is where row-level write authority lives (auth.EnsureActivityWritable:
+// a colleague's correspondence stays theirs) and where the destination is
+// probed (auth.EnsureLinkTarget), and a system principal passes both without
+// asking. Releasing this card is a relink the human performs; the write must
+// take exactly the authority a typed relink would. A refusal rolls the
+// redemption back — the approval stays approved and unconsumed — and reaches
+// the human as the relink's own answer.
+//
 // A message a human filed elsewhere while the offer waited is NOT re-filed:
 // the human's filing is the fresher statement, the approval is spent, the
 // candidate closes as rejected, and nothing is written. Filed under the SAME
@@ -195,29 +200,26 @@ func projectAttributionConfirmEffect(svc *approvals.Service) approvals.ApprovedE
 		if err := json.Unmarshal(proposedChange, &proposal); err != nil {
 			return fmt.Errorf("compose: decoding the project attribution proposal: %w", err)
 		}
-		decider, ok := principal.Actor(ctx)
-		if !ok {
+		if _, ok := principal.Actor(ctx); !ok {
 			return errors.New("compose: project attribution confirm without a deciding principal")
 		}
-		// The link is written by the confirm executor on behalf of the human
-		// who released it: their approval is on the decision's own audit row,
-		// and the relink's audit row carries the machine provenance that says
-		// the filing came out of the ladder rather than a typed relink.
-		execCtx := principal.WithActor(ctx, principal.Principal{
-			Type:       principal.PrincipalSystem,
-			ID:         projectAttributionActor,
-			UserID:     decider.UserID,
-			OnBehalfOf: decider.UserID,
-		})
 		return svc.RedeemAndApply(ctx, approvalID, approvals.KindProjectAttribution, diffHash, func(tx pgx.Tx) error {
-			return applyProjectAttribution(execCtx, tx, approvalID.UUID, proposal)
+			return applyProjectAttribution(ctx, tx, approvalID.UUID, proposal)
 		})
 	}
 }
 
 // applyProjectAttribution is the confirm's write, on the redemption's
-// transaction.
+// transaction. The activity row is locked FIRST, so the "filed elsewhere"
+// read and the relink's own insert see one state: without the lock a human's
+// concurrent filing could land between the two, and the insert would then hit
+// uq_activity_link_project and strand an approval the human already released.
+// The lock is the live one the relink path itself takes, so a gone or
+// archived message answers the relink's own not-found.
 func applyProjectAttribution(ctx context.Context, tx pgx.Tx, approvalID ids.UUID, proposal projectAttributionProposal) error {
+	if err := activities.LockActivityLive(ctx, tx, ids.From[ids.ActivityKind](proposal.ActivityID)); err != nil {
+		return fmt.Errorf("compose: locking the message to file: %w", err)
+	}
 	filedElsewhere, err := filedUnderAnotherProject(ctx, tx, proposal.ActivityID, proposal.ProjectID)
 	if err != nil {
 		return err
@@ -249,6 +251,16 @@ func filedUnderAnotherProject(ctx context.Context, tx pgx.Tx, activityID, projec
 		return false, fmt.Errorf("compose: reading whether the message is filed elsewhere: %w", err)
 	}
 	return elsewhere, nil
+}
+
+// projectAttributionExpiredEffect records that nobody answered, in the sweep's
+// own transaction. An expired candidate frees the message's live-row slot: the
+// next capture in the conversation may ask again, because an unanswered
+// question is not a refused one.
+func projectAttributionExpiredEffect() approvals.ExpiredEffect {
+	return func(ctx context.Context, tx pgx.Tx, approvalID ids.ApprovalID, _ json.RawMessage) error {
+		return capture.ResolveProjectCandidateTx(ctx, tx, approvalID.UUID, capture.CandidateStatusExpired)
+	}
 }
 
 // projectAttributionDeclineEffect records a human's "no" on the candidate, in

@@ -38,6 +38,9 @@ CREATE TABLE project_link_candidate (
     -- CASCADE: the approvals engine may expire or withdraw its row, and the
     -- candidate remains the record that the question was asked.
     proposal_id uuid,
+    -- expired: the window closed with nobody answering. It frees the
+    -- live-row index below, so the question may be asked again; only a
+    -- rejection is remembered as a refusal.
     status text DEFAULT 'pending'::text NOT NULL,
     decided_at timestamptz,
     version bigint DEFAULT 1 NOT NULL,
@@ -53,7 +56,7 @@ CREATE TABLE project_link_candidate (
     CONSTRAINT project_link_candidate_method_check
         CHECK (method IN ('sole_live_project', 'ranked_similarity')),
     CONSTRAINT project_link_candidate_status_check
-        CHECK (status IN ('pending', 'confirmed', 'rejected')),
+        CHECK (status IN ('pending', 'confirmed', 'rejected', 'expired')),
     CONSTRAINT project_link_candidate_confidence_check
         CHECK (confidence >= 0 AND confidence <= 1),
     -- Evidence is all three columns or none; a half-set range is unreadable.

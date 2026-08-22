@@ -404,7 +404,11 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 			return false, nil
 		}
 	}
-	return targetDecidable(ctx, tx, a.TargetType, a.TargetID)
+	ok, err := targetDecidable(ctx, tx, a.TargetType, a.TargetID)
+	if err != nil || !ok {
+		return false, err
+	}
+	return payloadReferenceVisible(ctx, tx, a)
 }
 
 func requireDecisionGrants(p principal.Principal, a row) error {

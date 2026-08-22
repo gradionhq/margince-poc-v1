@@ -90,6 +90,16 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	return svc
 }
 
+// expiringApprovalsService is the engine the clock's sweep runs on: every
+// expiry effect a kind registers, and nothing else. Split from the deciding
+// registration because the two services run in different processes — the
+// sweep is a worker job — and a hook registered only on the deciding one
+// would be absent exactly where the expiry happens.
+func expiringApprovalsService(pool *pgxpool.Pool) *approvals.Service {
+	return approvals.NewService(InstallationDB(pool)).
+		WithExpiredEffect(approvals.KindProjectAttribution, projectAttributionExpiredEffect())
+}
+
 // coldstartAcceptEffect builds the approvals.ApprovedEffect compose
 // injects for kind "coldstart".
 func coldstartAcceptEffect(svc *approvals.Service, store *people.Store) approvals.ApprovedEffect {

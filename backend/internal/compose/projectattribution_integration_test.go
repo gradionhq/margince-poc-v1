@@ -18,7 +18,10 @@ package compose
 
 import (
 	"context"
+	"errors"
+	"maps"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -29,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -258,10 +262,13 @@ func TestUncertainRungOffersTheSoleLiveProjectAndConfirmFilesIt(t *testing.T) {
 	if *after.candidateStatus != capture.CandidateStatusConfirmed {
 		t.Fatalf("candidate status after confirm = %q, want confirmed", *after.candidateStatus)
 	}
+	// The relink is the HUMAN's write, in their name: the confirm runs as the
+	// decider, so the row-level write check and the destination probe apply
+	// exactly as they would to a typed relink.
 	if n := countIn(t, e, `
 		SELECT count(*) FROM audit_log WHERE entity_id = $1 AND action = 'activity_relink'
-		   AND actor_id = $2`, activityID, projectAttributionActor); n != 1 {
-		t.Fatalf("%d activity_relink audit rows by the confirm executor, want 1", n)
+		   AND actor_id = $2`, activityID, "human:"+e.Rep1.String()); n != 1 {
+		t.Fatalf("%d activity_relink audit rows by the deciding human, want 1", n)
 	}
 	if awaiting, attributed := awaitingDecision(t, e, erp); awaiting != 0 || attributed != 1 {
 		t.Fatalf("coverage after confirm = awaiting %d / attributed %d, want 0 / 1", awaiting, attributed)
@@ -373,5 +380,130 @@ func TestConfirmStandsDownWhenAHumanFiledTheMessageElsewhere(t *testing.T) {
 	got := readFiling(t, e, activityID)
 	if *got.candidateStatus != capture.CandidateStatusRejected {
 		t.Fatalf("candidate status = %q after the human filed elsewhere, want rejected", *got.candidateStatus)
+	}
+}
+
+// stageSoleOffer seeds one account with one live project and captures one
+// message, answering the offer the rung staged for it.
+func stageSoleOffer(t *testing.T, e *integration.Env, sourceID string) (attributionAccount, ids.UUID, ids.UUID, ids.UUID) {
+	t.Helper()
+	account := seedAttributionAccount(t, e)
+	erp := account.project(t, "ERP replacement", "ERP")
+	activityID := account.capture(t, sourceID, "", "weekly status")
+	approvalID := stagedAttribution(t, e, activityID)
+	if approvalID.IsZero() {
+		t.Fatal("the fixture staged no offer — the refusal below would prove nothing")
+	}
+	return account, erp, activityID, approvalID
+}
+
+// mustRefuseDecision asserts the decider can neither open nor decide the
+// card, with the existence-hiding answer, and that nothing changed.
+func mustRefuseDecision(decider context.Context, t *testing.T, e *integration.Env, approvalID, activityID ids.UUID, who string) {
+	t.Helper()
+	svc := approvalsServiceWithEffects(e.Pool)
+	id := ids.From[ids.ApprovalKind](approvalID)
+	if _, err := svc.Get(decider, id); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("%s could open the card (err=%v), want not-found — what they cannot act on they must not see", who, err)
+	}
+	if _, err := svc.Decide(decider, id, true, nil); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("%s decided the card (err=%v), want not-found", who, err)
+	}
+	if got := stagedAttribution(t, e, activityID); got != approvalID {
+		t.Fatalf("the offer is no longer pending after a refused decision (now %s)", got)
+	}
+	mustBeUnfiled(t, readFiling(t, e, activityID), "after the refused decision")
+}
+
+// Deciding the card is asserting a link to the project, so it takes the
+// project read grant and the project's row scope — activity.update alone is
+// not enough. Without this, someone who may edit messages but may not open
+// projects could plant a reference to one they were never shown.
+func TestADeciderWithoutTheProjectGrantCannotSeeOrDecideTheOffer(t *testing.T) {
+	e := integration.Setup(t)
+	_, _, activityID, approvalID := stageSoleOffer(t, e, "t2-noproject@acme.example")
+
+	perms := principal.Permissions{
+		RoleKeys: integration.AdminPerms.RoleKeys,
+		Objects:  maps.Clone(integration.AdminPerms.Objects),
+		RowScope: principal.RowScopeAll,
+	}
+	delete(perms.Objects, "project")
+	if !perms.Allows("activity", principal.ActionUpdate) {
+		t.Fatal("the fixture holds no activity.update — the refusal below would not be about the project")
+	}
+	mustRefuseDecision(e.As(e.Rep1, nil, perms), t, e, approvalID, activityID, "a decider without project.read")
+}
+
+// A colleague who may READ the message but not write it — customer
+// correspondence is workspace-readable, the write arm stays the owner's team's
+// — may open the card, and releasing it must still fail at the relink's own
+// write check, the one a typed relink takes. The approval then stays approved
+// and UNCONSUMED: the redemption rolled back with the write, nothing was
+// filed, and the candidate still waits.
+func TestADeciderWithReadOnlyAuthorityOverTheMessageCannotConfirmIt(t *testing.T) {
+	e := integration.Setup(t)
+	_, _, activityID, approvalID := stageSoleOffer(t, e, "t2-otherteam@acme.example")
+
+	perms := principal.Permissions{
+		RoleKeys: integration.AdminPerms.RoleKeys,
+		Objects:  maps.Clone(integration.AdminPerms.Objects),
+		RowScope: principal.RowScopeTeam,
+	}
+	decider := e.As(e.Rep3, []ids.UUID{e.Team2}, perms)
+	svc := approvalsServiceWithEffects(e.Pool)
+	_, err := svc.Decide(decider, ids.From[ids.ApprovalKind](approvalID), true, nil)
+	if err == nil {
+		t.Fatal("a team-scoped colleague released the filing of a message they may not write")
+	}
+	if !errors.Is(err, apperrors.ErrNotFound) && !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("the refusal is %v, want the relink's own not-found or permission-denied", err)
+	}
+	mustBeUnfiled(t, readFiling(t, e, activityID), "after the refused confirm")
+	if n := countIn(t, e, `SELECT count(*) FROM approval WHERE id = $1 AND consumed_at IS NOT NULL`, approvalID); n != 0 {
+		t.Fatal("the approval was consumed by an effect that wrote nothing — the redemption must roll back with the write")
+	}
+	if got := readFiling(t, e, activityID); *got.candidateStatus != capture.CandidateStatusPending {
+		t.Fatalf("candidate status = %q after a refused confirm, want pending", *got.candidateStatus)
+	}
+}
+
+// An offer nobody answers: the clock expires it, the candidate says so, the
+// coverage number drops, and the SAME pairing may be asked again on the next
+// capture in the conversation — an unanswered question is not a refused one.
+func TestAnExpiredOfferFreesTheCandidateAndMayBeAskedAgain(t *testing.T) {
+	e := integration.Setup(t)
+	account, erp, activityID, approvalID := stageSoleOffer(t, e, "t2-expire@acme.example")
+	if awaiting, _ := awaitingDecision(t, e, erp); awaiting != 1 {
+		t.Fatalf("awaiting_decision before expiry = %d, want 1", awaiting)
+	}
+	// Backdated rather than waited for, as approvalexpiry_integration_test.go
+	// does: the clock is the predicate under test, and the owner connection is
+	// the only path that may move a window after the fact.
+	e.WsExec(t, `UPDATE approval SET expires_at = now() - $2::interval WHERE id = $1`, approvalID, time.Hour.String())
+
+	expired, err := expiringApprovalsService(e.Pool).ExpireDue(expiryCtx(e))
+	if err != nil {
+		t.Fatalf("ExpireDue: %v", err)
+	}
+	if len(expired) != 1 || expired[0].ID.UUID != approvalID {
+		t.Fatalf("ExpireDue swept %v, want exactly the offer", expired)
+	}
+	got := readFiling(t, e, activityID)
+	mustBeUnfiled(t, got, "after expiry")
+	if got.candidateStatus == nil || *got.candidateStatus != capture.CandidateStatusExpired {
+		t.Fatalf("candidate status after expiry = %v, want expired — a pending row nobody can answer would count forever", got.candidateStatus)
+	}
+	if awaiting, _ := awaitingDecision(t, e, erp); awaiting != 0 {
+		t.Fatalf("awaiting_decision after expiry = %d, want 0", awaiting)
+	}
+
+	// The next message in the conversation asks again: no refusal stands.
+	replyID := account.capture(t, "t2-expire-reply@acme.example", "t2-expire@acme.example", "Re: weekly status")
+	if offer := stagedAttribution(t, e, replyID); offer.IsZero() {
+		t.Fatal("a reply after an EXPIRED offer staged nothing — only a rejection is remembered as a refusal")
+	}
+	if n := countIn(t, e, `SELECT count(*) FROM project_link_candidate WHERE activity_id = $1 AND status = 'pending'`, replyID); n != 1 {
+		t.Fatalf("%d pending candidates for the reply, want 1", n)
 	}
 }

@@ -46,6 +46,9 @@ const (
 	CandidateStatusPending   = "pending"
 	CandidateStatusConfirmed = "confirmed"
 	CandidateStatusRejected  = "rejected"
+	// CandidateStatusExpired: the offer's window closed with nobody answering.
+	// Not a refusal — the same pairing may be offered again.
+	CandidateStatusExpired = "expired"
 )
 
 // LiveProject is one project the finder seam answers with: enough to rank it

@@ -3296,7 +3296,7 @@ public.project_link_candidate.project_link_candidate_method_check CHECK ((method
 public.project_link_candidate.project_link_candidate_pkey PRIMARY KEY (id)
 public.project_link_candidate.project_link_candidate_project_id_fkey FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE
 public.project_link_candidate.project_link_candidate_proposal_id_fkey FOREIGN KEY (proposal_id) REFERENCES approval(id) ON DELETE SET NULL
-public.project_link_candidate.project_link_candidate_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'rejected'::text])))
+public.project_link_candidate.project_link_candidate_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'rejected'::text, 'expired'::text])))
 public.project_link_candidate.project_link_candidate_touch CREATE TRIGGER project_link_candidate_touch BEFORE UPDATE ON public.project_link_candidate FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version()
 public.project_link_candidate.proposal_id uuid gen=- def=-
 public.project_link_candidate.status text NOT NULL gen=- def='pending'::text
