@@ -27,9 +27,16 @@ package backendarch
 //     that the two authorities differ for its rows, so a package without one is
 //     out of scope rather than failed;
 //   - the OBLIGATION is that a function reaching the storekit write shape does
-//     not call the read spelling directly. It goes through the twin — or it
-//     takes the write-authority probe itself, in its own frame, where a reader
-//     can see it.
+//     not call the read spelling directly. It goes through the twin.
+//
+// The obligation deliberately admits no "unless this function takes the probe
+// itself" exemption. A frame-level one cannot tell WHICH row the probe
+// authorized, so it would excuse the very shape this exists to catch: a
+// function that correctly gates row A, then resolves row B through the read
+// spelling and writes B. Nothing in the tier needs the exemption — every
+// writer already goes through its package's twin — so the strict rule costs
+// nothing today, and the first genuine exception argues for itself in review
+// rather than passing in silence.
 
 import (
 	"go/ast"
@@ -66,7 +73,7 @@ func TestNoWriteResolvesItsRowThroughAPackagesReadSpelling(t *testing.T) {
 		twinned := twinnedReadSpellings(fns, readSpellings)
 		pairs += len(twinned)
 		for _, fn := range fns {
-			if !fn.writes || fn.authority {
+			if !fn.writes {
 				continue
 			}
 			for call := range fn.calls {
@@ -75,8 +82,7 @@ func TestNoWriteResolvesItsRowThroughAPackagesReadSpelling(t *testing.T) {
 				}
 				t.Errorf("%s:%d: %s writes after resolving its row through %s, this package's READ spelling — "+
 					"a manual grant widens VISIBILITY at either access level, so this admits a caller holding only "+
-					"a `read` share; go through the write-authority twin the package already has, or take "+
-					"auth.EnsureWritable in this frame (%s)",
+					"a `read` share; resolve the row through the write-authority twin this package already has (%s)",
 					fn.file, fn.line, fn.name, call, dir)
 			}
 		}
