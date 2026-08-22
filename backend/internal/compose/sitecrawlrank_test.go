@@ -52,6 +52,52 @@ func TestClassifyKindDoesNotPromoteGuidesBecauseTheirSlugsMentionTeamsOrProducts
 	}
 }
 
+// Every URL here is a real path from the demo corpus, and every one of them
+// classified `other` before the Vietnamese and Korean words were added — so the
+// reader never looked for staff on any of them. vinatechgroup.vn is the case
+// that shows what it cost: it names its chairman on /gioi-thieu, the only page
+// that DID classify was the English /en/about-us, and that page names nobody,
+// so the company read as publishing no staff at all.
+func TestClassifyKindReadsVietnameseAndKoreanPageNames(t *testing.T) {
+	for rawURL, want := range map[string]crmcontracts.SiteReadPageKind{
+		"https://vinatechgroup.vn/gioi-thieu":                          crmcontracts.SiteReadPageKindAbout,
+		"https://thinksmart.com.vn/gioi-thieu":                         crmcontracts.SiteReadPageKindAbout,
+		"https://tinthanhphat.vn/gioi-thieu/gioi-thieu-cong-ty/":       crmcontracts.SiteReadPageKindAbout,
+		"https://tth-automation.com/gioi-thieu-ve-tth-automation.html": crmcontracts.SiteReadPageKindAbout,
+		"https://vinatechgroup.vn/en/introduce":                        crmcontracts.SiteReadPageKindAbout,
+		"https://itgtechnology.vn/lien-he/":                            crmcontracts.SiteReadPageKindContact,
+		"https://aubot.vn/vi/lien-he/":                                 crmcontracts.SiteReadPageKindContact,
+		"https://tth-automation.com/lien-he.html":                      crmcontracts.SiteReadPageKindContact,
+		// Korean sites percent-encode Hangul in links; url.Parse decodes it
+		// into Path, so both spellings have to land in the same place.
+		"https://example.co.kr/회사소개":                                 crmcontracts.SiteReadPageKindAbout,
+		"https://example.co.kr/%ED%9A%8C%EC%82%AC%EC%86%8C%EA%B0%9C": crmcontracts.SiteReadPageKindAbout,
+		"https://example.co.kr/임직원":                                  crmcontracts.SiteReadPageKindTeam,
+		"https://example.co.kr/연락처":                                  crmcontracts.SiteReadPageKindContact,
+	} {
+		if got := classifyKind(rawURL); got != want {
+			t.Errorf("classifyKind(%q) = %q, want %q", rawURL, got, want)
+		}
+	}
+}
+
+// The widened vocabulary must not start naming ordinary pages. `company` and
+// `info` are kept out for exactly this reason: the profile lane spends its page
+// budget on what classifyKind names, so a false `about` starves the commercial
+// evidence rather than merely failing to help.
+func TestClassifyKindStillRefusesOrdinaryPagesInEveryLanguage(t *testing.T) {
+	for _, rawURL := range []string{
+		"https://example.vn/san-pham/gioi-thieu-san-pham-moi",
+		"https://example.com/company",
+		"https://example.com/info",
+		"https://example.co.kr/news/2026",
+	} {
+		if got := classifyKind(rawURL); got != crmcontracts.SiteReadPageKindOther {
+			t.Errorf("classifyKind(%q) = %q, want other", rawURL, got)
+		}
+	}
+}
+
 func TestProfileEvidenceReadyRequiresCommercialPages(t *testing.T) {
 	pages := make([]crawlPage, profileTriggerNonLegalPages+12)
 	for i := range pages {

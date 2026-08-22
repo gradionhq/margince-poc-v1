@@ -244,6 +244,52 @@ func normalizeCandidate(rawURL string) (string, bool) {
 	return parsed.String(), true
 }
 
+// The words a path uses to name its about, team and contact pages.
+//
+// German and English only, until this: a Vietnamese site mounts the same page
+// at /gioi-thieu and a Korean one at /회사소개, and neither matched, so both were
+// classified `other` and the reader never looked for staff on them. It is not
+// a small effect on a dataset with an Asian half — vinatechgroup.vn names its
+// chairman on /gioi-thieu, and the only page that DID classify was the English
+// /en/about-us, which names nobody. The company then read as publishing no
+// staff at all.
+//
+// Matched with containsAny, which is a substring test, so `gioi-thieu` also
+// catches `gioi-thieu-cong-ty` and `gioi-thieu-ve-tth-automation` — both real
+// paths in the corpus.
+//
+// Deliberately NOT here: `company` and `info`. Both appear as ordinary product
+// and section words far more often than as an about page, and a false `about`
+// costs more than a missed one — the profile lane spends its page budget on
+// what this function names, so a wrong classification starves the commercial
+// evidence rather than merely failing to help. That is the same argument
+// legalNoticeSegments makes for keeping contact and about out of the LEGAL
+// gate, applied one level down.
+var (
+	// vi: gioi thieu = "introduction", ve chung toi = "about us".
+	// ko: 회사소개 = "company introduction", 인사말 = "greeting" (the
+	// chairman's-letter page Korean corporate sites use for the same purpose).
+	aboutWords = []string{
+		"about", "ueber",
+		"gioi-thieu", "gioithieu", "ve-chung-toi", "introduce",
+		"회사소개", "인사말",
+	}
+	// vi: doi ngu = "the team", nhan su = "personnel".
+	// ko: 임직원 = "executives and staff", 조직도 = "org chart".
+	teamWords = []string{
+		"team", "leadership",
+		"doi-ngu", "doingu", "nhan-su", "nhansu",
+		"임직원", "조직도",
+	}
+	// vi: lien he = "contact". ko: 연락처 = "contact details", 오시는길 =
+	// "how to find us", which is where a Korean site prints its address.
+	contactWords = []string{
+		"kontakt", "contact",
+		"lien-he", "lienhe",
+		"연락처", "오시는길",
+	}
+)
+
 // classifyKind names what a discovered page probably is, from its path alone.
 // Keyword order mirrors the probe list; the first family that matches wins.
 func classifyKind(rawURL string) crmcontracts.SiteReadPageKind {
@@ -263,11 +309,11 @@ func classifyKind(rawURL string) crmcontracts.SiteReadPageKind {
 	switch {
 	case legalIdentityPath(rawURL):
 		return crmcontracts.SiteReadPageKindImpressum
-	case shallow && containsAny(first, "about", "ueber"):
+	case shallow && containsAny(first, aboutWords...):
 		return crmcontracts.SiteReadPageKindAbout
-	case shallow && containsAny(first, "team", "leadership"):
+	case shallow && containsAny(first, teamWords...):
 		return crmcontracts.SiteReadPageKindTeam
-	case shallow && containsAny(first, "kontakt", "contact"):
+	case shallow && containsAny(first, contactWords...):
 		return crmcontracts.SiteReadPageKindContact
 	case containsAny(first, "service", "leistung", "solution", "loesung", "lösung"):
 		return crmcontracts.SiteReadPageKindServices
