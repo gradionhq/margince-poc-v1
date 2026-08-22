@@ -49,7 +49,7 @@ name: Release
 # parent commit only, however many commits landed since the last release. That
 # is a known gap, not a property worth relying on: the base belongs at the last
 # PUBLISHED release, which is
-# https://github.com/gradionhq/margince-poc-v1/issues/1798. Until that lands, a
+# https://github.com/margince/margince/issues/1798. Until that lands, a
 # dispatched release's patch describes one commit, and a consumer applying
 # patches in order cannot use this stream to move forward. Nothing consumes it
 # today, which is why this is recorded rather than blocking. The step below keeps
@@ -79,8 +79,11 @@ permissions:
 
 env:
   # The release-management CLI image, published :latest from constellation's
-  # main (gradionhq/margince-constellation). The pull authenticates with the
-  # job's default GITHUB_TOKEN (packages: read).
+  # main (gradionhq/margince-constellation). NOTE: since this repo moved to the
+  # margince org, the job's default GITHUB_TOKEN can NO LONGER read that package
+  # — it is private and owned by another organisation. A release dispatched
+  # before a cross-org PAT (read:packages on gradionhq) is wired into the three
+  # `docker login ghcr.io` steps below WILL FAIL at login.
   RELEASE_MANAGEMENT_IMAGE: ghcr.io/gradionhq/margince-constellation/release-management:latest
   # The dist service of the constellation deployment the release is drafted
   # into. The CLI reads this variable directly and refuses a non-https URL.
@@ -521,7 +524,7 @@ jobs:
           `data/admin-password` inside the folder.
 
           Configuration, updating in place, and troubleshooting:
-          [docs/how-to/build-the-desktop-app.md](https://github.com/gradionhq/margince-poc-v1/blob/main/docs/how-to/build-the-desktop-app.md)
+          [docs/how-to/build-the-desktop-app.md](https://github.com/margince/margince/blob/main/docs/how-to/build-the-desktop-app.md)
           NOTES
           sed -i "s/@VERSION@/$VERSION/g" notes.md
           printf '\nRevision: %s\n' "$REVISION" >> notes.md

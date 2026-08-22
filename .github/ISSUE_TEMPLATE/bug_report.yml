@@ -7,7 +7,7 @@ body:
       value: >-
         **Not for security findings.** A tenant-isolation, RBAC, agent-governance
         or authentication defect goes through
-        [private reporting](https://github.com/gradionhq/margince-poc-v1/security/advisories/new),
+        [private reporting](https://github.com/margince/margince/security/advisories/new),
         never a public issue — a public report before a fix ships puts every
         deployment at risk.
 

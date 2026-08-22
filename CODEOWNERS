@@ -4,7 +4,7 @@
 
 # Default owner: without this, a PR touching anything not named below
 # requests no reviewer at all.
-*                                   @gradionhq/margince
+*                                   @margince/margince
 
 # The extension tier (ADR-0069) and every seam that defines it.
 /extensions/                        @lstrojny

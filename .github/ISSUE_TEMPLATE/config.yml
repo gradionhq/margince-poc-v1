@@ -1,17 +1,17 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability (private)
-    url: https://github.com/gradionhq/margince-poc-v1/security/advisories/new
+    url: https://github.com/margince/margince/security/advisories/new
     about: >-
       Never file a vulnerability as a public issue. Report it privately through
       GitHub Security Advisories; see SECURITY.md for scope and what to include.
   - name: Read the documentation first
-    url: https://github.com/gradionhq/margince-poc-v1/blob/main/docs/README.md
+    url: https://github.com/margince/margince/blob/main/docs/README.md
     about: >-
       Tutorials, how-to guides, reference (make targets, configuration, the
       module map) and explanation. Most "how do I" questions are answered here.
   - name: How contributions are reviewed
-    url: https://github.com/gradionhq/margince-poc-v1/blob/main/CONTRIBUTING.md
+    url: https://github.com/margince/margince/blob/main/CONTRIBUTING.md
     about: >-
       The gates every change passes, DCO sign-off, AI disclosure, and the human
       accountability rule. Read this before opening a pull request.
