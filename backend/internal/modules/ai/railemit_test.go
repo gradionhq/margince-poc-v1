@@ -1,0 +1,112 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package ai
+
+import (
+	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+// A settled occurrence's state is read off the terminal attempt, and the one
+// pairing worth pinning is error-with-degraded: degraded means partial state
+// was KEPT, and a call that ended on a sentinel kept nothing. Reporting that as
+// degraded would put a run on the rail claiming to have saved something.
+func TestRailStateReadsTheTerminalOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		call Call
+		want string
+	}{
+		{"a clean finish", Call{}, railStateDone},
+		{"partial state kept", Call{Degraded: true}, railStateDegraded},
+		{"ended on a sentinel", Call{ErrorSentinel: "budget_exceeded"}, railStateFailed},
+		{"degraded AND errored", Call{Degraded: true, ErrorSentinel: "provider_unavailable"}, railStateFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := railState(tc.call); got != tc.want {
+				t.Errorf("railState = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// degrade_reason reaches an ordinary rep, so it carries the closed sentinel and
+// never a provider's own message. A clean call carries none at all rather than
+// an empty string, which the projection would store as a reason that exists.
+func TestRailDegradeReasonIsTheSentinelOrNothing(t *testing.T) {
+	if got := railDegradeReason(Call{}); got != nil {
+		t.Errorf("a clean call carries degrade reason %q, want none", *got)
+	}
+	got := railDegradeReason(Call{ErrorSentinel: "budget_exceeded"})
+	if got == nil {
+		t.Fatal("an errored call carries no degrade reason, so the rail cannot say why it stopped")
+	}
+	if *got != "budget_exceeded" {
+		t.Errorf("degrade reason = %q, want the sentinel", *got)
+	}
+}
+
+// The key is what collapses a job's many calls for one task into one line. Two
+// calls of the same task under one correlation id are ONE occurrence; the same
+// task under a different correlation is a different piece of work, and two
+// different tasks under one correlation are two.
+func TestTheUnitOfWorkKeyGroupsOneRequestsCallsForOneTask(t *testing.T) {
+	corr := ids.NewV7()
+	other := ids.NewV7()
+	first := Call{CorrelationID: &corr, Task: TaskSummarize, LogicalCallID: ids.NewV7()}
+	second := Call{CorrelationID: &corr, Task: TaskSummarize, LogicalCallID: ids.NewV7()}
+	if unitOfWorkKey(first) != unitOfWorkKey(second) {
+		t.Error("two calls of one task under one correlation id key different occurrences, so one piece of work would draw two lines")
+	}
+	elsewhere := Call{CorrelationID: &other, Task: TaskSummarize, LogicalCallID: ids.NewV7()}
+	if unitOfWorkKey(first) == unitOfWorkKey(elsewhere) {
+		t.Error("two requests key one occurrence, so the second would be refused as a redelivery of the first")
+	}
+	sibling := Call{CorrelationID: &corr, Task: TaskGrowthFit, LogicalCallID: ids.NewV7()}
+	if unitOfWorkKey(first) == unitOfWorkKey(sibling) {
+		t.Error("two tasks under one correlation id key one occurrence, so one would overwrite the other")
+	}
+}
+
+// A call with no correlation id is nothing's neighbour, and the honest answer
+// is its own occurrence rather than none: an unreported call is exactly the
+// silence this whole registry exists to end.
+func TestACallWithNoCorrelationIsStillItsOwnOccurrence(t *testing.T) {
+	logical := ids.NewV7()
+	key := unitOfWorkKey(Call{Task: TaskSummarize, LogicalCallID: logical})
+	if key != logical.String()+":"+string(TaskSummarize) {
+		t.Errorf("key = %q, want the logical call's own id", key)
+	}
+	var zero ids.UUID
+	if unitOfWorkKey(Call{CorrelationID: &zero, Task: TaskSummarize, LogicalCallID: logical}) != key {
+		t.Error("a zero correlation id keys differently from an absent one, so a caller that passed the zero value would open a second occurrence per call")
+	}
+}
+
+// The registry is the router's instruction, not a list beside it. A task a
+// carrier owns must leave the router silent, or the occurrence is written twice
+// by two writers that disagree about its lifecycle.
+func TestTheRouterStaysSilentForACarrierOwnedTask(t *testing.T) {
+	if RouterReports(TaskDocumentExtract) {
+		t.Error("the router reports document_extract, which attachment extraction owns — the two would both write its occurrence")
+	}
+	if RouterReports(TaskAgentLoop) {
+		t.Error("the router reports agent_loop, which the scheduled runner owns")
+	}
+	if !RouterReports(TaskSummarize) {
+		t.Error("the router reports nothing for summarize, and no carrier owns it, so the task is silent")
+	}
+}
+
+// An unanswered task leaves the router silent rather than guessing. The gate at
+// the root is what stops one existing; this pins the behaviour it relies on.
+func TestAnUnansweredTaskIsNobodysToReport(t *testing.T) {
+	if got := RailOwner(Task("a_task_nobody_declared")); got != "" {
+		t.Errorf("RailOwner invented owner %q for an undeclared task", got)
+	}
+	if RouterReports(Task("a_task_nobody_declared")) {
+		t.Error("the router would announce a task nobody answered for, inventing a grain and an attribution no gate has read")
+	}
+}

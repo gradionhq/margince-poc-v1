@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5"
 
@@ -154,11 +155,26 @@ type callStore = CallRecorder
 type CallMeter struct {
 	// db binds the workspace this store runs for (ADR-0091 §9 step 3).
 	db *database.DB
+	// log carries an announce that could not be made. The trace itself never
+	// reports through here — Record's error is the caller's to handle — but the
+	// rail announcement is deliberately unable to fail a working call, so the
+	// log line is the only place its absence is visible.
+	log *slog.Logger
 }
 
 // NewCallMeter constructs the CallMeter that writes ai_call trace rows
 // (and, when payload capture is on, the linked ai_call_payload row).
-func NewCallMeter(db *database.DB) *CallMeter { return &CallMeter{db: db} }
+func NewCallMeter(db *database.DB) *CallMeter {
+	return &CallMeter{db: db, log: slog.Default()}
+}
+
+// WithLogger points the meter's announce-failure log at a caller's logger.
+func (m *CallMeter) WithLogger(log *slog.Logger) *CallMeter {
+	if log != nil {
+		m.log = log
+	}
+	return m
+}
 
 // Record writes every attempt's ai_call row — and, for whichever attempt
 // carries a Payload (only ever the terminal one), the ai_call_payload
@@ -178,7 +194,7 @@ func (m *CallMeter) Record(ctx context.Context, attempts []Call) error {
 		// walked three rungs is one piece of work, not three.
 		for _, c := range attempts {
 			if c.IsTerminal {
-				return m.announceRail(ctx, tx, c)
+				m.announceRailBestEffort(ctx, tx, c)
 			}
 		}
 		return nil

@@ -29,6 +29,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
+// gatekit:fixture the carriers' own source constants, read from the packages that emit them
+//
 // carrierSources is every non-router source in the registry, mapped to the
 // constant the carrier really emits. The VALUE is what makes this more than a
 // spelling check: it is read from the emitting package, so a carrier that

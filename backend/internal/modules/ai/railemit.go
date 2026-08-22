@@ -38,18 +38,49 @@ const (
 	railStateFailed   = "failed"
 )
 
+// announceRailBestEffort announces the call and, if it cannot, says so in the
+// log and leaves the trace alone.
+//
+// The announcement runs inside a SAVEPOINT for one reason: the trace is what
+// the budget guardrail, the cost ledger and the certification record are all
+// read from, and none of them may be lost because a rail row could not be
+// written. That is the same posture the router's flush already takes toward
+// tracing itself — observability must not become a new way for a working model
+// call to fail — applied one layer further in.
+//
+// It is a swallowed error only in the sense that the caller does not see it.
+// The log line names the task and the reason, which is what an operator needs
+// to tell a rail that is missing rows from a rail that has none to show.
+func (m *CallMeter) announceRailBestEffort(ctx context.Context, tx pgx.Tx, terminal Call) {
+	if !RouterReports(terminal.Task) {
+		return
+	}
+	nested, err := tx.Begin(ctx)
+	if err != nil {
+		m.log.ErrorContext(ctx, "ai: opening the rail announcement savepoint failed — the call is traced but absent from the AI-activity rail", "task", string(terminal.Task), "err", err)
+		return
+	}
+	if err := m.announceRail(ctx, nested, terminal); err != nil {
+		m.log.ErrorContext(ctx, "ai: announcing the call to the AI-activity rail failed — the call is traced but absent from the rail", "task", string(terminal.Task), "err", err)
+		if rbErr := nested.Rollback(ctx); rbErr != nil {
+			m.log.ErrorContext(ctx, "ai: rolling back the rail announcement failed", "task", string(terminal.Task), "err", rbErr)
+		}
+		return
+	}
+	if err := nested.Commit(ctx); err != nil {
+		m.log.ErrorContext(ctx, "ai: committing the rail announcement failed — the call is traced but absent from the rail", "task", string(terminal.Task), "err", err)
+	}
+}
+
 // announceRail publishes the terminal attempt of one logical call as a state
 // change on the AI-activity projection.
 //
-// It rides the SAME transaction as the ai_call rows it describes, so the trace
-// and the occurrence can never disagree about whether the call happened. The
-// ledger row comes first because the bus refuses an entity-less event without a
-// trace link: an AI task names no domain record, so the system_log row is what
-// keeps the outcome attributable.
+// It rides the same transaction as the ai_call rows it describes, so the trace
+// and the occurrence agree about whether the call happened. The ledger row
+// comes first because the bus refuses an entity-less event without a trace
+// link: an AI task names no domain record, so the system_log row is what keeps
+// the outcome attributable.
 func (m *CallMeter) announceRail(ctx context.Context, tx pgx.Tx, terminal Call) error {
-	if !RouterReports(terminal.Task) {
-		return nil
-	}
 	key := unitOfWorkKey(terminal)
 	attempt, finished, err := railAttempt(ctx, tx, terminal)
 	if err != nil {

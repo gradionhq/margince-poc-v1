@@ -293,10 +293,15 @@ var sharedEventTypes = gatekit.Waive(map[string]string{
 	// What keeps it honest is that the type carries no entity ref and no shared
 	// MEANING to disagree about — it says "this occurrence of mine is now in
 	// this state", and `source` namespaces whose occurrence it is, so two
-	// emitters can never collide on one row. A third emitter is expected
-	// (capture sweeps); it belongs here, with its own line.
+	// emitters can never collide on one row.
+	//
+	// The third emitter is the router, and it is the reason the other two are
+	// the exception rather than the rule: it announces on behalf of every task
+	// no carrier claims, so a new AI task is reported without anybody adding a
+	// line here at all.
 	"ai_task.state_changed <- internal/modules/activities": "a document reading announces its own six transitions; source=attachment_extraction keys its occurrences",
 	"ai_task.state_changed <- internal/modules/agents":     "a scheduled run announces the same way; source=agent_runner keys its occurrences, and one trigger occurrence is one row because the key carries the spec and the trigger ref",
+	"ai_task.state_changed <- internal/modules/ai":         "the router announces the settled outcome of every task ai.RailOwner leaves to it; source=ai_router keys its occurrences, and one request or job pass is one row because the key carries the correlation id and the task",
 
 	// Structure 1 — the overlay write-back announces the NATIVE module's event.
 	// overlay/writeaudit.go switches on datasource.EntityRef and emits the
