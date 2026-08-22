@@ -135,11 +135,19 @@ func restrictShieldedTimeline(ctx context.Context, tx pgx.Tx, personID ids.Perso
 // offer is two facts, and an activity filed under both a qualifying deal and a
 // project is two more — exactly as the stamp writers record them.
 //
-// The third arm must stay in step with handelsbriefArm. A row this misses is a
-// row the restrict step selects as shielded and the
+// Every arm must stay in step with handelsbriefArm. A row this misses is a row
+// the restrict step selects as shielded and the
 // activity_restriction_needs_evidence trigger then refuses, failing the whole
 // erasure — so an arm missing here is not an under-stamped record, it is an
 // erasure that cannot run at all.
+//
+// The arms join the qualifying record where handelsbriefArm only tests the
+// link, which looks like a gap and is closed by the schema rather than by the
+// query: activity_link.deal_id and activity_link.project_id are both ON DELETE
+// CASCADE, so a link to a record that no longer exists is not a state the
+// database holds. Changing either to SET NULL would open exactly the divergence
+// above, which is why the dependency is written here and not left to be
+// rediscovered.
 func stampLegacyHandelsbriefe(ctx context.Context, tx pgx.Tx, args []any) error {
 	if _, err := tx.Exec(ctx, `
 		WITH legacy AS (

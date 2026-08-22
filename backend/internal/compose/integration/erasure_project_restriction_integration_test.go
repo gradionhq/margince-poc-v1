@@ -195,3 +195,99 @@ func TestTheRestrictedListNamesTheHoldingProject(t *testing.T) {
 		t.Fatal("the held record is absent from the controller's list")
 	}
 }
+
+// A note filed under a project is stamped and still erased. The stamp is
+// unfiltered by kind (matching the deal writer), so the class lands on a note
+// as readily as on an email — and `handelsbriefShielded` excludes notes from
+// the shield, which is what keeps that class inert.
+//
+// Without this test the two rules could drift apart silently and put a
+// six-year floor on every internal jotting a project accumulates, which on a
+// two-year engagement is most of them. That failure has no error and nothing
+// to notice: the note simply stops being erasable.
+func TestANoteFiledUnderAProjectIsStampedAndStillErased(t *testing.T) {
+	e := Setup(t)
+	f := seedProjectErasureFixture(t, e)
+	note := ids.NewV7()
+	e.WsExec(t, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'Internal jotting', 'Chase them next week.', now() - interval '400 days', 'manual', 'human:x')`,
+		note)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, person_id) VALUES ($1, 'person', $2)`,
+		note, f.person)
+
+	if _, err := e.Activities.RelinkActivity(e.Admin(), ids.ActivityID{UUID: note},
+		activities.RelinkActivityInput{EntityType: "project", EntityID: f.project}); err != nil {
+		t.Fatalf("filing the note under its project: %v", err)
+	}
+
+	var class *string
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT retention_class FROM activity WHERE id = $1`, note).Scan(&class)
+	}); err != nil {
+		t.Fatalf("reading the note's class: %v", err)
+	}
+	if class == nil {
+		t.Fatal("fixture drift: the note was not stamped, so this test cannot prove the class is inert on a note")
+	}
+
+	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), f.person, "test"); err != nil {
+		t.Fatalf("erasing the subject: %v", err)
+	}
+
+	got := readHeldState(t, e, note)
+	if got.restrictedAt != nil {
+		t.Fatal("a project note was HELD rather than erased — a note is not correspondence, and the shield must exclude it whatever class it carries")
+	}
+	if got.subject != "Erased Subject" {
+		t.Errorf("note subject = %q, want the erased placeholder", got.subject)
+	}
+}
+
+// The shield tests only the LINK; the erasure's legacy stamp arm joins the
+// project behind it. The two agree only because activity_link.project_id is
+// ON DELETE CASCADE, so a link to a project that no longer exists is not a
+// state the database holds.
+//
+// This test asserts the cascade rather than the comment claiming it. Flipping
+// that FK to SET NULL would leave a link row whose project is gone: the shield
+// would hold the activity, the stamp arm would write no evidence, and the
+// activity_restriction_needs_evidence trigger would refuse — failing the whole
+// erasure for that subject, not just under-shielding one record.
+func TestDeletingAProjectTakesItsActivityLinksWithIt(t *testing.T) {
+	e := Setup(t)
+	f := seedProjectErasureFixture(t, e)
+
+	if _, err := e.Activities.RelinkActivity(e.Admin(), ids.ActivityID{UUID: f.email},
+		activities.RelinkActivityInput{EntityType: "project", EntityID: f.project}); err != nil {
+		t.Fatalf("filing the email under its project: %v", err)
+	}
+	e.WsExec(t, `DELETE FROM project WHERE id = $1`, f.project)
+
+	var orphans int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT count(*) FROM activity_link l
+			 WHERE l.entity_type = 'project'
+			   AND NOT EXISTS (SELECT 1 FROM project p WHERE p.id = l.project_id)`).Scan(&orphans)
+	}); err != nil {
+		t.Fatalf("counting orphaned project links: %v", err)
+	}
+	if orphans != 0 {
+		t.Fatalf("%d project link(s) outlived their project — the erasure shield reads the link and its stamp arm reads the project, and they only agree while the cascade holds", orphans)
+	}
+
+	// The evidence, by contrast, MUST survive: its project_id is ON DELETE SET
+	// NULL and the frozen name is what answers after the record is gone.
+	var name *string
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT max(project_name) FROM activity_retention_evidence WHERE activity_id = $1`,
+			f.email).Scan(&name)
+	}); err != nil {
+		t.Fatalf("reading the evidence after the project was deleted: %v", err)
+	}
+	if name == nil || *name != "ERP rollout" {
+		t.Errorf("evidence project_name = %v after the project was deleted, want the frozen name — evidence that dies with its record is evidence of nothing", name)
+	}
+}

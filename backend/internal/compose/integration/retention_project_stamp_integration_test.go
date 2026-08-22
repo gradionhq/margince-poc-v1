@@ -32,12 +32,12 @@ type projectStampFixture struct {
 	email   ids.UUID
 }
 
-func seedProjectStampFixture(t *testing.T, e *Env, projectName string) projectStampFixture {
+func seedProjectStampFixture(t *testing.T, e *Env) projectStampFixture {
 	t.Helper()
 	org := e.SeedOrg(t, "Acme GmbH", nil)
 	project, email := ids.NewV7(), ids.NewV7()
 	e.WsExec(t, `INSERT INTO project (id, name, key, organization_id, phase, source, captured_by)
-		VALUES ($1, $2, 'ERP27', $3, 'delivering', 'manual', 'human:x')`, project, projectName, org)
+		VALUES ($1, 'ERP rollout', 'ERP27', $2, 'delivering', 'manual', 'human:x')`, project, org)
 	e.WsExec(t, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
 		VALUES ($1, 'email', 'Milestone 3 sign-off', 'the acceptance test passed', now(), 'manual', 'human:x')`,
 		email)
@@ -80,7 +80,7 @@ func readProjectStamp(t *testing.T, e *Env, activity ids.UUID) projectStampRow {
 // the link — there is no window in which an erasure sees it unclassified.
 func TestFilingAnActivityUnderAProjectStampsIt(t *testing.T) {
 	e := Setup(t)
-	f := seedProjectStampFixture(t, e, "ERP rollout")
+	f := seedProjectStampFixture(t, e)
 
 	if before := readProjectStamp(t, e, f.email); before.class != nil {
 		t.Fatalf("fixture drift: the email carries a class before it was filed (%q)", *before.class)
@@ -117,7 +117,7 @@ func TestFilingAnActivityUnderAProjectStampsIt(t *testing.T) {
 // obligation arose.
 func TestTheProjectNameIsFrozenAtQualification(t *testing.T) {
 	e := Setup(t)
-	f := seedProjectStampFixture(t, e, "ERP rollout")
+	f := seedProjectStampFixture(t, e)
 
 	if _, err := e.Activities.RelinkActivity(e.Admin(), ids.ActivityID{UUID: f.email},
 		activities.RelinkActivityInput{EntityType: "project", EntityID: f.project}); err != nil {
@@ -138,7 +138,7 @@ func TestTheProjectNameIsFrozenAtQualification(t *testing.T) {
 // held by a test rather than by the comment claiming it.
 func TestRelinkingAwayFromAProjectLeavesTheStampStanding(t *testing.T) {
 	e := Setup(t)
-	f := seedProjectStampFixture(t, e, "ERP rollout")
+	f := seedProjectStampFixture(t, e)
 	other := ids.NewV7()
 	e.WsExec(t, `INSERT INTO project (id, name, organization_id, phase, source, captured_by)
 		SELECT $1, 'Datacentre migration', organization_id, 'delivering', 'manual', 'human:x'
@@ -169,7 +169,7 @@ func TestRelinkingAwayFromAProjectLeavesTheStampStanding(t *testing.T) {
 // and collapsing them would lose one of the obligations.
 func TestAnActivityCanQualifyThroughBothADealAndAProject(t *testing.T) {
 	e := Setup(t)
-	f := seedProjectStampFixture(t, e, "ERP rollout")
+	f := seedProjectStampFixture(t, e)
 
 	// Won through the real transition, because the deal stamp fires inside it:
 	// a hand-inserted `status = 'won'` row would leave the correspondence
@@ -255,7 +255,7 @@ const backfillStatement = `
 // the second is why a partial failure can simply be re-run.
 func TestTheBackfillStampsPreExistingLinksAndIsIdempotent(t *testing.T) {
 	e := Setup(t)
-	f := seedProjectStampFixture(t, e, "ERP rollout")
+	f := seedProjectStampFixture(t, e)
 
 	// The link exactly as a database predating this migration holds it: written
 	// by the ladder, with no evidence row behind it.
@@ -284,5 +284,48 @@ func TestTheBackfillStampsPreExistingLinksAndIsIdempotent(t *testing.T) {
 	}
 	if second.stampAt == nil || first.stampAt == nil || *second.stampAt != *first.stampAt {
 		t.Errorf("retention_class_at moved on the second run (%v then %v); the stamp instant is evidence and must not be rewritten", first.stampAt, second.stampAt)
+	}
+}
+
+// The evidence's project columns are frozen at the database level, the way its
+// deal columns already were. The trigger names every column it protects, so a
+// column added beside them is unguarded by default — and an unguarded rewrite
+// succeeds silently, leaving evidence that reads back as a fact about a record
+// that never qualified anything.
+func TestTheProjectEvidenceColumnsAreFrozenAtTheDatabase(t *testing.T) {
+	e := Setup(t)
+	f := seedProjectStampFixture(t, e)
+	if _, err := e.Activities.RelinkActivity(e.Admin(), ids.ActivityID{UUID: f.email},
+		activities.RelinkActivityInput{EntityType: "project", EntityID: f.project}); err != nil {
+		t.Fatalf("filing the email under its project: %v", err)
+	}
+	other := ids.NewV7()
+	e.WsExec(t, `INSERT INTO project (id, name, organization_id, phase, source, captured_by)
+		SELECT $1, 'Datacentre migration', organization_id, 'delivering', 'manual', 'human:x'
+		  FROM project WHERE id = $2`, other, f.project)
+
+	for _, c := range []struct {
+		what   string
+		update string
+		args   []any
+	}{
+		{
+			"rewriting the frozen project name",
+			`UPDATE activity_retention_evidence SET project_name = 'Something else' WHERE activity_id = $1`,
+			[]any{f.email},
+		},
+		{
+			"repointing the evidence at another project",
+			`UPDATE activity_retention_evidence SET project_id = $2 WHERE activity_id = $1`,
+			[]any{f.email, other},
+		},
+	} {
+		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			_, execErr := tx.Exec(context.Background(), c.update, c.args...)
+			return execErr
+		})
+		if err == nil {
+			t.Errorf("%s succeeded; the evidence is frozen at the moment it qualified and a database that permits this permits rewriting the proof", c.what)
+		}
 	}
 }

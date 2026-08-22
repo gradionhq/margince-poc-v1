@@ -42,12 +42,21 @@ ALTER TABLE activity_retention_evidence
 -- DERIVED qualification names the record that earned it and carries no human
 -- decider, while a pin carries a decider and no derived name. Both halves are
 -- kept; only the "which record" half widens.
+--
+-- The name is bound to the BASIS, not merely required to be present. An
+-- "OR" over the two names would admit a `deal_won` row naming only a project
+-- and a `project_linked` row naming only a deal — evidence that reads back as
+-- a fact about the wrong record, which is worse than no evidence because a
+-- controller would act on it.
 ALTER TABLE activity_retention_evidence
     DROP CONSTRAINT are_derived_names_its_deal,
     ADD CONSTRAINT are_derived_names_its_record
         CHECK ((basis = 'controller_pin'::text)
-               OR ((deal_name IS NOT NULL OR project_name IS NOT NULL)
-                   AND decided_by IS NULL AND decided_by_name IS NULL AND reason IS NULL));
+               OR (decided_by IS NULL AND decided_by_name IS NULL AND reason IS NULL
+                   AND CASE basis
+                         WHEN 'project_linked' THEN project_name IS NOT NULL AND deal_name IS NULL
+                         ELSE deal_name IS NOT NULL AND project_name IS NULL
+                       END));
 
 -- Uniqueness already carries `basis`, so a project_linked row cannot collide
 -- with a deal_won row on the same activity — an activity may honestly qualify
@@ -55,6 +64,15 @@ ALTER TABLE activity_retention_evidence
 -- one activity over time: uq_activity_link_project admits one project link at
 -- a time, but the evidence is frozen, so a relink leaves the first row standing
 -- and the second must be able to land beside it.
+--
+-- NULLS NOT DISTINCT plus the FK's ON DELETE SET NULL leaves one narrow case,
+-- named here rather than left to be discovered: one activity filed in turn
+-- under two DIFFERENTLY-keyed projects that share a NAME, both later deleted,
+-- collapses to one key and the second deletion is refused. The frozen name is
+-- what keeps the keys apart while either project exists. This is the same shape
+-- the deal pair has carried since the baseline, and it is left matching rather
+-- than diverged: an evidence row keyed on a name is the price of evidence that
+-- survives its record, and changing that is a decision about both halves.
 DROP INDEX uq_activity_retention_evidence;
 CREATE UNIQUE INDEX uq_activity_retention_evidence
     ON activity_retention_evidence
@@ -91,3 +109,49 @@ WITH linked AS (
 INSERT INTO activity_retention_evidence (activity_id, basis, qualified_at, project_id, project_name)
 SELECT id, 'project_linked', now(), project_id, project_name FROM linked
 ON CONFLICT DO NOTHING;
+
+-- The freeze must cover the new columns, or the evidence is frozen in name
+-- only. The trigger names every column it protects, so columns added beside
+-- them are unguarded by default — an omission with no error and nothing to
+-- notice, because the rewrite simply succeeds.
+--
+-- Same terms as the deal pair: the NAME may never change, and the REFERENCE
+-- may be CLEARED by its FK (ON DELETE SET NULL, when the project is deleted)
+-- but never repointed at another record.
+CREATE OR REPLACE FUNCTION activity_retention_evidence_is_frozen() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  -- A row goes only with the activity it substantiates, through the CASCADE.
+  -- A direct delete is refused. The two are distinguishable because the
+  -- CASCADE has already removed the parent by the time this fires, so the
+  -- activity is gone exactly when the delete is legitimate.
+  IF TG_OP = 'DELETE' THEN
+    IF EXISTS (SELECT 1 FROM activity a WHERE a.id = OLD.activity_id) THEN
+      RAISE EXCEPTION 'retention evidence % is frozen and is removed only with the activity it substantiates', OLD.id
+        USING ERRCODE = 'check_violation',
+              CONSTRAINT = 'activity_retention_evidence_frozen';
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF NEW.activity_id     IS DISTINCT FROM OLD.activity_id
+     OR NEW.basis        IS DISTINCT FROM OLD.basis
+     OR NEW.qualified_at IS DISTINCT FROM OLD.qualified_at
+     OR NEW.deal_name    IS DISTINCT FROM OLD.deal_name
+     OR NEW.project_name IS DISTINCT FROM OLD.project_name
+     OR NEW.decided_by_name IS DISTINCT FROM OLD.decided_by_name
+     OR NEW.reason       IS DISTINCT FROM OLD.reason
+     OR NEW.created_at   IS DISTINCT FROM OLD.created_at
+     -- The reference may be CLEARED by its FK, never repointed.
+     OR (NEW.deal_id IS NOT NULL AND NEW.deal_id IS DISTINCT FROM OLD.deal_id)
+     OR (NEW.project_id IS NOT NULL AND NEW.project_id IS DISTINCT FROM OLD.project_id)
+     OR (NEW.decided_by IS NOT NULL AND NEW.decided_by IS DISTINCT FROM OLD.decided_by) THEN
+    RAISE EXCEPTION 'retention evidence % is frozen at the moment it qualified and may not be rewritten', OLD.id
+      USING ERRCODE = 'check_violation',
+            CONSTRAINT = 'activity_retention_evidence_frozen';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;

@@ -203,14 +203,20 @@ END;
 public.activity_retention_evidence acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
 public.activity_retention_evidence.activity_id uuid NOT NULL gen=- def=-
 public.activity_retention_evidence.activity_retention_evidence_activity_id_fkey FOREIGN KEY (activity_id) REFERENCES activity(id) ON DELETE CASCADE
-public.activity_retention_evidence.activity_retention_evidence_basis_check CHECK ((basis = ANY (ARRAY['deal_won'::text, 'offer_beyond_draft'::text, 'controller_pin'::text])))
+public.activity_retention_evidence.activity_retention_evidence_basis_check CHECK ((basis = ANY (ARRAY['deal_won'::text, 'offer_beyond_draft'::text, 'project_linked'::text, 'controller_pin'::text])))
 public.activity_retention_evidence.activity_retention_evidence_deal_id_fkey FOREIGN KEY (deal_id) REFERENCES deal(id) ON DELETE SET NULL
 public.activity_retention_evidence.activity_retention_evidence_decided_by_fkey FOREIGN KEY (decided_by) REFERENCES app_user(id) ON DELETE SET NULL
 public.activity_retention_evidence.activity_retention_evidence_is_frozen CREATE TRIGGER activity_retention_evidence_is_frozen BEFORE DELETE OR UPDATE ON public.activity_retention_evidence FOR EACH ROW EXECUTE FUNCTION activity_retention_evidence_is_frozen()
 public.activity_retention_evidence.activity_retention_evidence_pkey PRIMARY KEY (id)
+public.activity_retention_evidence.activity_retention_evidence_project_id_fkey FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE SET NULL
 public.activity_retention_evidence.are_deal_name_with_id CHECK (((deal_id IS NULL) OR (deal_name IS NOT NULL)))
-public.activity_retention_evidence.are_derived_names_its_deal CHECK (((basis = 'controller_pin'::text) OR ((deal_name IS NOT NULL) AND (decided_by IS NULL) AND (decided_by_name IS NULL) AND (reason IS NULL))))
+public.activity_retention_evidence.are_derived_names_its_record CHECK (((basis = 'controller_pin'::text) OR ((decided_by IS NULL) AND (decided_by_name IS NULL) AND (reason IS NULL) AND
+CASE basis
+    WHEN 'project_linked'::text THEN ((project_name IS NOT NULL) AND (deal_name IS NULL))
+    ELSE ((deal_name IS NOT NULL) AND (project_name IS NULL))
+END)))
 public.activity_retention_evidence.are_pin_is_attributed CHECK (((basis <> 'controller_pin'::text) OR ((length(btrim(decided_by_name)) > 0) AND (length(btrim(reason)) > 0))))
+public.activity_retention_evidence.are_project_name_with_id CHECK (((project_id IS NULL) OR (project_name IS NOT NULL)))
 public.activity_retention_evidence.basis text NOT NULL gen=- def=-
 public.activity_retention_evidence.created_at timestamp with time zone NOT NULL gen=- def=now()
 public.activity_retention_evidence.deal_id uuid gen=- def=-
@@ -218,6 +224,8 @@ public.activity_retention_evidence.deal_name text gen=- def=-
 public.activity_retention_evidence.decided_by uuid gen=- def=-
 public.activity_retention_evidence.decided_by_name text gen=- def=-
 public.activity_retention_evidence.id uuid NOT NULL gen=- def=uuidv7()
+public.activity_retention_evidence.project_id uuid gen=- def=-
+public.activity_retention_evidence.project_name text gen=- def=-
 public.activity_retention_evidence.qualified_at timestamp with time zone NOT NULL gen=- def=-
 public.activity_retention_evidence.reason text gen=- def=-
 public.activity_retention_evidence_is_frozen() secdef=false cfg=- acl=- 
@@ -239,11 +247,13 @@ BEGIN
      OR NEW.basis        IS DISTINCT FROM OLD.basis
      OR NEW.qualified_at IS DISTINCT FROM OLD.qualified_at
      OR NEW.deal_name    IS DISTINCT FROM OLD.deal_name
+     OR NEW.project_name IS DISTINCT FROM OLD.project_name
      OR NEW.decided_by_name IS DISTINCT FROM OLD.decided_by_name
      OR NEW.reason       IS DISTINCT FROM OLD.reason
      OR NEW.created_at   IS DISTINCT FROM OLD.created_at
      -- The reference may be CLEARED by its FK, never repointed.
      OR (NEW.deal_id IS NOT NULL AND NEW.deal_id IS DISTINCT FROM OLD.deal_id)
+     OR (NEW.project_id IS NOT NULL AND NEW.project_id IS DISTINCT FROM OLD.project_id)
      OR (NEW.decided_by IS NOT NULL AND NEW.decided_by IS DISTINCT FROM OLD.decided_by) THEN
     RAISE EXCEPTION 'retention evidence % is frozen at the moment it qualified and may not be rewritten', OLD.id
       USING ERRCODE = 'check_violation',
@@ -1783,6 +1793,7 @@ public.idx_approval_target CREATE INDEX idx_approval_target ON public.approval U
 public.idx_are_activity CREATE INDEX idx_are_activity ON public.activity_retention_evidence USING btree (activity_id)
 public.idx_are_deal CREATE INDEX idx_are_deal ON public.activity_retention_evidence USING btree (deal_id) WHERE (deal_id IS NOT NULL)
 public.idx_are_decided_by CREATE INDEX idx_are_decided_by ON public.activity_retention_evidence USING btree (decided_by) WHERE (decided_by IS NOT NULL)
+public.idx_are_project CREATE INDEX idx_are_project ON public.activity_retention_evidence USING btree (project_id) WHERE (project_id IS NOT NULL)
 public.idx_attachment_entity CREATE INDEX idx_attachment_entity ON public.attachment USING btree (entity_type, entity_id) WHERE (archived_at IS NULL)
 public.idx_attachment_extraction_activity_live CREATE INDEX idx_attachment_extraction_activity_live ON public.attachment_extraction USING btree (activity_announced_at NULLS FIRST) WHERE (status = ANY (ARRAY['queued'::text, 'running'::text]))
 public.idx_attachment_extraction_activity_settled CREATE INDEX idx_attachment_extraction_activity_settled ON public.attachment_extraction USING btree (finished_at DESC) WHERE (status = ANY (ARRAY['done'::text, 'failed'::text]))
@@ -3873,7 +3884,7 @@ END;
 public.uq_activity_link CREATE UNIQUE INDEX uq_activity_link ON public.activity_link USING btree (activity_id, entity_type, COALESCE(person_id, organization_id, deal_id, lead_id, project_id))
 public.uq_activity_link_project CREATE UNIQUE INDEX uq_activity_link_project ON public.activity_link USING btree (activity_id) WHERE (entity_type = 'project'::text)
 public.uq_activity_participant CREATE UNIQUE INDEX uq_activity_participant ON public.activity_participant USING btree (activity_id, role, COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(person_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(address, ''::text))
-public.uq_activity_retention_evidence CREATE UNIQUE INDEX uq_activity_retention_evidence ON public.activity_retention_evidence USING btree (activity_id, deal_id, deal_name, basis) NULLS NOT DISTINCT WHERE (basis <> 'controller_pin'::text)
+public.uq_activity_retention_evidence CREATE UNIQUE INDEX uq_activity_retention_evidence ON public.activity_retention_evidence USING btree (activity_id, deal_id, deal_name, project_id, project_name, basis) NULLS NOT DISTINCT WHERE (basis <> 'controller_pin'::text)
 public.uq_activity_source CREATE UNIQUE INDEX uq_activity_source ON public.activity USING btree (source_system, source_id) WHERE ((source_system IS NOT NULL) AND (source_id IS NOT NULL))
 public.uq_ai_call_ws_id CREATE UNIQUE INDEX uq_ai_call_ws_id ON public.ai_call USING btree (id)
 public.uq_app_user_email CREATE UNIQUE INDEX uq_app_user_email ON public.app_user USING btree (lower(email))
