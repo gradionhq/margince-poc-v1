@@ -177,14 +177,17 @@ requires it — not because a producer is missing.
 |---|---|---|
 | Watched by the asker | `growth_fit`, `cold_start` | The work lands on the surface that asked and changes it on arrival. `growth_fit` renders the band it returns on the panel that asked. `cold_start` has TWO sites and needs both named: onboarding, whose routes are deliberately RAILLESS, and the organization page's Enrich card — `cmd/api/modelwiring.go` wires `WithScrape` with the cold-start brain — where a rail does exist and the card itself renders the proposal. |
 | System sweep | `brief_ranking`, `capture_classify`, `capture_counterparty_verdict`, `rate_extract`, `signal_extract`, `transcript_propose`, `voice_build` | Background workspace work that belongs to nobody in particular, so it has no personal line to draw. |
-| Watched where it runs | `site_extract`, `site_fact_extract`, `site_triage` | Attribution here is a fact about the READ, not the task: a human-requested read carries that person as `on_behalf_of` and IS personal to them; a domain-triage or auto-enrich read names no human and is workspace-scoped. Neither wants a line. The human's read is already drawn live where it was started (the organization page polls the read's own status), and the system's belongs to nobody. A grain problem seals it: one read files THREE occurrences, so narrating them would show three lines for one thing somebody asked for once. |
-| Reaches nobody, and would not be worth showing | `enrich` | Both halves matter. **Reachability:** its one production site is the signature-enrichment pass, which runs under a system principal with no `on_behalf_of` — so every occurrence is workspace-scoped with a NULL `actor_user_id`, and the personal feed selects on `actor_user_id`. **Worth:** the pass is nightly (`capture_enrich`, `cadence: 24h`, up to 100 candidates in series), so a per-person window is a few seconds in the middle of the night — a line would address a reader who is not there. It could not be per-person anyway: the pass mints ONE correlation id for the whole run, so all 100 candidates share one occurrence. What a reader wants from it is what it FOUND, which is durable and already drawn as evidence-or-omit provenance on the person record. |
+| Watched where it runs | `site_extract`, `site_fact_extract`, `site_triage` | Attribution here is a fact about the READ, not the task: a human-requested read carries that person as `on_behalf_of` and IS personal to them; a domain-triage or auto-enrich read names no human and is workspace-scoped. Neither wants a line. The human's read is already drawn live where it was started (the organization page polls the read's own status), and the system's belongs to nobody. A grain problem seals it: the occurrence key is correlation+task and a read's correlation is its `site_read` row id, so one read files one occurrence per lane it runs — and only a domain-triage read reaches all three (`site_triage` fires solely for `isDomainTriageRequest`). |
+| Reaches nobody, and would not be worth showing | `enrich` | Both halves matter. **Reachability:** its one production site is the signature-enrichment pass, which runs under a system principal with no `on_behalf_of` — so every occurrence is workspace-scoped with a NULL `actor_user_id`, and the personal feed selects on `actor_user_id`. **Worth:** it could not be per-person even if it were reachable. The pass mints ONE correlation id for the whole run (`capture_enrich`, up to 100 candidates in series) and the occurrence key is correlation+task, so every candidate collapses into one row — a per-person subject would make that row flap rather than narrate anybody. What a reader wants from it is what it FOUND, which is durable and already drawn as evidence-or-omit provenance on the person record. |
 | An operator's measurement | `cert_judge` | The certification lane grading this build's own answers — not a rep's work. |
 | Declared, not built | `deal_health`, `nl_search`, `transcript` | Named in `api/ai-tasks.yaml`; no site runs them, so nothing reports them yet. |
 
 `enrich` is the one worth reading twice, because it looks visible and is not: the
-ticker's own `enrich` key names DIFFERENT work (a provider run on a person, and
-the site-read lanes on a company).
+ticker's own `enrich` key names DIFFERENT work — a provider run on a person
+(`personprovider.tsx`), and the organization page's Enrich card
+(`organizations.tsx`), which POSTs `/organizations/{id}/enrich` and therefore
+runs `cold_start`, not this task. The deep read rides its own `site-read` ticker
+key, not this one.
 
 ### Two surfaces, one action, no double narration
 
@@ -232,11 +235,13 @@ reporting nothing at all.
   none is registered as a carrier. For long work, settled-only is worse than
   silence: a rep clicks "read this site", sees nothing for forty seconds, then it
   appears already finished.
-- **One site read files THREE occurrences** ([#2272]). Its correlation id is the
-  `site_read` row id and it runs three distinct tasks, so the router's
-  `correlation_id + task` key produces three separate lines for one thing a
-  person asked for once. Harmless only while the rail narrates none of them; it
-  becomes visible the moment anybody writes the copy.
+- **One site read files one occurrence per lane it runs** ([#2272]). Its
+  correlation id is the `site_read` row id, so the router's
+  `correlation_id + task` key produces a separate line per task under one read.
+  Only a domain-triage read reaches all three — `site_triage` fires solely for
+  `isDomainTriageRequest`, so an ordinary human-requested read does not run it.
+  Harmless while the rail narrates none of them; it becomes visible the moment
+  anybody writes the copy.
 - **A multi-call unit reopens its occurrence once per call** ([#2276]).
   `CompleteStructured` walks the ladder three times, and the lease is announced
   once and cannot be renewed.
@@ -266,8 +271,9 @@ reporting nothing at all.
   for. If it is ever built it copies `ai/feedback.go`, which already spells the
   gate correctly.
 - **Per-person `enrich` narration was considered and declined**, not deferred.
-  The reasons are in the census entry beside the code: a nightly cadence has no
-  observer, and the pass mints one correlation id for all its candidates.
+  The reason is in the census entry beside the code: the pass mints one
+  correlation id for all its candidates, so they share a single occurrence that
+  no per-person subject could describe.
 
 [#2272]: https://github.com/gradionhq/margince-poc-v1/issues/2272
 [#2276]: https://github.com/gradionhq/margince-poc-v1/issues/2276

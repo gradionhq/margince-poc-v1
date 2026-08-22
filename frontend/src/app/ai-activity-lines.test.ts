@@ -138,21 +138,18 @@ describe("lineFor", () => {
     // The third way to draw nothing, and the one the server now produces by
     // the thousand: a kind this build reports and deliberately does not
     // narrate. It must read as silence, not as a message key.
-    // One per REASON — all FOUR of them. A single case would keep passing while
-    // the other three were narrated by accident, and `cert_judge` carries a
-    // reason of its own rather than sharing one of the three named constants,
-    // which is exactly the entry a "one example per shared constant" reading
-    // would have missed. `summarize` used to stand here and no longer can: it
-    // is displayed now, which is the change this shape of test exists to catch.
+    // One case per REASON — all SIX. A single case would keep passing while the
+    // others were narrated by accident, and the entries carrying a reason of
+    // their own (`cert_judge`, `enrich`, and the site lanes) are exactly the
+    // ones a "one example per shared constant" reading misses. A kind that
+    // becomes displayed can no longer stand here, which is what this shape
+    // catches.
     ["a background sweep", { kind: "brief_ranking", state: "done" }],
     ["work the asker is watching", { kind: "cold_start", state: "done" }],
     ["a task nothing has built", { kind: "nl_search", state: "done" }],
     ["the lane grading this build", { kind: "cert_judge", state: "done" }],
-    // Two reasons this list did not carry. `enrich` has had its own reason all
-    // along and no case named it, so the "one per REASON" claim above was one
-    // short of true the day it was written — the exact drift a hand-kept list
-    // suffers. The site lanes are the fifth, and new: they left SYSTEM_SWEEP
-    // because that sentence is false whenever a human asked for the read.
+    // The two reasons carried by an entry of its own rather than a shared
+    // constant, which is the pairing a hand-kept list drops first.
     ["a pass that reaches nobody", { kind: "enrich", state: "done" }],
     ["a site-read lane", { kind: "site_triage", state: "running" }],
   ])("renders nothing at all for %s", (_name, item) => {
@@ -160,43 +157,52 @@ describe("lineFor", () => {
   });
 });
 
-// The site-read lanes are not filed under the sweep sentence.
+// The site-read lanes carry ONE reason of their own, shared with nothing else.
 //
-// A prose reason cannot be checked by reading it, but WHICH reason a kind
-// carries can be. These three sat on SYSTEM_SWEEP — "background workspace work
-// that belongs to nobody in particular" — and that is false for the commonest
-// case: compose binds the requester as on_behalf_of when a HUMAN asks for a
-// read, so the occurrence is personal to them. A reader who trusted the shared
-// sentence would conclude no site read can ever reach a person, and stop
-// looking.
+// A prose reason cannot be checked by reading it, but the OBJECT a kind carries
+// can be. These three sat on SYSTEM_SWEEP, whose sentence says the work belongs
+// to nobody in particular — false whenever a human asked for the read, because
+// compose binds that person as on_behalf_of and the occurrence lands in their
+// own feed. A reader who trusted the shared sentence would conclude no site read
+// can reach a person, and stop looking.
 //
-// Comparing against a kind that legitimately IS a sweep, rather than asserting
-// the new text, is what makes this survive rewording: the reason may be edited
-// freely, and only re-sharing the sweep's sentence fails. Mutation-checked by
-// pointing the three back at SYSTEM_SWEEP, which fails all three cases.
-describe("the site-read lanes carry their own reason", () => {
-  const reasonFor = (kind: string): string => {
-    const entry = ACTIVITY_LINE[kind as keyof typeof ACTIVITY_LINE];
-    return "notDisplayed" in entry ? entry.notDisplayed : "";
-  };
-  const SWEEP = reasonFor("brief_ranking");
+// Identity, not text: the reason may be reworded freely and only re-pointing a
+// lane at another entry fails. Three assertions, because each catches a
+// different way to be wrong and the obvious one-liner catches only the first:
+//
+//   same object   — the three cannot drift into three near-copies
+//   notDisplayed  — a lane given a real LINE TABLE fails here. The version of
+//                   this gate that compared reason STRINGS passed happily when
+//                   two of the three were displayed, because the absent reason
+//                   read as "" and "" is not the sweep's sentence. That is the
+//                   inverse of the documented decision passing its own guard.
+//   unshared      — "not the sweep's" is not "its own". Pointing all three at
+//                   WATCHED_BY_THE_ASKER, or at any new shared sentence, is
+//                   still the bug this exists to prevent.
+describe("the site-read lanes carry one reason of their own", () => {
+  const LANES = ["site_extract", "site_fact_extract", "site_triage"] as const;
+  const entryFor = (kind: (typeof LANES)[number] | string) =>
+    ACTIVITY_LINE[kind as (typeof LANES)[number]];
 
-  it.each(["site_extract", "site_fact_extract", "site_triage"])(
-    "%s does not reuse the background-sweep sentence",
-    (kind) => {
-      expect(SWEEP).not.toBe("");
-      expect(reasonFor(kind)).not.toBe(SWEEP);
-    },
-  );
+  it("is one entry object, not three near-copies", () => {
+    expect(new Set(LANES.map(entryFor)).size).toBe(1);
+  });
 
-  // One reason between them, not three near-copies: they are one capability
-  // and a reader comparing two of them must not have to diff prose.
-  it("uses ONE reason for all three", () => {
-    expect(
-      new Set(
-        ["site_extract", "site_fact_extract", "site_triage"].map(reasonFor),
-      ).size,
-    ).toBe(1);
+  it.each(LANES)("%s is undisplayed and says why", (kind) => {
+    const entry = entryFor(kind);
+    expect("notDisplayed" in entry).toBe(true);
+    expect("notDisplayed" in entry ? entry.notDisplayed.trim() : "").not.toBe(
+      "",
+    );
+  });
+
+  it("shares that entry with no other kind", () => {
+    const lanes = new Set<string>(LANES);
+    const theirs = entryFor(LANES[0]);
+    const trespassers = Object.entries(ACTIVITY_LINE)
+      .filter(([kind, entry]) => !lanes.has(kind) && entry === theirs)
+      .map(([kind]) => kind);
+    expect(trespassers).toEqual([]);
   });
 });
 
