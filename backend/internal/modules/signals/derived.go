@@ -40,10 +40,17 @@ const resolutionResolved = "resolved"
 // DerivedSignal is one finding a producer computed, in the words the reader
 // will see. The producer owns the RULE; this module owns the row.
 type DerivedSignal struct {
-	Kind           string
+	Kind string
+	// OrganizationID is the account the finding is attributed to
+	// (resolved_org_id): the company page's signal strip and the account's
+	// signal list read a signal through it, whatever the subject below.
 	OrganizationID ids.UUID
-	Summary        string
-	Severity       string
+	// ProjectID, when set, makes the PROJECT the signal's subject rather than
+	// the account itself — a finding about one body of work at the company,
+	// which still belongs to the company's page because the project does.
+	ProjectID ids.UUID
+	Summary   string
+	Severity  string
 	// Fingerprint identifies the finding by what it fired ON, so a producer
 	// that runs hourly raises nothing new on an unchanged account and a
 	// dismissal survives every later pass.
@@ -107,19 +114,26 @@ func RecordDerived(ctx context.Context, tx pgx.Tx, in DerivedSignal, detectedAt 
 	if err != nil {
 		return false, err
 	}
+	subjectType, subjectID := in.subject()
+	// Every placeholder is derived from the argument slice, so a column added
+	// to this statement cannot bind to its neighbour's value.
+	var args []any
+	arg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
 	var signalID ids.UUID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO signal
 		  (kind, entity_type, entity_id, resolved_org_id, summary,
 		   evidence, fingerprint, source_channel, resolution_state, severity,
 		   status, detected_at, source, captured_by, visibility, owner_id)
-		VALUES ($1, 'organization', $2, $2, $3, $4, $5,
-		        'derived', 'resolved', $6, 'open', $7, 'signal-scan', $8, $9, $10)
+		VALUES (`+arg(in.Kind)+`, `+arg(subjectType)+`, `+arg(subjectID)+`, `+arg(in.OrganizationID)+`, `+arg(in.Summary)+`,
+		        `+arg(evidence)+`, `+arg(in.Fingerprint)+`, 'derived', 'resolved', `+arg(in.Severity)+`,
+		        'open', `+arg(detectedAt)+`, 'signal-scan', `+arg(by)+`, `+arg(visibility)+`, `+arg(nullableOwner(in.PrivateTo))+`)
 		ON CONFLICT DO NOTHING
 		RETURNING id`,
-		in.Kind, in.OrganizationID, in.Summary, evidence, in.Fingerprint,
-		in.Severity, detectedAt, by,
-		visibility, nullableOwner(in.PrivateTo)).Scan(&signalID)
+		args...).Scan(&signalID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -133,8 +147,7 @@ func RecordDerived(ctx context.Context, tx pgx.Tx, in DerivedSignal, detectedAt 
 	if err != nil {
 		return false, fmt.Errorf("audit derived signal: %w", err)
 	}
-	subjectType := "organization"
-	subjectID := openapi_types.UUID(in.OrganizationID)
+	eventSubjectID := openapi_types.UUID(subjectID)
 	if err := storekit.EmitEvent(ctx, tx, auditID, signalID, crmcontracts.PublicEventSignalDetected{
 		SignalId:        openapi_types.UUID(signalID),
 		Kind:            in.Kind,
@@ -143,11 +156,20 @@ func RecordDerived(ctx context.Context, tx pgx.Tx, in DerivedSignal, detectedAt 
 		Severity:        in.Severity,
 		// The signal's SUBJECT. The envelope's own entity is the signal.
 		SubjectEntityType: &subjectType,
-		SubjectEntityId:   &subjectID,
+		SubjectEntityId:   &eventSubjectID,
 	}); err != nil {
 		return false, fmt.Errorf("emit signal.detected: %w", err)
 	}
 	return true, nil
+}
+
+// subject is the (entity_type, entity_id) pair the row carries: the project
+// when the finding is about one, the account otherwise.
+func (in DerivedSignal) subject() (string, ids.UUID) {
+	if in.ProjectID != (ids.UUID{}) {
+		return "project", in.ProjectID
+	}
+	return "organization", in.OrganizationID
 }
 
 // derivedEvidenceRows renders evidence in the per-claim shape SIG-DDL-1 fixes,

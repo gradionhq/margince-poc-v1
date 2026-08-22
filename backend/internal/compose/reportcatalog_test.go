@@ -38,7 +38,9 @@ func TestReportToolCatalogPublishesOnlyWhatTheEngineAccepts(t *testing.T) {
 			}
 		}
 		for _, name := range entry.Filters {
-			if _, ok := spec.filters[name]; !ok {
+			_, equality := spec.filters[name]
+			_, threshold := spec.thresholds[name]
+			if !equality && !threshold {
 				t.Errorf("%s: filters advertises %q, not a filter of that report", entry.Report, name)
 			}
 		}
@@ -65,6 +67,11 @@ func TestReportToolCatalogOmitsNothingTheEngineAccepts(t *testing.T) {
 		}
 		assertCovers(t, report, "group_by", spec.dimensions, published.GroupBy)
 		assertCovers(t, report, "filters", spec.filters, published.Filters)
+		for name := range spec.thresholds {
+			if !slices.Contains(published.Filters, name) {
+				t.Errorf("%s: the engine accepts threshold filter %q and the catalog does not publish it", report, name)
+			}
+		}
 		assertCovers(t, report, "aggregate fields", spec.measures, published.Aggregates)
 	}
 }

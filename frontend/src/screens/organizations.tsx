@@ -26,6 +26,7 @@ import {
   type EvidenceMarkSource,
 } from "../design-system/evidencemark";
 import type { ListChip } from "../design-system/listsurface";
+import { liveProjects } from "../design-system/projectpicker";
 import {
   hasTimelineFilters,
   useRecordTimeline,
@@ -119,6 +120,7 @@ import {
   useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
+import { PersonMeetingBrief } from "./persondrawers";
 import {
   ChronologyFilter,
   ChronologyFooter,
@@ -2312,6 +2314,10 @@ function CompanyRecordBody({
   taskUpdate: ReturnType<typeof useTaskUpdate>;
   onOpenHistory: () => void;
 }>) {
+  // The meeting whose brief is open. "Prepare meeting" used to open the
+  // composer on the meeting, which is a reply to a room nobody has sat in
+  // yet; the brief drawer is what prepares a reader for one.
+  const [preparing, setPreparing] = useState<string | null>(null);
   return (
     <>
       {/* The bar that chooses which part of the account to read sits at the
@@ -2345,11 +2351,17 @@ function CompanyRecordBody({
           onOpenHistory={onOpenHistory}
           onOpenRecord={receipt.open}
           onOpenTasks={() => onTab("tasks")}
-          onCompose={(id) => onCompose({ kind: "reply", id })}
+          onPrepareMeeting={setPreparing}
           onDraftTo={(id) => onCompose({ kind: "account", id })}
           onPerform={onPerform}
         />
       )}
+      <PersonMeetingBrief
+        activityId={preparing}
+        open={preparing !== null}
+        onClose={() => setPreparing(null)}
+        projects={liveProjects(view?.projects)}
+      />
       {/* Deals and Tasks, pulled off the overview: a reader who came for the
           commercial picture or the open work should not scroll past the
           day's brief to find either. */}
@@ -2452,7 +2464,7 @@ function CompanyOverviewStack({
   onOpenHistory,
   onOpenRecord,
   onOpenTasks,
-  onCompose,
+  onPrepareMeeting,
   onDraftTo,
   onPerform,
 }: Readonly<{
@@ -2472,7 +2484,8 @@ function CompanyOverviewStack({
   // other.
   onOpenRecord: (entityType: string, entityId: string) => void;
   onOpenTasks: () => void;
-  onCompose: (activityId: string) => void;
+  // Opens the meeting brief for the day's meeting — not the composer.
+  onPrepareMeeting: (activityId: string) => void;
   onDraftTo: (personId: string) => void;
   onPerform: (action: SuggestionAction) => void;
 }>) {
@@ -2488,7 +2501,7 @@ function CompanyOverviewStack({
           view={view}
           loading={loading}
           failed={failed}
-          onPrepareMeeting={onCompose}
+          onPrepareMeeting={onPrepareMeeting}
           onDraftTo={onDraftTo}
           onOpenRecord={onOpenRecord}
           onPerform={onPerform}
@@ -2517,6 +2530,7 @@ function CompanyOverviewStack({
         orgId={org.id}
         enabled={!overlay}
         onOpenRecord={onOpenRecord}
+        projects={view?.projects}
       />
       {!overlay && (
         <>

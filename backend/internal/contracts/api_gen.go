@@ -3672,6 +3672,7 @@ const (
 	CreateSignalRequestEntityTypeDeal         CreateSignalRequestEntityType = "deal"
 	CreateSignalRequestEntityTypeOrganization CreateSignalRequestEntityType = "organization"
 	CreateSignalRequestEntityTypePerson       CreateSignalRequestEntityType = "person"
+	CreateSignalRequestEntityTypeProject      CreateSignalRequestEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the CreateSignalRequestEntityType enum.
@@ -3682,6 +3683,8 @@ func (e CreateSignalRequestEntityType) Valid() bool {
 	case CreateSignalRequestEntityTypeOrganization:
 		return true
 	case CreateSignalRequestEntityTypePerson:
+		return true
+	case CreateSignalRequestEntityTypeProject:
 		return true
 	default:
 		return false
@@ -5327,6 +5330,7 @@ const (
 	MeetingBriefSectionKindHeader         MeetingBriefSectionKind = "header"
 	MeetingBriefSectionKindRisks          MeetingBriefSectionKind = "risks"
 	MeetingBriefSectionKindTalkingPoints  MeetingBriefSectionKind = "talking_points"
+	MeetingBriefSectionKindWhatChanged    MeetingBriefSectionKind = "what_changed"
 )
 
 // Valid indicates whether the value is a known member of the MeetingBriefSectionKind enum.
@@ -5347,6 +5351,8 @@ func (e MeetingBriefSectionKind) Valid() bool {
 	case MeetingBriefSectionKindRisks:
 		return true
 	case MeetingBriefSectionKindTalkingPoints:
+		return true
+	case MeetingBriefSectionKindWhatChanged:
 		return true
 	default:
 		return false
@@ -8661,6 +8667,7 @@ const (
 	SignalEntityTypeDeal         SignalEntityType = "deal"
 	SignalEntityTypeOrganization SignalEntityType = "organization"
 	SignalEntityTypePerson       SignalEntityType = "person"
+	SignalEntityTypeProject      SignalEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the SignalEntityType enum.
@@ -8672,6 +8679,8 @@ func (e SignalEntityType) Valid() bool {
 		return true
 	case SignalEntityTypePerson:
 		return true
+	case SignalEntityTypeProject:
+		return true
 	default:
 		return false
 	}
@@ -8679,16 +8688,17 @@ func (e SignalEntityType) Valid() bool {
 
 // Defines values for SignalKind.
 const (
-	SignalKindBuyingIntent   SignalKind = "buying_intent"
-	SignalKindChampionLeft   SignalKind = "champion_left"
-	SignalKindCommitmentMade SignalKind = "commitment_made"
-	SignalKindContractEnded  SignalKind = "contract_ended"
-	SignalKindGhostedThread  SignalKind = "ghosted_thread"
-	SignalKindNewOpportunity SignalKind = "new_opportunity"
-	SignalKindOther          SignalKind = "other"
-	SignalKindReengagement   SignalKind = "reengagement"
-	SignalKindRisk           SignalKind = "risk"
-	SignalKindStalledDeal    SignalKind = "stalled_deal"
+	SignalKindBuyingIntent     SignalKind = "buying_intent"
+	SignalKindChampionLeft     SignalKind = "champion_left"
+	SignalKindCommitmentMade   SignalKind = "commitment_made"
+	SignalKindContractEnded    SignalKind = "contract_ended"
+	SignalKindGhostedThread    SignalKind = "ghosted_thread"
+	SignalKindNewOpportunity   SignalKind = "new_opportunity"
+	SignalKindOther            SignalKind = "other"
+	SignalKindProjectGoneQuiet SignalKind = "project_gone_quiet"
+	SignalKindReengagement     SignalKind = "reengagement"
+	SignalKindRisk             SignalKind = "risk"
+	SignalKindStalledDeal      SignalKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the SignalKind enum.
@@ -8707,6 +8717,8 @@ func (e SignalKind) Valid() bool {
 	case SignalKindNewOpportunity:
 		return true
 	case SignalKindOther:
+		return true
+	case SignalKindProjectGoneQuiet:
 		return true
 	case SignalKindReengagement:
 		return true
@@ -11742,9 +11754,19 @@ type AccountEmailDraft struct {
 	//
 	// Empty when the account gave the draft nothing to stand on beyond the
 	// recipient. An honest empty list, never an invented reason.
-	Reasoning []AccountDraftReason   `json:"reasoning"`
-	Subject   string                 `json:"subject"`
-	To        *[]openapi_types.Email `json:"to,omitempty"`
+	Reasoning []AccountDraftReason `json:"reasoning"`
+
+	// Scope What a read narrowed to one project reports about the narrowing, so a surface can
+	// say "Scoped to KEY · N of M activities" from the server's own count rather than
+	// guessing. Present only when the request named a `project_id`.
+	//
+	// `in_scope` counts the activities the scoped read could see — filed under this
+	// project or under none — and `total` the same anchor's activities unscoped, both
+	// under the caller's own row scope. Both are ABSENT, not zero, when the caller holds
+	// no activity grant: the project is still named, the count is not invented.
+	Scope   *ProjectScope          `json:"scope,omitempty"`
+	Subject string                 `json:"subject"`
+	To      *[]openapi_types.Email `json:"to,omitempty"`
 
 	// VoiceProfileVersion The Voice DNA profile version that styled this draft; null when no ready profile shaped it.
 	VoiceProfileVersion *int `json:"voice_profile_version,omitempty"`
@@ -17403,19 +17425,33 @@ type MeetingBrief struct {
 	// reader deciding how much to trust a sentence needs to know which wrote it.
 	GeneratedBy WrittenBy `json:"generated_by"`
 
+	// Scope What a read narrowed to one project reports about the narrowing, so a surface can
+	// say "Scoped to KEY · N of M activities" from the server's own count rather than
+	// guessing. Present only when the request named a `project_id`.
+	//
+	// `in_scope` counts the activities the scoped read could see — filed under this
+	// project or under none — and `total` the same anchor's activities unscoped, both
+	// under the caller's own row scope. Both are ABSENT, not zero, when the caller holds
+	// no activity grant: the project is still named, the count is not invented.
+	Scope *ProjectScope `json:"scope,omitempty"`
+
 	// Sections The sections that had something to say, in ADR-0097 D5's fixed order. A section with no surviving sentence is absent, never present-and-empty: `risks` in particular is specified as omitted when empty, and the same rule reads honestly for every other.
 	Sections []MeetingBriefSection `json:"sections"`
 }
 
-// MeetingBriefSection One of the eight fixed sections, with its cited sentences.
+// MeetingBriefSection One of the nine fixed sections, with its cited sentences.
 type MeetingBriefSection struct {
-	// Kind The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
-	// than a free-text heading, so a surface can label, order and collapse them and no
-	// writer can invent a ninth.
+	// Kind The eight of ADR-0097 D5 plus `what_changed`, in the order a reader reads them. A
+	// closed enum rather than a free-text heading, so a surface can label, order and
+	// collapse them and no writer can invent a tenth.
 	//
 	// `header` — meeting, time, company, deal and how long since the last touch (deterministic).
 	// `goal` — the single next-step target; it leads because burying the ask is the
 	// canonical prep failure.
+	// `what_changed` — what happened after the READER last dealt with this deal's people:
+	// promises made, objections raised, decisions taken, conversations held, files that
+	// changed hands. Its first line names the baseline; when the reader has never dealt
+	// with them it says so ("first contact") rather than "nothing changed".
 	// `attendees` — who is in the room, with the first-timers flagged.
 	// `commitments` — what was promised, ours and theirs, each with its source and status.
 	// `deal_state` — where the deal stands: last conversation, objections, open questions.
@@ -17428,13 +17464,17 @@ type MeetingBriefSection struct {
 	Sentences []OrganizationBriefSentence `json:"sentences"`
 }
 
-// MeetingBriefSectionKind The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
-// than a free-text heading, so a surface can label, order and collapse them and no
-// writer can invent a ninth.
+// MeetingBriefSectionKind The eight of ADR-0097 D5 plus `what_changed`, in the order a reader reads them. A
+// closed enum rather than a free-text heading, so a surface can label, order and
+// collapse them and no writer can invent a tenth.
 //
 // `header` — meeting, time, company, deal and how long since the last touch (deterministic).
 // `goal` — the single next-step target; it leads because burying the ask is the
 // canonical prep failure.
+// `what_changed` — what happened after the READER last dealt with this deal's people:
+// promises made, objections raised, decisions taken, conversations held, files that
+// changed hands. Its first line names the baseline; when the reader has never dealt
+// with them it says so ("first contact") rather than "nothing changed".
 // `attendees` — who is in the room, with the first-timers flagged.
 // `commitments` — what was promised, ours and theirs, each with its source and status.
 // `deal_state` — where the deal stands: last conversation, objections, open questions.
@@ -17540,7 +17580,51 @@ type MorningDigest struct {
 	} `json:"connectors"`
 	Date        openapi_types.Date `json:"date"`
 	GeneratedAt time.Time          `json:"generated_at"`
-	Review      struct {
+
+	// Projects What moved on the bodies of work in the window, and which have gone quiet. Absent
+	// from a digest built without the section; each list is empty when nothing happened.
+	// Workspace-level like the counts above: a project is read by every seat holding the
+	// grant.
+	Projects *struct {
+		// GoneQuiet The projects being pursued or delivered that nothing has been filed against for
+		// 30 days — the `projects-gone-quiet` report's rule, the same one the
+		// `project_gone_quiet` signal is raised on — quietest first.
+		GoneQuiet []struct {
+			DaysQuiet int                 `json:"days_quiet"`
+			Key       *string             `json:"key,omitempty"`
+			Name      string              `json:"name"`
+			OwnerId   *openapi_types.UUID `json:"owner_id,omitempty"`
+
+			// Phase A rung of the project ladder: pursuing or delivering, the two the quiet rule watches.
+			Phase     string             `json:"phase"`
+			ProjectId openapi_types.UUID `json:"project_id"`
+
+			// QuietSince When the silence began: the last filed activity, or the project's creation when nothing was ever filed.
+			QuietSince time.Time `json:"quiet_since"`
+		} `json:"gone_quiet"`
+
+		// NewCommitments The projects that gained still-open tasks in the window, most first.
+		NewCommitments []struct {
+			Key                *string            `json:"key,omitempty"`
+			Name               string             `json:"name"`
+			NewOpenCommitments int                `json:"new_open_commitments"`
+			ProjectId          openapi_types.UUID `json:"project_id"`
+		} `json:"new_commitments"`
+
+		// PhaseChanges The ladder moves recorded in the window (from `project_phase_history`), newest first.
+		PhaseChanges []struct {
+			// FromPhase A rung of the project ladder (initiative, pursuing, delivering, closed); null for the birth row.
+			FromPhase  *string            `json:"from_phase,omitempty"`
+			Key        *string            `json:"key,omitempty"`
+			Name       string             `json:"name"`
+			OccurredAt time.Time          `json:"occurred_at"`
+			ProjectId  openapi_types.UUID `json:"project_id"`
+
+			// ToPhase A rung of the project ladder.
+			ToPhase string `json:"to_phase"`
+		} `json:"phase_changes"`
+	} `json:"projects,omitempty"`
+	Review struct {
 		// ApprovalsPending Pending 🟡 items (enrich, quarantine, merge).
 		ApprovalsPending *int `json:"approvals_pending,omitempty"`
 		Classify         *struct {
@@ -18118,6 +18202,16 @@ type Organization360 struct {
 	// Projects The company's unarchived projects, work in motion first (delivering, pursuing, initiative, then closed), under the caller's project row scope. Absent when the caller has no project grant, named in `sections_omitted` as `projects`.
 	Projects *[]Organization360Project `json:"projects,omitempty"`
 
+	// Scope What a read narrowed to one project reports about the narrowing, so a surface can
+	// say "Scoped to KEY · N of M activities" from the server's own count rather than
+	// guessing. Present only when the request named a `project_id`.
+	//
+	// `in_scope` counts the activities the scoped read could see — filed under this
+	// project or under none — and `total` the same anchor's activities unscoped, both
+	// under the caller's own row scope. Both are ABSENT, not zero, when the caller holds
+	// no activity grant: the project is still named, the count is not invented.
+	Scope *ProjectScope `json:"scope,omitempty"`
+
 	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
 	SectionsOmitted []Organization360SectionsOmitted `json:"sections_omitted"`
 
@@ -18610,6 +18704,16 @@ type OrganizationAnswer struct {
 	// `whats_changed` — what has moved on this account recently.
 	Question OrganizationQuestion `json:"question"`
 
+	// Scope What a read narrowed to one project reports about the narrowing, so a surface can
+	// say "Scoped to KEY · N of M activities" from the server's own count rather than
+	// guessing. Present only when the request named a `project_id`.
+	//
+	// `in_scope` counts the activities the scoped read could see — filed under this
+	// project or under none — and `total` the same anchor's activities unscoped, both
+	// under the caller's own row scope. Both are ABSENT, not zero, when the caller holds
+	// no activity grant: the project is still named, the count is not invented.
+	Scope *ProjectScope `json:"scope,omitempty"`
+
 	// Sentences The answer, one claim per entry. Empty when the caller's grants leave the
 	// question nothing to answer from — an honest "nothing here I can show you"
 	// rather than a sentence written around the gap.
@@ -18628,6 +18732,16 @@ type OrganizationBrief struct {
 	// reader deciding how much to trust a sentence needs to know which wrote it.
 	GeneratedBy    WrittenBy          `json:"generated_by"`
 	OrganizationId openapi_types.UUID `json:"organization_id"`
+
+	// Scope What a read narrowed to one project reports about the narrowing, so a surface can
+	// say "Scoped to KEY · N of M activities" from the server's own count rather than
+	// guessing. Present only when the request named a `project_id`.
+	//
+	// `in_scope` counts the activities the scoped read could see — filed under this
+	// project or under none — and `total` the same anchor's activities unscoped, both
+	// under the caller's own row scope. Both are ABSENT, not zero, when the caller holds
+	// no activity grant: the project is still named, the count is not invented.
+	Scope *ProjectScope `json:"scope,omitempty"`
 
 	// Sections The brief, in the order a reader asks its questions: what this company is and why it
 	// matters to us, how the relationship stands, what happened lately, and what to do next.
@@ -19717,6 +19831,16 @@ type Person360 struct {
 	// RelationshipChanges What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold.
 	RelationshipChanges *[]PersonRelationshipChange `json:"relationship_changes,omitempty"`
 
+	// Scope What a read narrowed to one project reports about the narrowing, so a surface can
+	// say "Scoped to KEY · N of M activities" from the server's own count rather than
+	// guessing. Present only when the request named a `project_id`.
+	//
+	// `in_scope` counts the activities the scoped read could see — filed under this
+	// project or under none — and `total` the same anchor's activities unscoped, both
+	// under the caller's own row scope. Both are ABSENT, not zero, when the caller holds
+	// no activity grant: the project is still named, the count is not invented.
+	Scope *ProjectScope `json:"scope,omitempty"`
+
 	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
 	SectionsOmitted []Person360SectionsOmitted `json:"sections_omitted"`
 
@@ -20803,6 +20927,24 @@ type Project360Stakeholder struct {
 type ProjectListResponse struct {
 	Data []Project `json:"data"`
 	Page PageInfo  `json:"page"`
+}
+
+// ProjectScope What a read narrowed to one project reports about the narrowing, so a surface can
+// say "Scoped to KEY · N of M activities" from the server's own count rather than
+// guessing. Present only when the request named a `project_id`.
+//
+// `in_scope` counts the activities the scoped read could see — filed under this
+// project or under none — and `total` the same anchor's activities unscoped, both
+// under the caller's own row scope. Both are ABSENT, not zero, when the caller holds
+// no activity grant: the project is still named, the count is not invented.
+type ProjectScope struct {
+	InScope *int `json:"in_scope,omitempty"`
+
+	// Key The subject-line handle, when the project has one.
+	Key       *string            `json:"key,omitempty"`
+	Name      string             `json:"name"`
+	ProjectId openapi_types.UUID `json:"project_id"`
+	Total     *int               `json:"total,omitempty"`
 }
 
 // PromoteLeadPreview What POST /leads/{id}/promote would do, computed without writing (ADR-0119/A170).
@@ -22224,11 +22366,15 @@ type Signal struct {
 	Evidence []SignalEvidence   `json:"evidence"`
 	Id       openapi_types.UUID `json:"id"`
 
-	// Kind The first six are what a human files by hand. The last four are what the producers
+	// Kind The first six are what a human files by hand. The rest are what the producers
 	// raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
 	// out of a settled conversation by the `signal_extract` site, each citing the message
 	// it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
-	// interaction is ours, nobody answered it, and the account is one worth chasing.
+	// interaction is ours, nobody answered it, and the account is one worth chasing;
+	// `project_gone_quiet` is the same kind of comparison on a project — it is being
+	// pursued or delivered and nothing has been filed against it for 30 days (the
+	// `projects-gone-quiet` report's own rule). Its subject is the project
+	// (`entity_type: project`), attributed to the project's company.
 	Kind SignalKind `json:"kind"`
 
 	// RawRef Pointer to the raw source payload the resolver works from: an email address/handle, a domain, a URL, or a company mention.
@@ -22263,11 +22409,15 @@ type Signal struct {
 // SignalEntityType The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
 type SignalEntityType string
 
-// SignalKind The first six are what a human files by hand. The last four are what the producers
+// SignalKind The first six are what a human files by hand. The rest are what the producers
 // raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
 // out of a settled conversation by the `signal_extract` site, each citing the message
 // it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
-// interaction is ours, nobody answered it, and the account is one worth chasing.
+// interaction is ours, nobody answered it, and the account is one worth chasing;
+// `project_gone_quiet` is the same kind of comparison on a project — it is being
+// pursued or delivered and nothing has been filed against it for 30 days (the
+// `projects-gone-quiet` report's own rule). Its subject is the project
+// (`entity_type: project`), attributed to the project's company.
 type SignalKind string
 
 // SignalResolutionState The raw→entity match outcome: an ambiguous match is `low_confidence` (surfaced, never silently asserted); an unattributable one is `dropped`.
@@ -23492,6 +23642,9 @@ type AiWritten = bool
 // ApprovalToken defines model for ApprovalToken.
 type ApprovalToken = string
 
+// BriefProjectId defines model for BriefProjectId.
+type BriefProjectId = openapi_types.UUID
+
 // BundleId defines model for BundleId.
 type BundleId = openapi_types.UUID
 
@@ -23735,6 +23888,12 @@ type SetActivityAudienceParams struct {
 type DraftEmailJSONBody struct {
 	// Intent Optional steering, e.g. "polite follow-up referencing Friday".
 	Intent *string `json:"intent,omitempty"`
+}
+
+// GetMeetingBriefParams defines parameters for GetMeetingBrief.
+type GetMeetingBriefParams struct {
+	// ProjectId The body of work to prepare for, for a meeting filed under NO project. A meeting filed under a project scopes itself by that filing: naming the same project here is accepted, naming a different one is `404` — the brief for a meeting about one engagement is not available as a brief about another. Must be a live project the caller can read.
+	ProjectId *openapi_types.UUID `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
 
 // RelinkActivityJSONBody defines parameters for RelinkActivity.
@@ -25711,6 +25870,9 @@ type GetOrganization360Params struct {
 
 // AskAboutOrganizationJSONBody defines parameters for AskAboutOrganization.
 type AskAboutOrganizationJSONBody struct {
+	// ProjectId Which body of work the question is about. When set, the answer is written from the 360 scoped to that project — activity filed under another project drops out, activity filed under none stays — and the answer's `scope` says so. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
+
 	// Question The prepared questions. Fixed, because each one names the records its answer is
 	// written from — which is what makes the answer citable.
 	//
@@ -25720,6 +25882,18 @@ type AskAboutOrganizationJSONBody struct {
 	// `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
 	// `whats_changed` — what has moved on this account recently.
 	Question OrganizationQuestion `json:"question"`
+}
+
+// GetOrganizationBriefParams defines parameters for GetOrganizationBrief.
+type GetOrganizationBriefParams struct {
+	// ProjectId Narrow the brief to one body of work: it is written from the 360 scoped to that project — activity filed under another project drops out, activity filed under none stays — and the response's `scope` says so. The cache fingerprint carries the project, so a scoped and an unscoped brief never serve each other. Must be a live project the caller can read; an invisible or archived one is `404`.
+	ProjectId *BriefProjectId `form:"project_id,omitempty" json:"project_id,omitempty"`
+}
+
+// RegenerateOrganizationBriefParams defines parameters for RegenerateOrganizationBrief.
+type RegenerateOrganizationBriefParams struct {
+	// ProjectId Narrow the brief to one body of work: it is written from the 360 scoped to that project — activity filed under another project drops out, activity filed under none stays — and the response's `scope` says so. The cache fingerprint carries the project, so a scoped and an unscoped brief never serve each other. Must be a live project the caller can read; an invisible or archived one is `404`.
+	ProjectId *BriefProjectId `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
 
 // ListOrganizationContractsParams defines parameters for ListOrganizationContracts.
@@ -35986,7 +36160,7 @@ type ServerInterface interface {
 	DraftEmail(w http.ResponseWriter, r *http.Request, id Id)
 	// The pre-meeting brief for one booked meeting — goal, commitments, where the deal stands.
 	// (GET /activities/{id}/meeting-brief)
-	GetMeetingBrief(w http.ResponseWriter, r *http.Request, id Id)
+	GetMeetingBrief(w http.ResponseWriter, r *http.Request, id Id, params GetMeetingBriefParams)
 	// Every ingress stage this message passed through, and why each did or did not run.
 	// (GET /activities/{id}/pipeline)
 	ReadActivityPipelineTrace(w http.ResponseWriter, r *http.Request, id Id)
@@ -36748,10 +36922,10 @@ type ServerInterface interface {
 	AskAboutOrganization(w http.ResponseWriter, r *http.Request, id Id)
 	// The standing account brief — what this account is, where it stands, and what changed.
 	// (GET /organizations/{id}/brief)
-	GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id)
+	GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationBriefParams)
 	// Regenerate this account's brief, ignoring the cached one.
 	// (POST /organizations/{id}/brief)
-	RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id)
+	RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id, params RegenerateOrganizationBriefParams)
 	// The agreements this account holds, newest first (CONTRACT-WIRE-1).
 	// (GET /organizations/{id}/contracts)
 	ListOrganizationContracts(w http.ResponseWriter, r *http.Request, id Id, params ListOrganizationContractsParams)
@@ -37444,7 +37618,7 @@ func (_ Unimplemented) DraftEmail(w http.ResponseWriter, r *http.Request, id Id)
 
 // The pre-meeting brief for one booked meeting — goal, commitments, where the deal stands.
 // (GET /activities/{id}/meeting-brief)
-func (_ Unimplemented) GetMeetingBrief(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) GetMeetingBrief(w http.ResponseWriter, r *http.Request, id Id, params GetMeetingBriefParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -38968,13 +39142,13 @@ func (_ Unimplemented) AskAboutOrganization(w http.ResponseWriter, r *http.Reque
 
 // The standing account brief — what this account is, where it stands, and what changed.
 // (GET /organizations/{id}/brief)
-func (_ Unimplemented) GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationBriefParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // Regenerate this account's brief, ignoring the cached one.
 // (POST /organizations/{id}/brief)
-func (_ Unimplemented) RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id) {
+func (_ Unimplemented) RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id, params RegenerateOrganizationBriefParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40886,8 +41060,24 @@ func (siw *ServerInterfaceWrapper) GetMeetingBrief(w http.ResponseWriter, r *htt
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMeetingBriefParams
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetMeetingBrief(w, r, id)
+		siw.Handler.GetMeetingBrief(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -51747,8 +51937,24 @@ func (siw *ServerInterfaceWrapper) GetOrganizationBrief(w http.ResponseWriter, r
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetOrganizationBriefParams
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetOrganizationBrief(w, r, id)
+		siw.Handler.GetOrganizationBrief(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -51779,8 +51985,24 @@ func (siw *ServerInterfaceWrapper) RegenerateOrganizationBrief(w http.ResponseWr
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RegenerateOrganizationBriefParams
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RegenerateOrganizationBrief(w, r, id)
+		siw.Handler.RegenerateOrganizationBrief(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

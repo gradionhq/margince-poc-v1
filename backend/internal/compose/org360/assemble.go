@@ -83,18 +83,6 @@ type AssembleOptions struct {
 	ProjectID *ids.ProjectID
 }
 
-// projectScope renders the body-of-work narrowing as one more WHERE term on
-// the activity alias `a`, or nothing when the page is unscoped. Every
-// activity-reading section goes through it — timeline, last touch, next
-// steps, next meeting, the since-last-visit count — so the page cannot show
-// one project's rows beside another project's date or task.
-func (o AssembleOptions) projectScope(arg func(any) int) string {
-	if o.ProjectID == nil {
-		return ""
-	}
-	return " AND " + activities.ActivityWithinProject(arg(*o.ProjectID))
-}
-
 // AssembleScoped is Assemble narrowed by opts.
 func (s *Service) AssembleScoped(ctx context.Context, orgID ids.OrganizationID, opts AssembleOptions) (crmcontracts.Organization360, error) {
 	now := s.now().UTC()
@@ -112,14 +100,8 @@ func (s *Service) AssembleScoped(ctx context.Context, orgID ids.OrganizationID, 
 			return err
 		}
 		out.Organization = org
-		// The scope is a read of the project, gated before any section
-		// filters on it — and as the whole read's refusal, not a section's:
-		// a page narrowed to a project the caller may not see has no honest
-		// sections at all.
-		if opts.ProjectID != nil {
-			if err := activities.RequireProjectScope(ctx, tx, *opts.ProjectID); err != nil {
-				return err
-			}
+		if err := opts.admit(ctx, tx, orgID, &out); err != nil {
+			return err
 		}
 		return s.sections(ctx, tx, orgID, now, opts, &out)
 	})

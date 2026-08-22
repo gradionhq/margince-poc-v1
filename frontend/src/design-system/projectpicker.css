@@ -1,0 +1,8 @@
+/* The project picker: a label and its Select on one line, the way the
+   composer's other grounding rows sit. */
+
+.projectpicker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}

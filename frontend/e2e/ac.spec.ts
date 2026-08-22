@@ -438,6 +438,20 @@ test("AC-deal-6: a terminal-stage drop is a 🟡 confirm — nothing runs before
   const won = page.locator('[data-stage="s4"]');
   await card.dragTo(won);
   await expect(page.getByText("Nach Won verschieben?")).toBeVisible();
+
+  // The first Confirm is REFUSED, and that is the criterion rather than a
+  // detour: this deal carries no signed contract, and a win without paper has
+  // to say how it was won (deals/deal_advance.go's ensureWinEvidence). The
+  // reason panel is deliberately not shown before the refusal — a win the
+  // paperwork already explains stays one click, because a field every rep must
+  // fill is a field every rep fills with the same lie.
+  await page.getByRole("button", { name: "Bestätigen" }).click();
+  await expect(page.getByText("Wie wurde er gewonnen?")).toBeVisible();
+  // Still nothing has run: the drop is not applied while the dialog is open.
+  await expect(page.getByText("Nach Won verschoben")).toHaveCount(0);
+
+  await page.getByRole("combobox", { name: "Wie wurde er gewonnen?" }).click();
+  await page.getByRole("option", { name: "Per Bestellung" }).click();
   await page.getByRole("button", { name: "Bestätigen" }).click();
   await expect(page.getByText("Nach Won verschoben")).toBeVisible();
 });

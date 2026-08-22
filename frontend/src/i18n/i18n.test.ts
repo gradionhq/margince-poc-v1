@@ -35,6 +35,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "today.route.headline",
   // Two phase names and an arrow: the same shape.
   "project.history.moved",
+  "home.digestPhaseChange",
   // An em dash standing in for a figure nobody can compute yet. A glyph, not a
   // word — the sentence explaining it is the detail line beside it.
   "co.strip.financeUnknown",

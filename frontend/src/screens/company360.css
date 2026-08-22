@@ -1191,6 +1191,10 @@
   font-size: var(--fs-meta);
   color: var(--textMeta);
 }
+.co-signal-link {
+  display: inline-block;
+  font-size: var(--fs-meta);
+}
 /* The brief's context is a STANDFIRST: one line under the panel's title that
    says why the moves below it are being asked, and then gets out of the way.
    It sat as a grid of label-over-value tiles, directly beneath a state strip

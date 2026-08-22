@@ -109,10 +109,17 @@ func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[Sig
 	wsID := ids.From[ids.WorkspaceKind](job.Args.Workspace)
 
 	now := w.now()
-	var ghosted GhostedPass
+	var ghosted, quiet GhostedPass
 	if err := database.WithWorkspaceTx(wsCtx, w.pool, func(tx pgx.Tx) error {
 		pass, err := WriteGhostedSignals(wsCtx, tx, now)
+		if err != nil {
+			return err
+		}
 		ghosted = pass
+		// The second comparison rule rides the same transaction: both are
+		// one query and no model call, and a rep should not see one half of
+		// the deterministic findings because two schedules drifted.
+		quiet, err = WriteProjectQuietSignals(wsCtx, tx, now)
 		return err
 	}); err != nil {
 		return jobs.FaultContext(ctx, err)
@@ -148,6 +155,7 @@ func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[Sig
 	// installation that bought no model.
 	fields := []any{
 		"ghosted_considered", ghosted.Considered, "ghosted_raised", ghosted.Raised,
+		"quiet_projects_considered", quiet.Considered, "quiet_projects_raised", quiet.Raised,
 		"offers_standing", standing, "model_lane", w.extractor != nil,
 	}
 	if w.extractor != nil {

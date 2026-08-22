@@ -10853,6 +10853,56 @@ export interface components {
                 last_synced_at?: string | null;
                 last_sync_error_class?: string | null;
             }[];
+            /**
+             * @description What moved on the bodies of work in the window, and which have gone quiet. Absent
+             *     from a digest built without the section; each list is empty when nothing happened.
+             *     Workspace-level like the counts above: a project is read by every seat holding the
+             *     grant.
+             */
+            projects?: {
+                /** @description The ladder moves recorded in the window (from `project_phase_history`), newest first. */
+                phase_changes: {
+                    /** Format: uuid */
+                    project_id: string;
+                    name: string;
+                    key?: string | null;
+                    /** @description A rung of the project ladder (initiative, pursuing, delivering, closed); null for the birth row. */
+                    from_phase?: string | null;
+                    /** @description A rung of the project ladder. */
+                    to_phase: string;
+                    /** Format: date-time */
+                    occurred_at: string;
+                }[];
+                /** @description The projects that gained still-open tasks in the window, most first. */
+                new_commitments: {
+                    /** Format: uuid */
+                    project_id: string;
+                    name: string;
+                    key?: string | null;
+                    new_open_commitments: number;
+                }[];
+                /**
+                 * @description The projects being pursued or delivered that nothing has been filed against for
+                 *     30 days — the `projects-gone-quiet` report's rule, the same one the
+                 *     `project_gone_quiet` signal is raised on — quietest first.
+                 */
+                gone_quiet: {
+                    /** Format: uuid */
+                    project_id: string;
+                    name: string;
+                    key?: string | null;
+                    /** @description A rung of the project ladder: pursuing or delivering, the two the quiet rule watches. */
+                    phase: string;
+                    /**
+                     * Format: date-time
+                     * @description When the silence began: the last filed activity, or the project's creation when nothing was ever filed.
+                     */
+                    quiet_since: string;
+                    days_quiet: number;
+                    /** Format: uuid */
+                    owner_id?: string | null;
+                }[];
+            };
         };
         /** @description One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8). */
         DedupeCandidate: {
@@ -12404,6 +12454,25 @@ export interface components {
             generated_by: components["schemas"]["WrittenBy"];
         };
         /**
+         * @description What a read narrowed to one project reports about the narrowing, so a surface can
+         *     say "Scoped to KEY · N of M activities" from the server's own count rather than
+         *     guessing. Present only when the request named a `project_id`.
+         *
+         *     `in_scope` counts the activities the scoped read could see — filed under this
+         *     project or under none — and `total` the same anchor's activities unscoped, both
+         *     under the caller's own row scope. Both are ABSENT, not zero, when the caller holds
+         *     no activity grant: the project is still named, the count is not invented.
+         */
+        ProjectScope: {
+            /** Format: uuid */
+            project_id: string;
+            name: string;
+            /** @description The subject-line handle, when the project has one. */
+            key?: string | null;
+            in_scope?: number;
+            total?: number;
+        };
+        /**
          * @description A written brief over one account, assembled from what the READER can see.
          *     Every sentence carries the records it was written from, so the reader can open
          *     the evidence rather than take the sentence on trust.
@@ -12414,6 +12483,8 @@ export interface components {
             /** Format: date-time */
             generated_at: string;
             generated_by: components["schemas"]["WrittenBy"];
+            /** @description The project this was narrowed to, when the request named one. */
+            scope?: components["schemas"]["ProjectScope"];
             /**
              * @description The brief, in the order a reader asks its questions: what this company is and why it
              *     matters to us, how the relationship stands, what happened lately, and what to do next.
@@ -12466,6 +12537,8 @@ export interface components {
             /** Format: date-time */
             generated_at: string;
             generated_by: components["schemas"]["WrittenBy"];
+            /** @description The project this was narrowed to, when the request named one. */
+            scope?: components["schemas"]["ProjectScope"];
             /**
              * @description The answer, one claim per entry. Empty when the caller's grants leave the
              *     question nothing to answer from — an honest "nothing here I can show you"
@@ -13055,6 +13128,8 @@ export interface components {
              */
             as_of: string;
             organization: components["schemas"]["Organization"];
+            /** @description The project this was narrowed to, when the request named one. */
+            scope?: components["schemas"]["ProjectScope"];
             /**
              * Format: date-time
              * @description When they last wrote to us, over the same three-link walk the timeline uses (the activity's own link, its deal's organization, the employer of the contact it is filed against). Null means nothing inbound was ever captured — which is a fact about the account, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
@@ -13250,6 +13325,8 @@ export interface components {
              */
             as_of: string;
             person: components["schemas"]["Person"];
+            /** @description The project this was narrowed to, when the request named one. */
+            scope?: components["schemas"]["ProjectScope"];
             /**
              * Format: date-time
              * @description When they last wrote to us. Null means nothing inbound was ever captured — a fact about the relationship, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
@@ -13570,19 +13647,25 @@ export interface components {
              */
             generated_at: string;
             generated_by: components["schemas"]["WrittenBy"];
+            /** @description The project this was narrowed to, when the request named one. */
+            scope?: components["schemas"]["ProjectScope"];
             /** @description The sections that had something to say, in ADR-0097 D5's fixed order. A section with no surviving sentence is absent, never present-and-empty: `risks` in particular is specified as omitted when empty, and the same rule reads honestly for every other. */
             sections: components["schemas"]["MeetingBriefSection"][];
         };
-        /** @description One of the eight fixed sections, with its cited sentences. */
+        /** @description One of the nine fixed sections, with its cited sentences. */
         MeetingBriefSection: {
             /**
-             * @description The eight of ADR-0097 D5, in the order a reader reads them. A closed enum rather
-             *     than a free-text heading, so a surface can label, order and collapse them and no
-             *     writer can invent a ninth.
+             * @description The eight of ADR-0097 D5 plus `what_changed`, in the order a reader reads them. A
+             *     closed enum rather than a free-text heading, so a surface can label, order and
+             *     collapse them and no writer can invent a tenth.
              *
              *     `header` — meeting, time, company, deal and how long since the last touch (deterministic).
              *     `goal` — the single next-step target; it leads because burying the ask is the
              *     canonical prep failure.
+             *     `what_changed` — what happened after the READER last dealt with this deal's people:
+             *     promises made, objections raised, decisions taken, conversations held, files that
+             *     changed hands. Its first line names the baseline; when the reader has never dealt
+             *     with them it says so ("first contact") rather than "nothing changed".
              *     `attendees` — who is in the room, with the first-timers flagged.
              *     `commitments` — what was promised, ours and theirs, each with its source and status.
              *     `deal_state` — where the deal stands: last conversation, objections, open questions.
@@ -13591,7 +13674,7 @@ export interface components {
              *     `company_context` — background, collapsed and last.
              * @enum {string}
              */
-            kind: "header" | "goal" | "attendees" | "commitments" | "deal_state" | "risks" | "talking_points" | "company_context";
+            kind: "header" | "goal" | "what_changed" | "attendees" | "commitments" | "deal_state" | "risks" | "talking_points" | "company_context";
             /** @description The section's lines, each citing the records it was written from. A sentence whose citations do not resolve is dropped whole rather than shown uncited. */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
         };
@@ -15863,6 +15946,8 @@ export interface components {
             /** @description Plain text, end to end. There is no rich-text storage format, no paste sanitiser and no HTML+text send pair, so a formatted draft would be a wire change rather than a toolbar. */
             body: string;
             to?: string[];
+            /** @description The project this was narrowed to, when the request named one. */
+            scope?: components["schemas"]["ProjectScope"];
             /**
              * @description What the draft was written from, as separate claims rather than a sentence in
              *     the body. A SIBLING of the body on purpose (DRAFT-AC-N-4): a body that
@@ -16687,14 +16772,18 @@ export interface components {
             /** Format: uuid */
             id: string;
             /**
-             * @description The first six are what a human files by hand. The last four are what the producers
+             * @description The first six are what a human files by hand. The rest are what the producers
              *     raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
              *     out of a settled conversation by the `signal_extract` site, each citing the message
              *     it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
-             *     interaction is ours, nobody answered it, and the account is one worth chasing.
+             *     interaction is ours, nobody answered it, and the account is one worth chasing;
+             *     `project_gone_quiet` is the same kind of comparison on a project — it is being
+             *     pursued or delivered and nothing has been filed against it for 30 days (the
+             *     `projects-gone-quiet` report's own rule). Its subject is the project
+             *     (`entity_type: project`), attributed to the project's company.
              * @enum {string}
              */
-            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other" | "contract_ended" | "new_opportunity" | "commitment_made" | "ghosted_thread";
+            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other" | "contract_ended" | "new_opportunity" | "commitment_made" | "ghosted_thread" | "project_gone_quiet";
             /**
              * @description Where the raw signal came from.
              * @default derived
@@ -16707,7 +16796,7 @@ export interface components {
              * @description The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
              * @enum {string|null}
              */
-            entity_type?: "deal" | "organization" | "person" | null;
+            entity_type?: "deal" | "organization" | "person" | "project" | null;
             /** Format: uuid */
             entity_id?: string | null;
             /**
@@ -16771,7 +16860,7 @@ export interface components {
              * @description Subject record, both entity fields together or neither: with a subject the signal enters `resolved`; without one it enters `unresolved` (a raw item needing a raw_ref for POST /signals/{id}/resolve).
              * @enum {string|null}
              */
-            entity_type?: "deal" | "organization" | "person" | null;
+            entity_type?: "deal" | "organization" | "person" | "project" | null;
             /** Format: uuid */
             entity_id?: string | null;
             /**
@@ -21146,6 +21235,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description Narrow the brief to one body of work: it is written from the 360 scoped to that project — activity filed under another project drops out, activity filed under none stays — and the response's `scope` says so. The cache fingerprint carries the project, so a scoped and an unscoped brief never serve each other. Must be a live project the caller can read; an invisible or archived one is `404`. */
+        BriefProjectId: string;
         /** @description The profile field's key — the same closed vocabulary `CompanyProfileField.field` carries. */
         ProfileFieldKey: "display_name" | "offer_summary" | "icp" | "value_proposition" | "usp" | "customer_pains" | "desired_outcomes" | "buying_center" | "buying_intents" | "common_objections" | "sales_motion" | "legal_name" | "registered_address" | "register_vat" | "industry" | "history";
         /**
@@ -23420,7 +23511,10 @@ export interface operations {
     };
     getOrganizationBrief: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrow the brief to one body of work: it is written from the 360 scoped to that project — activity filed under another project drops out, activity filed under none stays — and the response's `scope` says so. The cache fingerprint carries the project, so a scoped and an unscoped brief never serve each other. Must be a live project the caller can read; an invisible or archived one is `404`. */
+                project_id?: components["parameters"]["BriefProjectId"];
+            };
             header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
@@ -23447,7 +23541,10 @@ export interface operations {
     };
     regenerateOrganizationBrief: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrow the brief to one body of work: it is written from the 360 scoped to that project — activity filed under another project drops out, activity filed under none stays — and the response's `scope` says so. The cache fingerprint carries the project, so a scoped and an unscoped brief never serve each other. Must be a live project the caller can read; an invisible or archived one is `404`. */
+                project_id?: components["parameters"]["BriefProjectId"];
+            };
             header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
@@ -23526,6 +23623,11 @@ export interface operations {
             content: {
                 "application/json": {
                     question: components["schemas"]["OrganizationQuestion"];
+                    /**
+                     * Format: uuid
+                     * @description Which body of work the question is about. When set, the answer is written from the 360 scoped to that project — activity filed under another project drops out, activity filed under none stays — and the answer's `scope` says so. Must be a live project the caller can read; an invisible or archived one is `404`, the same answer a direct read gives.
+                     */
+                    project_id?: string | null;
                 };
             };
         };
@@ -25630,7 +25732,10 @@ export interface operations {
     };
     getMeetingBrief: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The body of work to prepare for, for a meeting filed under NO project. A meeting filed under a project scopes itself by that filing: naming the same project here is accepted, naming a different one is `404` — the brief for a meeting about one engagement is not available as a brief about another. Must be a live project the caller can read. */
+                project_id?: string;
+            };
             header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */

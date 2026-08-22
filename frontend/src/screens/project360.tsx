@@ -20,6 +20,7 @@ import { useLocale, useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import { QueryGate, throwProblem, useMe, useSorMode } from "./common";
 import { NewDealAction } from "./companyactions";
+import { TimelineActions } from "./compose";
 import { EditAction } from "./edit";
 import { EntityRef, OwnerName } from "./entityref";
 import { AdvanceProjectModal, PhaseStepper } from "./projectphase";
@@ -319,6 +320,13 @@ function useProjectChronology(
     activities: timeline.activities,
     activitiesHaveMore: timeline.hasNextPage,
     loadMore: timeline,
+    renderActions: (activity) => (
+      <TimelineActions
+        activity={activity}
+        entityType="project"
+        entityId={view.project.id}
+      />
+    ),
   });
   if (overlay) {
     return { timeline: history.entries, timelineNotice: <span /> };

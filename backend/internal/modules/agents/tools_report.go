@@ -41,6 +41,10 @@ type ReportCatalogEntry struct {
 	// Defaults says what the report answers when the plan arguments are
 	// omitted, which is the call a caller should make first.
 	Defaults string
+	// Notes says what a filter MEANS when its name alone does not: which
+	// rows `project_id` admits, what unit `days` is in. Empty when every
+	// name is self-evident.
+	Notes string
 }
 
 // RegisterReportTool joins run_report to the surface once the engine
@@ -125,6 +129,10 @@ func describeReportCatalog(catalog []ReportCatalogEntry) string {
 		if entry.Defaults != "" {
 			b.WriteString("; default: ")
 			b.WriteString(entry.Defaults)
+		}
+		if entry.Notes != "" {
+			b.WriteString("; note: ")
+			b.WriteString(entry.Notes)
 		}
 		b.WriteString(".")
 	}
