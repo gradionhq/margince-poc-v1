@@ -10717,6 +10717,36 @@ func (e ListDealsParamsPartnerAttribution) Valid() bool {
 	}
 }
 
+// Defines values for ListDealDocumentsParamsCategory.
+const (
+	ListDealDocumentsParamsCategoryContract          ListDealDocumentsParamsCategory = "contract"
+	ListDealDocumentsParamsCategoryEmailAttachment   ListDealDocumentsParamsCategory = "email_attachment"
+	ListDealDocumentsParamsCategoryLegal             ListDealDocumentsParamsCategory = "legal"
+	ListDealDocumentsParamsCategoryMessageAttachment ListDealDocumentsParamsCategory = "message_attachment"
+	ListDealDocumentsParamsCategoryOffer             ListDealDocumentsParamsCategory = "offer"
+	ListDealDocumentsParamsCategoryOther             ListDealDocumentsParamsCategory = "other"
+)
+
+// Valid indicates whether the value is a known member of the ListDealDocumentsParamsCategory enum.
+func (e ListDealDocumentsParamsCategory) Valid() bool {
+	switch e {
+	case ListDealDocumentsParamsCategoryContract:
+		return true
+	case ListDealDocumentsParamsCategoryEmailAttachment:
+		return true
+	case ListDealDocumentsParamsCategoryLegal:
+		return true
+	case ListDealDocumentsParamsCategoryMessageAttachment:
+		return true
+	case ListDealDocumentsParamsCategoryOffer:
+		return true
+	case ListDealDocumentsParamsCategoryOther:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListDealOffersParamsStatus.
 const (
 	ListDealOffersParamsStatusAccepted   ListDealOffersParamsStatus = "accepted"
@@ -11016,31 +11046,31 @@ func (e ListOrganizationsParamsCapturedByKind) Valid() bool {
 
 // Defines values for ListOrganizationsParamsLifecycle.
 const (
-	ListOrganizationsParamsLifecycleCustomer       ListOrganizationsParamsLifecycle = "customer"
-	ListOrganizationsParamsLifecycleDisqualified   ListOrganizationsParamsLifecycle = "disqualified"
-	ListOrganizationsParamsLifecycleFormerCustomer ListOrganizationsParamsLifecycle = "former_customer"
-	ListOrganizationsParamsLifecycleOpportunity    ListOrganizationsParamsLifecycle = "opportunity"
-	ListOrganizationsParamsLifecycleProspect       ListOrganizationsParamsLifecycle = "prospect"
-	ListOrganizationsParamsLifecycleTarget         ListOrganizationsParamsLifecycle = "target"
-	ListOrganizationsParamsLifecycleUnknown        ListOrganizationsParamsLifecycle = "unknown"
+	Customer       ListOrganizationsParamsLifecycle = "customer"
+	Disqualified   ListOrganizationsParamsLifecycle = "disqualified"
+	FormerCustomer ListOrganizationsParamsLifecycle = "former_customer"
+	Opportunity    ListOrganizationsParamsLifecycle = "opportunity"
+	Prospect       ListOrganizationsParamsLifecycle = "prospect"
+	Target         ListOrganizationsParamsLifecycle = "target"
+	Unknown        ListOrganizationsParamsLifecycle = "unknown"
 )
 
 // Valid indicates whether the value is a known member of the ListOrganizationsParamsLifecycle enum.
 func (e ListOrganizationsParamsLifecycle) Valid() bool {
 	switch e {
-	case ListOrganizationsParamsLifecycleCustomer:
+	case Customer:
 		return true
-	case ListOrganizationsParamsLifecycleDisqualified:
+	case Disqualified:
 		return true
-	case ListOrganizationsParamsLifecycleFormerCustomer:
+	case FormerCustomer:
 		return true
-	case ListOrganizationsParamsLifecycleOpportunity:
+	case Opportunity:
 		return true
-	case ListOrganizationsParamsLifecycleProspect:
+	case Prospect:
 		return true
-	case ListOrganizationsParamsLifecycleTarget:
+	case Target:
 		return true
-	case ListOrganizationsParamsLifecycleUnknown:
+	case Unknown:
 		return true
 	default:
 		return false
@@ -15304,6 +15334,37 @@ type DealCoverageSeat struct {
 	Engaged  bool               `json:"engaged"`
 	PersonId openapi_types.UUID `json:"person_id"`
 	Role     string             `json:"role"`
+}
+
+// DealDocument One file in a deal's Files area: the attachment, whether it is hidden from this
+// deal, and where a captured file came from, so a reader can tell "the contract
+// Laura mailed on the 12th" from "the draft I uploaded".
+type DealDocument struct {
+	// Attachment A file hung off an entity. Mirrors the `attachment` table: the row is the
+	// system of record and the tenant anchor; the bytes live in object storage,
+	// addressed by an internal object key that is never exposed on the wire.
+	Attachment Attachment `json:"attachment"`
+	Hidden     bool       `json:"hidden"`
+
+	// Origin Where a captured file came from. Present for a file that arrived with a message linked to the deal; absent for a file uploaded on the deal.
+	Origin *DealDocumentOrigin `json:"origin,omitempty"`
+}
+
+// DealDocumentListResponse defines model for DealDocumentListResponse.
+type DealDocumentListResponse struct {
+	Data []DealDocument `json:"data"`
+	Page PageInfo       `json:"page"`
+}
+
+// DealDocumentOrigin Where a captured file came from. Present for a file that arrived with a message linked to the deal; absent for a file uploaded on the deal.
+type DealDocumentOrigin struct {
+	ActivityId        openapi_types.UUID   `json:"activity_id"`
+	CounterpartyEmail *openapi_types.Email `json:"counterparty_email,omitempty"`
+
+	// Kind The activity kind the file arrived with: email, message, meeting.
+	Kind       string    `json:"kind"`
+	OccurredAt time.Time `json:"occurred_at"`
+	Subject    *string   `json:"subject,omitempty"`
 }
 
 // DealHealthFactor defines model for DealHealthFactor.
@@ -24626,6 +24687,27 @@ type AdvanceDealParams struct {
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
+
+// ListDealDocumentsParams defines parameters for ListDealDocuments.
+type ListDealDocumentsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit         *Limit                           `form:"limit,omitempty" json:"limit,omitempty"`
+	Category      *ListDealDocumentsParamsCategory `form:"category,omitempty" json:"category,omitempty"`
+	IncludeHidden *bool                            `form:"include_hidden,omitempty" json:"include_hidden,omitempty"`
+}
+
+// ListDealDocumentsParamsCategory defines parameters for ListDealDocuments.
+type ListDealDocumentsParamsCategory string
 
 // ListDealOffersParams defines parameters for ListDealOffers.
 type ListDealOffersParams struct {
@@ -36247,6 +36329,15 @@ type ServerInterface interface {
 	// Who covers this deal, and what is wrong with how it is covered.
 	// (GET /deals/{id}/coverage)
 	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// The deal's Files area — its own uploads and the files of every message linked to it.
+	// (GET /deals/{id}/documents)
+	ListDealDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListDealDocumentsParams)
+	// List the file on this deal again.
+	// (DELETE /deals/{id}/documents/{attachmentId}/hide)
+	UnhideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID)
+	// Stop listing a captured file on this deal without touching the file.
+	// (PUT /deals/{id}/documents/{attachmentId}/hide)
+	HideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID)
 	// How the deal stands — four named factors, each with the fact behind it.
 	// (GET /deals/{id}/health)
 	GetDealHealth(w http.ResponseWriter, r *http.Request, id Id)
@@ -38140,6 +38231,24 @@ func (_ Unimplemented) AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id
 // Who covers this deal, and what is wrong with how it is covered.
 // (GET /deals/{id}/coverage)
 func (_ Unimplemented) GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The deal's Files area — its own uploads and the files of every message linked to it.
+// (GET /deals/{id}/documents)
+func (_ Unimplemented) ListDealDocuments(w http.ResponseWriter, r *http.Request, id Id, params ListDealDocumentsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the file on this deal again.
+// (DELETE /deals/{id}/documents/{attachmentId}/hide)
+func (_ Unimplemented) UnhideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Stop listing a captured file on this deal without touching the file.
+// (PUT /deals/{id}/documents/{attachmentId}/hide)
+func (_ Unimplemented) HideDealDocument(w http.ResponseWriter, r *http.Request, id Id, attachmentId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -46948,6 +47057,175 @@ func (siw *ServerInterfaceWrapper) GetDealCoverage(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDealCoverage(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDealDocuments operation middleware
+func (siw *ServerInterfaceWrapper) ListDealDocuments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDealDocumentsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "category" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "category", r.URL.Query(), &params.Category, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "category"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "category", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_hidden" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_hidden", r.URL.Query(), &params.IncludeHidden, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_hidden"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_hidden", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDealDocuments(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnhideDealDocument operation middleware
+func (siw *ServerInterfaceWrapper) UnhideDealDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", chi.URLParam(r, "attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnhideDealDocument(w, r, id, attachmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// HideDealDocument operation middleware
+func (siw *ServerInterfaceWrapper) HideDealDocument(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", chi.URLParam(r, "attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HideDealDocument(w, r, id, attachmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -61674,6 +61952,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/documents", wrapper.ListDealDocuments)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/deals/{id}/documents/{attachmentId}/hide", wrapper.UnhideDealDocument)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/deals/{id}/documents/{attachmentId}/hide", wrapper.HideDealDocument)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/health", wrapper.GetDealHealth)

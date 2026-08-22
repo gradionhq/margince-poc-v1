@@ -8576,6 +8576,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deals/{id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The deal's Files area — its own uploads and the files of every message linked to it.
+         * @description Every attachment whose parent is the deal, plus every attachment of an activity
+         *     linked to the deal: that is where a captured email's files live, so without
+         *     this read an emailed contract is unreachable from the deal it is about.
+         *
+         *     **Each row is scoped through its own parent.** A captured file follows the
+         *     message's audience, so a colleague outside that audience sees a shorter list
+         *     than the mailbox owner — correct, and never widened here.
+         *
+         *     Inline mail images (small `image/*` parts of a captured message) are left out:
+         *     a logo in every signature would bury the one contract among thirty icons.
+         *     Files hidden from this deal are left out unless `include_hidden` is set, and
+         *     then carry `hidden: true`. Newest first.
+         */
+        get: operations["listDealDocuments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals/{id}/documents/{attachmentId}/hide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                attachmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Stop listing a captured file on this deal without touching the file.
+         * @description A captured attachment belongs to its message: it stays on the activity and in
+         *     the company library. Hiding only takes it off THIS deal's Files area. A file
+         *     already shared in the Deal Room stays in the room's draft, but drops out of the
+         *     next release and of the buyer's download.
+         *
+         *     Needs update on the deal, and the file must be in the deal's Files area for
+         *     this caller; anything else answers 404. Idempotent.
+         */
+        put: operations["hideDealDocument"];
+        post?: never;
+        /** List the file on this deal again. */
+        delete: operations["unhideDealDocument"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deals/{id}/next-best-action": {
         parameters: {
             query?: never;
@@ -15536,6 +15601,32 @@ export interface components {
         };
         AttachmentListResponse: {
             data: components["schemas"]["Attachment"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description One file in a deal's Files area: the attachment, whether it is hidden from this
+         *     deal, and where a captured file came from, so a reader can tell "the contract
+         *     Laura mailed on the 12th" from "the draft I uploaded".
+         */
+        DealDocument: {
+            attachment: components["schemas"]["Attachment"];
+            hidden: boolean;
+            origin?: components["schemas"]["DealDocumentOrigin"];
+        };
+        /** @description Where a captured file came from. Present for a file that arrived with a message linked to the deal; absent for a file uploaded on the deal. */
+        DealDocumentOrigin: {
+            /** Format: uuid */
+            activity_id: string;
+            /** @description The activity kind the file arrived with: email, message, meeting. */
+            kind: string;
+            subject?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            /** Format: email */
+            counterparty_email?: string | null;
+        };
+        DealDocumentListResponse: {
+            data: components["schemas"]["DealDocument"][];
             page: components["schemas"]["PageInfo"];
         };
         /** @description One attempted grounded field from the staged AI-extraction read (RD-T10). */
@@ -36397,6 +36488,97 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listDealDocuments: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";
+                include_hidden?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deal's documents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealDocumentListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    hideDealDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                attachmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hidden. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    unhideDealDocument: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                attachmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Listed again. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
         };
     };

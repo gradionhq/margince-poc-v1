@@ -100,6 +100,7 @@ function DealAside({
   );
 }
 
+import { DealFiles } from "./dealfiles";
 import {
   DealProjectChip,
   dealProjectFields,
@@ -2910,7 +2911,7 @@ export function OffersPanel({
   );
 }
 
-const DEAL_TABS = ["overview", "history"] as const;
+const DEAL_TABS = ["overview", "files", "history"] as const;
 type DealTab = (typeof DEAL_TABS)[number];
 
 type Relationship = components["schemas"]["Relationship"];
@@ -3345,6 +3346,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   onChange={setTab}
                   labels={{
                     overview: t("tab.overview"),
+                    files: t("tab.documents"),
                     history: t("tab.history"),
                   }}
                 />
@@ -3395,6 +3397,8 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   }}
                 />
               )}
+              {tab === "files" && !overlay && <DealFiles dealId={deal.id} />}
+              {tab === "files" && overlay && <OverlayUnavailable />}
               {tab === "history" && !overlay && (
                 <RecordHistoryTab kind="deal" id={deal.id} />
               )}

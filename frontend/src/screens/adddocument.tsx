@@ -92,12 +92,12 @@ const UPLOADABLE_CATEGORIES = (Object.keys(CATEGORY_KEYS) as Category[]).filter(
  * be a mapping table with nothing to map.
  */
 export type DocumentAnchor = Readonly<{
-  record: "organization" | "person";
+  record: "organization" | "person" | "deal";
   id: string;
 }>;
 
 type Parent = Readonly<{
-  entityType: DocumentAnchor["record"] | "deal";
+  entityType: DocumentAnchor["record"];
   entityId: string;
 }>;
 
@@ -561,6 +561,12 @@ export function AddDocumentDialog({
 function staleAfterUpload(anchor: DocumentAnchor): readonly QueryKey[] {
   if (anchor.record === "person") {
     return [["attachments", "person", anchor.id]];
+  }
+  if (anchor.record === "deal") {
+    return [
+      ["deal-documents", anchor.id],
+      ["deal-attachments", anchor.id],
+    ];
   }
   return [
     ["orgDocuments", anchor.id],
