@@ -19,6 +19,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
@@ -153,21 +154,39 @@ func TestOrganizationBriefScopedToOneProjectWritesFromTheScopedSummaryOnly(t *te
 	}
 }
 
-// A meeting filed under no project takes the requested scope: the lead
-// attendee's history is read narrowed by it, and the brief says so.
+// A meeting filed under no project takes the requested scope: EVERY read
+// the brief makes is narrowed by it — the attendee's last-touch date, the
+// earlier meetings of this room, the claims and the lead attendee's page —
+// and the brief says so.
+//
+// The reads that leak are the ones resolved off the meeting's own filing:
+// an unattributed meeting has none, so the last touch and the prior meeting
+// ran unscoped while the response claimed the scope. The other engagement's
+// mail is the NEWEST touch on the account and its held meeting the only
+// earlier one, so either leaking shows in the text.
 func TestMeetingBriefTakesARequestedProjectForAnUnattributedMeeting(t *testing.T) {
 	e := Setup(t)
 	f := seedTwoEngagementAccount(t, e)
-	subject := "Quarterly check-in"
-	startsAt := roomFixedNow.AddDate(0, 0, 1)
-	logged, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
-		Kind: "meeting", MeetingStatus: strPtr("booked"), Subject: &subject, OccurredAt: &startsAt,
-		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: f.person}},
-	})
-	if err != nil {
-		t.Fatalf("log the unattributed meeting: %v", err)
+	logMeeting := func(subject string, status string, at time.Time, within *ids.ProjectID) ids.UUID {
+		t.Helper()
+		logged, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
+			Kind: "meeting", MeetingStatus: strPtr(status), Subject: &subject, OccurredAt: &at,
+			Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: f.person}},
+		})
+		if err != nil {
+			t.Fatalf("log meeting %q: %v", subject, err)
+		}
+		id := ids.UUID(logged.Id)
+		if within != nil {
+			if _, err := e.Activities.RelinkActivity(e.Admin(), ids.From[ids.ActivityKind](id),
+				activities.RelinkActivityInput{EntityType: "project", EntityID: within.UUID}); err != nil {
+				t.Fatalf("file meeting %q: %v", subject, err)
+			}
+		}
+		return id
 	}
-	meeting := ids.UUID(logged.Id)
+	logMeeting("Rack site survey", "held", roomFixedNow.AddDate(0, 0, -4), &f.other)
+	meeting := logMeeting("Quarterly check-in", "booked", roomFixedNow.AddDate(0, 0, 1), nil)
 
 	brief, err := meetingBriefService(e).GetScoped(e.Admin(), meeting, &f.erp)
 	if err != nil {
@@ -176,19 +195,19 @@ func TestMeetingBriefTakesARequestedProjectForAnUnattributedMeeting(t *testing.T
 	if brief.Scope == nil || brief.Scope.ProjectId != crmcontracts.Id(f.erp.UUID) {
 		t.Fatalf("scope = %+v, want ERP-27", brief.Scope)
 	}
-	// The attendee's eight activities include the meeting itself; the scope
-	// drops the other engagement's three.
-	if brief.Scope.InScope == nil || brief.Scope.Total == nil || *brief.Scope.InScope != 5 || *brief.Scope.Total != 8 {
-		t.Errorf("scope counts = %v of %v, want 5 of 8", brief.Scope.InScope, brief.Scope.Total)
+	// The attendee's nine activities include both meetings; the scope drops
+	// the other engagement's four.
+	if brief.Scope.InScope == nil || brief.Scope.Total == nil || *brief.Scope.InScope != 5 || *brief.Scope.Total != 9 {
+		t.Errorf("scope counts = %v of %v, want 5 of 9", brief.Scope.InScope, brief.Scope.Total)
 	}
-	var text strings.Builder
-	for _, section := range brief.Sections {
-		for _, sentence := range section.Sentences {
-			text.WriteString(sentence.Text + "\n")
-		}
+	text := meetingBriefText(brief)
+	if strings.Contains(text, "Rack") {
+		t.Errorf("brief = %q; describes the other engagement", text)
 	}
-	if strings.Contains(text.String(), "Rack") {
-		t.Errorf("brief = %q; describes the other engagement", text.String())
+	// The unfiled mail is two days old and the ERP mail three; the other
+	// engagement's mail, one day old, is the touch an unscoped read reports.
+	if strings.Contains(text, "last spoke 1 days ago") || !strings.Contains(text, "last spoke 2 days ago") {
+		t.Errorf("brief = %q; the last touch counts the other engagement's mail", text)
 	}
 
 	unscoped, err := meetingBriefService(e).Get(e.Admin(), meeting)
@@ -198,6 +217,23 @@ func TestMeetingBriefTakesARequestedProjectForAnUnattributedMeeting(t *testing.T
 	if unscoped.Scope != nil {
 		t.Errorf("unscoped scope = %+v, want none", *unscoped.Scope)
 	}
+	// The same room unscoped DOES recall the other engagement's meeting and
+	// its newer touch — which is what proves the scoped read above dropped
+	// them rather than never having had them.
+	whole := meetingBriefText(unscoped)
+	if !strings.Contains(whole, "Rack site survey") || !strings.Contains(whole, "last spoke 1 days ago") {
+		t.Errorf("unscoped brief = %q; want the other engagement's meeting and touch", whole)
+	}
+}
+
+func meetingBriefText(brief crmcontracts.MeetingBrief) string {
+	var text strings.Builder
+	for _, section := range brief.Sections {
+		for _, sentence := range section.Sentences {
+			text.WriteString(sentence.Text + "\n")
+		}
+	}
+	return text.String()
 }
 
 // A meeting filed under one project is not available as a brief about

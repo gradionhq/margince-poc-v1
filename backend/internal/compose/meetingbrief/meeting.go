@@ -99,45 +99,20 @@ func (a attendeeRow) firstTime() bool { return a.LastTouch == nil }
 // meeting moment on the person page, and a "pre-meeting brief" over an email
 // would be a brief about a conversation that has already happened — the reader
 // would prepare for a room nobody booked.
-func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (meeting, error) {
+//
+// requested is the project the caller asked to prepare for, already gated.
+// It narrows the attendees' last-touch dates only when the meeting itself is
+// filed under no project: a filed meeting's own project wins, and a request
+// that disagrees with it is refused by resolveScope after this read.
+func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUID, requested *ids.ProjectID) (meeting, error) {
 	if err := auth.EnsureActivityContentVisibleLive(ctx, tx, activityID); err != nil {
 		return meeting{}, err
 	}
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	idPos := arg(activityID)
-	dealScope, err := scopeFor(ctx, "deal", "dd", arg)
-	if err != nil {
-		return meeting{}, err
-	}
-	personScope, err := scopeFor(ctx, "person", "p", arg)
-	if err != nil {
-		return meeting{}, err
-	}
-	projectScope, err := projectJoinPredicate(ctx, "prj", arg)
-	if err != nil {
-		return meeting{}, err
-	}
-	// The last-touch sub-select reads ACTIVITIES, so it takes the activity row
-	// scope like every other activity read on this page. Without it the brief
-	// reports when an attendee last spoke to us using a conversation this
-	// caller may not open — the timing, and the fact that any correspondence
-	// exists at all, are both disclosures the scope exists to prevent.
-	touchScope, err := auth.ActivityDiscoverClause(ctx, "pa", arg)
-	if err != nil {
-		return meeting{}, err
-	}
-	if touchScope == "" {
-		touchScope = scopeAll
-	}
-
-	// The seat's ROLE is the only thing the edge contributes here, so a caller
-	// refused the edge gets the join matched away rather than the room emptied:
-	// `deal_role` reads as the empty string, exactly as it does for an attendee
-	// who holds no seat. Nothing is filtered, so the attendee list and its cap
-	// are untouched — which is what keeps this a withheld FIELD and not a
-	// withheld section, on a response that carries no channel to name one.
-	edgeJoin, err := seatJoinPredicate(ctx, "r", arg)
+	requestedPos := arg(nullableProject(requested))
+	clauses, err := roomClauses(ctx, arg)
 	if err != nil {
 		return meeting{}, err
 	}
@@ -150,7 +125,7 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 	var attendees []byte
 	var project projectRow
 	var projectID *ids.UUID
-	err = tx.QueryRow(ctx, fmt.Sprintf(meetingQuery, dealScope, personScope, idPos, touchScope, edgeJoin, projectScope), args...).
+	err = tx.QueryRow(ctx, fmt.Sprintf(meetingQuery, clauses.deal, clauses.person, idPos, clauses.touch, clauses.seat, clauses.project, requestedPos), args...).
 		Scan(&out.ID, &out.StartsAt, &subject,
 			&dealID, &deal.Name, &stage, &deal.AmountMinor, &currency, &deal.CloseDate,
 			&projectID, &project.Name, &project.Key, &project.Phase, &project.TargetEndDate,
@@ -220,10 +195,12 @@ const meetingQuery = `
 	                      -- a reader trusts most, and it is the one that leaks:
 	                      -- narrow the deal and leave this alone and the brief
 	                      -- says "last spoke 3 days ago" counting a conversation
-	                      -- about the other engagement entirely.
-	                      AND (pr.id IS NULL OR EXISTS (
+	                      -- about the other engagement entirely. The meeting's
+	                      -- own filing wins; a requested project narrows only a
+	                      -- meeting filed under none.
+	                      AND (COALESCE(pr.id, $%[7]d::uuid) IS NULL OR EXISTS (
 	                            SELECT 1 FROM activity_link tl
-	                            WHERE tl.activity_id = pa.id AND tl.project_id = pr.id)
+	                            WHERE tl.activity_id = pa.id AND tl.project_id = COALESCE(pr.id, $%[7]d::uuid))
 	                          OR NOT EXISTS (
 	                            SELECT 1 FROM activity_link tf
 	                            WHERE tf.activity_id = pa.id AND tf.project_id IS NOT NULL))
@@ -261,6 +238,59 @@ const meetingQuery = `
 	  LIMIT 1
 	) d ON TRUE
 	WHERE a.id = $%[3]d AND a.kind = 'meeting' AND a.archived_at IS NULL`
+
+// roomScopes is every row-scope clause the meeting statement composes, each
+// deciding what the caller may be TOLD rather than filtering afterwards.
+type roomScopes struct {
+	deal, person, project, touch, seat string
+}
+
+// roomClauses renders the five clauses in bind order.
+//
+// The last-touch sub-select reads ACTIVITIES, so it takes the activity row
+// scope like every other activity read on this page. Without it the brief
+// reports when an attendee last spoke to us using a conversation this
+// caller may not open — the timing, and the fact that any correspondence
+// exists at all, are both disclosures the scope exists to prevent.
+//
+// The seat's ROLE is the only thing the edge contributes, so a caller
+// refused the edge gets the join matched away rather than the room emptied:
+// `deal_role` reads as the empty string, exactly as it does for an attendee
+// who holds no seat. Nothing is filtered, so the attendee list and its cap
+// are untouched — which is what keeps this a withheld FIELD and not a
+// withheld section, on a response that carries no channel to name one.
+func roomClauses(ctx context.Context, arg func(any) int) (roomScopes, error) {
+	var out roomScopes
+	var err error
+	if out.deal, err = scopeFor(ctx, "deal", "dd", arg); err != nil {
+		return roomScopes{}, err
+	}
+	if out.person, err = scopeFor(ctx, "person", "p", arg); err != nil {
+		return roomScopes{}, err
+	}
+	if out.project, err = projectJoinPredicate(ctx, "prj", arg); err != nil {
+		return roomScopes{}, err
+	}
+	if out.touch, err = auth.ActivityDiscoverClause(ctx, "pa", arg); err != nil {
+		return roomScopes{}, err
+	}
+	if out.touch == "" {
+		out.touch = scopeAll
+	}
+	if out.seat, err = seatJoinPredicate(ctx, "r", arg); err != nil {
+		return roomScopes{}, err
+	}
+	return out, nil
+}
+
+// nullableProject binds a requested project as a nullable uuid, so the
+// meeting statement has one shape whether or not a project was requested.
+func nullableProject(requested *ids.ProjectID) *ids.UUID {
+	if requested == nil {
+		return nil
+	}
+	return &requested.UUID
+}
 
 // seatJoinPredicate renders the edge's admission as a JOIN predicate: the
 // endpoint conjunction for a caller who holds the edge grant, and the

@@ -113,15 +113,26 @@ function stubFetch(
   return seen;
 }
 
+function providers(client: QueryClient, ui: ReactNode) {
+  return (
+    <QueryClientProvider client={client}>
+      <LocaleProvider initial="en">{ui}</LocaleProvider>
+    </QueryClientProvider>
+  );
+}
+
+// Returns a rerender that keeps the same providers, so a test can change the
+// props a page would change on a refetch — the project list, say — without
+// remounting the surface and losing its state.
 function render(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return rtlRender(
-    <QueryClientProvider client={client}>
-      <LocaleProvider initial="en">{ui}</LocaleProvider>
-    </QueryClientProvider>,
-  );
+  const mounted = rtlRender(providers(client, ui));
+  return {
+    ...mounted,
+    rerender: (next: ReactNode) => mounted.rerender(providers(client, next)),
+  };
 }
 
 beforeEach(() => {
@@ -163,6 +174,80 @@ describe("Ask about this account, scoped to a project", () => {
     expect(
       await screen.findByText("Scoped to ERP-27 · 4 of 11 activities"),
     ).toBeTruthy();
+  });
+
+  it("forgets the previous answer when the project changes", async () => {
+    stubFetch({
+      "POST /organizations/o-1/ask": (s) => {
+        const body = s.body as { project_id?: string };
+        return jsonResponse({
+          organization_id: "o-1",
+          question: "whats_open",
+          generated_at: "2026-08-13T09:00:00Z",
+          generated_by: "deterministic",
+          ...(body.project_id === "p-erp" ? { scope: erpScope } : {}),
+          sentences: [
+            {
+              text: "The ERP cutover is waiting on you.",
+              evidence: [{ entity_type: "organization", entity_id: "o-1" }],
+            },
+          ],
+        });
+      },
+    });
+    render(<AskSection orgId="o-1" enabled projects={view.projects} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("combobox", { name: "Project" }));
+    await user.click(screen.getByRole("option", { name: /ERP-27/ }));
+    await user.click(screen.getByRole("button", { name: "What's open here?" }));
+    expect(await screen.findByText(/ERP cutover is waiting/)).toBeTruthy();
+
+    await user.click(screen.getByRole("combobox", { name: "Project" }));
+    await user.click(screen.getByRole("option", { name: /DC-4/ }));
+    // One engagement's text never stands under another's scope line.
+    expect(screen.queryByText(/ERP cutover is waiting/)).toBeNull();
+    expect(screen.queryByText(/4 of 11 activities/)).toBeNull();
+    expect(screen.getByText("Scoped to DC-4")).toBeTruthy();
+  });
+
+  it("drops a chosen project the list no longer offers, and defaults to the one left", async () => {
+    const seen = stubFetch({
+      "POST /organizations/o-1/ask": () =>
+        jsonResponse({
+          organization_id: "o-1",
+          question: "whats_open",
+          generated_at: "2026-08-13T09:00:00Z",
+          generated_by: "deterministic",
+          sentences: [],
+        }),
+    });
+    const { rerender } = render(
+      <AskSection orgId="o-1" enabled projects={view.projects} />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("combobox", { name: "Project" }));
+    await user.click(screen.getByRole("option", { name: /ERP-27/ }));
+    expect(screen.getByText("Scoped to ERP-27")).toBeTruthy();
+
+    // The ERP project closes; the page's refetched list no longer carries it.
+    rerender(<AskSection orgId="o-1" enabled projects={[migration]} />);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Project" }).textContent,
+      ).toContain("DC-4"),
+    );
+    await user.click(screen.getByRole("button", { name: "What's open here?" }));
+    await waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0].body).toEqual({
+      question: "whats_open",
+      project_id: "p-dc",
+    });
+
+    // No project left at all: the hidden id must not keep travelling.
+    rerender(<AskSection orgId="o-1" enabled projects={[]} />);
+    await user.click(screen.getByRole("button", { name: "What's open here?" }));
+    await waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1].body).toEqual({ question: "whats_open" });
   });
 
   it("omits the project when none is chosen", async () => {

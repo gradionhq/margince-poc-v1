@@ -172,12 +172,20 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID, reques
 	var perAttendee map[ids.UUID][]crmcontracts.ConversationClaim
 	var earlier []priorMeeting
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		loaded, err := s.readMeeting(ctx, tx, activityID)
+		// The requested project is gated BEFORE the meeting is read, because
+		// the meeting read already narrows by it (the attendees' last-touch
+		// dates): a scope nobody checked must not shape a single row.
+		if requested != nil {
+			if err := activities.RequireProjectScope(ctx, tx, *requested); err != nil {
+				return err
+			}
+		}
+		loaded, err := s.readMeeting(ctx, tx, activityID, requested)
 		if err != nil {
 			return err
 		}
 		room = loaded
-		chosen, err := resolveScope(ctx, tx, loaded, requested)
+		chosen, err := resolveScope(loaded, requested)
 		if err != nil {
 			return err
 		}
@@ -186,7 +194,7 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID, reques
 		if err != nil {
 			return err
 		}
-		earlier, err = s.readPriorMeetings(ctx, tx, loaded, s.now().UTC())
+		earlier, err = s.readPriorMeetings(ctx, tx, loaded, scope, s.now().UTC())
 		return err
 	})
 	if err != nil {
@@ -222,26 +230,19 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID, reques
 // engagement is not available as a brief about another and the refusal must
 // not confirm which project the meeting IS filed under.
 //
-// A meeting filed under none takes the request as its scope, gated HERE as a
-// read of the project (activities.RequireProjectScope) rather than left to
-// the lead attendee's 360 — a room with no visible attendee never assembles
-// one, and a scope nobody checked would still narrow the claims read above.
+// A meeting filed under none takes the request as its scope. The request was
+// already gated as a read of the project (activities.RequireProjectScope in
+// assembleInput) before the meeting itself was read.
 //
 // The answer is an option rather than a pointer: "narrows nothing" is one of
 // its three honest outcomes, not an absence.
-func resolveScope(ctx context.Context, tx pgx.Tx, room meeting, requested *ids.ProjectID) (scopeChoice, error) {
+func resolveScope(room meeting, requested *ids.ProjectID) (scopeChoice, error) {
 	if room.Project != nil {
 		filed := ids.From[ids.ProjectKind](room.Project.ID)
 		if requested != nil && requested.UUID != filed.UUID {
 			return scopeChoice{}, apperrors.ErrNotFound
 		}
 		return scopeChoice{project: &filed}, nil
-	}
-	if requested == nil {
-		return scopeChoice{}, nil
-	}
-	if err := activities.RequireProjectScope(ctx, tx, *requested); err != nil {
-		return scopeChoice{}, err
 	}
 	return scopeChoice{project: requested}, nil
 }

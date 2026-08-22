@@ -37,26 +37,58 @@ export function liveProjects(
 
 // When the record carries exactly ONE live project, it is the default — a rep
 // working from a company with one engagement should not have to say so. The
-// default is applied ONCE, when the page's projects first arrive, so a rep
+// default is applied ONCE per sole project, when it first arrives, so a rep
 // who then picks "no project" is not overruled on the next render; and it is
 // applied through the same setter a pick uses, so the selected value RENDERS
-// rather than being sent silently.
+// rather than being sent silently. A DIFFERENT sole project arriving later —
+// the list refetched after the chosen one closed — is defaulted again, since
+// the earlier choice was cleared with the project it named.
 export function useSoleProjectDefault(
   projects: readonly PickableProject[],
   projectId: string,
   onChange: (next: string) => void,
 ) {
-  const defaulted = useRef(false);
+  const defaultedFor = useRef("");
   const sole = projects.length === 1 ? projects[0].project_id : "";
+  // A choice the list still offers stands, and counts as this sole project's
+  // default having been settled. A choice it no longer offers is about to be
+  // cleared (useClearVanishedChoice), and the default applies to the empty
+  // value that follows — so it is not settled here.
+  const standing = projects.some((project) => project.project_id === projectId);
   useEffect(() => {
-    if (defaulted.current || !sole) {
+    if (!sole || defaultedFor.current === sole) {
       return;
     }
-    defaulted.current = true;
+    if (standing) {
+      defaultedFor.current = sole;
+      return;
+    }
     if (!projectId) {
+      defaultedFor.current = sole;
       onChange(sole);
     }
-  }, [sole, projectId, onChange]);
+  }, [sole, projectId, standing, onChange]);
+}
+
+// A chosen project that the list no longer offers — closed since, withheld
+// after a refetch, gone with a changed record — is cleared rather than kept.
+// The picker would show "No project" over a hidden id that still travels on
+// every request, so the rep reads an unscoped surface while the server
+// answers for a project they can no longer see. Cleared through the same
+// setter a pick uses, so the surface re-reads unscoped like any other change.
+function useClearVanishedChoice(
+  projects: readonly PickableProject[],
+  projectId: string,
+  onChange: (next: string) => void,
+) {
+  const offered =
+    projectId === "" ||
+    projects.some((project) => project.project_id === projectId);
+  useEffect(() => {
+    if (!offered) {
+      onChange("");
+    }
+  }, [offered, onChange]);
 }
 
 // The picker, and the scope line beneath it.
@@ -78,6 +110,7 @@ export function ProjectPicker({
   scope?: ProjectScope;
 }>) {
   const t = useT();
+  useClearVanishedChoice(projects, projectId, onChange);
   if (projects.length === 0) {
     return null;
   }

@@ -2102,7 +2102,12 @@ export function AskSection({
       <ProjectPicker
         projects={live}
         projectId={projectId}
-        onChange={setProjectId}
+        onChange={(next) => {
+          setProjectId(next);
+          // The answer on screen was written about the previous project, and
+          // its scope line would otherwise stand over the next project's key.
+          ask.reset();
+        }}
         scope={readable?.scope}
       />
       <p className="co-ask-questions">
