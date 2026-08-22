@@ -17,6 +17,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/gradionhq/margince/backend/internal/compose/claims"
+	"github.com/gradionhq/margince/backend/internal/compose/person360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -37,14 +38,14 @@ type (
 // rather than imported so this package composes one seam instead of
 // re-deriving a dozen gated reads that could disagree with the page's own.
 type Assembler interface {
-	Assemble(ctx context.Context, personID ids.PersonID) (crmcontracts.Person360, error)
+	AssembleScoped(ctx context.Context, personID ids.PersonID, opts person360.AssembleOptions) (crmcontracts.Person360, error)
 }
 
 // ClaimReader reads one person's live conversation claims inside a caller's
 // transaction. It is the people store's own read, injected because a module is
 // never imported across a compose seam by another module.
 type ClaimReader interface {
-	ClaimsForPerson(ctx context.Context, tx pgx.Tx, personID ids.PersonID, limit int) ([]crmcontracts.ConversationClaim, error)
+	ClaimsForPerson(ctx context.Context, tx pgx.Tx, personID ids.PersonID, within *ids.ProjectID, limit int) ([]crmcontracts.ConversationClaim, error)
 }
 
 // briefClaims bounds the commitments the brief reads per attendee. The person
@@ -168,12 +169,29 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 		// record this brief has no reason to touch.
 		return in, nil
 	}
-	view, err := s.view.Assemble(ctx, ids.From[ids.PersonKind](room.Attendees[0].PersonID))
+	// Scoped to the meeting's own project, like the claims above: the lead
+	// attendee's page read for a meeting on one engagement must not describe
+	// the account's other engagement as this room's recent history.
+	view, err := s.view.AssembleScoped(ctx, ids.From[ids.PersonKind](room.Attendees[0].PersonID),
+		person360.AssembleOptions{ProjectID: filedProject(room)})
 	if err != nil {
 		return Input{}, err
 	}
 	WithCounterpart(&in, view)
 	return in, nil
+}
+
+// filedProject is the project the meeting is filed under, as the scope the
+// brief's reads are narrowed by; nil for a meeting filed under none, which
+// narrows nothing. The filing comes off the meeting's own link, so no gate
+// beyond the meeting's is owed: a caller who may read the meeting may read
+// which project it is filed under.
+func filedProject(room meeting) *ids.ProjectID {
+	if room.Project == nil {
+		return nil
+	}
+	id := ids.From[ids.ProjectKind](room.Project.ID)
+	return &id
 }
 
 // claimsPerAttendee reads what each person in the room has promised, asked and
@@ -182,7 +200,7 @@ func (s *Service) assembleInput(ctx context.Context, activityID ids.UUID) (Input
 func (s *Service) claimsPerAttendee(ctx context.Context, tx pgx.Tx, room meeting) (map[ids.UUID][]crmcontracts.ConversationClaim, error) {
 	out := make(map[ids.UUID][]crmcontracts.ConversationClaim, len(room.Attendees))
 	for _, attendee := range room.Attendees {
-		found, err := s.claims.ClaimsForPerson(ctx, tx, ids.From[ids.PersonKind](attendee.PersonID), briefClaims)
+		found, err := s.claims.ClaimsForPerson(ctx, tx, ids.From[ids.PersonKind](attendee.PersonID), filedProject(room), briefClaims)
 		if err != nil {
 			return nil, err
 		}

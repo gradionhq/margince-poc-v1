@@ -23,9 +23,11 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/meetingbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/person360"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -489,5 +491,70 @@ func TestMeetingBriefRecallsNoSubjectItMayNotRead(t *testing.T) {
 				t.Errorf("the brief disclosed a subject this caller may not read: %q", sentence.Text)
 			}
 		}
+	}
+}
+
+// The commitments section is evidence from conversations, and a conversation
+// on the account's OTHER engagement is the wrong evidence for this room: a
+// meeting filed under one project does not report a promise made on the
+// other project's mail, while a promise made on mail filed under no project
+// still stands, the way every project-scoped read keeps the unfiled rows.
+func TestMeetingBriefReportsNoCommitmentFromAnotherEngagement(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	org := e.SeedOrg(t, "Northwind", &e.Rep1)
+	attendee := e.SeedPerson(t, "Ana Roth", &e.Rep1)
+	newProject := func(name, key string) ids.UUID {
+		return SeedIDRow(t, owner, `INSERT INTO project (id, owner_id, name, key, organization_id, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, 'manual', 'human:x')`, e.Rep1, name, key, org)
+	}
+	erp := newProject("ERP rollout", "ERP-27")
+	migration := newProject("Datacentre migration", "DC-4")
+	mail := func(subject string, within *ids.UUID) ids.UUID {
+		id := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+			VALUES ($1, 'email', $2, $3, 'manual', 'human:x')`, subject, roomAgo(2*24*time.Hour))
+		LinkActivity(t, owner, id, "person", attendee)
+		if within != nil {
+			e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id) VALUES ($1, 'project', $2)`, id, *within)
+		}
+		return id
+	}
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Cutover review', $2, 'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", attendee)
+	seatInRoom(t, owner, e.WS, meeting, attendee)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, project_id) VALUES ($1, 'project', $2)`, meeting, erp)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+	promise := func(body string, source ids.UUID) {
+		t.Helper()
+		if _, err := e.People.RecordConversationClaim(rep, people.ClaimInput{
+			PersonID: PersonIDOf(attendee), Kind: "commitment_theirs", Body: body,
+			ActivityID: source, Quote: body, Source: "manual",
+		}); err != nil {
+			t.Fatalf("record claim %q: %v", body, err)
+		}
+	}
+	promise("send the rack inventory", mail("Rack decommissioning", &migration))
+	promise("confirm the cutover window", mail("ERP cutover plan", &erp))
+	promise("forward the invoice", mail("Invoice question", nil))
+
+	brief, err := meetingBriefService(e).Get(rep, meeting)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	var commitments string
+	for _, section := range brief.Sections {
+		if section.Kind == crmcontracts.MeetingBriefSectionKindCommitments {
+			for _, sentence := range section.Sentences {
+				commitments += sentence.Text + "\n"
+			}
+		}
+	}
+	if !strings.Contains(commitments, "cutover window") || !strings.Contains(commitments, "invoice") {
+		t.Fatalf("commitments = %q; want the promise on this engagement's mail and the one on unfiled mail", commitments)
+	}
+	if strings.Contains(commitments, "rack inventory") {
+		t.Errorf("commitments = %q; reports a promise made on the other engagement's mail", commitments)
 	}
 }

@@ -85,9 +85,11 @@ func TestCatchMeUpOnScopedToAProjectDropsTheOtherEngagement(t *testing.T) {
 
 // prep_for_meeting on the meeting itself takes the brief route. The brief is
 // scoped by the project the meeting is filed under, so a project_id naming
-// the SAME project is agreement, and one naming another is a refusal the
-// caller can act on rather than a brief about the wrong work.
-func TestPrepForMeetingRefusesAProjectTheMeetingIsNotFiledUnder(t *testing.T) {
+// the SAME project is agreement and the brief says which project that is.
+// A project_id naming ANOTHER project is not an argument error but a scope
+// the meeting is outside of: the scoped walk in front of the brief answers
+// not-found, existence-hiding, and the brief is never read.
+func TestPrepForMeetingUnderTheMeetingsOwnProjectNamesItAndUnderAnotherIsNotFound(t *testing.T) {
 	e := Setup(t)
 	f := seedTwoEngagementAccount(t, e)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
@@ -101,7 +103,7 @@ func TestPrepForMeetingRefusesAProjectTheMeetingIsNotFiledUnder(t *testing.T) {
 		t.Fatalf("decode the prep: %v", err)
 	}
 	if prepared.Brief == nil {
-		t.Fatal("the meeting anchored prep carried no brief, so the project check below never ran")
+		t.Fatal("the meeting anchored prep carried no brief")
 	}
 	if prepared.Brief.ProjectID == nil || *prepared.Brief.ProjectID != f.erp.UUID {
 		t.Errorf("brief.project_id = %v, want the project the meeting is filed under (%s)", prepared.Brief.ProjectID, f.erp)
@@ -109,9 +111,8 @@ func TestPrepForMeetingRefusesAProjectTheMeetingIsNotFiledUnder(t *testing.T) {
 
 	_, err := registry.Invoke(ctx, "prep_for_meeting",
 		json.RawMessage(fmt.Sprintf(`{%s,"project_id":%q}`, meeting, f.other.String())))
-	var badArgs *agents.BadArgsError
-	if !errors.As(err, &badArgs) {
-		t.Fatalf("a project_id the meeting is not filed under = %v, want the arguments refusal", err)
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("a project_id the meeting is not filed under = %v, want ErrNotFound", err)
 	}
 }
 
@@ -172,6 +173,41 @@ func TestAProjectScopeTheCallerCannotSeeIsRefusedThroughTheToolSurface(t *testin
 			_, err = registry.Invoke(granted, call.tool, json.RawMessage(fmt.Sprintf(call.args, ids.NewV7().String())))
 			if !errors.Is(err, apperrors.ErrNotFound) {
 				t.Errorf("a project that does not exist = %v, want ErrNotFound", err)
+			}
+		})
+	}
+}
+
+// An activity ANCHOR filed under another project is outside the scoped
+// picture entirely: not-found, the same answer an invisible one gives, rather
+// than the room and its participants handed over under a scope that claims to
+// have excluded them. This holds on both routes prep_for_meeting takes — the
+// brief for a meeting, and the assembled-picture fallback for any other
+// activity — because the fallback is the same scoped walk.
+func TestAnActivityAnchorFiledUnderAnotherProjectIsNotFoundUnderTheScope(t *testing.T) {
+	e := Setup(t)
+	f := seedTwoEngagementAccount(t, e)
+	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+
+	for _, call := range []struct{ name, tool, anchor string }{
+		{"catch up on the other engagement's meeting", "catch_me_up_on", f.otherMeeting},
+		{"prep for the other engagement's meeting", "prep_for_meeting", f.otherMeeting},
+		{"prep anchored on the other engagement's mail, which has no brief", "prep_for_meeting", f.onOther},
+	} {
+		t.Run(call.name, func(t *testing.T) {
+			args := fmt.Sprintf(`{"record_type":"activity","record_id":%q,"project_id":%q}`, call.anchor, f.erp.String())
+			_, err := registry.Invoke(ctx, call.tool, json.RawMessage(args))
+			if !errors.Is(err, apperrors.ErrNotFound) {
+				t.Errorf("%s scoped to ERP-27 = %v, want ErrNotFound", call.tool, err)
+			}
+			// The same anchor under its own project, and under no scope, still
+			// answers — so the refusal above is the scope's doing.
+			for _, scope := range []string{fmt.Sprintf(`,"project_id":%q`, f.other.String()), ""} {
+				own := fmt.Sprintf(`{"record_type":"activity","record_id":%q%s}`, call.anchor, scope)
+				if _, err := registry.Invoke(ctx, call.tool, json.RawMessage(own)); err != nil {
+					t.Errorf("%s(%s): %v, want an answer", call.tool, own, err)
+				}
 			}
 		})
 	}

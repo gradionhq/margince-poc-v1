@@ -198,30 +198,10 @@ func (t prepForMeeting) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 		return nil, err
 	}
 	if hasBrief {
-		if err := requireBriefWithinProject(args, written); err != nil {
-			return nil, err
-		}
 		noteBriefEvidence(ctx, written)
 		result.Brief = &written
 	}
 	return json.Marshal(result)
-}
-
-// requireBriefWithinProject refuses a project_id that disagrees with the
-// meeting's own filing. The brief scopes itself from the meeting's link and
-// cannot be narrowed from outside, so a caller naming a DIFFERENT project
-// would be handed a brief about one body of work under a request that asked
-// for another — and read it as the answer. A meeting filed under no project
-// disagrees with nothing: the assembled picture beside the brief is narrowed
-// and the brief stands as it is.
-func requireBriefWithinProject(args anchorArgs, written MeetingBriefResult) error {
-	if args.ProjectID == nil || written.ProjectID == nil || *written.ProjectID == *args.ProjectID {
-		return nil
-	}
-	return &BadArgsError{
-		Cause:    errors.New("project_id names a project this meeting is not filed under"),
-		Guidance: "omit project_id for a meeting: its brief is scoped by the project the meeting itself is filed under",
-	}
 }
 
 // noteBriefEvidence charges the brief's own citations against the read bound
