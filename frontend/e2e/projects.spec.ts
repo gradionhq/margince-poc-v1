@@ -93,13 +93,30 @@ test("a project is created, a deal is attached, the win starts delivery, the tim
     .getByRole("button", { name: "Won" })
     .click();
   await expect(page.getByText("Nach Won verschieben?")).toBeVisible();
+  // The first confirm is refused: no contract is on the deal, so the server
+  // answers win_evidence_required and the dialog stays open asking how it was
+  // won. Only the answered second confirm is the win.
+  const refused = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/v1/deals/d-fleet/advance") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Bestätigen" }).click();
+  expect((await refused).status()).toBe(422);
+  await choose(
+    page,
+    dialog.getByRole("combobox", { name: "Wie wurde er gewonnen?" }),
+    "Per Bestellung",
+  );
   const won = page.waitForRequest(
     (request) =>
       request.url().endsWith("/v1/deals/d-fleet/advance") &&
       request.method() === "POST",
   );
   await page.getByRole("button", { name: "Bestätigen" }).click();
-  await won;
+  expect((await won).postDataJSON().won_without_contract_reason).toBe(
+    "purchase_order",
+  );
 
   // 4. The win moved the project into delivery — nobody pressed a phase.
   await page.getByTestId("deal-project").click();

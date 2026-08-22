@@ -237,7 +237,15 @@ export function projectMock(input: {
               title: "Unprocessable",
               status: 422,
               code: "validation_error",
-              errors: [{ field: "reason", code: "closed_reason_required" }],
+              details: {
+                errors: [
+                  {
+                    field: "reason",
+                    code: "closed_reason_required",
+                    message: "closing a project requires a reason",
+                  },
+                ],
+              },
             },
             422,
           );

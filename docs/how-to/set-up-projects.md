@@ -30,28 +30,28 @@ is refused.
 ## Who can do what
 
 Permissions come from the role's grant on the **project** object, plus the
-role's row scope. The seeded roles:
+role's row scope for writes. The seeded roles:
 
-| Role | Create | Read | Edit, move phase, seat stakeholders | Archive | Sees |
+| Role | Create | Read | Edit, move phase, seat stakeholders | Archive | May edit |
 |---|---|---|---|---|---|
 | **Rep** | yes | yes | yes | no | own, team-owned and unowned projects |
 | **Manager** | yes | yes | yes | yes | own, team-owned and unowned projects |
 | **Management** | yes | yes | yes | yes | every project |
 | **Admin** / **Ops** | yes | yes | yes | yes | every project |
-| **Read only** | no | yes | no | no | every project |
+| **Read only** | no | yes | no | no | nothing |
 
 Two consequences:
 
+- **Every seat that holds the read grant reads every project**, whatever its
+  row scope. A project is a customer-identity record like a contact, company,
+  lead or deal: the consultant delivering a project they neither own nor were
+  granted still opens it. Row scope restricts **writes** only — a rep edits
+  the projects they own, a teammate owns, or nobody owns; the **Owner** field
+  is what that check reads. The reasoning is in
+  [explanation/rbac-roles-and-teams.md](../explanation/rbac-roles-and-teams.md).
 - A rep can create and run a project but cannot archive one. Archiving removes
   the project from the live list and frees its key, and it cannot be undone
-  from the UI, so it stays with manager, admin and ops.
-- Row scope is per role, not per project. A rep sees the projects they own,
-  the ones a teammate owns, and the ones nobody owns; a project owned by
-  somebody outside the team is invisible to them unless it is shared (below).
-  The **Owner** field on the project is what row scope reads. This is stricter
-  than contacts, companies, leads and deals, which every seat with the object
-  grant can read — the reasoning is in
-  [explanation/rbac-roles-and-teams.md](../explanation/rbac-roles-and-teams.md).
+  from the UI, so it stays with manager, management, admin and ops.
 
 An admin assigns roles in **Settings → People & access**; the member's card
 there shows, under **What this member sees**, what their role grants on
@@ -112,12 +112,15 @@ reason.
 
 ## Visibility and sharing
 
-A project is visible to whoever the owner's row scope admits (table above).
-To show a specific project to somebody outside that scope — a delivery lead on
-another team, say — open the project and press **Share**. The sharing page
-grants **Read** or **Write** on exactly this one record, to a person or a
-team, with an optional expiry and a reason. A share is capped at your own
-access and never widens anything else about that person's scope.
+Every seat with the project read grant already sees every project, so a share
+is not how somebody gets to *read* one. A share does two other things: it
+lets somebody **edit** a project their row scope does not reach — a delivery
+lead on another team who has to move the phase or seat stakeholders — and it
+reaches a seat whose role carries no project grant at all. Open the project
+and press **Share**. The sharing page grants **Read** or **Write** on exactly
+this one record, to a person or a team, with an optional expiry and a reason.
+A share is capped at your own access and never widens anything else about
+that person's scope.
 
 **Ownership** is set on the project form (**Owner**: *Me*, *Unassign*, or
 keep the current owner). Reassigning one project at a time is an edit. Moving
@@ -161,8 +164,9 @@ An agent connected over MCP works under the same grants as the person whose
 passport it carries. It can read a project (`read_project_360`, `read_record`
 with record type `project`), create or update one through the generic record
 tools, and move a phase with `advance_project_phase` — the last is staged
-for a person to approve before it runs. It cannot archive a project and it
-cannot transfer ownership; both are human-only.
+for a person to approve before it runs. It can also archive one through
+`archive_record` — confirmation-required, so a person approves that too. It
+cannot transfer ownership; that endpoint is human-only.
 
 ## What you can't change from the UI
 
@@ -174,7 +178,8 @@ cannot transfer ownership; both are human-only.
 - **Un-archiving.** Archiving is final from the UI.
 - **The phase and stakeholder-role lists** — code and migration, as above.
 - **Retention of filed mail.** Filing an email under a project marks it as
-  business correspondence for six calendar years under the German pack, and
+  business correspondence under the German pack — six years from the end of
+  the calendar year it was sent or received — and
   moving it off the project later does not undo that. Nothing in the UI
   shortens it; see the callout in
   [run-a-project.md](run-a-project.md#referencing-a-project-from-email).

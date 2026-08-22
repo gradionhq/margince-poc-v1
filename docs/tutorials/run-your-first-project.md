@@ -238,7 +238,8 @@ in [how-to/run-a-project.md](../how-to/run-a-project.md#referencing-a-project-fr
 
 > **Filing an email under a project is permanent for retention.** Under the
 > German pack an email filed under a project counts as business
-> correspondence and is kept for six calendar years. Moving it off the project
+> correspondence and is kept for six years from the end of the calendar year it
+> was sent or received. Moving it off the project
 > later does not undo that. Relink deliberately.
 
 ## 8. Agents over MCP

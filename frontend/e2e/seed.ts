@@ -1259,10 +1259,37 @@ export async function mockApi(
           409,
         );
       }
+      // A win needs evidence, exactly as deals/deal_advance.go's
+      // ensureWinEvidence demands it: a signed contract (none is seeded) or a
+      // stated reason. Refused with the same field code, so the dialog's
+      // "How was it won?" branch is the path a spec has to walk.
+      const advance = route.request().postDataJSON();
+      if (advance.status === "won" && !advance.won_without_contract_reason) {
+        return json(
+          {
+            title: "Unprocessable",
+            status: 422,
+            code: "validation_error",
+            details: {
+              errors: [
+                {
+                  field: "won_without_contract_reason",
+                  code: "win_evidence_required",
+                  message:
+                    "a won deal needs a signed contract with its paper attached, or a reason why there is none",
+                },
+              ],
+            },
+          },
+          422,
+        );
+      }
       dealPatches[target.id] = {
         ...dealPatches[target.id],
         stage_id: "s4",
         status: "won",
+        won_without_contract_reason:
+          advance.won_without_contract_reason ?? null,
         version: current + 1,
       };
       // The win starts the delivery it was sold for, in the same write.

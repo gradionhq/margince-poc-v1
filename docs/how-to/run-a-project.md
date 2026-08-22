@@ -110,7 +110,7 @@ The company cannot be changed after creation. **Owner** offers *Me*,
 **Archive project** asks for confirmation: *Archiving removes this project
 from the live list and frees its key. This cannot be undone from the UI.* The
 deals and mail stay where they are; the project simply leaves the live list.
-Archiving is a manager, admin or ops verb.
+Archiving is a manager, management, admin or ops verb.
 
 **Share** opens the sharing page for this one record: grant **Read** or
 **Write** to a person or a team, optionally with an expiry and a reason, and
@@ -184,8 +184,9 @@ does not say which is which. Name projects so that this does not happen.
 
 > **Filing an email under a project is permanent for retention.** Under the
 > German pack, an email linked to a project is business correspondence and is
-> kept for six calendar years — counted from the end of the calendar year in
-> which it was filed. The mark is written the moment the link is made,
+> kept for six years counted from the end of the calendar year in which the
+> email was sent or received (its own date, not the day it was filed). The
+> mark is written the moment the link is made,
 > whether by the ladder above, by the composer's picker, by a confirmed
 > offer, or by **Relink**. Moving the email off the project afterwards does
 > **not** remove the mark. An erasure request that reaches such a message
