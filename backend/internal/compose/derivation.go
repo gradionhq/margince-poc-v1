@@ -13,7 +13,9 @@ package compose
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -208,6 +210,13 @@ func (e *reportEngine) Derive(ctx context.Context, report string, q derivationQu
 	if err := auth.Require(ctx, string(spec.entity), principal.ActionRead); err != nil {
 		return derivationOutcome{}, err
 	}
+	// A handle naming a dimension or measure the caller may not read is
+	// refused, like the plan that would have minted it; the columns the handle
+	// did not name are narrowed to what the caller may see.
+	if err := requireVocabularyGrants(ctx, spec, slices.Concat(q.GroupBy, aggregateFields(q.Aggregates), slices.Sorted(maps.Keys(q.Predicates)))); err != nil {
+		return derivationOutcome{}, err
+	}
+	spec = grantedSpec(ctx, spec)
 	plan, err := compileDerivation(spec, q)
 	if err != nil {
 		return derivationOutcome{}, err
@@ -312,6 +321,31 @@ func compileDerivation(spec reportSpec, q derivationQuery) (derivationPlan, erro
 		plan.aggSelects = append(plan.aggSelects, sel)
 	}
 	return plan, nil
+}
+
+// grantedSpec is the spec with the dimensions and measures this caller may
+// not read removed, so a drill-through selects only what the caller could
+// have grouped or aggregated by themselves.
+func grantedSpec(ctx context.Context, spec reportSpec) reportSpec {
+	if len(spec.grants) == 0 {
+		return spec
+	}
+	narrowed := spec
+	narrowed.dimensions = map[string]string{}
+	for _, name := range grantedNames(ctx, spec, spec.dimensions) {
+		narrowed.dimensions[name] = spec.dimensions[name]
+	}
+	narrowed.measures = map[string]string{}
+	for _, name := range grantedNames(ctx, spec, spec.measures) {
+		narrowed.measures[name] = spec.measures[name]
+	}
+	narrowed.defaultAggs = grantedDefaultAggregates(ctx, spec)
+	if len(narrowed.measures) < len(spec.measures) {
+		// A reading order spelled over a withheld measure would still rank
+		// the rows by it, which tells the caller what the numbers were.
+		narrowed.orderBy = ""
+	}
+	return narrowed
 }
 
 // boundPredicate is one field = value binding rendered into the

@@ -115,19 +115,25 @@ func RecordDerived(ctx context.Context, tx pgx.Tx, in DerivedSignal, detectedAt 
 		return false, err
 	}
 	subjectType, subjectID := in.subject()
+	// Every placeholder is derived from the argument slice, so a column added
+	// to this statement cannot bind to its neighbour's value.
+	var args []any
+	arg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
 	var signalID ids.UUID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO signal
 		  (kind, entity_type, entity_id, resolved_org_id, summary,
 		   evidence, fingerprint, source_channel, resolution_state, severity,
 		   status, detected_at, source, captured_by, visibility, owner_id)
-		VALUES ($1, $11, $12, $2, $3, $4, $5,
-		        'derived', 'resolved', $6, 'open', $7, 'signal-scan', $8, $9, $10)
+		VALUES (`+arg(in.Kind)+`, `+arg(subjectType)+`, `+arg(subjectID)+`, `+arg(in.OrganizationID)+`, `+arg(in.Summary)+`,
+		        `+arg(evidence)+`, `+arg(in.Fingerprint)+`, 'derived', 'resolved', `+arg(in.Severity)+`,
+		        'open', `+arg(detectedAt)+`, 'signal-scan', `+arg(by)+`, `+arg(visibility)+`, `+arg(nullableOwner(in.PrivateTo))+`)
 		ON CONFLICT DO NOTHING
 		RETURNING id`,
-		in.Kind, in.OrganizationID, in.Summary, evidence, in.Fingerprint,
-		in.Severity, detectedAt, by,
-		visibility, nullableOwner(in.PrivateTo), subjectType, subjectID).Scan(&signalID)
+		args...).Scan(&signalID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

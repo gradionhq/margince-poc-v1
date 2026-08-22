@@ -22,9 +22,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// DigestProjectsSource answers the projects section for one build: what
+// DigestProjectsSource answers the projects section for one reader: what
 // happened since `since`, measured at `now`, inside the build's transaction.
-type DigestProjectsSource func(ctx context.Context, tx pgx.Tx, since, now time.Time) (DigestProjects, error)
+// ctx carries THAT reader as the acting principal — their live grants and row
+// scope — so the section names only what they could open themselves. nil
+// means the reader holds no project grant and gets no section.
+type DigestProjectsSource func(ctx context.Context, tx pgx.Tx, since, now time.Time) (*DigestProjects, error)
 
 // DigestProjects is the section as stored and served.
 type DigestProjects struct {

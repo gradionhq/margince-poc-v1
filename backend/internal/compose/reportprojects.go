@@ -101,7 +101,10 @@ func projectsByPhaseSpec() reportSpec {
 			fieldPhase:          colPhase,
 		},
 		referenceScopes: map[string]string{colOrganizationID: tableOrganization},
-		defaultBy:       []string{fieldPhase},
+		// The money measures fold DEALS, which the project grant says nothing
+		// about: the deal grant is owed before either is served.
+		grants:    map[string]string{measureOpenDealValue: tableDeal, measureWonDealValue: tableDeal},
+		defaultBy: []string{fieldPhase},
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: "projects"},
 			{Fn: aggFnSum, Field: measureOpenDealValue, As: measureOpenDealValue},
@@ -132,7 +135,9 @@ func projectCommitmentsSpec() reportSpec {
 			fieldPhase:          colPhase,
 		},
 		referenceScopes: map[string]string{colOrganizationID: tableOrganization},
-		defaultBy:       []string{fieldProjectID, fieldName, fieldKey, fieldPhase, fieldOwnerID},
+		// The commitment counts read TASKS, which take the activity grant.
+		grants:    map[string]string{measureOpenCommitments: tableActivity, measureOverdue: tableActivity},
+		defaultBy: []string{fieldProjectID, fieldName, fieldKey, fieldPhase, fieldOwnerID},
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnSum, Field: measureOverdue, As: measureOverdue},
 			{Fn: aggFnSum, Field: measureOpenCommitments, As: measureOpenCommitments},

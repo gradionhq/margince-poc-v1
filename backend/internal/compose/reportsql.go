@@ -26,6 +26,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// sqlUnnarrowed is the clause an unbounded reader's scope renders to where a
+// predicate is syntactically required: every row passes.
+const sqlUnnarrowed = "TRUE"
+
 // reportRowLimit bounds any report; aggregates past this are a data
 // export, not a report.
 const reportRowLimit = 1000
@@ -150,6 +154,15 @@ func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, a
 // only honest aggregate answer: there is no per-row place to write "withheld",
 // and folding those deals under a null key would still say that SOME partner
 // brought them.
+//
+// This is the ROW-SCOPE obligation only. A reference that also takes the
+// referenced table's OBJECT grant before it may be named at all (the project
+// an activity is filed under) declares that in spec.grants, and the
+// vocabulary gate (reportgrants.go) refuses the plan by name; a row scope
+// clause that renders empty means an unbounded reader of the table and
+// nothing about the grant, which is why the two are asked separately.
+// TestGroupingByPartnerDoesNotNameAPartnerTheCallerCannotOpen pins the
+// partner dimension to the row scope alone.
 func referenceScopeClauses(ctx context.Context, spec reportSpec, arg func(any) int) ([]string, error) {
 	if len(spec.referenceScopes) == 0 {
 		return nil, nil
@@ -304,7 +317,7 @@ func bindReportTokens(
 		}
 		if clause == "" {
 			// An unbounded reader of that table: nothing to narrow.
-			clause = "TRUE"
+			clause = sqlUnnarrowed
 		}
 		sql = strings.ReplaceAll(sql, token, clause)
 		return nil

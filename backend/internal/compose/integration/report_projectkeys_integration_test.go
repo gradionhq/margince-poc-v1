@@ -300,3 +300,91 @@ func TestProjectsGoneQuietHonoursTheDaysThreshold(t *testing.T) {
 		t.Fatal("days=\"soon\" was accepted; a threshold takes a whole number")
 	}
 }
+
+// readerWith mints a team-scoped rep holding exactly the named read grants.
+func (e *Env) readerWith(objects ...string) context.Context {
+	grants := map[string]principal.ObjectGrant{"installation_settings": {Read: true}}
+	for _, object := range objects {
+		grants[object] = principal.ObjectGrant{Read: true}
+	}
+	return e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{Objects: grants, RowScope: principal.RowScopeAll})
+}
+
+// A project report's money and commitment measures read DEALS and TASKS,
+// which the project grant says nothing about: a seat holding project.read
+// alone is served the count and none of those columns, and is refused by
+// name when it asks for one.
+func TestProjectReportMeasuresTakeTheirOwnRecordGrant(t *testing.T) {
+	e := Setup(t)
+	admin := e.Admin()
+	pipeline, open, _ := DealFixture(t, e)
+	org := e.SeedOrg(t, "Grant Co", nil)
+	orgID := orgIDOf(org)
+	p := seedProject(admin, t, e, "Priced", nil, org, nil)
+	amount, eur := int64(5000), "EUR"
+	if _, err := e.Deals.CreateDeal(admin, deals.CreateDealInput{
+		Name: "Open", PipelineID: pipeline, StageID: open, OrganizationID: &orgID,
+		ProjectID: &p.ID, AmountMinor: &amount, Currency: &eur, Source: "manual",
+	}); err != nil {
+		t.Fatalf("create the deal: %v", err)
+	}
+	fileTask(admin, t, e, p.ID, time.Now().UTC().Add(-time.Hour))
+
+	projectOnly := e.readerWith("project", "organization")
+	rows := runPrebuiltReport(projectOnly, t, e, "projects-by-phase", "")
+	if len(rows) != 1 || cell(rows[0], "projects") != "1" {
+		t.Fatalf("projects-by-phase for a project-only seat = %v, want the one project counted", rows)
+	}
+	for _, withheld := range []string{"open_deal_value_minor", "won_deal_value_minor"} {
+		if _, present := rows[0][withheld]; present {
+			t.Errorf("a seat without deal.read was served %s: %v", withheld, rows[0])
+		}
+	}
+	if _, err := tryPrebuiltReport(projectOnly, e, "projects-by-phase",
+		`{"aggregates":[{"fn":"sum","field":"open_deal_value_minor","as":"money"}]}`); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("summing deal money without deal.read → %v, want ErrPermissionDenied", err)
+	}
+	withDeals := e.readerWith("project", "organization", "deal")
+	if rows := runPrebuiltReport(withDeals, t, e, "projects-by-phase", ""); cell(rows[0], "open_deal_value_minor") != "5000" {
+		t.Errorf("with deal.read the money is served: %v", rows)
+	}
+
+	rows = runPrebuiltReport(projectOnly, t, e, "project-commitments", "")
+	if len(rows) != 1 || cell(rows[0], "name") != "Priced" {
+		t.Fatalf("project-commitments for a project-only seat = %v, want the project listed", rows)
+	}
+	if _, present := rows[0]["overdue_commitments"]; present {
+		t.Errorf("a seat without activity.read was served the commitment counts: %v", rows[0])
+	}
+	if _, err := tryPrebuiltReport(projectOnly, e, "project-commitments",
+		`{"aggregates":[{"fn":"sum","field":"overdue_commitments","as":"late"}]}`); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("counting tasks without activity.read → %v, want ErrPermissionDenied", err)
+	}
+	withTasks := e.readerWith("project", "organization", "activity")
+	if rows := runPrebuiltReport(withTasks, t, e, "project-commitments", ""); cell(rows[0], "overdue_commitments") != "1" {
+		t.Errorf("with activity.read the counts are served: %v", rows)
+	}
+}
+
+// Grouping activities by the project they are filed under names projects,
+// which takes the project grant: a seat holding activity.read alone is refused
+// both the id and the label dimension by name.
+func TestActivitiesByProjectDimensionsTakeTheProjectGrant(t *testing.T) {
+	e := Setup(t)
+	admin := e.Admin()
+	org := e.SeedOrg(t, "Label Co", nil)
+	p := seedProject(admin, t, e, "Secret rollout", nil, org, nil)
+	fileActivity(admin, t, e, "meeting", time.Now().UTC().Add(-time.Hour), &p.ID)
+
+	activityOnly := e.readerWith("activity")
+	for _, dimension := range []string{"project_id", "project"} {
+		_, err := tryPrebuiltReport(activityOnly, e, "activities-by-kind", `{"group_by":["`+dimension+`"]}`)
+		if !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Errorf("group_by %s without project.read → %v, want ErrPermissionDenied", dimension, err)
+		}
+	}
+	// The kind breakdown itself is still theirs.
+	if rows := runPrebuiltReport(activityOnly, t, e, "activities-by-kind", ""); len(rows) != 1 || cell(rows[0], "activities") != "1" {
+		t.Errorf("activities-by-kind without project.read = %v, want the one meeting counted", rows)
+	}
+}

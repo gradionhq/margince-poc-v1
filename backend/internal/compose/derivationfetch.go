@@ -133,7 +133,14 @@ func derivationWhere(ctx context.Context, spec reportSpec, plan derivationPlan, 
 	if scope != "" {
 		where = append(where, scope)
 	}
-	return where, nil
+	// The drill-through puts every dimension on its rows, so every reference
+	// the spec carries takes its row scope here too — the explanation must
+	// not out-see the number it explains.
+	refs, err := referenceScopeClauses(ctx, spec, arg)
+	if err != nil {
+		return nil, err
+	}
+	return append(where, refs...), nil
 }
 
 // scanDerivationRows materializes the drill-through rows, mapping each

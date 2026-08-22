@@ -157,8 +157,10 @@ var prebuiltReports = map[string]reportSpec{
 		},
 		filterScopes: projectFilterScope,
 		// The project a filed activity names is row-scoped; grouping by it
-		// carries the same obligation the deal reports' company columns do.
+		// carries the same obligation the deal reports' company columns do,
+		// and naming it at all — id or label — takes the project grant.
 		referenceScopes: map[string]string{activityProjectIDExpr: tableProject},
+		grants:          map[string]string{fieldProjectID: tableProject, fieldProject: tableProject},
 		notes: "project_id admits exactly the activities filed under that project (an activity_link row " +
 			"naming it); an activity filed nowhere, or under another project, is excluded",
 		defaultBy: []string{fieldKind},

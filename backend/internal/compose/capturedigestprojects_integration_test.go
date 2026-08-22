@@ -12,13 +12,18 @@ package compose
 // flight absent from each list.
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 )
 
 func (b *backfillWireEnv) seedDigestProject(t *testing.T, name string, org ids.UUID, owner *ids.UUID) ids.ProjectID {
@@ -73,7 +78,9 @@ func TestMorningDigestCarriesTheProjectsSection(t *testing.T) {
 	}
 	b.fileOnProject(t, "call", busy, now.AddDate(0, 0, -7), nil)
 
-	if err := b.registry.BuildDigests(b.human, now); err != nil {
+	granted := capture.NewRegistry(e.DB(), capture.NewSink(e.DB()), projectReadingAuthority{}, keyvault.NewMemory()).
+		WithDigestProjects(digestProjectsSource)
+	if err := granted.BuildDigests(b.human, now); err != nil {
 		t.Fatalf("BuildDigests: %v", err)
 	}
 	status, digest := b.readDigest(t, nil)
@@ -107,5 +114,51 @@ func TestMorningDigestCarriesTheProjectsSection(t *testing.T) {
 	silent := projects.GoneQuiet[0]
 	if silent.DaysQuiet < 39 || silent.DaysQuiet > 41 || silent.OwnerId == nil || ids.UUID(*silent.OwnerId) != e.Rep1 {
 		t.Fatalf("the quiet row = %+v, want about 40 days quiet and Rep1 as owner", silent)
+	}
+}
+
+// projectReadingAuthority is backfillAuthority plus the project, deal and
+// activity grants a delivery reader holds.
+type projectReadingAuthority struct{ backfillAuthority }
+
+func (projectReadingAuthority) EffectiveRBAC(context.Context, ids.UUID, ids.UUID) (authz.RBAC, error) {
+	return authz.RBAC{Permissions: principal.Permissions{
+		Objects: map[string]principal.ObjectGrant{
+			"activity": {Create: true, Read: true}, "person": {Read: true},
+			"project": {Read: true}, "deal": {Read: true},
+		},
+		RowScope: principal.RowScopeTeam,
+	}}, nil
+}
+
+// The section is built per reader under that reader's live grants: a
+// connected user whose authority carries no project.read gets no section at
+// all, and the same build with the grant carries it.
+func TestMorningDigestOmitsTheProjectsSectionWithoutTheProjectGrant(t *testing.T) {
+	b := setupBackfillWire(t)
+	e := b.env
+	org := e.SeedOrg(t, "Digest Client", nil)
+	quiet := b.seedDigestProject(t, "Gone quiet", org, nil)
+	if _, err := e.Deals.AdvanceProjectPhase(e.Admin(), quiet, deals.AdvanceProjectPhaseInput{ToPhase: deals.PhaseDelivering}); err != nil {
+		t.Fatalf("advance: %v", err)
+	}
+	now := time.Now().UTC()
+	b.fileOnProject(t, "meeting", quiet, now.AddDate(0, 0, -40), nil)
+
+	// The harness authority grants activity and person only.
+	if err := b.registry.BuildDigests(b.human, now); err != nil {
+		t.Fatalf("BuildDigests without project.read: %v", err)
+	}
+	if _, digest := b.readDigest(t, nil); digest.Projects != nil {
+		t.Fatalf("a reader without project.read was served a projects section: %+v", digest.Projects)
+	}
+
+	granted := capture.NewRegistry(e.DB(), capture.NewSink(e.DB()), projectReadingAuthority{}, keyvault.NewMemory()).
+		WithDigestProjects(digestProjectsSource)
+	if err := granted.BuildDigests(b.human, now); err != nil {
+		t.Fatalf("BuildDigests with project.read: %v", err)
+	}
+	if _, digest := b.readDigest(t, nil); digest.Projects == nil || len(digest.Projects.GoneQuiet) != 1 {
+		t.Fatalf("a reader with project.read was not served the quiet project: %+v", digest.Projects)
 	}
 }

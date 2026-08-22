@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -178,6 +179,10 @@ type reportSpec struct {
 	// notes is what the catalog tells a caller beyond the vocabularies: what a
 	// filter MEANS when the name alone does not say.
 	notes string
+	// grants names the dimensions and measures that read a record type other
+	// than the report's own, mapped to that type: the caller owes its read
+	// grant before the name is served (reportgrants.go).
+	grants map[string]string
 }
 
 // forecastCategoryExpr is the forecast's effective-category dimension
@@ -252,7 +257,12 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 	}
 	aggregates := req.Aggregates
 	if len(aggregates) == 0 {
-		aggregates = spec.defaultAggs
+		aggregates = grantedDefaultAggregates(ctx, spec)
+	}
+	// What the caller asked for by name is refused by name; what they did not
+	// ask for was narrowed above.
+	if err := requireVocabularyGrants(ctx, spec, slices.Concat(req.GroupBy, aggregateFields(req.Aggregates))); err != nil {
+		return reportOutcome{}, err
 	}
 
 	columns, selects, err := buildSelectList(spec, groupBy, aggregates)
@@ -260,7 +270,7 @@ func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSp
 		return reportOutcome{}, err
 	}
 
-	rows, excluded, err := e.fetchRows(ctx, report, spec, req, groupBy, selects, columns)
+	rows, excluded, err := e.fetchRows(ctx, report, grantedSpec(ctx, spec), req, groupBy, selects, columns)
 	if err != nil {
 		return reportOutcome{}, err
 	}

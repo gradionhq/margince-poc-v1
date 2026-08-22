@@ -106,3 +106,34 @@ func TestAQuietProjectIsRaisedOncePerQuietEpisode(t *testing.T) {
 		t.Fatalf("signals on the project after two episodes = %d, want 2", len(got))
 	}
 }
+
+// A project_gone_quiet summary names the project, so a seat holding
+// signal.read without project.read is not served it — the subject arm takes
+// the object grant, not only the row predicate a project admits every seat to.
+func TestAProjectSignalIsWithheldFromASeatWithoutTheProjectGrant(t *testing.T) {
+	e := Setup(t)
+	admin := e.Admin()
+	now := time.Now().UTC()
+	org := e.SeedOrg(t, "Quiet Client", nil)
+	erp := seedProject(admin, t, e, "ERP replacement", nil, org, nil)
+	advanceProject(admin, t, e, erp.ID, deals.PhaseDelivering)
+	fileActivity(admin, t, e, "meeting", now.AddDate(0, 0, -45), &erp.ID)
+	if pass := quietProjectPass(t, e, now); pass.Raised != 1 {
+		t.Fatalf("raised %d, want 1", pass.Raised)
+	}
+	if got := projectSignals(t, e, org, erp.ID); len(got) != 1 {
+		t.Fatalf("a seat WITH project.read lists %d project signals, want 1", len(got))
+	}
+
+	noProject := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
+		Objects:  map[string]principal.ObjectGrant{"signal": {Read: true}, "organization": {Read: true}},
+		RowScope: principal.RowScopeAll,
+	})
+	listed, _, err := signals.NewStore(e.DB(), nil).ListSignals(noProject, signals.ListSignalsInput{OrganizationID: &org})
+	if err != nil {
+		t.Fatalf("listing without project.read: %v", err)
+	}
+	if len(listed) != 0 {
+		t.Fatalf("a seat without project.read was served %d signal(s) about the project: %+v", len(listed), listed)
+	}
+}
