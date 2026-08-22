@@ -51,6 +51,9 @@ components:
         - deal_room.resumed
         - deal_room.closed
         - deal_room.archived
+        - deal_room.participant_invited
+        - deal_room.participant_revoked
+        - deal_room.participant_credential_reissued
         - offer.created
         - offer.sent
         - offer.accepted
@@ -319,6 +322,87 @@ components:
             value. The closed set is stated here and held by the writer.
           items:
             type: string
+      additionalProperties: false
+
+    PublicEventDealRoomParticipantInvited:
+      type: object
+      x-event-type: deal_room.participant_invited
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.participant_invited — an outside person was admitted to a
+        Deal Room.
+
+        The event names the participant and the room, never the credential or its hash:
+        a subscriber that could read the token off the bus would hold everything the
+        invitation grants.
+      required:
+        - deal_id
+        - participant_id
+        - capability
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        participant_id:
+          type: string
+          format: uuid
+        capability:
+          type: string
+          description: view, comment or reviewer.
+      additionalProperties: false
+
+    PublicEventDealRoomParticipantRevoked:
+      type: object
+      x-event-type: deal_room.participant_revoked
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.participant_revoked — an outside person's access to a Deal
+        Room was taken away. Their live session ended and any unconsumed credential was
+        retired at the same moment.
+      required:
+        - deal_id
+        - participant_id
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        participant_id:
+          type: string
+          format: uuid
+      additionalProperties: false
+
+    PublicEventDealRoomParticipantCredentialReissued:
+      type: object
+      x-event-type: deal_room.participant_credential_reissued
+      x-entity-type: deal_room
+      x-version: 1
+      description: |
+        Payload for deal_room.participant_credential_reissued — the credential that
+        admits one participant changed, so whatever they were holding no longer works.
+
+        Two acts raise it: a resend, and a correction to the address a link was sent
+        to. Both retire the previous credential, which is the fact a subscriber needs;
+        `reason` says which happened. Like every participant event it names nobody's
+        token — a subscriber able to read one off the bus would hold what it grants.
+      required:
+        - deal_id
+        - participant_id
+        - reason
+      properties:
+        deal_id:
+          type: string
+          format: uuid
+        participant_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          description: |
+            `resent` — a fresh credential was issued on request.
+            `address_corrected` — the address changed, so the link already sent was
+            retired; no new credential exists until somebody resends.
       additionalProperties: false
 
     PublicEventDealRoomPublished:

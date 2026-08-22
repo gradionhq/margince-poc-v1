@@ -8,12 +8,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // createInput maps the create request onto the store's input, refusing what the
@@ -57,6 +59,109 @@ func updateInput(req crmcontracts.UpdateDealRoomRequest, ifVersion *int64) Updat
 		in.StewardUserID = &p
 	}
 	return in
+}
+
+// inviteInput maps the invite request, defaulting the capability to the least
+// that lets somebody read the room.
+func inviteInput(req crmcontracts.InviteDealRoomParticipantRequest) (InviteInput, error) {
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return InviteInput{}, err
+	}
+	// Validated HERE rather than trusted from the binding: openapi_types.Email
+	// is a bare string alias with no unmarshal check, so a malformed address
+	// would otherwise take the one live seat its room allows for that address,
+	// fail every send, and — once somebody has signed in — become uncorrectable.
+	// The identity module validates its own credential-bearing invite the same
+	// way and for the same reason.
+	email, err := values.ParseEmail(string(req.Email))
+	if err != nil {
+		return InviteInput{}, err
+	}
+	if err := refuseOverlongName(req.FullName); err != nil {
+		return InviteInput{}, err
+	}
+	in := InviteInput{
+		FullName:   req.FullName,
+		Email:      email.String(),
+		Capability: capabilityView,
+		Source:     req.Source,
+	}
+	if req.Capability != nil {
+		if err := refuseUnknownCapability(*req.Capability); err != nil {
+			return InviteInput{}, err
+		}
+		in.Capability = *req.Capability
+	}
+	return in, nil
+}
+
+// participantUpdateInput maps the correction request. Validation of the
+// capability happens in the store rather than here, because an omitted field and
+// an invalid one are different answers and only the store sees which arrived.
+func participantUpdateInput(req crmcontracts.UpdateDealRoomParticipantRequest) (UpdateParticipantInput, error) {
+	in := UpdateParticipantInput{
+		FullName:   req.FullName,
+		Capability: req.Capability,
+	}
+	if req.FullName != nil {
+		if err := refuseOverlongName(*req.FullName); err != nil {
+			return UpdateParticipantInput{}, err
+		}
+	}
+	if req.Email != nil {
+		// A correction is exactly where a malformed address does the most harm,
+		// so it takes the same validator the invite does.
+		email, err := values.ParseEmail(string(*req.Email))
+		if err != nil {
+			return UpdateParticipantInput{}, err
+		}
+		normalized := email.String()
+		in.Email = &normalized
+	}
+	return in, nil
+}
+
+// nameLimit bounds a participant's display name, matching what the member
+// invite allows. Unbounded, it is a row somebody else has to read.
+const nameLimit = 255
+
+func refuseOverlongName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return &fieldError{field: "full_name", code: "required", msg: "full_name is required"}
+	}
+	if len([]rune(name)) > nameLimit {
+		return &fieldError{
+			field: "full_name",
+			code:  "too_long",
+			msg:   "full_name is longer than 255 characters",
+		}
+	}
+	return nil
+}
+
+// The capabilities a participant may hold, spelled here because the contract
+// carries them as a plain string — an inline enum would generate package-scope
+// Go constants named View, Comment and Reviewer in the shared contracts package
+// and silently rename any other schema declaring the same values.
+const (
+	capabilityView     = "view"
+	capabilityComment  = "comment"
+	capabilityReviewer = "reviewer"
+)
+
+// refuseUnknownCapability names the closed set rather than letting the schema
+// CHECK answer: a constraint violation surfaces as a 500 with a table name in
+// it, and the caller learns nothing about which values are legal.
+func refuseUnknownCapability(capability string) error {
+	switch capability {
+	case capabilityView, capabilityComment, capabilityReviewer:
+		return nil
+	}
+	return &fieldError{
+		field: "capability",
+		code:  "unknown_capability",
+		msg:   "capability must be view, comment or reviewer",
+	}
 }
 
 // listInput maps the list query parameters.

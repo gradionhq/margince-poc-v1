@@ -57,6 +57,7 @@ func TestAnAgentMayNotMoveWhatABuyerCanReach(t *testing.T) {
 	store := &Store{}
 	ctx := principal.WithActor(context.Background(), fullyEmpoweredAgent())
 	roomID := ids.From[ids.DealRoomKind](ids.NewV7())
+	participantID := ids.From[ids.DealRoomParticipantKind](ids.NewV7())
 
 	for _, tc := range []struct {
 		act  string
@@ -89,6 +90,29 @@ func TestAnAgentMayNotMoveWhatABuyerCanReach(t *testing.T) {
 		}},
 		{"remove the expiry bound entirely", func() error {
 			_, err := store.SetExpiry(ctx, roomID, nil, nil)
+			return err
+		}},
+		// Who may come into the room, and who may be put out of it. An agent
+		// deciding which outside person reads a deal's material is the same
+		// class of act as publishing to them, and refused on the same ground.
+		{"admit an outside person to the room", func() error {
+			_, err := store.InviteParticipant(ctx, roomID, InviteInput{
+				FullName: "Probe", Email: "probe@example.com", Capability: capabilityView, Source: "probe",
+			})
+			return err
+		}},
+		{"issue a fresh credential", func() error {
+			_, err := store.ResendInvitation(ctx, roomID, participantID)
+			return err
+		}},
+		{"take a person's access away", func() error {
+			_, err := store.RevokeParticipant(ctx, roomID, participantID)
+			return err
+		}},
+		{"change who a credential admits", func() error {
+			corrected := "elsewhere@example.com"
+			_, err := store.UpdateParticipant(ctx, roomID, participantID,
+				UpdateParticipantInput{Email: &corrected})
 			return err
 		}},
 	} {

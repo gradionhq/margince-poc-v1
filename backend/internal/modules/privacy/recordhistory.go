@@ -53,6 +53,10 @@ var recordHistoryVerbs = map[string]string{ // #nosec G101 -- audit verbs and th
 	"assign":        "assigned",
 	"advance_stage": "advanced the stage of",
 	"advance_phase": "advanced the phase of",
+	// Deal Room access. "invited" and "revoked access for" rather than
+	// "created"/"archived": the row is incidental, the access is the fact.
+	"invite": "invited",
+	"revoke": "revoked access for",
 	// The Deal Room lifecycle. "closed" rather than "ended", because closing a
 	// room keeps the buyer reading it — the phrase should not suggest access
 	// went away with the content freeze.

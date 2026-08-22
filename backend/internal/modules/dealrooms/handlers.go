@@ -10,12 +10,19 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // Handlers is this module's transport.
 type Handlers struct {
 	store *Store
+	// inviteMailer delivers a buyer's invitation. Nil means the installation
+	// has no outbound mail configured: invitations are still recorded and their
+	// credential still returned, and the response says it was not delivered.
+	inviteMailer mailer.Mailer
+	// publicBaseURL is the origin a buyer link is built on.
+	publicBaseURL string
 }
 
 // NewHandlers builds the Deal Room handler set.

@@ -7168,6 +7168,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/deal-rooms/{id}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the people admitted to a room.
+         * @description Revoked participants are included by default and marked: their comments and
+         *     completed to-dos stay attributed to them, so a roster that hid them would
+         *     leave unexplained names on the room's history.
+         */
+        get: operations["listDealRoomParticipants"];
+        put?: never;
+        /**
+         * Admit a named person to the room.
+         * @description HUMAN-ONLY. Records the person and mints one credential for them. Whether that
+         *     credential is delivered depends on the installation having outbound mail
+         *     configured; the participant and the invitation are recorded either way, so a
+         *     mail failure never leaves a half-admitted person.
+         *
+         *     One live seat per address: inviting an address that already holds one is
+         *     rejected (409 `deal_room_participant_already_invited`). Re-inviting an address
+         *     whose access was revoked is allowed and creates a fresh participant — the old
+         *     row stays, keeping their earlier comments attributed.
+         *
+         *     The raw credential is returned ONCE, in this response, and never again. Only its
+         *     hash is stored, so it cannot be recovered — a resend mints a new one.
+         *
+         *     This operation deliberately takes NO Idempotency-Key. The replay cache keeps a
+         *     response body in plaintext for 24 hours, and this body carries a live
+         *     credential, so making the call replayable would put every invitation issued in
+         *     that window into a second table in recoverable form. A retry therefore mints a
+         *     fresh credential and retires the previous one, which is the safe failure: the
+         *     caller sends the newer link, and the older one has already stopped working.
+         */
+        post: operations["inviteDealRoomParticipant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/participants/{participantId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                participantId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Correct a participant's name, address or capability.
+         * @description HUMAN-ONLY. Correcting the ADDRESS is only possible while their credential is
+         *     still unconsumed — once someone has signed in, changing where their link goes
+         *     would hand their access to a different person. Correcting it invalidates the
+         *     credential already sent and mints nothing: resend to issue a new one.
+         *
+         *     Capability may be changed at any time and binds on the participant's next
+         *     request.
+         */
+        patch: operations["updateDealRoomParticipant"];
+        trace?: never;
+    };
+    "/deal-rooms/{id}/participants/{participantId}/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                participantId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a fresh credential, retiring the previous one.
+         * @description HUMAN-ONLY. Supersedes rather than accumulates: the moment a new credential is
+         *     issued the previous one stops working, so an old link sitting in an old mailbox
+         *     cannot still admit anyone.
+         *
+         *     Available while the participant's access stands, including on a closed or
+         *     paused room — a buyer who lost their link to a closed room still needs to reach
+         *     what they were shown.
+         */
+        post: operations["resendDealRoomInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deal-rooms/{id}/participants/{participantId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                participantId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take a person's access away.
+         * @description HUMAN-ONLY, and deliberately available in EVERY room state including closed and
+         *     archived. Revocation is a security control: being unable to remove somebody
+         *     from a room holding your signed contract is a real hazard months after the deal
+         *     closed, so this is never frozen along with the room's content.
+         *
+         *     Ends their live session immediately and retires any unconsumed credential. The
+         *     participant row survives, so their comments and completed to-dos stay
+         *     attributed. Revoking twice is accepted and changes nothing further.
+         */
+        post: operations["revokeDealRoomParticipant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/deal-rooms/{id}/releases": {
         parameters: {
             query?: never;
@@ -16313,7 +16451,7 @@ export interface components {
             /** @description Resolved display name for on_behalf_of. */
             on_behalf_of_name?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire" | "resolve" | "restrict" | "pin" | "accrue" | "pay" | "publish" | "pause" | "resume" | "close";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire" | "resolve" | "restrict" | "pin" | "accrue" | "pay" | "publish" | "pause" | "resume" | "close" | "invite" | "revoke";
             entity_type: string;
             /**
              * Format: uuid
@@ -16765,7 +16903,7 @@ export interface components {
              * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
              * @enum {string}
              */
-            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_release" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            record_type?: "activity" | "app_user" | "commission" | "custom_field" | "data_subject_request" | "deal" | "deal_room" | "deal_room_participant" | "deal_room_release" | "import_run" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
             /**
              * @description The autonomy tier, identical on REST and MCP (ADR-0055).
              * @enum {string}
@@ -18720,6 +18858,139 @@ export interface components {
             created_at: string;
         } & {
             [key: string]: unknown;
+        };
+        /**
+         * @description What a participant may do in the room. Coarse and room-wide on purpose — a
+         *     per-document permission matrix is a product nobody asked for.
+         *
+         *     `view` reads. `comment` also writes comments and messages. `reviewer` also
+         *     confirms a document version, which is the only one that carries weight in a
+         *     negotiation, so it is granted deliberately and never by default.
+         *
+         *     Typed as a plain string rather than an inline enum: `view`, `comment` and
+         *     `reviewer` would generate package-scope Go constants named `View`, `Comment`
+         *     and `Reviewer` in the shared contracts package, which collide with — and
+         *     silently rename — the constants of any other schema declaring the same value.
+         *     The closed set is stated here and held by the writer and the schema CHECK.
+         */
+        DealRoomParticipantCapability: string;
+        /**
+         * @description What happened to the credential we last sent this person — delivery, modelled
+         *     apart from access. A bounced invitation and a revoked one look identical
+         *     otherwise, and a seller chasing silence needs to tell them apart.
+         *
+         *     `pending` was minted but not handed to a mail relay (the installation may have
+         *     none configured). `sent` left the building. `delivered` was accepted by the
+         *     recipient's server. `failed` bounced. `consumed` was exchanged for a session —
+         *     they are in. `superseded` was retired by a later resend. `none` means no
+         *     credential currently stands, which is what a revoked participant shows.
+         * @enum {string}
+         */
+        DealRoomDeliveryState: "none" | "pending" | "sent" | "delivered" | "failed" | "consumed" | "superseded";
+        /**
+         * @description One named person admitted to one room. Not an app_user: a participant consumes
+         *     no licence, holds no CRM authority, and their whole reach is this one room.
+         */
+        DealRoomParticipant: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            room_id: string;
+            full_name: string;
+            /**
+             * Format: email
+             * @description Stored lowercase.
+             */
+            email: string;
+            capability: components["schemas"]["DealRoomParticipantCapability"];
+            delivery_state: components["schemas"]["DealRoomDeliveryState"];
+            /**
+             * Format: uuid
+             * @description The user who admitted them. Null once that user is deleted.
+             */
+            invited_by?: string | null;
+            /**
+             * Format: date-time
+             * @description When the standing credential lapses. Null when none stands.
+             */
+            credential_expires_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When they last made a request. Null if they have never signed in.
+             */
+            last_seen_at?: string | null;
+            /**
+             * @description Whether this person has ever exchanged a credential for a session.
+             *
+             *     Distinct from `delivery_state == consumed`, which reports the LATEST
+             *     invitation attempt and therefore moves when one is resent. This does not
+             *     move: it is what fixes their address, because redirecting a link somebody
+             *     has already signed in with would hand their standing access to whoever the
+             *     new address belongs to.
+             */
+            readonly has_signed_in?: boolean;
+            /**
+             * Format: date-time
+             * @description When their access was taken away. The row survives revocation so their
+             *     comments and completed to-dos stay attributed to a name.
+             */
+            revoked_at?: string | null;
+            source: string;
+            readonly captured_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        DealRoomParticipantListResponse: {
+            data: components["schemas"]["DealRoomParticipant"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        InviteDealRoomParticipantRequest: {
+            full_name: string;
+            /** Format: email */
+            email: string;
+            /** @description Defaults to `view` — the least that lets someone read the room. */
+            capability?: components["schemas"]["DealRoomParticipantCapability"];
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Any subset; omit a field to leave it unchanged. */
+        UpdateDealRoomParticipantRequest: {
+            full_name?: string;
+            /**
+             * Format: email
+             * @description Only while their credential is unconsumed. Changing it invalidates the link
+             *     already sent; resend to issue a new one.
+             */
+            email?: string;
+            capability?: components["schemas"]["DealRoomParticipantCapability"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * @description A participant and the credential just minted for them.
+         *
+         *     `credential` is returned ONCE and never again — only its hash is stored, so it
+         *     cannot be recovered, only replaced by a resend. Treat it as a secret: it admits
+         *     the bearer to everything the room has published.
+         */
+        DealRoomInvitationIssued: {
+            participant: components["schemas"]["DealRoomParticipant"];
+            /** @description The raw one-time credential. Put it in the link's fragment, never its path. */
+            credential: string;
+            /** Format: date-time */
+            credential_expires_at: string;
+            /**
+             * @description Whether the invitation was handed to a mail relay. False when the
+             *     installation has no outbound mail configured — the participant and the
+             *     credential are still recorded, and the caller is expected to deliver the
+             *     link itself rather than being told the invitation failed.
+             */
+            delivered: boolean;
         };
         DealRoomReleaseListResponse: {
             data: components["schemas"]["DealRoomRelease"][];
@@ -32252,6 +32523,155 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listDealRoomParticipants: {
+        parameters: {
+            query?: {
+                /** @description Only participants whose access has not been revoked. */
+                active_only?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The room's roster. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomParticipantListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    inviteDealRoomParticipant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteDealRoomParticipantRequest"];
+            };
+        };
+        responses: {
+            /** @description The participant, with the one-time credential. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomInvitationIssued"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateDealRoomParticipant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                participantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDealRoomParticipantRequest"];
+            };
+        };
+        responses: {
+            /** @description The corrected participant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomParticipant"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    resendDealRoomInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                participantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The participant, with the new one-time credential. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomInvitationIssued"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    revokeDealRoomParticipant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                participantId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The revoked participant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealRoomParticipant"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listDealRoomReleases: {
