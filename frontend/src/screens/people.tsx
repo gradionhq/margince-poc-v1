@@ -55,6 +55,7 @@ import {
   WhoKnowsThem,
 } from "./person360";
 import { EnrichedFields } from "./personcorrections";
+import { PersonDealRooms } from "./persondealrooms";
 import { PersonGraphPanel } from "./persongraph";
 import {
   createdColumn,
@@ -302,10 +303,14 @@ function PersonAside({
   if (!view) {
     return undefined;
   }
+  const email =
+    view.person.emails?.find((e) => e.is_primary)?.email ??
+    view.person.emails?.[0]?.email;
   return (
     <>
       <RelationshipPulse view={view} />
       <WhoKnowsThem view={view} />
+      {email ? <PersonDealRooms email={email} /> : null}
     </>
   );
 }

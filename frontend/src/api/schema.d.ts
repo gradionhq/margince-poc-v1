@@ -34167,6 +34167,8 @@ export interface operations {
                 /** @description Only the room belonging to this deal. */
                 deal_id?: string;
                 state?: components["schemas"]["DealRoomState"];
+                /** @description Only rooms this address may currently enter — a live, non-revoked seat. The admin's path to "which rooms is this departed contact still in". */
+                participant_email?: string;
             };
             header?: never;
             path?: never;

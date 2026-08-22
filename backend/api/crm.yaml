@@ -11128,6 +11128,12 @@ paths:
         - name: state
           in: query
           schema: { $ref: '#/components/schemas/DealRoomState' }
+        - name: participant_email
+          in: query
+          schema: { type: string, format: email }
+          description: >-
+            Only rooms this address may currently enter — a live, non-revoked seat.
+            The admin's path to "which rooms is this departed contact still in".
       responses:
         '200':
           description: A page of Deal Rooms.
