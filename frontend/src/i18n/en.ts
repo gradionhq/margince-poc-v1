@@ -798,6 +798,7 @@ export const en = {
   "signal.kind.new_opportunity": "New opportunity",
   "signal.kind.commitment_made": "Something was promised",
   "signal.kind.ghosted_thread": "No answer",
+  "signal.kind.project_gone_quiet": "Project gone quiet",
   "co.routeIn.open": "Route in",
   "co.routeIn.title": "Who here talks to {name}",
   "co.routeIn.none": "Nobody here has written to them yet.",
@@ -1300,6 +1301,7 @@ export const en = {
   "co.connections.group.our_side": "who here is connected",
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
+  "co.signals.openProject": "Open the project",
   "chronology.label": "What to show in the timeline",
   "chronology.activities": "Activities",
   "chronology.changes": "Changes",
@@ -1948,6 +1950,13 @@ export const en = {
   "home.digestDedupe": "Duplicates to review",
   "home.digestClassify":
     "Classified overnight: {commitments} commitments · {meetings} meetings · {noise} noise",
+  "home.digestProjects": "Projects",
+  "home.digestPhaseChanges": "Phase moves",
+  "home.digestNewCommitments": "New commitments",
+  "home.digestGoneQuiet": "Gone quiet",
+  "home.digestPhaseChange": "{from} → {to}",
+  "home.digestCommitmentCount": "{count} new open commitments",
+  "home.digestQuietDays": "quiet for {days} days",
 
   "enrich.title": "Read from the website",
   "enrich.sub":

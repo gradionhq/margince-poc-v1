@@ -3672,6 +3672,7 @@ const (
 	CreateSignalRequestEntityTypeDeal         CreateSignalRequestEntityType = "deal"
 	CreateSignalRequestEntityTypeOrganization CreateSignalRequestEntityType = "organization"
 	CreateSignalRequestEntityTypePerson       CreateSignalRequestEntityType = "person"
+	CreateSignalRequestEntityTypeProject      CreateSignalRequestEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the CreateSignalRequestEntityType enum.
@@ -3682,6 +3683,8 @@ func (e CreateSignalRequestEntityType) Valid() bool {
 	case CreateSignalRequestEntityTypeOrganization:
 		return true
 	case CreateSignalRequestEntityTypePerson:
+		return true
+	case CreateSignalRequestEntityTypeProject:
 		return true
 	default:
 		return false
@@ -8637,6 +8640,7 @@ const (
 	SignalEntityTypeDeal         SignalEntityType = "deal"
 	SignalEntityTypeOrganization SignalEntityType = "organization"
 	SignalEntityTypePerson       SignalEntityType = "person"
+	SignalEntityTypeProject      SignalEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the SignalEntityType enum.
@@ -8648,6 +8652,8 @@ func (e SignalEntityType) Valid() bool {
 		return true
 	case SignalEntityTypePerson:
 		return true
+	case SignalEntityTypeProject:
+		return true
 	default:
 		return false
 	}
@@ -8655,16 +8661,17 @@ func (e SignalEntityType) Valid() bool {
 
 // Defines values for SignalKind.
 const (
-	SignalKindBuyingIntent   SignalKind = "buying_intent"
-	SignalKindChampionLeft   SignalKind = "champion_left"
-	SignalKindCommitmentMade SignalKind = "commitment_made"
-	SignalKindContractEnded  SignalKind = "contract_ended"
-	SignalKindGhostedThread  SignalKind = "ghosted_thread"
-	SignalKindNewOpportunity SignalKind = "new_opportunity"
-	SignalKindOther          SignalKind = "other"
-	SignalKindReengagement   SignalKind = "reengagement"
-	SignalKindRisk           SignalKind = "risk"
-	SignalKindStalledDeal    SignalKind = "stalled_deal"
+	SignalKindBuyingIntent     SignalKind = "buying_intent"
+	SignalKindChampionLeft     SignalKind = "champion_left"
+	SignalKindCommitmentMade   SignalKind = "commitment_made"
+	SignalKindContractEnded    SignalKind = "contract_ended"
+	SignalKindGhostedThread    SignalKind = "ghosted_thread"
+	SignalKindNewOpportunity   SignalKind = "new_opportunity"
+	SignalKindOther            SignalKind = "other"
+	SignalKindProjectGoneQuiet SignalKind = "project_gone_quiet"
+	SignalKindReengagement     SignalKind = "reengagement"
+	SignalKindRisk             SignalKind = "risk"
+	SignalKindStalledDeal      SignalKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the SignalKind enum.
@@ -8683,6 +8690,8 @@ func (e SignalKind) Valid() bool {
 	case SignalKindNewOpportunity:
 		return true
 	case SignalKindOther:
+		return true
+	case SignalKindProjectGoneQuiet:
 		return true
 	case SignalKindReengagement:
 		return true
@@ -17477,7 +17486,51 @@ type MorningDigest struct {
 	} `json:"connectors"`
 	Date        openapi_types.Date `json:"date"`
 	GeneratedAt time.Time          `json:"generated_at"`
-	Review      struct {
+
+	// Projects What moved on the bodies of work in the window, and which have gone quiet. Absent
+	// from a digest built without the section; each list is empty when nothing happened.
+	// Workspace-level like the counts above: a project is read by every seat holding the
+	// grant.
+	Projects *struct {
+		// GoneQuiet The projects being pursued or delivered that nothing has been filed against for
+		// 30 days — the `projects-gone-quiet` report's rule, the same one the
+		// `project_gone_quiet` signal is raised on — quietest first.
+		GoneQuiet []struct {
+			DaysQuiet int                 `json:"days_quiet"`
+			Key       *string             `json:"key,omitempty"`
+			Name      string              `json:"name"`
+			OwnerId   *openapi_types.UUID `json:"owner_id,omitempty"`
+
+			// Phase A rung of the project ladder: pursuing or delivering, the two the quiet rule watches.
+			Phase     string             `json:"phase"`
+			ProjectId openapi_types.UUID `json:"project_id"`
+
+			// QuietSince When the silence began: the last filed activity, or the project's creation when nothing was ever filed.
+			QuietSince time.Time `json:"quiet_since"`
+		} `json:"gone_quiet"`
+
+		// NewCommitments The projects that gained still-open tasks in the window, most first.
+		NewCommitments []struct {
+			Key                *string            `json:"key,omitempty"`
+			Name               string             `json:"name"`
+			NewOpenCommitments int                `json:"new_open_commitments"`
+			ProjectId          openapi_types.UUID `json:"project_id"`
+		} `json:"new_commitments"`
+
+		// PhaseChanges The ladder moves recorded in the window (from `project_phase_history`), newest first.
+		PhaseChanges []struct {
+			// FromPhase A rung of the project ladder (initiative, pursuing, delivering, closed); null for the birth row.
+			FromPhase  *string            `json:"from_phase,omitempty"`
+			Key        *string            `json:"key,omitempty"`
+			Name       string             `json:"name"`
+			OccurredAt time.Time          `json:"occurred_at"`
+			ProjectId  openapi_types.UUID `json:"project_id"`
+
+			// ToPhase A rung of the project ladder.
+			ToPhase string `json:"to_phase"`
+		} `json:"phase_changes"`
+	} `json:"projects,omitempty"`
+	Review struct {
 		// ApprovalsPending Pending 🟡 items (enrich, quarantine, merge).
 		ApprovalsPending *int `json:"approvals_pending,omitempty"`
 		Classify         *struct {
@@ -22161,11 +22214,15 @@ type Signal struct {
 	Evidence []SignalEvidence   `json:"evidence"`
 	Id       openapi_types.UUID `json:"id"`
 
-	// Kind The first six are what a human files by hand. The last four are what the producers
+	// Kind The first six are what a human files by hand. The rest are what the producers
 	// raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
 	// out of a settled conversation by the `signal_extract` site, each citing the message
 	// it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
-	// interaction is ours, nobody answered it, and the account is one worth chasing.
+	// interaction is ours, nobody answered it, and the account is one worth chasing;
+	// `project_gone_quiet` is the same kind of comparison on a project — it is being
+	// pursued or delivered and nothing has been filed against it for 30 days (the
+	// `projects-gone-quiet` report's own rule). Its subject is the project
+	// (`entity_type: project`), attributed to the project's company.
 	Kind SignalKind `json:"kind"`
 
 	// RawRef Pointer to the raw source payload the resolver works from: an email address/handle, a domain, a URL, or a company mention.
@@ -22200,11 +22257,15 @@ type Signal struct {
 // SignalEntityType The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
 type SignalEntityType string
 
-// SignalKind The first six are what a human files by hand. The last four are what the producers
+// SignalKind The first six are what a human files by hand. The rest are what the producers
 // raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
 // out of a settled conversation by the `signal_extract` site, each citing the message
 // it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
-// interaction is ours, nobody answered it, and the account is one worth chasing.
+// interaction is ours, nobody answered it, and the account is one worth chasing;
+// `project_gone_quiet` is the same kind of comparison on a project — it is being
+// pursued or delivered and nothing has been filed against it for 30 days (the
+// `projects-gone-quiet` report's own rule). Its subject is the project
+// (`entity_type: project`), attributed to the project's company.
 type SignalKind string
 
 // SignalResolutionState The raw→entity match outcome: an ambiguous match is `low_confidence` (surfaced, never silently asserted); an unattributable one is `dropped`.

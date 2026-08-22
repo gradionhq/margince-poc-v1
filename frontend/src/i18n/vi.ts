@@ -745,6 +745,7 @@ export const vi = {
   "signal.kind.new_opportunity": "Cơ hội mới",
   "signal.kind.commitment_made": "Đã có lời hứa",
   "signal.kind.ghosted_thread": "Không hồi đáp",
+  "signal.kind.project_gone_quiet": "Dự án đã im ắng",
   "co.routeIn.open": "Đường tiếp cận",
   "co.routeIn.title": "Ai bên mình trao đổi với {name}",
   "co.routeIn.none": "Chưa ai bên mình viết cho họ.",
@@ -1257,6 +1258,7 @@ export const vi = {
   "co.connections.group.our_side": "ai bên mình có kết nối",
   "co.signals.title": "Tín hiệu",
   "co.signals.empty": "Không có tín hiệu nào đang mở trên tài khoản này.",
+  "co.signals.openProject": "Mở dự án",
   "chronology.label": "Hiện gì trên timeline",
   "chronology.activities": "Hoạt động",
   "chronology.changes": "Thay đổi",
@@ -1904,6 +1906,13 @@ export const vi = {
   "home.digestDedupe": "Trùng lặp cần rà",
   "home.digestClassify":
     "Phân loại qua đêm: {commitments} cam kết · {meetings} cuộc họp · {noise} nhiễu",
+  "home.digestProjects": "Dự án",
+  "home.digestPhaseChanges": "Chuyển giai đoạn",
+  "home.digestNewCommitments": "Cam kết mới",
+  "home.digestGoneQuiet": "Đã im ắng",
+  "home.digestPhaseChange": "{from} → {to}",
+  "home.digestCommitmentCount": "{count} cam kết mới còn mở",
+  "home.digestQuietDays": "im ắng {days} ngày",
 
   "enrich.title": "Đọc từ website",
   "enrich.sub":

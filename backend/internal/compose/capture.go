@@ -145,7 +145,10 @@ func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureCo
 // question about the binary, not about any database.
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureConfig) *capture.Registry {
 	db := InstallationDB(pool)
-	r := capture.NewRegistry(db, newCaptureSink(pool, cfg), identity.NewService(pool), vault)
+	r := capture.NewRegistry(db, newCaptureSink(pool, cfg), identity.NewService(pool), vault).
+		// The digest's projects section is answered here because its reads
+		// span the deals module's tables (digestprojects.go).
+		WithDigestProjects(digestProjectsSource)
 	// The standing IMAP connector needs no deployment config — credentials
 	// are per-connection, vault-sealed — so every capture-capable role
 	// carries it.

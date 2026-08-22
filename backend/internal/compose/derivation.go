@@ -172,13 +172,20 @@ type boundExpr struct {
 	// isNull pins the column as unset rather than equal to value. Separate from
 	// an empty value, which now means the empty string and nothing else.
 	isNull bool
+	// threshold, when set, renders the predicate itself over the bound number
+	// (reportthreshold.go); expr is empty and value is the decimal the handle
+	// carried.
+	threshold *reportThreshold
 }
 
 // derivationPlan is a compiled handle: validated predicates, the
 // drill-through SELECT list, the aggregate recompute list, and the
 // plain-language definition — everything but the execution.
 type derivationPlan struct {
-	preds      []boundExpr
+	preds []boundExpr
+	// predicates is the handle's raw field → value map, kept for the scoped
+	// filter gate the execution half runs before the WHERE side binds.
+	predicates map[string]string
 	definition string
 	aggregates []reportAggregate
 	columns    []string // drill-through output names, aligned with selects
@@ -227,7 +234,7 @@ func (e *reportEngine) Derive(ctx context.Context, report string, q derivationQu
 // compileDerivation validates a parsed handle against the report's
 // closed vocabulary and renders every SQL fragment and the definition.
 func compileDerivation(spec reportSpec, q derivationQuery) (derivationPlan, error) {
-	plan := derivationPlan{aggregates: q.Aggregates}
+	plan := derivationPlan{aggregates: q.Aggregates, predicates: q.Predicates}
 	if len(plan.aggregates) == 0 {
 		plan.aggregates = spec.defaultAggs
 	}
@@ -242,6 +249,10 @@ func compileDerivation(spec reportSpec, q derivationQuery) (derivationPlan, erro
 	// Predicates admit the union of the report's dimensions and filters:
 	// a group-key value pins the cell, a filter value replays the plan.
 	for key, value := range q.Predicates {
+		if threshold, ok := spec.thresholds[key]; ok {
+			plan.preds = append(plan.preds, boundExpr{field: key, value: value, threshold: &threshold})
+			continue
+		}
 		expr, ok := spec.dimensions[key]
 		if !ok {
 			expr, ok = spec.filters[key]

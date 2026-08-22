@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -403,6 +404,67 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     const line = await screen.findByText(/rejected our credentials/i);
     await userEvent.click(line);
     expect(window.location.hash).toBe("#/settings/connections");
+  });
+
+  // The projects block: each project named is a link to its page (the
+  // section exists to send the reader there), the ladder move reads in words,
+  // and a digest built without the section renders no block at all.
+  it("lists the projects that moved, gained commitments or went quiet, each linking to its page", async () => {
+    const projectId = "01a00000-0000-7000-8000-000000000001";
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "GET /projects/01a00000-0000-7000-8000-000000000001": () =>
+        jsonResponse({ id: projectId, name: "ERP replacement" }),
+      "GET /digest": () =>
+        jsonResponse({
+          ...digestBase,
+          connectors: [],
+          projects: {
+            phase_changes: [
+              {
+                project_id: projectId,
+                name: "ERP replacement",
+                from_phase: "pursuing",
+                to_phase: "delivering",
+                occurred_at: "2026-07-17T01:00:00Z",
+              },
+            ],
+            new_commitments: [],
+            gone_quiet: [
+              {
+                project_id: projectId,
+                name: "ERP replacement",
+                phase: "delivering",
+                quiet_since: "2026-06-07T01:00:00Z",
+                days_quiet: 40,
+              },
+            ],
+          },
+        }),
+    });
+    render(<HomeScreen />);
+    const block = await screen.findByTestId("digest-projects");
+    expect(block.textContent).toContain("Pursuing → Delivering");
+    expect(block.textContent).toContain("quiet for 40 days");
+    // EntityRef renders the resolved name as a button that routes.
+    const links = await within(block).findAllByRole("button", {
+      name: "ERP replacement",
+    });
+    expect(links.length).toBe(2);
+    await userEvent.click(links[0]);
+    expect(window.location.hash).toBe(`#/projects/${projectId}`);
+  });
+
+  it("renders no projects block when the digest carries no section", async () => {
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "GET /digest": () => jsonResponse({ ...digestBase, connectors: [] }),
+    });
+    render(<HomeScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Overnight capture")).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("digest-projects")).toBeNull();
   });
 
   it("stays quiet when every digest connector is healthy — a green row is noise", async () => {

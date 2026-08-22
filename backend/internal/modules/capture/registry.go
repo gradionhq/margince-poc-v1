@@ -56,6 +56,10 @@ type Registry struct {
 	now            func() time.Time
 	syncInterval   time.Duration
 	progressPacing time.Duration
+
+	// digestProjects answers the morning digest's projects section
+	// (digestprojects.go); nil builds a digest without one.
+	digestProjects DigestProjectsSource
 }
 
 // defaultSyncInterval paces a healthy connection between syncs; the push

@@ -39,17 +39,29 @@ func reportToolCatalog() []agents.ReportCatalogEntry {
 	catalog := make([]agents.ReportCatalogEntry, 0, len(prebuiltReports))
 	for report, spec := range prebuiltReports {
 		catalog = append(catalog, agents.ReportCatalogEntry{
-			Report:     report,
-			GroupBy:    slices.Sorted(maps.Keys(spec.dimensions)),
-			Filters:    slices.Sorted(maps.Keys(spec.filters)),
+			Report:  report,
+			GroupBy: slices.Sorted(maps.Keys(spec.dimensions)),
+			// A threshold is a filter to the caller — one key in the same
+			// object — so it is listed with them.
+			Filters:    catalogFilterNames(spec),
 			Aggregates: slices.Sorted(maps.Keys(spec.measures)),
 			Defaults:   describeReportDefaults(spec),
+			Notes:      spec.notes,
 		})
 	}
 	slices.SortFunc(catalog, func(a, b agents.ReportCatalogEntry) int {
 		return strings.Compare(a.Report, b.Report)
 	})
 	return catalog
+}
+
+// catalogFilterNames is every key a plan's `filters` object may carry for the
+// spec: the equality filters and the thresholds, sorted as one list.
+func catalogFilterNames(spec reportSpec) []string {
+	names := slices.Collect(maps.Keys(spec.filters))
+	names = append(names, slices.Collect(maps.Keys(spec.thresholds))...)
+	slices.Sort(names)
+	return names
 }
 
 // describeReportDefaults renders what a report answers with no plan arguments,

@@ -28,6 +28,9 @@ type DigestPayload struct {
 	Capture     DigestCapture   `json:"capture"`
 	Review      DigestReview    `json:"review"`
 	Connectors  []DigestConnRow `json:"connectors"`
+	// Projects is what moved on the bodies of work overnight
+	// (digestprojects.go). Absent when the build had no source for it.
+	Projects *DigestProjects `json:"projects,omitempty"`
 }
 
 // DigestCapture is what landed in the window.
@@ -168,7 +171,19 @@ func (r *Registry) buildDigestPayload(ctx context.Context, tx pgx.Tx, userID ids
 	if p.Connectors == nil {
 		p.Connectors = []DigestConnRow{}
 	}
-	return p, rows.Err()
+	if err := rows.Err(); err != nil {
+		return DigestPayload{}, err
+	}
+	if r.digestProjects != nil {
+		// Workspace-level, like the counts above: a project is read by every
+		// seat holding the grant, so one answer serves every digest reader.
+		projects, err := r.digestProjects(ctx, tx, since, p.GeneratedAt)
+		if err != nil {
+			return DigestPayload{}, fmt.Errorf("capture: digest projects section: %w", err)
+		}
+		p.Projects = &projects
+	}
+	return p, nil
 }
 
 // ReadDigest serves the calling user's digest: the requested day, or the
