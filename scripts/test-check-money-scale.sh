@@ -114,6 +114,11 @@ echo "== a lookalike that is not money =="
 # not the defect.
 expect silent ts "a grouped literal past any minor unit" \
   'export const m = (amountMinor: number) => amountMinor / 1_000_000;'
+# A template interpolation is executable, not string content. Blanking it hid
+# the conversion inside entirely.
+expect fires ts "a conversion inside a template interpolation" \
+  'export const s = (amountMinor: number) => `total: ${amountMinor / 100}`;'
+
 expect silent ts "the shape mentioned inside a string" \
   'export const note = "see amountMinor / 100 in the old code";'
 expect silent go "the shape mentioned inside a Go string" \

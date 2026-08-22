@@ -143,8 +143,22 @@ strip() {
       for (i = 1; i <= length(s); i++) {
         ch = substr(s, i, 1)
         if (quote != "") {
-          if (ch == "\\" && quote != "`") { out = out "  "; i++; continue }
+          if (ch == "\\") { out = out "  "; i++; continue }
           if (ch == quote) { quote = ""; out = out ch; continue }
+          # `${…}` inside a template literal is EXECUTABLE, not string content,
+          # so it is kept. Blanking it hid `${amountMinor / 100}` entirely.
+          if (quote == "`" && ch == "$" && substr(s, i + 1, 1) == "{") {
+            depth = 1; out = out "${"; i += 2
+            while (i <= length(s) && depth > 0) {
+              ch = substr(s, i, 1)
+              if (ch == "{") depth++
+              if (ch == "}") depth--
+              out = out ch
+              i++
+            }
+            i--
+            continue
+          }
           out = out " "
           continue
         }

@@ -159,7 +159,14 @@ function exceedsPrecision(value: number, digits: number): boolean {
   // NaN — which the parent echoes back and the buffer snaps to. Such a value is
   // over the safe-integer bound many times over, so it is refused here instead,
   // where refusing means the text simply stands.
-  if (!Number.isSafeInteger(Math.trunc(value))) {
+  // The SCALED value has to be exact, not the typed one. A KWD amount can be a
+  // safe integer in dinars and past the bound once multiplied by a thousand,
+  // and this guard passing there hands toMinorUnits a figure it answers NaN to
+  // — which the parent echoes back and the buffer snaps to.
+  //
+  // It also covers the exponent case: at 1e21 and beyond toFixed returns
+  // exponential notation and the round-trip below compares equal.
+  if (!Number.isSafeInteger(Math.trunc(value) * 10 ** digits)) {
     return true;
   }
   return Number(value.toFixed(digits)) !== value;
