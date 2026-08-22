@@ -133,13 +133,15 @@ func (h Handlers) ArchiveOfferTemplate(w http.ResponseWriter, r *http.Request, i
 // fenced on the row version PrepareRender saw. Without a wired blobstore
 // (WithBlobstore) this stays an explicit 501 — the same unwired-by-omission
 // posture as activities' attachment endpoints — rather than nil-derefing
-// h.blob. Anything that refuses the persist between PrepareRender and the
+// h.blob. Anything that REFUSES the persist between PrepareRender and the
 // SetPdfAssetRef call — a concurrent draft edit moving the version
 // (version_skew), the offer archived under the request (not-found), the
 // deal's write authority lapsing (denied) — leaves this handler holding
 // bytes nothing points at, so it reclaims them, safely, since the
 // per-attempt key means that blob is never the one another render's
-// SetPdfAssetRef could have just committed. A successful re-render instead
+// SetPdfAssetRef could have just committed. An error that is not one of
+// those refusals is not known to have rolled back, so its blob is left
+// alone; the reasoning is at the call site. A successful re-render instead
 // reclaims its own now-superseded PREVIOUS ref (best-effort: the row is
 // already committed at this point, so a stray old blob is a GC concern,
 // never a dangling reference).
@@ -174,20 +176,32 @@ func (h Handlers) RenderOffer(w http.ResponseWriter, r *http.Request, id crmcont
 	}
 	updated, oldRef, err := h.store.SetPdfAssetRef(r.Context(), offerID, key, preparedVersion)
 	if err != nil {
-		// The persist did not happen, so the bytes above belong to nobody —
-		// reclaim them whatever refused it. Keying this on version_skew alone
-		// covered one refusal and left the others orphaning an object: the
-		// offer archived under the request answers not-found, and the deal's
-		// write authority lapsing between the two calls answers denied. What
-		// makes the blanket reclaim safe is the per-attempt key, which can
-		// only ever name what THIS attempt wrote.
+		// Reclaim the bytes above when — and only when — the store REFUSED,
+		// which is what these sentinels mean: each is raised by the store's
+		// own logic inside the transaction, so the transaction rolled back
+		// and pdf_asset_ref still names whatever it named before. Keying this
+		// on version_skew alone covered one refusal and orphaned an object on
+		// the others: an offer archived under the request answers not-found,
+		// and the deal's write authority lapsing between the two calls
+		// answers denied.
 		//
+		// Anything else is NOT known to have rolled back — a commit whose
+		// acknowledgement is lost returns an error with the row committed —
+		// and deleting there would strip the object a live pdf_asset_ref
+		// points at, turning a harmless orphan into a download that 404s. So
+		// the unclassified error leaves the blob alone, deliberately: an
+		// orphan is a GC concern, a dangling reference is data loss.
+		refused := errors.Is(err, apperrors.ErrVersionSkew) ||
+			errors.Is(err, apperrors.ErrNotFound) ||
+			errors.Is(err, apperrors.ErrPermissionDenied)
 		// A failed cleanup is logged rather than returned: it leaves an inert
 		// orphan, and the caller is owed the reason their render was refused,
 		// not the reason a cleanup they never asked for did not finish.
-		if delErr := h.blob.Delete(r.Context(), key); delErr != nil {
-			slog.WarnContext(r.Context(), "reclaiming an unpersisted render blob",
-				"offer", offerID.String(), "ref", key, "err", delErr)
+		if refused {
+			if delErr := h.blob.Delete(r.Context(), key); delErr != nil {
+				slog.WarnContext(r.Context(), "reclaiming a refused render's blob",
+					"offer", offerID.String(), "ref", key, "err", delErr)
+			}
 		}
 		writeStoreErr(w, r, err)
 		return
