@@ -103,10 +103,11 @@ func (s *Store) BuyerDocumentLocator(ctx context.Context, sess Session, document
 			return apperrors.ErrNotFound
 		}
 		// A release names a version; the bytes are served only while that file
-		// is still the deal's own (stillTheDealsFile, the publish predicate).
+		// is still in the deal's Files area (inTheDealsFilesArea, the publish
+		// predicate).
 		err = tx.QueryRow(ctx,
 			`SELECT a.storage_key FROM `+documentFrom+`
-			  WHERE d.id = $1 AND d.room_id = $2 AND d.attachment_id = $3 AND `+stillTheDealsFile,
+			  WHERE d.id = $1 AND d.room_id = $2 AND d.attachment_id = $3 AND `+inTheDealsFilesArea,
 			documentID, sess.RoomID, published.AttachmentID).Scan(&out.StorageKey)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
