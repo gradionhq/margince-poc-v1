@@ -811,6 +811,32 @@ export const en = {
   "co.routeIn.band.unknown": "contact on file, no pattern yet",
   "record.profile": "Profile",
   "record.context": "Context",
+  // The Deal Room aside on a deal. `room.` rather than `dealroom.` for the
+  // reason the other abbreviated namespaces give: the surface is named once at
+  // the top of the panel and every key under it is read in that context.
+  "room.tasks.title": "Shared to-dos",
+  "room.tasks.sub": "What each side still owes the other.",
+  "room.tasks.empty": "Nothing outstanding between you and the buyer.",
+  "room.tasks.owedByUs": "We owe this",
+  "room.tasks.owedByBuyer": "The buyer owes this",
+  "room.tasks.newLabel": "Add a to-do",
+  "room.tasks.add": "Add",
+  "room.tasks.adding": "Adding",
+  "room.tasks.addFailed": "The item could not be added.",
+  "room.tasks.toggleFailed": "That could not be saved.",
+  "room.tasks.editorial":
+    "New and reworded items reach the buyer at the next publish. Ticking one off is immediate.",
+  "room.tasks.finished":
+    "This room is finished, so its to-do list is now a record.",
+  "room.state.draft": "Draft",
+  "room.state.building": "Building",
+  "room.state.ready": "Ready",
+  "room.state.publishing": "Publishing",
+  "room.state.live": "Live",
+  "room.state.paused": "Paused",
+  "room.state.closed": "Closed",
+  "room.state.expired": "Expired",
+  "room.state.archived": "Archived",
   "co.pulse.created": "Created {when}",
   // The later of the two directions \u2014 which side wrote last moved to the
   // daily brief's own detail line, so the header states only that the

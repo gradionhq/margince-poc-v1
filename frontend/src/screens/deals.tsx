@@ -77,6 +77,7 @@ import { CreateAction } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { DealBulkBar } from "./dealbulk";
+import { DealRoomAside } from "./dealroom";
 import { EditAction } from "./edit";
 import { EntityRef, useEntityName } from "./entityref";
 import { RecordHistoryTab } from "./history";
@@ -3240,6 +3241,8 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                 { overlay, pending: timelineQuery.isPending },
                 t,
               )}
+              aside={overlay ? undefined : <DealRoomAside dealId={id} />}
+              asideLabel={t("room.tasks.title")}
             >
               <div style={{ marginBottom: 16 }}>
                 <SegmentedControl
