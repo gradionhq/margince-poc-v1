@@ -20,11 +20,14 @@ import (
 
 // ListRoomsInput narrows a page of rooms.
 type ListRoomsInput struct {
-	DealID          *ids.DealID
-	State           *string
-	IncludeArchived bool
-	Limit           *int
-	Cursor          *string
+	DealID *ids.DealID
+	State  *string
+	// ParticipantEmail narrows to rooms this address holds a live seat in.
+	// Lowercased by the mapping, like every address this module compares.
+	ParticipantEmail *string
+	IncludeArchived  bool
+	Limit            *int
+	Cursor           *string
 }
 
 // ListRooms pages the Deal Rooms whose deals the caller can see.
@@ -61,6 +64,12 @@ func roomPage(ctx context.Context, tx pgx.Tx, in ListRoomsInput) ([]crmcontracts
 	}
 	if in.State != nil {
 		where = append(where, storekit.SQLf("r.state = $%d", arg(*in.State)))
+	}
+	if in.ParticipantEmail != nil {
+		where = append(where, storekit.SQLf(
+			`EXISTS (SELECT 1 FROM deal_room_participant p
+			          WHERE p.room_id = r.id AND p.email = $%d AND p.revoked_at IS NULL AND NOT p.preview)`,
+			arg(*in.ParticipantEmail)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		decoded, err := storekit.DecodeCursor(*in.Cursor)

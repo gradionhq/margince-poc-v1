@@ -942,6 +942,12 @@ export const en = {
   "access.revokeBody":
     "Their session ends now and their link stops working. Their comments stay visible and attributed. Access cannot be restored by them asking for a link.",
   "access.changeCapabilityTitle": "What may {name} do?",
+  "persondealrooms.title": "Deal Rooms",
+  "persondealrooms.sub": "Rooms this contact can still enter.",
+  "persondealrooms.open": "Open",
+  "persondealrooms.seatGone":
+    "This address no longer holds a seat in that room.",
+  "persondealrooms.revokeTitle": "Revoke access to {room}?",
   "room.state.draft": "Draft",
   "room.state.building": "Building",
   "room.state.ready": "Ready",

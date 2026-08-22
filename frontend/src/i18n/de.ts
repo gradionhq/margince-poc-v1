@@ -905,6 +905,12 @@ export const de = {
   "access.revokeBody":
     "Die Sitzung endet sofort und der Link funktioniert nicht mehr. Kommentare bleiben sichtbar und zugeordnet. Der Zugang lässt sich nicht durch eine Link-Anfrage wiederherstellen.",
   "access.changeCapabilityTitle": "Was darf {name} tun?",
+  "persondealrooms.title": "Deal Rooms",
+  "persondealrooms.sub": "Räume, die dieser Kontakt noch betreten kann.",
+  "persondealrooms.open": "Öffnen",
+  "persondealrooms.seatGone":
+    "Diese Adresse hat in dem Raum keinen Platz mehr.",
+  "persondealrooms.revokeTitle": "Zugang zu {room} entziehen?",
   "room.state.draft": "Entwurf",
   "room.state.building": "Wird erstellt",
   "room.state.ready": "Bereit",

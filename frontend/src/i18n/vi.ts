@@ -890,6 +890,11 @@ export const vi = {
   "access.revokeBody":
     "Phiên của họ kết thúc ngay và liên kết ngừng hoạt động. Bình luận của họ vẫn hiển thị và ghi tên. Không thể khôi phục bằng cách xin liên kết.",
   "access.changeCapabilityTitle": "{name} được làm gì?",
+  "persondealrooms.title": "Deal Room",
+  "persondealrooms.sub": "Các phòng liên hệ này vẫn có thể vào.",
+  "persondealrooms.open": "Mở",
+  "persondealrooms.seatGone": "Địa chỉ này không còn chỗ trong phòng đó.",
+  "persondealrooms.revokeTitle": "Thu hồi quyền vào {room}?",
   "room.state.draft": "Bản nháp",
   "room.state.building": "Đang dựng",
   "room.state.ready": "Sẵn sàng",

@@ -24477,6 +24477,9 @@ type ListDealRoomsParams struct {
 	// DealId Only the room belonging to this deal.
 	DealId *openapi_types.UUID `form:"deal_id,omitempty" json:"deal_id,omitempty"`
 	State  *DealRoomState      `form:"state,omitempty" json:"state,omitempty"`
+
+	// ParticipantEmail Only rooms this address may currently enter — a live, non-revoked seat. The admin's path to "which rooms is this departed contact still in".
+	ParticipantEmail *openapi_types.Email `form:"participant_email,omitempty" json:"participant_email,omitempty"`
 }
 
 // CreateDealRoomParams defines parameters for CreateDealRoom.
@@ -45459,6 +45462,19 @@ func (siw *ServerInterfaceWrapper) ListDealRooms(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "participant_email" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "participant_email", r.URL.Query(), &params.ParticipantEmail, runtime.BindQueryParameterOptions{Type: "string", Format: "email"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "participant_email"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "participant_email", Err: err})
 		}
 		return
 	}
