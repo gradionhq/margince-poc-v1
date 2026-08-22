@@ -55,7 +55,7 @@ var mapping = []struct {
 	{apperrors.ErrOverlayFlipBlocked, http.StatusConflict, "overlay_flip_blocked"},
 	{apperrors.ErrIncumbentBudgetExhausted, http.StatusServiceUnavailable, "incumbent_budget_exhausted"},
 	{apperrors.ErrBaseCurrencyLocked, http.StatusConflict, "base_currency_locked"},
-	{apperrors.ErrProviderUnreachable, http.StatusServiceUnavailable, "provider_unreachable"},
+	{apperrors.ErrProviderUnusable, http.StatusBadGateway, "provider_unusable"},
 	{apperrors.ErrRetentionHold, http.StatusLocked, "locked"},
 }
 

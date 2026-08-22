@@ -265,7 +265,7 @@ func (w *geocodeWorker) Work(ctx context.Context, job *river.Job[GeocodeOrganiza
 		// publish a fixed sentence rather than a formatted cause. FaultContext
 		// logs the cause for us, so the wrap below is what an operator reads.
 		return jobs.FaultContext(wsCtx, errors.Join(
-			fmt.Errorf("geocoding %q: %w: %w", address.Query, apperrors.ErrProviderUnreachable, err),
+			fmt.Errorf("geocoding %q: %w: %w", address.Query, apperrors.ErrProviderUnusable, err),
 			recErr))
 	}
 	if !found {

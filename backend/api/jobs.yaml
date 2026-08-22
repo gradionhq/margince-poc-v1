@@ -1169,17 +1169,25 @@ kinds:
     role: worker
     go_type: GeocodeOrganizationArgs
     queue: geocode
-    timeout: 1m
+    timeout: 3m
     opts_owner: caller
     registration: {when: [Geocoder], absent: registers_anyway}
     args:
       Workspace: id
       OrganizationID: id
     reason: >-
-      One address, one lookup, plus the write. A minute is generous for a single
-      HTTP call and deliberately so: the pacer may hold this job for up to the
-      policy interval before the request even starts, and a timeout that fired
-      during the wait would retry into the same queue and make the rate worse.
+      One address, one lookup, plus the write — but the ceiling is set by what
+      the job can WAIT for, not by what it does. The pacer may hold it for the
+      full policy interval (15s) before the request is built, the HTTP client
+      allows 20s, and the write follows: 35s of budget, and three minutes is
+      that with room to spare.
+
+      The margin is load-bearing rather than generous. River applies this
+      timeout by cancelling the job's context, so a job that hit its ceiling is
+      indistinguishable from a worker that was shut down — and the worker
+      treats those differently on purpose, re-queueing a shutdown unrecorded
+      while counting a real failure. A ceiling close to the budget would make
+      that distinction lie.
 
   # The backfill's own kind, not a flag on the per-company one. Geocoding fires
   # on an address WRITE, which never reaches a row written before this

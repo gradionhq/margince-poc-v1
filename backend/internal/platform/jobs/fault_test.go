@@ -149,7 +149,7 @@ func TestEverySentenceFaultCanWriteIsVetted(t *testing.T) {
 // nothing anywhere to say why.
 func TestAnUnreachableProviderSaysSoOnTheJobRow(t *testing.T) {
 	cause := fmt.Errorf("geocoding %q: %w: %w", "Alte Wittener Straße 50, Bochum",
-		apperrors.ErrProviderUnreachable, errors.New("connection reset"))
+		apperrors.ErrProviderUnusable, errors.New("connection reset"))
 	got := FaultContext(context.Background(), cause)
 
 	if strings.Contains(got.Error(), "process log") {
@@ -161,7 +161,7 @@ func TestAnUnreachableProviderSaysSoOnTheJobRow(t *testing.T) {
 	}
 	// The cause stays reachable underneath, so anything classifying on the
 	// sentinel downstream still can.
-	if !errors.Is(got, apperrors.ErrProviderUnreachable) {
+	if !errors.Is(got, apperrors.ErrProviderUnusable) {
 		t.Error("the published fault no longer carries the sentinel, so nothing downstream can classify it")
 	}
 }
