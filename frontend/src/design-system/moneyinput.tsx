@@ -92,6 +92,15 @@ export function MoneyInput({
         if (event.target.value.trim() === "") {
           return;
         }
+        // A figure with more decimals than the currency HAS is not committed.
+        // `step` governs native validity and nothing else — onChange still
+        // fires, so typing "1.5" into a dong field rounded to 2 minor units and
+        // an offer line saved the altered amount on blur. Holding the text
+        // instead lets the reader finish or correct it, exactly as an empty
+        // buffer is held above, and nothing is stored that nobody typed.
+        if (fractionalDigits(event.target.value) > digits) {
+          return;
+        }
         // isFinite, not !isNaN: a pasted overflowing exponent like 1e309
         // parses to Infinity, which is not NaN and would reach the request
         // body as a number no column can hold.
@@ -120,4 +129,11 @@ export function MoneyInput({
       step={digits === 0 ? "1" : `0.${"0".repeat(digits - 1)}1`}
     />
   );
+}
+
+// fractionalDigits counts the digits after the point in what was TYPED, not in
+// the parsed number: "1.50" is two, and Number() would have told us zero.
+function fractionalDigits(text: string): number {
+  const point = text.indexOf(".");
+  return point < 0 ? 0 : text.trim().length - point - 1;
 }

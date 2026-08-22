@@ -85,6 +85,13 @@ const PRODUCT_FIELDS: CreateField[] = [
   { key: "default_tax_rate", label: "product.taxRate", type: "number" },
 ];
 
+// text narrows one value off the edit form's Record<string, unknown> without
+// asserting: a field the reader left alone is absent, not an empty string, and
+// an assertion would hand `undefined` to a scale that then silently defaults.
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 // Major-unit price string -> integer minor units (P11: no float money on the
 // wire), at the scale the PRODUCT's own currency carries. A hard-coded hundred
 // priced a yen product at a hundredth and a dinar product at ten times.
@@ -165,11 +172,16 @@ export function ProductsAdmin() {
           // The currency the form carries, falling back to the product's
           // stored one when the field was left alone — the same value the
           // PATCH below sends, so the amount and its scale cannot disagree.
+          //
+          // Narrowed rather than asserted: this callback is handed
+          // Record<string, unknown>, and `as string` on a value that turns out
+          // to be undefined would scale the price at the two-digit default
+          // without anything failing.
           unit_price_minor: toMinor(
-            values.unit_price as string,
-            (values.currency as string) || product.currency,
+            text(values.unit_price),
+            text(values.currency) || product.currency,
           ),
-          currency: (values.currency as string) || undefined,
+          currency: text(values.currency) || undefined,
           default_tax_rate: values.default_tax_rate
             ? Number(values.default_tax_rate)
             : undefined,

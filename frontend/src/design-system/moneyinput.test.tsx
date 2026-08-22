@@ -86,6 +86,56 @@ describe("MoneyInput", () => {
     expect(onChangeMinor).toHaveBeenLastCalledWith(wantMinor);
   });
 
+  // A figure with more decimals than the currency HAS is held, not rounded.
+  // `step` only governs native validity — onChange still fires — so a
+  // fractional dong reached toMinorUnits, rounded, and an offer line saved the
+  // altered amount on blur.
+  it.each([
+    ["VND", "1.5"],
+    ["VND", "18000000.25"],
+    ["EUR", "12.345"],
+    ["KWD", "12.3456"],
+  ])(
+    "%s: %s has more decimals than the currency, so nothing is committed",
+    (currency, typed) => {
+      const onChangeMinor = vi.fn();
+      rtlRender(
+        <MoneyInput
+          currency={currency}
+          valueMinor={0}
+          onChangeMinor={onChangeMinor}
+          aria-label="Amount"
+        />,
+      );
+      fireEvent.change(screen.getByLabelText("Amount"), {
+        target: { value: typed },
+      });
+      expect(onChangeMinor).not.toHaveBeenCalled();
+    },
+  );
+
+  // And the boundary on the other side: exactly as many decimals as the
+  // currency carries is a perfectly good amount and must still commit.
+  it.each([
+    ["EUR", "12.34", 1234],
+    ["KWD", "12.345", 12_345],
+    ["VND", "18000000", 18_000_000],
+  ])("%s: %s is within the currency's precision", (currency, typed, want) => {
+    const onChangeMinor = vi.fn();
+    rtlRender(
+      <MoneyInput
+        currency={currency}
+        valueMinor={0}
+        onChangeMinor={onChangeMinor}
+        aria-label="Amount"
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Amount"), {
+      target: { value: typed },
+    });
+    expect(onChangeMinor).toHaveBeenLastCalledWith(want);
+  });
+
   // The read direction, which is the half that made the write bug survive a
   // round trip looking correct.
   it("seeds a zero-decimal amount without inventing a fractional part", () => {
