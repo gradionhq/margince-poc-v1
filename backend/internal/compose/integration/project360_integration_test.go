@@ -126,6 +126,17 @@ func seedProject360(t *testing.T, e *Env) project360Fixture {
 	log("email", "Rack decommissioning", nil,
 		activities.ActivityLinkInput{EntityType: "person", EntityID: person},
 		activities.ActivityLinkInput{EntityType: "project", EntityID: other.UUID})
+	// A second seat on a capture-private contact of another rep: its
+	// correspondence circles the project too, but only for a caller who may
+	// read that contact.
+	private := e.SeedPerson(t, "Quiet Contact", &e.Rep3)
+	if _, err := e.People.SetProjectStakeholder(admin, people.SetProjectStakeholderInput{
+		ProjectID: project, PersonID: PersonIDOf(private), Role: "user",
+	}); err != nil {
+		t.Fatalf("seat the private stakeholder: %v", err)
+	}
+	log("email", "Side channel", nil, activities.ActivityLinkInput{EntityType: "person", EntityID: private})
+	e.MakeCapturePrivate(t, "person", private, e.Rep3)
 	return project360Fixture{project: project, deal: ids.UUID(deal.Id), person: person}
 }
 
@@ -188,7 +199,7 @@ func assertProject360Collections(t *testing.T, page crmcontracts.Project360, f p
 		t.Errorf("deals = %+v, want exactly the project's one deal", page.Deals)
 	}
 	if page.Stakeholders == nil || len(page.Stakeholders.Data) != 1 {
-		t.Fatalf("stakeholders = %+v, want the one seat", page.Stakeholders)
+		t.Fatalf("stakeholders = %+v, want the one seat the caller may read", page.Stakeholders)
 	}
 	seat := page.Stakeholders.Data[0]
 	if ids.UUID(seat.PersonId) != f.person || seat.PersonName == nil || *seat.PersonName != "Dana Buyer" ||
@@ -212,7 +223,9 @@ func assertProject360Collections(t *testing.T, page crmcontracts.Project360, f p
 
 // 27 activities are filed under the project; two circle it unfiled (one on
 // its deal, one on its stakeholder); the one on the stakeholder that is filed
-// under the OTHER project is somebody's and does not count.
+// under the OTHER project is somebody's and does not count, and the one on
+// the capture-private seat is invisible to this rep — it counts only for a
+// caller who may read that contact (TestProject360CoverageCountsOnlyWhatTheCallerMaySee).
 func assertProject360Counts(t *testing.T, page crmcontracts.Project360) {
 	t.Helper()
 	if page.Coverage == nil || page.Coverage.Attributed != 27 || page.Coverage.UnattributedNearby != 2 {
@@ -279,5 +292,53 @@ func TestProject360RefusesACallerWithNoSightOfTheProject(t *testing.T) {
 	// The positive control: the same call served the page a moment ago.
 	if _, err := project360Service(e, time.Now().UTC()).Assemble(ctx, seedProject(e.Admin(), t, e, "Fresh", nil, e.SeedOrg(t, "Beta", &e.Rep1), nil).ID); err != nil {
 		t.Errorf("assemble on a live project the caller may read: %v", err)
+	}
+}
+
+// The neighbourhood is bounded by the caller's own visibility. The seat on the
+// capture-private contact and its activity reach the count for the rep who
+// owns that capture — the ONLY seat that reads an unpromoted contact, not
+// even Admin — and not for the rep who cannot open it. A deal
+// is workspace-readable by every seat (auth/tableclass.go), so the deal arm
+// has no refusable case to seed; the clause it carries is the deal list's own.
+func TestProject360CoverageCountsOnlyWhatTheCallerMaySee(t *testing.T) {
+	e := Setup(t)
+	f := seedProject360(t, e)
+	svc := project360Service(e, time.Now().UTC())
+	asRep, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, project360RepPerms), f.project)
+	if err != nil {
+		t.Fatalf("assemble as the rep: %v", err)
+	}
+	asOwner, err := svc.Assemble(e.As(e.Rep3, []ids.UUID{e.Team2}, project360RepPerms), f.project)
+	if err != nil {
+		t.Fatalf("assemble as the capture's owner: %v", err)
+	}
+	if asRep.Coverage == nil || asRep.Coverage.UnattributedNearby != 2 {
+		t.Errorf("rep coverage = %+v, want unattributed_nearby=2 — the private seat's mail must not count", asRep.Coverage)
+	}
+	if asOwner.Coverage == nil || asOwner.Coverage.UnattributedNearby != 3 {
+		t.Errorf("owner coverage = %+v, want unattributed_nearby=3", asOwner.Coverage)
+	}
+	if asOwner.Stakeholders == nil || len(asOwner.Stakeholders.Data) != 2 {
+		t.Errorf("owner stakeholders = %+v, want both seats", asOwner.Stakeholders)
+	}
+}
+
+func TestProject360OmitsTheOrganizationForACallerWithoutThatGrant(t *testing.T) {
+	e := Setup(t)
+	f := seedProject360(t, e)
+	svc := project360Service(e, time.Now().UTC())
+	page, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, withoutGrant(project360RepPerms, "organization")), f.project)
+	if err != nil {
+		t.Fatalf("assemble as a rep without the organization grant: %v — the page must narrow, not refuse", err)
+	}
+	if page.Organization != nil {
+		t.Error("organization section present for a rep who cannot read companies")
+	}
+	if !slices.Contains(page.SectionsOmitted, crmcontracts.Project360SectionOrganization) {
+		t.Errorf("sections_omitted = %v, want it to name organization", page.SectionsOmitted)
+	}
+	if page.Deals == nil || page.Activities == nil || page.PhaseHistory == nil {
+		t.Error("the rest of the page must still be served")
 	}
 }

@@ -59,10 +59,14 @@ func NewService(
 // catalogs is what the page reads ABOVE its transaction: each custom-field
 // catalog opens a connection of its own, and the page holds the only
 // connection its sections have for as long as it runs.
+//
+// The organization catalog is NOT here: reading it takes organization:read,
+// and a refusal above the transaction would fail the whole page for a caller
+// who may read the project but not its company. The organization section
+// reads it itself, so that refusal lands as an omission.
 type catalogs struct {
 	project deals.CustomColumns
 	deal    deals.CustomColumns
-	org     people.CustomColumns
 }
 
 func (s *Service) readCatalogs(ctx context.Context) (catalogs, error) {
@@ -72,9 +76,6 @@ func (s *Service) readCatalogs(ctx context.Context) (catalogs, error) {
 		return catalogs{}, err
 	}
 	if c.deal, err = s.deals.ActiveDealColumns(ctx); err != nil {
-		return catalogs{}, err
-	}
-	if c.org, err = s.people.ActiveOrganizationColumns(ctx); err != nil {
 		return catalogs{}, err
 	}
 	return c, nil

@@ -240,14 +240,14 @@ func personNames(ctx context.Context, tx pgx.Tx, people []ids.PersonID) (map[ids
 	if len(people) == 0 {
 		return names, nil
 	}
-	args := []any{people}
+	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
+	q := storekit.SQLf(`SELECT p.id, p.full_name FROM person p
+		WHERE p.id = ANY($%d) AND p.archived_at IS NULL`, arg(people))
 	scope, err := auth.ScopeClauseFor(ctx, entityPerson, "p", arg)
 	if err != nil {
 		return nil, err
 	}
-	q := `SELECT p.id, p.full_name FROM person p
-		WHERE p.id = ANY($1) AND p.archived_at IS NULL`
 	if scope != "" {
 		q += " AND " + scope
 	}

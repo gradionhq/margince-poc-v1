@@ -252,15 +252,16 @@ func listAttachments(ctx context.Context, tx pgx.Tx, entityType string, entityID
 		return nil, storekit.Page{}, err
 	}
 	lim := storekit.ClampLimit(limit)
-	args := []any{entityType, entityID}
-	where := `at.entity_type = $1 AND at.entity_id = $2 AND at.archived_at IS NULL`
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	where := sprintf(`at.entity_type = $%d AND at.entity_id = $%d AND at.archived_at IS NULL`,
+		arg(entityType), arg(entityID))
 	if cursor != nil && *cursor != "" {
 		c, err := storekit.DecodeCursor(*cursor)
 		if err != nil {
 			return nil, storekit.Page{}, err
 		}
-		args = append(args, c.CreatedAt, c.ID)
-		where += sprintf(` AND (at.created_at, at.id) < ($%d, $%d)`, len(args)-1, len(args))
+		where += sprintf(` AND (at.created_at, at.id) < ($%d, $%d)`, arg(c.CreatedAt), arg(c.ID))
 	}
 	rows, err := tx.Query(ctx, `SELECT `+attachmentColumns+` FROM attachment at WHERE `+where+
 		sprintf(` ORDER BY at.created_at DESC, at.id DESC LIMIT %d`, lim+1), args...)

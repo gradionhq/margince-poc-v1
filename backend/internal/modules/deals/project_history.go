@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -59,12 +60,14 @@ func (s *Store) ListProjectPhaseHistoryTx(ctx context.Context, tx pgx.Tx, id ids
 	// changed_by is a principal id, which names a person only under the human
 	// namespace — the one spelling of that prefix is principal's, bound here
 	// rather than retyped.
-	rows, err := tx.Query(ctx, `
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	rows, err := tx.Query(ctx, storekit.SQLf(`
 		SELECT h.id, h.from_phase, h.to_phase, h.reason, h.changed_by, u.display_name, h.occurred_at
 		FROM project_phase_history h
-		LEFT JOIN app_user u ON $2 || u.id::text = h.changed_by
-		WHERE h.project_id = $1
-		ORDER BY h.occurred_at ASC, h.id ASC`, id, principal.HumanIDPrefix)
+		LEFT JOIN app_user u ON $%d || u.id::text = h.changed_by
+		WHERE h.project_id = $%d
+		ORDER BY h.occurred_at ASC, h.id ASC`, arg(principal.HumanIDPrefix), arg(id)), args...)
 	if err != nil {
 		return nil, err
 	}

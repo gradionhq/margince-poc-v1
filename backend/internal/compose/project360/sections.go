@@ -24,12 +24,22 @@ import (
 // organization_id is masked — the caller may not read that company — is
 // reported as an omission, not an empty header: the mask IS the refusal,
 // and the organization read would answer the same way if it were asked.
+//
+// The organization's custom-field catalog is read here rather than with the
+// other catalogs above the transaction: it takes organization:read, and a
+// caller holding project:read without it must get this section omitted, not
+// the page refused. It opens a connection of its own for the moment it runs,
+// which this page's transaction tolerates for one short catalog read.
 func (a *assembly) readOrganization() error {
 	if a.out.Project.OrganizationId == nil {
 		return apperrors.ErrPermissionDenied
 	}
+	active, err := a.svc.people.ActiveOrganizationColumns(a.ctx)
+	if err != nil {
+		return err
+	}
 	orgID := ids.From[ids.OrganizationKind](ids.UUID(*a.out.Project.OrganizationId))
-	org, err := a.svc.people.GetOrganizationTx(a.ctx, a.tx, orgID, storekit.LiveOnly, a.cats.org)
+	org, err := a.svc.people.GetOrganizationTx(a.ctx, a.tx, orgID, storekit.LiveOnly, active)
 	if err != nil {
 		return err
 	}
