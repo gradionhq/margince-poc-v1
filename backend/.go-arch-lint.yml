@@ -222,7 +222,7 @@ deps:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
   compose:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, aiactivity, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, aiactivity, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, dealrooms, platform, migrations]
     # xtext: the evidence gate normalizes page text to NFC before matching
     # (evidencematch.go) — Unicode normal forms need golang.org/x/text.
     # yaml: aicert's corpus loader parses scenario files directly — the
@@ -272,5 +272,5 @@ deps:
     mayDependOn: [contracts, compose, ai, collections, platform, activities, aiactivity, agents]
     canUse: [yaml, jsonschema]
   cmd:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, aiactivity, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, aiactivity, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, migration, webhooks, comms, finance, integrations, agreements, commissions, contracts, dealrooms, platform, migrations]
     canUse: [pgx, redis, xterm, composition]

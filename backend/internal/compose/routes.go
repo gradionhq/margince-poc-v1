@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/dealrooms"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -75,7 +76,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 		BaseURL: httpserver.BaseURL,
 		Middlewares: []crmcontracts.MiddlewareFunc{
 			agentGate(registry, staging, provider, provider, fieldOwnership{pool: pool}, importsFor(&srv), gate),
-			idempotency(pool, replayProbes(staging.svc, contracts.NewStore(InstallationDB(pool)))),
+			idempotency(pool, replayProbes(staging.svc, contracts.NewStore(InstallationDB(pool)), dealrooms.NewStore(InstallationDB(pool)))),
 			// Outermost: an overlay-mode SoR write is refused before it can
 			// be recorded under an idempotency key or staged as an agent
 			// approval — the honest unsupported_by_sor, for every principal.
@@ -93,8 +94,15 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 // (API-CC-8). Named rather than inline so a test can assert it covers every
 // moduleProbe replayableOperations names: an unwired key fails closed, which
 // retires the replay promise for that route silently instead of loudly.
-func replayProbes(approvalsSvc *approvals.Service, contractsStore *contracts.Store) map[string]replayProbe {
+func replayProbes(approvalsSvc *approvals.Service, contractsStore *contracts.Store, dealRoomsStore *dealrooms.Store) map[string]replayProbe {
 	return map[string]replayProbe{
+		// A Deal Room's visibility is its parent deal's, which only its own
+		// store evaluates — the generic row-scope helper refuses a table with
+		// no owner column.
+		probeDealRoom: func(ctx context.Context, id ids.UUID) error {
+			_, err := dealRoomsStore.GetRoom(ctx, ids.From[ids.DealRoomKind](id))
+			return err
+		},
 		// A contract's visibility is inherited from its deal or organization,
 		// which only its own store can evaluate — the generic row-scope helper
 		// refuses a table with no owner column.

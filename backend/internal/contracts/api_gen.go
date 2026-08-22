@@ -1199,6 +1199,7 @@ const (
 	AuditLogEntryActionArchive            AuditLogEntryAction = "archive"
 	AuditLogEntryActionAssign             AuditLogEntryAction = "assign"
 	AuditLogEntryActionCancel             AuditLogEntryAction = "cancel"
+	AuditLogEntryActionClose              AuditLogEntryAction = "close"
 	AuditLogEntryActionConnect            AuditLogEntryAction = "connect"
 	AuditLogEntryActionConsentGrant       AuditLogEntryAction = "consent_grant"
 	AuditLogEntryActionConsentWithdraw    AuditLogEntryAction = "consent_withdraw"
@@ -1214,9 +1215,11 @@ const (
 	AuditLogEntryActionImportUndo         AuditLogEntryAction = "import_undo"
 	AuditLogEntryActionMerge              AuditLogEntryAction = "merge"
 	AuditLogEntryActionPasswordLinkIssued AuditLogEntryAction = "password_link_issued"
+	AuditLogEntryActionPause              AuditLogEntryAction = "pause"
 	AuditLogEntryActionPay                AuditLogEntryAction = "pay"
 	AuditLogEntryActionPin                AuditLogEntryAction = "pin"
 	AuditLogEntryActionPromote            AuditLogEntryAction = "promote"
+	AuditLogEntryActionPublish            AuditLogEntryAction = "publish"
 	AuditLogEntryActionRecordShare        AuditLogEntryAction = "record_share"
 	AuditLogEntryActionRecordUnshare      AuditLogEntryAction = "record_unshare"
 	AuditLogEntryActionReject             AuditLogEntryAction = "reject"
@@ -1226,6 +1229,7 @@ const (
 	AuditLogEntryActionResolve            AuditLogEntryAction = "resolve"
 	AuditLogEntryActionRestore            AuditLogEntryAction = "restore"
 	AuditLogEntryActionRestrict           AuditLogEntryAction = "restrict"
+	AuditLogEntryActionResume             AuditLogEntryAction = "resume"
 	AuditLogEntryActionSchedule           AuditLogEntryAction = "schedule"
 	AuditLogEntryActionSendEmail          AuditLogEntryAction = "send_email"
 	AuditLogEntryActionUpdate             AuditLogEntryAction = "update"
@@ -1251,6 +1255,8 @@ func (e AuditLogEntryAction) Valid() bool {
 	case AuditLogEntryActionAssign:
 		return true
 	case AuditLogEntryActionCancel:
+		return true
+	case AuditLogEntryActionClose:
 		return true
 	case AuditLogEntryActionConnect:
 		return true
@@ -1282,11 +1288,15 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case AuditLogEntryActionPasswordLinkIssued:
 		return true
+	case AuditLogEntryActionPause:
+		return true
 	case AuditLogEntryActionPay:
 		return true
 	case AuditLogEntryActionPin:
 		return true
 	case AuditLogEntryActionPromote:
+		return true
+	case AuditLogEntryActionPublish:
 		return true
 	case AuditLogEntryActionRecordShare:
 		return true
@@ -1305,6 +1315,8 @@ func (e AuditLogEntryAction) Valid() bool {
 	case AuditLogEntryActionRestore:
 		return true
 	case AuditLogEntryActionRestrict:
+		return true
+	case AuditLogEntryActionResume:
 		return true
 	case AuditLogEntryActionSchedule:
 		return true
@@ -4014,6 +4026,45 @@ func (e DealCoverageRiskKind) Valid() bool {
 	case DealCoverageRiskKindSingleThreadedTheirs:
 		return true
 	case DealCoverageRiskKindStakeholderLeft:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DealRoomState.
+const (
+	DealRoomStateArchived   DealRoomState = "archived"
+	DealRoomStateBuilding   DealRoomState = "building"
+	DealRoomStateClosed     DealRoomState = "closed"
+	DealRoomStateDraft      DealRoomState = "draft"
+	DealRoomStateExpired    DealRoomState = "expired"
+	DealRoomStateLive       DealRoomState = "live"
+	DealRoomStatePaused     DealRoomState = "paused"
+	DealRoomStatePublishing DealRoomState = "publishing"
+	DealRoomStateReady      DealRoomState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the DealRoomState enum.
+func (e DealRoomState) Valid() bool {
+	switch e {
+	case DealRoomStateArchived:
+		return true
+	case DealRoomStateBuilding:
+		return true
+	case DealRoomStateClosed:
+		return true
+	case DealRoomStateDraft:
+		return true
+	case DealRoomStateExpired:
+		return true
+	case DealRoomStateLive:
+		return true
+	case DealRoomStatePaused:
+		return true
+	case DealRoomStatePublishing:
+		return true
+	case DealRoomStateReady:
 		return true
 	default:
 		return false
@@ -11033,22 +11084,22 @@ func (e ListPeopleParamsCapturedByKind) Valid() bool {
 
 // Defines values for ListProjectsParamsPhase.
 const (
-	Closed     ListProjectsParamsPhase = "closed"
-	Delivering ListProjectsParamsPhase = "delivering"
-	Initiative ListProjectsParamsPhase = "initiative"
-	Pursuing   ListProjectsParamsPhase = "pursuing"
+	ListProjectsParamsPhaseClosed     ListProjectsParamsPhase = "closed"
+	ListProjectsParamsPhaseDelivering ListProjectsParamsPhase = "delivering"
+	ListProjectsParamsPhaseInitiative ListProjectsParamsPhase = "initiative"
+	ListProjectsParamsPhasePursuing   ListProjectsParamsPhase = "pursuing"
 )
 
 // Valid indicates whether the value is a known member of the ListProjectsParamsPhase enum.
 func (e ListProjectsParamsPhase) Valid() bool {
 	switch e {
-	case Closed:
+	case ListProjectsParamsPhaseClosed:
 		return true
-	case Delivering:
+	case ListProjectsParamsPhaseDelivering:
 		return true
-	case Initiative:
+	case ListProjectsParamsPhaseInitiative:
 		return true
-	case Pursuing:
+	case ListProjectsParamsPhasePursuing:
 		return true
 	default:
 		return false
@@ -14298,6 +14349,19 @@ type CreateDealRequest struct {
 // CreateDealRequestPartnerAttribution `sourced` or `influenced`. Naming a partner without this field attributes the deal `sourced`; an attribution for a deal naming no partner is refused 422.
 type CreateDealRequestPartnerAttribution string
 
+// CreateDealRoomRequest defines model for CreateDealRoomRequest.
+type CreateDealRoomRequest struct {
+	DealId    openapi_types.UUID `json:"deal_id"`
+	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
+	Source    string             `json:"source"`
+
+	// StewardUserId Defaults to the deal's owner when omitted.
+	StewardUserId        *openapi_types.UUID    `json:"steward_user_id,omitempty"`
+	Title                string                 `json:"title"`
+	WelcomeMessage       *string                `json:"welcome_message,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
 // CreateImportRunRequest defines model for CreateImportRunRequest.
 type CreateImportRunRequest struct {
 	// Connector The source kind. The HubSpot and Salesforce connectors run the same engine and arrive with their own tickets (IEM-AC-8).
@@ -14932,6 +14996,108 @@ type DealListResponse struct {
 	Data []Deal   `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// DealRoom One buyer-facing room per deal. Mirrors the `deal_room` table.
+//
+// The fields here are the WORKING copy — what a buyer actually reads is the
+// latest release, which freezes these values at publish time. Editing a live
+// room's title changes nothing for the buyer until someone publishes again.
+type DealRoom struct {
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+
+	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
+	CapturedBy *string    `json:"captured_by,omitempty"`
+	ClosedAt   *time.Time `json:"closed_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+
+	// DealId The deal this room projects. Immutable — a room never moves between deals.
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// ExpiresAt When buyer access lapses on its own. Extending is an explicit human act.
+	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// PublishedAt When the room first went live. Unchanged by later releases.
+	PublishedAt *time.Time `json:"published_at,omitempty"`
+
+	// ReleaseCount How many releases this room has published. 0 means no buyer has ever seen it.
+	ReleaseCount *int   `json:"release_count,omitempty"`
+	Source       string `json:"source"`
+
+	// State Where the room stands. Only `live` serves a buyer; `draft`, `building`, `ready`
+	// and `publishing` are seller-side assembly, and the last four are terminal or
+	// suspended.
+	//
+	// `closed` freezes content while KEEPING access — the buyer still reads what
+	// they were shown. `expired` is access lapsing on its own. `archived` ends the
+	// room outright and frees the deal for another.
+	State DealRoomState `json:"state"`
+
+	// StewardUserId The named human a buyer is pointed at for help. Defaults to the deal's owner
+	// at create time and transfers deliberately thereafter; null once that user is
+	// deleted, which is the state a steward transfer exists to repair.
+	StewardUserId *openapi_types.UUID `json:"steward_user_id,omitempty"`
+	Title         string              `json:"title"`
+	UpdatedAt     time.Time           `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version *RowVersion `json:"version,omitempty"`
+
+	// WelcomeMessage The buyer's first paragraph on opening the room.
+	WelcomeMessage       *string                `json:"welcome_message,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// DealRoomListResponse defines model for DealRoomListResponse.
+type DealRoomListResponse struct {
+	Data []DealRoom `json:"data"`
+	Page PageInfo   `json:"page"`
+}
+
+// DealRoomRelease An immutable published snapshot. Every buyer-visible editorial value is COPIED
+// in at publish time, so a later edit to the room or the deal cannot change what
+// a buyer was shown. The database refuses updates to this row outright.
+type DealRoomRelease struct {
+	CapturedBy  *string            `json:"captured_by,omitempty"`
+	CreatedAt   time.Time          `json:"created_at"`
+	Id          openapi_types.UUID `json:"id"`
+	PublishedAt time.Time          `json:"published_at"`
+
+	// PublishedBy The human who published. Null once that user is deleted; the release stands.
+	PublishedBy *openapi_types.UUID `json:"published_by,omitempty"`
+
+	// ReleaseNo Monotonic per room, from 1. Gaps are not possible.
+	ReleaseNo   int                `json:"release_no"`
+	ReleaseNote *string            `json:"release_note,omitempty"`
+	RoomId      openapi_types.UUID `json:"room_id"`
+
+	// Snapshot The frozen buyer projection — status sentence, next step, welcome text,
+	// seller display fields and the task definitions as they read at publish time.
+	// Task COMPLETION is deliberately absent: it is live collaboration state, not
+	// editorial content, so a checkbox never needs a republish.
+	Snapshot             map[string]interface{} `json:"snapshot"`
+	Source               string                 `json:"source"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// DealRoomReleaseListResponse defines model for DealRoomReleaseListResponse.
+type DealRoomReleaseListResponse struct {
+	Data []DealRoomRelease `json:"data"`
+	Page PageInfo          `json:"page"`
+}
+
+// DealRoomState Where the room stands. Only `live` serves a buyer; `draft`, `building`, `ready`
+// and `publishing` are seller-side assembly, and the last four are terminal or
+// suspended.
+//
+// `closed` freezes content while KEEPING access — the buyer still reads what
+// they were shown. `expired` is access lapsing on its own. `archived` ends the
+// room outright and frees the deal for another.
+type DealRoomState string
 
 // DecideCommissionRequest defines model for DecideCommissionRequest.
 type DecideCommissionRequest struct {
@@ -19911,6 +20077,12 @@ type ProviderSpend struct {
 	Months []ProviderMonthlySpend `json:"months"`
 }
 
+// PublishDealRoomRequest defines model for PublishDealRoomRequest.
+type PublishDealRoomRequest struct {
+	// ReleaseNote Why this release exists, for the seller's own record. Not shown to the buyer.
+	ReleaseNote *string `json:"release_note,omitempty"`
+}
+
 // PutOnboardingStateRequest defines model for PutOnboardingStateRequest.
 type PutOnboardingStateRequest struct {
 	// CompanyDraft Partial human-editable company input retained while the wizard is unfinished. Every field
@@ -20910,6 +21082,14 @@ type SetBlockedDomainRequest struct {
 // SetBlockedDomainRequestAdmission defines model for SetBlockedDomainRequest.Admission.
 type SetBlockedDomainRequestAdmission string
 
+// SetDealRoomExpiryRequest defines model for SetDealRoomExpiryRequest.
+type SetDealRoomExpiryRequest struct {
+	// ExpiresAt When buyer access lapses. Null removes the bound entirely, which is why
+	// the field is required rather than optional — clearing an expiry must be
+	// something a caller asked for, never something an omitted key did.
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
 // SetFxRateRequest defines model for SetFxRateRequest.
 type SetFxRateRequest struct {
 	// EffectiveDate Defaults to today; must not be in the past (append-forward).
@@ -21455,6 +21635,19 @@ type UpdateDealRequestPartnerAttribution string
 
 // UpdateDealRequestStatus defines model for UpdateDealRequest.Status.
 type UpdateDealRequestStatus string
+
+// UpdateDealRoomRequest Any subset; omit a field to leave it unchanged. Edits the working copy — a live
+// room keeps serving its last release until someone publishes.
+//
+// `expires_at` is deliberately NOT here: moving the moment a buyer loses access
+// is a change to what an outside party can reach, so it has its own human-only
+// operation rather than riding an auto-execute patch.
+type UpdateDealRoomRequest struct {
+	StewardUserId        *openapi_types.UUID    `json:"steward_user_id,omitempty"`
+	Title                *string                `json:"title,omitempty"`
+	WelcomeMessage       *string                `json:"welcome_message,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
 
 // UpdateInstallationSettingsRequest A sparse installation-settings patch (admin/ops, human-only).
 type UpdateInstallationSettingsRequest struct {
@@ -23151,6 +23344,104 @@ type CreateDataSubjectRequestParams struct {
 	// than half-honouring it, so read this contract, not the client, to know which calls are safe
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListDealRoomsParams defines parameters for ListDealRooms.
+type ListDealRoomsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Sort Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+	// `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+	// cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+	// accepted multi-field spelling; any other comma-separated multi-field spec returns
+	// `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+	// enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+	// columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+	// an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// IncludeArchived Include soft-deleted (archived) rows. Default false.
+	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+
+	// DealId Only the room belonging to this deal.
+	DealId *openapi_types.UUID `form:"deal_id,omitempty" json:"deal_id,omitempty"`
+	State  *DealRoomState      `form:"state,omitempty" json:"state,omitempty"`
+}
+
+// CreateDealRoomParams defines parameters for CreateDealRoom.
+type CreateDealRoomParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ArchiveDealRoomParams defines parameters for ArchiveDealRoom.
+type ArchiveDealRoomParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// UpdateDealRoomParams defines parameters for UpdateDealRoom.
+type UpdateDealRoomParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// SetDealRoomExpiryParams defines parameters for SetDealRoomExpiry.
+type SetDealRoomExpiryParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// ListDealRoomReleasesParams defines parameters for ListDealRoomReleases.
+type ListDealRoomReleasesParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListDealsParams defines parameters for ListDeals.
@@ -26189,6 +26480,18 @@ type CreateDataSubjectRequestJSONRequestBody = CreateDataSubjectRequest
 // UpdateDataSubjectRequestJSONRequestBody defines body for UpdateDataSubjectRequest for application/json ContentType.
 type UpdateDataSubjectRequestJSONRequestBody = UpdateDataSubjectRequest
 
+// CreateDealRoomJSONRequestBody defines body for CreateDealRoom for application/json ContentType.
+type CreateDealRoomJSONRequestBody = CreateDealRoomRequest
+
+// UpdateDealRoomJSONRequestBody defines body for UpdateDealRoom for application/json ContentType.
+type UpdateDealRoomJSONRequestBody = UpdateDealRoomRequest
+
+// SetDealRoomExpiryJSONRequestBody defines body for SetDealRoomExpiry for application/json ContentType.
+type SetDealRoomExpiryJSONRequestBody = SetDealRoomExpiryRequest
+
+// PublishDealRoomJSONRequestBody defines body for PublishDealRoom for application/json ContentType.
+type PublishDealRoomJSONRequestBody = PublishDealRoomRequest
+
 // CreateDealJSONRequestBody defines body for CreateDeal for application/json ContentType.
 type CreateDealJSONRequestBody = CreateDealRequest
 
@@ -26879,6 +27182,143 @@ func (a CreateDealRequest) MarshalJSON() ([]byte, error) {
 	object["stage_id"], err = json.Marshal(a.StageId)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'stage_id': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for CreateDealRoomRequest. Returns the specified
+// element and whether it was found
+func (a CreateDealRoomRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for CreateDealRoomRequest
+func (a *CreateDealRoomRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for CreateDealRoomRequest to handle AdditionalProperties
+func (a *CreateDealRoomRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["deal_id"]; found {
+		err = json.Unmarshal(raw, &a.DealId)
+		if err != nil {
+			return fmt.Errorf("error reading 'deal_id': %w", err)
+		}
+		delete(object, "deal_id")
+	}
+
+	if raw, found := object["expires_at"]; found {
+		err = json.Unmarshal(raw, &a.ExpiresAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'expires_at': %w", err)
+		}
+		delete(object, "expires_at")
+	}
+
+	if raw, found := object["source"]; found {
+		err = json.Unmarshal(raw, &a.Source)
+		if err != nil {
+			return fmt.Errorf("error reading 'source': %w", err)
+		}
+		delete(object, "source")
+	}
+
+	if raw, found := object["steward_user_id"]; found {
+		err = json.Unmarshal(raw, &a.StewardUserId)
+		if err != nil {
+			return fmt.Errorf("error reading 'steward_user_id': %w", err)
+		}
+		delete(object, "steward_user_id")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["welcome_message"]; found {
+		err = json.Unmarshal(raw, &a.WelcomeMessage)
+		if err != nil {
+			return fmt.Errorf("error reading 'welcome_message': %w", err)
+		}
+		delete(object, "welcome_message")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for CreateDealRoomRequest to handle AdditionalProperties
+func (a CreateDealRoomRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["deal_id"], err = json.Marshal(a.DealId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'deal_id': %w", err)
+	}
+
+	if a.ExpiresAt != nil {
+		object["expires_at"], err = json.Marshal(a.ExpiresAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'expires_at': %w", err)
+		}
+	}
+
+	object["source"], err = json.Marshal(a.Source)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	if a.StewardUserId != nil {
+		object["steward_user_id"], err = json.Marshal(a.StewardUserId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'steward_user_id': %w", err)
+		}
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	if a.WelcomeMessage != nil {
+		object["welcome_message"], err = json.Marshal(a.WelcomeMessage)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'welcome_message': %w", err)
+		}
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -28539,6 +28979,472 @@ func (a Deal) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'won_without_contract_reason': %w", err)
 		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for DealRoom. Returns the specified
+// element and whether it was found
+func (a DealRoom) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for DealRoom
+func (a *DealRoom) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for DealRoom to handle AdditionalProperties
+func (a *DealRoom) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["archived_at"]; found {
+		err = json.Unmarshal(raw, &a.ArchivedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'archived_at': %w", err)
+		}
+		delete(object, "archived_at")
+	}
+
+	if raw, found := object["captured_by"]; found {
+		err = json.Unmarshal(raw, &a.CapturedBy)
+		if err != nil {
+			return fmt.Errorf("error reading 'captured_by': %w", err)
+		}
+		delete(object, "captured_by")
+	}
+
+	if raw, found := object["closed_at"]; found {
+		err = json.Unmarshal(raw, &a.ClosedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'closed_at': %w", err)
+		}
+		delete(object, "closed_at")
+	}
+
+	if raw, found := object["created_at"]; found {
+		err = json.Unmarshal(raw, &a.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'created_at': %w", err)
+		}
+		delete(object, "created_at")
+	}
+
+	if raw, found := object["deal_id"]; found {
+		err = json.Unmarshal(raw, &a.DealId)
+		if err != nil {
+			return fmt.Errorf("error reading 'deal_id': %w", err)
+		}
+		delete(object, "deal_id")
+	}
+
+	if raw, found := object["expires_at"]; found {
+		err = json.Unmarshal(raw, &a.ExpiresAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'expires_at': %w", err)
+		}
+		delete(object, "expires_at")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if raw, found := object["published_at"]; found {
+		err = json.Unmarshal(raw, &a.PublishedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'published_at': %w", err)
+		}
+		delete(object, "published_at")
+	}
+
+	if raw, found := object["release_count"]; found {
+		err = json.Unmarshal(raw, &a.ReleaseCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'release_count': %w", err)
+		}
+		delete(object, "release_count")
+	}
+
+	if raw, found := object["source"]; found {
+		err = json.Unmarshal(raw, &a.Source)
+		if err != nil {
+			return fmt.Errorf("error reading 'source': %w", err)
+		}
+		delete(object, "source")
+	}
+
+	if raw, found := object["state"]; found {
+		err = json.Unmarshal(raw, &a.State)
+		if err != nil {
+			return fmt.Errorf("error reading 'state': %w", err)
+		}
+		delete(object, "state")
+	}
+
+	if raw, found := object["steward_user_id"]; found {
+		err = json.Unmarshal(raw, &a.StewardUserId)
+		if err != nil {
+			return fmt.Errorf("error reading 'steward_user_id': %w", err)
+		}
+		delete(object, "steward_user_id")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["updated_at"]; found {
+		err = json.Unmarshal(raw, &a.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'updated_at': %w", err)
+		}
+		delete(object, "updated_at")
+	}
+
+	if raw, found := object["version"]; found {
+		err = json.Unmarshal(raw, &a.Version)
+		if err != nil {
+			return fmt.Errorf("error reading 'version': %w", err)
+		}
+		delete(object, "version")
+	}
+
+	if raw, found := object["welcome_message"]; found {
+		err = json.Unmarshal(raw, &a.WelcomeMessage)
+		if err != nil {
+			return fmt.Errorf("error reading 'welcome_message': %w", err)
+		}
+		delete(object, "welcome_message")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for DealRoom to handle AdditionalProperties
+func (a DealRoom) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.ArchivedAt != nil {
+		object["archived_at"], err = json.Marshal(a.ArchivedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'archived_at': %w", err)
+		}
+	}
+
+	object["captured_by"], err = json.Marshal(a.CapturedBy)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'captured_by': %w", err)
+	}
+
+	if a.ClosedAt != nil {
+		object["closed_at"], err = json.Marshal(a.ClosedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'closed_at': %w", err)
+		}
+	}
+
+	object["created_at"], err = json.Marshal(a.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
+	}
+
+	object["deal_id"], err = json.Marshal(a.DealId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'deal_id': %w", err)
+	}
+
+	if a.ExpiresAt != nil {
+		object["expires_at"], err = json.Marshal(a.ExpiresAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'expires_at': %w", err)
+		}
+	}
+
+	object["id"], err = json.Marshal(a.Id)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'id': %w", err)
+	}
+
+	if a.PublishedAt != nil {
+		object["published_at"], err = json.Marshal(a.PublishedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'published_at': %w", err)
+		}
+	}
+
+	if a.ReleaseCount != nil {
+		object["release_count"], err = json.Marshal(a.ReleaseCount)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'release_count': %w", err)
+		}
+	}
+
+	object["source"], err = json.Marshal(a.Source)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'source': %w", err)
+	}
+
+	object["state"], err = json.Marshal(a.State)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'state': %w", err)
+	}
+
+	if a.StewardUserId != nil {
+		object["steward_user_id"], err = json.Marshal(a.StewardUserId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'steward_user_id': %w", err)
+		}
+	}
+
+	object["title"], err = json.Marshal(a.Title)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'title': %w", err)
+	}
+
+	object["updated_at"], err = json.Marshal(a.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'updated_at': %w", err)
+	}
+
+	if a.Version != nil {
+		object["version"], err = json.Marshal(a.Version)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'version': %w", err)
+		}
+	}
+
+	if a.WelcomeMessage != nil {
+		object["welcome_message"], err = json.Marshal(a.WelcomeMessage)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'welcome_message': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for DealRoomRelease. Returns the specified
+// element and whether it was found
+func (a DealRoomRelease) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for DealRoomRelease
+func (a *DealRoomRelease) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for DealRoomRelease to handle AdditionalProperties
+func (a *DealRoomRelease) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["captured_by"]; found {
+		err = json.Unmarshal(raw, &a.CapturedBy)
+		if err != nil {
+			return fmt.Errorf("error reading 'captured_by': %w", err)
+		}
+		delete(object, "captured_by")
+	}
+
+	if raw, found := object["created_at"]; found {
+		err = json.Unmarshal(raw, &a.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'created_at': %w", err)
+		}
+		delete(object, "created_at")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if raw, found := object["published_at"]; found {
+		err = json.Unmarshal(raw, &a.PublishedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'published_at': %w", err)
+		}
+		delete(object, "published_at")
+	}
+
+	if raw, found := object["published_by"]; found {
+		err = json.Unmarshal(raw, &a.PublishedBy)
+		if err != nil {
+			return fmt.Errorf("error reading 'published_by': %w", err)
+		}
+		delete(object, "published_by")
+	}
+
+	if raw, found := object["release_no"]; found {
+		err = json.Unmarshal(raw, &a.ReleaseNo)
+		if err != nil {
+			return fmt.Errorf("error reading 'release_no': %w", err)
+		}
+		delete(object, "release_no")
+	}
+
+	if raw, found := object["release_note"]; found {
+		err = json.Unmarshal(raw, &a.ReleaseNote)
+		if err != nil {
+			return fmt.Errorf("error reading 'release_note': %w", err)
+		}
+		delete(object, "release_note")
+	}
+
+	if raw, found := object["room_id"]; found {
+		err = json.Unmarshal(raw, &a.RoomId)
+		if err != nil {
+			return fmt.Errorf("error reading 'room_id': %w", err)
+		}
+		delete(object, "room_id")
+	}
+
+	if raw, found := object["snapshot"]; found {
+		err = json.Unmarshal(raw, &a.Snapshot)
+		if err != nil {
+			return fmt.Errorf("error reading 'snapshot': %w", err)
+		}
+		delete(object, "snapshot")
+	}
+
+	if raw, found := object["source"]; found {
+		err = json.Unmarshal(raw, &a.Source)
+		if err != nil {
+			return fmt.Errorf("error reading 'source': %w", err)
+		}
+		delete(object, "source")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for DealRoomRelease to handle AdditionalProperties
+func (a DealRoomRelease) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["captured_by"], err = json.Marshal(a.CapturedBy)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'captured_by': %w", err)
+	}
+
+	object["created_at"], err = json.Marshal(a.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
+	}
+
+	object["id"], err = json.Marshal(a.Id)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'id': %w", err)
+	}
+
+	object["published_at"], err = json.Marshal(a.PublishedAt)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'published_at': %w", err)
+	}
+
+	if a.PublishedBy != nil {
+		object["published_by"], err = json.Marshal(a.PublishedBy)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'published_by': %w", err)
+		}
+	}
+
+	object["release_no"], err = json.Marshal(a.ReleaseNo)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'release_no': %w", err)
+	}
+
+	if a.ReleaseNote != nil {
+		object["release_note"], err = json.Marshal(a.ReleaseNote)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'release_note': %w", err)
+		}
+	}
+
+	object["room_id"], err = json.Marshal(a.RoomId)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'room_id': %w", err)
+	}
+
+	if a.Snapshot != nil {
+		object["snapshot"], err = json.Marshal(a.Snapshot)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'snapshot': %w", err)
+		}
+	}
+
+	object["source"], err = json.Marshal(a.Source)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'source': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -31431,6 +32337,104 @@ func (a UpdateDealRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// Getter for additional properties for UpdateDealRoomRequest. Returns the specified
+// element and whether it was found
+func (a UpdateDealRoomRequest) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for UpdateDealRoomRequest
+func (a *UpdateDealRoomRequest) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for UpdateDealRoomRequest to handle AdditionalProperties
+func (a *UpdateDealRoomRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["steward_user_id"]; found {
+		err = json.Unmarshal(raw, &a.StewardUserId)
+		if err != nil {
+			return fmt.Errorf("error reading 'steward_user_id': %w", err)
+		}
+		delete(object, "steward_user_id")
+	}
+
+	if raw, found := object["title"]; found {
+		err = json.Unmarshal(raw, &a.Title)
+		if err != nil {
+			return fmt.Errorf("error reading 'title': %w", err)
+		}
+		delete(object, "title")
+	}
+
+	if raw, found := object["welcome_message"]; found {
+		err = json.Unmarshal(raw, &a.WelcomeMessage)
+		if err != nil {
+			return fmt.Errorf("error reading 'welcome_message': %w", err)
+		}
+		delete(object, "welcome_message")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for UpdateDealRoomRequest to handle AdditionalProperties
+func (a UpdateDealRoomRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.StewardUserId != nil {
+		object["steward_user_id"], err = json.Marshal(a.StewardUserId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'steward_user_id': %w", err)
+		}
+	}
+
+	if a.Title != nil {
+		object["title"], err = json.Marshal(a.Title)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'title': %w", err)
+		}
+	}
+
+	if a.WelcomeMessage != nil {
+		object["welcome_message"], err = json.Marshal(a.WelcomeMessage)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'welcome_message': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
 // Getter for additional properties for UpdateLeadRequest. Returns the specified
 // element and whether it was found
 func (a UpdateLeadRequest) Get(fieldName string) (value interface{}, found bool) {
@@ -33047,6 +34051,39 @@ type ServerInterface interface {
 	// Update a data-subject request's status / assignee / resolution.
 	// (PATCH /data-subject-requests/{id})
 	UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// List Deal Rooms (live by default; cursor-paginated).
+	// (GET /deal-rooms)
+	ListDealRooms(w http.ResponseWriter, r *http.Request, params ListDealRoomsParams)
+	// Open a Deal Room on a deal.
+	// (POST /deal-rooms)
+	CreateDealRoom(w http.ResponseWriter, r *http.Request, params CreateDealRoomParams)
+	// Archive a Deal Room, ending buyer access.
+	// (DELETE /deal-rooms/{id})
+	ArchiveDealRoom(w http.ResponseWriter, r *http.Request, id Id, params ArchiveDealRoomParams)
+	// Get a Deal Room by id.
+	// (GET /deal-rooms/{id})
+	GetDealRoom(w http.ResponseWriter, r *http.Request, id Id)
+	// Edit a Deal Room's draft text (partial).
+	// (PATCH /deal-rooms/{id})
+	UpdateDealRoom(w http.ResponseWriter, r *http.Request, id Id, params UpdateDealRoomParams)
+	// Freeze the room's content, keeping buyer access.
+	// (POST /deal-rooms/{id}/close)
+	CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
+	// Set or clear when buyer access lapses.
+	// (PUT /deal-rooms/{id}/expiry)
+	SetDealRoomExpiry(w http.ResponseWriter, r *http.Request, id Id, params SetDealRoomExpiryParams)
+	// Pause buyer access without ending it.
+	// (POST /deal-rooms/{id}/pause)
+	PauseDealRoom(w http.ResponseWriter, r *http.Request, id Id)
+	// Publish the working copy as the next release.
+	// (POST /deal-rooms/{id}/publish)
+	PublishDealRoom(w http.ResponseWriter, r *http.Request, id Id)
+	// List a room's published releases, newest first.
+	// (GET /deal-rooms/{id}/releases)
+	ListDealRoomReleases(w http.ResponseWriter, r *http.Request, id Id, params ListDealRoomReleasesParams)
+	// Resume a paused Deal Room.
+	// (POST /deal-rooms/{id}/resume)
+	ResumeDealRoom(w http.ResponseWriter, r *http.Request, id Id)
 	// List deals (live by default; cursor-paginated). Supports Kanban-by-stage reads.
 	// (GET /deals)
 	ListDeals(w http.ResponseWriter, r *http.Request, params ListDealsParams)
@@ -34709,6 +35746,72 @@ func (_ Unimplemented) CreateDataSubjectRequest(w http.ResponseWriter, r *http.R
 // Update a data-subject request's status / assignee / resolution.
 // (PATCH /data-subject-requests/{id})
 func (_ Unimplemented) UpdateDataSubjectRequest(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List Deal Rooms (live by default; cursor-paginated).
+// (GET /deal-rooms)
+func (_ Unimplemented) ListDealRooms(w http.ResponseWriter, r *http.Request, params ListDealRoomsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Open a Deal Room on a deal.
+// (POST /deal-rooms)
+func (_ Unimplemented) CreateDealRoom(w http.ResponseWriter, r *http.Request, params CreateDealRoomParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Archive a Deal Room, ending buyer access.
+// (DELETE /deal-rooms/{id})
+func (_ Unimplemented) ArchiveDealRoom(w http.ResponseWriter, r *http.Request, id Id, params ArchiveDealRoomParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a Deal Room by id.
+// (GET /deal-rooms/{id})
+func (_ Unimplemented) GetDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Edit a Deal Room's draft text (partial).
+// (PATCH /deal-rooms/{id})
+func (_ Unimplemented) UpdateDealRoom(w http.ResponseWriter, r *http.Request, id Id, params UpdateDealRoomParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Freeze the room's content, keeping buyer access.
+// (POST /deal-rooms/{id}/close)
+func (_ Unimplemented) CloseDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set or clear when buyer access lapses.
+// (PUT /deal-rooms/{id}/expiry)
+func (_ Unimplemented) SetDealRoomExpiry(w http.ResponseWriter, r *http.Request, id Id, params SetDealRoomExpiryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Pause buyer access without ending it.
+// (POST /deal-rooms/{id}/pause)
+func (_ Unimplemented) PauseDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Publish the working copy as the next release.
+// (POST /deal-rooms/{id}/publish)
+func (_ Unimplemented) PublishDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List a room's published releases, newest first.
+// (GET /deal-rooms/{id}/releases)
+func (_ Unimplemented) ListDealRoomReleases(w http.ResponseWriter, r *http.Request, id Id, params ListDealRoomReleasesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Resume a paused Deal Room.
+// (POST /deal-rooms/{id}/resume)
+func (_ Unimplemented) ResumeDealRoom(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -41585,6 +42688,568 @@ func (siw *ServerInterfaceWrapper) UpdateDataSubjectRequest(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateDataSubjectRequest(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDealRooms operation middleware
+func (siw *ServerInterfaceWrapper) ListDealRooms(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDealRoomsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", r.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sort"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sort", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_archived" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_archived", r.URL.Query(), &params.IncludeArchived, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "deal_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "deal_id", r.URL.Query(), &params.DealId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "deal_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "deal_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDealRooms(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) CreateDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateDealRoomParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDealRoom(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ArchiveDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) ArchiveDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ArchiveDealRoomParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ArchiveDealRoom(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) GetDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealRoom(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) UpdateDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateDealRoomParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateDealRoom(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CloseDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) CloseDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CloseDealRoom(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetDealRoomExpiry operation middleware
+func (siw *ServerInterfaceWrapper) SetDealRoomExpiry(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetDealRoomExpiryParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetDealRoomExpiry(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PauseDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) PauseDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PauseDealRoom(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) PublishDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishDealRoom(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDealRoomReleases operation middleware
+func (siw *ServerInterfaceWrapper) ListDealRoomReleases(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDealRoomReleasesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDealRoomReleases(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResumeDealRoom operation middleware
+func (siw *ServerInterfaceWrapper) ResumeDealRoom(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResumeDealRoom(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -56259,6 +57924,39 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/data-subject-requests/{id}", wrapper.UpdateDataSubjectRequest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deal-rooms", wrapper.ListDealRooms)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms", wrapper.CreateDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/deal-rooms/{id}", wrapper.ArchiveDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deal-rooms/{id}", wrapper.GetDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/deal-rooms/{id}", wrapper.UpdateDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/close", wrapper.CloseDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/deal-rooms/{id}/expiry", wrapper.SetDealRoomExpiry)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/pause", wrapper.PauseDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/publish", wrapper.PublishDealRoom)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deal-rooms/{id}/releases", wrapper.ListDealRoomReleases)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/deal-rooms/{id}/resume", wrapper.ResumeDealRoom)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals", wrapper.ListDeals)

@@ -60,6 +60,7 @@ var probedRequiredIDBodies = map[string]bool{
 	"RelinkActivityJSONBody":         true,
 	"DraftAccountEmailJSONBody":      true,
 	"AcceptExtractionRequest":        true,
+	"CreateDealRoomRequest":          true,
 }
 
 // unguardedRequiredIDBodies is what is left, and both entries are WAIVERS rather

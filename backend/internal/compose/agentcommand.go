@@ -100,6 +100,7 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 
 	"createCustomField":         createCommand,
 	"createDeal":                createCommand,
+	"createDealRoom":            createCommand,
 	"createImportRun":           previewImportCommand,
 	"createLead":                createCommand,
 	"createList":                createCommand,
@@ -116,6 +117,7 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"updateActivity":            patchCommand,
 	"updateOfferTemplate":       patchCommand,
 	"updateDeal":                patchCommand,
+	"updateDealRoom":            patchCommand,
 	"updateLead":                patchCommand,
 	"updateOffer":               patchCommand,
 	"updateOrganization":        patchCommand,

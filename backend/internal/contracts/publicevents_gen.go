@@ -126,6 +126,13 @@ const (
 	DealCreated               SubscribableEventType = "deal.created"
 	DealOwnerChanged          SubscribableEventType = "deal.owner_changed"
 	DealRestored              SubscribableEventType = "deal.restored"
+	DealRoomArchived          SubscribableEventType = "deal_room.archived"
+	DealRoomClosed            SubscribableEventType = "deal_room.closed"
+	DealRoomOpened            SubscribableEventType = "deal_room.opened"
+	DealRoomPaused            SubscribableEventType = "deal_room.paused"
+	DealRoomPublished         SubscribableEventType = "deal_room.published"
+	DealRoomResumed           SubscribableEventType = "deal_room.resumed"
+	DealRoomUpdated           SubscribableEventType = "deal_room.updated"
 	DealStageChanged          SubscribableEventType = "deal.stage_changed"
 	DealUpdated               SubscribableEventType = "deal.updated"
 	EmailSignatureChanged     SubscribableEventType = "email_signature.changed"
@@ -237,6 +244,20 @@ func (e SubscribableEventType) Valid() bool {
 	case DealOwnerChanged:
 		return true
 	case DealRestored:
+		return true
+	case DealRoomArchived:
+		return true
+	case DealRoomClosed:
+		return true
+	case DealRoomOpened:
+		return true
+	case DealRoomPaused:
+		return true
+	case DealRoomPublished:
+		return true
+	case DealRoomResumed:
+		return true
+	case DealRoomUpdated:
 		return true
 	case DealStageChanged:
 		return true
@@ -630,6 +651,64 @@ type PublicEventDealOwnerChanged struct {
 
 // PublicEventDealRestored Payload for deal.restored. Never emitted today (no restore path exists for deal); the schema is published so the type is a valid subscription target and the coverage gate can name it explicitly rather than silently omitting it.
 type PublicEventDealRestored struct{}
+
+// PublicEventDealRoomArchived Payload for deal_room.archived — the room ended and buyer access is revoked.
+// Its releases survive, so what a buyer was shown stays answerable.
+type PublicEventDealRoomArchived struct {
+	DealId openapi_types.UUID `json:"deal_id"`
+}
+
+// PublicEventDealRoomClosed Payload for deal_room.closed — the room's CONTENT is frozen while buyer ACCESS
+// continues. The buyer keeps reading; nobody writes.
+type PublicEventDealRoomClosed struct {
+	DealId openapi_types.UUID `json:"deal_id"`
+}
+
+// PublicEventDealRoomOpened Payload for deal_room.opened — a Deal Room was created on a deal. Nothing is
+// buyer-visible yet: the room starts in draft and stays private until a human
+// publishes it.
+type PublicEventDealRoomOpened struct {
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// StewardUserId The named human a buyer is pointed at for help.
+	StewardUserId *openapi_types.UUID `json:"steward_user_id,omitempty"`
+	Title         string              `json:"title"`
+}
+
+// PublicEventDealRoomPaused Payload for deal_room.paused — buyer reads are refused while every credential
+// stays valid, so resuming needs no re-invitation.
+type PublicEventDealRoomPaused struct {
+	DealId openapi_types.UUID `json:"deal_id"`
+}
+
+// PublicEventDealRoomPublished Payload for deal_room.published — a human published a release, fixing exactly
+// what the buyer now reads. Release 1 is the room going live for the first time.
+type PublicEventDealRoomPublished struct {
+	DealId    openapi_types.UUID  `json:"deal_id"`
+	ReleaseId *openapi_types.UUID `json:"release_id,omitempty"`
+
+	// ReleaseNo Monotonic per room, from 1.
+	ReleaseNo int `json:"release_no"`
+}
+
+// PublicEventDealRoomResumed Payload for deal_room.resumed — a paused room serves its existing release again.
+type PublicEventDealRoomResumed struct {
+	DealId openapi_types.UUID `json:"deal_id"`
+}
+
+// PublicEventDealRoomUpdated Payload for deal_room.updated — the room's WORKING copy changed. What the
+// buyer reads is unaffected: that is the last published release, and it stays
+// authoritative until somebody publishes again.
+type PublicEventDealRoomUpdated struct {
+	// ChangedFields Which editorial fields moved. Names only — the text itself is not published.
+	// Typed as a plain string rather than an inline enum: an inline enum here
+	// generates package-scope Go constants named `Title`, `ExpiresAt` and the
+	// like in the shared contracts package, which collide with, and silently
+	// rename, the constants of any other schema that later declares the same
+	// value. The closed set is stated here and held by the writer.
+	ChangedFields []string           `json:"changed_fields"`
+	DealId        openapi_types.UUID `json:"deal_id"`
+}
 
 // PublicEventDealStageChanged Payload for deal.stage_changed — a deal advanced between stages. Carries the amount/win-probability snapshot frozen at the moment of the move so consumers (the trajectory view, the overnight stalled/forecast sweep, the automation trigger keyed on to_status) never need a read-back.
 type PublicEventDealStageChanged struct {
@@ -1589,6 +1668,34 @@ func (PublicEventDealRestored) EventType() string { return "deal.restored" }
 
 func (PublicEventDealRestored) EntityType() string { return "deal" }
 
+func (PublicEventDealRoomArchived) EventType() string { return "deal_room.archived" }
+
+func (PublicEventDealRoomArchived) EntityType() string { return "deal_room" }
+
+func (PublicEventDealRoomClosed) EventType() string { return "deal_room.closed" }
+
+func (PublicEventDealRoomClosed) EntityType() string { return "deal_room" }
+
+func (PublicEventDealRoomOpened) EventType() string { return "deal_room.opened" }
+
+func (PublicEventDealRoomOpened) EntityType() string { return "deal_room" }
+
+func (PublicEventDealRoomPaused) EventType() string { return "deal_room.paused" }
+
+func (PublicEventDealRoomPaused) EntityType() string { return "deal_room" }
+
+func (PublicEventDealRoomPublished) EventType() string { return "deal_room.published" }
+
+func (PublicEventDealRoomPublished) EntityType() string { return "deal_room" }
+
+func (PublicEventDealRoomResumed) EventType() string { return "deal_room.resumed" }
+
+func (PublicEventDealRoomResumed) EntityType() string { return "deal_room" }
+
+func (PublicEventDealRoomUpdated) EventType() string { return "deal_room.updated" }
+
+func (PublicEventDealRoomUpdated) EntityType() string { return "deal_room" }
+
 func (PublicEventDealStageChanged) EventType() string { return "deal.stage_changed" }
 
 func (PublicEventDealStageChanged) EntityType() string { return "deal" }
@@ -1871,6 +1978,13 @@ var PublicEventVersions = map[string]int{
 	"deal.restored":                1,
 	"deal.stage_changed":           1,
 	"deal.updated":                 1,
+	"deal_room.archived":           1,
+	"deal_room.closed":             1,
+	"deal_room.opened":             1,
+	"deal_room.paused":             1,
+	"deal_room.published":          1,
+	"deal_room.resumed":            1,
+	"deal_room.updated":            1,
 	"email_signature.changed":      1,
 	"engagement.reply":             1,
 	"incumbent.connected":          1,

@@ -39,6 +39,8 @@ const (
 	recordTypeCustomField         agentRecordType = "custom_field"
 	recordTypeDataSubjectRequest  agentRecordType = "data_subject_request"
 	recordTypeDeal                agentRecordType = "deal"
+	recordTypeDealRoom            agentRecordType = "deal_room"
+	recordTypeDealRoomRelease     agentRecordType = "deal_room_release"
 	recordTypeImportRun           agentRecordType = "import_run"
 	recordTypeLead                agentRecordType = "lead"
 	recordTypeList                agentRecordType = "list"
@@ -104,6 +106,7 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/channel-connections/{id}":                                {Op: "disconnectChannel", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/connectors/{provider}/backfill":                          {Op: "cancelConnectorBackfill", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/contracts/{id}":                                          {Op: "archiveContract", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"DELETE /v1/deal-rooms/{id}":                                         {Op: "archiveDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/deals/{id}":                                              {Op: "archiveDeal", Access: "tool", Tool: "archive_record", RecordType: "deal", Tier: "confirmation_required", Scope: "write"},
 	"DELETE /v1/lead-disqualify-reasons/{id}":                            {Op: "deleteLeadDisqualifyReason", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"DELETE /v1/lead-sources/{id}":                                       {Op: "deleteLeadSource", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
@@ -181,6 +184,9 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/contracts/{id}":                                             {Op: "getContract", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/custom-fields":                                              {Op: "listCustomFields", Access: "tool", Tool: "search_records", RecordType: "custom_field", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/data-subject-requests":                                      {Op: "listDataSubjectRequests", Access: "tool", Tool: "search_records", RecordType: "data_subject_request", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/deal-rooms":                                                 {Op: "listDealRooms", Access: "tool", Tool: "search_records", RecordType: "deal_room", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/deal-rooms/{id}":                                            {Op: "getDealRoom", Access: "tool", Tool: "read_record", RecordType: "deal_room", Tier: "auto_execute", Scope: "read"},
+	"GET /v1/deal-rooms/{id}/releases":                                   {Op: "listDealRoomReleases", Access: "tool", Tool: "search_records", RecordType: "deal_room_release", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/deals":                                                      {Op: "listDeals", Access: "tool", Tool: "list_records", RecordType: "deal", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/deals/{id}":                                                 {Op: "getDeal", Access: "tool", Tool: "read_record", RecordType: "deal", Tier: "auto_execute", Scope: "read"},
 	"GET /v1/deals/{id}/offers":                                          {Op: "listDealOffers", Access: "tool", Tool: "search_records", RecordType: "offer", Tier: "auto_execute", Scope: "read"},
@@ -271,6 +277,7 @@ var agentPolicies = map[string]agentPolicy{
 	"PATCH /v1/custom-fields/{id}":                                       {Op: "renameCustomField", Access: "tool", Tool: "update_record", RecordType: "custom_field", Tier: "auto_execute", Scope: "write"},
 	"PATCH /v1/custom-fields/{id}/options":                               {Op: "updateCustomFieldOptions", Access: "tool", Tool: "update_record", RecordType: "custom_field", Tier: "confirmation_required", Scope: "write"},
 	"PATCH /v1/data-subject-requests/{id}":                               {Op: "updateDataSubjectRequest", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"PATCH /v1/deal-rooms/{id}":                                          {Op: "updateDealRoom", Access: "tool", Tool: "update_record", RecordType: "deal_room", Tier: "auto_execute", Scope: "write"},
 	"PATCH /v1/deals/{id}":                                               {Op: "updateDeal", Access: "tool", Tool: "update_record", RecordType: "deal", Tier: "auto_execute", Scope: "write"},
 	"PATCH /v1/installation/settings":                                    {Op: "updateInstallationSettings", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/lead-disqualify-reasons/{id}":                             {Op: "updateLeadDisqualifyReason", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
@@ -353,6 +360,11 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/custom-fields":                                             {Op: "createCustomField", Access: "tool", Tool: "create_record", RecordType: "custom_field", Tier: "confirmation_required", Scope: "write"},
 	"POST /v1/custom-fields/{id}/retire":                                 {Op: "retireCustomField", Access: "tool", Tool: "update_record", RecordType: "custom_field", Tier: "confirmation_required", Scope: "write"},
 	"POST /v1/data-subject-requests":                                     {Op: "createDataSubjectRequest", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/deal-rooms":                                                {Op: "createDealRoom", Access: "tool", Tool: "create_record", RecordType: "deal_room", Tier: "auto_execute", Scope: "write"},
+	"POST /v1/deal-rooms/{id}/close":                                     {Op: "closeDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/deal-rooms/{id}/pause":                                     {Op: "pauseDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/deal-rooms/{id}/publish":                                   {Op: "publishDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/deal-rooms/{id}/resume":                                    {Op: "resumeDealRoom", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/deals":                                                     {Op: "createDeal", Access: "tool", Tool: "create_record", RecordType: "deal", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/deals/{id}/advance":                                        {Op: "advanceDeal", Access: "tool", Tool: "advance_deal", RecordType: "deal", Tier: "dynamic", Scope: "write"},
 	"POST /v1/deals/{id}/offers":                                         {Op: "createOffer", Access: "tool", Tool: "create_record", RecordType: "offer", Tier: "auto_execute", Scope: "write"},
@@ -456,6 +468,7 @@ var agentPolicies = map[string]agentPolicy{
 	"PUT /v1/ai/routing":                                                 {Op: "replaceAiRouting", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PUT /v1/capture/blocked-domains":                                    {Op: "setBlockedDomain", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PUT /v1/company":                                                    {Op: "putCompany", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"PUT /v1/deal-rooms/{id}/expiry":                                     {Op: "setDealRoomExpiry", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PUT /v1/leads/{id}/manual-signals":                                  {Op: "setLeadManualSignal", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PUT /v1/me/email-signature":                                         {Op: "saveMyEmailSignature", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PUT /v1/me/linkedin-account":                                        {Op: "saveMyLinkedInAccount", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

@@ -531,6 +531,50 @@ func (stubs) UpdateDataSubjectRequest(w nethttp.ResponseWriter, r *nethttp.Reque
 	httperr.NotImplemented(w, r, "UpdateDataSubjectRequest")
 }
 
+func (stubs) ListDealRooms(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListDealRoomsParams) {
+	httperr.NotImplemented(w, r, "ListDealRooms")
+}
+
+func (stubs) CreateDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateDealRoomParams) {
+	httperr.NotImplemented(w, r, "CreateDealRoom")
+}
+
+func (stubs) ArchiveDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveDealRoomParams) {
+	httperr.NotImplemented(w, r, "ArchiveDealRoom")
+}
+
+func (stubs) GetDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetDealRoom")
+}
+
+func (stubs) UpdateDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateDealRoomParams) {
+	httperr.NotImplemented(w, r, "UpdateDealRoom")
+}
+
+func (stubs) CloseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "CloseDealRoom")
+}
+
+func (stubs) SetDealRoomExpiry(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SetDealRoomExpiryParams) {
+	httperr.NotImplemented(w, r, "SetDealRoomExpiry")
+}
+
+func (stubs) PauseDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PauseDealRoom")
+}
+
+func (stubs) PublishDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PublishDealRoom")
+}
+
+func (stubs) ListDealRoomReleases(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealRoomReleasesParams) {
+	httperr.NotImplemented(w, r, "ListDealRoomReleases")
+}
+
+func (stubs) ResumeDealRoom(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ResumeDealRoom")
+}
+
 func (stubs) ListDeals(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListDealsParams) {
 	httperr.NotImplemented(w, r, "ListDeals")
 }

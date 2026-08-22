@@ -96,7 +96,7 @@ func TestReplayRefusesAnUnclassifiedRoute(t *testing.T) {
 // the assertion the hand-built probe maps above cannot make, because they are
 // not the map the server runs.
 func TestEveryModuleProbeIsWiredAtTheCompositionRoot(t *testing.T) {
-	wired := replayProbes(nil, nil) // keys only; nothing here calls a probe
+	wired := replayProbes(nil, nil, nil) // keys only; nothing here calls a probe
 	needed := map[string]string{}
 	for route, target := range replayableOperations {
 		if target.moduleProbe != "" {
