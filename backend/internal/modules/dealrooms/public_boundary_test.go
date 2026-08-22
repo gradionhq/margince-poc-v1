@@ -147,7 +147,7 @@ func TestSessionScopedStoreNeverConsultsTheSeatGates(t *testing.T) {
 		parts := strings.Split(text, "`")
 		for i := 1; i < len(parts); i += 2 {
 			stmt := parts[i]
-			for _, table := range []string{"deal_room_task", "deal_room_session", "deal_room_participant", "deal_room_release"} {
+			for _, table := range []string{"deal_room_session", "deal_room_participant", "deal_room_release"} {
 				if !strings.Contains(stmt, "FROM "+table) && !strings.Contains(stmt, "UPDATE "+table) {
 					continue
 				}

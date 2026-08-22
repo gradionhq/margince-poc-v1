@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
@@ -42,8 +42,13 @@ export function groupLabelKey(key: string): MessageKey {
 
 export function DealRoomDocuments({
   room,
+  state,
   refusal,
-}: Readonly<{ room: DealRoom; refusal: string | undefined }>) {
+}: Readonly<{
+  room: DealRoom;
+  state: ReactNode;
+  refusal: string | undefined;
+}>) {
   const t = useT();
   const docs = useQuery({
     queryKey: ["deal-room-documents", room.id],
@@ -58,7 +63,11 @@ export function DealRoomDocuments({
     },
   });
   return (
-    <Panel title={t("room.docs.title")} sub={t("room.docs.sub")}>
+    <Panel
+      title={t("room.docs.title")}
+      sub={t("room.docs.sub")}
+      titleAction={state}
+    >
       <QueryStates query={docs} pendingLines={3}>
         {docs.data ? (
           <DocumentList
@@ -222,7 +231,7 @@ function AddDocument({
           {t("room.docs.add")}
         </Button>
       </div>
-      <p className="t-small">{t("room.tasks.editorial")}</p>
+      <p className="t-small">{t("room.editorial")}</p>
       {add.isError ? (
         <p className="t-small t-danger">{problemMessageOf(add.error, t)}</p>
       ) : null}

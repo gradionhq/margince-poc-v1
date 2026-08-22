@@ -33,13 +33,10 @@ import (
 // operationId spelled the same way.
 const opRenameCustomField = "renameCustomField"
 
-// opUpdateDealRoomTask is named here for the same reason opRenameCustomField is:
-// three places have to spell one operationId identically — patchTargetParam
+// opUpdateDealRoomDocument is named here for the same reason opRenameCustomField
+// is: three places have to spell one operationId identically — patchTargetParam
 // below, agentcommand.go's restCommands entry, and the test that pins the
-// ownership probe onto the task rather than its room.
-const opUpdateDealRoomTask = "updateDealRoomTask"
-
-// opUpdateDealRoomDocument is its document sibling, named for the same reason.
+// ownership probe onto the document rather than its room.
 const opUpdateDealRoomDocument = "updateDealRoomDocument"
 
 // The remaining five action-shaped ops named below are ALSO both this
@@ -99,7 +96,7 @@ var actionShapedUpdateOps = map[string]bool{
 //
 // The ownership probe asks "who last typed this field on THIS record", so it
 // has to be asked about the record being patched. On a sub-resource route the
-// {id} names the PARENT — a Deal Room, not the to-do inside it — and asking
+// {id} names the PARENT — a Deal Room, not the document inside it — and asking
 // about the parent's id under the child's record type is a question no audit
 // row can answer. It misses every time, the split sees no conflict, and an
 // agent overwrite of a human-typed field auto-executes instead of staging:
@@ -111,7 +108,6 @@ var actionShapedUpdateOps = map[string]bool{
 // wording is exactly such a field. This is the upsertPartner trap in a
 // different shape, and its comment above says why.
 var patchTargetParam = map[string]string{
-	opUpdateDealRoomTask:     "taskId",
 	opUpdateDealRoomDocument: "documentId",
 }
 

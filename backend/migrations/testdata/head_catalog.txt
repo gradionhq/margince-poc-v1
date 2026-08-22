@@ -1460,29 +1460,6 @@ public.deal_room_session.source text NOT NULL gen=- def=-
 public.deal_room_session.token_hash bytea NOT NULL gen=- def=-
 public.deal_room_session.uq_deal_room_session_token UNIQUE (token_hash)
 public.deal_room_session_pkey CREATE UNIQUE INDEX deal_room_session_pkey ON public.deal_room_session USING btree (id)
-public.deal_room_task acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
-public.deal_room_task.archived_at timestamp with time zone gen=- def=-
-public.deal_room_task.captured_by text NOT NULL gen=- def=-
-public.deal_room_task.created_at timestamp with time zone NOT NULL gen=- def=now()
-public.deal_room_task.deal_room_task_completion_check CHECK ((((done_at IS NULL) AND (done_by_participant_id IS NULL) AND (done_by_user_id IS NULL)) OR ((done_at IS NOT NULL) AND (done_by_participant_id IS NOT NULL) AND (done_by_user_id IS NULL)) OR ((done_at IS NOT NULL) AND (done_by_user_id IS NOT NULL) AND (done_by_participant_id IS NULL))))
-public.deal_room_task.deal_room_task_participant_in_room FOREIGN KEY (done_by_participant_id, room_id) REFERENCES deal_room_participant(id, room_id) ON DELETE RESTRICT
-public.deal_room_task.deal_room_task_pkey PRIMARY KEY (id)
-public.deal_room_task.deal_room_task_room_fkey FOREIGN KEY (room_id) REFERENCES deal_room(id) ON DELETE CASCADE
-public.deal_room_task.deal_room_task_side_check CHECK ((side = ANY (ARRAY['seller'::text, 'buyer'::text])))
-public.deal_room_task.deal_room_task_touch CREATE TRIGGER deal_room_task_touch BEFORE UPDATE ON public.deal_room_task FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version()
-public.deal_room_task.deal_room_task_user_fkey FOREIGN KEY (done_by_user_id) REFERENCES app_user(id) ON DELETE RESTRICT
-public.deal_room_task.done_at timestamp with time zone gen=- def=-
-public.deal_room_task.done_by_participant_id uuid gen=- def=-
-public.deal_room_task.done_by_user_id uuid gen=- def=-
-public.deal_room_task.id uuid NOT NULL gen=- def=uuidv7()
-public.deal_room_task.position integer NOT NULL gen=- def=0
-public.deal_room_task.room_id uuid NOT NULL gen=- def=-
-public.deal_room_task.side text NOT NULL gen=- def=-
-public.deal_room_task.source text NOT NULL gen=- def=-
-public.deal_room_task.title text NOT NULL gen=- def=-
-public.deal_room_task.updated_at timestamp with time zone NOT NULL gen=- def=now()
-public.deal_room_task.version bigint NOT NULL gen=- def=1
-public.deal_room_task_pkey CREATE UNIQUE INDEX deal_room_task_pkey ON public.deal_room_task USING btree (id)
 public.deal_room_thread acl=margince_owner=arwdDxt/margince_owner,margince_app=arwd/margince_owner rls=false force=false
 public.deal_room_thread.attachment_id uuid gen=- def=-
 public.deal_room_thread.author_participant_id uuid gen=- def=-
@@ -1923,7 +1900,6 @@ public.idx_deal_room_comment_thread CREATE INDEX idx_deal_room_comment_thread ON
 public.idx_deal_room_decision_document CREATE INDEX idx_deal_room_decision_document ON public.deal_room_decision USING btree (document_id, created_at DESC)
 public.idx_deal_room_document_room CREATE INDEX idx_deal_room_document_room ON public.deal_room_document USING btree (room_id, group_key, "position") WHERE (archived_at IS NULL)
 public.idx_deal_room_session_participant CREATE INDEX idx_deal_room_session_participant ON public.deal_room_session USING btree (participant_id) WHERE (revoked_at IS NULL)
-public.idx_deal_room_task_room CREATE INDEX idx_deal_room_task_room ON public.deal_room_task USING btree (room_id, "position") WHERE (archived_at IS NULL)
 public.idx_deal_room_thread_document_open CREATE INDEX idx_deal_room_thread_document_open ON public.deal_room_thread USING btree (document_id) WHERE ((state = 'open'::text) AND required_change)
 public.idx_deal_room_thread_room CREATE INDEX idx_deal_room_thread_room ON public.deal_room_thread USING btree (room_id, created_at)
 public.idx_deal_search CREATE INDEX idx_deal_search ON public.deal USING gin (search_tsv)

@@ -74,7 +74,7 @@ func (s *Store) OpenThread(ctx context.Context, roomID ids.DealRoomID, in OpenTh
 	}
 	var out crmcontracts.DealRoomThread
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		room, err := openRoomForItsList(ctx, tx, roomID)
+		room, err := openRoomForContent(ctx, tx, roomID)
 		if err != nil {
 			return err
 		}
@@ -239,7 +239,7 @@ func (s *Store) Reply(ctx context.Context, roomID ids.DealRoomID, threadID ids.U
 	}
 	var out crmcontracts.DealRoomThread
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		room, err := openRoomForItsList(ctx, tx, roomID)
+		room, err := openRoomForContent(ctx, tx, roomID)
 		if err != nil {
 			return err
 		}
@@ -265,7 +265,7 @@ func (s *Store) ResolveThread(ctx context.Context, roomID ids.DealRoomID, thread
 	}
 	var out crmcontracts.DealRoomThread
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		room, err := openRoomForItsList(ctx, tx, roomID)
+		room, err := openRoomForContent(ctx, tx, roomID)
 		if err != nil {
 			return err
 		}

@@ -106,25 +106,11 @@ function stubRoom(
       if (key === "POST /public/rooms/threads/th-1/comments") {
         return jsonResponse({ id: "th-1" });
       }
-      if (key === "GET /public/rooms/tasks") {
-        return jsonResponse({ data: [TASK] });
-      }
-      if (key === "POST /public/rooms/tasks/task-1/complete") {
-        return jsonResponse({ ...TASK, done: true, done_by: "buyer" });
-      }
       return jsonResponse({});
     }),
   );
   return sent;
 }
-
-const TASK = {
-  id: "task-1",
-  side: "buyer",
-  title: "Sign the DPA",
-  position: 0,
-  done: false,
-};
 
 const LIVE = {
   access: "live",
@@ -170,7 +156,6 @@ describe("BuyerRoomScreen", () => {
 
     await screen.findByRole("heading", { name: "Acme rollout" });
     expect(screen.getByText("Welcome, Laura.")).toBeInTheDocument();
-    await screen.findByText("Sign the DPA");
     await screen.findByText("Data processing agreement");
     expect(screen.getByText("Legal")).toBeInTheDocument();
 
@@ -182,27 +167,6 @@ describe("BuyerRoomScreen", () => {
     expect(globalThis.sessionStorage.getItem("margince.room.session")).toBe(
       "mdrs_session",
     );
-  });
-
-  it("ticks a to-do through the public completion route", async () => {
-    globalThis.sessionStorage.setItem("margince.room.session", "mdrs_session");
-    const sent = stubRoom();
-    const user = userEvent.setup();
-    render(<BuyerRoomScreen />);
-
-    await user.click(
-      await screen.findByRole("switch", { name: "Sign the DPA" }),
-    );
-    await waitFor(() =>
-      expect(
-        sent.find((s) => s.key === "POST /public/rooms/tasks/task-1/complete"),
-      ).toBeTruthy(),
-    );
-    const tick = sent.find(
-      (s) => s.key === "POST /public/rooms/tasks/task-1/complete",
-    );
-    expect(tick?.body).toEqual({ done: true });
-    expect(tick?.authorization).toBe("Bearer mdrs_session");
   });
 
   it("the buyer reads the seller's question and answers it with the Bearer", async () => {
