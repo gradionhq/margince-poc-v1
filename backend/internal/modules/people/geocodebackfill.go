@@ -72,8 +72,26 @@ func (s *Store) ListGeocodeOrphans(ctx context.Context, limit int) ([]ids.Organi
 		rows, err := tx.Query(ctx, `
 			SELECT o.id
 			  FROM organization o
+			  LEFT JOIN organization_geocode_state g ON g.organization_id = o.id
 			 WHERE o.archived_at IS NULL
-			   AND (o.geocode_status IS NULL OR o.geocode_status = 'stale')
+			   -- NULL: never asked. 'stale': the trigger cleared the point and
+			   -- some writers cannot queue (see above). 'failed': the lookup did
+			   -- not complete, which is not an answer — and a failure whose
+			   -- backoff has expired has no River job left to carry it, so
+			   -- nothing but this would ever ask again. A deployment that
+			   -- records 'failed' because it had no provider AT ALL is the same
+			   -- shape: configure one later and these are the rows it needs.
+			   --
+			   -- 'ok' and 'no_match' are answers and are never swept.
+			   AND (o.geocode_status IS NULL
+			     OR o.geocode_status IN ('stale', 'failed'))
+			   -- A failure still inside its backoff is left alone: the ledger
+			   -- asked for that wait, and re-nominating every pass is how a
+			   -- rate limit becomes a block. AddressForGeocode re-checks this
+			   -- too; asking here keeps the sweep from queueing work it knows
+			   -- will decline.
+			   AND (g.next_attempt_at IS NULL OR g.next_attempt_at <= now())
+			   AND coalesce(g.attempts, 0) < $2
 			   -- The same bar locatable() holds a written address to: a country
 			   -- on its own is not a place a distance can be measured from, and
 			   -- nominating one spends a lookup to learn nothing.
@@ -81,7 +99,7 @@ func (s *Store) ListGeocodeOrphans(ctx context.Context, limit int) ([]ids.Organi
 			     OR coalesce(o.address_city, '') <> ''
 			     OR coalesce(o.address_postal_code, '') <> '')
 			 ORDER BY o.created_at
-			 LIMIT $1`, limit)
+			 LIMIT $1`, limit, geocodeMaxAttempts)
 		if err != nil {
 			return err
 		}

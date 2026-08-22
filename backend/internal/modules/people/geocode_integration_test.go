@@ -24,6 +24,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -225,5 +227,68 @@ func TestAStaleCompanyWithNoJobComingIsSwept(t *testing.T) {
 	if !slices.Contains(swept, orgID) {
 		t.Error("a company marked stale by the trigger is not swept, so its coordinates " +
 			"are gone and nothing will ever replace them")
+	}
+}
+
+// A lookup that never completed is re-asked once its backoff expires.
+//
+// `failed` is not an answer — it says the lookup did not finish — and a
+// deployment that recorded it because it had NO PROVIDER AT ALL is the same
+// shape: configure one later and these are exactly the rows that need asking.
+// Sweeping only never-asked rows left them orphaned, because a failure whose
+// backoff has expired has no River job left to carry it either.
+func TestAFailedLookupIsAskedAgainOnceItsBackoffExpires(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Unreachable GmbH", Source: "manual",
+		Address: &crmcontracts.Address{City: strPtr("Leipzig"), Country: strPtr("DE")},
+	})
+	if err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+	address, ok, err := e.store.AddressForGeocode(ctx, orgID)
+	if err != nil || !ok {
+		t.Fatalf("AddressForGeocode: %v (ok=%v)", err, ok)
+	}
+
+	// A failure records a wait — the provider's own, or a day when it gave
+	// none. Inside that wait the row is left alone: the ledger asked for it,
+	// and re-nominating every pass is how a rate limit becomes a block.
+	if err := e.store.RecordGeocode(ctx, orgID, GeocodeFailed, nil, nil, "", address.InputHash); err != nil {
+		t.Fatalf("recording the refusal: %v", err)
+	}
+	waiting, err := e.store.ListGeocodeOrphans(ctx, GeocodeBackfillBatch)
+	if err != nil {
+		t.Fatalf("ListGeocodeOrphans during the backoff: %v", err)
+	}
+	if slices.Contains(waiting, orgID) {
+		t.Error("a company still inside its backoff is swept, so the pass asks again " +
+			"exactly when the ledger said not to")
+	}
+
+	// Once the wait is spent there is no River job left to carry the retry —
+	// the worker returned successfully after recording the backoff — so the
+	// sweep is the only thing that will ever ask again. Sweeping NULL rows
+	// alone orphaned these permanently, which is the case a deployment that
+	// records `failed` for having no provider at all lands in: configure one
+	// later and these are exactly the rows that need asking.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`UPDATE organization_geocode_state SET next_attempt_at = now() - interval '1 minute'
+			  WHERE organization_id = $1`, orgID)
+		return err
+	}); err != nil {
+		t.Fatalf("spending the backoff: %v", err)
+	}
+	swept, err := e.store.ListGeocodeOrphans(ctx, GeocodeBackfillBatch)
+	if err != nil {
+		t.Fatalf("ListGeocodeOrphans after the backoff: %v", err)
+	}
+	if !slices.Contains(swept, orgID) {
+		t.Error("a company whose lookup never completed and whose wait is spent is not " +
+			"swept — nothing else will ever ask, so it stays unlocated forever")
 	}
 }

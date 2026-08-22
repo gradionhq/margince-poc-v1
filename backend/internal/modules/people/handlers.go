@@ -56,6 +56,20 @@ func (h Handlers) WithMatchStager(stage func(context.Context) error) Handlers {
 	return h
 }
 
+// WithGeocodeEnqueue wires the coordinate lookup an address write queues, into
+// the TRANSPORT's own store.
+//
+// It has to be said here as well as on the store, because the two are not the
+// same object: compose builds the handlers from newPeopleHandlers and keeps a
+// separate s.peopleStore for the services. Wiring only the latter left every
+// address written over HTTP marked stale by the trigger with no job coming —
+// the enqueue existed, was correct, and was reachable from nothing a rep
+// touches.
+func (h Handlers) WithGeocodeEnqueue(enqueue GeocodeEnqueue) Handlers {
+	h.store = h.store.WithGeocodeEnqueue(enqueue)
+	return h
+}
+
 // WithBlobstore wires the object store the organization-logo stream reads.
 func (h Handlers) WithBlobstore(blob blobstore.Store) Handlers {
 	h.blob = blob

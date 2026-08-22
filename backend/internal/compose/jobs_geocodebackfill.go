@@ -106,24 +106,26 @@ func (w *geocodeBackfillWorker) Work(ctx context.Context, _ *river.Job[GeocodeBa
 	return nil
 }
 
-// backfillInsertOpts is geocodeInsertOpts for a NON-transactional insert.
+// geocodeBackfillPriority is one rung below River's default, which is what an
+// address write takes by saying nothing.
+const geocodeBackfillPriority = river.PriorityDefault + 1
+
+// geocodeBackfillOpts is geocodeInsertOpts with the sweep's own PRIORITY.
 //
-// Same intent — one pending lookup per company — but River requires a
-// client-side unique set to include every active state, so the address-write
-// opts are refused here with "must contain all required states". Widening
-// those instead would change what an ADDRESS WRITE means: they deliberately
-// exclude running, so a company edited while its lookup is in flight still
-// queues a successor rather than having it silently dropped.
+// Everything else is shared, so a nomination and an address write dedupe
+// against each other rather than queueing the same company twice.
 //
-// The sweep needs no such precision. It nominates rows nothing has asked about
-// at all, so a company with any live job is one it should skip — which is
-// exactly what the wider set gives.
-func backfillInsertOpts() *river.InsertOpts {
-	return &river.InsertOpts{
-		Queue:       geocodeQueue,
-		MaxAttempts: geocodeMaxAttempts,
-		UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
-	}
+// The priority is what makes the sweep safe to run at all. One worker drains
+// this queue at four lookups a minute, so a batch of fifty is twelve minutes
+// of it — and without this a rep who corrects an address waits behind every
+// one of them for a lookup they are watching for. River fetches every
+// priority-1 job before any priority-2 job, so an address write always jumps
+// the backlog. The reverse cannot starve: the sweep nominates rows nobody is
+// touching, and rows nobody is touching produce no priority-1 work.
+func geocodeBackfillOpts() *river.InsertOpts {
+	opts := geocodeInsertOpts()
+	opts.Priority = geocodeBackfillPriority
+	return opts
 }
 
 // sweepOneWorkspace nominates one tenant's never-asked companies.
@@ -155,7 +157,7 @@ func (w *geocodeBackfillWorker) sweepOneWorkspace(ctx context.Context, ws ids.UU
 		if _, err := client.Insert(wsCtx, GeocodeOrganizationArgs{
 			Workspace:      ws,
 			OrganizationID: orgID.UUID,
-		}, backfillInsertOpts()); err != nil {
+		}, geocodeBackfillOpts()); err != nil {
 			return 0, err
 		}
 	}
