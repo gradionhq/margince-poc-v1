@@ -16,6 +16,7 @@ type Handlers struct {
 	svc *Service
 }
 
+// NewHandlers binds the transport to the service.
 func NewHandlers(svc *Service) Handlers {
 	return Handlers{svc: svc}
 }
