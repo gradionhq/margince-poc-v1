@@ -100,6 +100,22 @@ func TestTheRouterStaysSilentForACarrierOwnedTask(t *testing.T) {
 	}
 }
 
+// A task that is a STEP inside another piece of work announces nothing of its
+// own. Announcing it would report one piece of work twice at two grains — and
+// for embeddings specifically, the reindex pass mints no correlation id, so
+// every vector would key its own occurrence.
+func TestTheRouterStaysSilentForAStepThatIsNotAnOccurrence(t *testing.T) {
+	if RailOwner(TaskEmbeddings) != SourceNoOccurrence {
+		t.Fatalf("embeddings is owned by %q, want %q", RailOwner(TaskEmbeddings), SourceNoOccurrence)
+	}
+	if RouterReports(TaskEmbeddings) {
+		t.Error("the router announces every embedding call, so a search and the embedding it made are two lines for one piece of work")
+	}
+	if NoOccurrenceReason(TaskEmbeddings) == "" {
+		t.Error("embeddings reports nothing and says nothing about why")
+	}
+}
+
 // An unanswered task leaves the router silent rather than guessing. The gate at
 // the root is what stops one existing; this pins the behaviour it relies on.
 func TestAnUnansweredTaskIsNobodysToReport(t *testing.T) {

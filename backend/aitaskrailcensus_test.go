@@ -22,6 +22,12 @@ package backendarch
 // vocabulary, the carriers are its siblings, and a module never imports one.
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
@@ -42,9 +48,9 @@ var carrierSources = map[string]string{
 }
 
 func TestEveryAITaskNamesTheSourceThatReportsIt(t *testing.T) {
-	tasks := ai.AllTasks()
+	tasks := everyRoutableTask(t)
 	if len(tasks) == 0 {
-		t.Fatal("derived no tasks from the generated contract table; this gate would pass vacuously")
+		t.Fatal("derived no tasks at all; this gate would pass vacuously")
 	}
 	for _, task := range tasks {
 		if ai.RailOwner(task) == "" {
@@ -52,16 +58,112 @@ func TestEveryAITaskNamesTheSourceThatReportsIt(t *testing.T) {
 				"the rail denies AI the product really ran. Answer it in ai.railOwners: ai.SourceRouter when "+
 				"the router's post-hoc report is the whole truth, or a carrier's source when a durable row "+
 				"can say queued and running", task)
+			continue
+		}
+		if ai.RailOwner(task) == ai.SourceNoOccurrence && strings.TrimSpace(ai.NoOccurrenceReason(task)) == "" {
+			t.Errorf("task %q reports no occurrence of its own and says nothing about why. "+
+				"\"Reported by nobody\" is one keystroke from the silence this registry exists to end, "+
+				"so it costs a sentence in ai.railNoOccurrenceReasons that somebody can defend — and if "+
+				"the real reason is that no reader wants to see it, that is the CLIENT's decision, not this map's", task)
 		}
 	}
+}
+
+// everyRoutableTask is every ai.Task this build can route, contract-declared or
+// not.
+//
+// The generated table alone is NOT the set, and that gap is exactly the shape
+// of the defect this whole gate exists for: `embeddings` is declared by hand in
+// router.go, routes on the embed lane, writes ai_call rows — and is invisible
+// to api/ai-tasks.yaml, so a census that read only the contract would report
+// full coverage over a task it had never heard of.
+//
+// So the hand-declared half is read from the SOURCE, by walking the ai package
+// for `Xxx Task = "..."` constants. A list here would need maintaining, and the
+// maintenance is the thing that gets forgotten.
+func everyRoutableTask(t *testing.T) []ai.Task {
+	t.Helper()
+	seen := map[string]bool{}
+	out := []ai.Task{}
+	for _, task := range ai.AllTasks() {
+		seen[string(task)] = true
+		out = append(out, task)
+	}
+	contractDeclared := len(out)
+	for _, name := range taskConstantsDeclaredInSource(t) {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, ai.Task(name))
+	}
+	if contractDeclared == 0 {
+		t.Fatal("derived no tasks from the generated contract table; the source walk alone would understate the set")
+	}
+	return out
+}
+
+// taskConstantsDeclaredInSource reads every `Task = "..."` constant value out of
+// the ai package's own files, generated and hand-written alike.
+func taskConstantsDeclaredInSource(t *testing.T) []string {
+	t.Helper()
+	dir := filepath.Join("internal", "modules", "ai")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading the ai package: %v", err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		file, parseErr := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, entry.Name()), nil, 0)
+		if parseErr != nil {
+			t.Fatalf("parsing %s: %v", entry.Name(), parseErr)
+		}
+		names = append(names, taskConstantValues(file)...)
+	}
+	if len(names) == 0 {
+		t.Fatal("found no Task constants in the ai package source; the walk is looking in the wrong place")
+	}
+	return names
+}
+
+// taskConstantValues pulls the string literals off one file's `= Task("x")` or
+// `Xxx Task = "x"` constant declarations.
+func taskConstantValues(file *ast.File) []string {
+	var out []string
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			ident, ok := value.Type.(*ast.Ident)
+			if !ok || ident.Name != "Task" {
+				continue
+			}
+			for _, expr := range value.Values {
+				lit, ok := expr.(*ast.BasicLit)
+				if ok && lit.Kind == token.STRING {
+					out = append(out, strings.Trim(lit.Value, `"`))
+				}
+			}
+		}
+	}
+	return out
 }
 
 // The reverse: a registry entry for a task the contract dropped is a silencing
 // nobody can act on, and it would keep the router quiet about a name that no
 // longer routes anywhere.
 func TestTheRailRegistryNamesNoTaskTheContractDropped(t *testing.T) {
-	declared := make(map[string]bool, len(ai.AllTasks()))
-	for _, task := range ai.AllTasks() {
+	declared := map[string]bool{}
+	for _, task := range everyRoutableTask(t) {
 		declared[string(task)] = true
 	}
 	for task := range ai.RailOwners() {
@@ -78,7 +180,7 @@ func TestTheRailRegistryNamesNoTaskTheContractDropped(t *testing.T) {
 // like a task that is wired.
 func TestEveryCarrierOverrideNamesASourceThatIsReallyEmitted(t *testing.T) {
 	for task, source := range ai.RailOwners() {
-		if source == ai.SourceRouter {
+		if source == ai.SourceRouter || source == ai.SourceNoOccurrence {
 			continue
 		}
 		emitted, known := carrierSources[source]

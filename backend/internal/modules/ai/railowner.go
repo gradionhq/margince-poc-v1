@@ -34,6 +34,12 @@ const (
 	// announces on a task's behalf.
 	SourceRouter = "ai_router"
 
+	// SourceNoOccurrence answers for work that is a STEP inside somebody
+	// else's occurrence rather than an occurrence of its own. It is not an
+	// exemption from reporting — the work is reported, under the unit of work
+	// it serves — and every use of it owes a reason in railNoOccurrenceReasons.
+	SourceNoOccurrence = "none"
+
 	// The carrier sources. Spelled as literals rather than imported: a module
 	// never imports a sibling, and these are wire values the projection stores,
 	// not Go identity. A root fitness test holds each one to the constant the
@@ -54,6 +60,8 @@ const (
 var railOwners = map[Task]string{
 	TaskAgentLoop:       sourceAgentRunner,
 	TaskDocumentExtract: sourceAttachmentExtraction,
+
+	TaskEmbeddings: SourceNoOccurrence,
 
 	TaskBriefRanking:               SourceRouter,
 	TaskCaptureClassify:            SourceRouter,
@@ -76,6 +84,23 @@ var railOwners = map[Task]string{
 	TaskTranscriptPropose:          SourceRouter,
 	TaskVoiceBuild:                 SourceRouter,
 }
+
+// railNoOccurrenceReasons says why a task is a step rather than an occurrence.
+//
+// Required, and checked: "reported by nobody" is one keystroke from the silence
+// this registry exists to end, so it costs a sentence somebody has to be able
+// to defend. A reason that is really an editorial preference ("no rep wants to
+// see it") belongs in the CLIENT, which decides what to draw — this map is only
+// for work that has no unit of its own to be an occurrence of.
+var railNoOccurrenceReasons = map[Task]string{
+	TaskEmbeddings: "an embedding is a step inside another piece of work, never one of its own: " +
+		"every call happens in service of a search, an enrich or a reindex, and that is the " +
+		"occurrence. Reporting it separately would report one piece of work twice at two grains — " +
+		"and the reindex pass, which mints no correlation id at all, would report one row per vector.",
+}
+
+// NoOccurrenceReason is why this task reports no occurrence of its own, or "".
+func NoOccurrenceReason(t Task) string { return railNoOccurrenceReasons[t] }
 
 // RailOwner returns the ai_task_run.source that reports this task, or "" for a
 // task nobody has answered for.
