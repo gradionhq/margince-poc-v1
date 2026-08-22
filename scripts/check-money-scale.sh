@@ -117,7 +117,12 @@ strip() {
       for (i = 1; i <= length(s); i++) {
         ch = substr(s, i, 1)
         if (quote != "") {
-          if (ch == "\\" && quote != "`") { i++; continue }
+          # A backslash escapes inside ANY quote, backticks included. Excluding
+          # them was meant to serve Go raw strings, where a backslash is
+          # literal — but a Go raw string is delimited by backticks and cannot
+          # contain one at all, so the exclusion bought nothing and read an
+          # escaped backtick in a TypeScript template as the closing delimiter.
+          if (ch == "\\") { i++; continue }
           if (ch == quote) quote = ""
           continue
         }
