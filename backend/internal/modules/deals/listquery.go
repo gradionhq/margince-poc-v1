@@ -113,37 +113,57 @@ func runListPage[T any](
 ) ([]T, storekit.Page, error) {
 	var out []T
 	var page storekit.Page
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+columns+storekit.SelectSuffix(active)+pre.sorted.CursorKeySuffix()+
-				` FROM `+table+` WHERE `+strings.Join(where, " AND ")+
-				pre.sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, pre.limit+1),
-			pre.args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		var cursorKeys []*string
-		if out, cursorKeys, err = scan(rows, active, pre.sorted); err != nil {
-			return err
-		}
-		if len(out) > pre.limit {
-			out = out[:pre.limit]
-			createdAt, id := key(out[len(out)-1])
-			page = storekit.Page{
-				HasMore:    true,
-				NextCursor: pre.sorted.EncodePageCursor(cursorKeys[pre.limit-1], createdAt, id),
-			}
-		}
-		for _, f := range finish {
-			if err := f(tx, out); err != nil {
-				return err
-			}
-		}
-		return nil
+	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+		out, page, err = runListPageTx(ctx, tx, pre, table, columns, active, where, scan, key, finish...)
+		return err
 	})
+	return out, page, err
+}
+
+// runListPageTx is runListPage inside a caller-opened transaction — the
+// composite record reads, whose every section must describe one instant.
+// Same statement, same trim, same finish pass; only the transaction is
+// borrowed.
+func runListPageTx[T any](
+	ctx context.Context,
+	tx pgx.Tx,
+	pre *listPrelude,
+	table, columns string,
+	active []fieldcatalog.Column,
+	where []string,
+	scan func(pgx.Rows, []fieldcatalog.Column, *storekit.ListSort) ([]T, []*string, error),
+	key func(T) (time.Time, ids.UUID),
+	finish ...func(pgx.Tx, []T) error,
+) ([]T, storekit.Page, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT `+columns+storekit.SelectSuffix(active)+pre.sorted.CursorKeySuffix()+
+			` FROM `+table+` WHERE `+strings.Join(where, " AND ")+
+			pre.sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, pre.limit+1),
+		pre.args...)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	defer rows.Close()
+	out, cursorKeys, err := scan(rows, active, pre.sorted)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	var page storekit.Page
+	if len(out) > pre.limit {
+		out = out[:pre.limit]
+		createdAt, id := key(out[len(out)-1])
+		page = storekit.Page{
+			HasMore:    true,
+			NextCursor: pre.sorted.EncodePageCursor(cursorKeys[pre.limit-1], createdAt, id),
+		}
+	}
+	for _, f := range finish {
+		if err := f(tx, out); err != nil {
+			return nil, storekit.Page{}, err
+		}
+	}
 	if out == nil {
 		out = []T{}
 	}
-	return out, page, err
+	return out, page, nil
 }

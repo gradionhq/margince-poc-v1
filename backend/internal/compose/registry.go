@@ -238,6 +238,9 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	// one wrong answer here that reads as good news.
 	agents.RegisterCommitmentTool(registry, nativeOnlyCommitments(sorMode, commitmentLister(pool)))
 	agents.RegisterHandoffTool(registry, nativeOnlyHandoff(sorMode, handoffReader(pool)))
+	// The project page, read by the tool through the SAME assembly the HTTP
+	// route serves (project360seam.go), under the same per-section gates.
+	agents.RegisterProject360Tool(registry, nativeOnlyProject360(sorMode, project360Reader(pool)))
 	// The relationship-graph reads (ADR-0078): who here knows this contact,
 	// how a deal is covered, who can get us into an account, and which of the
 	// caller's deals the coverage rules flag. All 🟢 — they name people, they

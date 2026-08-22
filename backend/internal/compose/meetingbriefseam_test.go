@@ -30,7 +30,7 @@ func meetingID() openapi_types.UUID { return openapi_types.UUID(ids.NewV7()) }
 // thing the crossing has to preserve: a plain fact, a labelled judgment, and a
 // line citing two records.
 func wireBrief() crmcontracts.MeetingBrief {
-	assessment := crmcontracts.Assessment
+	assessment := crmcontracts.OrganizationBriefSentenceNatureAssessment
 	deal, activity := meetingID(), meetingID()
 	return crmcontracts.MeetingBrief{
 		ActivityId:  meetingID(),
@@ -116,7 +116,7 @@ func TestAJudgmentReachesTheAgentLabelledAsOne(t *testing.T) {
 		t.Errorf("a plain fact was labelled %q; empty is the contract's default and means fact",
 			got.Sections[0].Sentences[0].Nature)
 	}
-	if got.Sections[1].Sentences[0].Nature != string(crmcontracts.Assessment) {
-		t.Errorf("nature = %q, want %q", got.Sections[1].Sentences[0].Nature, crmcontracts.Assessment)
+	if got.Sections[1].Sentences[0].Nature != string(crmcontracts.OrganizationBriefSentenceNatureAssessment) {
+		t.Errorf("nature = %q, want %q", got.Sections[1].Sentences[0].Nature, crmcontracts.OrganizationBriefSentenceNatureAssessment)
 	}
 }

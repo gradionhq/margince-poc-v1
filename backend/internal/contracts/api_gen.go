@@ -3667,39 +3667,6 @@ func (e CreateRelationshipRequestKind) Valid() bool {
 	}
 }
 
-// Defines values for CreateSavedViewRequestResource.
-const (
-	CreateSavedViewRequestResourceActivities    CreateSavedViewRequestResource = "activities"
-	CreateSavedViewRequestResourceDeals         CreateSavedViewRequestResource = "deals"
-	CreateSavedViewRequestResourceLeads         CreateSavedViewRequestResource = "leads"
-	CreateSavedViewRequestResourceOrganizations CreateSavedViewRequestResource = "organizations"
-	CreateSavedViewRequestResourcePartners      CreateSavedViewRequestResource = "partners"
-	CreateSavedViewRequestResourcePeople        CreateSavedViewRequestResource = "people"
-	CreateSavedViewRequestResourceProjects      CreateSavedViewRequestResource = "projects"
-)
-
-// Valid indicates whether the value is a known member of the CreateSavedViewRequestResource enum.
-func (e CreateSavedViewRequestResource) Valid() bool {
-	switch e {
-	case CreateSavedViewRequestResourceActivities:
-		return true
-	case CreateSavedViewRequestResourceDeals:
-		return true
-	case CreateSavedViewRequestResourceLeads:
-		return true
-	case CreateSavedViewRequestResourceOrganizations:
-		return true
-	case CreateSavedViewRequestResourcePartners:
-		return true
-	case CreateSavedViewRequestResourcePeople:
-		return true
-	case CreateSavedViewRequestResourceProjects:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for CreateSignalRequestEntityType.
 const (
 	CreateSignalRequestEntityTypeDeal         CreateSignalRequestEntityType = "deal"
@@ -6141,19 +6108,19 @@ func (e OrganizationBriefSectionKind) Valid() bool {
 
 // Defines values for OrganizationBriefSentenceNature.
 const (
-	Assessment     OrganizationBriefSentenceNature = "assessment"
-	Fact           OrganizationBriefSentenceNature = "fact"
-	Recommendation OrganizationBriefSentenceNature = "recommendation"
+	OrganizationBriefSentenceNatureAssessment     OrganizationBriefSentenceNature = "assessment"
+	OrganizationBriefSentenceNatureFact           OrganizationBriefSentenceNature = "fact"
+	OrganizationBriefSentenceNatureRecommendation OrganizationBriefSentenceNature = "recommendation"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationBriefSentenceNature enum.
 func (e OrganizationBriefSentenceNature) Valid() bool {
 	switch e {
-	case Assessment:
+	case OrganizationBriefSentenceNatureAssessment:
 		return true
-	case Fact:
+	case OrganizationBriefSentenceNatureFact:
 		return true
-	case Recommendation:
+	case OrganizationBriefSentenceNatureRecommendation:
 		return true
 	default:
 		return false
@@ -7675,6 +7642,45 @@ func (e ProjectPhase) Valid() bool {
 	}
 }
 
+// Defines values for Project360Section.
+const (
+	Project360SectionActivities   Project360Section = "activities"
+	Project360SectionCommitments  Project360Section = "commitments"
+	Project360SectionContracts    Project360Section = "contracts"
+	Project360SectionCoverage     Project360Section = "coverage"
+	Project360SectionDeals        Project360Section = "deals"
+	Project360SectionOrganization Project360Section = "organization"
+	Project360SectionPhaseHistory Project360Section = "phase_history"
+	Project360SectionRollups      Project360Section = "rollups"
+	Project360SectionStakeholders Project360Section = "stakeholders"
+)
+
+// Valid indicates whether the value is a known member of the Project360Section enum.
+func (e Project360Section) Valid() bool {
+	switch e {
+	case Project360SectionActivities:
+		return true
+	case Project360SectionCommitments:
+		return true
+	case Project360SectionContracts:
+		return true
+	case Project360SectionCoverage:
+		return true
+	case Project360SectionDeals:
+		return true
+	case Project360SectionOrganization:
+		return true
+	case Project360SectionPhaseHistory:
+		return true
+	case Project360SectionRollups:
+		return true
+	case Project360SectionStakeholders:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PromoteLeadPreviewOutcome.
 const (
 	PromoteLeadPreviewOutcomeCreate PromoteLeadPreviewOutcome = "create"
@@ -8284,6 +8290,27 @@ func (e SavePersonResearchClaimField) Valid() bool {
 	}
 }
 
+// Defines values for SavedViewSharedScope.
+const (
+	SavedViewSharedScopePrivate   SavedViewSharedScope = "private"
+	SavedViewSharedScopeTeam      SavedViewSharedScope = "team"
+	SavedViewSharedScopeWorkspace SavedViewSharedScope = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the SavedViewSharedScope enum.
+func (e SavedViewSharedScope) Valid() bool {
+	switch e {
+	case SavedViewSharedScopePrivate:
+		return true
+	case SavedViewSharedScopeTeam:
+		return true
+	case SavedViewSharedScopeWorkspace:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SavedViewResource.
 const (
 	SavedViewResourceActivities    SavedViewResource = "activities"
@@ -8311,27 +8338,6 @@ func (e SavedViewResource) Valid() bool {
 	case SavedViewResourcePeople:
 		return true
 	case SavedViewResourceProjects:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for SavedViewSharedScope.
-const (
-	SavedViewSharedScopePrivate   SavedViewSharedScope = "private"
-	SavedViewSharedScopeTeam      SavedViewSharedScope = "team"
-	SavedViewSharedScopeWorkspace SavedViewSharedScope = "workspace"
-)
-
-// Valid indicates whether the value is a known member of the SavedViewSharedScope enum.
-func (e SavedViewSharedScope) Valid() bool {
-	switch e {
-	case SavedViewSharedScopePrivate:
-		return true
-	case SavedViewSharedScopeTeam:
-		return true
-	case SavedViewSharedScopeWorkspace:
 		return true
 	default:
 		return false
@@ -11428,39 +11434,6 @@ func (e ListSignalsParamsResolutionState) Valid() bool {
 	case ListSignalsParamsResolutionStateResolved:
 		return true
 	case ListSignalsParamsResolutionStateUnresolved:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ListSavedViewsParamsResource.
-const (
-	ListSavedViewsParamsResourceActivities    ListSavedViewsParamsResource = "activities"
-	ListSavedViewsParamsResourceDeals         ListSavedViewsParamsResource = "deals"
-	ListSavedViewsParamsResourceLeads         ListSavedViewsParamsResource = "leads"
-	ListSavedViewsParamsResourceOrganizations ListSavedViewsParamsResource = "organizations"
-	ListSavedViewsParamsResourcePartners      ListSavedViewsParamsResource = "partners"
-	ListSavedViewsParamsResourcePeople        ListSavedViewsParamsResource = "people"
-	ListSavedViewsParamsResourceProjects      ListSavedViewsParamsResource = "projects"
-)
-
-// Valid indicates whether the value is a known member of the ListSavedViewsParamsResource enum.
-func (e ListSavedViewsParamsResource) Valid() bool {
-	switch e {
-	case ListSavedViewsParamsResourceActivities:
-		return true
-	case ListSavedViewsParamsResourceDeals:
-		return true
-	case ListSavedViewsParamsResourceLeads:
-		return true
-	case ListSavedViewsParamsResourceOrganizations:
-		return true
-	case ListSavedViewsParamsResourcePartners:
-		return true
-	case ListSavedViewsParamsResourcePeople:
-		return true
-	case ListSavedViewsParamsResourceProjects:
 		return true
 	default:
 		return false
@@ -14928,13 +14901,12 @@ type CreateRetentionPolicyRequest struct {
 
 // CreateSavedViewRequest defines model for CreateSavedViewRequest.
 type CreateSavedViewRequest struct {
-	Name     string                         `json:"name"`
-	Query    map[string]interface{}         `json:"query"`
-	Resource CreateSavedViewRequestResource `json:"resource"`
-}
+	Name  string                 `json:"name"`
+	Query map[string]interface{} `json:"query"`
 
-// CreateSavedViewRequestResource defines model for CreateSavedViewRequest.Resource.
-type CreateSavedViewRequestResource string
+	// Resource The list a saved view is over. One schema for the record, the create and update bodies and the list filter, so the four cannot drift.
+	Resource SavedViewResource `json:"resource"`
+}
 
 // CreateSignalRequest defines model for CreateSignalRequest.
 type CreateSignalRequest struct {
@@ -20428,6 +20400,169 @@ type Project struct {
 // ProjectPhase Read-only here — transitions go through advanceProjectPhase so the history row and project.phase_changed are written from one transaction.
 type ProjectPhase string
 
+// Project360 The project page in one payload. Every section except `project` is optional: absent
+// means the caller lacks its grant, and `sections_omitted` names it. `documents` rides the
+// project grant itself, so it is present whenever the page is.
+type Project360 struct {
+	Activities *ActivityListResponse `json:"activities,omitempty"`
+
+	// AsOf The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+	AsOf time.Time `json:"as_of"`
+
+	// Commitments The open tasks filed under the project, soonest due first, undated last.
+	Commitments *struct {
+		Data []Project360Commitment `json:"data"`
+		Page PageInfo               `json:"page"`
+	} `json:"commitments,omitempty"`
+	Contracts *ContractListResponse `json:"contracts,omitempty"`
+
+	// Coverage How well the project's correspondence is filed, counted over the caller's activity row
+	// scope. `attributed` is every live activity linked to the project (its whole lifecycle,
+	// and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
+	// activity linked to one of the project's deals or stakeholder people that carries no
+	// project link at all — the filing debt a rep can work down.
+	Coverage *Project360Coverage `json:"coverage,omitempty"`
+
+	// Deals The deals rolled up to the project, newest first, every status.
+	Deals *struct {
+		Data []Deal   `json:"data"`
+		Page PageInfo `json:"page"`
+	} `json:"deals,omitempty"`
+
+	// Documents The files attached to the project itself, newest first.
+	Documents *struct {
+		Data []Attachment `json:"data"`
+		Page PageInfo     `json:"page"`
+	} `json:"documents,omitempty"`
+
+	// Organization The company the project is for — the two fields a page header needs, read under the organization grant and row scope.
+	Organization *Project360Organization `json:"organization,omitempty"`
+
+	// PhaseHistory Every phase transition the project has made, oldest first — the birth row has
+	// `from_phase` null — and the fold over them: how long the project has spent in each
+	// phase so far, in the order the phases were first entered. A re-opened project visits a
+	// phase twice; its seconds are summed.
+	PhaseHistory *Project360PhaseHistory `json:"phase_history,omitempty"`
+
+	// Project A project — the body of work a client relationship is made of. Mirrors the `project` table.
+	Project Project `json:"project"`
+
+	// Rollups The header figures. Money is in the installation's base currency at each deal's frozen
+	// rate, summed over the caller's deal row scope; the counts are over the caller's
+	// activity row scope. Present only when the caller holds both the deal and the activity
+	// grant, since a header that showed one half would read as a project with no deals or
+	// no work.
+	Rollups *Project360Rollups `json:"rollups,omitempty"`
+
+	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+	SectionsOmitted []Project360Section `json:"sections_omitted"`
+
+	// Stakeholders The people seated on the project (`project_stakeholder` edges), each with the name the caller may read.
+	Stakeholders *struct {
+		Data []Project360Stakeholder `json:"data"`
+		Page PageInfo                `json:"page"`
+	} `json:"stakeholders,omitempty"`
+}
+
+// Project360Commitment defines model for Project360Commitment.
+type Project360Commitment struct {
+	ActivityId   openapi_types.UUID  `json:"activity_id"`
+	AssigneeId   *openapi_types.UUID `json:"assignee_id"`
+	AssigneeName *string             `json:"assignee_name"`
+	DueAt        *time.Time          `json:"due_at"`
+
+	// Overdue Dated and already past at `as_of`.
+	Overdue bool   `json:"overdue"`
+	Subject string `json:"subject"`
+}
+
+// Project360Coverage How well the project's correspondence is filed, counted over the caller's activity row
+// scope. `attributed` is every live activity linked to the project (its whole lifecycle,
+// and the same number as `rollups.activity_count`); `unattributed_nearby` is every live
+// activity linked to one of the project's deals or stakeholder people that carries no
+// project link at all — the filing debt a rep can work down.
+type Project360Coverage struct {
+	Attributed         int `json:"attributed"`
+	UnattributedNearby int `json:"unattributed_nearby"`
+}
+
+// Project360Organization The company the project is for — the two fields a page header needs, read under the organization grant and row scope.
+type Project360Organization struct {
+	Id   openapi_types.UUID `json:"id"`
+	Name string             `json:"name"`
+}
+
+// Project360PhaseDuration defines model for Project360PhaseDuration.
+type Project360PhaseDuration struct {
+	// Current True for the phase the project is in at `as_of`.
+	Current bool   `json:"current"`
+	Phase   string `json:"phase"`
+
+	// Seconds Time spent in the phase so far, summed over every visit, measured up to `as_of` for the current one.
+	Seconds int64 `json:"seconds"`
+}
+
+// Project360PhaseHistory Every phase transition the project has made, oldest first — the birth row has
+// `from_phase` null — and the fold over them: how long the project has spent in each
+// phase so far, in the order the phases were first entered. A re-opened project visits a
+// phase twice; its seconds are summed.
+type Project360PhaseHistory struct {
+	Data           []Project360PhaseTransition `json:"data"`
+	PhaseDurations []Project360PhaseDuration   `json:"phase_durations"`
+}
+
+// Project360PhaseTransition defines model for Project360PhaseTransition.
+type Project360PhaseTransition struct {
+	ChangedAt time.Time `json:"changed_at"`
+
+	// ChangedBy The principal that moved the phase — its id as stamped; and the seat's display name when the id names an app user.
+	ChangedBy struct {
+		DisplayName *string `json:"display_name"`
+		Id          string  `json:"id"`
+	} `json:"changed_by"`
+
+	// FromPhase Null on the birth row.
+	FromPhase *string            `json:"from_phase"`
+	Id        openapi_types.UUID `json:"id"`
+	Reason    *string            `json:"reason"`
+	ToPhase   string             `json:"to_phase"`
+}
+
+// Project360Rollups The header figures. Money is in the installation's base currency at each deal's frozen
+// rate, summed over the caller's deal row scope; the counts are over the caller's
+// activity row scope. Present only when the caller holds both the deal and the activity
+// grant, since a header that showed one half would read as a project with no deals or
+// no work.
+type Project360Rollups struct {
+	// ActivityCount Every live activity filed under the project.
+	ActivityCount int `json:"activity_count"`
+
+	// LastActivityAt The newest activity filed under the project; null when nothing is filed yet.
+	LastActivityAt *time.Time `json:"last_activity_at"`
+
+	// OpenCommitments Open tasks filed under the project, whole lifecycle.
+	OpenCommitments int `json:"open_commitments"`
+
+	// OpenDealValue Money as integer minor-units + ISO-4217 currency. Never a float.
+	OpenDealValue Money `json:"open_deal_value"`
+
+	// WonDealValue Money as integer minor-units + ISO-4217 currency. Never a float.
+	WonDealValue Money `json:"won_deal_value"`
+}
+
+// Project360Section One section of the project page, as `sections_omitted` names it.
+type Project360Section string
+
+// Project360Stakeholder defines model for Project360Stakeholder.
+type Project360Stakeholder struct {
+	PersonId openapi_types.UUID `json:"person_id"`
+
+	// PersonName Null when the caller may not read the person, or the person is archived; the seat is still reported.
+	PersonName     *string            `json:"person_name"`
+	RelationshipId openapi_types.UUID `json:"relationship_id"`
+	Role           *string            `json:"role"`
+}
+
 // ProjectListResponse defines model for ProjectListResponse.
 type ProjectListResponse struct {
 	Data []Project `json:"data"`
@@ -21364,8 +21499,10 @@ type SavedView struct {
 	OwnerId    openapi_types.UUID `json:"owner_id"`
 
 	// Query The saved column choice, sort, and filter state (§13.5 vocabulary); persisted verbatim and restored exactly.
-	Query    map[string]interface{} `json:"query"`
-	Resource SavedViewResource      `json:"resource"`
+	Query map[string]interface{} `json:"query"`
+
+	// Resource The list a saved view is over. One schema for the record, the create and update bodies and the list filter, so the four cannot drift.
+	Resource SavedViewResource `json:"resource"`
 
 	// SharedScope V1 enforces private.
 	SharedScope *SavedViewSharedScope `json:"shared_scope,omitempty"`
@@ -21375,9 +21512,6 @@ type SavedView struct {
 	Version int64 `json:"version"`
 }
 
-// SavedViewResource defines model for SavedView.Resource.
-type SavedViewResource string
-
 // SavedViewSharedScope V1 enforces private.
 type SavedViewSharedScope string
 
@@ -21386,6 +21520,9 @@ type SavedViewListResponse struct {
 	Data []SavedView `json:"data"`
 	Page PageInfo    `json:"page"`
 }
+
+// SavedViewResource The list a saved view is over. One schema for the record, the create and update bodies and the list filter, so the four cannot drift.
+type SavedViewResource string
 
 // ScheduledSend One message waiting for its moment (ADR-0104/A155). It is not an activity and not a
 // delivery: nothing is on the timeline and nothing has been handed to a provider.
@@ -26782,14 +26919,11 @@ type ListUsersParams struct {
 
 // ListSavedViewsParams defines parameters for ListSavedViews.
 type ListSavedViewsParams struct {
-	Resource *ListSavedViewsParamsResource `form:"resource,omitempty" json:"resource,omitempty"`
+	Resource *SavedViewResource `form:"resource,omitempty" json:"resource,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
 	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
-
-// ListSavedViewsParamsResource defines parameters for ListSavedViews.
-type ListSavedViewsParamsResource string
 
 // UpdateSavedViewParams defines parameters for UpdateSavedView.
 type UpdateSavedViewParams struct {
@@ -36951,6 +37085,9 @@ type ServerInterface interface {
 	// Update a project.
 	// (PATCH /projects/{id})
 	UpdateProject(w http.ResponseWriter, r *http.Request, id Id, params UpdateProjectParams)
+	// The whole project page in one round trip — the project, its company, its phase history, its deals, stakeholders, contracts, documents, commitments, timeline and filing coverage.
+	// (GET /projects/{id}/360)
+	GetProject360(w http.ResponseWriter, r *http.Request, id Id)
 	// Move a project along the phase ladder (audit-logged with prior + next phase).
 	// (POST /projects/{id}/advance)
 	AdvanceProjectPhase(w http.ResponseWriter, r *http.Request, id Id, params AdvanceProjectPhaseParams)
@@ -39387,6 +39524,12 @@ func (_ Unimplemented) GetProject(w http.ResponseWriter, r *http.Request, id Id)
 // Update a project.
 // (PATCH /projects/{id})
 func (_ Unimplemented) UpdateProject(w http.ResponseWriter, r *http.Request, id Id, params UpdateProjectParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The whole project page in one round trip — the project, its company, its phase history, its deals, stakeholders, contracts, documents, commitments, timeline and filing coverage.
+// (GET /projects/{id}/360)
+func (_ Unimplemented) GetProject360(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -55425,6 +55568,40 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// GetProject360 operation middleware
+func (siw *ServerInterfaceWrapper) GetProject360(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProject360(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AdvanceProjectPhase operation middleware
 func (siw *ServerInterfaceWrapper) AdvanceProjectPhase(w http.ResponseWriter, r *http.Request) {
 
@@ -62283,6 +62460,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/projects/{id}", wrapper.UpdateProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/projects/{id}/360", wrapper.GetProject360)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/projects/{id}/advance", wrapper.AdvanceProjectPhase)

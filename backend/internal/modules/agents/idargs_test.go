@@ -36,6 +36,7 @@ import (
 	"strings"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -228,6 +229,9 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 	})
 	RegisterHandoffTool(r, func(context.Context, ids.UUID) (HandoffFacts, error) {
 		return HandoffFacts{}, errSeamReached
+	})
+	RegisterProject360Tool(r, func(context.Context, ids.UUID) (crmcontracts.Project360, error) {
+		return crmcontracts.Project360{}, errSeamReached
 	})
 	RegisterNetworkTools(r,
 		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, errSeamReached },

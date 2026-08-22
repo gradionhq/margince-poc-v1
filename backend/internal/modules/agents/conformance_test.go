@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -178,6 +179,9 @@ func fullRegistry(t *testing.T) *Registry {
 	})
 	RegisterHandoffTool(r, func(context.Context, ids.UUID) (HandoffFacts, error) {
 		return HandoffFacts{}, nil
+	})
+	RegisterProject360Tool(r, func(context.Context, ids.UUID) (crmcontracts.Project360, error) {
+		return crmcontracts.Project360{}, nil
 	})
 	RegisterNetworkTools(r,
 		func(context.Context, ids.UUID) ([]KnownColleague, bool, error) { return nil, false, nil },

@@ -97,6 +97,9 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		// degradation — and it has to land before the project read, or a
 		// mirrored workspace learns not-found instead of "not available here".
 		"prepare_handoff": fmt.Sprintf(`{"project_id":%q}`, anchor),
+		// The project page, for the same reason: the refusal must land before
+		// the anchor read.
+		"read_project_360": fmt.Sprintf(`{"project_id":%q}`, anchor),
 		// A WRITE, and the one whose tool calls its module store directly — so
 		// it needs a decorator (nativeOnlyDisqualifier) where the other
 		// unservable writes inherit the provider's own refusal.

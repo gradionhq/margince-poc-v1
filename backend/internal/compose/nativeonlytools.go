@@ -243,6 +243,24 @@ func nativeOnlyHandoff(mode overlayModeChecker, read agents.HandoffReader) agent
 	}
 }
 
+// nativeOnlyProject360 guards read_project_360, for the reason
+// nativeOnlyHandoff gives: a project is a native record with no incumbent
+// analogue, so a mirrored workspace has no page to assemble — and the refusal
+// lands before the project read, or that workspace learns not-found instead
+// of "not available here". The HTTP page refuses the same way in its handler.
+func nativeOnlyProject360(mode overlayModeChecker, read agents.Project360Reader) agents.Project360Reader {
+	return func(ctx context.Context, projectID ids.UUID) (crmcontracts.Project360, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return crmcontracts.Project360{}, err
+		}
+		if overlay {
+			return crmcontracts.Project360{}, apperrors.ErrUnsupportedBySoR
+		}
+		return read(ctx, projectID)
+	}
+}
+
 // nativeOnlyDisqualifier guards disqualify_lead, and it is the tool half of a
 // refusal REST already makes.
 //

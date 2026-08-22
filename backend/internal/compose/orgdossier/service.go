@@ -208,9 +208,9 @@ func keepGrounded(sections []Section, in Input) []Section {
 // re-spelled so a rename upstream fails to compile instead of laundering a
 // hand-typed string past the filter.
 var knownNature = map[string]bool{
-	string(crmcontracts.Fact):           true,
-	string(crmcontracts.Assessment):     true,
-	string(crmcontracts.Recommendation): true,
+	string(crmcontracts.OrganizationBriefSentenceNatureFact):           true,
+	string(crmcontracts.OrganizationBriefSentenceNatureAssessment):     true,
+	string(crmcontracts.OrganizationBriefSentenceNatureRecommendation): true,
 }
 
 // Fingerprint covers everything that could change the content: the assembled

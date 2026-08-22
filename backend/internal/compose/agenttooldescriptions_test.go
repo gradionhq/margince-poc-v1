@@ -250,9 +250,23 @@ func TestTheOperatorConsoleServesTheTextAnMCPClientIsServed(t *testing.T) {
 // to stop counting. What has NOT changed is that the listing is O(catalog):
 // the honest next answer is scope-filtering or deferring schemas, both of them
 // protocol decisions, and both still ahead of us.
+//
+// RAISED to 17/24 on 2026-08-22, with the measurement that argues for it.
+//
+// 2/3 was set when the listing measured ~15,377. One tool later —
+// read_project_360, the project page read under the same per-section gates
+// the HTTP route applies, and a read the surface owed because every one of
+// its parts was already agent-readable — it measured ~15,997 before the tool
+// and ~16,160 after it, against 16,000. The tool's copy is four short lines
+// and its output schema is the page; nothing else on the listing was trimmed
+// to make room, because the remaining prose is the prose the other tools
+// need. 17/24 of 24,000 is 17,000: the run keeps 7/24 of its window, and the
+// ~840 tokens of headroom this leaves is the room the next verb needs, not a
+// licence to stop counting. The honest next answer is still scope-filtering
+// or deferring schemas.
 const (
-	listingBudgetNumerator   = 2
-	listingBudgetDenominator = 3
+	listingBudgetNumerator   = 17
+	listingBudgetDenominator = 24
 )
 
 // Every written description rides in every Surface-B prompt, and nothing in

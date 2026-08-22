@@ -1395,6 +1395,10 @@ func (stubs) UpdateProject(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "UpdateProject")
 }
 
+func (stubs) GetProject360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetProject360")
+}
+
 func (stubs) AdvanceProjectPhase(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.AdvanceProjectPhaseParams) {
 	httperr.NotImplemented(w, r, "AdvanceProjectPhase")
 }

@@ -228,51 +228,64 @@ func (s *Store) ListAttachments(ctx context.Context, entityType string, entityID
 	if err := auth.Require(ctx, entityType, principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
-	lim := storekit.ClampLimit(limit)
-
 	var out []crmcontracts.Attachment
 	var page storekit.Page
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
-			return err
-		}
-		args := []any{entityType, entityID}
-		where := `at.entity_type = $1 AND at.entity_id = $2 AND at.archived_at IS NULL`
-		if cursor != nil && *cursor != "" {
-			c, err := storekit.DecodeCursor(*cursor)
-			if err != nil {
-				return err
-			}
-			args = append(args, c.CreatedAt, c.ID)
-			where += sprintf(` AND (at.created_at, at.id) < ($%d, $%d)`, len(args)-1, len(args))
-		}
-		rows, err := tx.Query(ctx, `SELECT `+attachmentColumns+` FROM attachment at WHERE `+where+
-			sprintf(` ORDER BY at.created_at DESC, at.id DESC LIMIT %d`, lim+1), args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			att, err := scanAttachment(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, att)
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(out) > lim {
-			out = out[:lim]
-			last := out[len(out)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
-		}
-		return nil
+	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+		out, page, err = listAttachments(ctx, tx, entityType, entityID, cursor, limit)
+		return err
 	})
-	if out == nil {
-		out = []crmcontracts.Attachment{}
-	}
 	return out, page, err
+}
+
+// ListAttachmentsTx is ListAttachments inside a caller-opened transaction —
+// the composite record read. Same gate, same parent check; only the
+// transaction is borrowed.
+func (s *Store) ListAttachmentsTx(ctx context.Context, tx pgx.Tx, entityType string, entityID ids.UUID, cursor *string, limit *int) ([]crmcontracts.Attachment, storekit.Page, error) {
+	if err := auth.Require(ctx, entityType, principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	return listAttachments(ctx, tx, entityType, entityID, cursor, limit)
+}
+
+func listAttachments(ctx context.Context, tx pgx.Tx, entityType string, entityID ids.UUID, cursor *string, limit *int) ([]crmcontracts.Attachment, storekit.Page, error) {
+	if err := ensureAttachmentParentVisible(ctx, tx, entityType, entityID); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	lim := storekit.ClampLimit(limit)
+	args := []any{entityType, entityID}
+	where := `at.entity_type = $1 AND at.entity_id = $2 AND at.archived_at IS NULL`
+	if cursor != nil && *cursor != "" {
+		c, err := storekit.DecodeCursor(*cursor)
+		if err != nil {
+			return nil, storekit.Page{}, err
+		}
+		args = append(args, c.CreatedAt, c.ID)
+		where += sprintf(` AND (at.created_at, at.id) < ($%d, $%d)`, len(args)-1, len(args))
+	}
+	rows, err := tx.Query(ctx, `SELECT `+attachmentColumns+` FROM attachment at WHERE `+where+
+		sprintf(` ORDER BY at.created_at DESC, at.id DESC LIMIT %d`, lim+1), args...)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	defer rows.Close()
+	out := []crmcontracts.Attachment{}
+	for rows.Next() {
+		att, err := scanAttachment(rows)
+		if err != nil {
+			return nil, storekit.Page{}, err
+		}
+		out = append(out, att)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	var page storekit.Page
+	if len(out) > lim {
+		out = out[:lim]
+		last := out[len(out)-1]
+		page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, ids.UUID(last.Id))}
+	}
+	return out, page, nil
 }
 
 // rowScanner is the shared Scan surface of pgx.Row and pgx.Rows.

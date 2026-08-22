@@ -237,7 +237,7 @@ func TestAnAssessmentSurvivesAsAFactor(t *testing.T) {
 		t.Fatalf("positive factors = %d, want the labelled assessment kept",
 			len(kept.PositiveFactors))
 	}
-	if kept.PositiveFactors[0].Nature != string(crmcontracts.Assessment) {
+	if kept.PositiveFactors[0].Nature != string(crmcontracts.OrganizationBriefSentenceNatureAssessment) {
 		t.Errorf("nature = %q, want assessment", kept.PositiveFactors[0].Nature)
 	}
 }
