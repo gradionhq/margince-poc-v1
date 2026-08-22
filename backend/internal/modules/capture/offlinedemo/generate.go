@@ -316,7 +316,15 @@ func newMessage(mailbox Mailbox, account Account, contact Person,
 	if direction == directionInbound {
 		addressee = firstWord(mailbox.DisplayName)
 	}
-	greeting := words.Greeting(addressee)
+	// A nameless addressee would render " 님께," with a leading space in Korean
+	// and "Hallo ," in German. The compose directory filters out people with no
+	// name, so this is a guard on the Directory CONTRACT rather than on the one
+	// implementation, and it drops the salutation line rather than greeting
+	// nobody.
+	greeting := ""
+	if addressee != "" {
+		greeting = words.Greeting(addressee) + "\n\n"
+	}
 	cc := ""
 	// A CC on some threads, so the participant fan-out has more than two
 	// parties to record.
@@ -325,7 +333,7 @@ func newMessage(mailbox Mailbox, account Account, contact Person,
 	}
 	return message{
 		Mailbox: mailbox, MessageID: id, ThreadKey: threadKey, InReplyTo: inReplyTo,
-		Subject: subject, Body: greeting + "\n\n" + body + "\n\n" + words.SignOff,
+		Subject: subject, Body: greeting + body + "\n\n" + words.SignOff,
 		OccurredAt: occurred.UTC(), Direction: direction, Kind: kind,
 		FromAddr: from, FromName: fromName, ToAddr: to, ToName: toName, CCAddr: cc,
 		OrgID: account.OrganizationID, DealID: dealID, PersonEmail: contact.Email,

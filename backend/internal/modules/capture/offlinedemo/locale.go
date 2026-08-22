@@ -23,10 +23,22 @@ package offlinedemo
 // without one importing the other.
 //
 // The disagreement that matters is deliberate. company-locale.json marks Korean
-// companies `en`, because that is what their WEBSITES publish — and the site
-// reader is what that file serves. Correspondence is a different question: you
-// write to a Korean agency in Korean. Hence localeKO here and no localeKO
-// there, and the seeder's file is not wrong for lacking it.
+// companies `en`, because that is what their WEBSITES publish. That file drives
+// the account's PAPER — contract PDFs, NDAs, price lists — where English is the
+// right answer for a Korean firm that publishes in English.
+//
+// Correspondence is a different question: you write to a Korean agency in
+// Korean. So a `.kr` account can hold English paper and Korean mail, which is
+// what those accounts genuinely look like rather than an inconsistency. Hence
+// localeKO here and no localeKO there, and the seeder's file is not wrong for
+// lacking it.
+//
+// KNOWN GAP, tracked as issue #2263: a Vietnamese or Korean company on a `.com`
+// still reads as German here, because a suffix cannot see what a hand-checked
+// file knows. Nine of the dataset's 21 Vietnamese companies are affected,
+// fpt-is.com and vuletech.com among them. Closing it means carrying the
+// locale to the worker through the database, which is a wider change than a
+// vocabulary.
 
 import "strings"
 
@@ -165,16 +177,18 @@ func wordsFor(locale docLocale) templateWords {
 // body map, and in the message ids — goconst is right that a typo in one of
 // those places would be a silent miss rather than a compile error.
 //
-// threadInbound is deliberately the same string as directionInbound: the
-// prospect thread is keyed by the direction it opens in, which is how it was
-// written before the languages were split out.
+// threadInbound carries its own literal even though it currently equals
+// directionInbound. The key is part of the MESSAGE ID and so is persistent
+// identity: aliasing it to an activity-enum spelling would mean a rename of
+// that enum silently re-keyed every prospect thread, past the natural key and
+// into a duplicate conversation.
 const (
 	threadKickoff     = "kickoff"
 	threadInvoice     = "invoice"
 	threadOffboarding = "offboarding"
 	threadOffer       = "offer"
 	threadIntro       = "intro"
-	threadInbound     = directionInbound
+	threadInbound     = "inbound"
 	threadCold        = "cold"
 )
 
@@ -235,13 +249,42 @@ var threadBodies = map[docLocale]map[string][3]string{
 		},
 		threadIntro: {
 			"chúng tôi đang làm việc với một số doanh nghiệp cùng quy mô — anh/chị có muốn trao đổi ngắn không?",
-			"vâng, anh gửi giúp vài khung giờ.", "",
+			"vâng, nhờ anh/chị gửi giúp vài khung giờ.", "",
 		},
 		threadInbound: {
 			"chúng tôi đang tìm hiểu các nhà cung cấp và muốn biết thêm thông tin.",
 			"rất sẵn lòng — tôi sẽ gửi hai đề xuất lịch họp.", "",
 		},
 		threadCold: {"một câu hỏi ngắn về hệ thống của quý công ty — anh/chị có mười phút không?", "", ""},
+	},
+	localeEN: {
+		threadKickoff: {
+			"thank you for your trust. Attached is a proposed date for the kickoff.",
+			"that works for us, we will bring the technical team.",
+			"good — the invitation is out and the agenda is attached.",
+		},
+		threadInvoice: {
+			"a quick question on the last invoice — is line 3 billed pro rata?",
+			"yes, pro rata to the end of the period. I am attaching the breakdown.", "",
+		},
+		threadOffboarding: {
+			"we confirm receipt of your cancellation at the end of the term.",
+			"thank you for confirming, and for the work together.", "",
+		},
+		threadOffer: {
+			"attached is our offer as discussed. The volume tier starts at 50 licences.",
+			"thank you — two questions, on the term and on the support level.",
+			"both are worth covering in the meeting; a proposal is attached.",
+		},
+		threadIntro: {
+			"we work with several companies of your size — is a short conversation worth it?",
+			"happy to. Send a few slots.", "",
+		},
+		threadInbound: {
+			"we are evaluating suppliers at the moment and would like to know more.",
+			"gladly — I will come back with two proposed times.", "",
+		},
+		threadCold: {"a quick question about your platform — do you have ten minutes?", "", ""},
 	},
 	localeKO: {
 		threadKickoff: {

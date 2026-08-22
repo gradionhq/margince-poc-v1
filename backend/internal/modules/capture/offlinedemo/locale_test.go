@@ -22,12 +22,16 @@ func testMailbox() Mailbox {
 	}
 }
 
-func testAccount(domain, name, lifecycle string) Account {
+// testAccount is a CUSTOMER on purpose: that lifecycle is the one threadsFor
+// gives two threads and a meeting, so it exercises the most vocabulary per
+// call. A thread key no lifecycle reaches is covered by
+// TestEveryLanguageAnswersEveryThreadKey instead, which reads the maps directly.
+func testAccount(domain, name string) Account {
 	return Account{
 		OrganizationID: "01a00000-0000-7000-8000-000000000001",
 		Name:           name,
 		Domain:         domain,
-		Lifecycle:      lifecycle,
+		Lifecycle:      "customer",
 		ContractNumber: "GR-2026-0402",
 		People:         []Person{{Name: "Seo Min-ji", Email: "minji.seo@example.com"}},
 		Now:            time.Date(2026, 8, 22, 9, 0, 0, 0, time.UTC),
@@ -39,7 +43,7 @@ func testAccount(domain, name, lifecycle string) Account {
 // Korean ones: the failure mode was German leaking through, and a test that
 // only looked for Korean would pass on a message that carried both.
 func TestAKoreanAccountIsNotWrittenToInGerman(t *testing.T) {
-	msgs := generate(testMailbox(), testAccount("tipa.or.kr", "중소기업기술정보진흥원", "customer"))
+	msgs := generate(testMailbox(), testAccount("tipa.or.kr", "중소기업기술정보진흥원"))
 	if len(msgs) == 0 {
 		t.Fatal("a customer account generated no correspondence at all")
 	}
@@ -54,7 +58,7 @@ func TestAKoreanAccountIsNotWrittenToInGerman(t *testing.T) {
 }
 
 func TestAVietnameseAccountIsNotWrittenToInGerman(t *testing.T) {
-	msgs := generate(testMailbox(), testAccount("vinatechgroup.vn", "Vinatech Group", "customer"))
+	msgs := generate(testMailbox(), testAccount("vinatechgroup.vn", "Vinatech Group"))
 	if len(msgs) == 0 {
 		t.Fatal("a customer account generated no correspondence at all")
 	}
@@ -71,7 +75,7 @@ func TestAVietnameseAccountIsNotWrittenToInGerman(t *testing.T) {
 // A German account must still read as German. The fix would be worthless if it
 // translated the majority of the dataset into something else.
 func TestAGermanAccountStillReadsAsGerman(t *testing.T) {
-	msgs := generate(testMailbox(), testAccount("valantic.com", "valantic", "customer"))
+	msgs := generate(testMailbox(), testAccount("valantic.com", "valantic"))
 	if len(msgs) == 0 {
 		t.Fatal("a customer account generated no correspondence at all")
 	}
@@ -107,8 +111,15 @@ func TestLocaleOfReadsTheDomainSuffix(t *testing.T) {
 // missing entry falls back to German, which is exactly the bug this file is
 // about — so the fallback must never be reached in practice.
 func TestEveryLanguageAnswersEveryThreadKey(t *testing.T) {
-	keys := []string{"kickoff", "invoice", "offboarding", "offer", "intro", "inbound", "cold"}
-	for _, locale := range []docLocale{localeDE, localeVI, localeKO} {
+	keys := []string{
+		threadKickoff, threadInvoice, threadOffboarding,
+		threadOffer, threadIntro, threadInbound, threadCold,
+	}
+	// localeEN is in the list on purpose. It had vocabulary and NO bodies, so
+	// bodiesFor(localeEN, ...) silently returned German — a language that
+	// claimed to exist and did not, which is the same class of bug as the
+	// German-to-Seoul one this file is about.
+	for _, locale := range []docLocale{localeDE, localeVI, localeKO, localeEN} {
 		byKey, ok := threadBodies[locale]
 		if !ok {
 			t.Errorf("no thread bodies at all for %q", locale)
@@ -123,6 +134,40 @@ func TestEveryLanguageAnswersEveryThreadKey(t *testing.T) {
 			if strings.TrimSpace(body[0]) == "" {
 				t.Errorf("%q/%q has an empty opener", locale, key)
 			}
+			// The reply matters as much as the opener: threadsFor asks for one
+			// or two on every thread except `cold`, and an empty one silently
+			// truncates the conversation to a single unanswered message.
+			if key != threadCold && strings.TrimSpace(body[1]) == "" {
+				t.Errorf("%q/%q has no reply — the thread would end unanswered", locale, key)
+			}
+		}
+	}
+}
+
+// Every language must fill every SUBJECT field too. A blank one renders as a
+// bare account name, or as ": " in front of a meeting.
+func TestEveryLanguageNamesEverySubject(t *testing.T) {
+	for _, locale := range []docLocale{localeDE, localeVI, localeKO, localeEN} {
+		w := wordsFor(locale)
+		for name, value := range map[string]string{
+			"Kickoff": w.Kickoff, "Invoice": w.Invoice, "Offer": w.Offer,
+			"Offboarding": w.Offboarding, "Intro": w.Intro, "Enquiry": w.Enquiry,
+			"Cold": w.Cold, "Meeting": w.Meeting, "MeetingBody": w.MeetingBody,
+		} {
+			if strings.TrimSpace(value) == "" {
+				t.Errorf("%q has no %s subject", locale, name)
+			}
+		}
+	}
+}
+
+// An addressee with no name must not produce " 님께," or "Hallo ,".
+func TestANamelessAddresseeGetsNoSalutationRatherThanABrokenOne(t *testing.T) {
+	account := testAccount("tipa.or.kr", "중소기업기술정보진흥원")
+	account.People = []Person{{Name: "", Email: "nobody@example.com"}}
+	for _, msg := range generate(testMailbox(), account) {
+		if strings.HasPrefix(msg.Body, " ") || strings.Contains(msg.Body, "Hallo ,") {
+			t.Errorf("a nameless addressee produced a broken salutation: %q", msg.Body)
 		}
 	}
 }

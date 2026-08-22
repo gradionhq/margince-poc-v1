@@ -63,8 +63,17 @@ const Name = "offline_demo"
 // generator starts from the beginning, and the natural key refuses whatever
 // did land.
 // 3: the correspondence is written in the account's own language rather than
-// German for everybody. Without the bump an existing demo keeps the German
-// mail it already captured and never sees a Korean or Vietnamese thread.
+// German for everybody.
+//
+// The bump makes the next sync REPLAY from the start rather than resume, which
+// is what a changed generator needs. It does NOT rewrite what is already
+// captured: the sink's natural key is ON CONFLICT DO NOTHING, so a re-emitted
+// message with the same id is refused and the German row it already wrote
+// stays German. An existing demo therefore keeps its German mail, and only a
+// FRESH seed reads in the account's own language. Relocalising an existing one
+// is a data migration this connector deliberately does not do — capture is
+// append-once, and a connector that edited history would be the wrong thing to
+// build for a demo.
 const generatorVersion = 3
 
 // Directory is what the connector needs to know about the installation to
