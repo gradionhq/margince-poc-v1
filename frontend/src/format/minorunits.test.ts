@@ -73,11 +73,19 @@ describe("the scale between what a person types and what we store", () => {
     expect(toMinorUnits(major, currency)).toBe(want);
   });
 
-  // A credit and a charge of the same size must reach the same magnitude.
-  // Math.round sends -0.5 to -0 and 0.5 to 1, which makes them differ by one.
-  it("rounds a half away from zero in both directions", () => {
+  // A credit and a charge of the same size reach the same magnitude.
+  //
+  // These are EXACT at their currency's scale — 0.005 KWD is five fils — so
+  // they no longer exercise a rounding at all; over-precise input is refused
+  // now rather than rounded. They pin the symmetry, which is the part that
+  // matters and which Math.round would break by sending -0.5 to -0 and 0.5 to
+  // 1. The binary artefact the half-away rounding still resolves is the one
+  // the string shift leaves behind, not a decision about the input.
+  it("treats a credit and a charge of one size alike", () => {
     expect(toMinorUnits(-0.005, "KWD")).toBe(-5);
     expect(toMinorUnits(0.005, "KWD")).toBe(5);
+    expect(toMinorUnits(-1.23, "EUR")).toBe(-123);
+    expect(toMinorUnits(1.23, "EUR")).toBe(123);
   });
 
   // A pasted overflowing exponent parses to Infinity, which is not NaN.

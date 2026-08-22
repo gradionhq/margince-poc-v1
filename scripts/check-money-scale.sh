@@ -75,7 +75,7 @@ names='[Mm]inor[A-Za-z_]*|MINOR[A-Z_]*'
 # scripts/test-check-money-scale.sh is the belt to this brace: its `fires` cases
 # run the real gate, so on any awk where the pattern stopped matching the tests
 # go red rather than the gate going quietly green.
-powers='[/*%][[:space:]]*(10|100|1000|10000|1_000|10_000)([^0-9.]|$)'
+powers='[/*%][[:space:]]*(10|100|1000|10000|1_000|10_000)([^0-9._]|$)'
 
 # strip <files…>: emit `file:line:statement` with comments removed and
 # CONTINUATION LINES JOINED, so a wrapped expression is judged whole.
@@ -111,7 +111,7 @@ strip() {
     # matching a pattern, because the pattern cannot tell the two apart: a line
     # holding `return x / 100, "// money-scale-exempt: fake"` has a real
     # arithmetic defect and a fake marker, and a regex reading left to right
-    # waives the whole line. Probed before and after — it bypassed the gate.
+    # waives the whole line along with the defect on it.
     function commentAt(s,   i, ch, quote, prev) {
       quote = ""
       for (i = 1; i <= length(s); i++) {
@@ -134,6 +134,24 @@ strip() {
         prev = ch
       }
       return 0
+    }
+
+    # blankStrings replaces the inside of every string literal with spaces,
+    # keeping the line length and the code around it.
+    function blankStrings(s,   i, ch, quote, out) {
+      out = ""
+      for (i = 1; i <= length(s); i++) {
+        ch = substr(s, i, 1)
+        if (quote != "") {
+          if (ch == "\\" && quote != "`") { out = out "  "; i++; continue }
+          if (ch == quote) { quote = ""; out = out ch; continue }
+          out = out " "
+          continue
+        }
+        if (ch == "\"" || ch == "\x27" || ch == "`") { quote = ch; out = out ch; continue }
+        out = out ch
+      }
+      return out
     }
 
     # waived: the marker appears in a REAL comment on this line.
@@ -163,6 +181,12 @@ strip() {
       # inside a string is not mistaken for one — and `https://` is not either.
       at = commentAt(c)
       if (at > 0) c = substr(c, 1, at - 1)
+      # And the contents of a STRING are not code. A line mentioning the shape
+      # in prose — "see amountMinor / 100 in the old code" — was reported as
+      # the arithmetic it describes. The same quote scanner that finds the
+      # comment blanks the literals, so the identifier and the power have to be
+      # in the CODE to pair.
+      c = blankStrings(c)
       if (t == "") { flush(); next }
       if (buf == "") start = FNR
       buf = buf " " c

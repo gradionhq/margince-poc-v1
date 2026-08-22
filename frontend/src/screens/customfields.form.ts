@@ -70,6 +70,12 @@ export function customFieldToFormField(
   }
 }
 
+// OMIT marks a value that must not travel at all — distinct from null, which
+// is an instruction to clear the column. There is no third JSON state for "I
+// could not read this", so the key is dropped from the body instead and the
+// stored value stands.
+const OMIT = Symbol("omit");
+
 // Coerce one field's form string to its stored value. Empty → null so a cleared
 // field actually clears the column.
 function coerceWrite(field: CustomField, raw: string): unknown {
@@ -78,8 +84,15 @@ function coerceWrite(field: CustomField, raw: string): unknown {
     return null;
   }
   switch (field.type) {
-    case "currency":
-      return toMinorUnits(Number(value), field.currency ?? "");
+    case "currency": {
+      // An unusable amount is OMITTED, not sent. toMinorUnits answers NaN for a
+      // figure finer than its currency or too large to scale exactly, and NaN
+      // serialises to null — which on a PATCH means "clear this column". A
+      // typo would then DELETE a stored price instead of being refused, which
+      // is the one outcome worse than a wrong figure.
+      const minor = toMinorUnits(Number(value), field.currency ?? "");
+      return Number.isNaN(minor) ? OMIT : minor;
+    }
     case "boolean":
       return value === "true" ? true : value === "false" ? false : null;
     default:
@@ -99,10 +112,10 @@ export function customFieldsToBody(
   const body: Record<string, unknown> = {};
   for (const field of fields) {
     const raw = values[field.column_name];
-    body[field.column_name] = coerceWrite(
-      field,
-      raw == null ? "" : String(raw),
-    );
+    const coerced = coerceWrite(field, raw == null ? "" : String(raw));
+    if (coerced !== OMIT) {
+      body[field.column_name] = coerced;
+    }
   }
   return body;
 }

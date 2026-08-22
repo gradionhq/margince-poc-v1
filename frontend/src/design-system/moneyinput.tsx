@@ -154,5 +154,13 @@ export function MoneyInput({
 // currency's own digits and asking whether the number moved answers both, and
 // every other notation, without a parser.
 function exceedsPrecision(value: number, digits: number): boolean {
+  // At 1e21 and beyond toFixed returns EXPONENTIAL notation, so the round-trip
+  // compares equal and the guard passes a value toMinorUnits then refuses as
+  // NaN — which the parent echoes back and the buffer snaps to. Such a value is
+  // over the safe-integer bound many times over, so it is refused here instead,
+  // where refusing means the text simply stands.
+  if (!Number.isSafeInteger(Math.trunc(value))) {
+    return true;
+  }
   return Number(value.toFixed(digits)) !== value;
 }

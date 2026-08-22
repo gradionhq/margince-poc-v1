@@ -109,6 +109,16 @@ echo
 echo "== a lookalike that is not money =="
 # The anchor is the identifier, so arithmetic on 100 with no minor amount near
 # it is untouched — otherwise every percentage in the tree would be a finding.
+# Over-matching is the other way a scanner stops being read. A grouped literal
+# larger than any minor unit is not a scale, and prose describing the defect is
+# not the defect.
+expect silent ts "a grouped literal past any minor unit" \
+  'export const m = (amountMinor: number) => amountMinor / 1_000_000;'
+expect silent ts "the shape mentioned inside a string" \
+  'export const note = "see amountMinor / 100 in the old code";'
+expect silent go "the shape mentioned inside a Go string" \
+  'const note = "amountMinor / 100 was the old spelling"'
+
 expect silent go "a percentage"     'func probe(part, whole int64) int64 { return part * 100 / whole }'
 expect silent ts "a progress width" 'export const pct = (done: number, total: number) => (done / total) * 100;'
 
