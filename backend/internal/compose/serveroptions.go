@@ -62,6 +62,14 @@ func WithOperatorMail(m mailer.Mailer) Option {
 // other. The link base arrives separately through WithPublicBaseURL, for the
 // reason stated there — a buyer link carries a live credential, so its origin
 // must never come from a request Host.
+//
+// NOT WIRED BY ANY ROLE YET, deliberately. The link this would mail points at a
+// buyer screen the SPA does not serve, so a recipient would land on the
+// not-found page having spent their one credential getting there. Until that
+// screen and the credential exchange exist, the invite response hands the raw
+// credential to the seller, who passes it on — the same path an installation
+// with no mail relay already takes. cmd/api adds this option in the slice that
+// builds the buyer surface.
 func WithDealRoomInviteMail(m mailer.Mailer) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.dealroomsHandlers = s.WithInviteMailer(m)

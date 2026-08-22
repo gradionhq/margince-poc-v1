@@ -23,10 +23,16 @@ const credentialPrefix = "mdr_"
 
 // mintCredential returns the raw credential to mail and the digest to store.
 //
-// The raw value never reaches the database, so a dump of deal_room_invitation
-// re-admits nobody. The digest covers the PREFIXED string, which is what the
-// wire carries, so there is exactly one spelling of a credential and no way to
-// present one form and be checked against another.
+// Only the digest reaches deal_room_invitation, so a dump of that table
+// re-admits nobody. That is a claim about this table and not about the whole
+// database, deliberately: the invite operation takes no Idempotency-Key
+// precisely because the replay cache would hold the response — credential and
+// all — in plaintext for a day, and a comment here saying "never reaches the
+// database" would have been false the moment it did.
+//
+// The digest covers the PREFIXED string, which is what the wire carries, so a
+// credential has one spelling and cannot be presented in one form and checked
+// against another.
 //
 // This copies the shape identity uses for its session and reset tokens rather
 // than importing it: a module may not import a sibling, and the credential

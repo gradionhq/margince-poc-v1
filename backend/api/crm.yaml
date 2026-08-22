@@ -10922,11 +10922,16 @@ paths:
         whose access was revoked is allowed and creates a fresh participant — the old
         row stays, keeping their earlier comments attributed.
 
-        The raw credential is returned ONCE, in this response, and never again. It is
-        stored only as a hash, so a resend mints a new one rather than recovering this.
+        The raw credential is returned ONCE, in this response, and never again. Only its
+        hash is stored, so it cannot be recovered — a resend mints a new one.
+
+        This operation deliberately takes NO Idempotency-Key. The replay cache keeps a
+        response body in plaintext for 24 hours, and this body carries a live
+        credential, so making the call replayable would put every invitation issued in
+        that window into a second table in recoverable form. A retry therefore mints a
+        fresh credential and retires the previous one, which is the safe failure: the
+        caller sends the newer link, and the older one has already stopped working.
       x-agent-access: human-only
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -25264,6 +25269,17 @@ components:
           type: [string, 'null']
           format: date-time
           description: When they last made a request. Null if they have never signed in.
+        has_signed_in:
+          type: boolean
+          readOnly: true
+          description: |
+            Whether this person has ever exchanged a credential for a session.
+
+            Distinct from `delivery_state == consumed`, which reports the LATEST
+            invitation attempt and therefore moves when one is resent. This does not
+            move: it is what fixes their address, because redirecting a link somebody
+            has already signed in with would hand their standing access to whoever the
+            new address belongs to.
         revoked_at:
           type: [string, 'null']
           format: date-time

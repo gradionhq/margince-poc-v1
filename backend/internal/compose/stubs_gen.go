@@ -563,7 +563,7 @@ func (stubs) ListDealRoomParticipants(w nethttp.ResponseWriter, r *nethttp.Reque
 	httperr.NotImplemented(w, r, "ListDealRoomParticipants")
 }
 
-func (stubs) InviteDealRoomParticipant(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.InviteDealRoomParticipantParams) {
+func (stubs) InviteDealRoomParticipant(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "InviteDealRoomParticipant")
 }
 

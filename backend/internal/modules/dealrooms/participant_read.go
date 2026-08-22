@@ -32,25 +32,38 @@ const participantObject = "deal_room_participant"
 // state rather than an absent field.
 const participantColumns = `p.id, p.room_id, p.full_name, p.email, p.capability,
 	p.invited_by, p.revoked_at, p.source, p.captured_by, p.created_at, p.updated_at,
-	live.expires_at, live.sent_at, live.delivered_at, live.failed_at, live.consumed_at,
+	latest.expires_at, latest.sent_at, latest.delivered_at, latest.failed_at,
+	latest.consumed_at, latest.superseded_at,
 	(SELECT max(s.last_seen_at) FROM deal_room_session s
-	  WHERE s.participant_id = p.id)`
+	  WHERE s.participant_id = p.id),
+	EXISTS (SELECT 1 FROM deal_room_invitation ever
+	         WHERE ever.participant_id = p.id AND ever.consumed_at IS NOT NULL)`
 
-// participantFrom joins each participant to its standing credential, if any.
+// participantFrom joins each participant to its LATEST invitation attempt and,
+// separately, to the fact of whether they have EVER signed in.
 //
-// "Standing" is the same predicate the uq_deal_room_invitation_live index uses,
-// so this reads exactly the row that index permits at most one of. A consumed or
-// superseded invitation is deliberately outside it: the first means they are
-// already in, the second that a newer credential replaced it.
+// The two are apart because they answer different questions and one of them must
+// not be movable. The latest attempt drives the delivery chip a seller reads, so
+// it deliberately includes a consumed or failed row — that is the outcome being
+// reported. Whether somebody has ever exchanged a credential is an access fact,
+// and it gates whether their address may still be corrected; deriving it from
+// the latest attempt would let a resend erase it, because a resend inserts a
+// fresh unconsumed row that then wins the ORDER BY. That is not hypothetical:
+// it would hand a signed-in buyer's access to whatever address the next
+// correction named.
+//
+// Neither is the uq_deal_room_invitation_live predicate, and this does not claim
+// to be — that index says at most one credential is EXCHANGEABLE, which is a
+// third question, answered by the exchange path rather than by this read.
 const participantFrom = `deal_room_participant p
 	LEFT JOIN LATERAL (
-	    SELECT i.expires_at, i.sent_at, i.delivered_at, i.failed_at, i.consumed_at
+	    SELECT i.expires_at, i.sent_at, i.delivered_at, i.failed_at,
+	           i.consumed_at, i.superseded_at
 	      FROM deal_room_invitation i
 	     WHERE i.participant_id = p.id
-	       AND i.superseded_at IS NULL
 	  ORDER BY i.attempt_no DESC
 	     LIMIT 1
-	) live ON TRUE`
+	) latest ON TRUE`
 
 // ListParticipants returns a room's roster.
 func (s *Store) ListParticipants(ctx context.Context, roomID ids.DealRoomID, activeOnly bool) ([]crmcontracts.DealRoomParticipant, storekit.Page, error) {
@@ -129,17 +142,18 @@ func readParticipant(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, id i
 
 func scanParticipant(row rowScanner) (crmcontracts.DealRoomParticipant, error) {
 	var (
-		out        crmcontracts.DealRoomParticipant
-		id, roomID ids.UUID
-		invitedBy  *ids.UUID
-		capability string
-		capturedBy string
-		delivery   deliveryFacts
+		out          crmcontracts.DealRoomParticipant
+		id, roomID   ids.UUID
+		invitedBy    *ids.UUID
+		capability   string
+		capturedBy   string
+		delivery     deliveryFacts
+		everSignedIn bool
 	)
 	if err := row.Scan(&id, &roomID, &out.FullName, &out.Email, &capability,
 		&invitedBy, &out.RevokedAt, &out.Source, &capturedBy, &out.CreatedAt, &out.UpdatedAt,
 		&delivery.expiresAt, &delivery.sentAt, &delivery.deliveredAt, &delivery.failedAt,
-		&delivery.consumedAt, &out.LastSeenAt); err != nil {
+		&delivery.consumedAt, &delivery.supersededAt, &out.LastSeenAt, &everSignedIn); err != nil {
 		return crmcontracts.DealRoomParticipant{}, err
 	}
 	out.Id = openapi_types.UUID(id)
@@ -148,6 +162,7 @@ func scanParticipant(row rowScanner) (crmcontracts.DealRoomParticipant, error) {
 	out.CapturedBy = &capturedBy
 	out.CredentialExpiresAt = delivery.expiresAt
 	out.DeliveryState = delivery.state(out.RevokedAt != nil)
+	out.HasSignedIn = &everSignedIn
 	if invitedBy != nil {
 		u := openapi_types.UUID(*invitedBy)
 		out.InvitedBy = &u

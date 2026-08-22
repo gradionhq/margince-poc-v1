@@ -7198,8 +7198,15 @@ export interface paths {
          *     whose access was revoked is allowed and creates a fresh participant — the old
          *     row stays, keeping their earlier comments attributed.
          *
-         *     The raw credential is returned ONCE, in this response, and never again. It is
-         *     stored only as a hash, so a resend mints a new one rather than recovering this.
+         *     The raw credential is returned ONCE, in this response, and never again. Only its
+         *     hash is stored, so it cannot be recovered — a resend mints a new one.
+         *
+         *     This operation deliberately takes NO Idempotency-Key. The replay cache keeps a
+         *     response body in plaintext for 24 hours, and this body carries a live
+         *     credential, so making the call replayable would put every invitation issued in
+         *     that window into a second table in recoverable form. A retry therefore mints a
+         *     fresh credential and retires the previous one, which is the safe failure: the
+         *     caller sends the newer link, and the older one has already stopped working.
          */
         post: operations["inviteDealRoomParticipant"];
         delete?: never;
@@ -18912,6 +18919,16 @@ export interface components {
              * @description When they last made a request. Null if they have never signed in.
              */
             last_seen_at?: string | null;
+            /**
+             * @description Whether this person has ever exchanged a credential for a session.
+             *
+             *     Distinct from `delivery_state == consumed`, which reports the LATEST
+             *     invitation attempt and therefore moves when one is resent. This does not
+             *     move: it is what fixes their address, because redirecting a link somebody
+             *     has already signed in with would hand their standing access to whoever the
+             *     new address belongs to.
+             */
+            readonly has_signed_in?: boolean;
             /**
              * Format: date-time
              * @description When their access was taken away. The row survives revocation so their
@@ -32540,25 +32557,7 @@ export interface operations {
     inviteDealRoomParticipant: {
         parameters: {
             query?: never;
-            header?: {
-                /**
-                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
-                 *     create (API-CC-6). **Scope:** the key is unique within
-                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
-                 *     returns the original status + body. Reusing the same key with a *different* request body
-                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
-                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
-                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
-                 *     attempt already bumped the version.
-                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
-                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
-                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
-                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
-                 *     to retry blind.
-                 */
-                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
-            };
+            header?: never;
             path: {
                 /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
                 id: components["parameters"]["Id"];

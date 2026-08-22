@@ -12,11 +12,12 @@ import (
 // deliveryFacts are the timestamps the standing invitation carries. Every one is
 // nullable, and which of them are set is the whole of what delivery state means.
 type deliveryFacts struct {
-	expiresAt   *time.Time
-	sentAt      *time.Time
-	deliveredAt *time.Time
-	failedAt    *time.Time
-	consumedAt  *time.Time
+	expiresAt    *time.Time
+	sentAt       *time.Time
+	deliveredAt  *time.Time
+	failedAt     *time.Time
+	consumedAt   *time.Time
+	supersededAt *time.Time
 }
 
 // state reads the facts as one word a seller can act on.
@@ -38,6 +39,11 @@ func (d deliveryFacts) state(revoked bool) crmcontracts.DealRoomDeliveryState {
 		return crmcontracts.DealRoomDeliveryStateNone
 	}
 	switch {
+	// A retired attempt reports as such rather than as whatever became of it:
+	// "superseded" tells the seller their newer link is the one that counts,
+	// where "delivered" would point them at a link that no longer works.
+	case d.supersededAt != nil:
+		return crmcontracts.DealRoomDeliveryStateSuperseded
 	case d.consumedAt != nil:
 		return crmcontracts.DealRoomDeliveryStateConsumed
 	case d.failedAt != nil:

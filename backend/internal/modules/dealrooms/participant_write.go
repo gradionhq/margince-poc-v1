@@ -6,7 +6,6 @@ package dealrooms
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -83,7 +82,10 @@ func inviteTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in InviteIn
 	}
 
 	id := ids.New[ids.DealRoomParticipantKind]()
-	email := strings.ToLower(strings.TrimSpace(in.Email))
+	// Already lowercased and validated by the mapping both transports share, so
+	// the email_norm CHECK is satisfied without a second normalization here that
+	// could drift from it.
+	email := in.Email
 	_, err = tx.Exec(ctx,
 		`INSERT INTO deal_room_participant
 		     (id, room_id, full_name, email, capability, invited_by, source, captured_by)
@@ -127,9 +129,9 @@ func inviteTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in InviteIn
 // issueCredential retires whatever credential stands for this participant and
 // records the new one as the next attempt.
 //
-// Superseding first is what makes "at most one live credential" true rather than
-// merely indexed: without it the INSERT would collide with
-// uq_deal_room_invitation_live and a resend would fail instead of replacing.
+// Superseding first is what makes a resend REPLACE rather than fail: the index
+// uq_deal_room_invitation_live is what holds "at most one live credential", and
+// without the supersede this INSERT would simply collide with it.
 func issueCredential(ctx context.Context, tx pgx.Tx, participantID ids.DealRoomParticipantID, digest []byte, by string) (time.Time, error) {
 	if _, err := tx.Exec(ctx,
 		`UPDATE deal_room_invitation SET superseded_at = now()
@@ -149,6 +151,13 @@ func issueCredential(ctx context.Context, tx pgx.Tx, participantID ids.DealRoomP
 		         (SELECT coalesce(max(attempt_no), 0) + 1 FROM deal_room_invitation WHERE participant_id = $1),
 		         $2, $3, $4, $5)`,
 		participantID, digest, expiresAt, sourceCredential, by); err != nil {
+		if storekit.IsUniqueViolation(err) {
+			// Another resend for this participant committed between our
+			// supersede and our insert. Reported as a conflict rather than
+			// letting the bare violation surface as a 500, which would invite
+			// the retry that mints a third credential.
+			return time.Time{}, errResendInFlight
+		}
 		return time.Time{}, fmt.Errorf("insert deal room invitation: %w", err)
 	}
 	return expiresAt, nil
@@ -167,6 +176,20 @@ func invitingUser(ctx context.Context) *ids.UUID {
 		return nil
 	}
 	return &p.UserID
+}
+
+// lockParticipant serializes the three mutations that decide from a
+// participant's current state — resend, revoke and correct.
+//
+// It is taken BEFORE the decision read, which is the whole point. Without it a
+// resend and a revoke can interleave at READ COMMITTED so that the resend reads
+// "not revoked", blocks on the revoke's row locks, and then inserts a live
+// credential AFTER revocation committed — leaving a revoked participant holding
+// a working link, and a deal_room.participant_revoked event that already told
+// every subscriber their credential was retired.
+func lockParticipant(ctx context.Context, tx pgx.Tx, participantID ids.DealRoomParticipantID) error {
+	_, err := storekit.LockRow(ctx, tx, participantObject, participantID.UUID, storekit.NoArchiveColumn)
+	return err
 }
 
 // ResendInvitation issues a fresh credential and retires the previous one.
@@ -198,6 +221,9 @@ func (s *Store) ResendInvitation(ctx context.Context, roomID ids.DealRoomID, par
 		if err := ensureDealWritable(ctx, tx, room); err != nil {
 			return err
 		}
+		if err := lockParticipant(ctx, tx, participantID); err != nil {
+			return err
+		}
 		current, err := readParticipant(ctx, tx, roomID, participantID)
 		if err != nil {
 			return err
@@ -227,6 +253,47 @@ func (s *Store) ResendInvitation(ctx context.Context, roomID ids.DealRoomID, par
 	return out, err
 }
 
+// RecordInvitationSend stamps the outcome of handing an invitation to the relay.
+//
+// It writes only the standing credential's row, and only the two columns that
+// say what the relay did — so a resend that has already superseded this
+// invitation is untouched, and a late-arriving outcome cannot resurrect a
+// retired link's delivery state.
+//
+// Deliberately NOT audited or evented: nothing about the record changed, and
+// nobody gained or lost access. This is the mail server's answer written down.
+func (s *Store) RecordInvitationSend(ctx context.Context, participantID ids.DealRoomParticipantID, sendErr error) error {
+	if err := auth.Require(ctx, roomObject, principal.ActionUpdate); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		var reason *string
+		column := "sent_at"
+		if sendErr != nil {
+			column = "failed_at"
+			// The relay's own words, bounded: a reason is for a seller to read,
+			// not a place to accumulate a stack trace.
+			text := sendErr.Error()
+			if len(text) > failureReasonLimit {
+				text = text[:failureReasonLimit]
+			}
+			reason = &text
+		}
+		// The column is a compile-time literal chosen by the branch above, never
+		// a value off a request.
+		if _, err := tx.Exec(ctx,
+			`UPDATE deal_room_invitation SET `+column+` = now(), failure_reason = $2
+			  WHERE participant_id = $1 AND consumed_at IS NULL AND superseded_at IS NULL`,
+			participantID, reason); err != nil {
+			return fmt.Errorf("record deal room invitation delivery: %w", err)
+		}
+		return nil
+	})
+}
+
+// failureReasonLimit bounds what a relay's refusal may write into the row.
+const failureReasonLimit = 500
+
 // RevokeParticipant takes a person's access away.
 //
 // Available in EVERY room state including closed and archived. Revocation is a
@@ -247,6 +314,9 @@ func (s *Store) RevokeParticipant(ctx context.Context, roomID ids.DealRoomID, pa
 			return err
 		}
 		if err := ensureDealWritable(ctx, tx, room); err != nil {
+			return err
+		}
+		if err := lockParticipant(ctx, tx, participantID); err != nil {
 			return err
 		}
 		current, err := readParticipant(ctx, tx, roomID, participantID)
@@ -336,6 +406,9 @@ func (s *Store) UpdateParticipant(ctx context.Context, roomID ids.DealRoomID, pa
 		if err := ensureDealWritable(ctx, tx, room); err != nil {
 			return err
 		}
+		if err := lockParticipant(ctx, tx, participantID); err != nil {
+			return err
+		}
 		current, err := readParticipant(ctx, tx, roomID, participantID)
 		if err != nil {
 			return err
@@ -364,9 +437,13 @@ func applyParticipantPatch(ctx context.Context, tx pgx.Tx, room crmcontracts.Dea
 		p.Set("capability", current.Capability, *in.Capability)
 	}
 	if in.Email != nil {
-		email := strings.ToLower(strings.TrimSpace(*in.Email))
+		email := *in.Email
 		if email != string(current.Email) {
-			if current.DeliveryState == crmcontracts.DealRoomDeliveryStateConsumed {
+			// Gated on whether they have EVER signed in, not on the latest
+			// attempt's state. A resend inserts a fresh unconsumed attempt, so
+			// reading the delivery state here would let one erase the fact that
+			// somebody is already inside the room.
+			if current.HasSignedIn != nil && *current.HasSignedIn {
 				return errAddressSettled
 			}
 			p.Set("email", current.Email, email)

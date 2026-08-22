@@ -15165,7 +15165,16 @@ type DealRoomParticipant struct {
 	// Email Stored lowercase.
 	Email    openapi_types.Email `json:"email"`
 	FullName string              `json:"full_name"`
-	Id       openapi_types.UUID  `json:"id"`
+
+	// HasSignedIn Whether this person has ever exchanged a credential for a session.
+	//
+	// Distinct from `delivery_state == consumed`, which reports the LATEST
+	// invitation attempt and therefore moves when one is resent. This does not
+	// move: it is what fixes their address, because redirecting a link somebody
+	// has already signed in with would hand their standing access to whoever the
+	// new address belongs to.
+	HasSignedIn *bool              `json:"has_signed_in,omitempty"`
+	Id          openapi_types.UUID `json:"id"`
 
 	// InvitedBy The user who admitted them. Null once that user is deleted.
 	InvitedBy *openapi_types.UUID `json:"invited_by,omitempty"`
@@ -23611,25 +23620,6 @@ type ListDealRoomParticipantsParams struct {
 	ActiveOnly *bool `form:"active_only,omitempty" json:"active_only,omitempty"`
 }
 
-// InviteDealRoomParticipantParams defines parameters for InviteDealRoomParticipant.
-type InviteDealRoomParticipantParams struct {
-	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
-	// create (API-CC-6). **Scope:** the key is unique within
-	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
-	// returns the original status + body. Reusing the same key with a *different* request body
-	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
-	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
-	// answer lost": without it the blind retry answers `409 version_skew`, because the first
-	// attempt already bumped the version.
-	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
-	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
-	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
-	// than half-honouring it, so read this contract, not the client, to know which calls are safe
-	// to retry blind.
-	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
-}
-
 // ListDealRoomReleasesParams defines parameters for ListDealRoomReleases.
 type ListDealRoomReleasesParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -29556,6 +29546,14 @@ func (a *DealRoomParticipant) UnmarshalJSON(b []byte) error {
 		delete(object, "full_name")
 	}
 
+	if raw, found := object["has_signed_in"]; found {
+		err = json.Unmarshal(raw, &a.HasSignedIn)
+		if err != nil {
+			return fmt.Errorf("error reading 'has_signed_in': %w", err)
+		}
+		delete(object, "has_signed_in")
+	}
+
 	if raw, found := object["id"]; found {
 		err = json.Unmarshal(raw, &a.Id)
 		if err != nil {
@@ -29666,6 +29664,13 @@ func (a DealRoomParticipant) MarshalJSON() ([]byte, error) {
 	object["full_name"], err = json.Marshal(a.FullName)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'full_name': %w", err)
+	}
+
+	if a.HasSignedIn != nil {
+		object["has_signed_in"], err = json.Marshal(a.HasSignedIn)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'has_signed_in': %w", err)
+		}
 	}
 
 	object["id"], err = json.Marshal(a.Id)
@@ -34733,7 +34738,7 @@ type ServerInterface interface {
 	ListDealRoomParticipants(w http.ResponseWriter, r *http.Request, id Id, params ListDealRoomParticipantsParams)
 	// Admit a named person to the room.
 	// (POST /deal-rooms/{id}/participants)
-	InviteDealRoomParticipant(w http.ResponseWriter, r *http.Request, id Id, params InviteDealRoomParticipantParams)
+	InviteDealRoomParticipant(w http.ResponseWriter, r *http.Request, id Id)
 	// Correct a participant's name, address or capability.
 	// (PATCH /deal-rooms/{id}/participants/{participantId})
 	UpdateDealRoomParticipant(w http.ResponseWriter, r *http.Request, id Id, participantId openapi_types.UUID)
@@ -36470,7 +36475,7 @@ func (_ Unimplemented) ListDealRoomParticipants(w http.ResponseWriter, r *http.R
 
 // Admit a named person to the room.
 // (POST /deal-rooms/{id}/participants)
-func (_ Unimplemented) InviteDealRoomParticipant(w http.ResponseWriter, r *http.Request, id Id, params InviteDealRoomParticipantParams) {
+func (_ Unimplemented) InviteDealRoomParticipant(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -43868,32 +43873,8 @@ func (siw *ServerInterfaceWrapper) InviteDealRoomParticipant(w http.ResponseWrit
 
 	r = r.WithContext(ctx)
 
-	// Parameter object where we will unmarshal all parameters from the context
-	var params InviteDealRoomParticipantParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "Idempotency-Key" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
-		var IdempotencyKey IdempotencyKey
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
-			return
-		}
-
-		params.IdempotencyKey = &IdempotencyKey
-
-	}
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.InviteDealRoomParticipant(w, r, id, params)
+		siw.Handler.InviteDealRoomParticipant(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

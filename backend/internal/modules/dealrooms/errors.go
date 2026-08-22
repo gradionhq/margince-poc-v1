@@ -112,6 +112,14 @@ var errAlreadyInvited = &messageError{
 	msg:  "that address already has access to this room: revoke it first, or resend their invitation",
 }
 
+// errResendInFlight refuses a resend that raced another one. Both cannot stand:
+// the index permits one live credential, and telling the caller to re-read is
+// better than a 500 that invites a retry minting yet another.
+var errResendInFlight = &messageError{
+	code: "deal_room_resend_in_flight",
+	msg:  "another invitation for this person was issued a moment ago: re-read the participant before resending",
+}
+
 // errRevokedNoResend refuses a resend to somebody whose access was taken away.
 // Silently re-admitting them would turn a resend into an un-revoke, which is a
 // different decision and belongs to a fresh invitation.

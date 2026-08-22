@@ -53,19 +53,14 @@ var rowScopedResponses = map[string]expectedTarget{
 	// A Deal Room has no owner column either: its visibility IS its deal's. It
 	// hands back a record — title, welcome text, steward, expiry — so it is
 	// probed like any other rather than waved through for lacking an owner.
-	"DealRoom": {object: "deal_room", moduleProbe: "deal_room", idPath: "id", rowNote: "a Deal Room carries no owner column; its visibility is its parent deal's, so the dealrooms store owns the probe"},
-	// Carries a participant, whose visibility is its room's and so its deal's —
-	// and it carries a live credential besides, which makes the probe matter
-	// more here than on a plain record: a replay that skipped it would hand the
-	// invitation token to whoever presented the idempotency key.
-	"DealRoomInvitationIssued": {object: "deal_room", moduleProbe: "deal_room", pathParam: "id", rowNote: "a participant's visibility is its room's, which is its parent deal's, so the dealrooms store owns the probe"},
-	"Activity":                 {table: "activity", idPath: "id"},
-	"VoiceProfile":             {table: "voice_profile", idPath: "id"},
-	"List":                     {table: "list", idPath: "id"},
-	"SavedView":                {table: "saved_view", idPath: "id"},
-	"Automation":               {table: "automation", idPath: "id"},
-	"PromoteLeadResponse":      {table: "person", idPath: "person.id"},
-	"DemoteLeadResponse":       {table: "lead", idPath: "lead.id"},
+	"DealRoom":            {object: "deal_room", moduleProbe: "deal_room", idPath: "id", rowNote: "a Deal Room carries no owner column; its visibility is its parent deal's, so the dealrooms store owns the probe"},
+	"Activity":            {table: "activity", idPath: "id"},
+	"VoiceProfile":        {table: "voice_profile", idPath: "id"},
+	"List":                {table: "list", idPath: "id"},
+	"SavedView":           {table: "saved_view", idPath: "id"},
+	"Automation":          {table: "automation", idPath: "id"},
+	"PromoteLeadResponse": {table: "person", idPath: "person.id"},
+	"DemoteLeadResponse":  {table: "lead", idPath: "lead.id"},
 	// A scheduled message is readable only by the rep who scheduled it, which
 	// the store enforces with its own scheduled_by predicate rather than an
 	// owner column the generic probe could read. It still carries an id and
