@@ -71,25 +71,60 @@ type financeSyncWorker struct {
 	log  *slog.Logger
 }
 
+// financeSweepPrincipal is who the scheduled mirror pass acts as.
+//
+// The connector is the acting principal: every mirrored row carries
+// `connector:` provenance, so a reader can tell an imported invoice from
+// anything a person typed.
+//
+// PrincipalConnector and not PrincipalSystem, and the two have to agree: the
+// audit row stamps actor_type from the TYPE and actor_id from the ID, so a
+// system type beside a `connector:` id writes a row that contradicts itself,
+// and audit_log is append-only — the contradiction cannot be corrected
+// afterwards. No OnBehalfOf: finance has no connect flow and so no granting
+// human, and storekit.OwnerOrActor already reads a bare connector as the row
+// nobody owns.
+//
+// It carries PERMISSIONS because that Type costs it the system exemption.
+// auth.Require passes a PrincipalSystem unconditionally; everything else falls
+// through to Permissions.Allows, which a zero Permissions denies. Without a
+// grant the sweep read its way into "this job's principal is not permitted the
+// action it attempted", and every pass WITH WORK TO DO was discarded after
+// three attempts — an installation whose invoices simply never arrived, with
+// nothing on any screen to say why.
+//
+// The grant is the fixed minimum this worker exercises, the way
+// telegramChannelPrincipal states its own: the mirror converts the source
+// ledger into the installation's base currency as it writes, and reads that one
+// setting through identity.BaseCurrencyOf. Nothing else on the sweep's path
+// takes a gate. RowScopeAll because a mirrored ledger belongs to the workspace
+// rather than to any seat.
+//
+// A function rather than a literal inline so the tests can assert the real
+// thing: the integration suite injects a stub base currency and a principal
+// carrying admin grants, and so cannot see this class of failure at all.
+func financeSweepPrincipal() principal.Principal {
+	return principal.Principal{
+		Type: principal.PrincipalConnector,
+		ID:   "connector:finance",
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"connector"},
+			Objects: map[string]principal.ObjectGrant{
+				// Asked of the entry rather than spelled here, so renaming the
+				// object cannot leave this grant naming one that is gone.
+				identity.BaseCurrency.Object(): {Read: true},
+			},
+			RowScope: principal.RowScopeAll,
+		},
+	}
+}
+
 func (w *financeSyncWorker) Work(ctx context.Context, job *river.Job[FinanceSyncArgs]) error {
 	wsCtx, err := workspaceJobCtx(ctx, job.Args)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	// The connector is the acting principal: every mirrored row carries
-	// connector: provenance, so a reader can tell an imported invoice from
-	// anything a person typed.
-	//
-	// PrincipalConnector and not PrincipalSystem, and the two have to agree:
-	// the audit row stamps actor_type from the TYPE and actor_id from the ID,
-	// so a system type beside a `connector:` id writes a row that contradicts
-	// itself, and audit_log is append-only — the contradiction cannot be
-	// corrected afterwards. No OnBehalfOf: finance has no connect flow and so
-	// no granting human, and storekit.OwnerOrActor already reads a bare
-	// connector as the row nobody owns.
-	wsCtx = principal.WithActor(wsCtx, principal.Principal{
-		Type: principal.PrincipalConnector, ID: "connector:finance",
-	})
+	wsCtx = principal.WithActor(wsCtx, financeSweepPrincipal())
 	wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
 
 	provider, configured, err := w.providerFor(wsCtx, job.Args.Workspace)
