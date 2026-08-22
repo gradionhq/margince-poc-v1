@@ -4418,6 +4418,7 @@ const (
 	FieldHistoryEntryEntityTypeLead         FieldHistoryEntryEntityType = "lead"
 	FieldHistoryEntryEntityTypeOrganization FieldHistoryEntryEntityType = "organization"
 	FieldHistoryEntryEntityTypePerson       FieldHistoryEntryEntityType = "person"
+	FieldHistoryEntryEntityTypeProject      FieldHistoryEntryEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the FieldHistoryEntryEntityType enum.
@@ -4432,6 +4433,8 @@ func (e FieldHistoryEntryEntityType) Valid() bool {
 	case FieldHistoryEntryEntityTypeOrganization:
 		return true
 	case FieldHistoryEntryEntityTypePerson:
+		return true
+	case FieldHistoryEntryEntityTypeProject:
 		return true
 	default:
 		return false
@@ -10730,6 +10733,7 @@ const (
 	GetFieldHistoryParamsEntityTypeLead         GetFieldHistoryParamsEntityType = "lead"
 	GetFieldHistoryParamsEntityTypeOrganization GetFieldHistoryParamsEntityType = "organization"
 	GetFieldHistoryParamsEntityTypePerson       GetFieldHistoryParamsEntityType = "person"
+	GetFieldHistoryParamsEntityTypeProject      GetFieldHistoryParamsEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the GetFieldHistoryParamsEntityType enum.
@@ -10744,6 +10748,8 @@ func (e GetFieldHistoryParamsEntityType) Valid() bool {
 	case GetFieldHistoryParamsEntityTypeOrganization:
 		return true
 	case GetFieldHistoryParamsEntityTypePerson:
+		return true
+	case GetFieldHistoryParamsEntityTypeProject:
 		return true
 	default:
 		return false
@@ -22231,6 +22237,20 @@ type TranscriptReadStarted struct {
 // TranscriptReadStartedStatus The joined reading's state when one is already in flight.
 type TranscriptReadStartedStatus string
 
+// TransferProjectOwnershipRequest defines model for TransferProjectOwnershipRequest.
+type TransferProjectOwnershipRequest struct {
+	FromOwnerId openapi_types.UUID `json:"from_owner_id"`
+
+	// ToOwnerId An active user of the workspace (422 otherwise).
+	ToOwnerId openapi_types.UUID `json:"to_owner_id"`
+}
+
+// TransferProjectOwnershipResult defines model for TransferProjectOwnershipResult.
+type TransferProjectOwnershipResult struct {
+	// Transferred Live projects the caller could write that moved; archived and unwritable ones are not counted.
+	Transferred int `json:"transferred"`
+}
+
 // UpdateActivityRequest defines model for UpdateActivityRequest.
 type UpdateActivityRequest struct {
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
@@ -26112,6 +26132,25 @@ type CreateProjectParams struct {
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
 }
 
+// TransferProjectOwnershipParams defines parameters for TransferProjectOwnership.
+type TransferProjectOwnershipParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // ArchiveProjectParams defines parameters for ArchiveProject.
 type ArchiveProjectParams struct {
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -27616,6 +27655,9 @@ type UpdateProductJSONRequestBody = UpdateProductRequest
 
 // CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
 type CreateProjectJSONRequestBody = CreateProjectRequest
+
+// TransferProjectOwnershipJSONRequestBody defines body for TransferProjectOwnership for application/json ContentType.
+type TransferProjectOwnershipJSONRequestBody = TransferProjectOwnershipRequest
 
 // UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
 type UpdateProjectJSONRequestBody = UpdateProjectRequest
@@ -37058,6 +37100,9 @@ type ServerInterface interface {
 	// Create a project on a company.
 	// (POST /projects)
 	CreateProject(w http.ResponseWriter, r *http.Request, params CreateProjectParams)
+	// Move every live project one user owns to another user, in one transaction.
+	// (POST /projects/transfer-ownership)
+	TransferProjectOwnership(w http.ResponseWriter, r *http.Request, params TransferProjectOwnershipParams)
 	// Archive a project (soft delete; archive is the delete).
 	// (DELETE /projects/{id})
 	ArchiveProject(w http.ResponseWriter, r *http.Request, id Id, params ArchiveProjectParams)
@@ -39494,6 +39539,12 @@ func (_ Unimplemented) ListProjects(w http.ResponseWriter, r *http.Request, para
 // Create a project on a company.
 // (POST /projects)
 func (_ Unimplemented) CreateProject(w http.ResponseWriter, r *http.Request, params CreateProjectParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Move every live project one user owns to another user, in one transaction.
+// (POST /projects/transfer-ownership)
+func (_ Unimplemented) TransferProjectOwnership(w http.ResponseWriter, r *http.Request, params TransferProjectOwnershipParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -55428,6 +55479,55 @@ func (siw *ServerInterfaceWrapper) CreateProject(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// TransferProjectOwnership operation middleware
+func (siw *ServerInterfaceWrapper) TransferProjectOwnership(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params TransferProjectOwnershipParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TransferProjectOwnership(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ArchiveProject operation middleware
 func (siw *ServerInterfaceWrapper) ArchiveProject(w http.ResponseWriter, r *http.Request) {
 
@@ -62536,6 +62636,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/projects", wrapper.CreateProject)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/projects/transfer-ownership", wrapper.TransferProjectOwnership)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/projects/{id}", wrapper.ArchiveProject)
