@@ -19,6 +19,7 @@ package integration
 // offerrender_http_integration_test.go.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -81,17 +82,26 @@ var offerRenderSeatPerms = principal.Permissions{
 	RowScope: principal.RowScopeTeam,
 }
 
-// spyBlobStore wraps a real blobstore.Store and records whether Put was
-// ever invoked — the test's proof that a denied render performs ZERO
-// blob work, not merely that the HTTP response was a 403.
+// spyBlobStore wraps a real blobstore.Store and records whether Put or
+// Delete was ever invoked — the test's proof that a denied render performs
+// ZERO blob work, not merely that the HTTP response was a 403. Delete is
+// watched as well as Put because the destructive half of a render is the
+// reclamation of the ref it displaces: a refusal that still deleted would
+// leave the response looking correct and the owner's document gone.
 type spyBlobStore struct {
 	blobstore.Store
-	putCalled bool
+	putCalled    bool
+	deleteCalled bool
 }
 
 func (s *spyBlobStore) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
 	s.putCalled = true
 	return s.Store.Put(ctx, key, r, size, contentType)
+}
+
+func (s *spyBlobStore) Delete(ctx context.Context, key string) error {
+	s.deleteCalled = true
+	return s.Store.Delete(ctx, key)
 }
 
 // renderOneLineOffer creates a one-line draft EUR offer on dealID (EUR
@@ -496,16 +506,30 @@ func TestOfferRenderPrepareRender_AnotherSeatsDealDenied(t *testing.T) {
 }
 
 // TestOfferRenderHandler_AnotherSeatsDealDeniedBeforeAnyBlobWrite drives the
-// HTTP handler for the same seat: the refusal must land as a 403 BEFORE the
-// PDF is built and before anything reaches the object store, so a seat that
-// cannot change the offer cannot make the installation spend a blob write —
-// nor delete the PDF the owner's customer was sent, which is what the handler
-// does with the ref a successful render displaces.
+// HTTP handler for the same seat, against the state that makes the refusal
+// matter: an offer the owner has ALREADY rendered. A successful render
+// repoints pdf_asset_ref and then deletes the object the previous ref named,
+// so the denied one must reach neither half — no PDF built and stored, and no
+// deletion of the document the owner's customer was sent. Asserting only the
+// 403 would pass against a handler that refused after doing both.
 func TestOfferRenderHandler_AnotherSeatsDealDeniedBeforeAnyBlobWrite(t *testing.T) {
 	e := Setup(t)
-	_, other, created := ownedOfferOnAnotherTeamsDeal(t, e)
+	owner, other, created := ownedOfferOnAnotherTeamsDeal(t, e)
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
 
-	blob := &spyBlobStore{Store: blobstore.NewMemory()}
+	// Seeded through the underlying store rather than the spy, so the owner's
+	// own render does not spend the Put this test is about to assert on.
+	stored := blobstore.NewMemory()
+	ref := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/1/" + ids.NewV7().String() + ".pdf"
+	sent := []byte("%PDF-1.7 the document the customer received")
+	if err := stored.Put(context.Background(), ref, bytes.NewReader(sent), int64(len(sent)), "application/pdf"); err != nil {
+		t.Fatalf("seed the owner's rendered PDF: %v", err)
+	}
+	if _, _, err := e.Deals.SetPdfAssetRef(owner, offerID, ref, *created.Version); err != nil {
+		t.Fatalf("the owner persists their own render: %v", err)
+	}
+
+	blob := &spyBlobStore{Store: stored}
 	h := deals.NewHandlers(e.DB(), installseam.Deals()).WithBlobstore(blob)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/offers/"+created.Id.String()+"/render", nil).WithContext(other)
@@ -517,5 +541,24 @@ func TestOfferRenderHandler_AnotherSeatsDealDeniedBeforeAnyBlobWrite(t *testing.
 	}
 	if blob.putCalled {
 		t.Fatal("a denied render must never reach the blob write — the refusal belongs in front of the render, not after it")
+	}
+	if blob.deleteCalled {
+		t.Fatal("a denied render must never delete a blob — the PDF it would displace is the owner's sent document")
+	}
+	// The bytes themselves, not merely the absence of a Delete call: the
+	// document the customer received must still be readable at the same ref.
+	rc, _, err := blob.Get(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("the owner's PDF must survive a denied render, get %q: %v", ref, err)
+	}
+	survived, err := io.ReadAll(rc)
+	if cerr := rc.Close(); cerr != nil {
+		t.Errorf("close the surviving blob reader: %v", cerr)
+	}
+	if err != nil {
+		t.Fatalf("read the surviving blob: %v", err)
+	}
+	if !bytes.Equal(survived, sent) {
+		t.Fatalf("the owner's PDF must be byte-identical after a denied render, got %d bytes want %d", len(survived), len(sent))
 	}
 }
