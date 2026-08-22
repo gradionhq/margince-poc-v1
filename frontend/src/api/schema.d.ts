@@ -2287,6 +2287,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a task — a commitment with an owner, on the records it is about.
+         * @description A task is an activity of kind `task`, and this is the one door that says so:
+         *     `POST /activities` with `kind: task` stores the same row, but a caller
+         *     (an agent above all) should not have to know that a to-do is a species of
+         *     timeline entry. Takes what a task needs and nothing a meeting does.
+         */
+        post: operations["createTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/activities": {
         parameters: {
             query?: never;
@@ -14985,6 +15008,31 @@ export interface components {
                 max_body_with_files: number;
             };
         };
+        /** @description What a task needs. Stored as an activity of kind `task`. */
+        CreateTaskRequest: {
+            /** @description What has to be done, as one line. */
+            subject: string;
+            /** @description Detail, if one line is not enough. */
+            body?: string | null;
+            /**
+             * Format: date-time
+             * @description When it is due. Optional — a task without a date is still a task.
+             */
+            due_at?: string | null;
+            /**
+             * Format: uuid
+             * @description Who owes it. Defaults to the caller.
+             */
+            assignee_id?: string | null;
+            /** @description The records the task is about. Omit it and the task appears on no timeline. */
+            links?: {
+                /** @enum {string} */
+                entity_type: "person" | "organization" | "deal" | "lead" | "project";
+                /** Format: uuid */
+                entity_id: string;
+            }[];
+            source: string;
+        };
         CreateActivityRequest: {
             /** @enum {string} */
             kind: "email" | "call" | "meeting" | "note" | "task" | "message";
@@ -24687,6 +24735,53 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    createTask: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description The task, as an activity. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Activity"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listActivities: {

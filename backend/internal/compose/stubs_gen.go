@@ -1711,6 +1711,10 @@ func (stubs) ApplyTag(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontra
 	httperr.NotImplemented(w, r, "ApplyTag")
 }
 
+func (stubs) CreateTask(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateTaskParams) {
+	httperr.NotImplemented(w, r, "CreateTask")
+}
+
 func (stubs) ListTeams(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListTeamsParams) {
 	httperr.NotImplemented(w, r, "ListTeams")
 }
