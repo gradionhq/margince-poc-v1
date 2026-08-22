@@ -20,6 +20,10 @@ const roomObject = "deal_room"
 // row-scope clause names.
 const dealTable = "deal"
 
+// fieldRoomID names the room in an audit image. Every participant write records
+// which room it happened in, so the three writers must agree on the spelling.
+const fieldRoomID = "room_id"
+
 // columnTitle is the room's headline, named once because the mapping refuses an
 // empty one, the audit image records it and the release snapshot freezes it —
 // three writers that must agree on the spelling.

@@ -17,19 +17,16 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
-	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
-	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // Option customizes the wiring for one process role; everything not
@@ -67,7 +64,7 @@ func WithOperatorMail(m mailer.Mailer) Option {
 // must never come from a request Host.
 func WithDealRoomInviteMail(m mailer.Mailer) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
-		s.dealroomsHandlers = s.dealroomsHandlers.WithInviteMailer(m)
+		s.dealroomsHandlers = s.WithInviteMailer(m)
 	}
 }
 
@@ -326,105 +323,6 @@ func (s *Server) readinessChecks(pgPing, runtimeRole func(context.Context) error
 	return checks
 }
 
-// WithSchemaPool wires the owner-privileged schema-change pool the
-// customfields engine's two runtime-DDL paths (Create, SetOptions) need
-// (--schema-dsn / MARGINCE_SCHEMA_DSN). It feeds the
-// /readyz probe and rebuilds the customfields handlers over the real
-// pool; without it those two operations stay their generated 501
-// (ErrSchemaChangesUnavailable) rather than nil-derefing a pool that was
-// never mounted — a role that runs no runtime DDL declares that by
-// omission, the same posture as WithBlobstore/WithKeyvault.
-//
-// WHICH posture this option should have under the role-separation invariant is
-// still open: issue #651 records the decision. The two candidates are keeping
-// the 501 above as the honest answer for a role that legitimately holds no owner
-// DSN, or relocating the two DDL operations behind a process that does. It is a
-// product call about a CORE module — the extension tier depends on neither
-// outcome — so it is filed rather than settled here, and the pointer sits at the
-// function a reader arrives at with the question rather than in an issue tracker
-// they would first have to think to search.
-func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.customfieldsHandlers = customfields.NewHandlers(pool, schemaPool)
-		s.schemaPoolReady = schemaPool.Ping
-	}
-}
-
-// WithDataReset wires the admin data-reset endpoint (POST /v1/admin/reset-data):
-// the sweep runs through the composed app-role pool (the one every option
-// receives, as WithSchemaPool takes it), while schemaPool (may be nil) is the
-// owner-privileged pool that finalizes cf_* column drops — nil skips that
-// finalize step, the reset itself still succeeds. Absent this option, or with
-// allowed=false, the endpoint answers 404 (dataResetHandlers' zero value has a
-// nil pool and a false flag, the same closed default).
-//
-// allowed is operations.allow_data_reset, stated by the deployment. It used to
-// be inferred from MARGINCE_ENV, which meant an installation labelled `staging`
-// — real internal users — could have its tenant data purged because a label
-// said it was not production.
-func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, allowed bool) Option {
-	return func(s *Server, pool *pgxpool.Pool) {
-		s.dataResetHandlers = dataResetHandlers{
-			pool: pool, schemaPool: schemaPool, seeds: seeds, dataResetAllowed: allowed, log: s.log,
-			// A pointer into the Server, so WithResetRuntime may be applied
-			// before or after this option (see Server.resetRuntime). The meter
-			// is likewise the ONE shared instance WithOverlayMeter rebinds; the
-			// object store is backfilled by WithBlobstore when it runs later,
-			// and the flush is a method value that reads the Server's caches at
-			// reset time, not now.
-			//
-			// flushAfterOwnReset, NOT FlushResetCaches: this handler is the
-			// gated path, so it is the one allowed to clear the auth lockout
-			// buckets as well as the caches.
-			runtime: &s.resetRuntime,
-			budget:  s.overlayMeter,
-			blob:    s.blob,
-			vault:   s.vault,
-			flush:   s.flushAfterOwnReset,
-		}
-	}
-}
-
-// WithResetRuntime wires the non-Postgres purges POST /admin/reset-data
-// performs: the job queue, the event bus, and the reset announcement every
-// process drops its caches on. The api role passes it under a non-production
-// posture; a role without it resets Postgres only and reports zeros for the
-// other surfaces.
-//
-// It takes funcs, not clients: cmd owns the Redis and River handles and
-// compose names neither (see ResetRuntime).
-func WithResetRuntime(rt ResetRuntime) Option {
-	return func(s *Server, _ *pgxpool.Pool) { s.resetRuntime = rt }
-}
-
-// WithNonProduction surfaces the deployment posture onto /me's non_production
-// field. Absent this option /me reports production, the fail-closed default.
-func WithNonProduction(env runtimeenv.Environment) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
-		s.authHandlers = s.WithNonProduction(env.IsNonProduction())
-	}
-}
-
-// WithDataResetAvailable surfaces onto /me the same switch WithDataReset gates
-// the endpoint on, so the action a client renders and the route it would call
-// cannot disagree.
-//
-// Its own option rather than an argument to the posture above, because the two
-// are independent facts and this whole capability exists to stop them
-// travelling together. Absent it /me reports unavailable, which hides the
-// action rather than offering one the server would refuse.
-func WithDataResetAvailable(allowed bool) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
-		s.authHandlers = s.WithDataResetAvailable(allowed)
-	}
-}
-
-// Every send option below records onto s.send and NOTHING else. The HTTP
-// handlers' own store is reconciled from that one value once every option has
-// run (New's applySendPath), and the tool surface is rebuilt over it here, so
-// no option can configure one transport and leave the others silently
-// without.
-
 // WithPublicBaseURL sets the canonical scheme+host the buyer-facing
 // unsubscribe/preference links resolve to (B-E11.32). It is configured at
 // boot, never derived from a request: the link carries the recipient's
@@ -440,7 +338,7 @@ func WithPublicBaseURL(base string) Option {
 		s.authHandlers = s.WithPasswordLinkBase(base)
 		// A Deal Room invitation carries the same kind of credential and is
 		// bound to the same canonical origin for the same reason.
-		s.dealroomsHandlers = s.dealroomsHandlers.WithInviteLinkBase(base)
+		s.dealroomsHandlers = s.WithInviteLinkBase(base)
 		s.rebuildToolRegistry(pool)
 	}
 }

@@ -10,42 +10,60 @@ package dealrooms
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strconv"
 	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
-// dealRoomStates reads the state vocabulary out of the contract rather than
-// restating it, so a tenth state added upstream reaches this test instead of
-// defaulting silently to publishable. crm.yaml is the authority the migration's
-// CHECK and the generated enum both follow.
+// dealRoomStates reads the state vocabulary out of the GENERATED contract
+// constants, so it enumerates rather than restates.
+//
+// Deriving it is the whole point: a tenth state added upstream appears here on
+// its own and fails the verdict check below, instead of defaulting silently to
+// publishable. A hand-written list cannot do that — it would simply not contain
+// the new state, and the test would pass while saying it was exhaustive.
+//
+// The generated file is parsed rather than imported because Go offers no way to
+// enumerate a string-constant group at runtime. This is the technique the root
+// fitness tests use for the same reason.
 func dealRoomStates(t *testing.T) []string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "api", "crm.yaml"))
+	const generated = "../../contracts/api_gen.go"
+	file, err := parser.ParseFile(token.NewFileSet(), generated, nil, 0)
 	if err != nil {
-		t.Fatalf("reading the contract to derive the state vocabulary: %v", err)
+		t.Fatalf("reading the generated contract to derive the state vocabulary: %v", err)
 	}
-	var doc struct {
-		Components struct {
-			Schemas struct {
-				DealRoomState struct {
-					Enum []string `yaml:"enum"`
-				} `yaml:"DealRoomState"`
-			} `yaml:"schemas"`
-		} `yaml:"components"`
-	}
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("parsing the contract: %v", err)
-	}
-	states := doc.Components.Schemas.DealRoomState.Enum
+
+	var states []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.ValueSpec)
+		if !ok || len(spec.Names) != 1 || len(spec.Values) != 1 {
+			return true
+		}
+		typeName, ok := spec.Type.(*ast.Ident)
+		if !ok || typeName.Name != "DealRoomState" {
+			return true
+		}
+		lit, ok := spec.Values[0].(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		value, err := strconv.Unquote(lit.Value)
+		if err != nil {
+			t.Fatalf("decoding state constant %s: %v", spec.Names[0].Name, err)
+		}
+		states = append(states, value)
+		return true
+	})
+
 	if len(states) == 0 {
-		t.Fatal("DealRoomState declares no enum — this test is reading the wrong shape")
+		t.Fatal("no DealRoomState constants found — this test is reading the wrong shape")
 	}
 	return states
 }

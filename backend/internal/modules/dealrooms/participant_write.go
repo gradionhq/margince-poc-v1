@@ -102,7 +102,7 @@ func inviteTx(ctx context.Context, tx pgx.Tx, roomID ids.DealRoomID, in InviteIn
 	}
 
 	auditID, err := storekit.Audit(ctx, tx, "invite", participantObject, id.UUID, nil,
-		map[string]any{"room_id": roomID.UUID, "email": email, "capability": in.Capability})
+		map[string]any{fieldRoomID: roomID.UUID, "email": email, "capability": in.Capability})
 	if err != nil {
 		return IssuedInvitation{}, fmt.Errorf("audit deal room invite: %w", err)
 	}
@@ -210,7 +210,7 @@ func (s *Store) ResendInvitation(ctx context.Context, roomID ids.DealRoomID, par
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "invite", participantObject, participantID.UUID,
-			nil, map[string]any{"room_id": roomID.UUID, "resent": true})
+			nil, map[string]any{fieldRoomID: roomID.UUID, "resent": true})
 		if err != nil {
 			return fmt.Errorf("audit deal room resend: %w", err)
 		}
@@ -292,7 +292,7 @@ func revokeTx(ctx context.Context, tx pgx.Tx, room crmcontracts.DealRoom, partic
 	}
 
 	auditID, err := storekit.Audit(ctx, tx, "revoke", participantObject, participantID.UUID,
-		map[string]any{"revoked_at": nil}, map[string]any{"room_id": ids.UUID(room.Id)})
+		map[string]any{"revoked_at": nil}, map[string]any{fieldRoomID: ids.UUID(room.Id)})
 	if err != nil {
 		return fmt.Errorf("audit deal room revoke: %w", err)
 	}

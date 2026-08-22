@@ -167,6 +167,12 @@ var auditActionGrant = map[string]principal.Action{
 	// commissions.Store.Accrue actually requires; paying moves an existing
 	// entry's state, which is the update grant Decide requires. The rule
 	// recorded on the row has to be the grant the write really took.
+	// Deal Room ACCESS. Admitting an outside person and taking that access back
+	// are both writes against the room, gated on deal_room.update at the store —
+	// a participant carries no object grant of its own, so update is the rule
+	// that actually admitted the call.
+	"invite": principal.ActionUpdate,
+	"revoke": principal.ActionUpdate,
 	// The Deal Room lifecycle. All four move an existing room's state and all
 	// four take deal_room.update at the store, so update is the grant that
 	// actually admitted the call — not delete for close, which ends no row, and
